@@ -109,7 +109,18 @@ public partial class KeyboardWindow : OverlayWindow
         _sink = sink;
         _dwellRegistry = dwellRegistry;
         _noteTargetingIndicator = BuildNoteTargetingIndicator();
-        RootDock.Children.Insert(0, _noteTargetingIndicator); // first Top-docked child: above the prediction bar
+        // Fixup m2: the indicator floats in a measure-invisible Canvas over the keyboard (the
+        // Canvas contributes 0x0 to the Grid, so SizeToContent never sees it — an Edit entry can
+        // no longer grow a visible keyboard by one row and move the keys under the gaze). The
+        // canvas stretches to the keyboard's arrange area; the label re-centres in it.
+        IndicatorOverlay.Children.Add(_noteTargetingIndicator);
+        Canvas.SetTop(_noteTargetingIndicator, 4);
+        _noteTargetingIndicator.SizeChanged += (_, e) =>
+            Canvas.SetLeft(_noteTargetingIndicator,
+                Math.Max(0, (IndicatorOverlay.ActualWidth - e.NewSize.Width) / 2));
+        IndicatorOverlay.SizeChanged += (_, e) =>
+            Canvas.SetLeft(_noteTargetingIndicator,
+                Math.Max(0, (e.NewSize.Width - _noteTargetingIndicator.ActualWidth) / 2));
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
             context: DwellContext.KeyboardPrediction, sink: sink);
         SizeChanged += (_, _) => RepositionOnScreen();
@@ -125,9 +136,11 @@ public partial class KeyboardWindow : OverlayWindow
     public event Action<int>? SkinToneChanged;
 
     /// <summary>
-    /// The "→ Note" indicator row (P1 D6): shown while a note's editor owns the keyboard's output,
-    /// collapsed otherwise. Built here rather than in XAML because its bound is an internal const
-    /// the fit measurer reads — one number, drawn and measured from the same declaration.
+    /// The "→ Note" indicator (P1 D6, fixup m2): an overlay label over the prediction bar, shown
+    /// while a note's editor owns the keyboard's output. It lives in a measure-invisible Canvas,
+    /// so it can never change the window's SizeToContent size or position. Built here rather than
+    /// in XAML because its bound is an internal const the fit measurer reads — one number, drawn
+    /// and measured from the same declaration.
     /// </summary>
     private static TextBlock BuildNoteTargetingIndicator() => new()
     {
@@ -136,8 +149,7 @@ public partial class KeyboardWindow : OverlayWindow
         FontSize = Tokens.FontSizeBody,
         MaxWidth = NoteTargetingIndicatorMaxWidth,
         TextAlignment = TextAlignment.Center,
-        HorizontalAlignment = HorizontalAlignment.Center,
-        Margin = new Thickness(0, 0, 0, 6),
+        Margin = new Thickness(0),
         Visibility = Visibility.Collapsed,
     };
 

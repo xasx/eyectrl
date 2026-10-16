@@ -185,6 +185,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
 
         ResetInputContext();
+        // Fixup m5 (execution deviations): a locked or one-shot Ctrl/Alt/Win survives the context
+        // reset and silently swallows every note key (P1 D2) — an owner who left Ctrl latched
+        // would type into an empty note. Entering Edit clears the SYSTEM modifiers, one-shot and
+        // locked alike; Shift and CapsLock are text modifiers and stay.
+        ClearSystemOneShotModifiers();
         IsTargetingNote = true;
     }
 

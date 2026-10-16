@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -84,6 +85,31 @@ public class KeyboardNoteContextTests
 
         Check.That(vm.IsVisible).IsFalse();
         Check.That(vm.IsTargetingNote).IsTrue();
+    }
+
+    [Fact]
+    public void EditingTrue_ClearsTheSystemModifiers_ButKeepsTheTextOnes()
+    {
+        // Fixup m5 (execution deviations): a locked or one-shot Ctrl/Alt/Win survives the context
+        // reset and silently swallows every note key (P1 D2) — an owner who left Ctrl latched
+        // would type into an empty note. Entering Edit clears the system modifiers; Shift and
+        // CapsLock are text modifiers and stay.
+        var messenger = new WeakReferenceMessenger();
+        var vm = NewVm(messenger);
+        vm.ToggleModifier(ModifierKey.Ctrl);
+        vm.ToggleModifier(ModifierKey.Win);
+        vm.ToggleModifier(ModifierKey.Shift);
+        vm.ToggleModifier(ModifierKey.CapsLock);
+        Check.That(vm.ActiveModifiers).Contains(ModifierKey.Ctrl, ModifierKey.Win, ModifierKey.Shift, ModifierKey.CapsLock);
+
+        messenger.Send(new NoteEditingChangedMessage(Editing: true));
+
+        Check.WithCustomMessage("entering Edit must clear a latched Ctrl")
+            .That(vm.ActiveModifiers.Contains(ModifierKey.Ctrl)).IsFalse();
+        Check.WithCustomMessage("entering Edit must clear a latched Win")
+            .That(vm.ActiveModifiers.Contains(ModifierKey.Win)).IsFalse();
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.CapsLock)).IsTrue();
     }
 
     [Fact]

@@ -7,16 +7,23 @@
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
     <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
-        <DockPanel x:Name="RootDock">
-            <!-- Prediction bar at top (hidden in emoji mode) -->
-            <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
-                        DockPanel.Dock="Top" Margin="0,0,0,6"/>
-            <!-- Emoji category tabs (hidden in text mode) -->
-            <StackPanel x:Name="CategoryBar" Orientation="Horizontal"
-                        DockPanel.Dock="Top" Margin="0,0,0,6"
-                        HorizontalAlignment="Center" Visibility="Collapsed"/>
-            <!-- Keyboard rows / emoji grid -->
-            <StackPanel x:Name="KeyRows" VerticalAlignment="Center"/>
-        </DockPanel>
+        <!-- Fixup m2: the "→ Note" indicator floats over the keyboard in a Canvas overlay and
+             NEVER changes the window's SizeToContent — a Canvas always measures 0x0, so the
+             layout the window sizes to is the DockPanel's alone. Keys must not move under a
+             gaze that is about to type. -->
+        <Grid>
+            <DockPanel x:Name="RootDock">
+                <!-- Prediction bar at top (hidden in emoji mode) -->
+                <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
+                            DockPanel.Dock="Top" Margin="0,0,0,6"/>
+                <!-- Emoji category tabs (hidden in text mode) -->
+                <StackPanel x:Name="CategoryBar" Orientation="Horizontal"
+                            DockPanel.Dock="Top" Margin="0,0,0,6"
+                            HorizontalAlignment="Center" Visibility="Collapsed"/>
+                <!-- Keyboard rows / emoji grid -->
+                <StackPanel x:Name="KeyRows" VerticalAlignment="Center"/>
+            </DockPanel>
+            <Canvas x:Name="IndicatorOverlay" IsHitTestVisible="False"/>
+        </Grid>
     </Border>
 </overlays:OverlayWindow>

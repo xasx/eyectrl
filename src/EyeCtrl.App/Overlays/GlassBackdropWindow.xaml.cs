@@ -369,10 +369,11 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// pure-black client layer over it (<see cref="AddDimLayer"/>); on the Solid-darken path the
     /// gradient itself carries the opacity. At the range's floor (0.0, the owner's "no darkening")
     /// NOTHING is drawn: Glass shows the pure glass (the dim layer is skipped, not drawn at
-    /// alpha 0) and a refused accent stays bare rather than adding an invisible rgb(18) sheet —
-    /// the fallback's legibility rationale presupposes darkening the user turned off. At most one
-    /// rectangle is drawn, on the blur path's fallback and on Solid darken's — never both a dim
-    /// layer and the fallback.
+    /// alpha 0), and a refused accent skips the rgb(18) sheet too — with the accent refused the
+    /// non-layered client is opaque black whatever is drawn (round 2 measured the rectangle path
+    /// flat 5/5/5: DWM ignores the client's alpha without an accent), so the alpha-0 sheet changes
+    /// no pixels. One fewer element, same result. At most one rectangle is drawn, on the blur
+    /// path's fallback and on Solid darken's — never both a dim layer and the fallback.
     /// </summary>
     public void ApplyBackdrop(BackdropSettings settings)
     {
@@ -406,8 +407,9 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         }
 
         // The accent call failed: the rgb(18) solid darken keeps the overlay usable, at the user's
-        // opacity — except at the floor, where there is no darkening to keep (an alpha-0 rectangle
-        // is invisible, so drawing nothing is the same pixels without a phantom layer).
+        // opacity — except at the floor, where there is no darkening to keep (with the accent
+        // refused the client is opaque black whatever is drawn, so the alpha-0 rgb(18) sheet
+        // changes no pixels; skipping it is one fewer element with the same result).
         if (settings.Opacity > BackdropSettings.OpacityMin)
             ApplySolidDarken(settings.Opacity);
     }

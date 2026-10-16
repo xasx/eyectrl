@@ -22,8 +22,9 @@ using Xunit;
 /// <c>GlassTint</c> 0x01000000, and the user's opacity drives ONE pure-black client layer over it
 /// (<c>AddDimLayer</c>) — exactly one rectangle on the blur path, the rgb(18) fallback only when the
 /// accent is refused, and no rectangle at all on Solid darken (its gradient carries the alpha).
-/// At the widened range's floor (0.0) NOTHING is drawn on any path — pure glass, and a refused
-/// accent stays bare instead of adding an invisible rgb(18) sheet.
+/// At the widened range's floor (0.0) NOTHING is drawn on any path — pure glass, and with the
+/// accent refused the alpha-0 rgb(18) sheet is skipped too (the refused client is opaque black
+/// whatever is drawn, so the sheet changes no pixels).
 ///
 /// <para>
 /// The accent call is injectable (<see cref="GlassBackdropWindow.SetAccentPolicy"/>), so the tests
@@ -155,8 +156,10 @@ public class GlassBackdropMaterialPathTests
     public void ApplyBackdrop_BlurAt000_WhenTheBlurIsRefused_DrawsNothing()
     {
         // The floor's refusal decision: the rgb(18) fallback exists so a failed blur still dims the
-        // desktop for legibility — at 0.0 the user asked for no darkening, so an alpha-0 fallback
-        // would be invisible anyway. Drawing nothing is the same pixels without the phantom layer.
+        // desktop for legibility — at 0.0 the user asked for no darkening. With the accent refused
+        // the non-layered client is opaque black whatever is drawn (DWM ignores the alpha without
+        // an accent; round 2 measured it flat), so the alpha-0 sheet changes no pixels: skipping it
+        // is one fewer element, same result.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
         try

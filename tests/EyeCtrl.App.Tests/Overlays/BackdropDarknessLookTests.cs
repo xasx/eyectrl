@@ -29,8 +29,20 @@ using Xunit;
 /// <item><b>Glass at 0.95</b> — the widened ceiling: the glass-only capture (the dim layer
 /// <c>Collapsed</c> IN THE TEST ONLY) paired with the dimmed one, so a changing desktop cannot
 /// distort the pair; the pair ratio is about 0.05, judged on the mean AND the contrast;</item>
-/// <item><b>Solid darken at 0.95</b> — about 5 % of the desktop (near black, still see-through).</item>
+/// <item><b>Solid darken at 0.95</b> — about 5 % of the desktop (near black, still see-through);</item>
+/// <item><b>Solid darken at 0.0</b> — "shows nothing": the plain desktop (ratio ≈ 1.0), and the
+/// policy log shows the accepted state 2 / flags 2 / gradient 0x00000000 call, because state 2 has
+/// surprised us before (D1's opaque accent fallback) and a filled-in transparent gradient would be
+/// a flat screen exactly where the owner chose "nothing".</item>
 /// </list>
+///
+/// <para>
+/// <b>The preflight.</b> <c>TheCentre_IsTheReferenceDesktop</c> runs FIRST and shows nothing: it
+/// grabs the same centre patch bare, so the script can stop before any case when the centre is not
+/// the reference desktop (the glass bands were measured on the dark wallpaper; windows behind the
+/// centre make a CORRECT build read "not the glass"). The per-case guard applies the same
+/// thresholds to each glass case's own baseline.
+/// </para>
 ///
 /// <para>
 /// Machine lines: <c>case</c>, <c>kind</c>, <c>alpha</c>, <c>rects</c>, the baseline luma/stddev;
@@ -78,6 +90,43 @@ public class BackdropDarknessLookTests
     [StaFact]
     public void TheBackdrop_WithSolidDarkenAt095_ShowsTheAlmostBlackTint() =>
         RunCase(3, "solid-095", "Solid darken at 0.95 (about 5 % of the desktop)", BackdropType.SolidDarken, 0.95);
+
+    /// <summary>Case 4 — Solid darken at 0.0: the plain desktop (the accepted "shows nothing").</summary>
+    [StaFact]
+    public void TheBackdrop_WithSolidDarkenAt000_ShowsTheDesktop() =>
+        RunCase(4, "solid-000", "Solid darken at 0.0 (shows nothing: the desktop itself)", BackdropType.SolidDarken, 0.0);
+
+    /// <summary>
+    /// The preflight (review-01 F1a): the reference centre with NOTHING shown — no window, no
+    /// material — read before any case. The script runs it first and stops when the centre is not
+    /// the reference desktop (luma > 60 or stddev > 46: windows, not the wallpaper), because the
+    /// glass bands were measured on that desktop and a correct build over bright content would read
+    /// as a failure. Off-screen dry runs take this reading like any other; nothing can be shown.
+    /// </summary>
+    [StaFact]
+    public void TheCentre_IsTheReferenceDesktop()
+    {
+        Step3LiveCheckTests.BeginShowcaseCase();
+        try
+        {
+            var sample = BackdropCapture.Grab();   // nothing is shown: the bare desktop
+            var log = new StringBuilder();
+            log.AppendLine("case: 0 (preflight: the centre with nothing shown)");
+            log.AppendLine("kind: preflight");
+            log.AppendLine(BackdropCapture.EnvironmentState());
+            log.AppendLine($"Centre (nothing shown): {BackdropCapture.Describe(sample.Centre)}");
+            log.AppendLine($"baseline-luma: {BackdropReadoutLines.Number(sample.Centre.LumaMean)}");
+            log.AppendLine($"baseline-stddev: {BackdropReadoutLines.Number(sample.Centre.LumaStdDev)}");
+            var dryRun = Environment.GetEnvironmentVariable("EYECTRL_LIVE_DRYRUN") is "1" or "true" or "TRUE";
+            if (dryRun)
+                log.AppendLine("proof: nothing shown (the preflight)");
+            BackdropCapture.WriteLog(0, "preflight", log.ToString());
+        }
+        finally
+        {
+            Step3LiveCheckTests.EndShowcaseCase();
+        }
+    }
 
     private static void RunCase(int caseNumber, string tag, string label, BackdropType type, double alpha)
     {

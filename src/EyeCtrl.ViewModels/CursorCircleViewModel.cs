@@ -24,6 +24,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// <summary>In-hit samples after which the hold has proven itself: three (90 ms at 30 ms frames).</summary>
     public const int HybridFreezeProvenSamples = 3;
 
+    /// <summary>The nominal proven time the startup line prints: three 30 ms samples. The RULE is the
+    /// sample count above, not elapsed time.</summary>
+    public const int HybridFreezeProvenMs = 90;
+
     /// <summary>How long a run-end release is deferred while the eye crosses into the hit area.</summary>
     public const int HybridFreezeApproachMs = 150;
 

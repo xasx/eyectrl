@@ -764,4 +764,30 @@ public class ResetPreviewEngineTests
         Check.That(h.Visibility[^1].Id).IsEqualTo(2);
         Check.That(h.Engine.IsArmed).IsFalse();
     }
+
+    [Fact]
+    public void ArmedPass_AbandonUnderOverlap_EarlyReDwell_StartsNewPass_FiresUnfrozen()
+    {
+        // M2 sibling, the WITHIN-window side (review r2): the abandon must end only the PASS —
+        // the engine stays Armed at its original arming. Nothing here distinguishes "end the
+        // pass, stay Armed" from "disarm entirely" except this test: a re-dwell 1.83 s after
+        // arming (inside the 3 s expiry) must start a NEW pass that crosses Threshold without
+        // freezing. The 0.41 is load-bearing — below 0.40 a full Disarm mutant also returns
+        // Propagate (Disarmed below Threshold) and the test would pass on both codes.
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
+        h.Engine.DecideFeed(false, Away, 100_000);
+        h.Engine.DecideFeed(false, Away, 220_000);                    // armed at 220_000
+        h.Engine.DecideFeed(true, OnReset, 1_000_000);                // the overlap: still HitTest-true
+        h.Engine.OnTargetProgress(ResetId, 0.25, 1_050_000);          // pass starts
+        h.Engine.DecideFeed(true, OnReset, 1_100_000);
+        h.Engine.OnTargetProgress(ResetId, 0.0, 1_150_000);           // abandon under the overlap
+
+        // Re-dwell 1.78 s after arming: a NEW pass — crosses 0.40 without freezing (P3 mid-pass).
+        Check.That(h.Engine.OnTargetProgress(ResetId, 0.25, 2_000_000)).IsEqualTo(PreviewProgress.Propagate);
+        Check.That(h.Engine.OnTargetProgress(ResetId, 0.41, 2_050_000)).IsEqualTo(PreviewProgress.Propagate);
+        Check.That(h.Engine.IsArmed).IsTrue();
+        Check.That(h.ShownCount).IsEqualTo(1);
+    }
 }

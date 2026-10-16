@@ -141,6 +141,49 @@ public class LagMarkChromeTests
         Check.That(LagMarkChrome.EdgeBarBounds(vm)).IsNull();
     }
 
+    /// <summary>
+    /// Review 02, R2: <see cref="LagMarkChrome.EdgeBarBounds"/> re-derives the edge bar window's own
+    /// bounding-box arithmetic (<c>SyncButtons</c>), so it is pinned against the REAL window's
+    /// laid-out Left/Top/Width/Height — not against a literal. The window is built and laid out by
+    /// its production path (ShowButtons + SyncButtons) and never shown. Mutation: the window's
+    /// <c>ButtonMargin</c> drifts (+40) → the two disagree → RED.
+    /// </summary>
+    [StaFact]
+    public void EdgeBarBounds_MatchesTheRealEdgeButtonBarWindowsLayout()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        WithDpi(2.0, () =>
+        {
+            var window = new EdgeButtonBarWindow();
+            try
+            {
+                var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+                window.DataContext = vm;
+                var anchor = ScreenGeometry.KeyboardEdgeBarAnchor(
+                    keyboardAtTop: false,
+                    logicalRadius: UIConstants.ButtonRadius,
+                    logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
+                    logicalScreenWidth: 1920,
+                    logicalWorkAreaTop: 0,
+                    logicalWorkAreaHeight: 1152);
+                window.ShowButtons(KeyboardEdgeButtons.Definitions(450), anchor);
+                window.SyncButtons();
+
+                Check.WithCustomMessage("the window laid nothing out, so the pin would be vacuous")
+                    .That(window.Width).IsStrictlyGreaterThan(0);
+                var computed = LagMarkChrome.EdgeBarBounds(vm);
+                Check.That(computed).IsNotNull();
+                Check.WithCustomMessage($"the computed bounds {computed} differ from the window's own layout")
+                    .That(computed!.Value)
+                    .IsEqualTo(new Rect(window.Left, window.Top, window.Width, window.Height));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     /// <summary>Bars that are down, or up with no placed buttons, contribute no chrome.</summary>
     [Fact]
     public void TheEdgeBarEntrances_SkipBarsWithNothingPlaced()

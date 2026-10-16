@@ -25,9 +25,13 @@ using NFluent;
 ///
 /// Task 11 added the second guard: §3.1's rows must each carry a D17 collision
 /// classification (<c>collision-zone</c> | <c>exempt:&lt;reason&gt;</c>) as their
-/// last cell, and the <c>collision-zone</c> set must equal the named sources of the
-/// gaze-consumer inventory (<c>GazeConsumerInventory.Live</c>) in both directions.
-/// A new overlay must make the call explicitly — there is no silent default.
+/// last cell. What is checked here is the hand-pinned <see cref="D17CollisionZoneClasses"/>
+/// map, in both directions against the spec: every map entry must read
+/// <c>collision-zone</c> in §3.1, and every <c>collision-zone</c> row must be backed by a
+/// map entry. The map does NOT derive anything from <c>GazeConsumerInventory.Live</c> —
+/// that each named source actually reports its rects via <c>Live()</c> is pinned per-source
+/// in <c>GazeConsumerInventoryTests</c>, not here. A new overlay must make the call
+/// explicitly — there is no silent default.
 ///
 /// Not <c>Category=UI</c> — it only reflects over types and reads a file, so it
 /// runs in the headless <c>Category!=UI</c> subset that CI executes.
@@ -302,9 +306,20 @@ public class OverlayInventoryDriftTests
         // The round-trip proof: the doc's bytes normalized to CRLF (exactly what a fresh
         // windows-latest checkout holds), pushed through the SAME production parse — every row
         // must still classify, with the same map as the LF original.
-        var lf = SpecClassifications();
-        var crlf = SpecClassifications(
-            SpecText().Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", "\r\n", StringComparison.Ordinal));
+        //
+        // The LF side is normalized to `\n` EXPLICITLY (follow-up N1): `SpecText()` returns the
+        // doc AS CHECKED OUT, which a CRLF checkout (CI) already holds as CRLF — both sides then
+        // parse the same bytes, and a pattern that matches zero rows on both passed `0 == 0`.
+        // The count guard below closes the remaining hole: a zero-parse can never equal its way
+        // to green, whichever line ending the checkout holds.
+        var lfText = SpecText().Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lf = SpecClassifications(lfText);
+        Check.WithCustomMessage(
+                "The LF side of the CRLF round-trip parsed zero rows — the pattern matches " +
+                "nothing even in the doc normalized to LF, so the count comparison below would " +
+                "be vacuous.")
+            .That(lf.Count).IsStrictlyGreaterThan(0);
+        var crlf = SpecClassifications(lfText.Replace("\n", "\r\n", StringComparison.Ordinal));
 
         Check.WithCustomMessage(
                 "Every §3.1 row must carry its D17 classification under a CRLF checkout too — " +

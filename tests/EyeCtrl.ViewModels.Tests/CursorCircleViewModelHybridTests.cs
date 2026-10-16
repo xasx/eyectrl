@@ -283,6 +283,28 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
+    public void Hybrid_OfferCloseDuringTheApproach_Releases()
+    {
+        // X5 (fixup 01): the offer can close inside the 150 ms approach window (a teardown); the
+        // deferred run-end release must happen then, not wait for the window's expiry. Mutant:
+        // drop the approach-clear branch in Receive(HideActivationButtonMessage) → no release.
+        var rig = new Rig();
+        var b = new PhysicalPoint(1400, 1000);
+        rig.PinAt(P);
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.RunEnds();
+        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the approach starts
+
+        rig.OfferCloses();
+
+        Check.That(rig.Holds).IsEmpty();
+        Check.That(rig.Releases).HasSize(1);
+        Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.OfferClosed);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(1200, 1000));
+    }
+
+    [Fact]
     public void Hybrid_ExternalDwellHide_ReleasesAHeldPin()
     {
         // A cooperating app's target hides the ring while the hybrid holds. That hide is NOT a state

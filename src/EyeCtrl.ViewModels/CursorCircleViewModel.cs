@@ -32,8 +32,9 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public const int HybridFreezeApproachMs = 150;
 
     /// <summary>
-    /// The ring hold policy (the look build's <c>--ring-arm</c> sets it once at startup; never a
-    /// setting). <see cref="RingHoldPolicy.None"/> is the default and today's behaviour, bit for bit.
+    /// The ring hold policy (<c>--ring-arm</c> sets it once at startup; never a setting). The class
+    /// default stays <see cref="RingHoldPolicy.None"/>, the offer-following behaviour bit for bit; the
+    /// App's launch composition selects the arm (the hybrid, unless <c>--ring-arm</c> says otherwise).
     /// </summary>
     public RingHoldPolicy RingHoldPolicy { get; set; } = RingHoldPolicy.None;
 

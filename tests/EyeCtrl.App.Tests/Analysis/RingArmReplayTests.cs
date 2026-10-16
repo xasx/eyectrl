@@ -756,58 +756,6 @@ public class RingArmReplayTests(ITestOutputHelper output)
             File.WriteAllText(outPath, report.ToString());
     }
 
-    [Fact]
-    public void Diagnostic_HybridOverButton()
-    {
-        var path = Environment.GetEnvironmentVariable(RecordingEnvironmentVariable);
-        Assert.SkipWhen(string.IsNullOrEmpty(path) || !File.Exists(path), "no recording");
-        var inv = CultureInfo.InvariantCulture;
-        foreach (var config in new[] { SessionEnd, SessionStart })
-        {
-            var trace = Record(ReadRecording(path!), config);
-            var runOnly = Play(trace, RunOnly);
-            var rows = trace.Samples;
-            int n = rows.Count;
-            // Strict visits: in-hit samples of one offer, gaps between in-hit samples <= 500 ms.
-            var inHit = new bool[n];
-            for (int i = 0; i < n; i++)
-                inHit[i] = runOnly.Visible[i] && rows[i].Offer is { } o && rows[i].Filtered.DistanceTo(o.Button) <= o.HitRadiusPx;
-            var cats = new Dictionary<string, (int Count, int Long, double Ms)>();
-            long lastExitUs = long.MinValue;
-            int iVisit = -1; long visitLastHitUs = 0; long visitOffer = -1; string cat = "";
-            void Close(int lastIdx)
-            {
-                if (iVisit < 0) return;
-                double ms = (visitLastHitUs - rows[iVisit].Us) / 1000.0 + 30;
-                var c = cats.TryGetValue(cat, out var v) ? v : (0, 0, 0.0);
-                cats[cat] = (c.Item1 + 1, c.Item2 + (ms >= 300 ? 1 : 0), c.Item3 + ms);
-                iVisit = -1;
-            }
-            for (int i = 1; i < n; i++)
-            {
-                if (rows[i - 1].State == InteractionState.Fixation && rows[i].State != InteractionState.Fixation)
-                    lastExitUs = rows[i].Us;
-                if (!inHit[i]) { if (iVisit >= 0 && rows[i].Us - visitLastHitUs > 500_000) Close(i); continue; }
-                var o = rows[i].Offer!;
-                if (iVisit >= 0 && o.Id == visitOffer && rows[i].Us - visitLastHitUs <= 500_000) { visitLastHitUs = rows[i].Us; continue; }
-                Close(i);
-                iVisit = i; visitLastHitUs = rows[i].Us; visitOffer = o.Id;
-                bool exitNow = lastExitUs == rows[i].Us;
-                double gazePrevToP = rows[i - 1].Filtered.DistanceTo(o.Point);
-                bool pinnedPrev = runOnly.Pinned[i - 1];
-                double sinceExitMs = (rows[i].Us - lastExitUs) / 1000.0;
-                cat = exitNow && pinnedPrev ? "A run ends ON entry, ring pinned (keep-pin fires)"
-                    : exitNow ? "B run ends ON entry, ring NOT pinned (run never settled)"
-                    : gazePrevToP <= 160 ? "C gaze came from near P (<=160 px), run ended " + (sinceExitMs < 300 ? "<300 ms" : sinceExitMs < 1000 ? "300-1000 ms" : ">1 s") + " before"
-                    : "D gaze came from elsewhere (>160 px from P)";
-            }
-            Close(n - 1);
-            output.WriteLine(config.Label);
-            foreach (var kv in cats.OrderBy(k => k.Key))
-                output.WriteLine(string.Format(inv, "  {0}: visits {1}, of which >= 300 ms {2}, total {3:0} ms", kv.Key, kv.Value.Count, kv.Value.Long, kv.Value.Ms));
-        }
-    }
-
     // ── The oracle for the look build ──
 
     /// <summary>

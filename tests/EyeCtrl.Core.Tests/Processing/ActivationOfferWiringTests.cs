@@ -1028,8 +1028,8 @@ public class ActivationOfferWiringTests
     [Fact]
     public void RingPinPolicy_DefaultsToOfferFollowing()
     {
-        // The shipped behaviour is the default: an ordinary launch (and the supervisor's own relaunch,
-        // which passes only --paused) must run today, unchanged. Mutation: default to RunOnly → red.
+        // The CLASS default stays the offer-following pin; the App's launch composition selects the
+        // arm (the hybrid unless --ring-arm says otherwise). Mutation: default to RunOnly → red.
         Check.That(new InteractionManager().RingPinPolicy).IsEqualTo(RingPinPolicy.OfferFollowing);
     }
 

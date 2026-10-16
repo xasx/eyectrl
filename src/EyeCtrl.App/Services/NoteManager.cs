@@ -36,11 +36,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     // The probe's IsVisible at the last Changed raise, so the hide rule reads a transition.
     private bool _keyboardWasVisible;
     private IKeyboardProbe? _keyboardProbe;
-    // Leave-before-arm (fixup B2; T2 generalises the latch, P2 D4): ✓ Done and ✕ share slot 0's
-    // circle, so a gaze still resting on Done when the note saves is pointing at the live ✕.
-    // Display targets registered while the gaze sits inside their hit circle are held ineligible
-    // until a sample falls outside. Keyed by target id; empty in steady state.
-    private readonly HashSet<string> _targetsAwaitingGazeLeave = new();
+    // Leave-before-arm (fixups B2/F1/F2; T2 generalises the latch, P2 D4): targets registered
+    // while the gaze sits inside their hit circle — Done's slot IS ✕'s slot, and a neighbour's
+    // ✕ can sit under the same held gaze — stay ineligible until the gaze has been CONTINUOUSLY
+    // outside for LeaveBeforeArmMs. Maps target id → the timestamp of the first outside sample
+    // since the last inside one (null = the gaze is inside right now). Empty in steady state.
+    private static readonly int LeaveBeforeArmMs = 150;
+    private readonly Dictionary<string, long?> _targetsAwaitingGazeLeave = new();
 
     public IReadOnlyList<NoteData> ActiveNotes => _notes.AsReadOnly();
     public bool IsAtCapacity => _windows.Count >= MaxNotes;
@@ -269,6 +271,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
             {
                 // New note, draft empty (P1 D4 Done table): nothing was ever saved — it disappears.
                 RemoveNoteInternal(note);
+                if (!handOver)
+                    LatchTargetsUnderTheGaze();
                 ReleaseKeyboard(handOver);
                 if (!handOver)
                     _messenger.Send(new NoteEditingChangedMessage(false));
@@ -286,36 +290,45 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
             window.SetState(NoteState.Display);
             window.SetText(note.Text);
         }
-        if (!handOver)
-            DisarmDisplayTargetsUntilGazeLeaves(note.Id);
         ReleaseKeyboard(handOver);
         ReRegisterAllTargets();
+        if (!handOver)
+            LatchTargetsUnderTheGaze();
         RaiseTargetsChanged();
         if (!handOver)
             _messenger.Send(new NoteEditingChangedMessage(false));
     }
 
     /// <summary>
-    /// Leave-before-arm for the Edit → Display hand-off (fixup B2; T2 generalises, P2 D4). ✓ Done
-    /// and ✕ are the SAME slot-0 circle, so a gaze still resting on Done when the note saves is
-    /// looking straight at a live, destructive, no-confirm ✕. The finished note's Display targets
-    /// are registered disarmed: <see cref="OnGazeMoved"/> keeps them ineligible (clearing any
-    /// accumulated dwell) while samples hit them and re-arms each one on the first sample outside
-    /// its circle. Called BEFORE <see cref="ReRegisterAllTargets"/> registers the targets; the
-    /// current <see cref="_lastGazePoint"/> needs no separate seed — a held sample is by definition
-    /// still inside the circles it must leave.
+    /// Leave-before-arm for the Edit → Display hand-off (fixups B2/F1/F2; T2 generalises, P2 D4).
+    /// ✓ Done and ✕ are the SAME slot-0 circle, and a neighbour pinned close by can put its own
+    /// ✕ under the same held gaze — so EVERY registered target that contains the last gaze sample
+    /// is latched, not just the finishing note's. A latched target stays ineligible (clearing any
+    /// accumulated dwell) until its release rule fires: the gaze continuously outside its circle
+    /// for <see cref="LeaveBeforeArmMs"/> — one jitter sample past the edge is noise, not a leave
+    /// (fixup F1). Called AFTER <see cref="ReRegisterAllTargets"/> so the scan sees the fresh
+    /// targets; a held sample is by definition still inside the circles it must leave.
     /// </summary>
-    private void DisarmDisplayTargetsUntilGazeLeaves(string noteId)
+    private void LatchTargetsUnderTheGaze()
     {
-        foreach (var suffix in new[] { "close", "edit", "move" })
-            _targetsAwaitingGazeLeave.Add($"{noteId}:{suffix}");
+        foreach (var target in _dwellDetector.Targets)
+        {
+            double dx = _lastGazePoint.X - target.Center.X;
+            double dy = _lastGazePoint.Y - target.Center.Y;
+            if (dx * dx + dy * dy <= (double)target.Radius * target.Radius)
+                _targetsAwaitingGazeLeave.TryAdd(target.Id, null);
+        }
     }
 
-    /// <summary>Re-arms every disarmed target the sample has LEFT (fixup B2). A target whose
-    /// dwell registration vanished (note removed, state flip) is dropped from the latch too.</summary>
-    private void ArmTargetsTheGazeHasLeft(PhysicalPoint sample)
+    /// <summary>Advances the leave timers (fixup F1). A target whose circle contains the sample
+    /// resets its timer; otherwise the timer runs from the first outside sample and the target
+    /// re-arms at <see cref="LeaveBeforeArmMs"/> of continuous leave. A target whose dwell
+    /// registration vanished (note removed, state flip) is dropped from the latch too. GATED
+    /// samples are "no information" — the caller skips them entirely, so they neither advance
+    /// nor reset a timer (fixup F4's conjunct keeps the gate inside the latch).</summary>
+    private void AdvanceLeaveTimers(PhysicalPoint sample, long timestamp)
     {
-        foreach (var id in _targetsAwaitingGazeLeave.ToList())
+        foreach (var id in _targetsAwaitingGazeLeave.Keys.ToList())
         {
             var target = _dwellDetector.Targets.FirstOrDefault(t => t.Id == id);
             if (target is null)
@@ -325,7 +338,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
             }
             double dx = sample.X - target.Center.X;
             double dy = sample.Y - target.Center.Y;
-            if (dx * dx + dy * dy > (double)target.Radius * target.Radius)
+            if (dx * dx + dy * dy <= (double)target.Radius * target.Radius)
+            {
+                _targetsAwaitingGazeLeave[id] = null; // back inside: the leave clock restarts
+                continue;
+            }
+            // Outside: run the clock from the first outside sample (µs → ms).
+            var since = _targetsAwaitingGazeLeave[id] ??= timestamp;
+            if (timestamp - since >= LeaveBeforeArmMs * 1000)
                 _targetsAwaitingGazeLeave.Remove(id);
         }
     }
@@ -458,17 +478,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         if (_dwellDetector.Targets.Count > 0 && _keyboardProbe is { } probe)
             gated = probe.Rects().Any(rect => rect.Contains(gazePoint));
 
-        // The leave-before-arm latch (fixup B2): re-arm every disarmed target the sample has
-        // left, then keep the still-armed ones ineligible for this sample (the filter also
-        // clears whatever dwell they accumulated while disarmed).
-        if (_targetsAwaitingGazeLeave.Count > 0)
-            ArmTargetsTheGazeHasLeft(gazePoint);
+        // The leave-before-arm latch (fixups B2/F1): advance the leave timers, then keep the
+        // still-latched ones ineligible for this sample (the filter also clears whatever dwell
+        // they accumulated while latched). A gated sample carries no leave information — the
+        // keyboard's rect covers the spot, so it neither advances nor resets a timer (F4).
+        if (_targetsAwaitingGazeLeave.Count > 0 && !gated)
+            AdvanceLeaveTimers(gazePoint, timestamp);
 
         Func<DwellTarget, bool>? filter = null;
         if (_targetsAwaitingGazeLeave.Count > 0)
         {
             var disarmed = _targetsAwaitingGazeLeave;
-            filter = t => !gated && !disarmed.Contains(t.Id);
+            filter = t => !gated && !disarmed.ContainsKey(t.Id);
         }
         else if (gated)
         {
@@ -568,8 +589,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     private void ReRegisterAllTargets()
     {
         _dwellDetector.ClearTargets();
-        foreach (var n in _notes)
-            RegisterTargetsForState(n);
+        if (_editingNote is { } editor)
+        {
+            // Fixup F5: the single-editor rule wins — a re-register while a note edits hands back
+            // ONLY the editor's targets, never every note's card targets. No P1 path reaches this
+            // (RemoveNote/FinishMove are unreachable while editing), but P2's Undo chips add
+            // callers, and a quiet rule break here would be a trap.
+            RegisterEditTargets(editor.Id);
+        }
+        else
+        {
+            foreach (var n in _notes)
+                RegisterTargetsForState(n);
+        }
         _dwellDetector.ResetAllState();
     }
 

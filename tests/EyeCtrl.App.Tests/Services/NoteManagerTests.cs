@@ -632,6 +632,89 @@ public class NoteManagerTests
     }
 
     [StaFact]
+    public void TheKeyboardGate_HoldsEvenWhileTheLatchIsNonEmpty_GatedDwellFiresNothing()
+    {
+        // Fixup F4: the latch filter keeps the keyboard gate — while ANY target is latched, a
+        // gated sample (gaze inside the keyboard's rect) must not complete a dwell on an ARMED
+        // target either. ✎ sits armed next to the latched ✕; the gate over ✎ must hold it, and
+        // only an ungated dwell may fire it.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var probe = new FakeKeyboardProbe { IsVisible = false };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = TypeIntoNewNote(manager, "hello", anchor); // a real window: ✎ must be able to re-edit
+            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var slot1 = ButtonCentrePhysical(anchor, 1);
+
+            for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
+            Check.That(manager.IsEditing).IsFalse(); // Done fired; ✕ latched → latch non-empty
+
+            // The keyboard rect covers ✎: the gaze rests there, gated.
+            probe.RectsProvider = () => new[] { new PhysicalRect(slot1.X - 300, slot1.Y - 300, 600, 600) };
+            probe.IsVisible = true;
+            probe.RaiseChanged();
+            for (long t = 800_000; t <= 1_600_000; t += 33_000) manager.OnGazeMoved(slot1, t);
+            Check.WithCustomMessage("a gated dwell must not fire ✎, even with a target latched")
+                .That(manager.IsEditing).IsFalse();
+
+            // The gate moves away: the same held gaze now fires ✎ — the hold was the gate.
+            probe.RectsProvider = () => Array.Empty<PhysicalRect>();
+            probe.RaiseChanged();
+            for (long t = 1_700_000; t <= 2_500_000; t += 33_000) manager.OnGazeMoved(slot1, t);
+            Check.WithCustomMessage("once ungated, the armed ✎ dwell must complete")
+                .That(manager.IsEditing).IsTrue();
+            Check.That(manager.ActiveNotes).HasSize(1);
+            Check.That(id).IsNotEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void GatedExcursions_CountForNothing_TowardALatchedTargetsLeave()
+    {
+        // Fixup F1's release rule, gated half: a sample under the keyboard rect is "no
+        // information" — it neither advances a latched target's leave timer nor resets it.
+        // A gated excursion past the circle must not satisfy the 150 ms leave.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var probe = new FakeKeyboardProbe { IsVisible = false };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = manager.AddEditingNoteTargetsForTest(anchor);
+            manager.Apply(new NoteAppend("hello"));
+            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
+
+            for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
+            Check.That(manager.IsEditing).IsFalse(); // Done fired, ✕ latched under the held gaze
+
+            // The keyboard rect covers the away point: 500 ms of gated, outside-circle samples.
+            probe.RectsProvider = () => new[] { new PhysicalRect(away.X - 5_000, away.Y - 5_000, 10_000, 10_000) };
+            probe.IsVisible = true;
+            probe.RaiseChanged();
+            for (long t = 800_000; t <= 1_300_000; t += 33_000) manager.OnGazeMoved(away, t);
+
+            // Gate gone, gaze back on the same spot: ✕ must still be latched.
+            probe.RectsProvider = () => Array.Empty<PhysicalRect>();
+            probe.RaiseChanged();
+            for (long t = 1_400_000; t <= 2_300_000; t += 33_000) manager.OnGazeMoved(slot0, t);
+            Check.WithCustomMessage("gated samples must not count toward the latch's 150 ms leave")
+                .That(manager.ActiveNotes).HasSize(1);
+            Check.That(id).IsNotEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
     public void KeyboardTarget_DrawnVisibility_MatchesItsRegisteredTarget_AfterAProbeFlip()
     {
         // Review 01 mutant A: every manager test was windowless, so the drawn ⌨ could disagree

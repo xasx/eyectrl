@@ -327,7 +327,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"Ring arm value '{0}' is unknown (today|hybrid|run-only) — running today.\"",
+      "Literal": "\"Ring arm value '{0}' is unknown (today|hybrid|run-only) — running hybrid.\"",
       "Count": 1
     },
     {

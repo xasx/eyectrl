@@ -1170,7 +1170,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"Ring arm value '{0}' is unknown (today|hybrid|run-only) — running today.\"",
+      "Literal": "\"Ring arm value '{0}' is unknown (today|hybrid|run-only) — running hybrid.\"",
       "Category": "log",
       "Reason": "The unknown --ring-arm WRN line's format -- log-only, matched by the look's readout; never shown."
     },

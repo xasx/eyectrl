@@ -431,6 +431,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=(?,?)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=({0:F0},{1:F0})\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/SupervisorLauncher.cs",
       "Literal": "\"EYECTRL_SUPERVISOR_EXE\"",
       "Count": 1

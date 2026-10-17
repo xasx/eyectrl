@@ -12,14 +12,17 @@ using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 {
     // UI Layout Constants
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
+    private const int PreviewFailureLogWindowSeconds = 30;
     private const double IndicatorOffsetMargin = 10; // Margin to keep indicator inside preview circle
     private const double IndicatorSizeRatio = 0.15; // Indicator size as ratio of preview circle size
     private const double MaxIndicatorSize = 30; // Maximum indicator size in pixels
@@ -29,6 +32,12 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     private const int PreviewCircleBorderThickness = 2; // Border thickness of preview circle
 
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
+
+    private readonly HandlerFaultReporter _previewFaults = new(
+        (_, exception) => Log.Warning("Menu preview capture FAILED: {ExceptionType:l}: {Message:l}",
+            exception.GetType().Name, exception.Message),
+        () => Environment.TickCount64 / 1000,
+        PreviewFailureLogWindowSeconds);
 
     /// <summary>
     /// The per-item dwell-progress subscriptions this window owns, so they can be detached before
@@ -46,6 +55,12 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     private readonly List<(ActionMenuItemViewModel Item, PropertyChangedEventHandler Handler)> _itemProgressSubs = new();
 
     private CancellationTokenSource? _captureCts;
+
+    /// <summary>
+    /// The preview's capture seam: production grabs the screen, tests inject an image (or a fault)
+    /// so the failure/info lines are pinnable without reading any screen pixel.
+    /// </summary>
+    internal Func<PhysicalPoint, int, CaptureResult?> PreviewCapture { get; set; } = ScreenCaptureService.CaptureRegion;
 
     public ActionMenuWindow()
     {
@@ -97,31 +112,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         var captureToken = _captureCts.Token;
         _ = Dispatcher.InvokeAsync(async () =>
         {
-            try
-            {
-                await Task.Delay(ScreenCaptureDelayMs, captureToken);
-                var capture = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
-                if (capture == null) return;
-
-                var previewEllipse = new Ellipse
-                {
-                    Width = captureCircleSize,
-                    Height = captureCircleSize,
-                    Fill = new ImageBrush(capture.Value.Image) { Stretch = Stretch.Fill },
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
-                    StrokeThickness = PreviewCircleBorderThickness
-                };
-                Canvas.SetLeft(previewEllipse, captureCanvasCenter.X - captureCircleSize / 2);
-                Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
-                MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
-            }
-            catch
-            {
-                // Cancellation (window re-shown, token superseded) and GDI+ capture/preview
-                // failures (secure desktop, session lock, RDP transition) alike: no preview
-                // this time, the menu itself is unaffected. Catching here also fully observes
-                // the async lambda's task — any other escape would fault it unobserved.
-            }
+            await CapturePreviewAsync(
+                captureCanvasCenter, captureCircleSize, captureCenter, captureRadius,
+                geometry.ViewScaleDipPerPx, captureBorderColor, captureToken);
         });
 
         // Position indicator at center of preview
@@ -237,6 +230,55 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     {
         if (_buttonVisuals.TryGetValue(targetId, out var btn))
             btn.UpdateProgress(progress);
+    }
+
+    /// <summary>
+    /// The preview's capture + ellipse insertion. Extracted from <c>Show</c> so the failure and
+    /// success lines are testable headlessly: a capture failure is LOUD (rate-limited warning) and
+    /// a cancellation — a re-show or layer change superseding this capture — stays silent.
+    /// </summary>
+    internal async Task CapturePreviewAsync(
+        Point canvasCenter, double circleSize, PhysicalPoint captureCenter, int captureRadius,
+        double viewScaleDipPerPx, string borderColor, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(ScreenCaptureDelayMs, token);
+            var capture = PreviewCapture(captureCenter, captureRadius);
+            if (capture is null)
+            {
+                _previewFaults.Report("Menu preview capture failed",
+                    new InvalidOperationException("the capture returned no image"));
+                return;
+            }
+
+            var previewEllipse = new Ellipse
+            {
+                Width = circleSize,
+                Height = circleSize,
+                Fill = new ImageBrush(capture.Value.Image) { Stretch = Stretch.Fill },
+                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(borderColor)),
+                StrokeThickness = PreviewCircleBorderThickness
+            };
+            Canvas.SetLeft(previewEllipse, canvasCenter.X - circleSize / 2);
+            Canvas.SetTop(previewEllipse, canvasCenter.Y - circleSize / 2);
+            MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
+
+            var effectiveCenter = capture.Value.EffectiveCenter;
+            Log.Information("Menu preview: center=({X:F0},{Y:F0}) captureRadius={R}px scale={S:F2}",
+                effectiveCenter.X, effectiveCenter.Y, captureRadius, viewScaleDipPerPx);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a re-show or a layer change: no preview this time, and nothing to say.
+        }
+        catch (Exception exception)
+        {
+            // GDI+ capture/preview failures (secure desktop, session lock, RDP transition): no
+            // preview this time, the menu itself is unaffected. Catching here also fully observes
+            // the task — any other escape would fault it unobserved.
+            _previewFaults.Report("Menu preview capture failed", exception);
+        }
     }
 
     /// <summary>

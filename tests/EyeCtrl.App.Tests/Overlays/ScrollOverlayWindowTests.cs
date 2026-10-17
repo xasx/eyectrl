@@ -6,8 +6,14 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Shapes;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
@@ -53,6 +59,51 @@ public class ScrollOverlayWindowTests
             window.Close();
         }
     }
+
+    [StaFact]
+    public void F2_UnarmedCrosshair_IsProminent_AndDimsOnArming()
+    {
+        // F2 (fixup 01): the arming cue. Until the eye visits the dead zone the crosshair is drawn
+        // at full opacity and double thickness ("look at the cross to start"); after arming it
+        // returns to today's 0.5 / 1. The window reads vm.IsArmed through its DataContext in
+        // UpdateFeedback. Mutant: drop the cue → the unarmed assertions red.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        var vm = new ScrollOverlayViewModel(new WeakReferenceMessenger(), settings.Scroll, settings.Dwell);
+        vm.EnterScrollMode(new PhysicalPoint(1000, 1000), new PhysicalPoint(3000, 600));
+        var window = new ScrollOverlayWindow();
+        try
+        {
+            window.Place(vm);
+            window.UpdateFeedback(0, 0, 0);
+
+            Line h = Crosshair(window, "AnchorCrosshairH");
+            Line v = Crosshair(window, "AnchorCrosshairV");
+            Check.That(vm.IsArmed).IsFalse();
+            Check.That(h.Opacity).IsCloseTo(1.0, 1e-9);
+            Check.That(v.Opacity).IsCloseTo(1.0, 1e-9);
+            Check.That(h.StrokeThickness).IsCloseTo(2.0, 1e-9);
+            Check.That(v.StrokeThickness).IsCloseTo(2.0, 1e-9);
+
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000, 1000), 0));   // arm it
+            Check.That(vm.IsArmed).IsTrue();
+            window.UpdateFeedback(0, 0, 0);
+
+            Check.That(h.Opacity).IsCloseTo(0.5, 1e-9);
+            Check.That(v.Opacity).IsCloseTo(0.5, 1e-9);
+            Check.That(h.StrokeThickness).IsCloseTo(1.0, 1e-9);
+            Check.That(v.StrokeThickness).IsCloseTo(1.0, 1e-9);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static Line Crosshair(Window window, string fieldName) =>
+        (Line)typeof(ScrollOverlayWindow)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!
+            .GetValue(window)!;
 
     [StaFact]
     public void EscapeHint_IsVisibleWithNonEmptyText()

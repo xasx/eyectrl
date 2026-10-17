@@ -61,6 +61,17 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
 
     public void UpdateFeedback(double dotOffsetX, double dotOffsetY, double velMagnitude)
     {
+        // F2 (fixup 01): the arming cue. Until the eye has visited the dead zone the crosshair is
+        // drawn at full opacity and double thickness — "look at the cross to start". Once armed it
+        // returns to the shipped 0.5 / 1.
+        bool armed = (DataContext as ScrollOverlayViewModel)?.IsArmed ?? true;
+        double crosshairOpacity = armed ? 0.5 : 1.0;
+        double crosshairThickness = armed ? 1.0 : 2.0;
+        AnchorCrosshairH.Opacity = crosshairOpacity;
+        AnchorCrosshairV.Opacity = crosshairOpacity;
+        AnchorCrosshairH.StrokeThickness = crosshairThickness;
+        AnchorCrosshairV.StrokeThickness = crosshairThickness;
+
         double anchorX = Canvas.GetLeft(CursorCircle) + 40;
         double anchorY = Canvas.GetTop(CursorCircle) + 40;
         double dotX = anchorX + dotOffsetX * 24;

@@ -49,8 +49,9 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 
     public PhysicalPoint Anchor => _anchor;
 
-    /// <summary>Whether the eye has visited the dead zone since entry: the window shows the crosshair
-    /// prominently and the log reads it (scroll start fix, F-S4).</summary>
+    /// <summary>Whether the eye has visited the dead zone since entry. The window uses it as the
+    /// arming cue (the crosshair is full-opacity and double-thick until the first visit) and the
+    /// log reads it (scroll start fix, F-S4; cue added by fixup 01 F2).</summary>
     public bool IsArmed => _armed;
 
     public event Action<double, double>? TargetVelocityChanged;

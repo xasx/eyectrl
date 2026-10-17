@@ -76,6 +76,36 @@ public class ManualSelectionRenderScaleTests
     }
 
     /// <summary>
+    /// F5 (fixup 01): with no picture the disc used to be fully transparent, showing the
+    /// backdrop-dimmed 1× screen through it while dwells still mapped as magnified. The theme panel
+    /// under-fill makes it opaque; the surface token carries the theme's 0xFA alpha, so "opaque"
+    /// means the central area is at the theme surface's alpha (≥250), never see-through.
+    /// </summary>
+    [StaFact]
+    public void AMissingPicture_LeavesAnOpaqueDisc()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new ManualSelectionOverlayWindow();
+        try
+        {
+            window.Capture = (_, _) => null; // the failed-capture state: picture=none
+            window.UpdateCenter(new PhysicalPoint(1000, 1000), RadiusDip, Magnification);
+
+            var rendered = Render(window, 1.0);
+            var alpha = MeanCentralAlpha(rendered);
+
+            Check.WithCustomMessage(
+                    $"with no picture the disc's central alpha is {alpha:0.#}; it must be opaque "
+                    + "(the theme panel surface's 0xFA), so the normal-size screen does not show through.")
+                .That(alpha).IsCloseTo(255, 5);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
     /// Renders the window's content at <c>96 × scale</c> without ever showing the window: measure and
     /// arrange the content at the window's DIP size, then rasterize it.
     /// </summary>

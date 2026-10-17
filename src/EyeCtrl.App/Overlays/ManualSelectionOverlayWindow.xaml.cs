@@ -1,6 +1,5 @@
 namespace EyeCtrl.App.Overlays;
 
-using System.Threading.Tasks;
 using System.Windows;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
@@ -8,12 +7,15 @@ using EyeCtrl.Core.Services;
 
 public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelectionOverlay
 {
-    // UI Constants
-    private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
-
     private PhysicalPoint? _captureCenter;
     private PhysicalPoint? _effectiveCaptureCenter;
     private double _magnification;
+
+    /// <summary>
+    /// The capture seam. Production captures the screen with GDI; tests inject a synthetic image so
+    /// the show path can be exercised headlessly, and so a failure can be forced deterministically.
+    /// </summary>
+    internal Func<PhysicalPoint, int, CaptureResult?> Capture { get; set; } = ScreenCaptureService.CaptureRegion;
 
     public ManualSelectionOverlayWindow()
     {
@@ -54,32 +56,54 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
         if (recapture || ManualSelectionBrush.ImageSource == null)
         {
             var physicalRadius = (int)(radius * DpiHelper.ScaleX);
-            CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
+            CaptureNow(_captureCenter!.Value, physicalRadius);
         }
     }
 
-    private async void CaptureAndDisplay(PhysicalPoint center, int radius)
+    /// <summary>
+    /// Captures and assigns the picture SYNCHRONOUSLY, so the window's first visible frame is this
+    /// session's target. The old async path (a 100 ms <c>Task.Delay</c> "to let WPF render") showed
+    /// the previous session's picture — or, in the first session of a process, an empty see-through
+    /// circle — until the continuation ran. Every overlay that is on screen at this moment is already
+    /// excluded from screen capture, so the delay protected nothing.
+    ///
+    /// <para>
+    /// On failure (a null result or a throw) the picture is CLEARED, never left stale: an old
+    /// screenshot presented as this target's is worse than an empty circle, because it is a wrong
+    /// answer rather than an absent one.
+    /// </para>
+    /// </summary>
+    private void CaptureNow(PhysicalPoint center, int radius)
     {
-        await Task.Delay(ScreenCaptureDelayMs);
         try
         {
-            var capture = ScreenCaptureService.CaptureRegion(center, radius);
-            if (capture != null)
+            var capture = Capture(center, radius);
+            if (capture is null)
             {
-                // The capture is clamped to the screen, so its centre is the effective one. Written
-                // here, with the image, and never when the capture is requested: a request-time value
-                // would describe an image the user is not yet looking at.
-                _effectiveCaptureCenter = capture.Value.EffectiveCenter;
-                ManualSelectionBrush.ImageSource = capture.Value.Image;
+                ClearPicture();
+                return;
             }
+
+            // The capture is clamped to the screen, so its centre is the effective one. Written
+            // here, with the image, and never when the capture is requested: a request-time value
+            // would describe an image the user is not yet looking at.
+            _effectiveCaptureCenter = capture.Value.EffectiveCenter;
+            ManualSelectionBrush.ImageSource = capture.Value.Image;
         }
         catch
         {
             // GDI+ capture fails transiently on the secure desktop (UAC), session lock and RDP
-            // transitions. This is an async void continuation on the dispatcher: an escaping
-            // throw is process-fatal, and for a gaze-only user the process is the input channel.
-            // The magnifier simply shows no snapshot this time.
+            // transitions. This runs on the UI thread on the show path: an escaping throw would be
+            // process-fatal, and for a gaze-only user the process is the input channel.
+            ClearPicture();
         }
+    }
+
+    /// <summary>Forgets the displayed picture and its effective centre; never leaves the old one up.</summary>
+    private void ClearPicture()
+    {
+        ManualSelectionBrush.ImageSource = null;
+        _effectiveCaptureCenter = null;
     }
 
     public void Recapture()
@@ -87,7 +111,7 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
         // Width is in DIPs; derive the DIP radius, then scale to physical for capture
         var dipRadius = (int)(Width / _magnification / 2);
         var physicalRadius = (int)(dipRadius * DpiHelper.ScaleX);
-        CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
+        CaptureNow(_captureCenter!.Value, physicalRadius);
     }
 
     /// <summary>

@@ -52,6 +52,73 @@ public enum SettleOutcome
     Locked,
 }
 
+/// <summary>Why no offer was made for an accepted settle (corner fix 2026-10-17, F3).</summary>
+public enum ActivationOfferRefusalReason
+{
+    /// <summary>P is outside the screen beyond <see cref="ActivationOfferEngine.CornerClampTolerancePx"/>
+    /// (or in the docked toolbar's summon band, which is never clamped).</summary>
+    OffScreen,
+
+    /// <summary>P — or its clamped P′ — lies inside a chrome zone.</summary>
+    InChrome,
+
+    /// <summary>Neither side of the ring could hold the button: both intersect chrome, or the
+    /// surviving one was clamped onto P (the drop guard).</summary>
+    NoSidePlaceable,
+
+    /// <summary>EyeCtrl's own modal surfaces are up: nothing is offered at all.</summary>
+    Suspended,
+}
+
+/// <summary>One refused settle: the RAW settle point and why no offer followed.</summary>
+public readonly record struct ActivationOfferRefusal(PhysicalPoint Point, ActivationOfferRefusalReason Reason);
+
+/// <summary>Which screen edge a docked toolbar summons from.</summary>
+public enum ActivationSummonEdge
+{
+    /// <summary>The toolbar is docked at the top edge; the band sits above it.</summary>
+    Top,
+
+    /// <summary>The toolbar is docked at the bottom edge; the band sits below it.</summary>
+    Bottom,
+
+    /// <summary>The toolbar is docked at the left edge; the band sits to its left.</summary>
+    Left,
+
+    /// <summary>The toolbar is docked at the right edge; the band sits to its right.</summary>
+    Right,
+}
+
+/// <summary>
+/// The docked toolbar's summon band (corner fix 2026-10-17, F1's one exception): the off-screen
+/// strip past the toolbar's docked edge. A settle there is how the toolbar is summoned, so it is
+/// never clamped — a clamped offer would flash before the toolbar slides in. It spans the WHOLE
+/// edge, not the toolbar's span along it (fixup 01 R-F1): the auto-hide controller's summon gate
+/// fires at any coordinate past the docked edge. Plain data, pushed by the App the way the chrome
+/// zones are.
+/// </summary>
+/// <param name="Edge">The docked edge the band sits past.</param>
+public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
+{
+    /// <summary>
+    /// The band for a docked edge — <c>ToolbarSettings.DockedEdge</c>'s own vocabulary
+    /// ("Top"/"Bottom"/"Left"/"Right", case-insensitive). Null for an unknown edge: there is never
+    /// an exception without a real docked toolbar.
+    /// </summary>
+    public static ActivationSummonBand? FromDockedEdge(string? edge)
+    {
+        if (edge is null) return null;
+        return edge.ToLowerInvariant() switch
+        {
+            "top" => new(ActivationSummonEdge.Top),
+            "bottom" => new(ActivationSummonEdge.Bottom),
+            "left" => new(ActivationSummonEdge.Left),
+            "right" => new(ActivationSummonEdge.Right),
+            _ => null,
+        };
+    }
+}
+
 /// <summary>
 /// The activation offer's engine — pure, sample-driven, and deliberately NOT wired into
 /// <see cref="InteractionManager"/> in ticket 7 (ticket 8 wires it at the accepted settle).
@@ -119,6 +186,14 @@ public sealed class ActivationOfferEngine
     /// comparison semantics).</summary>
     public const int DefaultOutsidePauseBudgetMs = FixationDetector.GapAbortMs;
 
+    /// <summary>
+    /// The corner fix's clamp tolerance T, in physical px (2026-10-17): at the screen corners the
+    /// tracker reports the settle up to ~190 px past the bezel (the investigation's maximum was 187),
+    /// so a P within T outside the screen is clamped on-screen instead of refused. Beyond T refusal
+    /// stands — no completion may land far off-screen (review B F4's intent).
+    /// </summary>
+    public const double CornerClampTolerancePx = 200.0;
+
     private readonly PhysicalRect _screenBoundsPx;
     private readonly double _scale;
     private readonly double _ringSizeDip;
@@ -126,6 +201,14 @@ public sealed class ActivationOfferEngine
     private double _fixationRadiusPx;
 
     private PhysicalRect[] _chromeZones = Array.Empty<PhysicalRect>();
+
+    // The docked toolbar's summon band, or null (floating toolbar, no toolbar): the one off-screen
+    // strip a settle is still refused in (corner fix F1).
+    private ActivationSummonBand? _summonBand;
+
+    // The last refusal reason raised, or null since the last offer was made: one OfferRefused per
+    // change of reason, never per settle (corner fix F3).
+    private ActivationOfferRefusalReason? _lastRefusalReason;
 
     private long _nextOfferId = 1;
     private ActivationOffer? _offer;
@@ -307,6 +390,16 @@ public sealed class ActivationOfferEngine
     public event Action<ActivationOffer, long, double>? OfferExpired;
 
     /// <summary>
+    /// Raised when an accepted settle got no offer, once per CHANGE of
+    /// <see cref="ActivationOfferRefusalReason"/> — an offer made in between resets the latch, so
+    /// the next refusal of any reason raises again. Never per settle and never per sample: the
+    /// App's adapter logs it as the corner investigation's "Offer refused at P=…: reason" line.
+    /// Carries the RAW settle point. Handlers run on the caller's thread (the gaze thread once
+    /// wired).
+    /// </summary>
+    public event Action<ActivationOfferRefusal>? OfferRefused;
+
+    /// <summary>
     /// The EyeCtrl chrome zones, in physical pixels: the offer is never made over them, and a button
     /// whose hit area would intersect one is flipped once, then dropped. Plain data, pushed by the app
     /// on every chrome change (toolbar, keyboard, prediction bar, menus) — the same pattern as
@@ -314,6 +407,13 @@ public sealed class ActivationOfferEngine
     /// </summary>
     public void SetChromeZones(params PhysicalRect[] zones)
         => _chromeZones = zones ?? Array.Empty<PhysicalRect>();
+
+    /// <summary>
+    /// Publishes the docked toolbar's summon band as plain data, the <see cref="SetChromeZones"/>
+    /// pattern: the App pushes it whenever the zone composition runs, and the wiring re-applies it
+    /// across an engine rebuild the way the zones are re-applied. Null clears it.
+    /// </summary>
+    public void SetSummonBand(ActivationSummonBand? band) => _summonBand = band;
 
     /// <summary>
     /// An accepted settle: creates, replaces, extends or remembers the offer, per the rules in the
@@ -549,31 +649,57 @@ public sealed class ActivationOfferEngine
         _runRole = RunRole.None;
 
         // EyeCtrl's own modal surfaces: nothing at all is offered over them (the user's decision,
-        // 2026-10-02), and no offer is made for a P outside the primary screen — B would be clamped
-        // on screen and the completion would land (click or zoom) at an off-screen P (review B F4).
+        // 2026-10-02), and no offer is made for a P outside the primary screen by more than the
+        // corner clamp's tolerance — a far off-screen P must not get a completion that lands (click
+        // or zoom) off-screen (review B F4).
         if (OffersSuspended)
-            return false;
-        if (!_screenBoundsPx.Contains(point.X, point.Y))
-            return false;
+            return Refuse(point, ActivationOfferRefusalReason.Suspended);
 
-        if (InChrome(point))
-            return false;
+        // The corner fix (2026-10-17): a settle up to T px past an edge is clamped ON-screen, and
+        // the clamped P′ becomes the offer's Point — placement, the no-move zone and the completion
+        // all use it. The one exception is the docked toolbar's summon band, where a clamped offer
+        // would flash on the summon gaze before the toolbar slides in. The ring's own pin stays at
+        // the raw P, which the wiring guarantees (the engine never sees it).
+        var target = point;
+        if (!_screenBoundsPx.Contains(point.X, point.Y))
+        {
+            if (!IsWithinClampTolerance(point) || IsInSummonBand(point))
+                return Refuse(point, ActivationOfferRefusalReason.OffScreen);
+            target = ClampToScreen(point);
+        }
+
+        if (InChrome(target))
+            return Refuse(point, ActivationOfferRefusalReason.InChrome);
 
         var placement = ActivationButtonPlacement.Place(
-            point, _ringSizeDip, LayoutConstants.ActivationButtonOffset, _scale, _hitRadiusPx,
+            target, _ringSizeDip, LayoutConstants.ActivationButtonOffset, _scale, _hitRadiusPx,
             _fixationRadiusPx, _screenBoundsPx, _chromeZones);
         if (!placement.Placed)
-            return false;
+            return Refuse(point, ActivationOfferRefusalReason.NoSidePlaceable);
 
         _offer = new ActivationOffer(
-            _nextOfferId++, point, placement.ButtonCenter, _hitRadiusPx,
+            _nextOfferId++, target, placement.ButtonCenter, _hitRadiusPx,
             timestampUs + (OfferExpiryMs * 1000L));
         _fired = false;
         _dwellUs = 0;
         _peakDwellUs = 0;
         _missSinceUs = null;
         _runRole = RunRole.Offered;
+        _lastRefusalReason = null;   // an offer was made: the next refusal raises again (F3)
         return true;
+    }
+
+    /// <summary>Records a refusal and answers false, raising <see cref="OfferRefused"/> only when
+    /// the reason changed since the last one. <paramref name="point"/> is always the RAW settle
+    /// point — the diagnosis names where the eye was.</summary>
+    private bool Refuse(PhysicalPoint point, ActivationOfferRefusalReason reason)
+    {
+        if (_lastRefusalReason != reason)
+        {
+            _lastRefusalReason = reason;
+            OfferRefused?.Invoke(new ActivationOfferRefusal(point, reason));
+        }
+        return false;
     }
 
     // The offer is gone: either the deadline passed or the caller declined. The pending re-offer takes
@@ -634,6 +760,36 @@ public sealed class ActivationOfferEngine
         // label), not the second one.
         if (OutsidePauseBudgetMs <= 0 || timestampUs - _missSinceUs > OutsidePauseBudgetMs * 1000L)
             _dwellUs = 0;
+    }
+
+    /// <summary>Whether P is outside the screen but inside it inflated by
+    /// <see cref="CornerClampTolerancePx"/> (per axis): the clamp's domain. Exactly T counts — the
+    /// boundary the corner tests pin.</summary>
+    private bool IsWithinClampTolerance(PhysicalPoint point) =>
+        point.X >= _screenBoundsPx.X - CornerClampTolerancePx
+        && point.X <= _screenBoundsPx.X + _screenBoundsPx.Width + CornerClampTolerancePx
+        && point.Y >= _screenBoundsPx.Y - CornerClampTolerancePx
+        && point.Y <= _screenBoundsPx.Y + _screenBoundsPx.Height + CornerClampTolerancePx;
+
+    /// <summary>P clamped to the screen's pixel domain, [X, X+W−1] × [Y, Y+H−1].</summary>
+    private PhysicalPoint ClampToScreen(PhysicalPoint point) => new(
+        Math.Clamp(point.X, _screenBoundsPx.X, _screenBoundsPx.X + _screenBoundsPx.Width - 1),
+        Math.Clamp(point.Y, _screenBoundsPx.Y, _screenBoundsPx.Y + _screenBoundsPx.Height - 1));
+
+    /// <summary>Whether P lies past the docked toolbar's edge — the WHOLE edge (fixup 01 R-F1;
+    /// the summon gate has no span test). Such a settle is summoning the toolbar, never clamped.</summary>
+    private bool IsInSummonBand(PhysicalPoint point)
+    {
+        if (_summonBand is not { } band)
+            return false;
+        return band.Edge switch
+        {
+            ActivationSummonEdge.Top => point.Y < _screenBoundsPx.Y,
+            ActivationSummonEdge.Bottom => point.Y > _screenBoundsPx.Y + _screenBoundsPx.Height,
+            ActivationSummonEdge.Left => point.X < _screenBoundsPx.X,
+            ActivationSummonEdge.Right => point.X > _screenBoundsPx.X + _screenBoundsPx.Width,
+            _ => false,
+        };
     }
 
     private bool InChrome(PhysicalPoint point)

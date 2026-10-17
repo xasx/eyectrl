@@ -246,6 +246,10 @@ public sealed class ToolbarAutoHideController
         _geometry = new Geometry(g.ScreenW, g.ScreenH, rect);
     }
 
+    /// <summary>The currently docked edge ("Top"/"Bottom"/"Left"/"Right") — the whole-edge summon
+    /// band's only input (corner fix 2026-10-17, fixup 01: no span, the gate has no x-range test).</summary>
+    internal string Edge => _edge;
+
     /// <summary>
     /// Re-publishes the screen bounds and the summon rectangle together after a display,
     /// resolution or scaling change.

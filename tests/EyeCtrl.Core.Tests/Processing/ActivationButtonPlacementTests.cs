@@ -195,4 +195,58 @@ public class ActivationButtonPlacementTests
             .DistanceTo(new PhysicalPoint(1000, 1000)))
             .IsCloseTo(((RingDip / 2) + LayoutConstants.ActivationButtonOffset) * Scale, 1e-9);
     }
+
+    // ── Screen corners (2026-10-17 corner fix, T1) ───────────────────────────
+    //
+    // The owner's report: no activation button in the screen corners. For an ON-SCREEN P the
+    // placement is sound at every corner; this pins that property at the corner pixels and at the
+    // insets the investigation measured, so the F1 clamp can only ever move P ON-screen from here.
+    // Geometry per the fix ticket: 3840×2400 @2, ring 200, hit 150, R 80.
+
+    private const double CornerRingDip = 200;
+    private const double CornerHitPx = 150;
+    private const double CornerR = 80;
+
+    /// <summary>The four corner settle points at <paramref name="inset"/> px into the screen; the
+    /// corner pixels of 3840×2400 are 3839/2399.</summary>
+    private static IEnumerable<(string Corner, PhysicalPoint P)> Corners(int inset)
+    {
+        yield return ("TL", new PhysicalPoint(inset, inset));
+        yield return ("TR", new PhysicalPoint(Screen.Width - 1 - inset, inset));
+        yield return ("BL", new PhysicalPoint(inset, Screen.Height - 1 - inset));
+        yield return ("BR", new PhysicalPoint(Screen.Width - 1 - inset, Screen.Height - 1 - inset));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(75)]
+    [InlineData(150)]
+    [InlineData(300)]
+    public void Place_AtEveryCornerInset_PlacesTheButton310PxInward_FullyOnScreen(int inset)
+    {
+        // Mutation: make the placement decline near a corner → Placed flips false.
+        var toolbarZone = new PhysicalRect(1070, 0, 1700, 280);
+        foreach (var (corner, p) in Corners(inset))
+        {
+            foreach (var zones in new IReadOnlyList<PhysicalRect>[]
+                     { Array.Empty<PhysicalRect>(), new[] { toolbarZone } })
+            {
+                var label = $"{corner}@{inset}, {(zones.Count == 0 ? "no zones" : "toolbar zone")}";
+                var result = ActivationButtonPlacement.Place(
+                    p, CornerRingDip, LayoutConstants.ActivationButtonOffset, Scale,
+                    CornerHitPx, CornerR, Screen, zones);
+
+                Check.WithCustomMessage($"{label}: not placed").That(result.Placed).IsTrue();
+                Check.WithCustomMessage($"{label}: |B-P|")
+                    .That(result.ButtonCenter.DistanceTo(p)).IsCloseTo(310.0, 0.5);
+                var b = result.ButtonCenter;
+                Check.WithCustomMessage($"{label}: the hit circle is off-screen")
+                    .That(b.X >= CornerHitPx && b.X <= Screen.Width - CornerHitPx
+                       && b.Y >= CornerHitPx && b.Y <= Screen.Height - CornerHitPx).IsTrue();
+                Check.WithCustomMessage($"{label}: the hit circle intersects a zone")
+                    .That(ActivationButtonPlacement.IntersectsAnyZone(b, CornerHitPx, zones)).IsFalse();
+            }
+        }
+    }
 }

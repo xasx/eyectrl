@@ -167,6 +167,10 @@ public class InteractionManager
     /// <summary>Raised when an offer expired unused: the button-dwell telemetry source for offers the
     /// user looked at but never completed. Carries the dwell fraction reached.</summary>
     public event Action<ActivationOffer, long, double>? ActivationOfferExpired;
+    /// <summary>Re-raised from the attached engine (corner fix 2026-10-17, F3): an accepted settle
+    /// got no offer, once per change of refusal reason. The App's adapter logs it as the
+    /// "Offer refused at P=…: reason" diagnosis line.</summary>
+    public event Action<ActivationOfferRefusal>? ActivationOfferRefused;
 
     /// <summary>Raised to show the action menu at a given point.</summary>
     public event Action<PhysicalPoint>? ShowActionMenu;
@@ -219,6 +223,10 @@ public class InteractionManager
     private const long NoActivationOfferRequest = -1;
     private ActivationOfferEngine? _activationOffers;
     private PhysicalRect[] _activationChromeZones = Array.Empty<PhysicalRect>();
+    // The docked toolbar's summon band (corner fix 2026-10-17): the one off-screen strip a settle is
+    // still refused in, so a summon gaze cannot flash a clamped offer before the toolbar slides in.
+    // Plain data like the zones; survives an engine rebuild through AttachActivationOffers.
+    private ActivationSummonBand? _activationSummonBand;
     // The id of the offer the button currently shows; 0 = none. Written on the gaze thread only (the
     // offer lifecycle is published from here, never from a dispatcher thread), with a full fence, and
     // ALSO read by SetState, which runs on the dispatcher for the keyboard toggle, DeclineOffer and
@@ -274,12 +282,15 @@ public class InteractionManager
         {
             previous.OfferFired -= OnActivationOfferFired;
             previous.OfferExpired -= OnActivationOfferExpired;
+            previous.OfferRefused -= OnActivationOfferRefused;
         }
         _activationOffers = engine;
         engine.SetChromeZones(_activationChromeZones);
+        engine.SetSummonBand(_activationSummonBand);
         engine.SetOffersSuspended(_activationOffersSuspended);
         engine.OfferFired += OnActivationOfferFired;
         engine.OfferExpired += OnActivationOfferExpired;
+        engine.OfferRefused += OnActivationOfferRefused;
         PublishActivationOfferState();
     }
 
@@ -297,6 +308,18 @@ public class InteractionManager
         // keyboard auto-shows without suppression, and the toolbar can be summoned over an offer's
         // area. The re-validation runs on the gaze thread with the other requests.
         Interlocked.Exchange(ref _activationChromeRevalidationRequested, 1);
+    }
+
+    /// <summary>
+    /// Publishes the docked toolbar's summon band to the offer engine as plain data, the
+    /// <see cref="SetActivationChromeZones"/> pattern. Core keeps it across engine rebuilds; null
+    /// clears it (floating toolbar). No re-validation: the band only affects new settles, and a
+    /// live offer's geometry was already placed.
+    /// </summary>
+    public void SetActivationSummonBand(ActivationSummonBand? band)
+    {
+        _activationSummonBand = band;
+        _activationOffers?.SetSummonBand(band);
     }
 
     /// <summary>
@@ -420,10 +443,15 @@ public class InteractionManager
     private void OnActivationOfferExpired(ActivationOffer offer, long timestampUs, double progressAtExpiry)
         => ActivationOfferExpired?.Invoke(offer, timestampUs, progressAtExpiry);
 
+    private void OnActivationOfferRefused(ActivationOfferRefusal refusal)
+        => ActivationOfferRefused?.Invoke(refusal);
+
     // The one publisher of the button's lifetime, called after every engine mutation. An id change is
     // a close followed by a show when a replacement took the old offer's place, so the window never
-    // shows stale geometry.
-    private void PublishActivationOfferState()
+    // shows stale geometry. <paramref name="ringPinPoint"/> overrides the pin's target for the
+    // corner fix: a clamped settle's offer (Point = P′) must leave the RING pinned at the raw
+    // settle centroid, as every off-screen settle did before the clamp existed.
+    private void PublishActivationOfferState(PhysicalPoint? ringPinPoint = null)
     {
         var offer = _activationOffers?.CurrentOffer;
         long id = offer?.Id ?? 0;
@@ -439,10 +467,11 @@ public class InteractionManager
             // The ring follows the offer, not the fixation state: it pins at the offer's P as the
             // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
             // run that still holds) and stays there while the user looks at the button. RunOnly pins
-            // and releases from the settles and the runs alone; the offer's lifecycle is silent.
+            // and releases from the settles and the runs alone; the offer's lifecycle is silent. The
+            // corner fix's override keeps a clamped settle's pin at the RAW settle centroid.
             if (RingPinPolicy == RingPinPolicy.OfferFollowing
                 && CurrentState == InteractionState.Fixation)
-                RaisePinRing(offer.Point, atOffer: true);
+                RaisePinRing(ringPinPoint ?? offer.Point, atOffer: true);
         }
         else if (hadOffer && RingPinPolicy == RingPinPolicy.OfferFollowing
                  && (CurrentState != InteractionState.Fixation || !_ringPinnedThisRun))
@@ -585,7 +614,14 @@ public class InteractionManager
         // The accepted settle is the offer's creation point (ticket 8): the engine classifies it
         // (create / replace / extend / swallow) and the button's show and hide follow from there.
         var outcome = _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);
-        PublishActivationOfferState();   // a new offer pins the ring at its P (below)
+        // Corner fix (2026-10-17): when the engine clamped an off-screen settle to P′, the new
+        // offer's Point is P′ — but the RING's pin stays at the RAW settle centroid, exactly as it
+        // did before the clamp existed (off-screen settles made no offer, so the ring never moved).
+        // The override can only bite when a NEW id was published, and a clamp is the only way a
+        // created or replaced offer's Point differs from the settle point.
+        var live = _activationOffers?.CurrentOffer;
+        PublishActivationOfferState(
+            ringPinPoint: live is not null && live.Point != point ? point : null);
 
         // A settle that changed nothing about a live offer — on the button, a near miss next to it, a
         // swallowed one on P's side, or one arriving while a fired offer is locked — must NOT move the

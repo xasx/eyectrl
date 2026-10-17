@@ -337,6 +337,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\":undo\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"caregiver alert\"",
       "Count": 1
     },

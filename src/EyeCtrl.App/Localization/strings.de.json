@@ -474,6 +474,14 @@
     "text": "Shift",
     "src": "bf8f96a7"
   },
+  "overlays.note.chip.discarded": {
+    "text": "Änderungen verworfen · Rückgängig",
+    "src": "64dc14b4"
+  },
+  "overlays.note.chip.removed": {
+    "text": "Notiz entfernt · Rückgängig",
+    "src": "26a7ded8"
+  },
   "overlays.note.close": {
     "text": "Notiz schließen",
     "src": "ca177537"

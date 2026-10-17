@@ -286,26 +286,26 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void Done_ExistingNoteEmptied_RestoresPreviousText()
+    public void Done_ExistingNoteEmptied_EntersRemovedChip_AndUndoRestoresPreviousText()
     {
-        // The interim P1 row (P1 D4): an emptied existing note restores its last saved text.
-        // P2 replaces this with PendingUndo(Removed).
+        // P2 D5 replaced P1's interim silent restore: Done on an emptied existing note leaves a
+        // Removed chip, and Undo brings the saved text back (expiry would remove it instead).
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         var id = TypeIntoNewDraftNote(manager, "original");
         manager.FinishEdit(id, commit: true); // a real SAVED note
 
         manager.StartEdit(id);
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
+        for (int i = 0; i < 8; i++)
+            manager.Apply(new NoteBackspace());
         Check.That(manager.ActiveNotes[0].Draft).IsEqualTo("");
         manager.FinishEdit(id, commit: true);
+
+        Check.WithCustomMessage("the emptied note must chip, not silently restore (P2 D5)")
+            .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.Removed);
+
+        manager.UndoChipForTest(id);
 
         Check.That(manager.ActiveNotes).HasSize(1);
         Check.That(manager.ActiveNotes[0].Text).IsEqualTo("original");
@@ -593,7 +593,7 @@ public class NoteManagerTests
             probe.RectsProvider = () => Array.Empty<PhysicalRect>();
             for (long t = 3_000_000; t <= 3_800_000; t += 33_000)
                 manager.OnGazeMoved(close, t);
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(id).IsNotEmpty();
         }
         finally
@@ -1018,7 +1018,7 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void CloseButtonDwell_AtVisiblePosition_RemovesNote()
+    public void CloseButtonDwell_AtVisiblePosition_EntersPendingUndo()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
@@ -1031,7 +1031,7 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
+            manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
             var closeCenter = ButtonCentrePhysical(anchor, 2);
 
             // Fixup B2: ✕ re-arms only after the gaze has LEFT its circle — a sample stream that
@@ -1044,7 +1044,10 @@ public class NoteManagerTests
             for (long t = 300_000; t <= 1_100_000; t += 33_000)
                 manager.OnGazeMoved(closeCenter, t);
 
-            Check.That(manager.ActiveNotes).IsEmpty();
+            // P2 D5: the dwell no longer deletes — the window re-renders in place as a chip.
+            Check.That(manager.ActiveNotes).HasSize(1);
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
         }
         finally
         {
@@ -1091,8 +1094,10 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
-            var probe = new CueProbe(EffectRanAtSend: () => manager.ActiveNotes.Count == 0);
+            manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
+            // The ✕ effect (P2 D5) is the chip entry; the cue must fire AFTER the note is pending.
+            var probe = new CueProbe(EffectRanAtSend: () =>
+                manager.ActiveNotes.Count == 1 && manager.ActiveNotes[0].State == NoteState.PendingUndo);
             messenger.Register(probe);
             var closeCenter = ButtonCentrePhysical(anchor, 2);
 
@@ -1104,11 +1109,11 @@ public class NoteManagerTests
                 manager.OnGazeMoved(closeCenter, t);
 
             // The real action ran (nothing vacuous about the count) and the cue fired exactly once,
-            // AFTER the note was already gone.
-            Check.That(manager.ActiveNotes).IsEmpty();
+            // AFTER the note was already pending.
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(probe.Count).IsEqualTo(1);
             Check.WithCustomMessage(
-                "The note removal must land BEFORE the cue publishes (spec D8).")
+                "The chip entry must land BEFORE the cue publishes (spec D8).")
                 .That(probe.EffectAtSend).IsEqualTo(true);
         }
         finally
@@ -1194,13 +1199,13 @@ public class NoteManagerTests
                 .That(manager.ActiveNotes).HasSize(1);
 
             // Negative control: leave ✕'s circle for 200 ms (past the 150 ms latch release), return,
-            // and the target is live and completes from the reset anchor.
+            // and the target is live and completes from the reset anchor — into the chip (P2 D5).
             for (long t = 1_700_000; t <= 1_900_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(
                     new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
             for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally
         {

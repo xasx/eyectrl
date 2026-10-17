@@ -94,8 +94,9 @@ public class NoteOccluderWiringTests
 
                 Check.WithCustomMessage(
                         "✕ must FIRE through the real production wiring on the real container — a "
-                        + "silently-failing occluder source (the B1 regression) holds it forever")
-                    .That(manager.ActiveNotes).IsEmpty();
+                        + "silently-failing occluder source (the B1 regression) holds it forever; "
+                        + "since P2 D5 the fired ✕ enters the chip instead of deleting")
+                    .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
                 var failures = sink.Events
                     .Where(e => e.MessageTemplate.Text.Contains("occluder source threw", StringComparison.Ordinal))
@@ -233,12 +234,13 @@ public class NoteOccluderWiringTests
                 Check.WithCustomMessage("a re-failed source must be logged again (episode re-armed)")
                     .That(episodes).IsEqualTo(2);
 
-                // And the gate itself: the source healthy, the leave satisfied, ✕ fires.
+                // And the gate itself: the source healthy, the leave satisfied, ✕ fires — into
+                // the chip (P2 D5).
                 throwOnRead = false;
                 for (long t = 2_700_000; t <= 3_500_000; t += 100_000)
                     manager.OnGazeMoved(closeCenter, t);
                 Check.WithCustomMessage("a recovered source must not keep the gate shut")
-                    .That(manager.ActiveNotes).IsEmpty();
+                    .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             }
             finally
             {
@@ -372,13 +374,14 @@ public class NoteOccluderWiringTests
                     + "leave may (review-04 m1, mutant W6)")
                 .That(manager.ActiveNotes.Select(n => n.Id)).Contains(idA);
 
-            // Positive control: a healthy 300 ms leave releases the latch, and the return fires ✕.
+            // Positive control: a healthy 300 ms leave releases the latch, and the return fires ✕
+            // — into the chip (P2 D5).
             for (long t = 1_800_000; t <= 2_100_000; t += 100_000) manager.OnGazeMoved(away, t);
             for (long t = 2_200_000; t <= 3_100_000; t += 100_000) manager.OnGazeMoved(closeCenter, t);
             Check.WithCustomMessage(
                     "after a healthy leave the latch must release — the held ✕ must fire (the "
                     + "guard must not be always-on)")
-                .That(manager.ActiveNotes).IsEmpty();
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

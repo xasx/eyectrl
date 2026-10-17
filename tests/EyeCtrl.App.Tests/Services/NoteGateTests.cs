@@ -117,13 +117,13 @@ public class NoteGateTests
             Check.WithCustomMessage("a target that sat under the paused gaze must be latched on resume")
                 .That(manager.ActiveNotes).HasSize(1);
 
-            // Leave past the 150 ms release, return, and the ✕ works again.
+            // Leave past the 150 ms release, return, and the ✕ works again — into the chip (P2 D5).
             for (long t = 2_200_000; t <= 2_400_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(
                     new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
             for (long t = 2_500_000; t <= 3_300_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -164,7 +164,7 @@ public class NoteGateTests
                     new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
             for (long t = 3_500_000; t <= 4_300_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -223,7 +223,7 @@ public class NoteGateTests
                     new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
             for (long t = 2_500_000; t <= 3_300_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -307,10 +307,11 @@ public class NoteGateTests
             Check.WithCustomMessage(because).That(manager.ActiveNotes).HasSize(1);
 
             // The notice is gone: the same held gaze now dwells ✕ — the hold above was the occluder.
+            // P2 D5: the completed ✕ enters the chip, it does not delete.
             occluding = null;
             for (long t = 1_600_000; t <= 2_400_000; t += 100_000)
                 manager.OnGazeMoved(closeCenter, t);
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -350,15 +351,15 @@ public class NoteGateTests
 
             ArmThenHold(manager, bottomClose, startUs: 0);
             Check.WithCustomMessage("the bottom note's ✕ must never fire under a foreign window")
-                .That(manager.ActiveNotes.Any(n => n.Id == bottomId)).IsTrue();
+                .That(manager.ActiveNotes.First(n => n.Id == bottomId).State).IsEqualTo(NoteState.Display);
             Check.WithCustomMessage("the top note — whose window is over the gaze — takes the dwell")
-                .That(manager.ActiveNotes.Any(n => n.Id == topId)).IsFalse();
+                .That(manager.ActiveNotes.First(n => n.Id == topId).State).IsEqualTo(NoteState.PendingUndo);
 
-            // Now the bottom window is genuinely on top: the same spot fires its ✕.
+            // Now the bottom window is genuinely on top: the same spot fires its ✕ — into the chip.
             tester.Answer = bottomHandle;
             ArmThenHold(manager, bottomClose, startUs: 2_000_000);
             Check.WithCustomMessage("with its own window under the gaze, the bottom ✕ must fire")
-                .That(manager.ActiveNotes).IsEmpty();
+                .That(manager.ActiveNotes.First(n => n.Id == bottomId).State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -380,7 +381,7 @@ public class NoteGateTests
             TypeIntoNewSavedNote(manager, "x", anchor);
             var closeCenter = ButtonCentrePhysical(anchor, 2);
             ArmThenHold(manager, closeCenter, startUs: 0);
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -423,10 +424,10 @@ public class NoteGateTests
         // 599 ms of held gaze — under the floor: must not fire.
         for (long t = 300_000; t <= 890_000; t += 33_000) manager.OnGazeMoved(closeCenter, t);
         Check.WithCustomMessage("the routed map must not shorten the note dwell below 600 ms")
-            .That(manager.ActiveNotes).HasSize(1);
-        // One more step crosses 600 ms of held dwell: it fires, proving the target is live.
+            .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+        // One more step crosses 600 ms of held dwell: it fires — into the chip (P2 D5).
         manager.OnGazeMoved(closeCenter, 910_000);
-        Check.That(manager.ActiveNotes).IsEmpty();
+        Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
     }
 
     [Fact]
@@ -697,12 +698,12 @@ public class NoteGateTests
 
             // The gaze rests on the bottom note's ✕, but the TOP window (shown last) is hit-testably
             // on top: the bottom ✕ — strictly nearest — must be filtered, and the top one takes the
-            // dwell. Exactly the top note is removed.
+            // dwell (P2 D5: into its chip).
             ArmThenHold(manager, bottomClose, startUs: 0);
             Check.WithCustomMessage("the bottom note's ✕ must never fire under the top window")
-                .That(manager.ActiveNotes.Select(n => n.Id)).Contains(bottomId);
+                .That(manager.ActiveNotes.First(n => n.Id == bottomId).State).IsEqualTo(NoteState.Display);
             Check.WithCustomMessage("the topmost window's ✕ takes the dwell")
-                .That(manager.ActiveNotes.Select(n => n.Id)).Not.Contains(topId);
+                .That(manager.ActiveNotes.First(n => n.Id == topId).State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

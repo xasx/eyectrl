@@ -891,6 +891,20 @@
     "fit": "A68",
     "args": []
   },
+  "overlays.note.chip.discarded": {
+    "text": "Changes discarded · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.chip.removed": {
+    "text": "Note removed · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.close": {
     "text": "Close note",
     "who": "user",

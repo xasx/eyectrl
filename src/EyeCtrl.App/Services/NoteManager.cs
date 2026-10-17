@@ -954,13 +954,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private bool KeyboardHidden => !(_keyboardProbe?.IsVisible ?? false);
 
     /// <summary>
-    /// The Edit state's targets (P1 D4/D7): ✓ Done in slot 0 always, ⌨ Show-keyboard in slot 1
-    /// only while the keyboard is hidden, slot 2 empty (P2 puts Discard there). There is NO
-    /// :close, :edit or :move while editing — Done is the only Edit exit in P1, and no other
-    /// note's card targets are registered (the single-editor rule). A pure PER-NOTE registrar
-    /// (fixup n3): it adds this note's targets and touches nothing else — a ClearTargets hidden
-    /// in here would wipe other notes' targets depending on <see cref="ReRegisterAllTargets"/>'s
-    /// loop order. Callers that need a full replacement use <see cref="RegisterSoleEditorTargets"/>.
+    /// The Edit state's targets (P1 D4/D7, final P2 layout): ✓ Done in slot 0 always, ⌨
+    /// Show-keyboard in slot 1 only while the keyboard is hidden, ↩ Discard in slot 2 (P2 D5/D8
+    /// — one slot from Done, its destructive counterpart's fail-closed gate applies). There is
+    /// NO :close, :edit or :move while editing — Done (and, from P2, Discard) are the Edit
+    /// exits, and no other note's card targets are registered (the single-editor rule). A pure
+    /// PER-NOTE registrar (fixup n3): it adds this note's targets and touches nothing else — a
+    /// ClearTargets hidden in here would wipe other notes' targets depending on
+    /// <see cref="ReRegisterAllTargets"/>'s loop order. Callers that need a full replacement use
+    /// <see cref="RegisterSoleEditorTargets"/>.
     /// </summary>
     private void RegisterEditTargets(string noteId)
     {
@@ -988,6 +990,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             _dwellDetector.AddTarget(new DwellTarget($"{noteId}:keyboard", ButtonCenter(1), radiusPhysical, DwellTimeMs));
             _targetWindows[$"{noteId}:keyboard"] = WindowHandleOrZero(noteId);
         }
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:discard", ButtonCenter(2), radiusPhysical, DwellTimeMs));
+        _targetWindows[$"{noteId}:discard"] = WindowHandleOrZero(noteId);
     }
 
     /// <summary>The owning note window's HWND (P2 D2), or <see cref="IntPtr.Zero"/> for a
@@ -1024,6 +1028,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         // Button centers come from NoteLayout (window-relative logical coords), shared with
         // NoteWindow.DrawButtons so the dwell targets can't drift from the drawn buttons.
+        // P2 D8: the column reads ✎ · ↕ · ✕ — Remove sits apart in the bottom slot (2), away
+        // from the targets a hand-over or an exit can re-register under a held gaze. The
+        // one-cell gap needs a fourth slot and arrives with T5's column.
         PhysicalPoint ButtonCenter(int index)
         {
             var (lx, ly) = NoteLayout.ButtonCenter(index);
@@ -1032,13 +1039,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
         }
 
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", ButtonCenter(0), radiusPhysical, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", ButtonCenter(1), radiusPhysical, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", ButtonCenter(2), radiusPhysical, DwellTimeMs));
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", ButtonCenter(0), radiusPhysical, DwellTimeMs));
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", ButtonCenter(1), radiusPhysical, DwellTimeMs));
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", ButtonCenter(2), radiusPhysical, DwellTimeMs));
         var handle = WindowHandleOrZero(noteId);
-        _targetWindows[$"{noteId}:close"] = handle;
         _targetWindows[$"{noteId}:edit"] = handle;
         _targetWindows[$"{noteId}:move"] = handle;
+        _targetWindows[$"{noteId}:close"] = handle;
     }
 
     private NoteWindow? Window(string noteId) => _windows.FirstOrDefault(w => w.NoteId == noteId);
@@ -1066,6 +1073,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             case "move": StartMove(noteId); break;
             case "place": FinishMove(noteId, _lastGazePoint); break;
             case "done": FinishEdit(noteId, commit: true); break;
+            case "discard": FinishEdit(noteId, commit: false); break;
             case "keyboard": ShowKeyboardForEditing(noteId); break;
         }
     }

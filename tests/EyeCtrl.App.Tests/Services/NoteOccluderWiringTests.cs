@@ -84,7 +84,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 0);
+                var closeCenter = ButtonCentrePhysical(anchor, 2);
 
                 // Leave-before-arm: 300 ms outside the circle, then a 900 ms hold on ✕.
                 for (long t = 0; t <= 300_000; t += 100_000)
@@ -155,7 +155,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 0);
+            var closeCenter = ButtonCentrePhysical(anchor, 2);
 
             // The card sits exactly over ✕, visible: a full hold must not fire.
             trackStatus.Visible = true;
@@ -196,7 +196,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 0);
+                var closeCenter = ButtonCentrePhysical(anchor, 2);
 
                 // A 2 s hold on ✕ with the source throwing on every sample: nothing escapes,
                 // and the destructive dwell can never complete (fail closed).
@@ -312,11 +312,11 @@ public class NoteOccluderWiringTests
             Check.WithCustomMessage("Done must have SAVED the note (non-destructive exit)")
                 .That(manager.ActiveNotes[0].Text).IsEqualTo("hello");
 
-            // The same held gaze now rests on ✕ (re-registered and latched by the exit): the
-            // destructive control must stay gated — the leave timers are frozen by the failure
-            // (no information), and the fail-closed answer keeps it dead regardless.
+            // The same held gaze now rests on ✕ (slot 2, P2 D8 — re-registered fresh by the
+            // exit): the destructive control must stay gated by the fail-closed answer.
+            var slot2 = ButtonCentrePhysical(anchor, 2); // ✕ Close in Display
             for (long t = 2_600_000; t <= 3_600_000; t += 100_000)
-                manager.OnGazeMoved(slot0, t);
+                manager.OnGazeMoved(slot2, t);
             Check.WithCustomMessage(
                     "a throwing occluder source must keep the destructive ✕ gated under the same "
                     + "held gaze that could still reach Done")
@@ -329,6 +329,8 @@ public class NoteOccluderWiringTests
     // (NoteManager's timer guard skips failing samples). The difference only shows after the
     // source recovers — the mutant W6 would have released the latch on the failing excursion, so
     // the held return fires ✕ 600 ms later; the real code keeps it latched until a HEALTHY leave.
+    // The latch here is the real destructive target: the gaze parks on ✕ (slot 2, P2 D8) and a
+    // neighbour's removal re-registers the survivor's targets under the held gaze.
     [Fact]
     public void AFailingOccluderSource_NeverReleasesALatch_OnlyAHealthyLeaveDoes()
     {
@@ -345,35 +347,34 @@ public class NoteOccluderWiringTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            manager.AddEditingNoteTargetsForTest(anchor);
-            manager.Apply(new NoteAppend("hello"));
-            var slot0 = ButtonCentrePhysical(anchor, 0); // ✓ Done — and ✕'s slot in Display
-            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
+            var idA = manager.AddNoteTargetsForTest(anchor);
+            var idB = manager.AddNoteTargetsForTest(new PhysicalPoint(3000, 2000));
+            var closeCenter = ButtonCentrePhysical(anchor, 2); // ✕ (P2 D8)
+            var away = new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y);
 
-            // 1. Latch ✕ under a held gaze: Done fires, and the exit's re-registration latches
-            //    the ✕ that appears where the eyes never left.
-            for (long t = 0; t <= 700_000; t += 100_000) manager.OnGazeMoved(slot0, t);
-            Check.That(manager.IsEditing).IsFalse();
-            Check.That(manager.ActiveNotes).HasSize(1);
+            // 1. Latch ✕ under a held gaze: the gaze settles on ✕, then a neighbour's removal
+            //    re-registers the survivor's Display targets — the ✕ under the eyes latches.
+            for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(closeCenter, t);
+            manager.RemoveNote(idB);
+            Check.That(manager.ActiveNotes.Select(n => n.Id)).ContainsExactly(idA);
 
             // 2. The source fails; 3. the gaze leaves for 300 ms — failing samples carry no
             //    leave information, so the latch must survive this excursion.
             throwOnRead = true;
-            for (long t = 800_000; t <= 1_100_000; t += 100_000) manager.OnGazeMoved(away, t);
+            for (long t = 300_000; t <= 600_000; t += 100_000) manager.OnGazeMoved(away, t);
 
             // 4. The source heals; 5. the gaze returns and holds a full second: the latch is
             //    still on — ✕ must not fire.
             throwOnRead = false;
-            for (long t = 1_200_000; t <= 2_200_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 700_000; t <= 1_700_000; t += 100_000) manager.OnGazeMoved(closeCenter, t);
             Check.WithCustomMessage(
                     "a failing source's excursion must not release the latch — only a HEALTHY "
                     + "leave may (review-04 m1, mutant W6)")
-                .That(manager.ActiveNotes).HasSize(1);
-            Check.That(manager.ActiveNotes[0].Text).IsEqualTo("hello");
+                .That(manager.ActiveNotes.Select(n => n.Id)).Contains(idA);
 
             // Positive control: a healthy 300 ms leave releases the latch, and the return fires ✕.
-            for (long t = 2_300_000; t <= 2_600_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 2_700_000; t <= 3_600_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 1_800_000; t <= 2_100_000; t += 100_000) manager.OnGazeMoved(away, t);
+            for (long t = 2_200_000; t <= 3_100_000; t += 100_000) manager.OnGazeMoved(closeCenter, t);
             Check.WithCustomMessage(
                     "after a healthy leave the latch must release — the held ✕ must fire (the "
                     + "guard must not be always-on)")

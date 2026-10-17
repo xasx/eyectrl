@@ -49,10 +49,10 @@ public class NoteWindowNameTests
     }
 
     [StaFact]
-    public void EditState_ShowsDoneAndShowKeyboard_Names_NotTheGlyphs()
+    public void EditState_ShowsDoneShowKeyboardAndDiscard_Names_NotTheGlyphs()
     {
-        // P1 D7's slot table: 0 ✓ Done, 1 ⌨ Show keyboard, 2 empty. The UIA names are the
-        // glyphs' only voice.
+        // P1 D7's slot table, final P2 layout (P2 D5/D8): 0 ✓ Done, 1 ⌨ Show keyboard (while
+        // hidden), 2 ↩ Discard — one slot from Done. The UIA names are the glyphs' only voice.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new NoteWindow("p1-note");
         window.SetState(NoteState.Edit);
@@ -67,6 +67,36 @@ public class NoteWindowNameTests
              .That(named["✓"]).IsEqualTo("Done");
         Check.WithCustomMessage("The ⌨ button must publish 'Show keyboard', not its glyph.")
              .That(named["⌨"]).IsEqualTo("Show keyboard");
+        Check.WithCustomMessage("The ↩ button must publish 'Discard changes', not its glyph.")
+             .That(named["↩"]).IsEqualTo("Discard changes");
+    }
+
+    [StaFact]
+    public void PendingUndo_RendersTheChipText_AndNamesItsUndoDisc()
+    {
+        // P2 D5: the window re-renders in place as a chip. The chip text is the manager's
+        // localized string; the ↺ Undo disc is the chip's only control and speaks its UIA name.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new NoteWindow("p2-chip");
+        window.SetState(NoteState.PendingUndo);
+        window.SetChipText("Note removed · Undo");
+        window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+        var texts = TextBlocks((Canvas)window.Content).ToList();
+
+        Check.WithCustomMessage("the chip must show the text the manager set")
+            .That(texts.Select(t => t.Text)).Contains("Note removed · Undo");
+
+        var named = texts
+            .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetName(t)))
+            .ToDictionary(t => t.Text, AutomationProperties.GetName);
+        Check.WithCustomMessage("The ↺ button must publish 'Undo', not its glyph.")
+             .That(named["↺"]).IsEqualTo("Undo");
+
+        // And the chip carries none of the card controls.
+        Check.WithCustomMessage("the chip must not show the card's control glyphs")
+            .That(texts.Where(t => t.Visibility == Visibility.Visible)
+                .Select(t => t.Text).Any(g => g is "✓" or "⌨" or "↩" or "✕" or "✎" or "↕")).IsFalse();
     }
 
     [StaFact]
@@ -145,11 +175,11 @@ public class NoteWindowNameTests
         if (expectEditSet)
         {
             Check.WithCustomMessage("Edit must show its own glyphs, got: " + string.Join("|", visibleGlyphs))
-                .That(visibleGlyphs).Contains("✓", "⌨");
+                .That(visibleGlyphs).Contains("✓", "⌨", "↩");
             Check.WithCustomMessage("Edit must not show the Display glyphs")
-                .That(visibleGlyphs.Any(g => g is "✕" or "✎" or "↕")).IsFalse();
+                .That(visibleGlyphs.Any(g => g is "✕" or "✎" or "↕" or "↺")).IsFalse();
             Check.WithCustomMessage("Edit's buttons must speak their UIA names")
-                .That(visibleNames).Contains("Done", "Show keyboard");
+                .That(visibleNames).Contains("Done", "Show keyboard", "Discard changes");
         }
         else
         {

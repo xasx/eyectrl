@@ -27,8 +27,10 @@ public class NoteWindow : OverlayWindow
     private readonly Dictionary<string, TextBlock> _buttonLabels = new();
     private readonly Dictionary<string, (Path Arc, double StartAngle)> _arcs = new();
     private TextBlock? _textBlock;
+    private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
     private NoteState _state;
+    private string _chipText = string.Empty;
 
     public string NoteId => _noteId;
     public NoteState State => _state;
@@ -115,12 +117,31 @@ public class NoteWindow : OverlayWindow
     /// WS_EX_NOACTIVATE for life (the base class sets it once in OnSourceInitialized): typing
     /// reaches the note through the manager's <c>Apply</c>, never through OS focus, and a bare
     /// <c>Activate()</c> — whose foreground-lock failure sent eye-typed text into other windows —
-    /// no longer exists on any path.
+    /// no longer exists on any path. PendingUndo (P2 D5) instead renders the Undo chip: the chip
+    /// text the manager set through <see cref="SetChipText"/>, no editor, no end marker.
     /// </summary>
     public void UpdateContent()
     {
         if (_contentBorder == null) return;
         _contentBorder.Child = null;
+        _textBlock = null;
+        _chipTextBlock = null;
+
+        if (_state == NoteState.PendingUndo)
+        {
+            _chipTextBlock = new TextBlock
+            {
+                Width = TextAreaWidth - 20,
+                MaxWidth = TextAreaWidth - 20,
+                Margin = new Thickness(10, 10, 0, 0),
+                FontSize = Tokens.FontSizeBody,
+                Foreground = Tokens.BrushTextPrimary,
+                TextWrapping = TextWrapping.Wrap,
+                Text = _chipText
+            };
+            _contentBorder.Child = _chipTextBlock;
+            return;
+        }
 
         // Each state keeps its previous text colour: Display's amber body and Edit's primary
         // editor text are today's look, and restyling them is T5's scope, not this ticket's.
@@ -152,6 +173,15 @@ public class NoteWindow : OverlayWindow
         }
 
         _contentBorder.Child = stack;
+    }
+
+    /// <summary>Sets the Undo chip's text (P2 D5) and re-renders when the chip is showing. The
+    /// text comes from the manager through the localization table, kind-dependent.</summary>
+    public void SetChipText(string text)
+    {
+        _chipText = text;
+        if (_state == NoteState.PendingUndo && _chipTextBlock != null)
+            _chipTextBlock.Text = text;
     }
 
     public void SetText(string text)
@@ -200,11 +230,12 @@ public class NoteWindow : OverlayWindow
     {
         return _state switch
         {
-            // Edit is the active/dwell state -> Accent (cyan). Move is a secondary state that
-            // must be distinct from Edit AND clearly visible on surfaces; MarkerMove (a soft
-            // violet) clears 3:1 on the note surface where the prior SurfaceKeySwitch mark sat
-            // at 1.77-2.18:1 (below the non-text floor).
+            // Edit and PendingUndo are the active/dwell states -> Accent (cyan). Move is a
+            // secondary state that must be distinct from Edit AND clearly visible on surfaces;
+            // MarkerMove (a soft violet) clears 3:1 on the note surface where the prior
+            // SurfaceKeySwitch mark sat at 1.77-2.18:1 (below the non-text floor).
             NoteState.Edit => Tokens.BrushAccent,
+            NoteState.PendingUndo => Tokens.BrushAccent,
             NoteState.Move => Tokens.BrushMarkerMove,
             _ => Tokens.BrushSurfaceMedium
         };
@@ -217,32 +248,37 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        // BOTH sets are drawn once, over the same three slots (P1 D7, fixup B1), so Done and
-        // (in P2) Discard stay one slot apart and the dwell-target math (NoteLayout.ButtonCenter)
-        // never changes:
-        //   Display: 0 ✕ close, 1 ✎ edit, 2 ↕ move
-        //   Edit:    0 ✓ Done (AccentSuccess), 1 ⌨ Show keyboard (Accent, keyboard-hidden only), 2 empty
+        // ALL sets are drawn once, over the same three slots (P1 D7, fixup B1; T3 P2 D8), so the
+        // dwell-target math (NoteLayout.ButtonCenter) never changes per state:
+        //   Display:      0 ✎ edit, 1 ↕ move, 2 ✕ close  (P2 D8: ✕ sits apart, bottom slot)
+        //   Edit:         0 ✓ Done (AccentSuccess), 1 ⌨ Show keyboard (Accent, keyboard-hidden
+        //                 only), 2 ↩ Discard (AccentDanger) — Done and Discard stay one slot apart
+        //   PendingUndo:  0 ↺ Undo — the chip's only control (P2 D5)
         // Every note is created in Edit before Show(), so a canvas that drew only the current
         // state's set could never gain the Display controls later — SetState(Display) would
-        // unhide buttons that do not exist while their dwell targets go live. UpdateButtonVisibility
-        // picks the visible set per state; the hidden twin of each slot is Collapsed.
-        // The fourth field is the button's UIA name: the disc is an Ellipse (no automation peer),
-        // and the glyph label would otherwise announce as its own symbol, so the name goes on the
-        // peer-bearing TextBlock (D11).
+        // unhide buttons that do not exist while their dwell targets go live.
+        // UpdateButtonVisibility picks the visible set per state; every other slot's twin is
+        // Collapsed. The fourth field is the button's UIA name: the disc is an Ellipse (no
+        // automation peer), and the glyph label would otherwise announce as its own symbol, so
+        // the name goes on the peer-bearing TextBlock (D11).
         _displayButtons =
         [
-            ("close", "✕", Tokens.AccentDanger, StringTable.Current.T("overlays.note.close")),
             ("edit",  "✎", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.edit")),
             ("move",  "↕", Tokens.MarkerMove, StringTable.Current.T("overlays.note.move")),
+            ("close", "✕", Tokens.AccentDanger, StringTable.Current.T("overlays.note.close")),
         ];
         _editButtons =
         [
             ("done",     "✓", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.done")),
             ("keyboard", "⌨", Tokens.Accent, StringTable.Current.T("overlays.note.showKeyboard")),
-            ("none",     "",  Tokens.AccentDanger, string.Empty),
+            ("discard",  "↩", Tokens.AccentDanger, StringTable.Current.T("overlays.note.discard")),
+        ];
+        _chipButtons =
+        [
+            ("undo", "↺", Tokens.Accent, StringTable.Current.T("overlays.note.undo")),
         ];
 
-        foreach (var symbols in new[] { _displayButtons, _editButtons })
+        foreach (var symbols in new[] { _displayButtons, _editButtons, _chipButtons })
         {
             for (int i = 0; i < symbols.Length; i++)
             {
@@ -292,35 +328,50 @@ public class NoteWindow : OverlayWindow
 
     private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _displayButtons = [];
     private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _editButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _chipButtons = [];
 
     /// <summary>
     /// Shows or hides the control buttons to match the current state so the visible buttons stay
     /// in sync with the dwell targets registered by <c>NoteManager</c>:
-    /// Display = close+edit+move; Edit = Done always, ⌨ only while the keyboard is hidden (the
-    /// manager drives that half through <see cref="SetKeyboardControlVisible"/>); Move = none.
+    /// Display = edit+move+close; Edit = Done and Discard always, ⌨ only while the keyboard is
+    /// hidden (the manager drives that half through <see cref="SetKeyboardControlVisible"/>);
+    /// Move = none; PendingUndo = the chip's Undo disc. Both other sets EXIST on the canvas
+    /// (fixup B1), so every branch must set every key explicitly — a fresh Ellipse's default
+    /// Visibility is Visible, and an untouched twin would render on top of the active set.
     /// </summary>
     private void UpdateButtonVisibility()
     {
-        // Both sets EXIST on the canvas now (fixup B1), so every branch must set every key
-        // explicitly — a fresh Ellipse's default Visibility is Visible, and an untouched twin
-        // would render on top of the active set.
-        if (_state == NoteState.Edit)
+        if (_state == NoteState.PendingUndo)
         {
-            SetButtonVisible("done", true);
-            SetButtonVisible("keyboard", _keyboardControlVisible);
+            SetButtonVisible("undo", true);
+            SetButtonVisible("done", false);
+            SetButtonVisible("keyboard", false);
+            SetButtonVisible("discard", false);
             SetButtonVisible("close", false);
             SetButtonVisible("edit", false);
             SetButtonVisible("move", false);
-            SetButtonVisible("none", false);
             return;
         }
 
+        if (_state == NoteState.Edit)
+        {
+            SetButtonVisible("undo", false);
+            SetButtonVisible("done", true);
+            SetButtonVisible("keyboard", _keyboardControlVisible);
+            SetButtonVisible("discard", true);
+            SetButtonVisible("close", false);
+            SetButtonVisible("edit", false);
+            SetButtonVisible("move", false);
+            return;
+        }
+
+        SetButtonVisible("undo", false);
         SetButtonVisible("done", false);
         SetButtonVisible("keyboard", false);
+        SetButtonVisible("discard", false);
         SetButtonVisible("close", _state != NoteState.Move);
         SetButtonVisible("edit", _state == NoteState.Display);
         SetButtonVisible("move", _state == NoteState.Display);
-        SetButtonVisible("none", false);
     }
 
     private bool _keyboardControlVisible;

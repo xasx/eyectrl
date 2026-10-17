@@ -478,6 +478,10 @@
     "text": "Notiz schließen",
     "src": "ca177537"
   },
+  "overlays.note.discard": {
+    "text": "Änderungen verwerfen",
+    "src": "d2ed92f8"
+  },
   "overlays.note.done": {
     "text": "Fertig",
     "src": "29363e97"
@@ -497,6 +501,10 @@
   "overlays.note.title": {
     "text": "ANGEHEFTETE NOTIZ",
     "src": "aa84667f"
+  },
+  "overlays.note.undo": {
+    "text": "Rückgängig",
+    "src": "6bc7bbf8"
   },
   "overlays.pause.title": {
     "text": "EyeCtrl pausiert",

@@ -898,6 +898,13 @@
     "fit": "row",
     "args": []
   },
+  "overlays.note.discard": {
+    "text": "Discard changes",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.done": {
     "text": "Done",
     "who": "user",
@@ -928,6 +935,13 @@
   },
   "overlays.note.title": {
     "text": "PINNED NOTE",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.undo": {
+    "text": "Undo",
     "who": "user",
     "where": "overlays",
     "fit": "row",

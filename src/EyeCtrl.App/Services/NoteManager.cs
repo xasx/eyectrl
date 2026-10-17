@@ -617,22 +617,74 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     }
 
     /// <summary>Gate conjunct 4's occluder half (P2 D3): the keyboard window and its edge bar
-    /// (through the probe), the lag mark, and the drift notice / caregiver alert visible bounds.
-    /// Each source is read live; nulls contribute nothing.</summary>
+    /// (through the probe), the lag mark, and the drift notice / caregiver alert / track-status
+    /// card visible bounds. Each source is read live; nulls contribute nothing.
+    /// <para>
+    /// FAIL CLOSED (T2 fixup 02): a throwing source means the sample is treated as OCCLUDED, so
+    /// no note control can fire under an overlay the gate cannot see past. A wiring slip then
+    /// degrades to "notes dead under that source" instead of a per-sample exception that starves
+    /// the whole gaze broadcast and makes Done unreachable. The failure is logged once per source
+    /// per failure episode (a successful read re-arms the log, so a recovered-then-refailed
+    /// source is loud again) — never once per sample.
+    /// </para></summary>
     private bool OccludersContain(PhysicalPoint gazePoint)
     {
-        if (_keyboardProbe is { } probe && probe.Rects().Any(rect => rect.Contains(gazePoint)))
+        if (SourceOccludes(KnownOccluderSources.KeyboardProbe,
+                () => _keyboardProbe?.Rects().Any(rect => rect.Contains(gazePoint)) == true))
             return true;
-        if (_lagMarkRects is { } lagMark && lagMark().Any(rect => rect.Contains(gazePoint)))
+        if (SourceOccludes(KnownOccluderSources.LagMark,
+                () => _lagMarkRects is { } lagMark && lagMark().Any(rect => rect.Contains(gazePoint))))
             return true;
-        if (_driftNoticeBounds is { } drift && drift.Invoke() is { } driftBounds && driftBounds.Contains(gazePoint))
+        if (SourceOccludes(KnownOccluderSources.DriftNotice,
+                () => _driftNoticeBounds is { } drift && drift.Invoke() is { } driftBounds
+                    && driftBounds.Contains(gazePoint)))
             return true;
-        if (_caregiverAlertBounds is { } alert && alert.Invoke() is { } alertBounds && alertBounds.Contains(gazePoint))
+        if (SourceOccludes(KnownOccluderSources.CaregiverAlert,
+                () => _caregiverAlertBounds is { } alert && alert.Invoke() is { } alertBounds
+                    && alertBounds.Contains(gazePoint)))
             return true;
-        if (_trackStatusBounds is { } trackStatus && trackStatus.Invoke() is { } trackStatusBounds
-            && trackStatusBounds.Contains(gazePoint))
+        if (SourceOccludes(KnownOccluderSources.TrackStatus,
+                () => _trackStatusBounds is { } trackStatus && trackStatus.Invoke() is { } trackStatusBounds
+                    && trackStatusBounds.Contains(gazePoint)))
             return true;
         return false;
+    }
+
+    /// <summary>The occluder sources' stable names, for the fail-closed log (one entry per source
+    /// per failure episode).</summary>
+    internal static class KnownOccluderSources
+    {
+        public const string KeyboardProbe = "keyboard probe";
+        public const string LagMark = "lag mark";
+        public const string DriftNotice = "drift notice";
+        public const string CaregiverAlert = "caregiver alert";
+        public const string TrackStatus = "track status";
+    }
+
+    /// <summary>The logged-failure episode flags, one per source name: a failed source logs once,
+    /// and a successful read clears its flag so a later failure is loud again.</summary>
+    private readonly HashSet<string> _occluderFailureLogged = new(StringComparer.Ordinal);
+
+    /// <summary>Runs one occluder read. A throw is contained: logged once for this episode and
+    /// answered with TRUE — the sample is occluded, so no hidden ✕ or ✎ can fire (fixup 02).</summary>
+    private bool SourceOccludes(string name, Func<bool> read)
+    {
+        bool occludes;
+        try
+        {
+            occludes = read();
+        }
+        catch (Exception ex)
+        {
+            if (_occluderFailureLogged.Add(name))
+                Serilog.Log.Error(ex,
+                    "The note gate's {OccluderSource} occluder source threw; failing closed — "
+                    + "samples count as occluded until the source recovers", name);
+            return true;
+        }
+
+        _occluderFailureLogged.Remove(name); // a healthy read re-arms the once-per-episode log
+        return occludes;
     }
 
     /// <summary>Whether the gaze lies inside the union of the live targets' hit areas (P2 D2's

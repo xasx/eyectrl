@@ -276,21 +276,11 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>());
             _eventCoordinator.Initialize(coordinationContext);
 
-            // The note gate's occluder sources (P2 D3), read directly — no shared gaze-surface
-            // provider (review-02 M-2). All four delegates read late: the lag mark's bridge is
-            // empty until the host below attaches it (instrumented sessions only), and the notice
-            // and card bounds report null while they are not showing.
-            noteManager.SetOccluderSources(
-                lagMarkRects: () => _serviceProvider.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
-                driftNoticeBounds: () =>
-                    _serviceProvider.GetRequiredService<IDriftNoticePresenter>().TryGetVisibleBounds(out var drift)
-                        ? drift : null,
-                caregiverAlertBounds: () =>
-                    _serviceProvider.GetRequiredService<ICaregiverAlertPresenter>().TryGetVisibleBounds(out var alert)
-                        ? alert : null,
-                trackStatusBounds: () =>
-                    _serviceProvider.GetRequiredService<ITrackStatusOverlay>().TryGetVisibleBounds(out var track)
-                        ? track : null);
+            // The note gate's occluder sources (P2 D3) — the four production delegates live in
+            // NoteOccluderWiring.Wire, so the real wiring is executable from a container test
+            // (T2 fixup 02, review-02 B1: the inlined version resolved a service the container
+            // does not register, and every gaze sample threw while a note existed).
+            NoteOccluderWiring.Wire(noteManager, _serviceProvider, coordinationContext);
 
             // Hand the toolbar lifecycle coordinator to the preview suspension bridge (Task 10, P8):
             // the preview service suspends auto-hide through it while its panel is up, but the

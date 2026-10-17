@@ -336,6 +336,31 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"caregiver alert\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"drift notice\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"keyboard probe\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"lag mark\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"track status\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
       "Literal": "\"--restart-handoff\"",
       "Count": 1

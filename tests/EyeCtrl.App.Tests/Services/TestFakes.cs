@@ -230,6 +230,7 @@ internal static class TestFakes
         public int StartTrackingCount { get; private set; }
         public int StopTrackingCount { get; private set; }
         public bool Visible { get; set; }
+        public EyeCtrl.Core.Models.PhysicalRect Bounds { get; set; }
 
         public void Show() { }
         public void Hide() { }
@@ -248,7 +249,7 @@ internal static class TestFakes
 
         public bool TryGetVisibleBounds(out EyeCtrl.Core.Models.PhysicalRect bounds)
         {
-            bounds = default;
+            bounds = Visible ? Bounds : default;
             return Visible;
         }
     }

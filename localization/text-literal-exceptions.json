@@ -1299,6 +1299,18 @@
       "Literal": "\"suspended\"",
       "Category": "log",
       "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=(?,?)\"",
+      "Category": "log",
+      "Reason": "The Scroll mode entry line's cursor fragment (a failed cursor read) -- log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=({0:F0},{1:F0})\"",
+      "Category": "log",
+      "Reason": "The Scroll mode entry line's cursor fragment -- log-only, never shown."
     }
   ]
 }

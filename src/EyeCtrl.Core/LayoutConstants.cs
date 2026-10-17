@@ -103,6 +103,31 @@ public static class LayoutConstants
         + 2 * NoteButtonGap
         + NoteButtonPadding;
 
-    /// <summary>Radius (logical px) of the placement dwell target shown while a note is being moved.</summary>
+    /// <summary>Radius (logical px) of the placement dwell target shown while a note is being moved.
+    /// TEMPORARILY REINSTATED for T4's intermediate build: the Move rework (P3 D4) replaces the
+    /// gaze-chasing placement target, and this constant goes with it in the same ticket.</summary>
     public const double NotePlacementRadius = 100.0;
+
+    // ── the Place-here window (P3 D4) ──
+    // One small window per NoteManager, shown beside an accepted settle's centroid while a note
+    // is being moved. It is not click-through, so the P2 own-window conjunct can resolve it.
+
+    /// <summary>Width of the Place-here window in logical pixels (DIP).</summary>
+    public const double NotePlaceHereWidthDip = 150.0;
+
+    /// <summary>Height of the Place-here window in logical pixels (DIP).</summary>
+    public const double NotePlaceHereHeightDip = 44.0;
+
+    /// <summary>Horizontal offset from an accepted settle's centroid to the Place-here window's
+    /// left edge, so the window never covers the centroid it was born from.</summary>
+    public const double NotePlaceHereOffsetDip = 40.0;
+
+    /// <summary>The Place-here exclusion margin (P3 D4): the window inflated by its hit half-size
+    /// plus this. While the gaze is inside that margin the window never moves — an accepted
+    /// settle inside it is ignored.</summary>
+    public const double NotePlaceHereDetourDip = 60.0;
+
+    /// <summary>The Place-here dwell target's hit half-size in logical pixels: the same disc the
+    /// note buttons use, over the window's centre.</summary>
+    public const double NotePlaceHereHitRadiusDip = NoteButtonRadius;
 }

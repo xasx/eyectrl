@@ -31,6 +31,8 @@ public class NoteWindow : OverlayWindow
     private Border? _contentBorder;
     private NoteState _state;
     private string _chipText = string.Empty;
+    // The side the placement chose (P3 D2); Right until the manager applies a placement.
+    private NoteSide _side = NoteSide.Right;
 
     public string NoteId => _noteId;
     public NoteState State => _state;
@@ -277,14 +279,23 @@ public class NoteWindow : OverlayWindow
         [
             ("undo", "↺", Tokens.Accent, StringTable.Current.T("overlays.note.undo")),
         ];
+        // The Move state's set (P3 D4): Other side and Cancel, slot 0 and 1 — drawn once like
+        // every other set so the dwell-target math never changes per state. UpdateButtonVisibility
+        // shows Other side only while another side actually fits; the manager drives that half.
+        _moveButtons =
+        [
+            ("otherside", "⇄", Tokens.Accent, StringTable.Current.T("overlays.note.otherSide")),
+            ("cancel",    "⊘", Tokens.AccentDanger, StringTable.Current.T("overlays.note.cancel")),
+        ];
 
-        foreach (var symbols in new[] { _displayButtons, _editButtons, _chipButtons })
+        foreach (var symbols in new[] { _displayButtons, _editButtons, _chipButtons, _moveButtons })
         {
             for (int i = 0; i < symbols.Length; i++)
             {
                 var (suffix, symbol, color, accessibleName) = symbols[i];
-                // Window-relative logical center, shared with NoteManager's dwell-target placement.
-                var (cx, cy) = NoteLayout.ButtonCenter(i);
+                // Window-relative logical centre, shared with NoteManager's dwell-target
+                // placement — column side follows the placement side (P3 D2.6).
+                var (cx, cy) = NoteLayout.ButtonCenter(_side, i);
 
                 var ellipse = new Ellipse
                 {
@@ -329,6 +340,7 @@ public class NoteWindow : OverlayWindow
     private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _displayButtons = [];
     private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _editButtons = [];
     private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _chipButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _moveButtons = [];
 
     /// <summary>
     /// Shows or hides the control buttons to match the current state so the visible buttons stay
@@ -350,6 +362,8 @@ public class NoteWindow : OverlayWindow
             SetButtonVisible("close", false);
             SetButtonVisible("edit", false);
             SetButtonVisible("move", false);
+            SetButtonVisible("otherside", false);
+            SetButtonVisible("cancel", false);
             return;
         }
 
@@ -362,6 +376,8 @@ public class NoteWindow : OverlayWindow
             SetButtonVisible("close", false);
             SetButtonVisible("edit", false);
             SetButtonVisible("move", false);
+            SetButtonVisible("otherside", false);
+            SetButtonVisible("cancel", false);
             return;
         }
 
@@ -372,9 +388,26 @@ public class NoteWindow : OverlayWindow
         SetButtonVisible("close", _state != NoteState.Move);
         SetButtonVisible("edit", _state == NoteState.Display);
         SetButtonVisible("move", _state == NoteState.Display);
+        // The Move set (P3 D4): Other side shows only while another side fits — the manager
+        // drives that through SetOtherSideAvailable; Cancel is always part of Move.
+        SetButtonVisible("otherside", _state == NoteState.Move && _otherSideAvailable);
+        SetButtonVisible("cancel", _state == NoteState.Move);
     }
 
     private bool _keyboardControlVisible;
+    private bool _otherSideAvailable;
+
+    /// <summary>
+    /// The Move state's Other-side control (P3 D4): registered and drawn only while
+    /// <c>Place(..., exclude: current)</c> found another fitting side — the manager calls this
+    /// on entering Move and on every T1–T6 re-evaluation so the drawn button can never disagree
+    /// with the registered dwell target (the same invariant ⌨'s drawn/registered pair pins).
+    /// </summary>
+    public void SetOtherSideAvailable(bool available)
+    {
+        _otherSideAvailable = available;
+        Dispatcher.Invoke(() => SetButtonVisible("otherside", _state == NoteState.Move && available));
+    }
 
     private void SetButtonVisible(string suffix, bool visible)
     {

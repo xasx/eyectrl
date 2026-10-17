@@ -474,6 +474,10 @@
     "text": "Shift",
     "src": "bf8f96a7"
   },
+  "overlays.note.cancel": {
+    "text": "Abbrechen",
+    "src": "09b4eafd"
+  },
   "overlays.note.chip.discarded": {
     "text": "Änderungen verworfen · Rückgängig",
     "src": "64dc14b4"
@@ -501,6 +505,14 @@
   "overlays.note.move": {
     "text": "Notiz verschieben",
     "src": "7787d174"
+  },
+  "overlays.note.otherSide": {
+    "text": "Andere Seite",
+    "src": "6de2740a"
+  },
+  "overlays.note.placeHere": {
+    "text": "Hier platzieren",
+    "src": "3416e6f1"
   },
   "overlays.note.showKeyboard": {
     "text": "Tastatur zeigen",

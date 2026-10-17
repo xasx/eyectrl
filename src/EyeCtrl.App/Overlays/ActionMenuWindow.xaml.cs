@@ -93,9 +93,10 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
         // The preview ellipse's centre (the window centre) and size are what the geometry is drawn
         // against. Delay the capture to let WPF render overlay visibility changes.
+        var (screenWidth, screenHeight) = ScreenCaptureService.PhysicalScreenSize();
         var geometry = PreviewGeometry(
             center, gazePoint, zoomCenter, zoomRadius, previewCircleSize, previewMagnification,
-            DpiHelper.ScaleX);
+            DpiHelper.ScaleX, screenWidth, screenHeight);
         var captureCenter = geometry.CaptureCenter;
         var captureRadius = geometry.CaptureRadiusPx;
         var captureCanvasCenter = canvasCenter;
@@ -263,7 +264,23 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
             };
             Canvas.SetLeft(previewEllipse, canvasCenter.X - circleSize / 2);
             Canvas.SetTop(previewEllipse, canvasCenter.Y - circleSize / 2);
+
+            // An opaque under-fill below the picture, the same surface the magnifier's disc uses.
+            // The capture is centred on the commit point now, so at an edge its off-screen part is
+            // transparent; without this the menu's backdrop would show through the preview. The
+            // image ellipse goes over it, and both stay behind the buttons.
+            var previewBackdrop = new Ellipse
+            {
+                Width = circleSize,
+                Height = circleSize,
+                Fill = Tokens.BrushSurfaceDark,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(previewBackdrop, canvasCenter.X - circleSize / 2);
+            Canvas.SetTop(previewBackdrop, canvasCenter.Y - circleSize / 2);
+
             MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
+            MenuCanvas.Children.Insert(0, previewBackdrop); // ... and the under-fill behind the image
 
             var effectiveCenter = capture.Value.EffectiveCenter;
             Log.Information("Menu preview: center=({X:F0},{Y:F0}) captureRadius={R}px scale={S:F2}",
@@ -294,7 +311,12 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     /// the menu's display <paramref name="center"/>: under <c>atCenter</c> that display point is the
     /// screen centre, so the marker used to show where the screen centre fell, not where the click
     /// would land. In the zoom path the capture is centred on the commit point, so the marker sits
-    /// at (0,0). The plain path is unchanged: 1.0× around the menu's display point.
+    /// at (0,0) — at edges and corners too. The plain path is unchanged: 1.0× around the menu's
+    /// display point.
+    /// </para>
+    /// <para>
+    /// The screen size is a parameter, not a read of the live display, so the effective centre is
+    /// testable without a real screen and follows the same centred placement the capture uses.
     /// </para>
     /// </summary>
     internal static (PhysicalPoint CaptureCenter, int CaptureRadiusPx, double ViewScaleDipPerPx, Vector MarkerOffsetDip) PreviewGeometry(
@@ -304,7 +326,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         int? zoomRadius,
         double previewCircleSize,
         double previewMagnification,
-        double scaleX)
+        double scaleX,
+        int screenWidth,
+        int screenHeight)
     {
         var commitPoint = gazePoint ?? center;
         var zoomPath = zoomCenter is not null && zoomRadius is not null;
@@ -316,9 +340,11 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
             previewCircleSize / 2 / (zoomPath ? previewMagnification : 1.0) * scaleX);
         captureRadius = Math.Max(1, captureRadius);
 
-        // The capture rectangle is clamped to the screen, so the image's centre is the effective
-        // one, not the requested centre. The marker must be placed against the image actually shown.
-        var effectiveCaptureCenter = ScreenCaptureService.GetEffectiveCenter(captureCenter, captureRadius);
+        // The capture is centred on the requested point, so the image's centre is that point. The
+        // marker must be placed against the image actually shown; the mirror below is the same
+        // centred placement the capture service uses.
+        var effectiveCaptureCenter = CaptureViewMapping.EffectiveCaptureCenter(
+            captureCenter, captureRadius, screenWidth, screenHeight);
         var viewScaleDipPerPx = previewCircleSize / (2.0 * captureRadius);
         var (markerX, markerY) = ClampToScreen(
             (commitPoint.X - effectiveCaptureCenter.X) * viewScaleDipPerPx,

@@ -5,11 +5,12 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
 /// <summary>
-/// Pure geometry for a magnified view of a captured screen region. The capture rectangle is
-/// clamped to the screen (<see cref="CaptureRegionMath"/>), so near an edge the centre of the
-/// captured image — the effective centre — is not the centre that was requested. Mapping between
-/// the view and real screen coordinates must use the effective centre: assuming the requested
-/// centre silently misplaces points by up to the capture radius near any screen edge.
+/// Pure geometry for a magnified view of a captured screen region. The capture square is always
+/// centred on the requested point (<see cref="CaptureRegionMath.Place"/>); near an edge the
+/// off-screen part is transparent and the effective centre is still that point. Mapping between
+/// the view and real screen coordinates uses the effective centre, which is also where a commit
+/// must be clamped to the screen: the visible disc can extend past an edge, and every selected
+/// point has to land on the screen.
 ///
 /// Units: real-screen coordinates are physical pixels (<see cref="PhysicalPoint"/>); view
 /// coordinates are DIPs (System.Windows <see cref="Point"/>/<see cref="Rect"/>), matching the
@@ -26,17 +27,28 @@ public static class CaptureViewMapping
     /// <summary>
     /// The centre of the image a capture of <paramref name="radius"/> around
     /// <paramref name="requestedCenter"/> actually produces, in physical pixels. Mirrors the
-    /// clamping <see cref="ScreenCaptureService.CaptureRegion"/> applies, so a caller that needs
-    /// the centre before the image arrives (the action-menu preview marker) gets the same value
-    /// the capture will.
+    /// centred placement <see cref="ScreenCaptureService.CaptureRegion(PhysicalPoint, int)"/>
+    /// applies, so a caller that needs the centre before the image arrives (the action-menu preview
+    /// marker) gets the same value the capture will: the requested centre whenever the placement
+    /// exists.
     /// </summary>
     public static PhysicalPoint EffectiveCaptureCenter(PhysicalPoint requestedCenter, int radius, int screenWidth, int screenHeight)
     {
-        var region = CaptureRegionMath.Compute((int)requestedCenter.X, (int)requestedCenter.Y, radius, screenWidth, screenHeight);
-        return region is null
+        var placement = CaptureRegionMath.Place((int)requestedCenter.X, (int)requestedCenter.Y, radius, screenWidth, screenHeight);
+        return placement is null
             ? requestedCenter
-            : CaptureRegionMath.CenterOf(region.Value);
+            : CaptureRegionMath.CenterOf((placement.Value.OriginX, placement.Value.OriginY, placement.Value.Size));
     }
+
+    /// <summary>
+    /// Clamps a real-screen point to the screen's physical bounds. The magnified disc can extend
+    /// past an edge now that the capture is centred on P, so a view point over the transparent
+    /// off-screen part maps onto the nearest screen pixel rather than outside the screen.
+    /// </summary>
+    public static PhysicalPoint ClampToScreen(PhysicalPoint point, int screenWidth, int screenHeight)
+        => new(
+            Math.Clamp(point.X, 0, Math.Max(0, screenWidth - 1)),
+            Math.Clamp(point.Y, 0, Math.Max(0, screenHeight - 1)));
 
     /// <summary>
     /// The inverse of <see cref="ToViewPoint"/>: maps a point in the magnified view back to real

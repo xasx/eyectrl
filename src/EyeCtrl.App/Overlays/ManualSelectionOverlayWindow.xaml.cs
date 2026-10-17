@@ -44,6 +44,13 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     /// </summary>
     internal Func<PhysicalPoint, int, CaptureResult?> Capture { get; set; } = ScreenCaptureService.CaptureRegion;
 
+    /// <summary>
+    /// The screen size the commit clamp uses, in physical pixels. Production reads the primary
+    /// screen exactly as the capture does; tests inject a known size so the clamp is deterministic
+    /// without depending on the machine's display.
+    /// </summary>
+    internal Func<(int Width, int Height)> ScreenSize { get; set; } = ScreenCaptureService.PhysicalScreenSize;
+
     public ManualSelectionOverlayWindow()
     {
         IsClickThrough = true;
@@ -148,9 +155,9 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
             _lastLumaSd = stats.StandardDeviation;
             _pictureState = PictureFresh;
 
-            // The capture is clamped to the screen, so its centre is the effective one. Written
-            // here, with the image, and never when the capture is requested: a request-time value
-            // would describe an image the user is not yet looking at.
+            // The capture is centred on the requested point, so its centre is the effective one.
+            // Written here, with the image, and never when the capture is requested: a request-time
+            // value would describe an image the user is not yet looking at.
             _effectiveCaptureCenter = capture.Value.EffectiveCenter;
             ManualSelectionBrush.ImageSource = image;
         }
@@ -226,9 +233,9 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     }
 
     /// <summary>
-    /// The centre, in physical pixels, of the capture currently displayed — the effective centre
-    /// after the capture rectangle was clamped to the screen. Falls back to the requested centre
-    /// until the first image is displayed. Every view↔screen mapping reads this accessor.
+    /// The centre, in physical pixels, of the capture currently displayed. The capture is centred
+    /// on the requested point, so this is that point; the fallback covers the pre-capture window.
+    /// Every view↔screen mapping reads this accessor.
     /// </summary>
     public PhysicalPoint EffectiveCaptureCenter => _effectiveCaptureCenter ?? _captureCenter!.Value;
 
@@ -236,10 +243,15 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     {
         // Zero arithmetic here by design: the mapping owns the DIP->physical conversion of the
         // window geometry, so the units cannot drift between this call site and the mapping.
-        return CaptureViewMapping.ToRealPoint(
+        var real = CaptureViewMapping.ToRealPoint(
             EffectiveCaptureCenter,
             new Rect(Left, Top, Width, Height),
             _magnification,
             gazeOnScreen);
+
+        // The disc is centred on P, so near an edge it can extend past the screen. Clamp HERE, at
+        // the commit: a dwell over the transparent off-screen part must still land on the screen.
+        var (screenWidth, screenHeight) = ScreenSize();
+        return CaptureViewMapping.ClampToScreen(real, screenWidth, screenHeight);
     }
 }

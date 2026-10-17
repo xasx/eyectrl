@@ -80,7 +80,6 @@ internal static class AppFitMeasurers
         {
             ["A105"] = Ring,
             ["A68"] = ModifierBar,
-            ["A240"] = (_, text) => KeyboardNoteIndicator(text),
             ["A44"] = (_, text) => ToggleStateWord(text),
             ["A208"] = (_, text) => ModeToggleLabel(text),
             ["A56"] = ShortCaption,
@@ -315,31 +314,6 @@ internal static class AppFitMeasurers
 
         return new FitVerdict(worst.Clearance >= ArcLabelFit.RequiredClearanceDip && !worst.Overlap,
             worst.Detail + $" (needs ≥ {FitText.Dip(ArcLabelFit.RequiredClearanceDip)})", worst.Face, worst.Clearance - ArcLabelFit.RequiredClearanceDip);
-    }
-
-    /// <summary>
-    /// A240: the keyboard's "→ Note" targeting indicator (sticky notes P1 D6), through the
-    /// production element's own geometry — the same font tokens and the same MaxWidth the window
-    /// draws. The window is SizeToContent, so the rule is one line within the bound: an over-long
-    /// text would wrap to a second line (and stretch the whole keyboard), which is the failure.
-    /// </summary>
-    private static FitVerdict KeyboardNoteIndicator(string text)
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var indicator = new TextBlock
-        {
-            Text = text,
-            Foreground = Tokens.BrushAccent,
-            FontSize = Tokens.FontSizeBody,
-            MaxWidth = KeyboardWindow.NoteTargetingIndicatorMaxWidth,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        var panel = new StackPanel();
-        panel.Children.Add(indicator);
-        using var host = FitHost.Open(panel, family: Tokens.FontStandard);
-        return OneLine(indicator, text, KeyboardWindow.NoteTargetingIndicatorMaxWidth,
-            $"indicator MaxWidth {FitText.Dip(KeyboardWindow.NoteTargetingIndicatorMaxWidth)}");
     }
 
     /// <summary>

@@ -47,11 +47,6 @@ public static class StringTableSchema
         "A105",
         // The Shift/Ctrl/Alt modifier bar (D8): the same ink rule at radius 50.
         "A68",
-        // The keyboard's "→ Note" targeting indicator (sticky notes P1 D6): one line within the
-        // indicator TextBlock's MaxWidth (KeyboardWindow.NoteTargetingIndicatorMaxWidth) — the
-        // window is SizeToContent, so an over-long translation must wrap (a fit failure) rather
-        // than stretch the whole keyboard.
-        "A240",
         // A toggle's On/Off state word: one line in the 44 DIP left of the switch's track.
         "A44",
         // A short caption: one line ≤ 56 DIP (the eye-care banner's 64 DIP rings less 8).

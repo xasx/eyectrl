@@ -6,24 +6,21 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
-        <!-- Fixup m2: the "→ Note" indicator floats over the keyboard in a Canvas overlay and
-             NEVER changes the window's SizeToContent — a Canvas always measures 0x0, so the
-             layout the window sizes to is the DockPanel's alone. Keys must not move under a
-             gaze that is about to type. -->
-        <Grid>
-            <DockPanel x:Name="RootDock">
-                <!-- Prediction bar at top (hidden in emoji mode) -->
-                <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
-                            DockPanel.Dock="Top" Margin="0,0,0,6"/>
-                <!-- Emoji category tabs (hidden in text mode) -->
-                <StackPanel x:Name="CategoryBar" Orientation="Horizontal"
-                            DockPanel.Dock="Top" Margin="0,0,0,6"
-                            HorizontalAlignment="Center" Visibility="Collapsed"/>
-                <!-- Keyboard rows / emoji grid -->
-                <StackPanel x:Name="KeyRows" VerticalAlignment="Center"/>
-            </DockPanel>
-            <Canvas x:Name="IndicatorOverlay" IsHitTestVisible="False"/>
-        </Grid>
+    <!-- Fixup F3 (owner decision): the note-targeting state is a FRAME, not a label. The border
+         is ALWAYS present with a CONSTANT thickness and a transparent brush, so SizeToContent
+         never sees a difference; only the brush flips to the accent while IsTargetingNote. -->
+    <Border x:Name="KeyboardChrome" Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8"
+            BorderBrush="Transparent" BorderThickness="3">
+        <DockPanel x:Name="RootDock">
+            <!-- Prediction bar at top (hidden in emoji mode) -->
+            <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
+                        DockPanel.Dock="Top" Margin="0,0,0,6"/>
+            <!-- Emoji category tabs (hidden in text mode) -->
+            <StackPanel x:Name="CategoryBar" Orientation="Horizontal"
+                        DockPanel.Dock="Top" Margin="0,0,0,6"
+                        HorizontalAlignment="Center" Visibility="Collapsed"/>
+            <!-- Keyboard rows / emoji grid -->
+            <StackPanel x:Name="KeyRows" VerticalAlignment="Center"/>
+        </DockPanel>
     </Border>
 </overlays:OverlayWindow>

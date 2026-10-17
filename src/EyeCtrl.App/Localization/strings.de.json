@@ -450,10 +450,6 @@
     "text": "Mit Esc das Scrollen beenden",
     "src": "c74d1522"
   },
-  "overlays.keyboard.noteIndicator": {
-    "text": "→ Notiz",
-    "src": "f40ce612"
-  },
   "overlays.lagmark.label": {
     "text": "Hängt",
     "src": "197595ea"

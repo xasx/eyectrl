@@ -849,13 +849,6 @@
     "fit": "prose",
     "args": []
   },
-  "overlays.keyboard.noteIndicator": {
-    "text": "→ Note",
-    "who": "user",
-    "where": "overlays",
-    "fit": "A240",
-    "args": []
-  },
   "overlays.lagmark.label": {
     "text": "Lag",
     "who": "user",

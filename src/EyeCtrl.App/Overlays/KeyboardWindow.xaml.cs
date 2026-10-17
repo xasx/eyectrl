@@ -70,16 +70,6 @@ public partial class KeyboardWindow : OverlayWindow
     private EyeCtrlSettings? _settings;
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
-    private readonly TextBlock _noteTargetingIndicator;
-
-    /// <summary>
-    /// The "→ Note" targeting indicator's width bound (P1 D6), in DIP. The window is
-    /// SizeToContent, so an unbounded indicator would let a long translation stretch the whole
-    /// keyboard; at the bound an over-long text wraps to a second line instead, which the fit
-    /// class (A240) reads as a failure. Internal so the fit measurer measures the SAME bound the
-    /// window draws (EyeCtrl.App → EyeCtrl.App.Tests InternalsVisibleTo).
-    /// </summary>
-    internal const double NoteTargetingIndicatorMaxWidth = 240;
 
     /// <summary>
     /// Widest a prediction label may grow, in key widths. Expressed in keys so it tracks
@@ -108,19 +98,6 @@ public partial class KeyboardWindow : OverlayWindow
         InitializeComponent();
         _sink = sink;
         _dwellRegistry = dwellRegistry;
-        _noteTargetingIndicator = BuildNoteTargetingIndicator();
-        // Fixup m2: the indicator floats in a measure-invisible Canvas over the keyboard (the
-        // Canvas contributes 0x0 to the Grid, so SizeToContent never sees it — an Edit entry can
-        // no longer grow a visible keyboard by one row and move the keys under the gaze). The
-        // canvas stretches to the keyboard's arrange area; the label re-centres in it.
-        IndicatorOverlay.Children.Add(_noteTargetingIndicator);
-        Canvas.SetTop(_noteTargetingIndicator, 4);
-        _noteTargetingIndicator.SizeChanged += (_, e) =>
-            Canvas.SetLeft(_noteTargetingIndicator,
-                Math.Max(0, (IndicatorOverlay.ActualWidth - e.NewSize.Width) / 2));
-        IndicatorOverlay.SizeChanged += (_, e) =>
-            Canvas.SetLeft(_noteTargetingIndicator,
-                Math.Max(0, (e.NewSize.Width - _noteTargetingIndicator.ActualWidth) / 2));
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
             context: DwellContext.KeyboardPrediction, sink: sink);
         SizeChanged += (_, _) => RepositionOnScreen();
@@ -136,29 +113,17 @@ public partial class KeyboardWindow : OverlayWindow
     public event Action<int>? SkinToneChanged;
 
     /// <summary>
-    /// The "→ Note" indicator (P1 D6, fixup m2): an overlay label over the prediction bar, shown
-    /// while a note's editor owns the keyboard's output. It lives in a measure-invisible Canvas,
-    /// so it can never change the window's SizeToContent size or position. Built here rather than
-    /// in XAML because its bound is an internal const the fit measurer reads — one number, drawn
-    /// and measured from the same declaration.
+    /// The note-targeting state (P1 D6, owner decision on review-02 F3): an accent FRAME around
+    /// the keyboard — the same colour as a note's Edit border — instead of a floating label. The
+    /// frame border is always present with a constant thickness and a transparent brush, so only
+    /// the brush changes here and SizeToContent can never see a difference: no resize, no keys
+    /// moving under a gaze about to type.
     /// </summary>
-    private static TextBlock BuildNoteTargetingIndicator() => new()
+    private void UpdateNoteTargetingFrame()
     {
-        Text = EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.noteIndicator"),
-        Foreground = Tokens.BrushAccent,
-        FontSize = Tokens.FontSizeBody,
-        MaxWidth = NoteTargetingIndicatorMaxWidth,
-        TextAlignment = TextAlignment.Center,
-        Margin = new Thickness(0),
-        Visibility = Visibility.Collapsed,
-    };
-
-    private void UpdateNoteTargetingIndicator()
-    {
-        _noteTargetingIndicator.Text = EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.noteIndicator");
-        _noteTargetingIndicator.Visibility = _viewModel?.IsTargetingNote == true
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        KeyboardChrome.BorderBrush = _viewModel?.IsTargetingNote == true
+            ? Tokens.BrushAccent
+            : Brushes.Transparent;
     }
 
     public void SetViewModel(KeyboardViewModel viewModel)
@@ -172,6 +137,7 @@ public partial class KeyboardWindow : OverlayWindow
         _viewModel = viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.KeyDwellCompleted += OnKeyDwellCompleted;
+        UpdateNoteTargetingFrame();
 
         // Re-entry replaces the emoji manager (see the _viewModel guard above): unregister the old
         // one first, or its registry entry would outlive it holding a strong reference to a dead
@@ -456,10 +422,11 @@ public partial class KeyboardWindow : OverlayWindow
                     ExitEmojiMode();
                 break;
             case nameof(KeyboardViewModel.IsTargetingNote):
-                // P1 D6: the "→ Note" indicator. The flag survives a hide (a mid-Edit hide is the
-                // edge-bar Close, not the end of editing), so a re-show brings the indicator back
-                // with no extra wiring — the row is window content, and Hide/Show never clear it.
-                UpdateNoteTargetingIndicator();
+                // P1 D6, owner decision on review-02 F3: the accent frame. The flag survives a
+                // hide (a mid-Edit hide is the edge-bar Close, not the end of editing), so a
+                // re-show brings the frame back with no extra wiring — the brush is window
+                // state, and Hide/Show never clear it.
+                UpdateNoteTargetingFrame();
                 break;
         }
     }

@@ -122,6 +122,56 @@ public class ScrollModeControllerLoggingTests
     }
 
     [StaFact]
+    public void ThePerSecondLine_ElapsedMsComesFromTheInjectedClock()
+    {
+        // S22 (fixup 02): 'long elapsedMs = 0;' survived because the elapsed value was never
+        // asserted. An injected clock fixes the two per-second lines' elapsedMs to exactly the fake
+        // time between them (a real Stopwatch reads ~0 in a fast test).
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            long fakeMs = 0;
+            var input = new TestFakes.FakeInputSimulator();
+            using var worker = new ScrollWorker(input, () => fakeMs);
+            worker.Start(
+                new PhysicalPoint(1000, 1000),
+                isArmed: () => true,
+                cursorReader: () => new PhysicalPoint(1100, 1000));
+            worker.UpdateTargetVelocity(0, -600);
+
+            var emittedAt = new System.Collections.Generic.List<long>();
+            int lastCount = 0;
+            for (int i = 0; i < 200 && emittedAt.Count < 2; i++)
+            {
+                fakeMs += i < 63 ? 16 : 40;
+                worker.Tick();
+                int count = sink.Messages.Count(m => m.Contains("Scroll: ", StringComparison.Ordinal)
+                    && m.Contains("cursor=(1100,1000)", StringComparison.Ordinal));
+                if (count > lastCount)
+                {
+                    emittedAt.Add(fakeMs);
+                    lastCount = count;
+                }
+            }
+
+            var lines = sink.Messages
+                .Where(m => m.Contains("Scroll: ", StringComparison.Ordinal)
+                    && m.Contains("cursor=(1100,1000)", StringComparison.Ordinal))
+                .ToList();
+            Check.WithCustomMessage($"saw {lines.Count}: {string.Join(" | ", lines)}")
+                .That(lines).HasSize(2);
+            Check.WithCustomMessage(lines[0]).That(lines[0]).Contains($"elapsedMs={emittedAt[0]}");
+            Check.WithCustomMessage(lines[1]).That(lines[1]).Contains($"elapsedMs={emittedAt[1] - emittedAt[0]}");
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [StaFact]
     public void ThePerSecondLine_CountsTheSameWheelsTheSimulatorReceived()
     {
         // S19 (fixup 02): the down-counter had no assertion, so removing

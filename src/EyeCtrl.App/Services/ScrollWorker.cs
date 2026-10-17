@@ -35,12 +35,16 @@ public class ScrollWorker : IDisposable
     // real DispatcherTimer cadence under Windows' timer resolution can differ.
     private readonly System.Diagnostics.Stopwatch _clock = new();
     private long _lastReportMs;
+    private readonly Func<long> _nowMs;
 
     private readonly object _lock = new();
 
-    public ScrollWorker(IInputSimulator inputSimulator)
+    public ScrollWorker(IInputSimulator inputSimulator, Func<long>? nowMs = null)
     {
         _inputSimulator = inputSimulator;
+        // Fixup 02 (c): the log's elapsed value is injectable so a test can pin it; the default is
+        // the Stopwatch restarted in Start.
+        _nowMs = nowMs ?? (() => _clock.ElapsedMilliseconds);
         _timer = new DispatcherTimer(DispatcherPriority.Normal)
         {
             Interval = TimeSpan.FromMilliseconds(TickIntervalMs)
@@ -139,7 +143,7 @@ public class ScrollWorker : IDisposable
             if (_msSinceLog >= ReportIntervalMs)
             {
                 _msSinceLog -= ReportIntervalMs;
-                long nowMs = _clock.ElapsedMilliseconds;
+                long nowMs = _nowMs();
                 long elapsedMs = nowMs - _lastReportMs;
                 _lastReportMs = nowMs;
                 Log.Information("{Scroll}", Describe(elapsedMs));

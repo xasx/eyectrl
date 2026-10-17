@@ -5,6 +5,11 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False">
     <Grid>
+        <!-- F5: an opaque theme panel under the picture. On a failed capture the ImageBrush has no
+             source, and without this the disc would be see-through onto the backdrop-dimmed 1x
+             screen while dwells still map as magnified. With a picture, the opaque capture covers it
+             completely; with none, the user sees a dark disc, not a normal-size screen. -->
+        <Ellipse x:Name="DiscBackdrop" Fill="{StaticResource BrushSurfaceDark}"/>
         <Ellipse x:Name="ClipEllipse">
             <Ellipse.Fill>
                 <ImageBrush x:Name="ManualSelectionBrush" Stretch="Fill"/>

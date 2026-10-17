@@ -49,7 +49,10 @@ public class DwellRoutingOwnerRegistrationTests
         Check.That(registry.Registrations).HasSize(1);
         var entry = registry.Registrations[0];
         Check.That(entry.Context).IsEqualTo(DwellContext.Notes);
-        Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMinDwellMs);
+        // P2 D6: the explicit 600 ms floor — adaptation may lengthen note dwell, never shorten it
+        // below this, regardless of the standard family's 200 ms minimum.
+        Check.That(entry.MinDwellMs).IsEqualTo(NoteManager.NoteMinDwellMs);
+        Check.That(NoteManager.NoteMinDwellMs).IsEqualTo(600);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.StandardMaxDwellMs);
         Check.That(entry.ApplyGeometry).IsNotNull();
 

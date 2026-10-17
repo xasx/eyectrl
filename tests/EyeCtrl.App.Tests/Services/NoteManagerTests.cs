@@ -547,10 +547,14 @@ public class NoteManagerTests
                 .That(manager.IsEditing).IsTrue();
 
             // Positive control: the gate follows the probe's rects. With the keyboard's rect far
-            // away the same stream completes Done and commits the draft.
+            // away the same stream completes Done and commits the draft. The probe flip's
+            // re-registration latches Done under the held gaze (P2 D4), so the control leaves the
+            // circle first — the same arming every post-T2 dwell needs.
             probe.RectsProvider = () => new[] { new PhysicalRect(0, 0, 10, 10) };
             probe.RaiseChanged();
-            for (long t = 3_000_000; t <= 3_800_000; t += 33_000)
+            for (long t = 2_100_000; t <= 2_400_000; t += 100_000)
+                manager.OnGazeMoved(new PhysicalPoint(done.X + 10_000, done.Y), t);
+            for (long t = 2_500_000; t <= 3_300_000; t += 100_000)
                 manager.OnGazeMoved(done, t);
             Check.That(manager.IsEditing).IsFalse();
             Check.That(manager.ActiveNotes[0].Text).IsEqualTo("hello");
@@ -1134,14 +1138,16 @@ public class NoteManagerTests
         }
     }
 
-    // W5(d) (build plan C15): the probe gate on note dwell, plus the resume reset. The seam
-    // registers a Display note's targets without a window (CreateNoteAt would show and focus one).
-    // The detector's clock is timestamp-based, so while the gate drops samples its clock pauses —
-    // and without the reset the first post-probe sample on the target the note left would credit
-    // the whole pause, completing a close dwell the user never held over it (a note close is
+    // W5(d) (build plan C15): the suspend predicate on note dwell, plus the resume reset. The seam
+    // registers a Display note's dwell targets without a window (CreateNoteAt would show and focus
+    // one). The detector's clock is timestamp-based, so while the gate drops samples its clock
+    // pauses — and without the reset the first post-gate sample on the target the note left would
+    // credit the whole pause, completing a close dwell the user never held over it (a note close is
     // destructive and no-confirm, review 03 F5). Mutation: drop the ResetAllState call on resume →
     // the stale close dwell completes at the first resumed sample (600 ms on the detector's clock)
-    // and the note is silently removed → red.
+    // and the note is silently removed → red. T2 (P2 D1) adds the arm-latch on recovery: the first
+    // clear sample latches every target under the held gaze, so the negative control needs a leave
+    // (≥ LeaveBeforeArmMs) before the ✕ can fire again.
     [Fact]
     public void ProbeGate_SuspendsNoteDwell_AndResetsOnResume()
     {
@@ -1162,26 +1168,31 @@ public class NoteManagerTests
             for (long t = 0; t <= 500_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
 
-            // Probe open: the sample is dropped, so the destructive target cannot complete underneath
-            // the probe's window no matter how long the pause is.
+            // The gate holds for 500 ms on the SAME timeline (every sample dropped — under no gate
+            // the 600 ms dwell would complete at t=700 ms), so the destructive target cannot
+            // complete underneath the probe's window.
             modal.ProbeOpen = true;
-            manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, 30_000_000, IsInGap: false)));
+            for (long t = 600_000; t <= 1_000_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
             Check.WithCustomMessage("while the probe is open the close dwell must not advance")
                 .That(manager.ActiveNotes).HasSize(1);
 
-            // Resume. Only the FIRST resumed sample may complete a stale dwell, so the stream stops
-            // 500 ms into the reset dwell: the note survives only when the detector was reset at
-            // t=600 ms rather than continuing the pre-probe run that started at t=0.
+            // Resume. The recovery resets the detector and arm-latches ✕ under the held gaze
+            // (P2 D1), so the held samples cannot fire it either.
             modal.ProbeOpen = false;
-            for (long t = 600_000; t <= 1_100_000; t += 100_000)
+            for (long t = 1_100_000; t <= 1_600_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
             Check.WithCustomMessage(
-                    "the probe resume must reset the detector — the stale close dwell completed and "
-                    + "removed the note the user never looked at while the probe was up")
+                    "the probe resume must reset the detector and latch the target under the held gaze")
                 .That(manager.ActiveNotes).HasSize(1);
 
-            // Negative control: the target is live and completes from the reset anchor.
-            manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, 1_200_000, IsInGap: false)));
+            // Negative control: leave ✕'s circle for 200 ms (past the 150 ms latch release), return,
+            // and the target is live and completes from the reset anchor.
+            for (long t = 1_700_000; t <= 1_900_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(
+                    new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
+            for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
             Check.That(manager.ActiveNotes).IsEmpty();
         }
         finally

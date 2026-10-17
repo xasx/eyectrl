@@ -276,6 +276,19 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>());
             _eventCoordinator.Initialize(coordinationContext);
 
+            // The note gate's occluder sources (P2 D3), read directly — no shared gaze-surface
+            // provider (review-02 M-2). All three delegates read late: the lag mark's bridge is
+            // empty until the host below attaches it (instrumented sessions only), and the notices
+            // report null while they are not showing.
+            noteManager.SetOccluderSources(
+                lagMarkRects: () => _serviceProvider.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
+                driftNoticeBounds: () =>
+                    _serviceProvider.GetRequiredService<IDriftNoticePresenter>().TryGetVisibleBounds(out var drift)
+                        ? drift : null,
+                caregiverAlertBounds: () =>
+                    _serviceProvider.GetRequiredService<ICaregiverAlertPresenter>().TryGetVisibleBounds(out var alert)
+                        ? alert : null);
+
             // Hand the toolbar lifecycle coordinator to the preview suspension bridge (Task 10, P8):
             // the preview service suspends auto-hide through it while its panel is up, but the
             // coordinator is EventCoordinator-owned and never in DI, while the preview service must

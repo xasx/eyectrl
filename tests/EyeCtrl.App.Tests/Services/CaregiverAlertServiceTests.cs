@@ -19,6 +19,7 @@ public class CaregiverAlertServiceTests
         public int FadeCalls { get; private set; }
         public int HideCalls { get; private set; }
         public bool ThrowOnHide { get; set; }
+        public bool Visible { get; set; }
         public void ShowCaregiverAlert(CaregiverAlertCondition condition) => Shows.Add(condition);
         public void FadeOutCaregiverAlert() => FadeCalls++;
         public void HideCaregiverAlert()
@@ -26,6 +27,13 @@ public class CaregiverAlertServiceTests
             if (ThrowOnHide)
                 throw new InvalidOperationException("presenter failed");
             HideCalls++;
+            Visible = false;
+        }
+
+        public bool TryGetVisibleBounds(out EyeCtrl.Core.Models.PhysicalRect bounds)
+        {
+            bounds = default;
+            return Visible;
         }
     }
 

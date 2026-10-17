@@ -83,8 +83,10 @@ public class DwellRoutingRegistrationWiringTests
         _ = sp.GetRequiredService<INoteManager>();
         var registry = sp.GetRequiredService<IDwellDetectorRegistry>();
 
+        // P2 D6: the container-routed entry carries the explicit 600 ms floor (NoteMinDwellMs),
+        // not the standard family's 200 ms minimum.
         CheckSingleEntry(registry.Registrations, DwellContext.Notes,
-            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs);
+            NoteManager.NoteMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs);
     }
 
     [Fact]

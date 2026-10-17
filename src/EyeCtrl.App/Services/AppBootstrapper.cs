@@ -503,7 +503,10 @@ public class AppBootstrapper
         services.AddSingleton<NoteManager>(sp => new NoteManager(
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
-            sp.GetRequiredService<IDwellDetectorRegistry>()));
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            // P2 D2: the production hit tester is wired at the composition root, so headless tests
+            // that omit the seam get the conjunct inactive rather than real WindowFromPoint calls.
+            new NoteHitTester()));
         services.AddSingleton<INoteManager>(sp => sp.GetRequiredService<NoteManager>());
 
         // OverlayManager (manages all overlay window lifecycle)
@@ -539,7 +542,8 @@ public class AppBootstrapper
         services.AddSingleton<IEyeCareService, EyeCareService>(sp => new EyeCareService(
             sp.GetRequiredService<EyeCtrlSettings>().EyeCare,
             sp.GetRequiredService<ExerciseRunner>(),
-            sp.GetRequiredService<IEyeCareHooks>()));
+            sp.GetRequiredService<IEyeCareHooks>(),
+            messenger: sp.GetRequiredService<IMessenger>()));
 
         // Struggle-detection adaptation runtime (Phase 1b). The telemetry sink (1a-②) and the
         // effective-settings provider (1b-①) are already registered above; here we add the monitor,

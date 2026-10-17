@@ -5,6 +5,7 @@ using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -145,10 +146,20 @@ public class EventCoordinator : IEventCoordinator
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
 
-        // The probe's note gate (build plan C15): note targets are gaze-only surfaces under no
-        // window, so the probe must be able to suspend them while its own window covers the screen.
-        // The predicate reads the shared flag per sample; the probe sets it while a run is live.
-        context.NoteManager.SetSuspendPredicate(() => _modal.ProbeOpen);
+        // The note gate (P2 D1). Pause is POLLED, not subscribed: pause is entered and left only by
+        // TogglePause on the UI thread, so a per-sample read is exact and simpler than a state-change
+        // event that fires on every fixation edge. The suspend predicate ORs three cheap UI-thread
+        // reads: the activation-offer coordinator's modal flag (null-safe — the coordinator is
+        // constructed further below, so the flag reads false until then), the interaction states
+        // whose surfaces own the screen, and the modes menu's visibility. The eye-care exercise and
+        // calibration flags reach the manager as messages instead (EyeCareService /
+        // CalibrationStateChangedMessage), so they are not part of this lambda.
+        context.NoteManager.SetPausePoll(
+            () => context.InteractionManager.CurrentState == InteractionState.Paused);
+        context.NoteManager.SetSuspendPredicate(() =>
+            (_activationOffers?.ModalSuspended ?? false)
+            || NoteManager.InteractionStateSuspendsNotes(context.InteractionManager.CurrentState)
+            || context.ModesMenuVM.IsVisible);
 
         // The notes' keyboard probe (P1 D5), wired once like the suspend predicate above: the
         // summon/release of the keyboard around Edit, the ⌨ control, the keyboard-gate on note

@@ -150,6 +150,25 @@ public class ScrollOverlayViewModelTests
     }
 
     [Fact]
+    public void WhileUnarmed_TheDotFeedbackKeepsUpdating()
+    {
+        // F4 (fixup 01): the dot is the only visual response before arming; the unarmed branch must
+        // still move it (G-R2 survived without this). Mutant: drop FeedbackChanged in the unarmed
+        // branch → the count stays 0, red.
+        var vm = NewVm();
+        int feedback = 0;
+        vm.FeedbackChanged += () => feedback++;
+        vm.EnterScrollMode(SlotAnchor, new PhysicalPoint(3640, 1200));
+
+        vm.Receive(new GazeCursorMovedMessage(ScrollSlot, 0));   // far from the anchor: unarmed
+
+        Check.That(vm.IsArmed).IsFalse();
+        Check.That(feedback).IsEqualTo(1);
+        Check.That(vm.AnchorDotOffsetX).IsStrictlyLessThan(0);   // dx = 1920 - 2100
+        Check.That(vm.AnchorDotOffsetY).IsStrictlyLessThan(0);   // dy = 800 - 1660
+    }
+
+    [Fact]
     public void ArmingLogsExactlyOncePerSession_WithTheArmedLine()
     {
         // E5 (F-S5's armed line, emitted where F-S4 arms): once per entry, never before.

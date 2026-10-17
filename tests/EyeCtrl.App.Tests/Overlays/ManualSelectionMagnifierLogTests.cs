@@ -3,6 +3,8 @@ namespace EyeCtrl.App.Tests.Overlays;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.Localization;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using Xunit;
 
@@ -48,6 +50,34 @@ public class ManualSelectionMagnifierLogTests
         }
         finally
         {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void ShownLine_StaysInvariant_UnderTheShippedGermanTable()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new ManualSelectionOverlayWindow();
+        try
+        {
+            window.Capture = (_, _) =>
+                new CaptureResult(ManualSelectionCaptureBeforeShowTests.Solid(680, 128), 620, 200, 680);
+
+            // F1: this is a machine-read diagnostic line, never screen text. On a German instance
+            // (the shipped table, all surfaces switched on) it must still say mag=1.5, not mag=1,5 -
+            // the A4 session readout parses the line invariant.
+            ShippedLanguageRecoveryTests.ActivateShippedGerman();
+            window.UpdateCenter(ViewCenter, 170, 1.5);
+            var line = window.BuildShownLine(ViewCenter, 170, recapture: true);
+
+            Check.WithCustomMessage($"the shown line is culture-bound: {line}")
+                .That(line).Contains("mag=1.5");
+            Check.That(line).Not.Contains("mag=1,5");
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
             window.Close();
         }
     }

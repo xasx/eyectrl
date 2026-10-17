@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -39,6 +40,9 @@ public class ScrollModeControllerLoggingTests
         {
             var input = new TestFakes.FakeInputSimulator();
             var backdrop = new TestFakes.FakeGlassBackdropOverlay();
+            // The backdrop was up when the entry began (a menu action from the magnifier): the
+            // entry's CompleteHideNow must complete it, and the line must say False.
+            backdrop.ShowBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true }, new PhysicalPoint(1, 1));
             var (controller, im, _, _) = ScrollModeControllerThreadingTests.NewScrollWorld(
                 input,
                 cursorReader: () => new PhysicalPoint(432, 567),
@@ -70,6 +74,42 @@ public class ScrollModeControllerLoggingTests
                 Check.WithCustomMessage($"saw: {string.Join(" | ", sink.Messages)}").That(exit).IsNotNull();
                 Check.WithCustomMessage(exit!)
                     .That(exit!.Contains("(wheels 0, armed False)", StringComparison.Ordinal)).IsTrue();
+            }
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [StaFact]
+    public void TheEntryLine_ReportsAVisibleBackdrop_WhenItsHideDoesNotComplete()
+    {
+        // S14 (fixup 01): the entry line's [BackdropVisible=…] is the injection-instant reading. A
+        // backdrop whose deferred hide does NOT complete (the stub below) stays up — the line must
+        // say True, or a session where the wheel could land on the backdrop is undiagnosable.
+        // Mutant: `?? false` / the constant False → the line reads False while the stub is up.
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            var input = new TestFakes.FakeInputSimulator();
+            var backdrop = new StuckBackdrop();
+            var (controller, im, _, _) = ScrollModeControllerThreadingTests.NewScrollWorld(
+                input,
+                cursorReader: () => new PhysicalPoint(432, 567),
+                glassBackdrop: backdrop);
+            using (controller)
+            {
+                ScrollModeControllerThreadingTests.EnterScrollMode(im);
+
+                var entry = sink.Messages.FirstOrDefault(m =>
+                    m.Contains("Scroll mode: ", StringComparison.Ordinal)
+                    && m.Contains("cursor=(432,567)", StringComparison.Ordinal));
+                Check.WithCustomMessage($"saw: {string.Join(" | ", sink.Messages)}").That(entry).IsNotNull();
+                Check.WithCustomMessage(entry!)
+                    .That(entry!.Contains("[BackdropVisible=True]", StringComparison.Ordinal)).IsTrue();
             }
         }
         finally
@@ -117,6 +157,22 @@ public class ScrollModeControllerLoggingTests
         {
             Log.Logger = previous;
         }
+    }
+
+    /// <summary>A backdrop whose deferred hide never completes (S14): it stays visible through the
+    /// scroll entry, so the entry line must report it.</summary>
+    private sealed class StuckBackdrop : IGlassBackdropOverlay
+    {
+        public bool IsVisible => true;
+        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint hideButtonCenter) { }
+        public void Show() { }
+        public void Hide() { }
+        public void CompleteHideNow() { }
+        public void ApplyBackdrop(BackdropSettings settings) { }
+        public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0) { }
+        public void UpdateHideButtonProgress(double progress) { }
+        public void ShowEscapeHint() { }
+        public void HideEscapeHint() { }
     }
 
     private sealed class CapturingSink : ILogEventSink

@@ -79,15 +79,29 @@ public class ScrollOverlayWindowTests
 
             Line h = Crosshair(window, "AnchorCrosshairH");
             Line v = Crosshair(window, "AnchorCrosshairV");
+            Line haloH = Crosshair(window, "AnchorCrosshairHaloH");
+            Line haloV = Crosshair(window, "AnchorCrosshairHaloV");
             Check.That(vm.IsArmed).IsFalse();
             Check.That(h.Opacity).IsCloseTo(1.0, 1e-9);
             Check.That(v.Opacity).IsCloseTo(1.0, 1e-9);
             Check.That(h.StrokeThickness).IsCloseTo(2.0, 1e-9);
             Check.That(v.StrokeThickness).IsCloseTo(2.0, 1e-9);
+            // Fixup 02 (the cue's contrast on white pages): a halo under-stroke, 2 DIP wider than
+            // its line, only while unarmed. Mutant: drop the toggle → the halo stays Collapsed.
+            Check.WithCustomMessage("the unarmed halo must be visible")
+                .That(haloH.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(haloV.Visibility).IsEqualTo(Visibility.Visible);
+            Check.WithCustomMessage("the halo must be 2 DIP wider than the line")
+                .That(haloH.StrokeThickness).IsCloseTo(h.StrokeThickness + 2, 1e-9);
+            Check.That(haloV.StrokeThickness).IsCloseTo(v.StrokeThickness + 2, 1e-9);
 
             vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000, 1000), 0));   // arm it
             Check.That(vm.IsArmed).IsTrue();
             window.UpdateFeedback(0, 0, 0);
+
+            Check.WithCustomMessage("the armed look has no halo")
+                .That(haloH.Visibility).IsEqualTo(Visibility.Collapsed);
+            Check.That(haloV.Visibility).IsEqualTo(Visibility.Collapsed);
 
             Check.That(h.Opacity).IsCloseTo(0.5, 1e-9);
             Check.That(v.Opacity).IsCloseTo(0.5, 1e-9);

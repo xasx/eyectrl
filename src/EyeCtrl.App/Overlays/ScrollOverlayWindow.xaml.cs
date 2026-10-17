@@ -48,6 +48,11 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
         AnchorCrosshairH.X2 = anchorLogX + 15; AnchorCrosshairH.Y2 = anchorLogY;
         AnchorCrosshairV.X1 = anchorLogX; AnchorCrosshairV.Y1 = anchorLogY - 15;
         AnchorCrosshairV.X2 = anchorLogX; AnchorCrosshairV.Y2 = anchorLogY + 15;
+        // The cue's halo under-strokes share the lines' geometry (fixup 02).
+        AnchorCrosshairHaloH.X1 = AnchorCrosshairH.X1; AnchorCrosshairHaloH.Y1 = AnchorCrosshairH.Y1;
+        AnchorCrosshairHaloH.X2 = AnchorCrosshairH.X2; AnchorCrosshairHaloH.Y2 = AnchorCrosshairH.Y2;
+        AnchorCrosshairHaloV.X1 = AnchorCrosshairV.X1; AnchorCrosshairHaloV.Y1 = AnchorCrosshairV.Y1;
+        AnchorCrosshairHaloV.X2 = AnchorCrosshairV.X2; AnchorCrosshairHaloV.Y2 = AnchorCrosshairV.Y2;
 
         Canvas.SetLeft(CursorCircle, anchorLogX - 40);
         Canvas.SetTop(CursorCircle, anchorLogY - 40);
@@ -71,6 +76,14 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
         AnchorCrosshairV.Opacity = crosshairOpacity;
         AnchorCrosshairH.StrokeThickness = crosshairThickness;
         AnchorCrosshairV.StrokeThickness = crosshairThickness;
+        // Fixup 02: the halo under-strokes carry the cue on white pages. They follow the cue's
+        // thickness (+2 DIP, the VelocityRingHalo pattern) and exist only while unarmed; the armed
+        // look is the shipped one (no halo).
+        var haloVisibility = armed ? Visibility.Collapsed : Visibility.Visible;
+        AnchorCrosshairHaloH.Visibility = haloVisibility;
+        AnchorCrosshairHaloV.Visibility = haloVisibility;
+        AnchorCrosshairHaloH.StrokeThickness = crosshairThickness + 2;
+        AnchorCrosshairHaloV.StrokeThickness = crosshairThickness + 2;
 
         double anchorX = Canvas.GetLeft(CursorCircle) + 40;
         double anchorY = Canvas.GetTop(CursorCircle) + 40;

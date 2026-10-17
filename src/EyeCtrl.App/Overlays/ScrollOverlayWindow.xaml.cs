@@ -12,6 +12,11 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
 {
     public ScrollOverlayWindow()
     {
+        // F-S1 (scroll start fix): feedback-only and full-screen, so it must be click-through —
+        // a layered window without WS_EX_TRANSPARENT hit-tests its painted pixels, and the wheel
+        // ScrollWorker injects at the anchor landed on this window (the crosshair's 0.5 alpha) and
+        // was dropped. The stop dwell lives on the edge bar; nothing here is interactive.
+        IsClickThrough = true;
         InitializeComponent();
     }
 

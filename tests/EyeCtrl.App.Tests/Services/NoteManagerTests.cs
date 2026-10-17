@@ -69,7 +69,7 @@ public class NoteManagerTests
         // Each note carries text: a commit-first pin on an EMPTY new note would make that note
         // disappear again (P1 D4's Done table), silently undoing the capacity fill.
         for (int i = 0; i < 8; i++)
-            TypeIntoNewNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
+            TypeIntoNewDraftNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
 
         Check.That(manager.IsAtCapacity).IsTrue();
     }
@@ -81,7 +81,7 @@ public class NoteManagerTests
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
 
         for (int i = 0; i < 8; i++)
-            TypeIntoNewNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
+            TypeIntoNewDraftNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
         manager.CreateNoteAt(new PhysicalPoint(999, 999));
 
         Check.That(manager.ActiveNotes).HasSize(8);
@@ -92,7 +92,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test text");
+        var id = TypeIntoNewDraftNote(manager, "test text");
 
         manager.StartEdit(id);
 
@@ -105,7 +105,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "hello world");
+        var id = TypeIntoNewDraftNote(manager, "hello world");
 
         manager.FinishEdit(id, commit: true);
 
@@ -119,7 +119,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test");
+        var id = TypeIntoNewDraftNote(manager, "test");
 
         manager.StartMove(id);
 
@@ -131,7 +131,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test");
+        var id = TypeIntoNewDraftNote(manager, "test");
         manager.StartMove(id);
 
         manager.FinishMove(id, new PhysicalPoint(500, 600));
@@ -146,7 +146,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test");
+        var id = TypeIntoNewDraftNote(manager, "test");
         manager.StartMove(id);
 
         manager.OnGazeMoved(new PhysicalPoint(300, 400), 1000000);
@@ -161,7 +161,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id1 = TypeIntoNewNote(manager, "note1");
+        var id1 = TypeIntoNewDraftNote(manager, "note1");
         manager.CreateNoteAt(new PhysicalPoint(300, 0));
         var id2 = manager.ActiveNotes[1].Id;
         manager.Apply(new NoteAppend("note2"));
@@ -181,7 +181,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "original");
+        var id = TypeIntoNewDraftNote(manager, "original");
 
         // Enter edit, re-save, re-enter — should work without retrigger
         manager.StartEdit(id);
@@ -231,7 +231,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "hello");
+        var id = TypeIntoNewDraftNote(manager, "hello");
 
         manager.FinishEdit(id, commit: true);
 
@@ -263,7 +263,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "\n \nhello\n\n  ");
+        var id = TypeIntoNewDraftNote(manager, "\n \nhello\n\n  ");
 
         manager.FinishEdit(id, commit: true);
 
@@ -275,7 +275,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "original");
+        var id = TypeIntoNewDraftNote(manager, "original");
 
         manager.StartEdit(id);
         manager.Apply(new NoteAppend(" changed"));
@@ -292,7 +292,7 @@ public class NoteManagerTests
         // P2 replaces this with PendingUndo(Removed).
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "original");
+        var id = TypeIntoNewDraftNote(manager, "original");
         manager.FinishEdit(id, commit: true); // a real SAVED note
 
         manager.StartEdit(id);
@@ -651,7 +651,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "hello", anchor); // a real window: ✎ must be able to re-edit
+            var id = TypeIntoNewDraftNote(manager, "hello", anchor); // a real window: ✎ must be able to re-edit
             var slot0 = ButtonCentrePhysical(anchor, 0);
             var slot1 = ButtonCentrePhysical(anchor, 1);
 
@@ -796,7 +796,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var b = TypeIntoNewNote(manager, "second"); // B: a real Display note with its window
+        var b = TypeIntoNewDraftNote(manager, "second"); // B: a real Display note with its window
         manager.FinishEdit(b, commit: true);
         var a = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0)); // A: the editor
         manager.Apply(new NoteAppend("first draft"));
@@ -933,7 +933,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true); // Display: close/edit/move
 
             // The detector snapshot's order is unspecified (dictionary-backed) — compare as a set
@@ -965,7 +965,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.StartMove(id); // only the :place target, radius 100 logical around the note
 
             double radius = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NotePlacementRadius);
@@ -1023,7 +1023,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
             var closeCenter = ButtonCentrePhysical(anchor, 0);
 
@@ -1083,7 +1083,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
             var probe = new CueProbe(EffectRanAtSend: () => manager.ActiveNotes.Count == 0);
             messenger.Register(probe);
@@ -1123,7 +1123,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true);
             var closeCenter = ButtonCentrePhysical(anchor, 0);
 
@@ -1214,7 +1214,7 @@ public class NoteManagerTests
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         // StartEdit needs the note's live window (it drives SetState on it), and the note must be
-        // in DISPLAY so ✎ exists to dwell — this file's TypeIntoNewNote leaves the note EDITING
+        // in DISPLAY so ✎ exists to dwell — this file's TypeIntoNewDraftNote leaves the note EDITING
         // (its CreateNoteAt already summoned the keyboard once), so the test exits that Edit
         // first. The counter then counts only what happens from the ✎ entry under test on.
         bool counting = false;
@@ -1228,7 +1228,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true);
             Check.That(manager.IsEditing).IsFalse();
             counting = true;
@@ -1258,8 +1258,10 @@ public class NoteManagerTests
     }
 
     /// <summary>Creates a note and types <paramref name="text"/> into it through the routed
-    /// <see cref="NoteManager.Apply"/> seam — the only way text enters a note in P1.</summary>
-    private static string TypeIntoNewNote(NoteManager manager, string text, PhysicalPoint? point = null)
+    /// <see cref="NoteManager.Apply"/> seam — the only way text enters a note in P1. Leaves the
+    /// note IN EDIT (the draft holds <paramref name="text"/>; nothing is saved). T2 review-04's
+    /// helper split: the name says the state it leaves, so a test never assumes the wrong one.</summary>
+    private static string TypeIntoNewDraftNote(NoteManager manager, string text, PhysicalPoint? point = null)
     {
         manager.CreateNoteAt(point ?? new PhysicalPoint(0, 0));
         manager.Apply(new NoteAppend(text));

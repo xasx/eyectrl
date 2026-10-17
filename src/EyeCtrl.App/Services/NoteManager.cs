@@ -700,8 +700,6 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// and a successful read clears its flag so a later failure is loud again.</summary>
     private readonly HashSet<string> _occluderFailureLogged = new(StringComparer.Ordinal);
 
-    /// <summary>Runs one occluder read. A throw is contained: logged once for this episode and
-    /// answered with TRUE — the sample is occluded, so no hidden ✕ or ✎ can fire (fixup 02).</summary>
     /// <summary>Runs one occluder read. A throw is contained: logged once per source per failure
     /// episode, and reported to the caller as a FAILED source — the fail-closed answer applies to
     /// every target except ✓ Done (fixup 03 m1, see <see cref="GateOpenFor"/>).</summary>

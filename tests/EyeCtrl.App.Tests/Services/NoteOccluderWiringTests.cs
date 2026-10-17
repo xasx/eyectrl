@@ -262,11 +262,18 @@ public class NoteOccluderWiringTests
     // source, the keyboard gate, the own-window conjunct, suspend and pause; the destructive
     // ✕ under the same failure must not fire. Mutant: drop the exemption from GateOpenFor →
     // Done never fires and this goes red.
+    //
+    // Review-04 m2: "Done and ONLY Done" is a pinned contract before T3 puts Discard next to
+    // Done. ⌨ exists here (the keyboard is hidden, so slot 1 registers) and a held ⌨ under the
+    // same throwing source must send NO KeyboardShowRequestedMessage. Mutant W8 (also exempt
+    // ":keyboard") turns that assertion red. T3's ↩ Discard gets the same pin in its own tests.
     [Fact]
     public void AThrowingOccluderSource_LetsDoneFire_ButKeepsCloseGated()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false }; // hidden: ⌨ registers in slot 1
+        manager.SetKeyboardProbe(probe);
         manager.SetOccluderSources(driftNoticeBounds: () =>
             throw new InvalidOperationException("wiring slip"));
 
@@ -276,10 +283,27 @@ public class NoteOccluderWiringTests
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
+            // The counter starts AFTER the Edit entry: that entry itself summons the hidden
+            // keyboard (P1 D5), which is not the behaviour under test.
+            int showRequests = 0;
+            messenger.Register<object, KeyboardShowRequestedMessage>(this, (_, _) => showRequests++);
             var slot0 = ButtonCentrePhysical(anchor, 0); // ✓ Done in Edit — and ✕'s slot in Display
+            var slot1 = ButtonCentrePhysical(anchor, 1); // ⌨ Show keyboard (Edit only)
+
+            // The exemption must exempt nothing but Done: a held ⌨ — while still editing, so it
+            // exists — under the throwing source stays gated and must never re-summon the
+            // keyboard (mutant W8).
+            for (long t = 0; t <= 1_200_000; t += 100_000)
+                manager.OnGazeMoved(slot1, t);
+            Check.WithCustomMessage(
+                    "the exemption is Done and ONLY Done — a held ⌨ under a throwing source must "
+                    + "not fire and must send no KeyboardShowRequestedMessage")
+                .That(showRequests).IsEqualTo(0);
+            Check.WithCustomMessage("⌨ must not have ended the Edit either")
+                .That(manager.IsEditing).IsTrue();
 
             // The held gaze on a throwing source: Done must still fire and SAVE the note.
-            for (long t = 0; t <= 1_200_000; t += 100_000)
+            for (long t = 1_300_000; t <= 2_500_000; t += 100_000)
                 manager.OnGazeMoved(slot0, t);
             Check.WithCustomMessage(
                     "a throwing occluder source must not trap the owner in Edit — Done is the only "
@@ -291,12 +315,69 @@ public class NoteOccluderWiringTests
             // The same held gaze now rests on ✕ (re-registered and latched by the exit): the
             // destructive control must stay gated — the leave timers are frozen by the failure
             // (no information), and the fail-closed answer keeps it dead regardless.
-            for (long t = 1_300_000; t <= 2_300_000; t += 100_000)
+            for (long t = 2_600_000; t <= 3_600_000; t += 100_000)
                 manager.OnGazeMoved(slot0, t);
             Check.WithCustomMessage(
                     "a throwing occluder source must keep the destructive ✕ gated under the same "
                     + "held gaze that could still reach Done")
                 .That(manager.ActiveNotes).HasSize(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // Review-04 m1: a failing occluder source is NO INFORMATION for the leave-before-arm timers
+    // (NoteManager's timer guard skips failing samples). The difference only shows after the
+    // source recovers — the mutant W6 would have released the latch on the failing excursion, so
+    // the held return fires ✕ 600 ms later; the real code keeps it latched until a HEALTHY leave.
+    [Fact]
+    public void AFailingOccluderSource_NeverReleasesALatch_OnlyAHealthyLeaveDoes()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        bool throwOnRead = false;
+        manager.SetOccluderSources(driftNoticeBounds: () =>
+        {
+            if (throwOnRead) throw new InvalidOperationException("wiring slip");
+            return null;
+        });
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddEditingNoteTargetsForTest(anchor);
+            manager.Apply(new NoteAppend("hello"));
+            var slot0 = ButtonCentrePhysical(anchor, 0); // ✓ Done — and ✕'s slot in Display
+            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
+
+            // 1. Latch ✕ under a held gaze: Done fires, and the exit's re-registration latches
+            //    the ✕ that appears where the eyes never left.
+            for (long t = 0; t <= 700_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            Check.That(manager.IsEditing).IsFalse();
+            Check.That(manager.ActiveNotes).HasSize(1);
+
+            // 2. The source fails; 3. the gaze leaves for 300 ms — failing samples carry no
+            //    leave information, so the latch must survive this excursion.
+            throwOnRead = true;
+            for (long t = 800_000; t <= 1_100_000; t += 100_000) manager.OnGazeMoved(away, t);
+
+            // 4. The source heals; 5. the gaze returns and holds a full second: the latch is
+            //    still on — ✕ must not fire.
+            throwOnRead = false;
+            for (long t = 1_200_000; t <= 2_200_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            Check.WithCustomMessage(
+                    "a failing source's excursion must not release the latch — only a HEALTHY "
+                    + "leave may (review-04 m1, mutant W6)")
+                .That(manager.ActiveNotes).HasSize(1);
+            Check.That(manager.ActiveNotes[0].Text).IsEqualTo("hello");
+
+            // Positive control: a healthy 300 ms leave releases the latch, and the return fires ✕.
+            for (long t = 2_300_000; t <= 2_600_000; t += 100_000) manager.OnGazeMoved(away, t);
+            for (long t = 2_700_000; t <= 3_600_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            Check.WithCustomMessage(
+                    "after a healthy leave the latch must release — the held ✕ must fire (the "
+                    + "guard must not be always-on)")
+                .That(manager.ActiveNotes).IsEmpty();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

@@ -334,8 +334,8 @@ public class NoteGateTests
             var anchorBottom = new PhysicalPoint(1600, 1000);
             var anchorTop = new PhysicalPoint(1640, 1000);
 
-            var bottomId = TypeIntoNewNote(manager, "bottom", anchorBottom);
-            var topId = TypeIntoNewNote(manager, "top", anchorTop);
+            var bottomId = TypeIntoNewSavedNote(manager, "bottom", anchorBottom);
+            var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
             var bottomWindow = manager.WindowForTest(bottomId);
             var topWindow = manager.WindowForTest(topId);
             Check.That(bottomWindow).IsNotNull();
@@ -377,7 +377,7 @@ public class NoteGateTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            TypeIntoNewNote(manager, "x", anchor);
+            TypeIntoNewSavedNote(manager, "x", anchor);
             var closeCenter = ButtonCentrePhysical(anchor, 0);
             ArmThenHold(manager, closeCenter, startUs: 0);
             Check.That(manager.ActiveNotes).IsEmpty();
@@ -678,8 +678,8 @@ public class NoteGateTests
         {
             var anchorBottom = new PhysicalPoint(1600, 1000);
             var anchorTop = new PhysicalPoint(1640, 1000);
-            var bottomId = TypeIntoNewNote(manager, "bottom", anchorBottom);
-            var topId = TypeIntoNewNote(manager, "top", anchorTop);
+            var bottomId = TypeIntoNewSavedNote(manager, "bottom", anchorBottom);
+            var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
             var bottomHandle = new WindowInteropHelper(manager.WindowForTest(bottomId)!).EnsureHandle();
             var topHandle = new WindowInteropHelper(manager.WindowForTest(topId)!).EnsureHandle();
             var bottomClose = ButtonCentrePhysical(anchorBottom, 0);
@@ -704,8 +704,10 @@ public class NoteGateTests
     // ── helpers ──
 
     /// <summary>Creates a note and types <paramref name="text"/> into it, mirroring the
-    /// NoteManagerTests helper — the only way text enters a note in P1.</summary>
-    private static string TypeIntoNewNote(NoteManager manager, string text, PhysicalPoint? point = null)
+    /// NoteManagerTests helper — the only way text enters a note in P1 — then commits it with
+    /// Done. Leaves the note IN DISPLAY with its saved text. T2 review-04's helper split: the
+    /// name says the state it leaves, so a test never assumes the wrong one.</summary>
+    private static string TypeIntoNewSavedNote(NoteManager manager, string text, PhysicalPoint? point = null)
     {
         manager.CreateNoteAt(point ?? new PhysicalPoint(0, 0));
         manager.Apply(new NoteAppend(text));

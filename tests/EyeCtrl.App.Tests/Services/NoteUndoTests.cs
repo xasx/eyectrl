@@ -786,6 +786,103 @@ public class NoteUndoTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    // ── capacity (P2 D5): IsAtCapacity, the yieldable rule, commit-first before capacity ──
+
+    [StaFact]
+    public void AtCapacity_ADiscardedExistingChipCounts_APinStaysSilent()
+    {
+        // 7 Display notes + 1 Discarded-existing chip: the chip does NOT yield (the saved text
+        // still exists behind it) — at capacity, and the pin creates no 9th window.
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(400, 400);
+            for (int i = 0; i < 7; i++)
+                SavedNote(manager, $"note {i}", new PhysicalPoint(400 + i * 600, 400));
+            var chipped = SavedNote(manager, "chipped", new PhysicalPoint(4600, 400));
+            manager.StartEdit(chipped);
+            manager.Apply(new NoteAppend(" changed"));
+            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 400), 2), startUs: 0); // ↩ → chip
+
+            Check.That(manager.ActiveNotes).HasSize(8);
+            Check.That(manager.ActiveNotes.First(n => n.Id == chipped).State).IsEqualTo(NoteState.PendingUndo);
+            Check.WithCustomMessage("a DiscardedExisting chip counts as a live note (P2 D5)")
+                .That(manager.IsAtCapacity).IsTrue();
+
+            manager.CreateNoteAt(new PhysicalPoint(8000, 400));
+
+            Check.WithCustomMessage("at capacity the pin stays silent — no 9th window is created")
+                .That(manager.ActiveNotes).HasSize(8);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void AtEightWindows_ARemovedChipYields_TheOldestIsFinalizedAndThePinCreates()
+    {
+        // 7 Display notes + 1 Removed chip: 8 windows but only 7 live notes. The pin finalizes
+        // the chip (as on its expiry) and creates — the total never reaches 9.
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            for (int i = 0; i < 7; i++)
+                SavedNote(manager, $"note {i}", new PhysicalPoint(400 + i * 600, 400));
+            var chipped = SavedNote(manager, "chipped", new PhysicalPoint(4600, 400));
+            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 400), 2), startUs: 0); // ✕ → chip
+
+            Check.That(manager.ActiveNotes).HasSize(8);
+            Check.WithCustomMessage("a Removed chip yields its slot — not at capacity")
+                .That(manager.IsAtCapacity).IsFalse();
+
+            manager.CreateNoteAt(new PhysicalPoint(8000, 400));
+
+            Check.WithCustomMessage("the oldest yieldable chip is finalized (gone, as on expiry)")
+                .That(manager.ActiveNotes.Select(n => n.Id)).Not.Contains(chipped);
+            Check.That(manager.ActiveNotes).HasSize(8);
+            Check.WithCustomMessage("the new note exists")
+                .That(manager.ActiveNotes.Count(n => n.State == NoteState.Edit)).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PinNote_AtCapacityWithBEditingAnEmptiedExistingNote_CommitsBFirst_ThenFindsRoom()
+    {
+        // P2 D5's pin order: commit-first runs BEFORE the capacity evaluation. B's commit turns
+        // the emptied existing note into a yieldable Removed chip, so the pin finds room (the
+        // oldest yieldable chip — B's — is finalized) and creates.
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            for (int i = 0; i < 7; i++)
+                SavedNote(manager, $"note {i}", new PhysicalPoint(400 + i * 600, 400));
+            var b = SavedNote(manager, "B original", new PhysicalPoint(4600, 400)); // 8th note
+            manager.StartEdit(b);
+            for (int i = 0; i < 10; i++) manager.Apply(new NoteBackspace());
+            Check.That(manager.ActiveNotes.First(n => n.Id == b).Draft).IsEqualTo("");
+            // 7 Display + B editing = 8 live notes: at capacity while B still edits.
+            Check.That(manager.IsAtCapacity).IsTrue();
+
+            manager.CreateNoteAt(new PhysicalPoint(8000, 400)); // the pin
+
+            // The commit-first order is observable in what the pin found room FOR: B's commit
+            // ran (emptying turned it into a Removed chip), then the pin finalized the oldest
+            // yieldable chip — B's own — and created. B is gone; its Undo ended early, the
+            // accepted cost P2 D5 records.
+            Check.WithCustomMessage("commit-first must run BEFORE the capacity check: a capacity-"
+                    + "first order would silently keep B editing and create nothing")
+                .That(manager.ActiveNotes.Select(n => n.Id)).Not.Contains(b);
+            Check.WithCustomMessage("the pin finds room and creates — never more than 8 windows")
+                .That(manager.ActiveNotes).HasSize(8);
+            Check.That(manager.ActiveNotes.Count(n => n.State == NoteState.Edit)).IsEqualTo(1);
+            Check.That(manager.IsEditing).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     /// <summary>Recording <see cref="INoteHitTester"/> fake: the test decides which HWND the gaze
     /// is over, per sample or per tick.</summary>
     private sealed class FakeHitTester : INoteHitTester

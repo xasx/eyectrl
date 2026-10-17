@@ -111,7 +111,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private long? _lastValidSampleClockMs;
 
     public IReadOnlyList<NoteData> ActiveNotes => _notes.AsReadOnly();
-    public bool IsAtCapacity => _windows.Count >= MaxNotes;
+
+    /// <summary>P2 D5's redefinition: Display + Edit + Move notes plus NON-yieldable chips. A
+    /// <c>DiscardedExisting</c> chip counts as a live note (the saved text still exists behind
+    /// it); a <c>Removed</c> or <c>DiscardedNew</c> chip yields its slot and does not count.</summary>
+    public bool IsAtCapacity => LiveNoteCount >= MaxNotes;
+
+    /// <summary>Display + Edit + Move notes plus non-yieldable chips (see <see cref="IsAtCapacity"/>).</summary>
+    private int LiveNoteCount => _notes.Count(n =>
+        n.State != NoteState.PendingUndo || n.UndoKind == PendingUndoKind.DiscardedExisting);
+
+    /// <summary>Whether a chip kind yields its capacity slot (P2 D5's table): a chip whose note
+    /// still owns saved text does not.</summary>
+    internal static bool YieldsSlot(PendingUndoKind kind) => kind != PendingUndoKind.DiscardedExisting;
 
     /// <summary>True while some note is in Edit: the keyboard dispatchers route every output
     /// through <see cref="Apply"/> and none of it may become OS input (P1 D1).</summary>
@@ -244,10 +256,21 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     public void CreateNoteAt(PhysicalPoint point)
     {
-        if (IsAtCapacity) return;
-        // Commit-first (P1 D8): a pin while another note edits saves that note first. Nothing
-        // is lost, and the keyboard, if up, hands over instead of bouncing.
+        // Commit-first BEFORE the capacity evaluation (P2 D5): the commit can free a slot (an
+        // empty new note disappears) or turn a live note into a yieldable Removed chip (an
+        // emptied existing note) — capacity is judged on the world AFTER the commit.
         ExitEditing(commit: true, handOver: true);
+
+        if (IsAtCapacity)
+            return; // at capacity the action stays silent until T5's notice window (P4 D4)
+
+        if (_windows.Count >= MaxNotes)
+        {
+            // Not at capacity but 8 windows: the surplus is a yieldable chip. Finalize the
+            // OLDEST one (as on its expiry — its Undo ends early, an accepted cost) so the
+            // window total can never exceed 8.
+            FinalizeOldestYieldableChip();
+        }
 
         var data = new NoteData { Position = point, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
         var window = new NoteWindow(data.Id);
@@ -870,6 +893,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _notes.Remove(note);
         ReRegisterAllTargets();
         RaiseTargetsChanged();
+    }
+
+    /// <summary>Finalizes the OLDEST yieldable chip as on its expiry (P2 D5): the first chip in
+    /// note order whose kind yields its slot. Called by Pin note when the total is at 8 but the
+    /// live count is below it. Defensive no-op when none exists (the invariant says one does).</summary>
+    private void FinalizeOldestYieldableChip()
+    {
+        var chip = _notes.FirstOrDefault(n =>
+            n.State == NoteState.PendingUndo && n.UndoKind is { } kind && YieldsSlot(kind));
+        if (chip is null) return;
+        ExpireChip(chip);
     }
 
     // ── the keyboard probe (P1 D5) ──

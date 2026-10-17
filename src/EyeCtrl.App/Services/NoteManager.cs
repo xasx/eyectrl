@@ -579,28 +579,34 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // is skipped unless the gaze is inside the union of the live hit areas, some target
         // actually has a window, and the conjunct is active (it is off for the InactiveNoteHitTester
         // sentinel): outside every hit area no target can be the nearest, so the call would buy
-        // nothing (P2 D2's cost cap).
-        bool gated = false;
+        // nothing (P2 D2's cost cap). With a FAILED source but no genuine cover, the call still
+        // runs — ✓ Done is exempt from the failure answer and must still pass the own-window
+        // conjunct honestly (fixup 03 m1).
+        bool genuineOcclusion = false;
+        bool occluderFailed = false;
         IntPtr rootWindow = IntPtr.Zero;
         if (_dwellDetector.Targets.Count > 0)
         {
-            gated = OccludersContain(gazePoint);
-            if (!gated && OwnWindowConjunctActive && AnyWindowedTarget && GazeInsideTargetUnion(gazePoint))
+            (genuineOcclusion, occluderFailed) = EvaluateOccluders(gazePoint);
+            if (!genuineOcclusion && OwnWindowConjunctActive && AnyWindowedTarget && GazeInsideTargetUnion(gazePoint))
                 rootWindow = _hitTester.RootWindowAt(gazePoint);
         }
 
         // The leave-before-arm latch (fixups B2/F1; P2 D4): advance the leave timers, then keep
         // the still-latched ones ineligible for this sample (the filter also clears whatever dwell
-        // they accumulated while latched). An occluded sample carries no leave information — the
-        // occluder covers the spot, so it neither advances nor resets a timer (F4).
-        if (_targetsAwaitingGazeLeave.Count > 0 && !gated)
+        // they accumulated while latched). A genuinely occluded sample OR a sample from a failing
+        // source carries no leave information — we cannot know what was over the spot, so a latch
+        // is never released on such evidence (F4, conservative).
+        if (_targetsAwaitingGazeLeave.Count > 0 && !genuineOcclusion && !occluderFailed)
             AdvanceLeaveTimers(gazePoint, timestamp);
 
         Func<DwellTarget, bool>? filter = null;
-        if (gated || _targetsAwaitingGazeLeave.Count > 0 || OwnWindowConjunctActive)
+        if (genuineOcclusion || occluderFailed || _targetsAwaitingGazeLeave.Count > 0 || OwnWindowConjunctActive)
         {
             var disarmed = _targetsAwaitingGazeLeave;
-            filter = t => !gated && !disarmed.ContainsKey(t.Id) && WindowOwns(t, rootWindow);
+            filter = t => GateOpenFor(t, genuineOcclusion, occluderFailed)
+                && !disarmed.ContainsKey(t.Id)
+                && WindowOwns(t, rootWindow);
         }
         _dwellDetector.Update(gazePoint, timestamp, filter);
 
@@ -620,35 +626,64 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// (through the probe), the lag mark, and the drift notice / caregiver alert / track-status
     /// card visible bounds. Each source is read live; nulls contribute nothing.
     /// <para>
-    /// FAIL CLOSED (T2 fixup 02): a throwing source means the sample is treated as OCCLUDED, so
-    /// no note control can fire under an overlay the gate cannot see past. A wiring slip then
-    /// degrades to "notes dead under that source" instead of a per-sample exception that starves
-    /// the whole gaze broadcast and makes Done unreachable. The failure is logged once per source
-    /// per failure episode (a successful read re-arms the log, so a recovered-then-refailed
-    /// source is loud again) — never once per sample.
+    /// FAIL CLOSED (T2 fixup 02), with the ✓ Done exemption (T2 fixup 03 m1): a throwing source
+    /// means the sample is treated as OCCLUDED for every target EXCEPT <c>{id}:done</c>, so no
+    /// destructive or state-changing control can fire under an overlay the gate cannot see past.
+    /// Done is exempt because it is non-destructive AND P1's only Edit exit — a broken source
+    /// must never trap the owner in Edit with the keyboard captured. A GENUINE occluder (a
+    /// healthy source answering true) gates Done like everything else. A wiring slip then
+    /// degrades to "destructive notes controls dead under that source" instead of a per-sample
+    /// exception that starves the gaze broadcast. The failure is logged once per source per
+    /// failure episode (a successful read re-arms the log, so a recovered-then-refailed source
+    /// is loud again) — never once per sample.
     /// </para></summary>
-    private bool OccludersContain(PhysicalPoint gazePoint)
+    /// <returns>Whether a source GENUINELY occludes the gaze, and whether any source FAILED (the
+    /// fail-closed answer, which Done is exempt from).</returns>
+    private (bool GenuineOcclusion, bool Failed) EvaluateOccluders(PhysicalPoint gazePoint)
     {
-        if (SourceOccludes(KnownOccluderSources.KeyboardProbe,
-                () => _keyboardProbe?.Rects().Any(rect => rect.Contains(gazePoint)) == true))
-            return true;
-        if (SourceOccludes(KnownOccluderSources.LagMark,
-                () => _lagMarkRects is { } lagMark && lagMark().Any(rect => rect.Contains(gazePoint))))
-            return true;
-        if (SourceOccludes(KnownOccluderSources.DriftNotice,
+        bool genuine = false, failed = false;
+
+        if (!TryReadOccluder(KnownOccluderSources.KeyboardProbe,
+                () => _keyboardProbe?.Rects().Any(rect => rect.Contains(gazePoint)) == true, out var covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.LagMark,
+                () => _lagMarkRects is { } lagMark && lagMark().Any(rect => rect.Contains(gazePoint)), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.DriftNotice,
                 () => _driftNoticeBounds is { } drift && drift.Invoke() is { } driftBounds
-                    && driftBounds.Contains(gazePoint)))
-            return true;
-        if (SourceOccludes(KnownOccluderSources.CaregiverAlert,
+                    && driftBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.CaregiverAlert,
                 () => _caregiverAlertBounds is { } alert && alert.Invoke() is { } alertBounds
-                    && alertBounds.Contains(gazePoint)))
-            return true;
-        if (SourceOccludes(KnownOccluderSources.TrackStatus,
+                    && alertBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.TrackStatus,
                 () => _trackStatusBounds is { } trackStatus && trackStatus.Invoke() is { } trackStatusBounds
-                    && trackStatusBounds.Contains(gazePoint)))
-            return true;
-        return false;
+                    && trackStatusBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        return (genuine, failed);
     }
+
+    /// <summary>The per-target gate answer: a GENUINE occluder closes the gate for everyone; a
+    /// FAILED source closes it for every target except <c>{id}:done</c> (fixup 03 m1 — Done is
+    /// non-destructive and the only Edit exit; everything destructive stays shut).</summary>
+    private static bool GateOpenFor(DwellTarget target, bool genuineOcclusion, bool occluderFailed) =>
+        !(genuineOcclusion || (occluderFailed && !target.Id.EndsWith(":done", StringComparison.Ordinal)));
 
     /// <summary>The occluder sources' stable names, for the fail-closed log (one entry per source
     /// per failure episode).</summary>
@@ -667,24 +702,28 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>Runs one occluder read. A throw is contained: logged once for this episode and
     /// answered with TRUE — the sample is occluded, so no hidden ✕ or ✎ can fire (fixup 02).</summary>
-    private bool SourceOccludes(string name, Func<bool> read)
+    /// <summary>Runs one occluder read. A throw is contained: logged once per source per failure
+    /// episode, and reported to the caller as a FAILED source — the fail-closed answer applies to
+    /// every target except ✓ Done (fixup 03 m1, see <see cref="GateOpenFor"/>).</summary>
+    /// <returns>False when the read threw (the failure is logged here); true with the result
+    /// otherwise.</returns>
+    private bool TryReadOccluder(string name, Func<bool> read, out bool covers)
     {
-        bool occludes;
         try
         {
-            occludes = read();
+            covers = read();
+            _occluderFailureLogged.Remove(name); // a healthy read re-arms the once-per-episode log
+            return true;
         }
         catch (Exception ex)
         {
+            covers = false;
             if (_occluderFailureLogged.Add(name))
                 Serilog.Log.Error(ex,
                     "The note gate's {OccluderSource} occluder source threw; failing closed — "
-                    + "samples count as occluded until the source recovers", name);
-            return true;
+                    + "destructive note controls stay gated until the source recovers", name);
+            return false;
         }
-
-        _occluderFailureLogged.Remove(name); // a healthy read re-arms the once-per-episode log
-        return occludes;
     }
 
     /// <summary>Whether the gaze lies inside the union of the live targets' hit areas (P2 D2's

@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Services.Notes;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -53,22 +54,60 @@ public class NoteOccluderWiringTests
         return (manager, context, trackStatus);
     }
 
-    // R7b (reviewer probe, adopted): the exact production wiring, the real container, one note,
-    // one gaze sample — no exception. On 8a6efb45 the inlined lambda's
-    // GetRequiredService<ITrackStatusOverlay> threw InvalidOperationException here (RED).
+    // R7b (reviewer probe, adopted) + review-03 M1's POSITIVE CONTROL: the exact production
+    // wiring, the real container, one Display note, the track-status card hidden — after the
+    // leave-before-arm, ✕ MUST FIRE through the real wiring, and the run must log NO occluder
+    // failure. Mutant W1 (the B1 lambda restored inside Wire) makes the track-status read throw
+    // on every sample: fail-closed then holds ✕ forever AND logs — both halves go red. A bare
+    // "does not throw" assertion is vacuous here, because fail-closed contains the throw.
     [StaFact]
-    public void TheProductionOccluderWiring_RunsOnTheRealContainer_WithoutThrowing()
+    public void TheProductionWiring_LetsCloseFire_OnTheRealContainer_WithoutLoggingAnySourceFailure()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var sp = BuildProvider();
-        var manager = (NoteManager)sp.GetRequiredService<INoteManager>();
-        var trackStatus = new TestFakes.FakeTrackStatusOverlay();
-        var (_, context, _) = MakeContext(sp, manager, trackStatus);
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Error()
+            .WriteTo.Sink(sink)
+            .CreateLogger();
+        try
+        {
+            using var sp = BuildProvider();
+            var manager = (NoteManager)sp.GetRequiredService<INoteManager>();
+            var trackStatus = new TestFakes.FakeTrackStatusOverlay(); // hidden: Visible stays false
+            var (_, context, _) = MakeContext(sp, manager, trackStatus);
 
-        NoteOccluderWiring.Wire(manager, sp, context);
-        manager.AddNoteTargetsForTest(new PhysicalPoint(1600, 1000));
+            NoteOccluderWiring.Wire(manager, sp, context);
 
-        Check.ThatCode(() => manager.OnGazeMoved(new PhysicalPoint(100, 100), 0)).DoesNotThrow();
+            DpiHelper.Initialize(2.0, 2.0);
+            try
+            {
+                var anchor = new PhysicalPoint(1600, 1000);
+                manager.AddNoteTargetsForTest(anchor);
+                var closeCenter = ButtonCentrePhysical(anchor, 0);
+
+                // Leave-before-arm: 300 ms outside the circle, then a 900 ms hold on ✕.
+                for (long t = 0; t <= 300_000; t += 100_000)
+                    manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
+                for (long t = 400_000; t <= 1_200_000; t += 100_000)
+                    manager.OnGazeMoved(closeCenter, t);
+
+                Check.WithCustomMessage(
+                        "✕ must FIRE through the real production wiring on the real container — a "
+                        + "silently-failing occluder source (the B1 regression) holds it forever")
+                    .That(manager.ActiveNotes).IsEmpty();
+
+                var failures = sink.Events
+                    .Where(e => e.MessageTemplate.Text.Contains("occluder source threw", StringComparison.Ordinal))
+                    .ToList();
+                Check.WithCustomMessage(
+                        "the production wiring on the real container must log NO occluder source "
+                        + "failure; logged: " + string.Join(" | ", sink.Events.Select(e => e.RenderMessage())))
+                    .That(failures).IsEmpty();
+            }
+            finally { DpiHelper.Initialize(1.0, 1.0); }
+        }
+        finally { Log.Logger = previousLogger; }
     }
 
     // Required (4): each of the four sources resolves through the real container (or, for the
@@ -215,6 +254,51 @@ public class NoteOccluderWiringTests
     {
         public List<LogEvent> Events { get; } = new();
         public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+    }
+
+    // Fixup 03 m1: a throwing occluder source answers "occluded" for every target EXCEPT
+    // {id}:done. Done is non-destructive and P1's only Edit exit — a broken source must never
+    // trap the owner in Edit with the keyboard captured. Done still respects every working
+    // source, the keyboard gate, the own-window conjunct, suspend and pause; the destructive
+    // ✕ under the same failure must not fire. Mutant: drop the exemption from GateOpenFor →
+    // Done never fires and this goes red.
+    [Fact]
+    public void AThrowingOccluderSource_LetsDoneFire_ButKeepsCloseGated()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        manager.SetOccluderSources(driftNoticeBounds: () =>
+            throw new InvalidOperationException("wiring slip"));
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddEditingNoteTargetsForTest(anchor);
+            manager.Apply(new NoteAppend("hello"));
+            var slot0 = ButtonCentrePhysical(anchor, 0); // ✓ Done in Edit — and ✕'s slot in Display
+
+            // The held gaze on a throwing source: Done must still fire and SAVE the note.
+            for (long t = 0; t <= 1_200_000; t += 100_000)
+                manager.OnGazeMoved(slot0, t);
+            Check.WithCustomMessage(
+                    "a throwing occluder source must not trap the owner in Edit — Done is the only "
+                    + "Edit exit and the exemption exists so it stays reachable")
+                .That(manager.IsEditing).IsFalse();
+            Check.WithCustomMessage("Done must have SAVED the note (non-destructive exit)")
+                .That(manager.ActiveNotes[0].Text).IsEqualTo("hello");
+
+            // The same held gaze now rests on ✕ (re-registered and latched by the exit): the
+            // destructive control must stay gated — the leave timers are frozen by the failure
+            // (no information), and the fail-closed answer keeps it dead regardless.
+            for (long t = 1_300_000; t <= 2_300_000; t += 100_000)
+                manager.OnGazeMoved(slot0, t);
+            Check.WithCustomMessage(
+                    "a throwing occluder source must keep the destructive ✕ gated under the same "
+                    + "held gaze that could still reach Done")
+                .That(manager.ActiveNotes).HasSize(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
     /// <summary>A dwell button's centre in physical px, through the SAME math the manager uses.</summary>

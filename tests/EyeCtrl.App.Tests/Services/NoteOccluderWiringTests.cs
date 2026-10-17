@@ -366,13 +366,15 @@ public class NoteOccluderWiringTests
             for (long t = 300_000; t <= 600_000; t += 100_000) manager.OnGazeMoved(away, t);
 
             // 4. The source heals; 5. the gaze returns and holds a full second: the latch is
-            //    still on — ✕ must not fire.
+            //    still on — ✕ must not fire, and with P2 D5 that is observable: the note must
+            //    still be a plain Display card, NOT a chip.
             throwOnRead = false;
             for (long t = 700_000; t <= 1_700_000; t += 100_000) manager.OnGazeMoved(closeCenter, t);
             Check.WithCustomMessage(
                     "a failing source's excursion must not release the latch — only a HEALTHY "
                     + "leave may (review-04 m1, mutant W6)")
-                .That(manager.ActiveNotes.Select(n => n.Id)).Contains(idA);
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(manager.ActiveNotes.Select(n => n.Id)).Contains(idA);
 
             // Positive control: a healthy 300 ms leave releases the latch, and the return fires ✕
             // — into the chip (P2 D5).

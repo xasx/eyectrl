@@ -564,10 +564,16 @@ public class NoteUndoTests
                     "a polled pause must stop the countdown while the sample stamp is still fresh")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
-            // Control: the pause lifts, a fresh sample stamps the clock, and the countdown runs.
+            // The pause lifts. The pause phase credited NOTHING, so the chip must survive exactly
+            // 79 more seconds-tenths and expire on the 80th — a conjunct dropped above would have
+            // credited the paused 400 ms and expired early.
             paused = false;
-            for (int i = 0; i < 80; i++)
+            for (int i = 0; i < 79; i++)
                 Tick(manager, clock, timer, ref tUs);
+            Check.WithCustomMessage(
+                    "no time may be credited while paused: 7.9 s after the resume the chip is alive")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Tick(manager, clock, timer, ref tUs);
             Check.That(manager.ActiveNotes).IsEmpty();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -588,15 +594,26 @@ public class NoteUndoTests
             ArmThenHold(manager, ButtonCentrePhysical(anchor, 2), startUs: 0);
 
             long tUs = 2_000_000;
+            Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the suspender
             suspended = true;
-            for (int i = 0; i < 90; i++)
-                Tick(manager, clock, timer, ref tUs);
+            // The gate DROPS samples while a suspender holds, so the stamp goes stale regardless —
+            // the suspender conjunct is only observable in the first 500 ms. Four silent ticks
+            // probe exactly that window; nothing may be credited (the dropped 400 ms would expire
+            // the chip 4 ticks early once the suspender lifts).
+            for (int i = 0; i < 4; i++)
+            {
+                clock.NowMs += 100;
+                timer.RaiseTick();
+            }
             Check.WithCustomMessage("the banner's suspender must stop the countdown")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             suspended = false;
-            for (int i = 0; i < 80; i++)
+            for (int i = 0; i < 79; i++)
                 Tick(manager, clock, timer, ref tUs);
+            Check.WithCustomMessage("no time may be credited while suspended: 7.9 s after it lifts the chip is alive")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Tick(manager, clock, timer, ref tUs);
             Check.That(manager.ActiveNotes).IsEmpty();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -616,15 +633,26 @@ public class NoteUndoTests
             ArmThenHold(manager, ButtonCentrePhysical(anchor, 2), startUs: 0);
 
             long tUs = 2_000_000;
+            Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the suspender
             suspended = true;
-            for (int i = 0; i < 90; i++)
-                Tick(manager, clock, timer, ref tUs);
+            // The gate DROPS samples while a suspender holds, so the stamp goes stale regardless —
+            // the suspender conjunct is only observable in the first 500 ms. Four silent ticks
+            // probe exactly that window; nothing may be credited (the dropped 400 ms would expire
+            // the chip 4 ticks early once the suspender lifts).
+            for (int i = 0; i < 4; i++)
+            {
+                clock.NowMs += 100;
+                timer.RaiseTick();
+            }
             Check.WithCustomMessage("the restart card's suspender must stop the countdown")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             suspended = false;
-            for (int i = 0; i < 80; i++)
+            for (int i = 0; i < 79; i++)
                 Tick(manager, clock, timer, ref tUs);
+            Check.WithCustomMessage("no time may be credited while suspended: 7.9 s after it lifts the chip is alive")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Tick(manager, clock, timer, ref tUs);
             Check.That(manager.ActiveNotes).IsEmpty();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -644,15 +672,26 @@ public class NoteUndoTests
             ArmThenHold(manager, ButtonCentrePhysical(anchor, 2), startUs: 0);
 
             long tUs = 2_000_000;
+            Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the suspender
             suspended = true;
-            for (int i = 0; i < 90; i++)
-                Tick(manager, clock, timer, ref tUs);
+            // The gate DROPS samples while a suspender holds, so the stamp goes stale regardless —
+            // the suspender conjunct is only observable in the first 500 ms. Four silent ticks
+            // probe exactly that window; nothing may be credited (the dropped 400 ms would expire
+            // the chip 4 ticks early once the suspender lifts).
+            for (int i = 0; i < 4; i++)
+            {
+                clock.NowMs += 100;
+                timer.RaiseTick();
+            }
             Check.WithCustomMessage("the action menu's suspender must stop the countdown")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             suspended = false;
-            for (int i = 0; i < 80; i++)
+            for (int i = 0; i < 79; i++)
                 Tick(manager, clock, timer, ref tUs);
+            Check.WithCustomMessage("no time may be credited while suspended: 7.9 s after it lifts the chip is alive")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Tick(manager, clock, timer, ref tUs);
             Check.That(manager.ActiveNotes).IsEmpty();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -843,6 +882,40 @@ public class NoteUndoTests
             Check.That(manager.ActiveNotes).HasSize(8);
             Check.WithCustomMessage("the new note exists")
                 .That(manager.ActiveNotes.Count(n => n.State == NoteState.Edit)).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void AtEightWindows_TheFinalizedChipIsTheOldestYIELDABLEOne()
+    {
+        // The yieldable rule's finalize half: with a non-yieldable DiscardedExisting chip AND a
+        // yieldable Removed chip outstanding at 8 windows, the pin finalizes the OLDEST YIELDABLE
+        // one — the DiscardedExisting chip (older, but holding saved text) must survive.
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            for (int i = 0; i < 6; i++)
+                SavedNote(manager, $"note {i}", new PhysicalPoint(400 + i * 600, 400));
+            var kept = SavedNote(manager, "kept", new PhysicalPoint(4000, 400));
+            manager.StartEdit(kept);
+            manager.Apply(new NoteAppend(" changed"));
+            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4000, 400), 2), startUs: 0); // ↩ → DiscardedExisting chip (older)
+
+            var yielded = SavedNote(manager, "yielded", new PhysicalPoint(4600, 400));
+            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 400), 2), startUs: 2_000_000); // ✕ → Removed chip (younger)
+
+            Check.That(manager.ActiveNotes).HasSize(8);
+            Check.That(manager.IsAtCapacity).IsFalse(); // 6 Display + the non-yieldable chip = 7 live
+
+            manager.CreateNoteAt(new PhysicalPoint(8000, 400));
+
+            Check.WithCustomMessage("the pin must finalize the OLDEST YIELDABLE chip — the Removed one")
+                .That(manager.ActiveNotes.Select(n => n.Id)).Not.Contains(yielded);
+            Check.WithCustomMessage("the older non-yieldable chip must survive the pin")
+                .That(manager.ActiveNotes.First(n => n.Id == kept).State).IsEqualTo(NoteState.PendingUndo);
+            Check.That(manager.ActiveNotes).HasSize(8);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

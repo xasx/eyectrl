@@ -105,7 +105,7 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
         // Where the commit point lands inside the preview circle. In the zoom path the capture is
         // centred on the commit point, so the marker sits at the circle's centre: the preview shows
-        // the click point magnified around itself, not the menu display point.
+        // the click point at 1:1 around itself, not the menu display point.
         var indicatorOffsetX = geometry.MarkerOffsetDip.X;
         var indicatorOffsetY = geometry.MarkerOffsetDip.Y;
 
@@ -301,10 +301,12 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
     /// <summary>
     /// The action-menu preview's geometry. In the zoom path (back from the magnifier) it shows the
-    /// COMMIT point at the magnifier's own magnification: a circle of <paramref name="previewCircleSize"/>
-    /// DIP covers <c>previewCircleSize / previewMagnification</c> screen pixels, so the last picture
-    /// before the click is as large as the zoom the user just used. The old form captured the whole
-    /// zoom region and shrank it into the circle — 0.59× at the owner's settings.
+    /// COMMIT point: a circle of <paramref name="previewCircleSize"/> DIP renders
+    /// <paramref name="previewMagnification"/> screen pixels per captured pixel. Production passes
+    /// 1.0 on both paths — the owner's decision — so the menu shows the picked spot at 1× (no zoom)
+    /// and the magnifier's factor is not carried into the preview; the parameter stays so the pure
+    /// seam keeps its factor coverage. The old form captured the whole zoom region and shrank it
+    /// into the circle — 0.59× at the owner's settings.
     ///
     /// <para>
     /// The marker is placed from <paramref name="gazePoint"/> (the precise commit point) rather than

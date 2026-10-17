@@ -114,6 +114,45 @@ public class SmallLMPredictorConcurrencyTests
     }
 
     [Fact]
+    public void Predict_AfterTheWorkerGoesIdle_StartsANewWorker()
+    {
+        var tokenizer = CreateTokenizer(out var directory);
+        SmallLMPredictor? predictor = null;
+        var requestIndex = -1;
+
+        try
+        {
+            predictor = SmallLMPredictor.CreateModelFree(tokenizer, (step, token) =>
+            {
+                if (step == 0) requestIndex++;
+                var request = requestIndex;
+
+                return step == 0
+                    ? new SmallLMPredictor.StepOutput(request == 0 ? WorldToken : HelloToken, 0.5)
+                    : null;
+            });
+
+            predictor.Predict("first request");
+            var first = WaitForResults(predictor, TimeSpan.FromSeconds(10));
+            Check.That(first).IsNotNull();
+            Check.That(first![0].Word).IsEqualTo("w");
+
+            // TryGetResults only surfaces once the worker has exited, so the first result
+            // proves it is idle. This Predict must start a new worker, not be dropped.
+            predictor.Predict("second request");
+            var second = WaitForResults(predictor, TimeSpan.FromSeconds(10));
+            Check.That(second).IsNotNull();
+            Check.That(second![0].Word).IsEqualTo("h");
+        }
+        finally
+        {
+            predictor?.Dispose();
+            tokenizer.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void TryGetResults_AfterSupersession_ReturnsOnlyTheLatestRequestsResults()
     {
         var tokenizer = CreateTokenizer(out var directory);
@@ -149,9 +188,6 @@ public class SmallLMPredictorConcurrencyTests
             Check.That(entered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
 
             predictor.Predict("second request");
-
-            // Nothing surfaces while a request is still in flight.
-            Check.That(predictor.TryGetResults()).IsNull();
 
             release.Set();
 

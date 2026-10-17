@@ -43,7 +43,7 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     /// drive the real stepping loop - per-step cancellation included - with no model loaded.
     /// Production never sets it.
     /// </summary>
-    internal Func<int, CancellationToken, StepOutput?>? StepOverride { get; set; }
+    internal Func<int, CancellationToken, StepOutput?>? StepOverride { get; init; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SmallLMPredictor"/> class.
@@ -89,9 +89,11 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         Func<int, CancellationToken, StepOutput?> stepOverride)
     {
         var predictor = new SmallLMPredictor(string.Empty, modelSize: "Off", preferGpu: false,
-            logger: null, tokenizer: tokenizer, ownsTokenizer: false);
-        predictor.IsAvailable = true;
-        predictor.StepOverride = stepOverride;
+            logger: null, tokenizer: tokenizer, ownsTokenizer: false)
+        {
+            IsAvailable = true,
+            StepOverride = stepOverride,
+        };
         return predictor;
     }
 

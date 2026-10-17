@@ -122,6 +122,49 @@ public class ScrollModeControllerLoggingTests
     }
 
     [StaFact]
+    public void ThePerSecondLine_CountsTheSameWheelsTheSimulatorReceived()
+    {
+        // S19 (fixup 02): the down-counter had no assertion, so removing
+        // `_wheelsDown += -intDeltaY;` survived. N ticks with a downward target: the line's
+        // wheelsDown must equal the negative deltas the fake simulator actually received, and
+        // wheelsUp must stay 0.
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            var input = new TestFakes.FakeInputSimulator();
+            using var worker = new ScrollWorker(input);
+            worker.Start(
+                new PhysicalPoint(1000, 1000),
+                isArmed: () => true,
+                cursorReader: () => new PhysicalPoint(1100, 1000));
+            worker.UpdateTargetVelocity(0, -600);   // downward
+
+            for (int i = 0; i < 63; i++) worker.Tick();
+
+            int wheelsDown = input.BareScrolls.Sum(s => s.Dy < 0 ? -s.Dy : 0);
+            int wheelsUp = input.BareScrolls.Sum(s => s.Dy > 0 ? s.Dy : 0);
+            Check.WithCustomMessage("the premise: the fake received downward wheels")
+                .That(wheelsDown).IsStrictlyGreaterThan(0);
+
+            var line = sink.Messages.FirstOrDefault(m =>
+                m.Contains("Scroll: ", StringComparison.Ordinal)
+                && m.Contains("cursor=(1100,1000)", StringComparison.Ordinal));
+            Check.WithCustomMessage($"saw: {string.Join(" | ", sink.Messages)}").That(line).IsNotNull();
+            Check.WithCustomMessage(line!)
+                .That(line!.Contains($"wheelsDown={wheelsDown}", StringComparison.Ordinal)).IsTrue();
+            Check.WithCustomMessage(line)
+                .That(line.Contains($"wheelsUp={wheelsUp}", StringComparison.Ordinal)).IsTrue();
+            Check.That(wheelsUp).IsEqualTo(0);
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [StaFact]
     public void TheWorker_LogsThePerSecondSummary_WithItsFields()
     {
         var sink = new CapturingSink();

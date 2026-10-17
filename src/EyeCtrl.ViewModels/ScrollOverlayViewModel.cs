@@ -23,12 +23,12 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     /// never below the engine's legacy 30. At the default 80 this is the 80-px dead zone the
     /// investigation measured the 15-DIP one against.
     /// </summary>
-    internal double DeadZoneRadiusPx =>
+    public double DeadZoneRadiusPx =>
         Math.Max(ScrollEngine.DeadZoneRadiusPixels, _dwellSettings.FixationRadiusPixels);
 
     /// <summary>The stop button's own radius in physical px (50 DIP × the live scale): its whole
     /// drawn face stops the scroll, not its inner half.</summary>
-    internal double StopZoneRadiusPx => DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+    public double StopZoneRadiusPx => DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
 
     /// <summary>The dot feedback's 200-DIP travel, in physical px (F-S3).</summary>
     internal double MaxOffsetPx => MaxOffsetDip * DpiHelper.ScaleX;

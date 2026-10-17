@@ -10,8 +10,13 @@ using EyeCtrl.Core.Settings;
 /// <c>"mlModelSize": "0.5B"</c> — <see cref="KeyboardSettings.MLModelSize"/> has no setter guard and
 /// no <c>Validate()</c> entry (custom model ids are data, not a closed set; pinned at the unit level
 /// by <c>KeyboardSettingsTests.MLModelSize_AnyValue_Accepted</c>), so the load must keep it and every
-/// witness around it. A value that ever tripped the keyboard section's guard or validation would show
-/// here as the witnesses reverting.
+/// witness around it. <para>
+/// <b>What actually kills the mutants, measured (review 02):</b> a guard or <c>Validate()</c> entry
+/// today reverts ONLY this property — the #153 drop-one repair takes it to <c>"360M"</c> — and every
+/// witness (layout, suggestions count, the two flags, dwell, language, startPaused, opacity) stays
+/// intact. So the teeth are the two <c>MLModelSize == "0.5B"</c> assertions; the witnesses catch the
+/// blunter failure a whole-section reset would be, which neither realistic mutant shape causes.
+/// </para>
 /// </summary>
 public class MlModelSizeRetirementFileTests
 {

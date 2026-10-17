@@ -99,9 +99,10 @@ initializers** (fp16_pass checks `model.embed_tokens.weight` against an initiali
 named `lm_head.weight`; quantize matches by value against same-shape fp16 candidates).
 The model IS tied (`out/config.json`: `"tie_word_embeddings": true`), but optimum's own
 deduplication was **skipped**: the export log says `Weight deduplication check in the ONNX
-export requires accelerate`, and `accelerate` is absent from this venv. optimum therefore
-exported `lm_head` **pre-transposed under a different initializer name**, and neither custom
-pass found a tie — the recorded quantize log says it exactly:
+export requires accelerate`, and `accelerate` is absent from this venv. Separately — a property
+of tracing `nn.Linear`, not of the missing package — optimum exports `lm_head`
+**pre-transposed under a different initializer name**, and neither custom pass found a tie —
+the recorded quantize log says it exactly:
 `lm_head weight: onnx::MatMul_9283 | same-shape fp16 candidates: []` →
 `no tie found; keeping both copies`. Both copies ship, which is why this artifact is 1.67 GB
 against the original's 1.22 GB (≈ one extra 467 MB fp16 copy).

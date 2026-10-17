@@ -16,6 +16,7 @@
   fusion and the quantization — is committed under `tools/model-export/qwen2.5-1.5b/`.
 - **The 0.5B option is removed.** Its model file cannot load on ONNX Runtime 1.24.4's CPU path
   (the same `SimplifiedLayerNormFusion` bug), and the retired option no longer resolves to its
-  file at all, so an install that selected 0.5B gets no model suggestions - on the graphics card
-  too - until another model is chosen. The downloaded `.onnx`/tokenizer files stay on disk
-  untouched; nothing re-downloads them.
+  file at all, so an install that selected 0.5B gets no model suggestions — on the graphics card
+  too — until another model is chosen or downloaded on the Models page. If 0.5B was its only
+  model, that page says "No models downloaded"; the files stay on disk and can be deleted by
+  hand: `%APPDATA%\EyeCtrl\models\qwen2.5-0.5b.onnx` and `qwen2.5-0.5b.tokenizer.json`.

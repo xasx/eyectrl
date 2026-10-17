@@ -488,7 +488,8 @@ public class PredictionStackFactory : IDisposable
                     // ran. SerilogStaticLogger forwards to the CURRENT static Serilog pipeline
                     // on every call (a SerilogLoggerFactory captures the instance at
                     // CreateLogger, so a logger created before a swap keeps the old sink) and
-                    // keeps the rendered text prefix-free and Information-and-up; see its doc.
+                    // keeps the rendered text prefix-free — the bridge maps every level 1:1;
+                    // only the app's configured minimum (Information in the day log) filters.
                     lmPredictor = PredictorFactoryOverride is not null
                         ? PredictorFactoryOverride(modelSize, settings.Keyboard.PreferGPU, tokenizer, modelPath)
                         : new SmallLMPredictor(

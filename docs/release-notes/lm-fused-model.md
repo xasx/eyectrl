@@ -24,4 +24,7 @@
   `Using DirectML (GPU) for {Model}`, the silent CPU fallback warning, the
   `SmallLMPredictor initialized with …` line and any load failure — now reach
   `%APPDATA%\EyeCtrl\logs\eyectrl-<date>.log`; before, the predictor was built without a
-  logger and all of them were dropped.
+  logger and all of them were dropped. It also unmutes two lines the note did not name:
+  `No tokenizer provided for {Model}; LM suggestions disabled` (Warning, at each keyboard
+  stack build while the selected model is not downloaded, beside the existing "Tokenizer
+  file not found" line) and `LM inference failed` (Error, with its exception).

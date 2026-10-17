@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.LM;
 using Microsoft.Extensions.Logging;
@@ -128,6 +129,35 @@ public class SerilogStaticLoggerTests
                 .That(first.Events).IsEmpty();
             Check.That(second.Events).HasSize(1);
             Check.That(second.Events[0].RenderMessage()).Contains("after reassignment");
+        }
+        finally { Log.Logger = previous; }
+    }
+
+    [Fact]
+    public void TheDayLogText_IsTheMessageVerbatim_WithNoAddedPrefix()
+    {
+        // Review fixup-02 N1: the reviewer's surviving mutant writes "LM {Message}" instead of
+        // "{Message}" — every other check here is a Contains, so the exact day-log text was
+        // unpinned. Render one event with the day log's OWN message token ("{Message:lj}",
+        // LoggingInitializer.cs) and compare the EXACT text; the message carries braces and a
+        // Windows path, so literal rendering is pinned as well.
+        const string message = @"Model file not found: C:\x\{y}.onnx";
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        try
+        {
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+            var bridge = new SerilogStaticLogger<SmallLMPredictor>();
+
+            bridge.Log(LogLevel.Information, default, "state", null, (_, _) => message);
+
+            Check.That(sink.Events).HasSize(1);
+            var formatter = new Serilog.Formatting.Display.MessageTemplateTextFormatter("{Message:lj}");
+            using var writer = new StringWriter();
+            formatter.Format(sink.Events[0], writer);
+            Check.WithCustomMessage(
+                    $"the day-log text must be the message verbatim (no prefix, no mangle), saw: {writer}")
+                .That(writer.ToString()).IsEqualTo(message);
         }
         finally { Log.Logger = previous; }
     }

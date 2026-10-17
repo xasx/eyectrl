@@ -88,18 +88,6 @@ public static class ScreenCaptureService
         return ToBitmapSource(bitmap);
     }
 
-    /// <summary>
-    /// The centre, in physical pixels, of the image a capture of <paramref name="radius"/> around
-    /// <paramref name="center"/> will produce. Available before the capture runs, for callers that
-    /// must place something against the image before it arrives. With a centred capture this is the
-    /// requested centre whenever the placement exists.
-    /// </summary>
-    public static PhysicalPoint GetEffectiveCenter(PhysicalPoint center, int radius)
-    {
-        var (screenWidth, screenHeight) = PhysicalScreenSize();
-        return CaptureViewMapping.EffectiveCaptureCenter(center, radius, screenWidth, screenHeight);
-    }
-
     private static Bitmap GdiGrab(int x, int y, int width, int height)
     {
         var bitmap = new Bitmap(width, height);

@@ -138,10 +138,13 @@ public interface IActionMenuOverlay
     // Twelve parameters, kept as-is rather than "improved" into an options object. Reshaping the
     // call while narrowing the type would mix a mechanical change with a behavioural one, and this
     // seam's job is to remove the WPF dependency, not to redesign the menu's API.
+    // <paramref name="previewMagnification"/> was appended for the zoom path's preview: it is the
+    // magnifier's configured factor, 1.0 (unchanged behaviour) in the plain path.
     void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton,
         int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor,
         PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null,
-        int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false);
+        int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false,
+        double previewMagnification = 1.0);
 
     void Hide();
 }

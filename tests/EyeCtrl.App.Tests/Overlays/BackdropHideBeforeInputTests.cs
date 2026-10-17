@@ -308,7 +308,7 @@ public class BackdropHideBeforeInputTests
         public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton,
             int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor,
             PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null,
-            int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false)
+            int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false, double previewMagnification = 1.0)
         {
             ShowCalls++;
             IsVisible = true;

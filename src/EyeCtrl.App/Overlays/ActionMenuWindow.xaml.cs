@@ -53,7 +53,7 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         ExcludeFromScreenCapture = true; // the action-menu preview must not capture the menu itself
     }
 
-    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false)
+    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false, double previewMagnification = 1.0)
     {
         // Detach the previous rebuild's progress handlers before clearing. A layer change hands us
         // fresh item ViewModels and would drop the old ones anyway, but a Help toggle does not —
@@ -75,44 +75,22 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
         var canvasCenter = new Point(Width / 2, Height / 2);
 
-        // Delay capture to let WPF render overlay visibility changes
-        var previewRadius = (int)(previewCircleSize / 2);
-        // In zoom path: capture the same region the zoom view showed (same center, same radius)
-        // In AtCenter path: capture the menu display center so indicator can show gaze offset
-        var captureCenter = zoomCenter ?? center;
-        var captureRadius = zoomRadius != null
-            ? (int)(zoomRadius.Value * DpiHelper.ScaleX)          // zoomRadius is logical (DIP) px → convert to physical px for capture
-            : (int)(previewRadius * DpiHelper.ScaleX);            // previewRadius is logical px → convert to physical
-        // The capture rectangle is clamped to the screen, so the image's centre is the effective
-        // one, not the requested centre. The marker must be placed against the image actually shown.
-        var effectiveCaptureCenter = ScreenCaptureService.GetEffectiveCenter(captureCenter, captureRadius);
+        // The preview ellipse's centre (the window centre) and size are what the geometry is drawn
+        // against. Delay the capture to let WPF render overlay visibility changes.
+        var geometry = PreviewGeometry(
+            center, gazePoint, zoomCenter, zoomRadius, previewCircleSize, previewMagnification,
+            DpiHelper.ScaleX);
+        var captureCenter = geometry.CaptureCenter;
+        var captureRadius = geometry.CaptureRadiusPx;
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;
         var captureBorderColor = borderColor;
 
-        // Compute where within the preview circle the precise fixation point (center) lies.
-        // When not in zoom mode both offsets are 0 and the indicator stays at canvasCenter.
-        double indicatorOffsetX = 0;
-        double indicatorOffsetY = 0;
-
-        // Calculate indicator offset based on the actual gaze/fixation point
-        var indicatorPoint = gazePoint ?? center;
-        if (zoomCenter != null && zoomRadius != null)
-        {
-            double scale = previewCircleSize / (2.0 * captureRadius);
-            var markerPoint = CaptureViewMapping.ToViewPoint(effectiveCaptureCenter, canvasCenter, scale, center);
-            indicatorOffsetX = markerPoint.X - canvasCenter.X;
-            indicatorOffsetY = markerPoint.Y - canvasCenter.Y;
-            (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
-        }
-        else if (gazePoint != null && gazePoint != center)
-        {
-            double scale = previewCircleSize / (2.0 * captureRadius);
-            var markerPoint = CaptureViewMapping.ToViewPoint(effectiveCaptureCenter, canvasCenter, scale, indicatorPoint);
-            indicatorOffsetX = markerPoint.X - canvasCenter.X;
-            indicatorOffsetY = markerPoint.Y - canvasCenter.Y;
-            (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
-        }
+        // Where the commit point lands inside the preview circle. In the zoom path the capture is
+        // centred on the commit point, so the marker sits at the circle's centre: the preview shows
+        // the click point magnified around itself, not the menu display point.
+        var indicatorOffsetX = geometry.MarkerOffsetDip.X;
+        var indicatorOffsetY = geometry.MarkerOffsetDip.Y;
 
         _captureCts?.Cancel();
         _captureCts = new CancellationTokenSource();
@@ -259,6 +237,52 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     {
         if (_buttonVisuals.TryGetValue(targetId, out var btn))
             btn.UpdateProgress(progress);
+    }
+
+    /// <summary>
+    /// The action-menu preview's geometry. In the zoom path (back from the magnifier) it shows the
+    /// COMMIT point at the magnifier's own magnification: a circle of <paramref name="previewCircleSize"/>
+    /// DIP covers <c>previewCircleSize / previewMagnification</c> screen pixels, so the last picture
+    /// before the click is as large as the zoom the user just used. The old form captured the whole
+    /// zoom region and shrank it into the circle — 0.59× at the owner's settings.
+    ///
+    /// <para>
+    /// The marker is placed from <paramref name="gazePoint"/> (the precise commit point) rather than
+    /// the menu's display <paramref name="center"/>: under <c>atCenter</c> that display point is the
+    /// screen centre, so the marker used to show where the screen centre fell, not where the click
+    /// would land. In the zoom path the capture is centred on the commit point, so the marker sits
+    /// at (0,0). The plain path is unchanged: 1.0× around the menu's display point.
+    /// </para>
+    /// </summary>
+    internal static (PhysicalPoint CaptureCenter, int CaptureRadiusPx, double ViewScaleDipPerPx, Vector MarkerOffsetDip) PreviewGeometry(
+        PhysicalPoint center,
+        PhysicalPoint? gazePoint,
+        PhysicalPoint? zoomCenter,
+        int? zoomRadius,
+        double previewCircleSize,
+        double previewMagnification,
+        double scaleX)
+    {
+        var commitPoint = gazePoint ?? center;
+        var zoomPath = zoomCenter is not null && zoomRadius is not null;
+
+        var captureCenter = zoomPath ? commitPoint : center;
+        // `Math.Round`, not truncation: at 1.0/1.5 the truncated radius costs a whole capture pixel
+        // and pushes the measured magnification just outside the gate's ±1 %.
+        var captureRadius = (int)Math.Round(
+            previewCircleSize / 2 / (zoomPath ? previewMagnification : 1.0) * scaleX);
+        captureRadius = Math.Max(1, captureRadius);
+
+        // The capture rectangle is clamped to the screen, so the image's centre is the effective
+        // one, not the requested centre. The marker must be placed against the image actually shown.
+        var effectiveCaptureCenter = ScreenCaptureService.GetEffectiveCenter(captureCenter, captureRadius);
+        var viewScaleDipPerPx = previewCircleSize / (2.0 * captureRadius);
+        var (markerX, markerY) = ClampToScreen(
+            (commitPoint.X - effectiveCaptureCenter.X) * viewScaleDipPerPx,
+            (commitPoint.Y - effectiveCaptureCenter.Y) * viewScaleDipPerPx,
+            previewCircleSize);
+
+        return (captureCenter, captureRadius, viewScaleDipPerPx, new Vector(markerX, markerY));
     }
 
     private static (double x, double y) ClampToScreen(double offsetX, double offsetY, double circleSize)

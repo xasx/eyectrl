@@ -418,7 +418,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             Context.ActionMenuVM.ManualSelectionCenter,
             Context.ActionMenuVM.ManualSelectionRadius,
             Context.ActionMenuVM.GazePoint,
-            Context.ActionMenuVM.ShowLabels);
+            Context.ActionMenuVM.ShowLabels,
+            // The zoom path's preview is shown at the magnifier's own factor; the plain menu path
+            // keeps 1.0× (its preview circle is drawn at the preview size for an exactly-1:1 view).
+            Context.ActionMenuVM.ShowBack ? Context.Settings.ManualSelection.MagnificationLevel : 1.0);
     }
 
     private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

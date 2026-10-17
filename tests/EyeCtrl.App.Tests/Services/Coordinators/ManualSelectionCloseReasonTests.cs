@@ -82,6 +82,26 @@ public class ManualSelectionCloseReasonTests
         harness.CheckExactlyOneClosedLine(MagnifierCloseReasons.Pause);
     }
 
+    [StaFact]
+    public void ASecondSession_DoesNotInheritThePreviousCloseReason()
+    {
+        using var harness = Harness.Start();
+        harness.Messenger.Send(new ManualSelectionCloseMessage());
+        harness.Pump();
+        harness.CheckExactlyOneClosedLine(MagnifierCloseReasons.EdgeClose);
+
+        // F4: a new session must forget the previous exit's attribution. Without the reset the
+        // stale "edge-close" wins on the ?? and the pause inference never runs.
+        harness.StartSecondSession();
+        harness.InteractionManager.TogglePause();
+        harness.Pump();
+
+        var lines = harness.ClosedLines();
+        Check.WithCustomMessage($"the second session's exit was misattributed: {string.Join(" | ", lines)}")
+            .That(lines).HasSize(2);
+        Check.That(lines[1]).StartsWith("Magnifier closed by pause after ");
+    }
+
     private sealed class Harness : IDisposable
     {
         private readonly OverlayMessageCoordinator _messageCoordinator;
@@ -162,6 +182,17 @@ public class ManualSelectionCloseReasonTests
         }
 
         internal void Pump() => Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+        /// <summary>Starts a second manual-selection session after the first one exited.</summary>
+        internal void StartSecondSession()
+        {
+            InteractionManager.OnFixationStarted(new PhysicalPoint(950, 560));
+            InteractionManager.OnActivationButtonDwelled();
+            Pump();
+        }
+
+        internal List<string> ClosedLines() =>
+            Messages.Where(m => m.StartsWith("Magnifier closed by ", StringComparison.Ordinal)).ToList();
 
         internal void CheckExactlyOneClosedLine(string expectedReason)
         {

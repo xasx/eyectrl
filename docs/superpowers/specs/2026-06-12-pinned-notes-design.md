@@ -12,7 +12,7 @@ Add a "Pin Note" action to the action menu that places a persistent, editable te
 | Requirement | Decision |
 |-------------|----------|
 | Content | Text note (sticky note) |
-| Text input | Physical keyboard + on-screen eye-tracking keyboard (whichever the user can use) |
+| Text input | **Amended (2026-10-16, sticky notes v1 P1 D9):** on-screen eye keyboard only in v1. Physical-keyboard input is deliberately unsupported (owner, 2026-10-16) — a focusable note window is how eye-typed text landed in other windows. |
 | Max active notes | 8 |
 | Note management | Per-note dwell controls (close, edit, move) |
 | Mouse interaction | Notes capture mouse clicks (not click-through) |
@@ -102,6 +102,15 @@ Add a "Pin Note" action to the action menu that places a persistent, editable te
 The pin symbol must be added to both. `ActionMenuItemViewModel` only receives a `string Symbol` in its constructor — it does not do symbol mapping. A future refactor could extract the switch into a shared helper, but that's out of scope for this feature.
 
 ### Focus Mode for Editing
+
+> **Amended (2026-10-16, sticky notes v1 P1 D9):** the mechanism below is superseded. The note
+> window is `WS_EX_NOACTIVATE` for life — no `SetOverlayInteraction(..., focusable: true)` call
+> exists on any note path, and there is no `TextBox`. While a note is in Edit, the keyboard
+> dispatchers route every key, prediction, special key, canned text and shortcut into the note's
+> draft (`INoteTextInput.Apply`) or swallow it; nothing becomes `SendInput`, so no focus capture
+> is needed and none is attempted. Edit exit is the ✓ Done dwell (and, from P2, Discard with
+> Undo); Enter adds a newline and Escape does nothing. The original design is retained below for
+> the record.
 
 `OverlayWindow`'s `SetOverlayInteraction(clickThrough, focusable)` (at `OverlayWindow.cs:37`) supports runtime toggling of `WS_EX_NOACTIVATE`. During Edit state, `NoteWindow` calls `SetOverlayInteraction(clickThrough: false, focusable: true)` so the `TextBox` can receive focus and keyboard input (physical keyboard + eye keyboard `SendInput` keystrokes). On exiting Edit state, restore `SetOverlayInteraction(clickThrough: false, focusable: false)`.
 

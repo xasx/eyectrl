@@ -703,8 +703,9 @@ public class KeyboardGateProbeTests
             // Guards the D15-preserved half: a future refactor that clears ALL modifiers
             // (not just the system ones) on swap fails here. The label half above is the
             // stronger discriminator for the M7 repaint itself (plan-r2: this assert cannot
-            // fail against the planned ClearSystemOneShotModifiers, which never touches
-            // CapsLock — it is kept as a regression net, not as the H1 proof).
+            // fail against the planned ClearSystemModifiers — fixup F6's rename of
+            // ClearSystemOneShotModifiers — which never touches CapsLock; kept as a
+            // regression net, not as the H1 proof).
             Check.WithCustomMessage("Caps Lock was silently disarmed by the swap")
                 .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.CapsLock)).IsTrue();
         }

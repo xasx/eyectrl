@@ -13,7 +13,8 @@ using System.Collections.Generic;
 
 public partial class KeyboardViewModel : MessengerViewModelBase,
     IRecipient<ShowKeyboardMessage>,
-    IRecipient<HideKeyboardMessage>
+    IRecipient<HideKeyboardMessage>,
+    IRecipient<NoteEditingChangedMessage>
 {
     private readonly EyeCtrlSettings _settings;
 
@@ -154,6 +155,43 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
     public void Receive(HideKeyboardMessage message) => IsVisible = false;
+
+    /// <summary>P1 D6: whether the keyboard's output is targeting a note's editor. Set by the
+    /// note manager's <see cref="NoteEditingChangedMessage"/>; drives the "→ Note" indicator while
+    /// the keyboard is visible. Deliberately NOT reset when the keyboard hides (a hide mid-Edit is
+    /// an edge-bar Close, not the end of editing — the ⌨ control re-summons and the indicator
+    /// returns with it, P1 D8).</summary>
+    [ObservableProperty] private bool _isTargetingNote;
+
+    /// <summary>
+    /// P1 D6: the note editor's hand-over. The one <c>NoteEditingChangedMessage(true)</c> a switch
+    /// between editors sends runs this, so the old app's (or the previous note's) half-typed
+    /// <see cref="CurrentInput"/> cannot decide how much the next prediction deletes — predictions
+    /// are deliberately not seeded from the note in v1.
+    /// </summary>
+    public void ResetInputContext()
+    {
+        CurrentInput = "";
+        _previousWord = null;
+        _recentText = "";
+    }
+
+    public void Receive(NoteEditingChangedMessage message)
+    {
+        if (!message.Editing)
+        {
+            IsTargetingNote = false;
+            return;
+        }
+
+        ResetInputContext();
+        // Fixup m5 (execution deviations): a locked or one-shot Ctrl/Alt/Win survives the context
+        // reset and silently swallows every note key (P1 D2) — an owner who left Ctrl latched
+        // would type into an empty note. Entering Edit clears the SYSTEM modifiers, one-shot and
+        // locked alike; Shift and CapsLock are text modifiers and stay.
+        ClearSystemModifiers();
+        IsTargetingNote = true;
+    }
 
     // Hiding ends the keyboard's interaction context. Every other dwell-owning surface resets its
     // detector state on that transition; the keyboard was the only one that did not, so a stale
@@ -395,7 +433,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// Accents carries no modifier keys, so an armed modifier would be invisible there — and a
     /// stray Win plus an accent is a system shortcut on the OS layout (Win+é = Win+2 on French
     /// Windows). Shift and Caps Lock survive: accents carry their own capitals (D11).</summary>
-    private void ClearSystemOneShotModifiers()
+    private void ClearSystemModifiers()
     {
         _activeModifiers.Remove(ModifierKey.Ctrl);
         _activeModifiers.Remove(ModifierKey.Alt);
@@ -582,7 +620,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // ResetInteractionState/SetLayout raises). It must still run AFTER the swap so any
         // repaint it causes lands on the NEW grid (plan review H1).
         if (_layout.SubLayouts[subLayoutId].AutoReturn)
-            ClearSystemOneShotModifiers();
+            ClearSystemModifiers();
         OnPropertyChanged(nameof(ActiveModifiers));
     }
 

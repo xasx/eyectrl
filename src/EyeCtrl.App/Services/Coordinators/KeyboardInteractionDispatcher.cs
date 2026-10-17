@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
+using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -39,9 +41,30 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
             context.Dispatcher.BeginInvoke(() => HandleActionRequested(msg)));
     }
 
+    /// <summary>
+    /// The note-editing routing seam (P1 D1): while a note is in Edit, map the input for the note
+    /// editor and apply it — or, when the mapper returns null (a chord, a Tab, any other
+    /// non-text special key), swallow it with a Debug line. NOTHING here may reach
+    /// <see cref="IInputSimulator"/>: the editor is not a focusable window, so OS-injected text
+    /// would land in whatever window happens to hold the foreground — the exact failure this
+    /// ticket removes. Null <c>NoteManager</c> (test contexts) reads as not-editing, which keeps
+    /// the pre-note tests byte-identical.
+    /// </summary>
+    private bool RouteToEditingNote(NoteEdit? edit)
+    {
+        if (Context is not { NoteManager.IsEditing: true })
+            return false;
+        if (edit is null)
+            Log.Debug("Note editing: keyboard input swallowed");
+        else
+            Context.NoteManager.Apply(edit);
+        return true;
+    }
+
     internal void HandleKeyActivation(string key, IReadOnlySet<ModifierKey>? modifiers)
     {
         if (Context is null) return;
+        if (RouteToEditingNote(NoteInputMapper.FromKey(key, modifiers))) return;
 
         var hasSystemModifiers = modifiers != null &&
             (modifiers.Contains(ModifierKey.Ctrl) || modifiers.Contains(ModifierKey.Alt) || modifiers.Contains(ModifierKey.Win));
@@ -113,6 +136,7 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
     internal void HandlePredictionSelected(int deleteCount, string word)
     {
         if (Context is null) return;
+        if (RouteToEditingNote(NoteInputMapper.FromPrediction(deleteCount, word))) return;
 
         for (int i = 0; i < deleteCount; i++)
             Context.InputSimulator.SendKeyPress(BackspaceVirtualKeyCode);
@@ -122,6 +146,7 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
     internal void HandleSpecialKey(string keyName, IReadOnlySet<ModifierKey>? modifiers)
     {
         if (Context is null) return;
+        if (RouteToEditingNote(NoteInputMapper.FromSpecialKey(keyName, modifiers))) return;
 
         // KeyNameMapper is the single name→VK authority (shared with the QuickAction chord
         // parser and the keyboard's "shortcut:" keys). It also covers the text-control keys

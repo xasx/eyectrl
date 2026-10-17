@@ -91,6 +91,8 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
         // T0(a): the lag-mark button's label and its Marked confirmation are overlays keys.
         ("src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", ["overlays"]),
+        // The magnifier's field log formats its numbers through the overlays surface's provider.
+        ("src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs", ["overlays"]),
         // T15 F4: the emoji skin-tone selector's back key takes its spoken name from overlays.edge.back.
         ("src/EyeCtrl.App/Overlays/EmojiGridManager.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml", ["overlays"]),

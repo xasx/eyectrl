@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Overlays;
 
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
 using Serilog;
@@ -110,6 +111,36 @@ public class ManualSelectionCaptureFailureTests
         finally
         {
             Log.Logger = previousLogger;
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void ASuccessThenAFailure_ClearsThePictureStateInTheShownLine()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new ManualSelectionOverlayWindow();
+        try
+        {
+            var center = new PhysicalPoint(1000, 1000);
+
+            window.Capture = (_, _) =>
+                new CaptureResult(ManualSelectionCaptureBeforeShowTests.Solid(680, 128), 620, 200, 680);
+            window.UpdateCenter(center, 170, 2.0);
+            var fresh = window.BuildShownLine(center, 170, recapture: true);
+            Check.That(fresh).Contains("picture=fresh");
+
+            // F3: after a failed capture the next shown line must say none - a stale "fresh" next to
+            // a cleared picture is a lying field line, and picture=none is the A4 discriminator.
+            window.Capture = (_, _) => throw new InvalidOperationException("boom");
+            window.UpdateCenter(center, 170, 2.0);
+            var failed = window.BuildShownLine(center, 170, recapture: true);
+
+            Check.WithCustomMessage($"a failure kept the previous picture state: {failed}")
+                .That(failed).Contains("picture=none").And.Contains("captured=0x0px");
+        }
+        finally
+        {
             window.Close();
         }
     }

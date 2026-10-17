@@ -14,3 +14,8 @@
   1.24.4 (`DirectML.dll` does not), and an exe-only update would pair the new managed code
   with the old native runtime. The re-export pipeline — the optimum export, the offline
   fusion and the quantization — is committed under `tools/model-export/qwen2.5-1.5b/`.
+- **The 0.5B option is removed.** Its model file cannot load on ONNX Runtime 1.24.4's CPU path
+  (the same `SimplifiedLayerNormFusion` bug), and the retired option no longer resolves to its
+  file at all, so an install that selected 0.5B gets no model suggestions - on the graphics card
+  too - until another model is chosen. The downloaded `.onnx`/tokenizer files stay on disk
+  untouched; nothing re-downloads them.

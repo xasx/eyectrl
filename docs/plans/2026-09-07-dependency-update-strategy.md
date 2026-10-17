@@ -329,7 +329,12 @@ planned migration (est. half-day plus CI work) whenever the owner wants it.
 **Shipping in the LM release PR (2026-10-17):** `Microsoft.ML.OnnxRuntime.DirectML`
 **1.24.4** moves together with the fused Qwen2.5-1.5B artifact (PR link TBD — the release
 ticket's PR), so the ORT entry is no longer outdated; the re-export pipeline is committed
-under `tools/model-export/qwen2.5-1.5b/`. Still deliberate: `Microsoft.WindowsAppSDK` 2.4.0
+under `tools/model-export/qwen2.5-1.5b/`. **The 0.5B option is removed in the same PR:** its
+fp16 export hits the same `SimplifiedLayerNormFusion` bug on 1.24.4's CPU path (measured;
+135M/360M load on both CPU and DirectML, and so does the fused 1.5B), and the retired id no
+longer resolves to its file, so an install that selected 0.5B gets suggestions off until
+another model is chosen; the downloaded files stay on disk. Still deliberate:
+`Microsoft.WindowsAppSDK` 2.4.0
 (wave-5b owner decision), `xunit.v3`/`xunit.runner.visualstudio`/`xunit.analyzers` 4.0.0 +
 `Xunit.StaFact` 4.0.23 (wave-4 MTP migration). Everything else is current as of 2026-09-07.
 

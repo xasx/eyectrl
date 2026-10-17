@@ -147,6 +147,8 @@ public class ScrollModeControllerLoggingTests
                 .That(line.Contains("cursorToAnchor=100px", StringComparison.Ordinal)).IsTrue();
             Check.WithCustomMessage(line)
                 .That(line.Contains("armed=True", StringComparison.Ordinal)).IsTrue();
+            Check.WithCustomMessage(line)
+                .That(line.Contains(" elapsedMs=", StringComparison.Ordinal)).IsTrue();
 
             // One line per second of ticks: the next 60 ticks log nothing (the 62nd would).
             for (int i = 0; i < 60; i++) worker.Tick();

@@ -31,6 +31,11 @@ public class ScrollWorker : IDisposable
     private long _wheelsHorizontal;
     private int _msSinceLog;
 
+    // F5 (fixup 01): wall-clock ms since the previous line — the tick-gate is nominal, and the
+    // real DispatcherTimer cadence under Windows' timer resolution can differ.
+    private readonly System.Diagnostics.Stopwatch _clock = new();
+    private long _lastReportMs;
+
     private readonly object _lock = new();
 
     public ScrollWorker(IInputSimulator inputSimulator)
@@ -69,6 +74,8 @@ public class ScrollWorker : IDisposable
             _wheelsDown = 0;
             _wheelsHorizontal = 0;
             _msSinceLog = 0;
+            _lastReportMs = 0;
+            _clock.Restart();
             _running = true;
         }
         _timer.Start();
@@ -126,32 +133,36 @@ public class ScrollWorker : IDisposable
             }
 
             // Once per second of ticks — deterministic, not wall-clock, so a paused dispatcher
-            // cannot skew the cadence and a test can drive it.
+            // cannot skew the cadence and a test can drive it. The line carries the REAL wall-clock
+            // interval since the previous line (F5).
             _msSinceLog += TickIntervalMs;
             if (_msSinceLog >= ReportIntervalMs)
             {
                 _msSinceLog -= ReportIntervalMs;
-                Log.Information("{Scroll}", Describe());
+                long nowMs = _clock.ElapsedMilliseconds;
+                long elapsedMs = nowMs - _lastReportMs;
+                _lastReportMs = nowMs;
+                Log.Information("{Scroll}", Describe(elapsedMs));
             }
         }
     }
 
-    private string Describe()
+    private string Describe(long elapsedMs)
     {
         bool armed = _isArmed?.Invoke() ?? false;
         if (_cursorReader?.Invoke() is { } cursor)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=({3:F0},{4:F0}) cursorToAnchor={5:F0}px armed={6}",
+                "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=({3:F0},{4:F0}) cursorToAnchor={5:F0}px armed={6} elapsedMs={7}",
                 _wheelsUp, _wheelsDown, _wheelsHorizontal, cursor.X, cursor.Y,
-                cursor.DistanceTo(_anchor), armed);
+                cursor.DistanceTo(_anchor), armed, elapsedMs);
         }
 
         return string.Format(
             CultureInfo.InvariantCulture,
-            "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=(?,?) cursorToAnchor=?px armed={3}",
-            _wheelsUp, _wheelsDown, _wheelsHorizontal, armed);
+            "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=(?,?) cursorToAnchor=?px armed={3} elapsedMs={4}",
+            _wheelsUp, _wheelsDown, _wheelsHorizontal, armed, elapsedMs);
     }
 
     public void Dispose()

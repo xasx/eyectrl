@@ -6,6 +6,9 @@ using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using Xunit;
 
 /// <summary>
@@ -50,6 +53,36 @@ public class ManualSelectionMagnifierLogTests
         }
         finally
         {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void PrepareForShow_EmitsTheShownLine()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new ManualSelectionOverlayWindow();
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        try
+        {
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+            window.Capture = (_, _) =>
+                new CaptureResult(ManualSelectionCaptureBeforeShowTests.Solid(680, 128), 620, 200, 680);
+
+            // G7: the line must actually be EMITTED by the pre-show path — building and formatting it
+            // is not enough. Deleting the Log.Information call makes this RED.
+            window.PrepareForShow(ViewCenter, 170, 2.0);
+
+            var line = sink.Messages.FirstOrDefault(
+                m => m.StartsWith("Magnifier shown: ", StringComparison.Ordinal));
+            Check.WithCustomMessage($"no shown line was emitted; saw: {string.Join(" | ", sink.Messages)}")
+                .That(line).IsNotNull();
+            Check.That(line!).Contains("picture=fresh").And.Contains("mag=2");
+        }
+        finally
+        {
+            Log.Logger = previousLogger;
             window.Close();
         }
     }
@@ -135,5 +168,11 @@ public class ManualSelectionMagnifierLogTests
         {
             window.Close();
         }
+    }
+
+    private sealed class CapturingSink : ILogEventSink
+    {
+        public List<string> Messages { get; } = new();
+        public void Emit(LogEvent logEvent) => Messages.Add(logEvent.RenderMessage());
     }
 }

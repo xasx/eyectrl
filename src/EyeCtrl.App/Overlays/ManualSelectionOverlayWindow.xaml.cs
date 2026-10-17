@@ -52,9 +52,21 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
 
     public void Show(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null, bool recapture = true)
     {
+        PrepareForShow(center, radius, magnification, gazePoint, recapture);
+        Show();
+    }
+
+    /// <summary>
+    /// Everything that must happen BEFORE the window becomes visible: the geometry and synchronous
+    /// capture (<see cref="UpdateCenter"/>) and the one INFO shown line. Extracted from
+    /// <see cref="Show"/> so the line's emission is testable without an on-screen <c>Show()</c>; the
+    /// source pin (<c>ManualSelectionOverlayWindowWiringTests</c>) keeps <c>Show</c> calling it, so a
+    /// deleted emit cannot stay green.
+    /// </summary>
+    internal void PrepareForShow(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null, bool recapture = true)
+    {
         UpdateCenter(center, radius, magnification, gazePoint, recapture);
         Log.Information("{MagnifierShown:l}", BuildShownLine(center, radius, recapture));
-        Show();
     }
 
     public void UpdateCenter(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null, bool recapture = true)

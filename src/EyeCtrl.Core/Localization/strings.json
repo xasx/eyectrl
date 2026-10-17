@@ -849,6 +849,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.keyboard.noteTargetingHelpText": {
+    "text": "Typing into a note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.lagmark.label": {
     "text": "Lag",
     "who": "user",

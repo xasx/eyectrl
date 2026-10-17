@@ -66,4 +66,27 @@ public class KeyboardWindowNoteFrameTests
         messenger.Send(new NoteEditingChangedMessage(Editing: false));
         Check.That(ReferenceEquals(frame.BorderBrush, System.Windows.Media.Brushes.Transparent)).IsTrue();
     }
+
+    [StaFact]
+    public void TheWindowHelpText_AnnouncesNoteTargeting_WhileTheFrameIsLit_AndClearsOtherwise()
+    {
+        // The accessibility half of F3: plain UIA text on the window, no visible label. It is
+        // set while the frame is the accent and cleared when it is not.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new KeyboardWindow();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
+        window.SetViewModel(vm);
+
+        Check.WithCustomMessage("the HelpText must start cleared")
+            .That(System.Windows.Automation.AutomationProperties.GetHelpText(window)).IsEqualTo("");
+
+        messenger.Send(new NoteEditingChangedMessage(Editing: true));
+        Check.WithCustomMessage("while targeting, the window's HelpText announces the note")
+            .That(System.Windows.Automation.AutomationProperties.GetHelpText(window))
+            .IsEqualTo(EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.noteTargetingHelpText"));
+
+        messenger.Send(new NoteEditingChangedMessage(Editing: false));
+        Check.That(System.Windows.Automation.AutomationProperties.GetHelpText(window)).IsEqualTo("");
+    }
 }

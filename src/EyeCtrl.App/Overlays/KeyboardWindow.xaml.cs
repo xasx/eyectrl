@@ -117,13 +117,18 @@ public partial class KeyboardWindow : OverlayWindow
     /// the keyboard — the same colour as a note's Edit border — instead of a floating label. The
     /// frame border is always present with a constant thickness and a transparent brush, so only
     /// the brush changes here and SizeToContent can never see a difference: no resize, no keys
-    /// moving under a gaze about to type.
+    /// moving under a gaze about to type. The window's UIA HelpText says the same thing in plain
+    /// text (coordinator-approved key), set and cleared alongside the brush.
     /// </summary>
     private void UpdateNoteTargetingFrame()
     {
-        KeyboardChrome.BorderBrush = _viewModel?.IsTargetingNote == true
-            ? Tokens.BrushAccent
-            : Brushes.Transparent;
+        bool targeting = _viewModel?.IsTargetingNote == true;
+        KeyboardChrome.BorderBrush = targeting ? Tokens.BrushAccent : Brushes.Transparent;
+        System.Windows.Automation.AutomationProperties.SetHelpText(
+            this,
+            targeting
+                ? EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.noteTargetingHelpText")
+                : string.Empty);
     }
 
     public void SetViewModel(KeyboardViewModel viewModel)

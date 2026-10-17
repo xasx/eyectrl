@@ -2,11 +2,21 @@ namespace EyeCtrl.App.Overlays;
 
 using System.Windows;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using Serilog;
 
 public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelectionOverlay
 {
+    private const int CaptureFailureLogWindowSeconds = 30;
+
+    private readonly HandlerFaultReporter _captureFaults = new(
+        (_, exception) => Log.Warning("Magnifier capture FAILED: {ExceptionType:l}: {Message:l}",
+            exception.GetType().Name, exception.Message),
+        () => Environment.TickCount64 / 1000,
+        CaptureFailureLogWindowSeconds);
+
     private PhysicalPoint? _captureCenter;
     private PhysicalPoint? _effectiveCaptureCenter;
     private double _magnification;
@@ -81,6 +91,8 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
             if (capture is null)
             {
                 ClearPicture();
+                _captureFaults.Report("Magnifier capture failed",
+                    new InvalidOperationException("the capture returned no image"));
                 return;
             }
 
@@ -90,12 +102,15 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
             _effectiveCaptureCenter = capture.Value.EffectiveCenter;
             ManualSelectionBrush.ImageSource = capture.Value.Image;
         }
-        catch
+        catch (Exception exception)
         {
             // GDI+ capture fails transiently on the secure desktop (UAC), session lock and RDP
             // transitions. This runs on the UI thread on the show path: an escaping throw would be
             // process-fatal, and for a gaze-only user the process is the input channel.
             ClearPicture();
+            // One line per 30 s: a capture that keeps failing must not become a per-show log flood,
+            // but it must never be silent either — the field report "didn't magnify" needs an answer.
+            _captureFaults.Report("Magnifier capture failed", exception);
         }
     }
 

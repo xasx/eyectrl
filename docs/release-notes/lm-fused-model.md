@@ -20,3 +20,8 @@
   too — until another model is chosen or downloaded on the Models page. If 0.5B was its only
   model, that page says "No models downloaded"; the files stay on disk and can be deleted by
   hand: `%APPDATA%\EyeCtrl\models\qwen2.5-0.5b.onnx` and `qwen2.5-0.5b.tokenizer.json`.
+- **The day log now records which provider ran the model.** The predictor's own lines —
+  `Using DirectML (GPU) for {Model}`, the silent CPU fallback warning, the
+  `SmallLMPredictor initialized with …` line and any load failure — now reach
+  `%APPDATA%\EyeCtrl\logs\eyectrl-<date>.log`; before, the predictor was built without a
+  logger and all of them were dropped.

@@ -482,10 +482,17 @@ public class PredictionStackFactory : IDisposable
 
                     // (The seam takes modelSize, not modelsDir: a stub overrides per model
                     // identity, and modelPath already carries the location.)
+                    // The predictor gets a REAL logger (the LM release's gate 4): without one,
+                    // every "Using DirectML (GPU) for {Model}", the silent CPU fallback and the
+                    // load failures were dropped, so the day log could not say which provider
+                    // ran. SerilogStaticLogger forwards to the CURRENT static Serilog pipeline
+                    // (a SerilogLoggerFactory would capture the instance at construction) and
+                    // keeps the rendered text prefix-free and Information-and-up; see its doc.
                     lmPredictor = PredictorFactoryOverride is not null
                         ? PredictorFactoryOverride(modelSize, settings.Keyboard.PreferGPU, tokenizer, modelPath)
                         : new SmallLMPredictor(
                             modelsDir, modelSize, settings.Keyboard.PreferGPU,
+                            logger: new SerilogStaticLogger<SmallLMPredictor>(),
                             tokenizer: tokenizer, modelPath: modelPath);
                 }
 

@@ -33,8 +33,10 @@ public class ScrollModeController : IDisposable
         public int Y;
     }
 
-    /// <summary>The production cursor reader: physical px in this per-monitor-aware process
-    /// (scroll start fix, F-S5's diagnosis — this settles H-A vs H-C in the next session).</summary>
+    /// <summary>The production cursor reader (scroll start fix, F-S5's diagnosis — this settles
+    /// H-A vs H-C in the next session). The exe is System-DPI-aware (no dpi manifest element), so
+    /// on this owner's single 200 % monitor the POINT is physical px; on a mixed-DPI multi-monitor
+    /// setup GetCursorPos would be virtualised (fixup 01, F6).</summary>
     private static PhysicalPoint? ReadCursorPosition() =>
         GetCursorPos(out var point) ? new PhysicalPoint(point.X, point.Y) : null;
 

@@ -355,7 +355,9 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                 // ManualSelectionActionMenuVisible alone to also cover the plain action menu:
                 // OnActionMenuDismissed already guards both states internally, and ESC dismissing
                 // the plain menu is the same "way out" story as the manual one.
-                context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.Esc;
+                // No LastCloseReason here: in the manual branch the magnifier was already hidden at
+                // commit (HideManualSelection's IsVisible=false wrote the commit line), so an
+                // attribution now would be inert; in the plain-menu branch there is no magnifier.
                 im.OnActionMenuDismissed();
             }
             else if (im.CurrentState == InteractionState.ScrollMode)

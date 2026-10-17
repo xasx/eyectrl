@@ -486,7 +486,8 @@ public class PredictionStackFactory : IDisposable
                     // every "Using DirectML (GPU) for {Model}", the silent CPU fallback and the
                     // load failures were dropped, so the day log could not say which provider
                     // ran. SerilogStaticLogger forwards to the CURRENT static Serilog pipeline
-                    // (a SerilogLoggerFactory would capture the instance at construction) and
+                    // on every call (a SerilogLoggerFactory captures the instance at
+                    // CreateLogger, so a logger created before a swap keeps the old sink) and
                     // keeps the rendered text prefix-free and Information-and-up; see its doc.
                     lmPredictor = PredictorFactoryOverride is not null
                         ? PredictorFactoryOverride(modelSize, settings.Keyboard.PreferGPU, tokenizer, modelPath)

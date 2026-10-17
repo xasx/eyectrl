@@ -139,6 +139,11 @@ public class ScrollModeController : IDisposable
         backdrop?.CompleteHideNow();
         bool backdropVisible = backdrop?.IsVisible ?? false;
 
+        // F7 (fixup 01): read the cursor BEFORE the park, so the entry line shows where the
+        // external cursor writer (TD Control / Gaze Point, H-A) had it — after MoveCursor it is
+        // always the anchor and carries no information.
+        var entryCursor = _cursorReader();
+
         _enteredAtMs = Environment.TickCount64;
 
         _context.InputSimulator.MoveCursor(anchor);
@@ -155,10 +160,10 @@ public class ScrollModeController : IDisposable
             line => Log.Information("{Scroll}", line));
         _scrollOverlayVm.EnterScrollMode(anchor, edgeAnchor);
 
-        // F-S5 (E5): the entry diagnosis — the anchor, the two thresholds, where the OS cursor is
-        // (H-A's discriminator), and what the backdrop was at the injection point.
+        // F-S5 (E5): the entry diagnosis — the anchor, the two thresholds, where the OS cursor was
+        // before the park (H-A's discriminator), and what the backdrop was at the injection point.
         Log.Information(
-            "{ScrollModeLine}", DescribeEntry(anchor, _scrollOverlayVm, _cursorReader(), backdropVisible));
+            "{ScrollModeLine}", DescribeEntry(anchor, _scrollOverlayVm, entryCursor, backdropVisible));
 
         _scrollOverlayWindow = _createOverlayWindow();
         _scrollOverlayWindow.Show(_scrollOverlayVm);

@@ -45,8 +45,11 @@ public class ScrollModeControllerLoggingTests
             backdrop.ShowBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true }, new PhysicalPoint(1, 1));
             var (controller, im, _, _) = ScrollModeControllerThreadingTests.NewScrollWorld(
                 input,
-                cursorReader: () => new PhysicalPoint(432, 567),
+                cursorReader: () => input.InjectionState is null
+                    ? new PhysicalPoint(432, 567)   // BEFORE the park: the external writer's cursor
+                    : new PhysicalPoint(999, 999),  // after MoveCursor: must NOT be what the line reports
                 glassBackdrop: backdrop);
+            input.InjectionStateProbe = () => "parked";
             using (controller)
             {
                 ScrollModeControllerThreadingTests.EnterScrollMode(im);

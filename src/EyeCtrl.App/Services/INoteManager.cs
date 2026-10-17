@@ -56,14 +56,16 @@ public interface INoteManager : INoteTextInput
     /// <summary>
     /// The occluder sources (P2 D3), read per sample — no shared gaze-surface provider, no cache
     /// to invalidate. The keyboard and its edge bar reach the gate through <see cref="SetKeyboardProbe"/>'s
-    /// rects; this setter takes the three App-owned surfaces that neither suspend nor carry a
-    /// probe: the lag mark (empty before its bridge is attached), and the drift notice's and
-    /// caregiver alert's visible bounds (<c>null</c> while not showing).
+    /// rects; this setter takes the App-owned surfaces that neither suspend nor carry a probe: the
+    /// lag mark (empty before its bridge is attached), the drift notice's and caregiver alert's
+    /// visible bounds (<c>null</c> while not showing), and the track-status card's (fixup 01 M1 —
+    /// opaque, click-through, up for as long as TrackStatusSettings.Enabled).
     /// </summary>
     void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? driftNoticeBounds = null,
-        Func<PhysicalRect?>? caregiverAlertBounds = null);
+        Func<PhysicalRect?>? caregiverAlertBounds = null,
+        Func<PhysicalRect?>? trackStatusBounds = null);
 
     /// <summary>
     /// The note chrome rects (P2 D7): every note's card body plus its control-cell rects, in

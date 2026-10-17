@@ -21,7 +21,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private readonly DwellDetector _dwellDetector;
     private readonly IMessenger _messenger;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
-    private readonly INoteHitTester? _hitTester;
+    // Never null (T2 fixup 01 M2, the plan's D2): an absent argument IS the production tester, so
+    // deleting the wiring cannot silently switch the own-window conjunct off. Headless tests pass
+    // the named <see cref="InactiveNoteHitTester"/> sentinel instead.
+    private readonly INoteHitTester _hitTester;
     private PhysicalPoint _lastGazePoint;
     private bool _disposed;
     private Func<bool>? _suspendPredicate;
@@ -33,19 +36,23 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The exercise flag (P2 D1): kept from EyeCareExerciseActiveMessage, which EyeCareService sends
     // once around the whole run + summary. The exercise window is click-through and full-screen, so
     // WindowFromPoint reports the note beneath it — only this flag stops hidden controls firing.
-    private bool _exerciseActive;
+    // volatile: the sender's break flow may not be the UI thread; the read is per sample (n1).
+    private volatile bool _exerciseActive;
     // The calibration flag (P2 D1, review-03 B-2): kept from CalibrationStateChangedMessage. The
     // calibration window turns click-through at runtime when Collecting starts, and the owner
-    // deliberately fixates edges and corners where notes are clamped.
-    private bool _calibrating;
+    // deliberately fixates edges and corners where notes are clamped. volatile: same reasoning.
+    private volatile bool _calibrating;
     // The occluder sources (P2 D3), evaluated per sample — no cache to invalidate. Null sources
     // contribute nothing: the lag mark before its bridge is attached, the notices while hidden.
     private Func<IReadOnlyList<PhysicalRect>>? _lagMarkRects;
     private Func<PhysicalRect?>? _driftNoticeBounds;
     private Func<PhysicalRect?>? _caregiverAlertBounds;
+    private Func<PhysicalRect?>? _trackStatusBounds;
     // Gate conjunct 4's own-window half (P2 D2): target id → the HWND of the note window that
     // draws it, recorded at registration. Windowless targets (the test seams) are absent here and
-    // exempt from the conjunct; the conjunct as a whole is inactive while no hit tester is wired.
+    // exempt from the conjunct; the conjunct is inactive only while the tester is the named
+    // InactiveNoteHitTester sentinel — the visible choice headless tests make instead of an
+    // absent argument (T2 fixup 01 M2: the production default is the real tester).
     private readonly Dictionary<string, IntPtr> _targetWindows = new();
     private const int MaxNotes = 8;
     private const int DwellTimeMs = 600;
@@ -126,7 +133,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
         _dwellDetector.TargetActivated += OnDetectorTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
-        _hitTester = hitTester;
+        // P2 D2's production default (fixup 01 M2): null means "the real tester", never "none" —
+        // the inactive case is the explicit sentinel, so it is visible at every call site.
+        _hitTester = hitTester ?? new NoteHitTester();
         _messenger.Register<GazeCursorMovedMessage>(this);
         _messenger.Register<EyeCareExerciseActiveMessage>(this);
         _messenger.Register<CalibrationStateChangedMessage>(this);
@@ -560,20 +569,23 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _lastGazePoint = gazePoint;
 
         // Gate conjunct 4 (P2 D1/D2/D3), its sample-level half. The occluder walk runs whenever
-        // live targets exist — NOT only inside the hit-area union, because the leave-before-arm
-        // latch needs the occluded/outside discrimination on every ungated sample wherever the
-        // gaze is: freezing the timers outside the union would strand a latch when the gaze parks
-        // on the desktop, and advancing it there would let a gaze that slid under an occluder
-        // silently satisfy the 150 ms leave and re-arm a hidden ✕ (the F4 hazard). The one
-        // RootWindowAt call, on the other hand, is skipped unless the gaze is inside the union of
-        // the live hit areas and some target actually has a window: outside every hit area no
-        // target can be the nearest, so the call would buy nothing (P2 D2's cost cap).
+        // live targets exist — NOT only inside the hit-area union. That is conservative, not
+        // load-bearing: a gaze outside the union is outside every hit circle (so no latch release
+        // could be wrong there — the gaze genuinely left), and an occluded target cannot fire
+        // anyway because the filter keeps !gated. The extra reads only ever make a latch release
+        // LATER, never earlier — a latch that waits out a gaze parked on the keyboard is the
+        // intended cost. Union-gating the reads would be stricter still; per-sample evaluation
+        // keeps the code simple and needs no cache. The one RootWindowAt call, on the other hand,
+        // is skipped unless the gaze is inside the union of the live hit areas, some target
+        // actually has a window, and the conjunct is active (it is off for the InactiveNoteHitTester
+        // sentinel): outside every hit area no target can be the nearest, so the call would buy
+        // nothing (P2 D2's cost cap).
         bool gated = false;
         IntPtr rootWindow = IntPtr.Zero;
         if (_dwellDetector.Targets.Count > 0)
         {
             gated = OccludersContain(gazePoint);
-            if (!gated && _hitTester is not null && AnyWindowedTarget && GazeInsideTargetUnion(gazePoint))
+            if (!gated && OwnWindowConjunctActive && AnyWindowedTarget && GazeInsideTargetUnion(gazePoint))
                 rootWindow = _hitTester.RootWindowAt(gazePoint);
         }
 
@@ -585,7 +597,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             AdvanceLeaveTimers(gazePoint, timestamp);
 
         Func<DwellTarget, bool>? filter = null;
-        if (gated || _targetsAwaitingGazeLeave.Count > 0 || _hitTester is not null)
+        if (gated || _targetsAwaitingGazeLeave.Count > 0 || OwnWindowConjunctActive)
         {
             var disarmed = _targetsAwaitingGazeLeave;
             filter = t => !gated && !disarmed.ContainsKey(t.Id) && WindowOwns(t, rootWindow);
@@ -617,6 +629,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             return true;
         if (_caregiverAlertBounds is { } alert && alert.Invoke() is { } alertBounds && alertBounds.Contains(gazePoint))
             return true;
+        if (_trackStatusBounds is { } trackStatus && trackStatus.Invoke() is { } trackStatusBounds
+            && trackStatusBounds.Contains(gazePoint))
+            return true;
         return false;
     }
 
@@ -643,13 +658,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private bool AnyWindowedTarget =>
         _targetWindows.Values.Any(handle => handle != IntPtr.Zero);
 
+    /// <summary>Whether the own-window conjunct is in force: it switches off only for the named
+    /// <see cref="InactiveNoteHitTester"/> sentinel that headless tests pass (fixup 01 M2) — the
+    /// production default is the real tester, so an unwired argument cannot disable the gate.</summary>
+    private bool OwnWindowConjunctActive => _hitTester is not InactiveNoteHitTester;
+
     /// <summary>Gate conjunct 4's own-window half (P2 D2): the topmost hit-testable window under
-    /// the gaze must be the window that draws the target. The conjunct is inactive while no hit
-    /// tester is wired (headless tests), and a windowless target (the test seams) is exempt —
+    /// the gaze must be the window that draws the target. The conjunct is inactive for the
+    /// sentinel tester (headless tests), and a windowless target (the test seams) is exempt —
     /// both so the seam can stay out of tests that do not exercise it.</summary>
     private bool WindowOwns(DwellTarget target, IntPtr rootWindow)
     {
-        if (_hitTester is null)
+        if (!OwnWindowConjunctActive)
             return true;
         if (!_targetWindows.TryGetValue(target.Id, out var own) || own == IntPtr.Zero)
             return true;
@@ -736,16 +756,24 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>The occluder seams (P2 D3), configured once from the App wiring. Delegates are
     /// evaluated per sample, only for samples that reach conjunct 4 — there is no cache to
-    /// invalidate, and a source attached later (the lag-mark bridge) needs no re-wire.</summary>
+    /// invalidate, and a source attached later (the lag-mark bridge) needs no re-wire. The
+    /// track-status card joined in fixup 01 (review M1): opaque, click-through, parked top-right
+    /// for as long as TrackStatusSettings.Enabled.</summary>
     public void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? driftNoticeBounds = null,
-        Func<PhysicalRect?>? caregiverAlertBounds = null)
+        Func<PhysicalRect?>? caregiverAlertBounds = null,
+        Func<PhysicalRect?>? trackStatusBounds = null)
     {
         _lagMarkRects = lagMarkRects;
         _driftNoticeBounds = driftNoticeBounds;
         _caregiverAlertBounds = caregiverAlertBounds;
+        _trackStatusBounds = trackStatusBounds;
     }
+
+    /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The
+    /// container-wired manager must report the production <see cref="NoteHitTester"/>.</summary>
+    internal INoteHitTester HitTesterForTest => _hitTester;
 
     /// <summary>
     /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a

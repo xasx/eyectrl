@@ -30,3 +30,19 @@ internal sealed class NoteHitTester : INoteHitTester
     [DllImport("user32.dll")]
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 }
+
+/// <summary>
+/// The named null object headless tests pass instead of omitting the hit-tester argument
+/// (T2 fixup 01 M2): <see cref="NoteManager"/>'s constructor treats an absent argument as the
+/// production <see cref="NoteHitTester"/>, so "I do not exercise the own-window conjunct" is a
+/// visible choice, and the conjunct switches off only for this sentinel type. Returns
+/// <see cref="IntPtr.Zero"/> for everything, which no real root window equals.
+/// </summary>
+internal sealed class InactiveNoteHitTester : INoteHitTester
+{
+    public static readonly InactiveNoteHitTester Instance = new();
+
+    private InactiveNoteHitTester() { }
+
+    public IntPtr RootWindowAt(PhysicalPoint point) => IntPtr.Zero;
+}

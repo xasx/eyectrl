@@ -499,14 +499,13 @@ public class AppBootstrapper
         // NoteManager (pinned notes lifecycle). Registered as the CONCRETE singleton as well since
         // review F1 — the D17 inventory reads its live dwell-target rects (the INoteManager
         // interface stays coordinator-facing); the mapping keeps one instance behind both
-        // registrations.
+        // registrations. The hit tester is deliberately NOT passed: the constructor defaults to
+        // the production NoteHitTester (fixup 01 M2 — a deleted wiring can no longer disable the
+        // own-window conjunct), and DwellRoutingRegistrationWiringTests pins the resolved type.
         services.AddSingleton<NoteManager>(sp => new NoteManager(
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
-            sp.GetRequiredService<IDwellDetectorRegistry>(),
-            // P2 D2: the production hit tester is wired at the composition root, so headless tests
-            // that omit the seam get the conjunct inactive rather than real WindowFromPoint calls.
-            new NoteHitTester()));
+            sp.GetRequiredService<IDwellDetectorRegistry>()));
         services.AddSingleton<INoteManager>(sp => sp.GetRequiredService<NoteManager>());
 
         // OverlayManager (manages all overlay window lifecycle)

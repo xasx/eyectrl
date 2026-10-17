@@ -90,6 +90,20 @@ public class DwellRoutingRegistrationWiringTests
     }
 
     [Fact]
+    public void NoteManager_ResolvedFromContainer_GetsTheProductionHitTester()
+    {
+        // Fixup 01 M2: the constructor defaults to the production NoteHitTester and the DI root
+        // passes nothing — so a deleted wiring or a swapped default cannot silently disable the
+        // own-window conjunct. Mutant: the fallback becomes InactiveNoteHitTester (or the default
+        // is dropped and null reaches the field) → this goes red.
+        using var sp = BuildProvider();
+
+        var manager = (NoteManager)sp.GetRequiredService<INoteManager>();
+
+        Check.That(manager.HitTesterForTest).IsInstanceOf<NoteHitTester>();
+    }
+
+    [Fact]
     public void ManualSelectionDwellService_ResolvedFromContainer_RegistersOnStart_UnregistersOnEnd()
     {
         // ManualSelection registers per-session (on StartManualSelectionMessage), not in its ctor —

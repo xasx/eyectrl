@@ -229,6 +229,7 @@ internal static class TestFakes
         public bool Tracking { get; private set; }
         public int StartTrackingCount { get; private set; }
         public int StopTrackingCount { get; private set; }
+        public bool Visible { get; set; }
 
         public void Show() { }
         public void Hide() { }
@@ -244,6 +245,12 @@ internal static class TestFakes
             StopTrackingCount++;
         }
         public void PositionTopRight() { }
+
+        public bool TryGetVisibleBounds(out EyeCtrl.Core.Models.PhysicalRect bounds)
+        {
+            bounds = default;
+            return Visible;
+        }
     }
 
     /// <summary>No-op toolbar overlay: the adaptation branch's <c>SettingsUiCoordinator</c>

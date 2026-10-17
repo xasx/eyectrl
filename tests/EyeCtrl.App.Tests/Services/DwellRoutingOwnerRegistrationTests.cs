@@ -44,7 +44,7 @@ public class DwellRoutingOwnerRegistrationTests
     public void NoteManager_DirectConstruction_RegistersNotesContext_WithStandardRange()
     {
         var registry = new DwellDetectorRegistry();
-        using var manager = new NoteManager(new WeakReferenceMessenger(), sink: null, dwellRegistry: registry);
+        using var manager = new NoteManager(new WeakReferenceMessenger(), sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance);
 
         Check.That(registry.Registrations).HasSize(1);
         var entry = registry.Registrations[0];

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests;
 
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using EyeCtrl.App.Services;
 
 /// <summary>
@@ -11,13 +12,14 @@ using EyeCtrl.App.Services;
 /// mechanisms (suspend, occlude, own-window) cover it only if this census says which mechanism —
 /// a new unclassified window fails here by name.
 /// <para>
-/// The scope is a SOURCE SCAN for both click-through mechanisms — the constructor assignment
-/// (<c>IsClickThrough = true</c>) and the runtime switch
-/// (<c>SetOverlayInteraction(clickThrough: true</c>) — because reflection can read neither
-/// (review-03 B-2): the calibration window is hit-testable at construction and turns
-/// click-through when Collecting starts. The map is pinned, not derived from
-/// <c>OverlayInventoryDriftTests</c> (since #217 that set is itself hand-pinned, and a column
-/// there would break its last-cell parser — review-02 m-5).
+/// The scope is a SOURCE SCAN for every click-through mechanism, over C# and XAML alike (fixup 01
+/// M1): the constructor assignment (<c>IsClickThrough = true</c>), the runtime switch
+/// (<c>SetOverlayInteraction(clickThrough: true</c>), and the XAML attribute
+/// (<c>IsClickThrough="True"</c>) — reflection can read none of them (review-03 B-2), and the
+/// XAML form is the common one for fixed overlays: the track-status card shipped unclassified
+/// until this scan widened. The map is pinned, not derived from <c>OverlayInventoryDriftTests</c>
+/// (since #217 that set is itself hand-pinned, and a column there would break its last-cell
+/// parser — review-02 m-5).
 /// </para>
 /// </summary>
 public class NoteGateCensusTests
@@ -30,6 +32,8 @@ public class NoteGateCensusTests
         // ── suspenders: the gate drops every sample while one is up ──
         ["EyeCtrl.App/Overlays/AdaptationPreviewWindow.xaml.cs"] = (
             "suspender", "the adaptation preview — a RecomputeSuspension reason (ModalSuspended)"),
+        ["EyeCtrl.App/Overlays/CalibrationWindow.xaml"] = (
+            "suspender", "the same window as the .xaml.cs entry — the XAML attribute declares it click-through from the start; the runtime switch re-applies it when Collecting starts"),
         ["EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs"] = (
             "suspender", "review-03 B-2: turns click-through at runtime on Collecting; the flag comes from CalibrationStateChangedMessage"),
         ["EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml.cs"] = (
@@ -49,9 +53,11 @@ public class NoteGateCensusTests
         ["EyeCtrl.App/Overlays/DriftNoticeWindow.xaml.cs"] = (
             "occluder", "visible bounds via IDriftNoticePresenter.TryGetVisibleBounds"),
         ["EyeCtrl.App/Overlays/EdgeButtonBarWindow.xaml.cs"] = (
-            "occluder", "the bar's button rects ride the keyboard probe (IKeyboardProbe.Rects)"),
+            "occluder", "the KEYBOARD instance's button rects ride the keyboard probe (IKeyboardProbe.Rects); the action-menu MODIFIER-bar instance is safe because it shows only with the action menu, a suspending state (review 01 m3)"),
         ["EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs"] = (
             "occluder", "the instrumented button's rects via LagMarkBridge.LiveTargetRects"),
+        ["EyeCtrl.App/Overlays/TrackStatusWindow.xaml"] = (
+            "occluder", "the opaque track-status card — click-through in XAML, parked top-right for as long as TrackStatusSettings.Enabled; visible bounds via ITrackStatusOverlay.TryGetVisibleBounds (review 01 M1)"),
 
         // ── exempt, with a reason ──
         ["EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs"] = (
@@ -68,20 +74,26 @@ public class NoteGateCensusTests
             "exempt", "shows only with the action menu or manual selection (OverlayVmBindingCoordinator) — suspending states"),
         ["EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml.cs"] = (
             "exempt", "the gaze indicator — follows the gaze inside the magnifier's suspending state"),
+        ["EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml"] = (
+            "exempt", "shows only while paused (ToolbarVisibilityAdapter) — paused is gate row 2, the notes are frozen (review 01 M1)"),
         ["EyeCtrl.App/Overlays/RepeatCursorWindow.xaml.cs"] = (
             "exempt", "the repeat cursor — only up during RepeatMode, a suspending state, at the live gaze"),
+        ["EyeCtrl.App/Overlays/TargetHighlightWindow.xaml"] = (
+            "exempt", "the action-menu target highlight — shows only with the action menu (OverlayMessageCoordinator), a suspending state (review 01 M1)"),
         };
 
-    private static readonly string[] ClickThroughPatterns =
-    [
-        "IsClickThrough = true",
-        "SetOverlayInteraction(clickThrough: true",
-    ];
+    // ONE regex over BOTH file types (fixup 01 M1, review 01 n3): the constructor and runtime C#
+    // forms, the XAML attribute form ("True", case-insensitive), and a future positional
+    // SetOverlayInteraction(true, …). A bare `IsClickThrough = isSomething` re-application is
+    // deliberately not matched — the two existing ones (CalibrationWindow's ResetState,
+    // OverlayWindow's OnSourceInitialized) re-apply the property value and add no new window.
+    private const string ClickThroughPattern =
+        @"IsClickThrough\s*=\s*""?true""?|SetOverlayInteraction\(\s*(clickThrough:\s*)?true";
 
     [Fact]
     public void EveryClickThroughWindow_IsClassified()
     {
-        var found = SourceFilesContainingAny(ClickThroughPatterns);
+        var found = SourceFilesMatchingClickThrough();
         var unclassified = found.Where(f => !Census.ContainsKey(f)).ToList();
 
         Check.WithCustomMessage(
@@ -95,17 +107,19 @@ public class NoteGateCensusTests
     [Fact]
     public void TheCensus_HasNoStaleEntries()
     {
-        var src = Path.Combine(SourceScanner.RepoRoot().FullName, "src");
-        foreach (var (path, entry) in Census)
-        {
-            var full = Path.Combine(src, path.Replace('/', Path.DirectorySeparatorChar));
-            Check.WithCustomMessage($"Census entry '{path}' ({entry.Reason}) no longer exists on disk.")
-                .That(File.Exists(full)).IsTrue();
-            Check.WithCustomMessage(
-                    $"Census entry '{path}' ({entry.Reason}) no longer sets click-through by either "
-                    + "mechanism — update the classification or remove the entry.")
-                .That(ClickThroughPatterns.Any(p => File.ReadAllText(full).Contains(p))).IsTrue();
-        }
+        // The scan must SEE every pinned entry — an entry the scan no longer finds is stale, and
+        // so is a scan that has gone blind to a declaration style (fixup 01 M1: dropping the XAML
+        // half hides all four XAML entries and this fails by name). A bare content re-read would
+        // NOT catch that: the file still matches even when the scan skips its extension.
+        var found = SourceFilesMatchingClickThrough();
+        var stale = Census.Keys
+            .Where(path => !found.Contains(path, StringComparer.Ordinal))
+            .ToList();
+
+        Check.WithCustomMessage(
+            "Census entr(ies) the click-through scan no longer finds: " + string.Join(", ", stale)
+            + " — the scan (file set or pattern) has drifted from the census; fix the scan or the entry.")
+            .That(stale).IsEmpty();
     }
 
     /// <summary>
@@ -163,14 +177,18 @@ public class NoteGateCensusTests
         ["logger"] = "infrastructure — optional logging",
     };
 
-    private static List<string> SourceFilesContainingAny(string[] markers)
+    private static List<string> SourceFilesMatchingClickThrough()
     {
-        // D3's scope: a scan over src/EyeCtrl.App — the overlay windows live there. Fragments are
-        // reported repo-relative, matching the census map's keys.
+        // D3's scope, widened by fixup 01 M1: a scan over src/EyeCtrl.App's .cs AND .xaml files —
+        // the click-through declaration lives in either. Fragments are reported repo-relative,
+        // matching the census map's keys.
         var app = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App");
-        return Directory.EnumerateFiles(app, "*.cs", SearchOption.AllDirectories)
+        return Directory.EnumerateFiles(app, "*.*", SearchOption.AllDirectories)
+            .Where(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+                        || f.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
-            .Where(f => markers.Any(m => File.ReadAllText(f).Contains(m)))
+            .Where(f => Regex.IsMatch(File.ReadAllText(f), ClickThroughPattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             .Select(f => "EyeCtrl.App/" + f[(app.Length + 1)..].Replace('\\', '/'))
             .ToList();
     }

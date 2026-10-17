@@ -115,6 +115,40 @@ public class ScrollOverlayViewModelTests
         Check.That(vy).IsStrictlyLessThan(0);                        // follows immediately, as today
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void Arming_RadiusFollowsTheFixationRadius_InPhysicalPx(double scale)
+    {
+        // F3 (fixup 01): pin the arming radius at R = 80 — a sample 60–79 px from the anchor arms;
+        // 81+ px does not (the dead zone is physical px, never DPI-converted, so the same values
+        // hold at both scales). Mutant: arm on the legacy 30-px constant (G-R1) → the 60/79 cases
+        // stay unarmed, red.
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            foreach (var (offset, expected) in new[] { (60.0, true), (79.0, true), (81.0, false) })
+            {
+                var settings = new EyeCtrlSettings();
+                settings.Dwell.FixationRadiusPixels = 80;
+                var vm = new ScrollOverlayViewModel(
+                    new WeakReferenceMessenger(), settings.Scroll, settings.Dwell);
+                vm.EnterScrollMode(new PhysicalPoint(1000, 1000), new PhysicalPoint(3000, 600));
+
+                vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000 + offset, 1000), 0));
+
+                Check.WithCustomMessage(
+                        $"scale {scale}: a sample {offset} px from the anchor: armed={vm.IsArmed}, "
+                        + $"expected {expected}")
+                    .That(vm.IsArmed).IsEqualTo(expected);
+            }
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     [Fact]
     public void ArmingLogsExactlyOncePerSession_WithTheArmedLine()
     {

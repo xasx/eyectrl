@@ -307,6 +307,15 @@ public interface ITrackStatusOverlay
     void StartTracking();
     void StopTracking();
     void PositionTopRight();
+
+    /// <summary>
+    /// The card's visible bounds in physical pixels while it is on screen (T2 fixup 01, review
+    /// M1): the note gate's occluder source. False (and <paramref name="bounds"/> default) while
+    /// it is not showing. The card is opaque, click-through, and parked top-right for as long as
+    /// TrackStatusSettings.Enabled — exactly the persistent, invisible-cover shape the gate's
+    /// occluder conjunct exists for.
+    /// </summary>
+    bool TryGetVisibleBounds(out PhysicalRect bounds);
 }
 
 /// <summary>The task switcher.</summary>

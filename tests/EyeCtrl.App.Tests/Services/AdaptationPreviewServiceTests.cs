@@ -1174,7 +1174,7 @@ public class AdaptationPreviewServiceTests
         // discipline: real NoteWindow constructed, so AdaptationSettings.Enabled stays false.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var messenger = new WeakReferenceMessenger();
-        using var noteManager = new NoteManager(messenger);
+        using var noteManager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
 
         // Fresh VMs; the keyboard seam is never reached (IsVisible false short-circuits before
         // the overlays factory is invoked — the delegate throws to prove it).

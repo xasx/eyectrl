@@ -25,7 +25,7 @@ public class Review02ProbeTests
     public void R5_OneSampleExcursionAfterDone_ThenHeldGaze_DeletesTheNote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         manager.SetKeyboardProbe(new NoteManagerTests.FakeKeyboardProbe { IsVisible = false });
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -52,7 +52,7 @@ public class Review02ProbeTests
     public void R6_DoneOnB_HeldGaze_DoesNotDeleteNeighbourA()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         manager.SetKeyboardProbe(new NoteManagerTests.FakeKeyboardProbe { IsVisible = false });
         DpiHelper.Initialize(2.0, 2.0);
         try

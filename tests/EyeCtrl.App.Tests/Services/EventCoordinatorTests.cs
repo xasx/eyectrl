@@ -132,12 +132,14 @@ public class EventCoordinatorTests
     {
         // Source pin over comment-stripped, whitespace-collapsed code (same precedent as
         // Initialize_WiresTheLostGazeExit): no test runs EventCoordinator.Initialize — the context
-        // needs the whole window/VM graph — so these hookups would silently regress. The C15
-        // predicate must read the shared ProbeOpen flag (review 01 F1; mutant R9, `() => false`,
-        // survived the full suite), and QuickActionsCoordinator must receive the SHARED modal state
-        // (mutant R13, a private `new ModalInteractionState()`, survived too). If the C15 line
-        // regresses, every note target stays live under the probe's opaque window — a note's close
-        // is destructive and asks for no confirmation.
+        // needs the whole window/VM graph — so these hookups would silently regress. Since P2 D1
+        // the note suspend predicate is COMPOSED: the probe reaches the gate through the offer
+        // coordinator's ModalSuspended (null-safe — it is constructed later), the interaction
+        // modes through the shared helper, and the modes menu through its VM flag; the pause poll
+        // rides the same state machine. If the composed lines regress, every note target stays
+        // live under the probe's opaque window — a note's close is destructive and asks for no
+        // confirmation. QuickActionsCoordinator must still receive the SHARED modal state (mutant
+        // R13, a private `new ModalInteractionState()`, survived once).
         var source = System.Text.RegularExpressions.Regex.Replace(
             SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
                 SourceScanner.RepoRoot().FullName,
@@ -145,8 +147,16 @@ public class EventCoordinatorTests
             @"\s+", string.Empty);
 
         Check.WithCustomMessage(
-                "EventCoordinator.Initialize no longer wires the note suspend gate to the shared ProbeOpen flag.")
-            .That(source.Contains("context.NoteManager.SetSuspendPredicate(()=>_modal.ProbeOpen);")).IsTrue();
+                "EventCoordinator.Initialize no longer polls the paused state for the note gate.")
+            .That(source.Contains(
+                "context.NoteManager.SetPausePoll(()=>context.InteractionManager.CurrentState==InteractionState.Paused);"))
+            .IsTrue();
+        Check.WithCustomMessage(
+                "EventCoordinator.Initialize no longer wires the composed note suspend predicate " +
+                "(ModalSuspended, the interaction modes, the modes menu).")
+            .That(source.Contains(
+                "(_activationOffers?.ModalSuspended??false)||NoteManager.InteractionStateSuspendsNotes(context.InteractionManager.CurrentState)||context.ModesMenuVM.IsVisible"))
+            .IsTrue();
         Check.WithCustomMessage(
                 "EventCoordinator.Initialize no longer hands QuickActionsCoordinator the shared ModalInteractionState.")
             .That(source.Contains("_quickActions=newQuickActionsCoordinator(_modal);")).IsTrue();

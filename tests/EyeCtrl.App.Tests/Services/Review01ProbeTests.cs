@@ -46,7 +46,7 @@ public class Review01ProbeTests
     public void R2_GazeLingeringOnDone_ThenRemovesTheSavedNote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         DpiHelper.Initialize(2.0, 2.0);
@@ -72,7 +72,7 @@ public class Review01ProbeTests
     public void R3_DoneOnEmptyNewNote_SendsEditingFalse()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         int editingFalse = 0;
         messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) => { if (!m.Editing) editingFalse++; });
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -86,7 +86,7 @@ public class Review01ProbeTests
     public void R4_EditEnteredWithUsersKeyboardUp_DoneDoesNotHideIt()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true }; // the owner opened it
         manager.SetKeyboardProbe(probe);
         int hides = 0;

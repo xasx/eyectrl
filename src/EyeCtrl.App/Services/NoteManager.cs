@@ -1,30 +1,68 @@
 namespace EyeCtrl.App.Services;
 
+using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
+using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels.Messages;
 
-public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDisposable
+public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
+    IRecipient<EyeCareExerciseActiveMessage>, IRecipient<CalibrationStateChangedMessage>, IDisposable
 {
     private readonly List<NoteWindow> _windows = new();
     private readonly List<NoteData> _notes = new();
     private readonly DwellDetector _dwellDetector;
     private readonly IMessenger _messenger;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
+    // Never null (T2 fixup 01 M2, the plan's D2): an absent argument IS the production tester, so
+    // deleting the wiring cannot silently switch the own-window conjunct off. Headless tests pass
+    // the named <see cref="InactiveNoteHitTester"/> sentinel instead.
+    private readonly INoteHitTester _hitTester;
     private PhysicalPoint _lastGazePoint;
     private bool _disposed;
     private Func<bool>? _suspendPredicate;
-    // True once a sample was dropped by _suspendPredicate. The first sample after the gate opens
-    // resets the detector (see Receive).
-    private bool _suspendedByPredicate;
+    // True once a sample was dropped by the gate (pause or the suspend predicate, P2 D1). The
+    // first sample after the gate opens resets the detector and arm-latches (see Receive).
+    private bool _gateClosed;
+    // The pause poll (P2 D1 row 2): read per delivered sample alongside the sample's IsPaused flag.
+    private Func<bool>? _pausePoll;
+    // The exercise flag (P2 D1): kept from EyeCareExerciseActiveMessage, which EyeCareService sends
+    // once around the whole run + summary. The exercise window is click-through and full-screen, so
+    // WindowFromPoint reports the note beneath it — only this flag stops hidden controls firing.
+    // volatile: the sender's break flow may not be the UI thread; the read is per sample (n1).
+    private volatile bool _exerciseActive;
+    // The calibration flag (P2 D1, review-03 B-2): kept from CalibrationStateChangedMessage. The
+    // calibration window turns click-through at runtime when Collecting starts, and the owner
+    // deliberately fixates edges and corners where notes are clamped. volatile: same reasoning.
+    private volatile bool _calibrating;
+    // The occluder sources (P2 D3), evaluated per sample — no cache to invalidate. Null sources
+    // contribute nothing: the lag mark before its bridge is attached, the notices while hidden.
+    private Func<IReadOnlyList<PhysicalRect>>? _lagMarkRects;
+    private Func<PhysicalRect?>? _driftNoticeBounds;
+    private Func<PhysicalRect?>? _caregiverAlertBounds;
+    private Func<PhysicalRect?>? _trackStatusBounds;
+    // Gate conjunct 4's own-window half (P2 D2): target id → the HWND of the note window that
+    // draws it, recorded at registration. Windowless targets (the test seams) are absent here and
+    // exempt from the conjunct; the conjunct is inactive only while the tester is the named
+    // InactiveNoteHitTester sentinel — the visible choice headless tests make instead of an
+    // absent argument (T2 fixup 01 M2: the production default is the real tester).
+    private readonly Dictionary<string, IntPtr> _targetWindows = new();
     private const int MaxNotes = 8;
     private const int DwellTimeMs = 600;
+
+    /// <summary>
+    /// The note dwell floor (P2 D6): adaptation may lengthen a note's dwell, never shorten it
+    /// below 600 ms — the router clamps every shortening map to this floor, and the two routing
+    /// registration tests pin the floor's presence.
+    /// </summary>
+    public const int NoteMinDwellMs = 600;
 
     // ── the single editor (P1 D8) ──
     private NoteData? _editingNote;
@@ -89,18 +127,39 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     }
 
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
-        IDwellDetectorRegistry? dwellRegistry = null)
+        IDwellDetectorRegistry? dwellRegistry = null, INoteHitTester? hitTester = null)
     {
         _messenger = messenger;
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
         _dwellDetector.TargetActivated += OnDetectorTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
+        // P2 D2's production default (fixup 01 M2): null means "the real tester", never "none" —
+        // the inactive case is the explicit sentinel, so it is visible at every call site.
+        _hitTester = hitTester ?? new NoteHitTester();
         _messenger.Register<GazeCursorMovedMessage>(this);
+        _messenger.Register<EyeCareExerciseActiveMessage>(this);
+        _messenger.Register<CalibrationStateChangedMessage>(this);
         _dwellRegistry = dwellRegistry;
-        _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
-            _dwellDetector, DwellContext.Notes,
-            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
+        // P2 D6: the explicit registration replaces ForDetector — an explicit 600 ms floor and a
+        // NAMED no-op geometry applier. The no-op is the point: AdaptGeometry defaults on, with
+        // margins up to 100 px, and a margin pushes hit cells outside their own window, breaking
+        // P2 D2's layout rule 1. Note targets never take the adaptation geometry margin.
+        _dwellRegistry?.Register(this, new DwellRoutingRegistration(
+            DwellContext.Notes,
+            MinDwellMs: NoteMinDwellMs,
+            MaxDwellMs: AdaptationDwellRanges.StandardMaxDwellMs,
+            Apply: _dwellDetector.SetEffectiveDwellTime,
+            ApplyGeometry: NoteGeometryOptOut));
     }
+
+    /// <summary>
+    /// The named no-op geometry applier (P2 D6). Deliberately does nothing: note hit cells are
+    /// fixed, because a margin can push a hit area outside its own window and off its alpha &gt; 0
+    /// pixels — both layout rules the window gate depends on. It exists as a named method (not a
+    /// lambda) so a stack trace or registration dump names the choice; the routing registry
+    /// requires a non-null applier.
+    /// </summary>
+    private static void NoteGeometryOptOut(Func<double, double>? _) { }
 
     // ── typing into the note (P1 D1/D2) ──
 
@@ -270,9 +329,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
             if (trimmed.Length == 0 && note.PreviousText is null)
             {
                 // New note, draft empty (P1 D4 Done table): nothing was ever saved — it disappears.
+                // RemoveNoteInternal re-registers every survivor, whose tail latches every target
+                // under the held gaze (P2 D4) — the "empty-new exit" latch the T2 tests pin.
                 RemoveNoteInternal(note);
-                if (!handOver)
-                    LatchTargetsUnderTheGaze();
                 ReleaseKeyboard(handOver);
                 if (!handOver)
                     _messenger.Send(new NoteEditingChangedMessage(false));
@@ -292,27 +351,33 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         }
         ReleaseKeyboard(handOver);
         ReRegisterAllTargets();
-        if (!handOver)
-            LatchTargetsUnderTheGaze();
         RaiseTargetsChanged();
         if (!handOver)
             _messenger.Send(new NoteEditingChangedMessage(false));
     }
 
     /// <summary>
-    /// Leave-before-arm for the Edit → Display hand-off (fixups B2/F1/F2; T2 generalises, P2 D4).
-    /// ✓ Done and ✕ are the SAME slot-0 circle, and a neighbour pinned close by can put its own
-    /// ✕ under the same held gaze — so EVERY registered target that contains the last gaze sample
-    /// is latched, not just the finishing note's. A latched target stays ineligible (clearing any
+    /// Leave-before-arm (P2 D4, generalising T1's Edit-exit latch): EVERY registered target that
+    /// contains the last gaze sample is latched. A latched target stays ineligible (clearing any
     /// accumulated dwell) until its release rule fires: the gaze continuously outside its circle
     /// for <see cref="LeaveBeforeArmMs"/> — one jitter sample past the edge is noise, not a leave
-    /// (fixup F1). Called AFTER <see cref="ReRegisterAllTargets"/> so the scan sees the fresh
-    /// targets; a held sample is by definition still inside the circles it must leave.
+    /// (fixup F1). Called after EVERY (re)registration (state flips, Undo/restore paths, re-layout,
+    /// probe flips, gate recovery) and before that from the Edit exits, so a target that appears or
+    /// moves under a held gaze is never live until the gaze has demonstrably left it once.
+    /// <para>
+    /// The gaze-chasing <c>:place</c> target is exempt: it is re-centred on every sample, so its
+    /// circle always contains the gaze and a latch could never release — its safety comes from the
+    /// aim that started the Move, and T4 reworks Move entirely.
+    /// </para>
+    /// Called AFTER the registration it follows, so the scan sees the fresh targets; a held sample
+    /// is by definition still inside the circles it must leave.
     /// </summary>
     private void LatchTargetsUnderTheGaze()
     {
         foreach (var target in _dwellDetector.Targets)
         {
+            if (target.Id.EndsWith(":place", StringComparison.Ordinal))
+                continue;
             double dx = _lastGazePoint.X - target.Center.X;
             double dy = _lastGazePoint.Y - target.Center.Y;
             if (dx * dx + dy * dy <= (double)target.Radius * target.Radius)
@@ -437,10 +502,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         note.State = NoteState.Move;
         window.SetState(NoteState.Move);
         // Only the placement target is active while moving; done/keyboard and close/edit/move are
-        // removed to prevent accidental activation, and all other notes are frozen.
+        // removed to prevent accidental activation, and all other notes are frozen. The :place
+        // target is deliberately NOT latched (P2 D4): it is re-centred on the gaze every sample,
+        // so a latch could never release — and a Move started by an aimed ↕ dwell is deliberate.
         _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget($"{id}:place", note.Position,
             DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlacementRadius), DwellTimeMs));
+        _targetWindows[$"{id}:place"] = new WindowInteropHelper(window).EnsureHandle();
         _dwellDetector.ResetAllState();
         RaiseTargetsChanged();
     }
@@ -460,40 +528,85 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// <summary>
     /// Broadcasts <see cref="NoteTargetsChangedMessage"/> after every structural change to the
     /// detector's target set (create/remove/state flips) so the D17 inventory re-runs the preview
-    /// panel's collision check (review F1). NOT called from the gaze-driven <c>:place</c> centre
-    /// updates — see the message's doc for why that would be a per-sample walk.
+    /// panel's collision check (review F1) and the activation-offer coordinator re-publishes its
+    /// chrome zones (P2 D7). NOT called from the gaze-driven <c>:place</c> centre updates — see
+    /// the message's doc for why that would be a per-sample walk.
     /// </summary>
     private void RaiseTargetsChanged() => _messenger.Send(new NoteTargetsChangedMessage());
+
+    /// <inheritdoc />
+    public IReadOnlyList<PhysicalRect> ChromeRects()
+    {
+        var rects = new List<PhysicalRect>(_notes.Count * 4);
+        foreach (var note in _notes)
+        {
+            // Window top-left in logical screen coords — the same math CreateNoteAt positions with
+            // and the registrations target. The card body is the drawn card, which today fills the
+            // window; there is no tail in v1, and when P3 adds the pointer tail it must NOT join
+            // these zones (P2 D7: the tail and the raw window rect stay out).
+            double winLeftLogical = DpiHelper.PhysicalToLogicalX(note.Position.X) - LayoutConstants.NoteWindowWidth / 2;
+            double winTopLogical = DpiHelper.PhysicalToLogicalY(note.Position.Y) - LayoutConstants.NoteAnchorOffsetY;
+            rects.Add(new PhysicalRect(
+                DpiHelper.LogicalToPhysicalX(winLeftLogical),
+                DpiHelper.LogicalToPhysicalY(winTopLogical),
+                DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteWindowWidth),
+                DpiHelper.LogicalToPhysicalY(LayoutConstants.NoteWindowHeight)));
+
+            double radius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
+            for (int slot = 0; slot < 3; slot++)
+            {
+                var (lx, ly) = NoteLayout.ButtonCenter(slot);
+                double cx = DpiHelper.LogicalToPhysicalX(winLeftLogical + lx);
+                double cy = DpiHelper.LogicalToPhysicalY(winTopLogical + ly);
+                rects.Add(new PhysicalRect(cx - radius, cy - radius, radius * 2, radius * 2));
+            }
+        }
+        return rects;
+    }
 
     public void OnGazeMoved(PhysicalPoint gazePoint, long timestamp)
     {
         _lastGazePoint = gazePoint;
 
-        // The keyboard gate (P1 D5, fixup m4): a note target is ineligible for any sample whose
-        // gaze lies inside the keyboard's or its edge bar's hit area — dwell has no z-order, and
-        // the Done button under the keyboard must never fire while the owner types. The probe
-        // read costs real work (a list, an array, two PointToScreen calls), so it is skipped
-        // entirely while the detector holds no targets to protect.
-        bool gated = false;
-        if (_dwellDetector.Targets.Count > 0 && _keyboardProbe is { } probe)
-            gated = probe.Rects().Any(rect => rect.Contains(gazePoint));
+        // Gate conjunct 4 (P2 D1/D2/D3), its sample-level half. The occluder walk runs whenever
+        // live targets exist — NOT only inside the hit-area union. That is conservative, not
+        // load-bearing: a gaze outside the union is outside every hit circle (so no latch release
+        // could be wrong there — the gaze genuinely left), and an occluded target cannot fire
+        // anyway because the filter keeps !gated. The extra reads only ever make a latch release
+        // LATER, never earlier — a latch that waits out a gaze parked on the keyboard is the
+        // intended cost. Union-gating the reads would be stricter still; per-sample evaluation
+        // keeps the code simple and needs no cache. The one RootWindowAt call, on the other hand,
+        // is skipped unless the gaze is inside the union of the live hit areas, some target
+        // actually has a window, and the conjunct is active (it is off for the InactiveNoteHitTester
+        // sentinel): outside every hit area no target can be the nearest, so the call would buy
+        // nothing (P2 D2's cost cap). With a FAILED source but no genuine cover, the call still
+        // runs — ✓ Done is exempt from the failure answer and must still pass the own-window
+        // conjunct honestly (fixup 03 m1).
+        bool genuineOcclusion = false;
+        bool occluderFailed = false;
+        IntPtr rootWindow = IntPtr.Zero;
+        if (_dwellDetector.Targets.Count > 0)
+        {
+            (genuineOcclusion, occluderFailed) = EvaluateOccluders(gazePoint);
+            if (!genuineOcclusion && OwnWindowConjunctActive && AnyWindowedTarget && GazeInsideTargetUnion(gazePoint))
+                rootWindow = _hitTester.RootWindowAt(gazePoint);
+        }
 
-        // The leave-before-arm latch (fixups B2/F1): advance the leave timers, then keep the
-        // still-latched ones ineligible for this sample (the filter also clears whatever dwell
-        // they accumulated while latched). A gated sample carries no leave information — the
-        // keyboard's rect covers the spot, so it neither advances nor resets a timer (F4).
-        if (_targetsAwaitingGazeLeave.Count > 0 && !gated)
+        // The leave-before-arm latch (fixups B2/F1; P2 D4): advance the leave timers, then keep
+        // the still-latched ones ineligible for this sample (the filter also clears whatever dwell
+        // they accumulated while latched). A genuinely occluded sample OR a sample from a failing
+        // source carries no leave information — we cannot know what was over the spot, so a latch
+        // is never released on such evidence (F4, conservative).
+        if (_targetsAwaitingGazeLeave.Count > 0 && !genuineOcclusion && !occluderFailed)
             AdvanceLeaveTimers(gazePoint, timestamp);
 
         Func<DwellTarget, bool>? filter = null;
-        if (_targetsAwaitingGazeLeave.Count > 0)
+        if (genuineOcclusion || occluderFailed || _targetsAwaitingGazeLeave.Count > 0 || OwnWindowConjunctActive)
         {
             var disarmed = _targetsAwaitingGazeLeave;
-            filter = t => !gated && !disarmed.ContainsKey(t.Id);
-        }
-        else if (gated)
-        {
-            filter = NotEligible;
+            filter = t => GateOpenFor(t, genuineOcclusion, occluderFailed)
+                && !disarmed.ContainsKey(t.Id)
+                && WindowOwns(t, rootWindow);
         }
         _dwellDetector.Update(gazePoint, timestamp, filter);
 
@@ -509,37 +622,249 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         }
     }
 
-    private static bool NotEligible(DwellTarget _) => false;
+    /// <summary>Gate conjunct 4's occluder half (P2 D3): the keyboard window and its edge bar
+    /// (through the probe), the lag mark, and the drift notice / caregiver alert / track-status
+    /// card visible bounds. Each source is read live; nulls contribute nothing.
+    /// <para>
+    /// FAIL CLOSED (T2 fixup 02), with the ✓ Done exemption (T2 fixup 03 m1): a throwing source
+    /// means the sample is treated as OCCLUDED for every target EXCEPT <c>{id}:done</c>, so no
+    /// destructive or state-changing control can fire under an overlay the gate cannot see past.
+    /// Done is exempt because it is non-destructive AND P1's only Edit exit — a broken source
+    /// must never trap the owner in Edit with the keyboard captured. A GENUINE occluder (a
+    /// healthy source answering true) gates Done like everything else. A wiring slip then
+    /// degrades to "destructive notes controls dead under that source" instead of a per-sample
+    /// exception that starves the gaze broadcast. The failure is logged once per source per
+    /// failure episode (a successful read re-arms the log, so a recovered-then-refailed source
+    /// is loud again) — never once per sample.
+    /// </para></summary>
+    /// <returns>Whether a source GENUINELY occludes the gaze, and whether any source FAILED (the
+    /// fail-closed answer, which Done is exempt from).</returns>
+    private (bool GenuineOcclusion, bool Failed) EvaluateOccluders(PhysicalPoint gazePoint)
+    {
+        bool genuine = false, failed = false;
+
+        if (!TryReadOccluder(KnownOccluderSources.KeyboardProbe,
+                () => _keyboardProbe?.Rects().Any(rect => rect.Contains(gazePoint)) == true, out var covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.LagMark,
+                () => _lagMarkRects is { } lagMark && lagMark().Any(rect => rect.Contains(gazePoint)), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.DriftNotice,
+                () => _driftNoticeBounds is { } drift && drift.Invoke() is { } driftBounds
+                    && driftBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.CaregiverAlert,
+                () => _caregiverAlertBounds is { } alert && alert.Invoke() is { } alertBounds
+                    && alertBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        if (!TryReadOccluder(KnownOccluderSources.TrackStatus,
+                () => _trackStatusBounds is { } trackStatus && trackStatus.Invoke() is { } trackStatusBounds
+                    && trackStatusBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
+        return (genuine, failed);
+    }
+
+    /// <summary>The per-target gate answer: a GENUINE occluder closes the gate for everyone; a
+    /// FAILED source closes it for every target except <c>{id}:done</c> (fixup 03 m1 — Done is
+    /// non-destructive and the only Edit exit; everything destructive stays shut).</summary>
+    private static bool GateOpenFor(DwellTarget target, bool genuineOcclusion, bool occluderFailed) =>
+        !(genuineOcclusion || (occluderFailed && !target.Id.EndsWith(":done", StringComparison.Ordinal)));
+
+    /// <summary>The occluder sources' stable names, for the fail-closed log (one entry per source
+    /// per failure episode).</summary>
+    internal static class KnownOccluderSources
+    {
+        public const string KeyboardProbe = "keyboard probe";
+        public const string LagMark = "lag mark";
+        public const string DriftNotice = "drift notice";
+        public const string CaregiverAlert = "caregiver alert";
+        public const string TrackStatus = "track status";
+    }
+
+    /// <summary>The logged-failure episode flags, one per source name: a failed source logs once,
+    /// and a successful read clears its flag so a later failure is loud again.</summary>
+    private readonly HashSet<string> _occluderFailureLogged = new(StringComparer.Ordinal);
+
+    /// <summary>Runs one occluder read. A throw is contained: logged once for this episode and
+    /// answered with TRUE — the sample is occluded, so no hidden ✕ or ✎ can fire (fixup 02).</summary>
+    /// <summary>Runs one occluder read. A throw is contained: logged once per source per failure
+    /// episode, and reported to the caller as a FAILED source — the fail-closed answer applies to
+    /// every target except ✓ Done (fixup 03 m1, see <see cref="GateOpenFor"/>).</summary>
+    /// <returns>False when the read threw (the failure is logged here); true with the result
+    /// otherwise.</returns>
+    private bool TryReadOccluder(string name, Func<bool> read, out bool covers)
+    {
+        try
+        {
+            covers = read();
+            _occluderFailureLogged.Remove(name); // a healthy read re-arms the once-per-episode log
+            return true;
+        }
+        catch (Exception ex)
+        {
+            covers = false;
+            if (_occluderFailureLogged.Add(name))
+                Serilog.Log.Error(ex,
+                    "The note gate's {OccluderSource} occluder source threw; failing closed — "
+                    + "destructive note controls stay gated until the source recovers", name);
+            return false;
+        }
+    }
+
+    /// <summary>Whether the gaze lies inside the union of the live targets' hit areas (P2 D2's
+    /// cost cap): rect targets by their bounds, circular targets by their circle.</summary>
+    private bool GazeInsideTargetUnion(PhysicalPoint gazePoint)
+    {
+        foreach (var target in _dwellDetector.Targets)
+        {
+            if (target.Bounds is { } bounds)
+            {
+                if (bounds.Contains(gazePoint))
+                    return true;
+                continue;
+            }
+            double dx = gazePoint.X - target.Center.X;
+            double dy = gazePoint.Y - target.Center.Y;
+            if (dx * dx + dy * dy <= (double)target.Radius * target.Radius)
+                return true;
+        }
+        return false;
+    }
+
+    private bool AnyWindowedTarget =>
+        _targetWindows.Values.Any(handle => handle != IntPtr.Zero);
+
+    /// <summary>Whether the own-window conjunct is in force: it switches off only for the named
+    /// <see cref="InactiveNoteHitTester"/> sentinel that headless tests pass (fixup 01 M2) — the
+    /// production default is the real tester, so an unwired argument cannot disable the gate.</summary>
+    private bool OwnWindowConjunctActive => _hitTester is not InactiveNoteHitTester;
+
+    /// <summary>Gate conjunct 4's own-window half (P2 D2): the topmost hit-testable window under
+    /// the gaze must be the window that draws the target. The conjunct is inactive for the
+    /// sentinel tester (headless tests), and a windowless target (the test seams) is exempt —
+    /// both so the seam can stay out of tests that do not exercise it.</summary>
+    private bool WindowOwns(DwellTarget target, IntPtr rootWindow)
+    {
+        if (!OwnWindowConjunctActive)
+            return true;
+        if (!_targetWindows.TryGetValue(target.Id, out var own) || own == IntPtr.Zero)
+            return true;
+        return rootWindow != IntPtr.Zero && rootWindow == own;
+    }
 
     public void Receive(GazeCursorMovedMessage message)
     {
-        // Held (blink) samples repeat the frozen last valid position: they must not advance a note's
-        // close/edit/move dwell, and a note being placed simply stays put until the eyes reopen.
+        // P2 D9: a message delivered after Dispose is ignored, not resurrected from.
+        if (_disposed) return;
+
+        // Gate row 1 (P2 D1): held (blink) samples repeat the frozen last valid position — they
+        // must not advance a note's close/edit/move dwell, and a note being placed simply stays
+        // put until the eyes reopen.
         if (message.IsInGap) return;
 
-        // The probe's gate (build plan C15): while it is open every sample is dropped, so no note
-        // target under the probe's opaque window accumulates dwell. On resume the detector is reset
-        // — its clock is timestamp-based, so without the reset the first post-probe sample on the
-        // same target it left would be credited time it did not spend there, and a note's close is
-        // destructive and no-confirm (review 03 F5).
-        if (_suspendPredicate?.Invoke() == true)
+        // Gate row 2 (P2 D1): paused — the sample's own flag OR the polled interaction state.
+        // The poll is what catches a pause entered from the tray while no sample carried the flag.
+        // Gate row 3: the suspend predicate (modal surfaces, interaction modes, modes menu — the
+        // composed lambda EventCoordinator wires) plus the manager's own flags: the eye-care
+        // exercise (click-through, full-screen — WindowFromPoint sees through it) and calibration
+        // (click-through from Collecting on). While any of them holds, every sample is dropped and
+        // the notes are frozen.
+        bool paused = message.IsPaused || (_pausePoll?.Invoke() ?? false);
+        bool suspended = (_suspendPredicate?.Invoke() ?? false) || _exerciseActive || _calibrating;
+        if (paused || suspended)
         {
-            _suspendedByPredicate = true;
+            _gateClosed = true;
             return;
         }
-        if (_suspendedByPredicate)
+        if (_gateClosed)
         {
-            _suspendedByPredicate = false;
+            // Recovery (P2 D1 rows 2–3): reset the detector — its clock is timestamp-based, so
+            // without the reset the first clear sample on the same target would be credited time
+            // it did not spend there (review 03 F5) — then arm-latch every target under the gaze:
+            // a target that sat under held eyes while the gate was shut must not fire on the
+            // first clear sample.
+            _gateClosed = false;
             _dwellDetector.ResetAllState();
+            _lastGazePoint = message.Position;
+            LatchTargetsUnderTheGaze();
         }
 
         OnGazeMoved(message.Position, message.TimestampMicroseconds);
     }
 
-    /// <summary>The probe's suspend seam (build plan C15), configured once from EventCoordinator.
+    /// <summary>Gate row 3's interaction-state half (P2 D1): the states whose surfaces own the
+    /// screen while they last. ActionMenuVisible and the two ManualSelection states show the menu
+    /// and the full-screen magnifier, ScrollMode/Dragging/RepeatMode pin their own controls at the
+    /// live gaze point (review 02 confirmed the set is complete). The keyboard is deliberately NOT
+    /// here — Done must stay live while typing; a covered note is caught by conjunct 4.</summary>
+    internal static bool InteractionStateSuspendsNotes(InteractionState state) =>
+        state is InteractionState.ActionMenuVisible
+            or InteractionState.ManualSelectionActive
+            or InteractionState.ManualSelectionActionMenuVisible
+            or InteractionState.ScrollMode
+            or InteractionState.Dragging
+            or InteractionState.RepeatMode;
+
+    /// <summary>The exercise flag's message (P2 D1). Idempotent: EyeCareService sends it once per
+    /// transition; a duplicate changes nothing.</summary>
+    public void Receive(EyeCareExerciseActiveMessage message)
+    {
+        if (_disposed) return; // P2 D9: a late message is ignored
+        _exerciseActive = message.Active;
+    }
+
+    /// <summary>The calibration flag's message (P2 D1, review-03 B-2): Collecting/Training hold the
+    /// full-screen overlay up; every other state — including Failed and Cancelled — takes it down.</summary>
+    public void Receive(CalibrationStateChangedMessage message)
+    {
+        if (_disposed) return; // P2 D9: a late message is ignored
+        _calibrating = message.State is CalibrationState.Collecting or CalibrationState.Training;
+    }
+
+    /// <summary>The pause poll seam (P2 D1 row 2), configured once from EventCoordinator.</summary>
+    public void SetPausePoll(Func<bool> poll) =>
+        _pausePoll = poll ?? throw new ArgumentNullException(nameof(poll));
+
+    /// <summary>The suspend seam (build plan C15), configured once from EventCoordinator.
     /// The predicate is evaluated per delivered sample; nothing else changes while it holds.</summary>
     public void SetSuspendPredicate(Func<bool> predicate) =>
         _suspendPredicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
+
+    /// <summary>The occluder seams (P2 D3), configured once from the App wiring. Delegates are
+    /// evaluated per sample, only for samples that reach conjunct 4 — there is no cache to
+    /// invalidate, and a source attached later (the lag-mark bridge) needs no re-wire. The
+    /// track-status card joined in fixup 01 (review M1): opaque, click-through, parked top-right
+    /// for as long as TrackStatusSettings.Enabled.</summary>
+    public void SetOccluderSources(
+        Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
+        Func<PhysicalRect?>? driftNoticeBounds = null,
+        Func<PhysicalRect?>? caregiverAlertBounds = null,
+        Func<PhysicalRect?>? trackStatusBounds = null)
+    {
+        _lagMarkRects = lagMarkRects;
+        _driftNoticeBounds = driftNoticeBounds;
+        _caregiverAlertBounds = caregiverAlertBounds;
+        _trackStatusBounds = trackStatusBounds;
+    }
+
+    /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The
+    /// container-wired manager must report the production <see cref="NoteHitTester"/>.</summary>
+    internal INoteHitTester HitTesterForTest => _hitTester;
 
     /// <summary>
     /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a
@@ -584,11 +909,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// <summary>
     /// Clears and re-registers dwell targets for every note according to its current state.
     /// Called after a note is removed or returns to Display so surviving notes regain their
-    /// controls, then resets accumulated dwell state to avoid a spurious immediate activation.
+    /// controls, then resets accumulated dwell state to avoid a spurious immediate activation,
+    /// and latches every target under the held gaze (P2 D4: every (re)registration latches).
     /// </summary>
     private void ReRegisterAllTargets()
     {
         _dwellDetector.ClearTargets();
+        _targetWindows.Clear();
         if (_editingNote is { } editor)
         {
             // Fixup F5: the single-editor rule wins — a re-register while a note edits hands back
@@ -603,6 +930,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
                 RegisterTargetsForState(n);
         }
         _dwellDetector.ResetAllState();
+        LatchTargetsUnderTheGaze();
     }
 
     private void RegisterTargetsForState(NoteData note)
@@ -615,6 +943,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
             case NoteState.Move:
                 _dwellDetector.AddTarget(new DwellTarget($"{note.Id}:place", note.Position,
                     DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlacementRadius), DwellTimeMs));
+                _targetWindows[$"{note.Id}:place"] = WindowHandleOrZero(note.Id);
                 break;
             default: // Display
                 RegisterDwellTargets(note.Id);
@@ -655,16 +984,33 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         }
 
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:done", ButtonCenter(0), radiusPhysical, DwellTimeMs));
+        _targetWindows[$"{noteId}:done"] = WindowHandleOrZero(noteId);
         if (KeyboardHidden)
+        {
             _dwellDetector.AddTarget(new DwellTarget($"{noteId}:keyboard", ButtonCenter(1), radiusPhysical, DwellTimeMs));
+            _targetWindows[$"{noteId}:keyboard"] = WindowHandleOrZero(noteId);
+        }
+    }
+
+    /// <summary>The owning note window's HWND (P2 D2), or <see cref="IntPtr.Zero"/> for a
+    /// windowless note — the test seams register targets without a window, and a Zero handle
+    /// marks them exempt from the own-window conjunct (see <see cref="WindowOwns"/>).</summary>
+    private IntPtr WindowHandleOrZero(string noteId)
+    {
+        var window = Window(noteId);
+        return window is null ? IntPtr.Zero : new WindowInteropHelper(window).EnsureHandle();
     }
 
     /// <summary>The single editor's set is the ONLY live set (P1 D8), so full replacement:
-    /// clear, then register. Used by every entry into Edit and by the probe's re-register.</summary>
+    /// clear, then register, then latch under the held gaze (P2 D4 — a probe flip or an Edit
+    /// entry must not leave a target live under eyes that never left it). Used by every entry
+    /// into Edit and by the probe's re-register.</summary>
     private void RegisterSoleEditorTargets(string noteId)
     {
         _dwellDetector.ClearTargets();
+        _targetWindows.Clear();
         RegisterEditTargets(noteId);
+        LatchTargetsUnderTheGaze();
     }
 
     private void RegisterDwellTargets(string noteId)
@@ -691,6 +1037,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", ButtonCenter(0), radiusPhysical, DwellTimeMs));
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", ButtonCenter(1), radiusPhysical, DwellTimeMs));
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", ButtonCenter(2), radiusPhysical, DwellTimeMs));
+        var handle = WindowHandleOrZero(noteId);
+        _targetWindows[$"{noteId}:close"] = handle;
+        _targetWindows[$"{noteId}:edit"] = handle;
+        _targetWindows[$"{noteId}:move"] = handle;
     }
 
     private NoteWindow? Window(string noteId) => _windows.FirstOrDefault(w => w.NoteId == noteId);
@@ -742,6 +1092,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _dwellDetector.TargetActivated -= OnDetectorTargetActivated;
         _dwellDetector.TargetProgress -= OnTargetProgress;
         _messenger.Unregister<GazeCursorMovedMessage>(this);
+        // P2 D9 (gate part): the gate's new message inputs go with the manager — a flag update
+        // delivered after Dispose must not resurrect state (the handlers also _disposed-guard).
+        _messenger.Unregister<EyeCareExerciseActiveMessage>(this);
+        _messenger.Unregister<CalibrationStateChangedMessage>(this);
 
         // P1 D8: a Dispose mid-Edit tells the keyboard editing is over — the "→ Note" indicator
         // must not survive the manager. Deliberately NO keyboard hide request: the app teardown

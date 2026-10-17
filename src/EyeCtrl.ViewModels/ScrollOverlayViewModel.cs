@@ -13,9 +13,15 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     private const double StopZoneRadiusPx = 50;
 
     private readonly ScrollSettings _scrollSettings;
+    private readonly Action<string>? _log;
 
     private PhysicalPoint _anchor;
     private PhysicalPoint _stopButtonCenter;
+    // Scroll start fix (F-S4): velocity only after the eye has first visited the dead zone around
+    // the anchor. At entry the eye is on the menu's Scroll slot, ~900 px away, and applying the
+    // first sample's velocity there was the lurch the owner reported.
+    private bool _armed;
+    private long _enteredAtMs;
 
     [ObservableProperty] private double _anchorDotOffsetX;
     [ObservableProperty] private double _anchorDotOffsetY;
@@ -25,13 +31,20 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 
     public PhysicalPoint Anchor => _anchor;
 
+    /// <summary>Whether the eye has visited the dead zone since entry: the window shows the crosshair
+    /// prominently and the log reads it (scroll start fix, F-S4).</summary>
+    public bool IsArmed => _armed;
+
     public event Action<double, double>? TargetVelocityChanged;
     public event Action? FeedbackChanged;
 
-    public ScrollOverlayViewModel(IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings)
+    public ScrollOverlayViewModel(
+        IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings,
+        Action<string>? log = null)
         : base(messenger, dwellSettings.DwellCooldownMs)
     {
         _scrollSettings = scrollSettings;
+        _log = log;
     }
 
     // Required by DwellOverlayViewModelBase but intentionally inert: the scroll stop dwell now
@@ -46,6 +59,8 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     {
         _anchor = anchor;
         _stopButtonCenter = stopButtonCenter;
+        _armed = false;
+        _enteredAtMs = Environment.TickCount64;
         IsVisible = true;
         AnchorDotOffsetX = 0;
         AnchorDotOffsetY = 0;
@@ -68,10 +83,6 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         // the gate makes the stated contract true instead of aspirational.
         if (!IsVisible || !SampleMayDwell(message)) return;
 
-        var (vx, vy) = ScrollEngine.ComputeVelocity(
-            message.Position, _anchor, _scrollSettings.Sensitivity,
-            _stopButtonCenter, StopZoneRadiusPx);
-
         double dx = message.Position.X - _anchor.X;
         double dy = _anchor.Y - message.Position.Y;
         double dist = message.Position.DistanceTo(_anchor);
@@ -85,6 +96,31 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
             AnchorDotOffsetX = 0;
             AnchorDotOffsetY = 0;
         }
+
+        // F-S4: until the eye first visits the dead zone around the anchor, the ring follows the
+        // dot feedback but nothing scrolls — the entry gaze (the menu's Scroll slot) must not
+        // lurch the page. A visit arms the joystick for the rest of the session.
+        if (!_armed)
+        {
+            if (dist <= ScrollEngine.DeadZoneRadiusPixels)
+            {
+                _armed = true;
+                _log?.Invoke($"Scroll armed after {Environment.TickCount64 - _enteredAtMs} ms");
+            }
+            else
+            {
+                ScrollVelocityX = 0;
+                ScrollVelocityY = 0;
+                VelocityMagnitude = 0;
+                TargetVelocityChanged?.Invoke(0, 0);
+                FeedbackChanged?.Invoke();
+                return;
+            }
+        }
+
+        var (vx, vy) = ScrollEngine.ComputeVelocity(
+            message.Position, _anchor, _scrollSettings.Sensitivity,
+            _stopButtonCenter, StopZoneRadiusPx);
 
         ScrollVelocityX = vx;
         ScrollVelocityY = vy;

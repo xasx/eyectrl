@@ -31,8 +31,8 @@ internal static class ActivationChromeZones
     /// <summary>
     /// The zones for whichever surfaces are currently up, in physical pixels. Called from the
     /// coordinator after every trigger the plan lists (keyboard show/hide/layout, toolbar
-    /// slide/auto-hide, prediction bar, action and modes menus) and deferred one layout pass, so a
-    /// <c>SizeToContent</c> window's bounds are its laid-out ones.
+    /// slide/auto-hide, prediction bar, action and modes menus, a note's structural change) and
+    /// deferred one layout pass, so a <c>SizeToContent</c> window's bounds are its laid-out ones.
     /// </summary>
     public static PhysicalRect[] CollectFromProduction(EventCoordinationContext context)
     {
@@ -56,21 +56,27 @@ internal static class ActivationChromeZones
             ? ModesMenuBounds(context.ModesMenuVM.RowScreenPositions)
             : null;
 
+        // P2 D7: the notes' card and cell rects. Null-safe — some test contexts build no manager.
+        PhysicalRect[] noteZones = context.NoteManager?.ChromeRects().ToArray() ?? [];
+
         return Compose(
             toolbar.IsOnScreen, toolbarBounds,
             context.KeyboardVM.IsVisible, keyboardBounds,
-            actionMenuBounds, modesMenuBounds);
+            actionMenuBounds, modesMenuBounds, noteZones);
     }
 
     /// <summary>
     /// The composition itself, split out so the "which surface contributes" rules are unit-testable
     /// without windows: a zone is included only when its surface is up and its bounds were sourced.
+    /// The note zones (P2 D7) ride along unconditionally — an empty set contributes nothing, and
+    /// ChromeRects already reports only live notes' rects.
     /// </summary>
     public static PhysicalRect[] Compose(
         bool toolbarOnScreen, PhysicalRect toolbarBounds,
         bool keyboardVisible, PhysicalRect? keyboardBounds,
         PhysicalRect? actionMenuBounds,
-        PhysicalRect? modesMenuBounds)
+        PhysicalRect? modesMenuBounds,
+        IReadOnlyList<PhysicalRect>? noteZones = null)
     {
         var zones = new List<PhysicalRect>(4);
         if (toolbarOnScreen)
@@ -81,6 +87,8 @@ internal static class ActivationChromeZones
             zones.Add(actionMenu);
         if (modesMenuBounds is { } modesMenu)
             zones.Add(modesMenu);
+        if (noteZones is { } notes)
+            zones.AddRange(notes);
         return zones.ToArray();
     }
 

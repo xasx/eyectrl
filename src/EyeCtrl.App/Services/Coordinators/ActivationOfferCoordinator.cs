@@ -50,6 +50,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private bool _bannerActive;
     private bool _previewVisible;
     private bool _restartNoticeActive;
+    private bool _suspended;
     private PhysicalRect? _lagMarkZone;
 
     public ActivationOfferCoordinator(
@@ -61,6 +62,17 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
         _collectZones = collectZones ?? ActivationChromeZones.CollectFromProduction;
     }
+
+    /// <summary>
+    /// The combined modal-suspension state <see cref="RecomputeSuspension"/> last computed (P2 D1):
+    /// the note gate's suspender input, read through the composed predicate EventCoordinator wires.
+    /// True while ANY of the collected reasons holds — Settings, probe, task switcher, quick-actions
+    /// grid, eye-care banner, adaptation preview, restart notice. When T4 adds the "note move"
+    /// reason it is excluded HERE, because a note Move must suspend offers but not the note gate
+    /// itself. Null-safe by construction: the flag exists from construction, so a read before the
+    /// coordinator is initialized (the note predicate is wired first) simply reads false.
+    /// </summary>
+    public bool ModalSuspended => _suspended;
 
     protected override void OnInitialize()
     {
@@ -120,6 +132,10 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             _lagMarkZone = message.Zone;
             SchedulePublish();
         });
+        // P2 D7: a structural note change (create/remove/state flip) moves the note chrome zones —
+        // the coalesced publish re-collects them, so no offer is ever placed over a note.
+        context.Messenger.Register<ActivationOfferCoordinator, NoteTargetsChangedMessage>(this, (_, _) =>
+            SchedulePublish());
 
         RecomputeSuspension();
         SchedulePublish();
@@ -192,6 +208,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("restart notice");
 
         bool suspended = reasons.Count > 0;
+        _suspended = suspended;
         string reason = suspended ? string.Join(", ", reasons) : "none";
         if ($"{suspended}|{reason}" != _lastSuspensionLog)
         {

@@ -28,3 +28,10 @@
   `No tokenizer provided for {Model}; LM suggestions disabled` (Warning, at each keyboard
   stack build while the selected model is not downloaded, beside the existing "Tokenizer
   file not found" line) and `LM inference failed` (Error, with its exception).
+- **Two suggestions in flight can no longer crash the app.** The predictor gave each request
+  its own thread-pool job without serialising the ONNX Runtime session, and DirectML's
+  execution provider does not allow two `Run` calls on one session at a time — a rapid pair of
+  requests while typing (the first key's request still running when the next one is queued)
+  could fault inside the graphics driver (`0xC0000005`). Requests now share a single
+  latest-wins worker: one inference at a time, a superseded request stops after the step
+  already in flight, and only the newest request's suggestions are returned.

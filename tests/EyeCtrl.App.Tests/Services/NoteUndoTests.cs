@@ -6,7 +6,9 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
 
@@ -420,10 +422,14 @@ public class NoteUndoTests
     [StaFact]
     public void TheHandOver_UndoOfADiscardedChip_WhileBEditsWithTheKeyboardUp()
     {
+        // The one real keyboard hand-over (P1 D8's entry rule through Undo), with TEETH (T3
+        // review-01 m3): the keyboard starts HIDDEN, so B's entry summons it and B OWNS it. Undo
+        // on A then moves the claim to A without a hide or show, and A's later Done hides the
+        // keyboard — proving A really inherited it.
         var messenger = new WeakReferenceMessenger();
         var clock = new FakeClock();
         var timer = new FakeUndoTimer();
-        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true }; // keyboard UP
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false }; // hidden at start
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
             clockMs: clock.Read, undoTimer: timer);
         manager.SetKeyboardProbe(probe);
@@ -436,19 +442,26 @@ public class NoteUndoTests
 
             // A: saved, then edited with a changed draft — the DiscardedExisting chip's owner.
             var a = SavedNote(manager, "A text", anchorA);
-            manager.StartEdit(a);
+            manager.StartEdit(a); // summons the hidden keyboard; A owns it
+            Check.That(manager.EditingOwnsKeyboardForTest).IsTrue();
             manager.Apply(new NoteAppend(" changed"));
             ArmThenHold(manager, ButtonCentrePhysical(anchorA, 2), startUs: 0); // ↩ → chip
             Check.That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
-            Check.WithCustomMessage("the keyboard must still be up under the chip")
-                .That(probe.IsVisible).IsTrue();
 
-            // B: pinned while A is chipped — the keyboard is up, so no summon and no hide.
+            // B: pinned while A is chipped. The keyboard is hidden (A's discard released nothing
+            // visible), so B's entry summons it and B owns it.
             manager.CreateNoteAt(anchorB);
             var b = manager.ActiveNotes.First(n => n.Id != a).Id;
             manager.Apply(new NoteAppend("B draft"));
+            Check.WithCustomMessage("B's entry summoned the keyboard and took the claim")
+                .That(manager.EditingOwnsKeyboardForTest).IsTrue();
 
-            // Counters start HERE: the hand-over under test must carry exactly one (true).
+            // The keyboard comes up for real (the fake's visibility is test-driven).
+            probe.IsVisible = true;
+            probe.RaiseChanged();
+
+            // Counters start HERE: the hand-over under test must carry exactly one (true), no
+            // hide and no show.
             int editingTrue = 0, editingFalse = 0, hideRequests = 0, showRequests = 0;
             messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) =>
             {
@@ -466,6 +479,8 @@ public class NoteUndoTests
                 .That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.Edit);
             Check.That(manager.IsEditing).IsTrue();
             Check.That(manager.ActiveNotes.First(n => n.Id == a).Draft).IsEqualTo("A text changed");
+            Check.WithCustomMessage("the claim moved B → A through the hand-over")
+                .That(manager.EditingOwnsKeyboardForTest).IsTrue();
             Check.WithCustomMessage("the hand-over sends NO hide request (P1 D8)")
                 .That(hideRequests).IsEqualTo(0);
             Check.WithCustomMessage("the hand-over sends NO show request — the keyboard never bounced")
@@ -473,6 +488,15 @@ public class NoteUndoTests
             Check.WithCustomMessage("exactly one NoteEditingChangedMessage(true), no (false) in between")
                 .That(editingTrue).IsEqualTo(1);
             Check.That(editingFalse).IsEqualTo(0);
+
+            // The proof of ownership: A's later Done HIDES the keyboard it inherited.
+            var doneSlot = ButtonCentrePhysical(anchorA, 0);
+            var away = new PhysicalPoint(doneSlot.X + 10_000, doneSlot.Y);
+            for (long t = 4_000_000; t <= 4_200_000; t += 100_000) Sample(manager, away, t);
+            ArmThenHold(manager, doneSlot, startUs: 4_300_000);
+            Check.WithCustomMessage("A's Done must hide the keyboard — A really owns it")
+                .That(hideRequests).IsEqualTo(1);
+            Check.That(manager.IsEditing).IsFalse();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -952,6 +976,145 @@ public class NoteUndoTests
                 .That(manager.ActiveNotes).HasSize(8);
             Check.That(manager.ActiveNotes.Count(n => n.State == NoteState.Edit)).IsEqualTo(1);
             Check.That(manager.IsEditing).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── M1 (T3 review-01): StartEdit/StartMove on a chip are a no-op — no ghost editor ──
+
+    [StaFact]
+    public void StartEdit_OnARemovedChip_IsANoOp_NoGhostEditor()
+    {
+        // Reviewer probe R8: the old finalize-then-continue deleted the note, then carried on —
+        // IsEditing stayed true with 0 notes and the keyboard was captured (T1's failure class).
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = SavedNote(manager, "original", anchor);
+            manager.StartEdit(id);
+            for (int i = 0; i < 8; i++) manager.Apply(new NoteBackspace());
+            ArmThenHold(manager, ButtonCentrePhysical(anchor, 0), startUs: 0); // Done on the emptied note → chip
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            manager.StartEdit(id);
+
+            Check.WithCustomMessage("StartEdit on a chip must be a no-op — no ghost editor")
+                .That(manager.IsEditing).IsFalse();
+            Check.WithCustomMessage("the note count is unchanged")
+                .That(manager.ActiveNotes).HasSize(1);
+            Check.WithCustomMessage("the chip stays pending, untouched")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void StartMove_OnARemovedChip_IsANoOp_TheOtherNotesControlsStayLive()
+    {
+        // M1's StartMove twin: the old path cleared the WHOLE main detector (every other note's
+        // controls died) and registered a ghost :place that follows the gaze forever.
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchorA = new PhysicalPoint(1600, 1000);
+            var anchorB = new PhysicalPoint(3000, 1000);
+            var a = SavedNote(manager, "A", anchorA);
+            var b = SavedNote(manager, "B", anchorB);
+            ArmThenHold(manager, ButtonCentrePhysical(anchorA, 2), startUs: 0); // ✕ → A chipped
+            Check.That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
+            var rectsBefore = manager.LiveTargetRects().Count; // A's ↺ + B's three cards
+
+            manager.StartMove(a);
+
+            Check.WithCustomMessage("StartMove on a chip must be a no-op — the chip stays")
+                .That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
+            Check.WithCustomMessage("no :place target, no detector clear — the live set is unchanged")
+                .That(manager.LiveTargetRects().Count).IsEqualTo(rectsBefore);
+            Check.That(manager.ActiveNotes).HasSize(2);
+            Check.That(b).IsNotEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── m1 (T3 review-01): the chip-entry latch has teeth on the real path ──
+
+    [StaFact]
+    public void Done_OnAnEmptiedNote_ChipsTheUndoUnderTheHeldGaze_ItDoesNotFireUntilALeave()
+    {
+        // The one path where ↺ is born under a held gaze: Done (slot 0) on an EMPTIED existing
+        // note leaves a Removed chip whose ↺ sits in slot 0, right where the eyes are. Without
+        // the chip-entry latch (mutant U6) ↺ fires 600 ms later and silently restores the note
+        // the owner just deleted.
+        var (manager, _, _) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = SavedNote(manager, "original", anchor);
+            manager.StartEdit(id);
+            for (int i = 0; i < 8; i++) manager.Apply(new NoteBackspace());
+            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
+
+            ArmThenHold(manager, slot0, startUs: 0); // Done fires → chip; ↺ born under the gaze
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            for (long t = 2_000_000; t <= 3_500_000; t += 100_000) Sample(manager, slot0, t);
+            Check.WithCustomMessage("the ↺ born under the held gaze must stay latched")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            for (long t = 3_600_000; t <= 3_800_000; t += 100_000) Sample(manager, away, t); // 200 ms leave
+            for (long t = 3_900_000; t <= 4_800_000; t += 100_000) Sample(manager, slot0, t);
+            Check.WithCustomMessage("after a ≥150 ms leave and a return, ↺ fires (positive control)")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(manager.ActiveNotes[0].Text).IsEqualTo("original");
+            Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── m2 (T3 review-01): the chip's ↺ dwell is fixed at 600 ms, never adapted ──
+
+    [Fact]
+    public void ALengtheningMap_LeavesTheUndoDwellAtTheFixedSixHundredMs()
+    {
+        // Only the CARD detector is adaptation-registered (P2 D5). Under a lengthening map
+        // (1200 ms) the chip's ↺ still fires at its fixed 600 ms — U1 (the map routed into the
+        // undo detector too) must go RED. The second half proves the map IS live on the cards.
+        var messenger = new WeakReferenceMessenger();
+        var registry = new DwellDetectorRegistry();
+        var clock = new FakeClock();
+        var timer = new FakeUndoTimer();
+        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry,
+            hitTester: InactiveNoteHitTester.Instance, clockMs: clock.Read, undoTimer: timer);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddNoteTargetsForTest(anchor);
+            ArmThenHold(manager, ButtonCentrePhysical(anchor, 2), startUs: 0); // ✕ at 600 ms → chip
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            registry.Registrations[0].Apply(_ => 1200); // the lengthening map hits the cards only
+
+            var slot0 = ButtonCentrePhysical(anchor, 0);
+            ArmThenHold(manager, slot0, startUs: 2_000_000);
+            Check.WithCustomMessage("the chip's ↺ dwell is fixed at 600 ms — a lengthening card map must not move it")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // The map is live on the cards: the restored ✕ (slot 2) does not fire at 900 ms —
+            // 600 ms unadapted would — but does past the lengthened 1200 ms.
+            var close = ButtonCentrePhysical(anchor, 2);
+            ArmThenHold(manager, close, startUs: 4_900_000); // hold 900 ms < 1200: must NOT fire
+            Check.WithCustomMessage("the lengthening map must actually hold the card target (900 ms < 1200)")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            for (long t = 6_200_000; t <= 7_400_000; t += 100_000) Sample(manager, close, t);
+            Check.WithCustomMessage("the card target fires past the lengthened dwell (the map was real)")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

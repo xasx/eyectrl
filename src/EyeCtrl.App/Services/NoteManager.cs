@@ -330,9 +330,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (note == null || window == null) return;
         if (note.State == NoteState.PendingUndo)
         {
-            // Defensive: no registered path reaches a chip's note with a ✎ (chips have no card
-            // targets). Finalize the chip as on its expiry, then proceed.
-            ExpireChip(note);
+            // M1 (T3 review-01): a chip's only control is Undo — an unrelated programmatic call
+            // must not finalize it, and carrying on with a note the expiry just deleted created
+            // a ghost editor (probe R8: IsEditing with 0 notes, the keyboard captured). No-op:
+            // the chip stays pending, untouched.
+            return;
         }
         // Commit-first (P1 D8), then hand the keyboard over: if it is up it stays up and its
         // ownership moves; if not, BeginEditing summons it.
@@ -957,9 +959,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (note == null || window == null) return;
         if (note.State == NoteState.PendingUndo)
         {
-            // Defensive: no registered path reaches a chip's note with a ↕. Finalize the chip as
-            // on its expiry, then proceed.
-            ExpireChip(note);
+            // M1 (T3 review-01), the StartMove twin: on a chip this must be a no-op. The old
+            // finalize-then-continue deleted the note, then cleared the WHOLE main detector
+            // (every other note's controls died) and registered a ghost :place that follows the
+            // gaze and can never resolve. The chip stays pending, untouched.
+            return;
         }
         if (_editingNote?.Id == id)
         {

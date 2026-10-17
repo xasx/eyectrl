@@ -46,7 +46,11 @@ public class ScrollModeControllerThreadingTests
         var ctx = TestFakes.MakeContext(input) with
         {
             OverlayManager = TestFakes.MakeOverlayManager(
-                new TestFakes.FakeEdgeButtonBar(), cursorCircle: new TestFakes.FakeCursorCircleOverlay()),
+                new TestFakes.FakeEdgeButtonBar(),
+                cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                // F-S1b: the scroll entry now completes the backdrop's pending hide, so the fake
+                // must be present — its getter throws when a fake was not supplied.
+                glassBackdrop: new TestFakes.FakeGlassBackdropOverlay()),
             InteractionManager = im,
             Messenger = messenger,
             Dispatcher = dispatcher,

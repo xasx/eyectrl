@@ -97,6 +97,21 @@ public class ScrollModeController : IDisposable
         if (_context.InteractionManager.ScrollAnchor is not { } anchor)
             return;
 
+        // F-S1b (scroll start fix, the #219 pattern): OnActionSelected invokes HideActionMenu
+        // SYNCHRONOUSLY and then raises the state change, but the hide it invoked has only been
+        // POSTED — so the menu window AND the backdrop are still on screen at the first injected
+        // action, the same shape #219 fixed for the drag and this path missed. ORDER IS
+        // LOAD-BEARING: the menu VM goes false FIRST, because its coordinator listener is what
+        // posts the backdrop's deferred hide that CompleteHideNow completes; the later, queued
+        // hide sets an already-false property and raises nothing (idempotent). The overlay
+        // manager is read through a NULLABLE local, as #220 did, so harnesses without one keep
+        // their meaning.
+        if (_context.ActionMenuVM is { } menuVm)
+            menuVm.IsVisible = false;
+        IOverlayManager? overlays = _context.OverlayManager;
+        var backdrop = overlays?.GlassBackdrop;
+        backdrop?.CompleteHideNow();
+
         _context.InputSimulator.MoveCursor(anchor);
 
         _context.OverlayManager.CursorCircle.Hide();

@@ -509,6 +509,9 @@ internal static class TestFakes
 
         public void MoveCursor(PhysicalPoint point)
         {
+            // The injection-ordering gates read at the FIRST injected action; a parked MOVE is one
+            // (S1b's scroll entry parks the cursor before the worker's first wheel).
+            RecordInjection();
         }
 
         public void LeftClick(PhysicalPoint point) { RecordInjection(); BareClickCount++; }

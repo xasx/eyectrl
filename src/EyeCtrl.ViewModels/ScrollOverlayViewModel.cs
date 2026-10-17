@@ -4,16 +4,34 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 {
-    private const double MaxOffsetPx = 200.0;
-    private const double StopZoneRadiusPx = 50;
+    // The dot feedback's travel, in DIP (scaled at use: the anchor dot rides 24 DIP per unit).
+    private const double MaxOffsetDip = 200.0;
 
     private readonly ScrollSettings _scrollSettings;
+    private readonly DwellSettings _dwellSettings;
     private readonly Action<string>? _log;
+
+    /// <summary>
+    /// The dead zone around the anchor, in PHYSICAL px (scroll start fix, F-S3): the owner's own
+    /// fixation radius, which is physical px by contract (<see cref="DwellSettings.FixationRadiusPixels"/>),
+    /// never below the engine's legacy 30. At the default 80 this is the 80-px dead zone the
+    /// investigation measured the 15-DIP one against.
+    /// </summary>
+    internal double DeadZoneRadiusPx =>
+        Math.Max(ScrollEngine.DeadZoneRadiusPixels, _dwellSettings.FixationRadiusPixels);
+
+    /// <summary>The stop button's own radius in physical px (50 DIP × the live scale): its whole
+    /// drawn face stops the scroll, not its inner half.</summary>
+    internal double StopZoneRadiusPx => DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+
+    /// <summary>The dot feedback's 200-DIP travel, in physical px (F-S3).</summary>
+    internal double MaxOffsetPx => MaxOffsetDip * DpiHelper.ScaleX;
 
     private PhysicalPoint _anchor;
     private PhysicalPoint _stopButtonCenter;
@@ -44,6 +62,7 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         : base(messenger, dwellSettings.DwellCooldownMs)
     {
         _scrollSettings = scrollSettings;
+        _dwellSettings = dwellSettings;
         _log = log;
     }
 
@@ -102,7 +121,7 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         // lurch the page. A visit arms the joystick for the rest of the session.
         if (!_armed)
         {
-            if (dist <= ScrollEngine.DeadZoneRadiusPixels)
+            if (dist <= DeadZoneRadiusPx)
             {
                 _armed = true;
                 _log?.Invoke($"Scroll armed after {Environment.TickCount64 - _enteredAtMs} ms");
@@ -120,7 +139,7 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
             message.Position, _anchor, _scrollSettings.Sensitivity,
-            _stopButtonCenter, StopZoneRadiusPx);
+            DeadZoneRadiusPx, DpiHelper.ScaleX, _stopButtonCenter, StopZoneRadiusPx);
 
         ScrollVelocityX = vx;
         ScrollVelocityY = vy;

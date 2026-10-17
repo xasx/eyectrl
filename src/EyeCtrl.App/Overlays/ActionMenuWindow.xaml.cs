@@ -34,8 +34,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
 
     private readonly HandlerFaultReporter _previewFaults = new(
-        (_, exception) => Log.Warning("Menu preview capture FAILED: {ExceptionType:l}: {Message:l}",
-            exception.GetType().Name, exception.Message),
+        (context, exception) => Log.Warning(
+            "Menu preview capture FAILED: {ExceptionType:l}: {Message:l} ({Context:l})",
+            exception.GetType().Name, exception.Message, context),
         () => Environment.TickCount64 / 1000,
         PreviewFailureLogWindowSeconds);
 

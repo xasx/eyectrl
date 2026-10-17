@@ -18,8 +18,9 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     private const string PictureNone = "none";
 
     private readonly HandlerFaultReporter _captureFaults = new(
-        (_, exception) => Log.Warning("Magnifier capture FAILED: {ExceptionType:l}: {Message:l}",
-            exception.GetType().Name, exception.Message),
+        (context, exception) => Log.Warning(
+            "Magnifier capture FAILED: {ExceptionType:l}: {Message:l} ({Context:l})",
+            exception.GetType().Name, exception.Message, context),
         () => Environment.TickCount64 / 1000,
         CaptureFailureLogWindowSeconds);
 

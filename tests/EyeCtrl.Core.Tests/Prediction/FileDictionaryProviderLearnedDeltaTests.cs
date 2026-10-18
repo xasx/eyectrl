@@ -163,6 +163,29 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
     }
 
     [Fact]
+    public void Save_OnAFreshProviderOverAnInflatedFile_BacksUpBeforeWritingTheDelta()
+    {
+        WriteBase(new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 });
+        WriteUser(new Dictionary<string, int>
+        {
+            ["weiss"] = 57 * 100 + 3,
+            ["hallo"] = 57 * 5 + 2,
+        });
+        var original = File.ReadAllText(UserPath);
+
+        // A provider that never called Load (the background rebuild's) must still notice the
+        // inflated original and keep it before the delta replaces it.
+        var provider = CreateProvider();
+        provider.Save(new Dictionary<string, int> { ["weiss"] = 103, ["hallo"] = 7 });
+
+        Check.That(File.Exists(BackupPath)).IsTrue();
+        Check.That(File.ReadAllText(BackupPath)).IsEqualTo(original);
+        var written = ReadUser();
+        Check.That(written["weiss"]).IsEqualTo(3);
+        Check.That(written["hallo"]).IsEqualTo(2);
+    }
+
+    [Fact]
     public void Save_AfterTheUserFileVanished_DoesNotClaimABackup()
     {
         WriteBase(new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 });

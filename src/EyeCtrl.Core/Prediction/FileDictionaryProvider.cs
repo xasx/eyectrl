@@ -115,6 +115,43 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (_baseLoaded) return;
         LoadBaseCounts();
         _baseLoaded = true;
+        DetectInflationForSave();
+    }
+
+    /// <summary>
+    /// A fresh provider (the background rebuild's) may be the first to write over a file left
+    /// inflated by an older build. Flag it here so Save's backup-once rule still runs before the
+    /// delta replaces the original. No repair: the caller already holds the repaired merged
+    /// snapshot, and Save subtracts the base counts.
+    /// </summary>
+    private void DetectInflationForSave()
+    {
+        if (!File.Exists(_userDictionaryPath)) return;
+
+        try
+        {
+            var userWords = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(_userDictionaryPath));
+            if (userWords == null || !IsInflated(userWords)) return;
+
+            _loadedInflated = true;
+            foreach (var word in userWords.Keys)
+            {
+                if (_baseWords.TryGetValue(word, out var baseCount) && baseCount > 0)
+                    _inflatedWordCount++;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize user dictionary from {Path}", _userDictionaryPath);
+        }
+        catch (IOException ex)
+        {
+            _logger?.LogError(ex, "Failed to read user dictionary from {Path}", _userDictionaryPath);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger?.LogError(ex, "Access denied reading user dictionary from {Path}", _userDictionaryPath);
+        }
     }
 
     /// <inheritdoc />

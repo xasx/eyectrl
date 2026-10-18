@@ -137,6 +137,43 @@ public class PredictionStackBackgroundTests : IDisposable
     }
 
     [Fact]
+    public void InflatedUserFile_FirstBuildThenABackgroundRebuild_BacksUpTheOriginalOnce()
+    {
+        var basePath = Path.Combine(_baseDir, "Resources", "Dictionaries", "en.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
+        File.WriteAllText(basePath, JsonSerializer.Serialize(new
+        {
+            words = new Dictionary<string, int> { ["hello"] = 100, ["hallo"] = 5 },
+        }));
+
+        var userPath = Path.Combine(_appDataDir, "user_dictionary_en.json");
+        File.WriteAllText(userPath, JsonSerializer.Serialize(new Dictionary<string, int>
+        {
+            ["hello"] = 57 * 100 + 3,
+            ["hallo"] = 57 * 5 + 2,
+        }));
+        var original = File.ReadAllText(userPath);
+
+        using var factory = NewBackgroundFactory();
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
+        Check.That(factory.Current).IsNotNull();
+
+        // The rebuild writes the repaired snapshot through a fresh provider; the original
+        // inflated file must be kept before that write.
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
+
+        var backupPath = userPath + ".bak-inflated";
+        Check.That(File.Exists(backupPath)).IsTrue();
+        Check.That(File.ReadAllText(backupPath)).IsEqualTo(original);
+
+        var written = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(userPath))!;
+        Check.That(written["hello"]).IsEqualTo(3);
+        Check.That(written["hallo"]).IsEqualTo(2);
+    }
+
+    [Fact]
     public void BackgroundRebuilds_WriteOnlyTheLearnedDelta_TheUserFileNeverGrows()
     {
         // The background path saves a merged snapshot through a FRESH provider in WriteStateToDisk.

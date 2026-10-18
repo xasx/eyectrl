@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -523,15 +524,26 @@ public class NoteWindow : OverlayWindow
                     // T5 review-02 F2: a label-less gaze disc carries a GAZE-sized glyph - the
                     // DwellArcButton convention for discs (Solo, 0.58 of the 56 DIP disc = about
                     // 32 DIP). Small (0.23, for glyphs BESIDE other content) left a 12.9 DIP
-                    // stamp on a 56 DIP target.
+                    // stamp on a 56 DIP target. The family is pinned so the ink math below
+                    // measures the same face the TextBlock renders.
+                    FontFamily = Tokens.FontStandard,
                     FontSize = ButtonDiameter * ContainerRatio.Solo,
                     Foreground = new SolidColorBrush(color),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                // Centred in the disc: the glyph box starts at (cx - size/2, cy - size/2).
-                Canvas.SetLeft(label, cx - (label.FontSize / 2));
-                Canvas.SetTop(label, cy - (label.FontSize / 2));
+                // T5 fixup-03 G1: centre the glyph on its INK, not on its box. A TextBlock box
+                // is advance width x line height (~43 DIP tall), so box centring sat every glyph
+                // 6-10 DIP low. BuildGeometry gives the ink bounds relative to the text origin,
+                // which for an auto-sized TextBlock is the box top-left. The brush is never
+                // painted - only the ink geometry is measured; the palette test rejects raw
+                // Brush literals in UI files, so it reads a Tokens brush.
+                var formatted = new FormattedText(symbol, CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+                    Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+                Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+                Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
+                Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
                 if (accessibleName.Length > 0)
                     System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
                 _canvas.Children.Add(label);

@@ -6,6 +6,7 @@ using EyeCtrl.App.Tests.TestSupport;
 using System.Windows;
 using System.Windows.Controls;
 using System.Linq;
+using System.Globalization;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -116,9 +117,12 @@ public class NoteColumnPlacementTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    // T5 review-02 F2: the disc glyph is a GAZE-sized ink area. The pin (#190 style): every
-    // glyph box is the Solo ratio of its disc and sits CENTRED in it. Mutants - back to
-    // ContainerRatio.Small, or the old hard-coded cx-8/cy-10 offset - go RED here.
+    // T5 review-02 F2 + fixup-03 G1: the disc glyph is a GAZE-sized INK area. The Solo-size
+    // half pins the glyph against ContainerRatio.Small (a mutant shrinking it to Small goes
+    // RED); the centring half now measures the INK - fixup-03 G1 deliberately lays the glyph
+    // BOX off-centre (the box top-left carries the ink centre into the disc centre), so the
+    // old box-centre formula fails exactly when the fix is in. Mutants for the ink centring
+    // itself live in NoteGlyphInkTests, which renders and pixel-diffs the REAL ink.
     [StaFact]
     public void TheDiscGlyph_IsSoloSized_AndCentredInTheDisc()
     {
@@ -134,9 +138,15 @@ public class NoteColumnPlacementTests
             Check.WithCustomMessage($"the {suffix} glyph must be Solo-sized (want >= {expected:0.#}, got {label.FontSize:0.#})")
                 .That(label.FontSize).IsGreaterOrEqualThan(expected);
             var centre = window.ButtonsForTest()[suffix]; // the label key IS the full id
-            double dx = Math.Abs((Canvas.GetLeft(label) + label.FontSize / 2) - (Canvas.GetLeft(centre) + window.ButtonRadiusForTest));
-            double dy = Math.Abs((Canvas.GetTop(label) + label.FontSize / 2) - (Canvas.GetTop(centre) + window.ButtonRadiusForTest));
-            Check.WithCustomMessage($"the {suffix} glyph must sit centred in its disc (dx {dx:0.##}, dy {dy:0.##})")
+            // The ink relative to the label box's top-left, from the SAME face the label
+            // renders (its own FontFamily), so the pin cannot drift from the shape on screen.
+            var formatted = new FormattedText(label.Text, CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, new Typeface(label.FontFamily.Source), label.FontSize,
+                Brushes.Black, null, TextFormattingMode.Ideal, 1.0);
+            Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+            double dx = Math.Abs((Canvas.GetLeft(label) + ink.Left + (ink.Width / 2)) - (Canvas.GetLeft(centre) + window.ButtonRadiusForTest));
+            double dy = Math.Abs((Canvas.GetTop(label) + ink.Top + (ink.Height / 2)) - (Canvas.GetTop(centre) + window.ButtonRadiusForTest));
+            Check.WithCustomMessage($"the {suffix} glyph ink must sit centred in its disc (dx {dx:0.##}, dy {dy:0.##})")
                 .That(dx < 0.01 && dy < 0.01).IsTrue();
         }
         Check.That(window.LabelsForTest().Count).IsStrictlyGreaterThan(0);

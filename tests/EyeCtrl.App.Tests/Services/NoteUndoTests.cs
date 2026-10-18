@@ -243,31 +243,42 @@ public class NoteUndoTests
     }
 
     [StaFact]
-    public void DiscardedExisting_Expiry_RestoresDisplayWithThePreviousText()
+    public void DiscardedExisting_Expiry_RestoresDisplayWithThePreviousText_AndTheFullCard()
     {
+        // P2 D5 + T5 review-02 F3 (R17): the expiry restore is pinned by GEOMETRY, not just by
+        // state and text - the shrunk chip gives back the full Display card.
         var (manager, clock, timer) = MakeManager(out _);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = SavedNote(manager, "original", anchor);
+            var full = manager.PlacementForTest(id)!;
             manager.StartEdit(id);
             manager.Apply(new NoteAppend(" changed"));
             ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Check.WithCustomMessage("the chip is the shrunk card")
+                .That(manager.PlacementForTest(id)!.Card.Width).IsStrictlyLessThan(full.Card.Width);
 
             long tUs = 2_000_000;
-            for (int i = 0; i < 80; i++)
+            for (var i = 0; i < 80; i++)
                 Tick(manager, clock, timer, ref tUs);
             Check.WithCustomMessage("expiry of a discarded EXISTING draft returns to Display")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.WithCustomMessage("the previous text must survive the expiry")
                 .That(manager.ActiveNotes[0].Text).IsEqualTo("original");
             Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
+            // R17: the full card geometry comes back.
+            var after = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage($"the expired chip must give back the full card {full.Card}, got {after.Card}")
+                .That(after.Card.Width).IsEqualTo(full.Card.Width);
+            Check.That(after.Card.Height).IsEqualTo(full.Card.Height);
+            var window = manager.WindowForTest(id)!;
+            Check.That((window.Width, window.Height)).IsEqualTo((after.Window.Width, after.Window.Height));
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
-
     // ── the Discard rows that do NOT chip (P2 D5's straight-back rows) ──
 
     [StaFact]

@@ -267,7 +267,12 @@ public class WordPredictor
                 };
                 return new PredictionResult(displayWord, kv.Value.score, kv.Value.type, confidence);
             })
-            .OrderByDescending(r => r.Score)
+            // Prefix matches keep the slots the user is typing for: fuzzy matches may only fill
+            // what the prefix cannot, or a frequent near-miss pushes every real match past the
+            // Take before the orchestrator's ranking ever sees it.
+            .OrderByDescending(r => string.IsNullOrEmpty(prefix)
+                || r.Word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(r => r.Score)
             .Take(maxCount)
             .ToList();
 
@@ -452,6 +457,22 @@ public class WordPredictor
     /// time, so words learned on the OLD stack while the new one built are carried over.
     /// </summary>
     public IReadOnlyDictionary<string, int> WordFrequencies => new Dictionary<string, int>(_words);
+
+    /// <summary>
+    /// True when the merged dictionary (base + learned) contains the word, case-insensitively.
+    /// The LM vocabulary gate: a completion outside it is junk ("wtf", "mohamed").
+    /// </summary>
+    internal bool KnowsWord(string word)
+    {
+        if (_words.ContainsKey(word)) return true;
+
+        foreach (var key in _words.Keys)
+        {
+            if (string.Equals(key, word, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Applies positive frequency deltas (word → additional uses). The inverse of the snapshot

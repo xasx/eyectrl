@@ -416,7 +416,13 @@ public class KeyboardPredictionExclusionTests
     public void LmCompletion_RendersOnTheNextFetchWithTheSameInput()
     {
         var lm = new FakeLmPredictor();
-        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000, ["world"] = 1000 }, lm);
+        var probe = Open(new Dictionary<string, int>
+        {
+            // "wonderful" is known (the LM vocabulary gate) but scored below the five "wo"
+            // matches, so only the LM slot can put it in the bar.
+            ["hello"] = 1000, ["world"] = 1000, ["wonder"] = 900,
+            ["would"] = 800, ["worry"] = 700, ["worth"] = 600, ["wonderful"] = 1,
+        }, lm);
         try
         {
             // Give the keyboard a context: accepting "hello" sets the previous word.
@@ -427,7 +433,7 @@ public class KeyboardPredictionExclusionTests
             probe.Vm.CurrentInput = "wo";
             probe.Window.UpdatePredictions();   // the render call triggers the LM inference
             probe.Content.UpdateLayout();
-            Check.WithCustomMessage("The render call did not trigger LM inference - nothing to show.")
+            Check.WithCustomMessage("The render call did not trigger LM inference — nothing to show.")
                 .That(lm.PredictCalls).IsStrictlyGreaterThan(0);
 
             lm.Complete("wonderful");

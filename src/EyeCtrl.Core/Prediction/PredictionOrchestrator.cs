@@ -83,16 +83,17 @@ public class PredictionOrchestrator : IDisposable
         if (_mlEnabled && _lmPredictor != null && _lmPredictor.IsAvailable)
         {
             // Results belong to the request the predictor last ran. Only merge them when that
-            // request is still the current input, and only words that continue the CURRENT
-            // prefix (and are longer): a stale completion must never surface under a new word.
+            // request is still the current context (the prefix moves on between keystrokes -
+            // that is when results arrive), and only words that continue the CURRENT prefix
+            // (and are longer): a stale completion must never surface under a new word.
             var lmResults = _lmPredictor.TryGetResults();
-            if (lmResults != null && lmResults.Count > 0
-                && context == _lastLmContext && prefix == _lastLmPrefix)
+            if (lmResults != null && lmResults.Count > 0 && context == _lastLmContext)
             {
                 foreach (var lmResult in lmResults)
                 {
                     if (!lmResult.Word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
                     if (lmResult.Word.Length <= prefix.Length) continue;
+                    if (!_wordPredictor.KnowsWord(lmResult.Word)) continue;
                     lmCompletion ??= lmResult;
                     if (!merged.ContainsKey(lmResult.Word))
                         merged[lmResult.Word] = lmResult;
@@ -131,7 +132,7 @@ public class PredictionOrchestrator : IDisposable
     /// as "first word starts with the prefix"; a multi-word prefix (sentence completion typing)
     /// compares the whole suggestion, which is the typed text too.
     /// </summary>
-    private static List<PredictionResult> Rank(
+    internal static List<PredictionResult> Rank(
         IEnumerable<PredictionResult> results, string prefix, int maxCount)
         => results
             .OrderByDescending(result => string.IsNullOrEmpty(prefix)

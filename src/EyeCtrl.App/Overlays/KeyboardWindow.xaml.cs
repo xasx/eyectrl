@@ -322,8 +322,8 @@ public partial class KeyboardWindow : OverlayWindow
 
         // RebuildKeys draws STATIC labels and default key colours (impl review r2 N1/N3):
         // every rebuild path must repaint modifier state afterwards, or a Caps/Shift-on user
-        // sees stale visuals - an unlit Caps key they will dwell to "turn on" (toggling it
-        // off), or a ? that reads lowercase while typing ?. Covers LoadLayout (the VM's SetLayout
+        // sees stale visuals — an unlit Caps key they will dwell to "turn on" (toggling it
+        // off), a ß that reads lowercase while typing ẞ. Covers LoadLayout (the VM's SetLayout
         // raise repaints, then this rebuild erases it), emoji exit, and sub-layout swaps.
         UpdateModifierVisuals();
 
@@ -621,7 +621,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing, and
         // latch only when EVERY cell placed. The latch used to fire on a pass that happened,
-        // including one where every iteration bailed - the radius-0 targets from unarranged cells
+        // including one where every iteration bailed — the radius-0 targets from unarranged cells
         // and the five targets stacked at screen (0,0) from a source-less pass were permanent,
         // because the else-branch only rebases geometry it was given and can never repair it.
         bool allPlaced = true;

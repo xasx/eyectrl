@@ -165,10 +165,12 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        // The first save after an inflated load repairs the file; keep the original once.
+        // The first save after an inflated load repairs the file; keep the original once. If the
+        // backup cannot be made, leave the file and the flag untouched so a later save retries:
+        // every load repairs in memory, and not writing cannot inflate the file further.
         if (_loadedInflated)
         {
-            BackupInflatedFile();
+            if (!BackupInflatedFile()) return;
             _loadedInflated = false;
         }
 
@@ -206,21 +208,34 @@ public class FileDictionaryProvider : IDictionaryProvider
         return multiplied * 10L >= _baseWords.Count * 9L;
     }
 
-    private void BackupInflatedFile()
+    private bool BackupInflatedFile()
     {
         var backupPath = _userDictionaryPath + ".bak-inflated";
+
+        if (File.Exists(backupPath))
+        {
+            _logger?.LogInformation(
+                "Repaired the inflated user dictionary ({Words} base words carried whole copies); an existing backup was kept at {Backup}",
+                _inflatedWordCount, backupPath);
+            return true;
+        }
+
         try
         {
-            if (!File.Exists(backupPath) && File.Exists(_userDictionaryPath))
+            if (File.Exists(_userDictionaryPath))
                 File.Copy(_userDictionaryPath, backupPath);
 
             _logger?.LogInformation(
                 "Repaired the inflated user dictionary ({Words} base words carried whole copies); the original is at {Backup}",
                 _inflatedWordCount, backupPath);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger?.LogWarning(ex, "Could not back up the inflated user dictionary to {Backup}", backupPath);
+            _logger?.LogWarning(ex,
+                "Could not back up the inflated user dictionary to {Backup}; keeping the file unchanged",
+                backupPath);
+            return false;
         }
     }
 

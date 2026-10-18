@@ -23,6 +23,9 @@ public class PredictionOrchestratorLmTests
         public string? NextWord { get; set; }
         private PredictionResult? _pending;
 
+        public void Complete(string word)
+            => _pending = new PredictionResult(word, 50, PredictionType.LMSuggestion, 0.5);
+
         public bool IsAvailable => true;
 
         public void Predict(string context, string? prefix = null)
@@ -104,8 +107,10 @@ public class PredictionOrchestratorLmTests
     [Fact]
     public void GetSuggestions_FreshMatchingCompletion_GoesIntoSlotTwo()
     {
+        var words = GermanWetterWords();
+        words["Wetterdaten"] = 1;   // known, but cut from the top 3 by score
         var lm = new FakeLm { NextWord = "Wetterdaten" };
-        using var orchestrator = CreateOrchestrator(GermanWetterWords(), lm);
+        using var orchestrator = CreateOrchestrator(words, lm);
 
         orchestrator.GetSuggestions("Wet", context: "das", maxCount: 5);
         var current = orchestrator.GetSuggestions("Wet", context: "das", maxCount: 3);
@@ -114,5 +119,55 @@ public class PredictionOrchestratorLmTests
         Check.That(current).HasSize(3);
         Check.That(current[0].Word).IsEqualTo("Wetter");
         Check.That(current[1].Word).IsEqualTo("Wetterdaten");
+    }
+
+    [Fact]
+    public void GetSuggestions_LetterByLetter_CompletionAppearsOnTheNextKeystroke()
+    {
+        // The worker answers after the keystroke that asked, so the result for one prefix is
+        // read at the next. maxCount 5 with six matching words keeps the completion out of the
+        // bar by score, so seeing it proves the LM merge, not the dictionary.
+        var words = new Dictionary<string, int>
+        {
+            ["Wetter"] = 100, ["Wettkampf"] = 90, ["Wettbewerb"] = 80,
+            ["Wette"] = 70, ["Wetten"] = 60, ["Wetterdaten"] = 1,
+        };
+        var lm = new FakeLm();
+        using var orchestrator = CreateOrchestrator(words, lm);
+
+        orchestrator.GetSuggestions("W", context: "das", maxCount: 5);
+        lm.Complete("Wetterdaten");
+
+        var atWe = orchestrator.GetSuggestions("We", context: "das", maxCount: 5);
+        Check.WithCustomMessage($"rendered at 'We': {string.Join("|", atWe.Select(r => r.Word))}")
+            .That(atWe.Any(r => r.Word == "Wetterdaten")).IsTrue();
+
+        lm.Complete("Wetterdaten");
+        var atWett = orchestrator.GetSuggestions("Wett", context: "das", maxCount: 5);
+        Check.WithCustomMessage($"rendered at 'Wett': {string.Join("|", atWett.Select(r => r.Word))}")
+            .That(atWett.Any(r => r.Word == "Wetterdaten")).IsTrue();
+
+        lm.Complete("Wetterdaten");
+        var atNotContinued = orchestrator.GetSuggestions("Wettx", context: "das", maxCount: 5);
+        Check.That(atNotContinued.Any(r => r.Word == "Wetterdaten")).IsFalse();
+
+        lm.Complete("Wetterdaten");
+        var atOtherContext = orchestrator.GetSuggestions("Wettx", context: "ich", maxCount: 5);
+        Check.That(atOtherContext.Any(r => r.Word == "Wetterdaten")).IsFalse();
+    }
+
+    [Fact]
+    public void GetSuggestions_LmWordNotInTheDictionary_IsNotShown()
+    {
+        // A continuation the model invents ("Wetterfrosch") is junk even though it starts with
+        // the typed prefix: the dictionary is the vocabulary gate.
+        var lm = new FakeLm { NextWord = "Wetterfrosch" };
+        using var orchestrator = CreateOrchestrator(GermanWetterWords(), lm);
+
+        orchestrator.GetSuggestions("Wet", context: "das", maxCount: 5);
+        var current = orchestrator.GetSuggestions("Wet", context: "das", maxCount: 5);
+
+        Check.WithCustomMessage($"rendered: {string.Join("|", current.Select(r => r.Word))}")
+            .That(current.Any(r => r.Word == "Wetterfrosch")).IsFalse();
     }
 }

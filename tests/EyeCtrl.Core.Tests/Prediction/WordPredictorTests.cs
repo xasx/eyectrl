@@ -123,15 +123,17 @@ public class WordPredictorTests
     }
 
     [Fact]
-    public void GetSuggestions_HighFrequencyFuzzyBeatsLowFrequencyExact()
+    public void GetSuggestions_HighFrequencyFuzzy_DoesNotBeatTheRealPrefixMatch()
     {
+        // The near-miss is 10,000x more frequent, but it does not start with the typed letters:
+        // the real prefix match keeps the first slot.
         var predictor = CreatePredictor(new()
         {
             { "the", 10000 }, { "rheumatic", 1 }
         });
 
         var results = predictor.GetSuggestions("rhe", null, maxCount: 5);
-        Check.That(results[0].Word).IsEqualTo("the");
+        Check.That(results[0].Word).IsEqualTo("rheumatic");
     }
 
     [Fact]
@@ -187,6 +189,24 @@ public class WordPredictorTests
         Check.That(results).Not.IsEmpty();
         Check.That(results[0].Word).IsEqualTo("help");
         Check.That(results.Any(r => r.Word == "her")).IsFalse();
+    }
+
+    [Fact]
+    public void GetSuggestions_MoreFrequentNearMissesThanSlots_RealMatchesFillTheBar()
+    {
+        // Six near-misses are one adjacent slip from "Wet" and a million times more frequent:
+        // the predictor's own top 5 must still be the real matches.
+        var predictor = CreatePredictor(new()
+        {
+            ["Wetter"] = 100, ["Wettkampf"] = 90, ["Wettbewerb"] = 80, ["Wette"] = 70, ["Wetten"] = 60,
+            ["qet"] = 1_000_000_000, ["eet"] = 1_000_000_000, ["Wrt"] = 1_000_000_000,
+            ["Wwt"] = 1_000_000_000, ["Wer"] = 1_000_000_000, ["Wey"] = 1_000_000_000,
+        });
+
+        var results = predictor.GetSuggestions("Wet", null, maxCount: 5);
+
+        Check.That(results.Select(r => r.Word))
+            .ContainsExactly("Wetter", "Wettkampf", "Wettbewerb", "Wette", "Wetten");
     }
 
     [Fact]

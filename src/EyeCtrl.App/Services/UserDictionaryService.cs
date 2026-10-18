@@ -59,10 +59,10 @@ public sealed class UserDictionaryService
     /// (SaveUserDictionary subtracts the base counts), so "learned" is the set difference; a
     /// not-yet-repaired file may still carry base rows, which this filter hides. Bare digits and
     /// single characters land in that file as typing noise (every keystroke the predictor sees is
-    /// learned incidentally) and are not words a user can decide about - but hyphens, apostrophes
-    /// and digits occur inside REAL words (Add Word learns CurrentInput verbatim: "don't",
+    /// incidentally) and are not words a user can decide about — but hyphens, apostrophes and
+    /// digits occur inside REAL words (Add Word learns CurrentInput verbatim: "don't",
     /// "covid-19", "mvp2"), so the shape must admit them or those learns become unremovable.
-    /// When a live stack is attached, the LIVE dictionary is the source - it includes Add Word
+    /// When a live stack is attached, the LIVE dictionary is the source — it includes Add Word
     /// learns that have not been persisted yet, so the page can undo them in the same session.
     /// </summary>
     public IReadOnlyList<string> GetLearnedWords()

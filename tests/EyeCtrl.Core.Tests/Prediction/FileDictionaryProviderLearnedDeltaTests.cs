@@ -135,6 +135,57 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
     }
 
     [Fact]
+    public void Save_BackupFails_LeavesTheFileUntouchedAndRetriesLater()
+    {
+        WriteBase(new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 });
+        WriteUser(new Dictionary<string, int>
+        {
+            ["weiss"] = 57 * 100 + 3,
+            ["hallo"] = 57 * 5 + 2,
+        });
+        var original = File.ReadAllText(UserPath);
+
+        // A directory at the backup path makes the copy fail.
+        Directory.CreateDirectory(BackupPath);
+
+        var provider = CreateProvider();
+        var loaded = provider.Load();
+        provider.Save(loaded);
+
+        Check.WithCustomMessage("The inflated original was overwritten even though no backup landed")
+            .That(File.ReadAllText(UserPath)).IsEqualTo(original);
+
+        Directory.Delete(BackupPath);
+        provider.Save(loaded);   // the retry can back up and repair
+
+        Check.That(File.Exists(BackupPath)).IsTrue();
+        Check.That(File.ReadAllText(BackupPath)).IsEqualTo(original);
+        Check.That(ReadUser()["weiss"]).IsEqualTo(3);
+    }
+
+    [Fact]
+    public void Save_ExistingBackup_IsNeverOverwrittenAndIsNamedInTheLog()
+    {
+        WriteBase(new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 });
+        WriteUser(new Dictionary<string, int>
+        {
+            ["weiss"] = 57 * 100 + 3,
+            ["hallo"] = 57 * 5 + 2,
+        });
+        File.WriteAllText(BackupPath, "older snapshot");
+
+        var logger = new CapturingLogger();
+        var provider = CreateProvider(logger);
+        provider.Save(provider.Load());
+
+        Check.That(File.ReadAllText(BackupPath)).IsEqualTo("older snapshot");
+        Check.That(ReadUser()["weiss"]).IsEqualTo(3);
+        Check.WithCustomMessage($"log: {string.Join(" | ", logger.Messages)}")
+            .That(logger.Messages).HasElementThatMatches(
+                m => m.Contains("existing backup", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Load_GenuineDeltaFile_IsNeverTreatedAsInflated()
     {
         // A realistic base size: one rare word with a large learned delta is far below 90%.

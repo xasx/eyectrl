@@ -278,7 +278,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     // ── placement derivation (P3 D2) ──
 
+    /// <summary>The work area rect in DIP, the input every Place call here reads: the
+    /// constructor's provider (SystemParameters by default) unless a test override was
+    /// installed through <see cref="UseWorkAreaForTest"/>.</summary>
     private Rect WorkAreaDip() => _workAreaDipOverride?.Invoke() ?? _workAreaDip();
+
+    /// <summary>The full card size for <paramref name="note">: the card width is fixed by
+    /// the layout for the current text-size setting; the height derives from the note's
+    /// actual text (the edit draft while editing) clamped by this work area's height.</summary>
     private Size CardSizeFor(NoteData note)
     {
         double size = _noteSettings.TextSizeDip;

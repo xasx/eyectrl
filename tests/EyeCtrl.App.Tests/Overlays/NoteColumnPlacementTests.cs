@@ -152,6 +152,32 @@ public class NoteColumnPlacementTests
         Check.That(window.LabelsForTest().Count).IsStrictlyGreaterThan(0);
     }
 
+    // The Left half of the chip-shrink anchor (review-03 G2): with the full card on the Left
+    // side the column hugs the WINDOW LEFT, so the shrunk chip must keep the window left too,
+    // and the Undo cell keeps its pre-shrink centre. A mutant that anchors the Left chip on
+    // its window right (the other sides' branch) slides the Undo cell sideways - RED here.
+    [StaFact]
+    public void R16b_TheShrink_KeepsTheUndoCell_OnTheLeftSide()
+    {
+        var (manager, _) = MakeManager();
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.CreateNoteAt(new PhysicalPoint(3600, 1200)); // DIP (1800, 600): Right cannot fit, the cycle falls to Left
+            var id = manager.ActiveNotes[^1].Id;
+            manager.Apply(new NoteAppend("hello"));
+            manager.FinishEdit(id, commit: true);
+            Check.WithCustomMessage("the probe must start from a Left full card, or the Left anchor path never runs")
+                .That(manager.PlacementForTest(id)!.Side).IsEqualTo(NoteSide.Left);
+            var before = NoteTestBench.CellCentre(manager, id, 0);
+            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0);
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Check.WithCustomMessage($"the Left shrink must keep the Undo cell at {before}")
+                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(before);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
+    }
+
     private static (NoteManager Manager, WeakReferenceMessenger Messenger) MakeManager()
     {
         var messenger = new WeakReferenceMessenger();
@@ -167,10 +193,9 @@ public class NoteColumnPlacementTests
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(centre, t, IsInGap: false)));
     }
 
-    // B1's shrink half: on every side the anchor paths reach, the shrunk chip keeps the Undo
-    // cell at its pre-shrink centre. Below never arises from the pure cycle for a floor-height
-    // card (Right or Left always fits first) - it shares the Right branch of the column-edge
-    // anchor; R12 pins the Left branch through a T8 move.
+    // R16's shrink half: the shrunk chip keeps the Undo cell at its pre-shrink centre.
+    // Below is the odd-man side here: it shares the Right window-right branch of the
+    // column-edge anchor.
     [StaFact]
     public void R16_TheShrink_KeepsTheUndoCell_OnTheBelowSide()
     {

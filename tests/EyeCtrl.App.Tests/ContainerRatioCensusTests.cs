@@ -89,7 +89,7 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
             [
-                ("Small", 1, "the note's title-bar button glyph, beside other chrome."),
+                ("Small", 1, "the note control discs' glyphs, beside other chrome (the P4 body text is the setting, not a ratio)."),
             ],
             ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs"] =
             [

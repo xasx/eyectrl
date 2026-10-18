@@ -210,7 +210,7 @@ public class NoteLayoutPlaceTests
         var windowLocal = new Rect(0, 0, placement.Window.Width, placement.Window.Height);
         for (int slot = 0; slot < 3; slot++)
         {
-            var (x, y) = ButtonCenter(placement.Side, slot);
+            var (x, y) = ButtonCenter(placement.Side, slot, placement.Card.Width);
             Check.WithCustomMessage($"cell {slot} at ({x}, {y}) must be inside the window {windowLocal}")
                 .That(windowLocal.Contains(new Point(x, y))).IsTrue();
         }
@@ -248,23 +248,23 @@ public class NoteLayoutPlaceTests
     public void TheColumn_SitsOnTheCardEdgeAwayFromTheTail_PerSide()
     {
         // Right: tail left, column on the far right edge (the cell-column centre + the tail zone).
-        var (rx, _) = ButtonCenter(NoteSide.Right, 0);
+        var (rx, _) = ButtonCenter(NoteSide.Right, 0, Card.Width);
         Check.That(rx).IsCloseTo(
-            Constants.TailLengthDip + NoteLayout.ButtonColumnCenterX, 1e-9);
+            Constants.TailLengthDip + NoteLayout.ColumnCenterX(Card.Width), 1e-9);
 
         // Left: tail right, column on the far left edge.
-        var (lx, _) = ButtonCenter(NoteSide.Left, 0);
-        Check.That(lx).IsCloseTo(NoteLayout.ButtonColumnCenterXFromLeft, 1e-9);
+        var (lx, _) = ButtonCenter(NoteSide.Left, 0, Card.Width);
+        Check.That(lx).IsCloseTo(NoteLayout.ColumnCenterXFromLeft, 1e-9);
 
         // Below: tail at the top strip, column on the right edge, shifted DOWN by the tail zone
         // (the tail strip takes the window top; the card X origin does not move).
-        var (bx, by) = ButtonCenter(NoteSide.Below, 0);
-        Check.That(bx).IsCloseTo(NoteLayout.ButtonColumnCenterX, 1e-9);
+        var (bx, by) = ButtonCenter(NoteSide.Below, 0, Card.Width);
+        Check.That(bx).IsCloseTo(NoteLayout.ColumnCenterX(Card.Width), 1e-9);
         Check.That(by).IsCloseTo(NoteLayout.RowCenterY(0) + Constants.TailLengthDip, 1e-9);
 
         // Above: tail at the bottom, column on the right edge, no shift.
-        var (ax2, ay2) = ButtonCenter(NoteSide.Above, 0);
-        Check.That(ax2).IsCloseTo(NoteLayout.ButtonColumnCenterX, 1e-9);
+        var (ax2, ay2) = ButtonCenter(NoteSide.Above, 0, Card.Width);
+        Check.That(ax2).IsCloseTo(NoteLayout.ColumnCenterX(Card.Width), 1e-9);
         Check.That(ay2).IsCloseTo(NoteLayout.RowCenterY(0), 1e-9);
     }
 

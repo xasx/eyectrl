@@ -301,14 +301,27 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var full = PlaceFor(note, avoidKeyboard: false);
         var chip = NoteLayout.Place(note.Anchor, full.Side, NoteLayout.ChipCardSize(), _workAreaDip(),
             new List<Rect>(), DpiHelper.ScaleX)!;
-        double dx = full.Window.Left - chip.Window.Left;
-        double dy = full.Window.Top - chip.Window.Top;
+        // B1 + R12: the translation reference is the chip's OWN previous placement when one
+        // exists - the chip card is size-independent, so a T8/T1 re-derive yields the same
+        // rect and the chip does not move (R12/R14). At ENTRY there is none: the translation
+        // anchors the full card's COLUMN edge (the card edge away from the tail), so the Undo
+        // cell keeps its pre-shrink centre under a resting gaze (B1).
+        var reference = _placements.TryGetValue(note.Id, out var previous)
+            && previous.Card.Width == chip.Card.Width && previous.Card.Height == chip.Card.Height
+            ? previous
+            : full;
+        double dy = reference.Window.Top - chip.Window.Top;
+        double dx = reference.Side == NoteSide.Left
+            ? reference.Window.Left - chip.Window.Left
+            : (reference.Window.Right - chip.Window.Width) - chip.Window.Left;
         return new NotePlacement(
             chip.Side,
             new Rect(chip.Window.X + dx, chip.Window.Y + dy, chip.Window.Width, chip.Window.Height),
             new Rect(chip.Card.X + dx, chip.Card.Y + dy, chip.Card.Width, chip.Card.Height),
             chip.TailTip is { } tip ? new Point(tip.X + dx, tip.Y + dy) : null);
     }
+
+
 
 
     // DIP-in-PhysicalPoint conversions: the Core's point type is axis-free; the SETTLE TRACKER
@@ -1462,7 +1475,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         centre = default;
         if (!_placements.TryGetValue(noteId, out var placement))
             return false;
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
         centre = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
@@ -2149,7 +2162,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         if (!_placements.TryGetValue(noteId, out var placement))
             throw new InvalidOperationException($"No placement derived for note {noteId} - derive one before registering its targets");
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
         var center = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));

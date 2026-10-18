@@ -47,7 +47,7 @@ internal static class NoteTestBench
 
     internal static PhysicalPoint CellCentre(NotePlacement placement, int slot)
     {
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
         return new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));

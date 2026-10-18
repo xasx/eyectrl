@@ -87,7 +87,7 @@ public class NoteWindowGeometryTests
             Check.WithCustomMessage($"the {suffix} button must exist on the real canvas")
                 .That(buttons.ContainsKey($"{id}:{suffix}")).IsTrue();
             var ellipse = buttons[$"{id}:{suffix}"];
-            var (centerX, centerY) = NoteLayout.ButtonCenter(placement.Side, index);
+            var (centerX, centerY) = NoteLayout.ButtonCenter(placement.Side, index, placement.Card.Width);
             Check.WithCustomMessage($"the {suffix} button must sit on the side's column x")
                 .That(Canvas.GetLeft(ellipse)).IsCloseTo(centerX - ellipse.Width / 2, 1e-6);
             Check.WithCustomMessage($"the {suffix} button must sit on the column's y {index}")

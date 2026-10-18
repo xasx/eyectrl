@@ -38,6 +38,11 @@ public class NoteWindow : OverlayWindow
     private readonly Dictionary<string, TextBlock> _buttonLabels = new();
     private readonly Dictionary<string, (Path Arc, double StartAngle)> _arcs = new();
     private readonly Dictionary<int, Rectangle> _cellFills = new();
+    /// <summary>The current card width in DIP (T5 review-01 B1): the ONE source the drawn
+    /// cells, the column and the text placement share, taken from the applied placement.</summary>
+    private double CardWidthDip =>
+        _placement is { } p ? NoteLayout.RectLocal(p).Width : NoteLayout.CardWidthDip(_textSize);
+
     private TextBlock? _textBlock;
     private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
@@ -161,7 +166,7 @@ public class NoteWindow : OverlayWindow
         // like the buttons; UpdateButtonVisibility picks the state rows.
         for (int row = 0; row < 4; row++)
         {
-            var (cx, cy) = NoteLayout.ButtonCenter(_side, row);
+            var (cx, cy) = NoteLayout.ButtonCenter(_side, row, CardWidthDip);
             var fill = new Rectangle
             {
                 Width = CellDip, Height = CellDip,
@@ -221,6 +226,14 @@ public class NoteWindow : OverlayWindow
                 Text = _chipText
             };
             _contentBorder.Child = _chipTextBlock;
+            // B1: beside the column here too.
+            var chipCard = _placement is { } cp ? NoteLayout.RectLocal(cp)
+                : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+            _contentBorder.Width = NoteLayout.ChipTextWidthDip + ButtonPadding;
+            Canvas.SetLeft(_contentBorder, _side == NoteSide.Left
+                ? chipCard.Left + LayoutConstants.NoteColumnWidthDip
+                : chipCard.Left);
+            Canvas.SetTop(_contentBorder, chipCard.Top);
             return;
         }
 
@@ -247,6 +260,7 @@ public class NoteWindow : OverlayWindow
             // The P4 D2 leading: 1.25x, pinned as a block height so every line is identical.
             LineHeight = NoteLayout.TextLineHeightDip(_textSize),
             LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            HorizontalAlignment = HorizontalAlignment.Left,
             Text = shown
         };
 
@@ -286,6 +300,15 @@ public class NoteWindow : OverlayWindow
         }
 
         _contentBorder.Child = stack;
+
+        // T5 review-01 B1: the text sits BESIDE the control column, never under it. The column
+        // hugs the card edge away from the tail, so the text area takes the remaining strip.
+        var card = _placement is { } p ? NoteLayout.RectLocal(p)
+            : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+        bool columnOnLeft = _side == NoteSide.Left;
+        _contentBorder.Width = NoteLayout.TextColumnWidthDip(_textSize) + ButtonPadding;
+        Canvas.SetLeft(_contentBorder, columnOnLeft ? card.Left + LayoutConstants.NoteColumnWidthDip : card.Left);
+        Canvas.SetTop(_contentBorder, card.Top);
     }
 
     /// <summary>Test seams (P4 acceptance): whether the current render clips over the cap, and
@@ -477,7 +500,7 @@ public class NoteWindow : OverlayWindow
                 // Window-relative logical centre, shared with NoteManager dwell-target
                 // placement - column side follows the placement side (P3 D2.6), the slot maps
                 // 1:1 to its hit-cell row (P4 D3).
-                var (cx, cy) = NoteLayout.ButtonCenter(_side, slot);
+                var (cx, cy) = NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
 
                 var ellipse = new Ellipse
                 {

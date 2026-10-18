@@ -65,9 +65,11 @@ public class NoteChipShrinkTests
             var chip = manager.PlacementForTest(id)!;
             Check.WithCustomMessage($"the chip card {chip.Card} must be smaller than the full card {full.Card}")
                 .That(chip.Card.Width * chip.Card.Height).IsStrictlyLessThan(full.Card.Width * full.Card.Height);
-            Check.WithCustomMessage("the shrunk window keeps the full window top-left (in place)")
-                .That(new Point(chip.Window.Left, chip.Window.Top))
-                .IsEqualTo(new Point(full.Window.Left, full.Window.Top));
+            // B1: the anchor is the COLUMN edge - the card edge away from the tail. Right keeps
+            // its right edge fixed (and its top), so the Undo cell cannot move.
+            Check.WithCustomMessage("the shrunk window keeps the full window column edge")
+                .That((chip.Window.Right, chip.Window.Top))
+                .IsEqualTo((full.Window.Right, full.Window.Top));
             Check.WithCustomMessage("the real window follows the chip placement")
                 .That((window.Width, window.Height))
                 .IsEqualTo((chip.Window.Width, chip.Window.Height));

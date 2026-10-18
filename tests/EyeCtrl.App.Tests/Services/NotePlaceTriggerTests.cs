@@ -40,7 +40,7 @@ public class NotePlaceTriggerTests
             manager.Apply(new NoteAppend("hello"));      // a draft to save: Done takes the straight-back exit
             var editing = manager.PlacementForTest(id)!;
             Check.That(editing.Side).IsEqualTo(NoteSide.Right);
-            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 550, 340)); // tail zone + card, DIP (P4 card)
+            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 580, 340)); // tail zone + card, DIP (P4 card: 550 text+column+gap)
 
             // T1: the keyboard appears over the card's right-side window (the bench work area DIP
             // rect doubled to physical when the probe delivers it).

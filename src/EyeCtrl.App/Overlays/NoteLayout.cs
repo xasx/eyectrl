@@ -37,14 +37,17 @@ internal static class NoteLayout
     private static readonly NoteSide[] Cycle = [NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above];
 
     /// <summary>Window-relative X of the hit-cell column centre when the column sits on the
-    /// card's RIGHT edge (the default, and the side away from the tail for Right/Below/Above).</summary>
-    public static double ButtonColumnCenterX =>
-        LayoutConstants.NoteColumnWidthDip - LayoutConstants.NoteButtonPadding - (LayoutConstants.NoteCellDip / 2);
+    /// card's RIGHT edge (the side away from the tail for Right/Below/Above): the CARD width
+    /// minus the padding minus the half-cell (T5 review-01 B1 - the width dropped out of this
+    /// formula once and put the column over the body text).</summary>
+    public static double ColumnCenterX(double cardWidthDip) =>
+        cardWidthDip - LayoutConstants.NoteButtonPadding - (LayoutConstants.NoteCellDip / 2);
 
     /// <summary>Window-relative X of the hit-cell column centre when the column sits on the card's
     /// LEFT edge - the side away from the tail on a <see cref="NoteSide.Left"/> placement.</summary>
-    public static double ButtonColumnCenterXFromLeft =>
+    public static double ColumnCenterXFromLeft =>
         LayoutConstants.NoteButtonPadding + (LayoutConstants.NoteCellDip / 2);
+
 
     /// <summary>Window-relative Y of hit-cell row <paramref name="row"/>'s centre (P4 D3): the
     /// rows are the four stacked 80 DIP cells between the column paddings.</summary>
@@ -73,12 +76,13 @@ internal static class NoteLayout
     /// tail zone, so the returned point is window-relative, directly usable on the window's
     /// canvas and by <c>NoteManager</c>'s dwell-target placement.
     /// </summary>
-    public static (double X, double Y) ButtonCenter(NoteSide side, int slot)
+    public static (double X, double Y) ButtonCenter(NoteSide side, int slot, double cardWidthDip)
     {
-        double colX = side == NoteSide.Left ? ButtonColumnCenterXFromLeft : ButtonColumnCenterX;
+        double colX = side == NoteSide.Left ? ColumnCenterXFromLeft : ColumnCenterX(cardWidthDip);
         var (originX, originY) = CardOrigin(side);
         return (originX + colX, originY + RowCenterY(slot));
     }
+
 
     // == the card size (P4 D2): the text size drives the width, the measured text height
     // (capped) drives the height, and the control column is the floor. ==
@@ -88,8 +92,13 @@ internal static class NoteLayout
     public static double TextColumnWidthDip(double textSize) => Math.Round(15 * textSize);
 
     /// <summary>The card width in DIP: the text column plus the control column.</summary>
+    /// <summary>The strip between the text column and the hit-cell column (T5 review-01 B1):
+    /// the text never touches the cells - WPF rect intersection is edge-inclusive, so a real
+    /// gap is the only honest clearance.</summary>
+    public const double TextColumnGapDip = 30.0;
+
     public static double CardWidthDip(double textSize) =>
-        TextColumnWidthDip(textSize) + LayoutConstants.NoteColumnWidthDip;
+        TextColumnWidthDip(textSize) + LayoutConstants.NoteColumnWidthDip + TextColumnGapDip;
 
     /// <summary>The control column's height in DIP (P4 D3): four hit-cell rows between the paddings.</summary>
     public static double ControlsColumnHeightDip =>

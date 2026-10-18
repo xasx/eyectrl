@@ -124,11 +124,13 @@ public class KeyboardProbeTests
     }
 
     // ── fixup-01 G1: the four re-place trigger sources (T2–T5) get tests that can fail ──
-    // Each triggers exactly one keyboard-relevant change and asserts exactly one Changed
-    // after the same one-hop pump the IsVisible test uses. Their proof mutants (dropping
-    // IsEmojiMode from the raise condition, the SizeChanged/Loaded subscription, the
-    // KeyboardEdgeToggledMessage registration, the ButtonSetChanged subscription) each turn
-    // exactly the matching test red.
+    // (fixup-02 F1 adds a fifth: T3's production source SizeChanged gets its own dedicated
+    // raise, so dropping the SizeChanged += alone goes red — the Loaded twin shares the
+    // handler but pins only the Loaded half.) Each triggers exactly one keyboard-relevant
+    // change and asserts exactly one Changed after the same one-hop pump the IsVisible test
+    // uses. Their proof mutants (dropping IsEmojiMode from the raise condition, the
+    // SizeChanged/Loaded subscription, the KeyboardEdgeToggledMessage registration, the
+    // ButtonSetChanged subscription) each turn exactly the matching test red.
 
     [StaFact]
     public void FlippingIsEmojiMode_RaisesChanged_ExactlyOnce_AfterADispatcherPump()
@@ -166,6 +168,34 @@ public class KeyboardProbeTests
         window.RaiseEvent(new RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent));
         PumpBackgroundHop();
         Check.WithCustomMessage("one layout raise")
+            .That(raises).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void RaisingSizeChanged_RaisesChanged_ExactlyOnce_AfterADispatcherPump()
+    {
+        // fixup-02 F1: is T3's PRODUCTION source — the keyboard relays out without a view-model
+        // flip (prediction-bar/key-size changes), while Loaded fires once. The event args'
+        // constructor is internal; reach it over a public SizeChangedInfo.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new KeyboardWindow();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.SetViewModel(vm);
+        using var probe = new KeyboardProbe(
+            vm, Dispatcher.CurrentDispatcher, new WeakReferenceMessenger(),
+            () => window, () => null);
+        int raises = 0;
+        probe.Changed += () => raises++;
+
+        var info = new System.Windows.SizeChangedInfo(window, new Size(100, 100), widthChanged: true, heightChanged: true);
+        var args = (System.Windows.SizeChangedEventArgs)typeof(System.Windows.SizeChangedEventArgs)
+            .GetConstructor(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, null,
+                new[] { typeof(UIElement), typeof(System.Windows.SizeChangedInfo) }, null)!
+            .Invoke(new object[] { window, info });
+        args.RoutedEvent = System.Windows.FrameworkElement.SizeChangedEvent;
+        window.RaiseEvent(args);
+        PumpBackgroundHop();
+        Check.WithCustomMessage("one layout raise through the real SizeChanged event")
             .That(raises).IsEqualTo(1);
     }
 

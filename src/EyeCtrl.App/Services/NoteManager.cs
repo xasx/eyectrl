@@ -1150,6 +1150,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // chip-addressed no-op cannot commit the current editor.
             return;
         }
+        // fixup-01 M1: Move is exclusive. A different current Move ends first — the earlier
+        // note returns to Display through the shared exit; without this, two notes sit in
+        // Move at once and the first one stays dimmed and stuck (its Cancel dwell sinks on
+        // `_movingNoteId != A`). A no-op on a chip must stay complete: the guard above
+        // already returned, so this line only ends a REAL fresh Move.
+        if (_movingNoteId is { } otherId && otherId != id && FindNote(otherId) is { } other)
+            LeaveMove(other);
         // The commit-first rule (P1 D8): entering Move must not strand the editing state.
         // After ExitEditing the note may be gone (an emptied new note's committed exit) — re-fetch.
         ExitEditing(commit: true, handOver: true);
@@ -1839,12 +1846,23 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// Called after a note is removed or returns to Display so surviving notes regain their
     /// controls, then resets accumulated dwell state to avoid a spurious immediate activation,
     /// and latches every target under the held gaze (P2 D4: every (re)registration latches).
+    /// While a Move is active the re-registration hands back ONLY the moving note's move set
+    /// (fixup-01 M1): a mid-Move raise (T1–T5, T6, a chip expiry, an undo) must not make the
+    /// other notes' card controls live again while their note sits dimmed under the Move.
     /// </summary>
     private void ReRegisterAllTargets()
     {
         _dwellDetector.ClearTargets();
         _targetWindows.Clear();
-        if (_editingNote is { } editor)
+        if (_movingNoteId is { } movingId && FindNote(movingId) is { } moving)
+        {
+            // Move is exclusive: the moving note's Move set plus a live :place, and nothing
+            // else — the other notes' ✎ ↕ ✕ stay frozen until the Move ends.
+            RegisterMoveTargetsForNote(moving);
+            if (_placeShown)
+                RegisterPlaceTarget(movingId); // a full re-registration must not drop a live :place
+        }
+        else if (_editingNote is { } editor)
         {
             // Fixup F5: the single-editor rule wins — a re-register while a note edits hands back
             // ONLY the editor's targets, never every note's card targets. No P1 path reaches this

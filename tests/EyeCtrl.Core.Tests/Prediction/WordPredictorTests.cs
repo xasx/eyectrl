@@ -210,6 +210,24 @@ public class WordPredictorTests
     }
 
     [Fact]
+    public void GetSuggestions_LowercasePrefixWithFuzzyFlood_CapitalisedMatchesFillTheBar()
+    {
+        // German nouns are capitalised while the user types lowercase; the predictor's own
+        // ordering must be case-insensitive, or the flood takes the slots before Rank runs.
+        var predictor = CreatePredictor(new()
+        {
+            ["Wetter"] = 100, ["Wettkampf"] = 90, ["Wettbewerb"] = 80, ["Wette"] = 70, ["Wetten"] = 60,
+            ["qet"] = 1_000_000_000, ["eet"] = 1_000_000_000, ["Wrt"] = 1_000_000_000,
+            ["Wwt"] = 1_000_000_000, ["Wer"] = 1_000_000_000, ["Wey"] = 1_000_000_000,
+        });
+
+        var results = predictor.GetSuggestions("wet", null, maxCount: 5);
+
+        Check.That(results.Select(r => r.Word))
+            .ContainsExactly("Wetter", "Wettkampf", "Wettbewerb", "Wette", "Wetten");
+    }
+
+    [Fact]
     public void GetSuggestions_OneLetterPrefix_DoesNotFuzzyMatch()
     {
         var predictor = CreatePredictor(new()
@@ -285,7 +303,7 @@ public class WordPredictorTests
     [Fact]
     public void GetSuggestions_FourTypos_BeyondThreshold_NotSuggested()
     {
-        // "awdf" vs "seed": 4 positional mismatches - even the cheapest (all-adjacent) alignment
+        // "awdf" vs "seed": 4 positional mismatches → even the cheapest (all-adjacent) alignment
         // costs 2.0, so the pre-filter cutoff agrees with the DP: dropped.
         var predictor = CreatePredictor(new()
         {

@@ -460,19 +460,10 @@ public class WordPredictor
 
     /// <summary>
     /// True when the merged dictionary (base + learned) contains the word, case-insensitively.
-    /// The LM vocabulary gate: a completion outside it is junk ("wtf", "mohamed").
+    /// The LM vocabulary gate: a completion outside it is junk ("wtf", "mohamed"). The dictionary
+    /// is OrdinalIgnoreCase (the provider's), so the lookup is already case-insensitive.
     /// </summary>
-    internal bool KnowsWord(string word)
-    {
-        if (_words.ContainsKey(word)) return true;
-
-        foreach (var key in _words.Keys)
-        {
-            if (string.Equals(key, word, StringComparison.OrdinalIgnoreCase)) return true;
-        }
-
-        return false;
-    }
+    internal bool KnowsWord(string word) => _words.ContainsKey(word);
 
     /// <summary>
     /// Applies positive frequency deltas (word → additional uses). The inverse of the snapshot

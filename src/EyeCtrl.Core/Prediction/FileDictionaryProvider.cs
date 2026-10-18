@@ -30,6 +30,10 @@ public class FileDictionaryProvider : IDictionaryProvider
     // holds the LEARNED delta. This copy is never handed to the predictor (which mutates the
     // merged dictionary as it learns).
     private Dictionary<string, int> _baseWords = new(StringComparer.OrdinalIgnoreCase);
+    // Distinguishes "never loaded" from "loaded, and the base is empty": Save may be the first
+    // caller (the background rebuild writes through a fresh provider), and it needs the base
+    // counts to write the delta.
+    private bool _baseLoaded;
     private bool _loadedInflated;
     private int _inflatedWordCount;
 
@@ -61,14 +65,10 @@ public class FileDictionaryProvider : IDictionaryProvider
             : combinedPath.Replace(Path.DirectorySeparatorChar, preferredSeparator);
     }
 
-    /// <inheritdoc />
-    public Dictionary<string, int> Load()
+    /// <summary>Reads only the base dictionary counts (and abbreviations).</summary>
+    private void LoadBaseCounts()
     {
         _baseWords = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        _loadedInflated = false;
-        _inflatedWordCount = 0;
-
-        var baseCounts = _baseWords;
 
         if (File.Exists(_baseDictionaryPath))
         {
@@ -81,7 +81,7 @@ public class FileDictionaryProvider : IDictionaryProvider
                 {
                     // Load words
                     foreach (var kv in data.Words)
-                        baseCounts[kv.Key] = kv.Value;
+                        _baseWords[kv.Key] = kv.Value;
 
                     // Load abbreviations if present
                     if (data.Abbreviations != null && data.Abbreviations.Count > 0)
@@ -103,7 +103,29 @@ public class FileDictionaryProvider : IDictionaryProvider
                 _logger?.LogError(ex, "Failed to read base dictionary from {Path}, returning empty dictionary", _baseDictionaryPath);
             }
         }
+    }
 
+    /// <summary>
+    /// Save can be the first caller (the background rebuild writes through a fresh provider), so
+    /// the base counts are loaded on demand for the delta. This path reads the base only: no
+    /// user file, no inflation detection, no repair or backup.
+    /// </summary>
+    private void EnsureBaseLoaded()
+    {
+        if (_baseLoaded) return;
+        LoadBaseCounts();
+        _baseLoaded = true;
+    }
+
+    /// <inheritdoc />
+    public Dictionary<string, int> Load()
+    {
+        LoadBaseCounts();
+        _baseLoaded = true;
+        _loadedInflated = false;
+        _inflatedWordCount = 0;
+
+        var baseCounts = _baseWords;
         var words = new Dictionary<string, int>(baseCounts, StringComparer.OrdinalIgnoreCase);
 
         if (File.Exists(_userDictionaryPath))
@@ -161,6 +183,10 @@ public class FileDictionaryProvider : IDictionaryProvider
     /// <inheritdoc />
     public void Save(Dictionary<string, int> words)
     {
+        // A fresh provider (the background rebuild's) has not loaded the base yet; without it
+        // the delta would be the whole merged dictionary and the file would re-inflate.
+        EnsureBaseLoaded();
+
         var directory = Path.GetDirectoryName(_userDictionaryPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
@@ -222,8 +248,15 @@ public class FileDictionaryProvider : IDictionaryProvider
 
         try
         {
-            if (File.Exists(_userDictionaryPath))
-                File.Copy(_userDictionaryPath, backupPath);
+            if (!File.Exists(_userDictionaryPath))
+            {
+                _logger?.LogInformation(
+                    "Repaired the inflated user dictionary ({Words} base words carried whole copies); the user file no longer exists, so there was nothing to back up",
+                    _inflatedWordCount);
+                return true;
+            }
+
+            File.Copy(_userDictionaryPath, backupPath);
 
             _logger?.LogInformation(
                 "Repaired the inflated user dictionary ({Words} base words carried whole copies); the original is at {Backup}",

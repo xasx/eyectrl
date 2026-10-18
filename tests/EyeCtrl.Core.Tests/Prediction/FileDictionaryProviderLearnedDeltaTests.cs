@@ -135,6 +135,58 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
     }
 
     [Fact]
+    public void Save_OnAFreshProviderThatNeverLoaded_WritesOnlyTheLearnedDelta()
+    {
+        // The background rebuild writes through a provider that has not called Load. Without the
+        // base counts it would write the whole merged dictionary and re-inflate the file.
+        WriteBase(new Dictionary<string, int> { ["hello"] = 100 });
+        var provider = CreateProvider();
+
+        provider.Save(new Dictionary<string, int> { ["hello"] = 103, ["zebratail"] = 1 });
+
+        var written = ReadUser();
+        Check.That(written["hello"]).IsEqualTo(3);
+        Check.That(written["zebratail"]).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Save_OnAFreshProviderWithNoBaseFile_WritesTheWholeCounts()
+    {
+        // No base file is legitimate: every word is learned, so the whole count is the delta.
+        var provider = CreateProvider();
+
+        provider.Save(new Dictionary<string, int> { ["zebratail"] = 2 });
+
+        var written = ReadUser();
+        Check.That(written).HasSize(1);
+        Check.That(written["zebratail"]).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void Save_AfterTheUserFileVanished_DoesNotClaimABackup()
+    {
+        WriteBase(new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 });
+        WriteUser(new Dictionary<string, int>
+        {
+            ["weiss"] = 57 * 100 + 3,
+            ["hallo"] = 57 * 5 + 2,
+        });
+        var logger = new CapturingLogger();
+        var provider = CreateProvider(logger);
+        var loaded = provider.Load();
+        File.Delete(UserPath);
+
+        provider.Save(loaded);
+
+        Check.That(File.Exists(BackupPath)).IsFalse();
+        Check.WithCustomMessage($"log: {string.Join(" | ", logger.Messages)}")
+            .That(logger.Messages).HasElementThatMatches(
+                m => m.Contains("no longer exists", StringComparison.OrdinalIgnoreCase));
+        Check.That(logger.Messages.Any(m => m.Contains("original is at", StringComparison.OrdinalIgnoreCase)))
+            .IsFalse();
+    }
+
+    [Fact]
     public void Save_BackupFails_LeavesTheFileUntouchedAndRetriesLater()
     {
         WriteBase(new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 });

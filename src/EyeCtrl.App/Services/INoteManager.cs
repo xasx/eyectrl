@@ -74,7 +74,16 @@ public interface INoteManager : INoteTextInput
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? driftNoticeBounds = null,
         Func<PhysicalRect?>? caregiverAlertBounds = null,
-        Func<PhysicalRect?>? trackStatusBounds = null);
+        Func<PhysicalRect?>? trackStatusBounds = null,
+        Func<PhysicalRect?>? noteNoticeBounds = null);
+
+    /// <summary>
+    /// The capacity notice (P4 D4): shown INSTEAD of creating when <see cref="IsAtCapacity"/>
+    /// holds and the pin's commit-first found no room - the pin explains itself instead of
+    /// staying silent. One window per manager, click-through, target-free, placed clear of
+    /// every note card and chip.
+    /// </summary>
+    void ShowCapacityNotice(PhysicalPoint pinPoint);
 
     /// <summary>
     /// The note chrome rects (P2 D7): every note's card body plus its control-cell rects, in

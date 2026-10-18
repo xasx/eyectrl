@@ -52,6 +52,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private Func<PhysicalRect?>? _driftNoticeBounds;
     private Func<PhysicalRect?>? _caregiverAlertBounds;
     private Func<PhysicalRect?>? _trackStatusBounds;
+    private Func<PhysicalRect?>? _noteNoticeBounds;
     // Gate conjunct 4's own-window half (P2 D2): target id → the HWND of the note window that
     // draws it, recorded at registration. Windowless targets (the test seams) are absent here and
     // exempt from the conjunct; the conjunct is inactive only while the tester is the named
@@ -140,6 +141,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The Place-here window (P3 D4): one per manager, created lazily, never in DI. It is NOT
     // click-through, so the own-window conjunct can resolve it; Dispose closes it.
     private NotePlaceHereWindow? _placeWindow;
+    // The capacity notice (P4 D4): one per manager, created lazily on the first at-capacity
+    // pin, NEVER in DI (it is a state flash, not a service). It is click-through and carries
+    // no dwell targets; its visible bounds are the note-gate occluder that keeps a gaze
+    // resting on the notice from firing a note cell beneath it.
+    private NoteNoticeWindow? _noticeWindow;
+
     private Rect _placeWindowRect;
     private bool _placeShown;
 
@@ -1101,6 +1108,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 Intersects, out hit) || hit)
             return true;
 
+        if (!TryReadOccluderRects(KnownOccluderSources.NoteNotice,
+                () => _noteNoticeBounds?.Invoke() is { } notice
+                    ? new[] { notice }
+                    : (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
+                Intersects, out hit) || hit)
+            return true;
+
         return false;
     }
 
@@ -1140,6 +1154,42 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _placements.Remove(note.Id); // P3 D2: a removed note's derived rect dies with it
         ReRegisterAllTargets();
         RaiseTargetsChanged();
+    }
+
+    /// <summary>
+    /// The at-capacity pin (P4 D4): instead of staying silent, the manager shows the capacity
+    /// notice beside the pin point, placed by the same <see cref="NoteLayout.Place"/> search
+    /// the cards use with EVERY note card and chip rect as avoid - and clamped, so the notice
+    /// is never off-screen. Click-through and target-free: nothing to dwell, nothing to fire.
+    /// </summary>
+    public void ShowCapacityNotice(PhysicalPoint pinPoint)
+    {
+        if (_disposed) return;
+        var avoid = new List<Rect>();
+        foreach (var note in _notes)
+        {
+            if (_placements.TryGetValue(note.Id, out var notePlacement))
+                avoid.Add(notePlacement.Card);
+        }
+        var size = new Size(NoteLayout.NoticeCardWidthDip, NoteLayout.NoticeCardHeightDip);
+        var noticePlacement = NoteLayout.Place(pinPoint, NoteSide.Right, size, _workAreaDip(), avoid, DpiHelper.ScaleX)!;
+        _noticeWindow ??= new NoteNoticeWindow { ShowRealWindow = NoticeWindowShowsForTest };
+        _noticeWindow.ShowAt(noticePlacement.Window);
+    }
+
+    /// <summary>Test/wiring seam: the occluder source the composition root registered for
+    /// the notice - non-null once <see cref="NoteOccluderWiring.Wire"/> ran, and the thing the
+    /// note gate actually reads (so a real-container test can pin the connection).</summary>
+    /// <summary>Test seam: whether the notice puts a REAL window on the screen. Headless tests
+    /// on the owner machine set this false BEFORE the first ShowCapacityNotice.</summary>
+    internal bool NoticeWindowShowsForTest { get; set; } = true;
+    internal Func<PhysicalRect?>? NoticeBoundsForTest => _noteNoticeBounds;
+    /// <summary>The notice visible bounds while it shows (P2 D3) - the source the occluder
+    /// wiring passes to <see cref="SetOccluderSources"/> at the composition root.</summary>
+    internal bool TryGetNoticeVisibleBounds(out PhysicalRect bounds)
+    {
+        bounds = default;
+        return _noticeWindow is { } window && window.TryGetVisibleBounds(out bounds);
     }
 
     /// <summary>Finalizes the OLDEST yieldable chip as on its expiry (P2 D5): the first chip in
@@ -1631,6 +1681,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         else
             genuine |= covers;
 
+        if (!TryReadOccluder(KnownOccluderSources.NoteNotice,
+                () => _noteNoticeBounds is { } notice && notice.Invoke() is { } noticeBounds
+                    && noticeBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
         return (genuine, failed);
     }
 
@@ -1649,6 +1706,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         public const string DriftNotice = "drift notice";
         public const string CaregiverAlert = "caregiver alert";
         public const string TrackStatus = "track status";
+        public const string NoteNotice = "note notice";
     }
 
     /// <summary>The logged-failure episode flags, one per source name: a failed source logs once,
@@ -1862,12 +1920,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? driftNoticeBounds = null,
         Func<PhysicalRect?>? caregiverAlertBounds = null,
-        Func<PhysicalRect?>? trackStatusBounds = null)
+        Func<PhysicalRect?>? trackStatusBounds = null,
+        Func<PhysicalRect?>? noteNoticeBounds = null)
     {
         _lagMarkRects = lagMarkRects;
         _driftNoticeBounds = driftNoticeBounds;
         _caregiverAlertBounds = caregiverAlertBounds;
         _trackStatusBounds = trackStatusBounds;
+        _noteNoticeBounds = noteNoticeBounds;
     }
 
     /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The
@@ -2175,6 +2235,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // P3 D4: the Place-here window is manager-owned (never in DI) — a teardown closes it.
         _placeWindow?.Close();
         _placeWindow = null;
+
+        // P4 D4: the capacity notice is manager-owned (never in DI) - a teardown closes it.
+        _noticeWindow?.Close();
+        _noticeWindow = null;
 
         // P1 D8: a Dispose mid-Edit tells the keyboard editing is over — the "→ Note" indicator
         // must not survive the manager. Deliberately NO keyboard hide request: the app teardown

@@ -189,7 +189,9 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
 
         if (msg.Action == InteractionAction.PinNote)
         {
-            if (Context is { NoteManager.IsAtCapacity: false })
+            if (Context is { NoteManager.IsAtCapacity: true })
+                Context.NoteManager.ShowCapacityNotice(pt); // P4 D4: the pin explains itself
+            else if (Context is { NoteManager: not null })
                 Context.NoteManager.CreateNoteAt(pt);
 
             if (Context is { TargetHighlightVM.IsVisible: true })

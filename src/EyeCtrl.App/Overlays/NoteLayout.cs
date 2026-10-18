@@ -123,6 +123,13 @@ internal static class NoteLayout
     /// to two lines in it at the body size.</summary>
     public const double ChipTextWidthDip = 140.0;
 
+    // == the capacity notice (P4 D4): one fixed-size, click-through, target-free window. ==
+
+    /// <summary>The notice card is 320x110 DIP: the EN and DE sentences on two wrapped lines
+    /// at the body-large size, with 16 DIP padding all around.</summary>
+    public const double NoticeCardWidthDip = 320.0;
+
+    public const double NoticeCardHeightDip = 110.0;
     /// <summary>The chip card size (P4 D3's state table): at least one cell wide (it is the
     /// cell plus the text column) and one cell row tall.</summary>
     public static Size ChipCardSize() => new(

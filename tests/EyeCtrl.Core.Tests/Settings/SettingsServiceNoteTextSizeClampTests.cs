@@ -5,16 +5,20 @@ using EyeCtrl.Core.Settings;
 using Xunit;
 
 /// <summary>
-/// The note text-size clamp (P4 D1): a settings file with textSizeDip outside 18-48 loads at the
-/// CLAMPED value - not at the default 28 the #153 setter-throw revert would answer with - and a
-/// duplicated key loads without error because the clamp step runs AFTER NormalizeDuplicateProperties
-/// (its JsonNode indexer walk throws ArgumentException on a duplicate otherwise).
+/// The note text-size clamp (P4 D1): a settings file with textSizeDip outside 18-48 loads at
+/// the CLAMPED value - not at the default 28 the #153 setter-throw revert would answer with -
+/// and duplicated keys load without error because the clamp step runs AFTER
+/// NormalizeDuplicateProperties. Review-01 M2: JsonNode.Parse throws ArgumentException the
+/// moment a duplicated key is indexed, so a clamp running BEFORE the normalizer fail-safes to
+/// its input and the STILL-illegal value reaches the throwing setter, whose revert answers 28.
+/// The duplicate fixtures build REAL duplicates at byte level (the first version of this test
+/// Replace-d the SERIALIZED text and silently built no duplicate at all).
 /// </summary>
 public class SettingsServiceNoteTextSizeClampTests
 {
-    private string TempPath() => Path.Combine(Path.GetTempPath(), $"eyectrl_note_{Guid.NewGuid()}.json");
+    private static string TempPath() => Path.Combine(Path.GetTempPath(), $"eyectrl_note_{Guid.NewGuid()}.json");
 
-    private EyeCtrlSettings LoadWith(int textSize, bool duplicate = false)
+    private EyeCtrlSettings LoadWith(int textSize)
     {
         var path = TempPath();
         var settings = new EyeCtrlSettings();
@@ -25,19 +29,41 @@ public class SettingsServiceNoteTextSizeClampTests
 
         var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         root["note"] = new JsonObject { ["textSizeDip"] = textSize };
-        var text = root.ToJsonString();
-        if (duplicate)
-        {
-            // The duplicated key must survive serialization (a JsonObject cannot hold it), so
-            // the duplicate is written as raw text: the exact hand-edit the normalizer repairs.
-            var entry = "\"textSizeDip\":" + textSize;
-            text = text.Replace(entry, entry + ", " + entry);
-        }
-        File.WriteAllText(path, text);
+        File.WriteAllText(path, root.ToJsonString());
 
         try
         {
             return service.Load();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>Builds a raw settings file whose root or note section carries REAL duplicated
+    /// keys: the saved root minus its note section, compacted, with the prefix spliced in at
+    /// byte level (the reviewer probe shape).</summary>
+    private static string WithDuplicate(string prefix)
+    {
+        var path = TempPath();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationButtonDwellMs = 600;
+        new SettingsService(path).Save(settings);
+        var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        root.Remove("note");
+        var json = prefix + root.ToJsonString().Substring(1);
+        File.Delete(path);
+        return json;
+    }
+
+    private static EyeCtrlSettings LoadRaw(string json)
+    {
+        var path = TempPath();
+        try
+        {
+            File.WriteAllText(path, json);
+            return new SettingsService(path).Load();
         }
         finally
         {
@@ -67,17 +93,40 @@ public class SettingsServiceNoteTextSizeClampTests
     }
 
     [Fact]
-    public void ADuplicatedTextSizeKey_LoadsWithoutError_AtTheLastValue()
-    {
-        var loaded = LoadWith(35, duplicate: true);
-        Check.That(loaded.Note.TextSizeDip).IsEqualTo(35);
-        Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
-    }
-
-    [Fact]
     public void AnInLegalSize_RidesThroughUnchanged()
     {
         Check.That(LoadWith(28).Note.TextSizeDip).IsEqualTo(28);
         Check.That(LoadWith(48).Note.TextSizeDip).IsEqualTo(48);
+    }
+
+    [Fact]
+    public void ADuplicatedTextSize_17Then49_Loads48_Not28()
+    {
+        var loaded = LoadRaw(WithDuplicate("{\"note\":{\"textSizeDip\":17,\"textSizeDip\":49},"));
+        Check.That(loaded.Note.TextSizeDip).IsEqualTo(48);
+        Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
+    }
+
+    [Fact]
+    public void ADuplicatedTextSize_30Then17_Loads18_Not28()
+    {
+        var loaded = LoadRaw(WithDuplicate("{\"note\":{\"textSizeDip\":30,\"textSizeDip\":17},"));
+        Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);
+    }
+
+    [Fact]
+    public void ADuplicatedRootKey_WithTextSize17_Loads18_Not28()
+    {
+        var loaded = LoadRaw(WithDuplicate("{\"zzDup\":1,\"zzDup\":2,\"note\":{\"textSizeDip\":17},"));
+        Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);
+        Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
+    }
+
+    [Fact]
+    public void ADuplicatedKeyInsideTheNoteSection_WithTextSize17_Loads18_Not28()
+    {
+        var loaded = LoadRaw(WithDuplicate("{\"note\":{\"textSizeDip\":17,\"legacy\":1,\"legacy\":2},"));
+        Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);
+        Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
     }
 }

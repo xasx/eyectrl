@@ -201,4 +201,52 @@ public class NotePlaceTriggerTests
             DpiHelper.Initialize(1.0, 1.0);
         }
     }
+
+    [StaFact]
+    public void WorkAreaStaticChange_RePlacesEveryNote_ThroughTheSeam()
+    {
+        // fixup-01 G2: the SystemParameters half of T6 (the one the DisplayGeometryChangedMessage
+        // does not cover — taskbar resize/auto-hide) had no test that could fail. The seam drives
+        // the same handler with the same property name.
+        var messenger = new WeakReferenceMessenger();
+        var area = new Rect(0, 0, 1920, 1200);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: () => area);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var far = manager.AddNoteTargetsForTest(new PhysicalPoint(1600, 1000));    // DIP (800, 500)
+            manager.AddNoteTargetsForTest(new PhysicalPoint(200, 400));                // DIP (100, 200)
+
+            area = new Rect(0, 0, 1000, 1200);
+            manager.OnWorkAreaChangedForTest();
+
+            var farAfter = manager.PlacementForTest(far)!;
+            Check.WithCustomMessage("the WorkArea static must re-place every note, like the message does")
+                .That(farAfter.Side).IsEqualTo(NoteSide.Left);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [Fact]
+    public void TheWorkAreaStaticsAreSubscribed_AndUnsubscribedOnDispose()
+    {
+        // fixup-01 G2's source pin (the EventCoordinatorTests precedent): the constructor must
+        // subscribe SystemParameters.StaticPropertyChanged and Dispose must unsubscribe — a
+        // dropped += would leave T6's taskbar-resize half permanently deaf, a dropped -= would
+        // keep every disposed manager subscribed to a global WPF static.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "NoteManager.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("NoteManager no longer subscribes SystemParameters.StaticPropertyChanged.")
+            .That(source.Contains("SystemParameters.StaticPropertyChanged+=OnSystemPropertyChanged;")).IsTrue();
+        Check.WithCustomMessage("NoteManager.Dispose no longer unsubscribes SystemParameters.StaticPropertyChanged.")
+            .That(source.Contains("SystemParameters.StaticPropertyChanged-=OnSystemPropertyChanged;")).IsTrue();
+    }
 }

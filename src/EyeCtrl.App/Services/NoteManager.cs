@@ -1739,6 +1739,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             RePlaceEveryNote();
     }
 
+    /// <summary>Test seam (fixup-01 G2): drives the SystemParameters half of T6 the way the
+    /// static property-changed handler does, without touching global WPF statics.</summary>
+    internal void OnWorkAreaChangedForTest() =>
+        OnSystemPropertyChanged(null, new(nameof(SystemParameters.WorkArea)));
+
     /// <summary>The pause poll seam (P2 D1 row 2), configured once from EventCoordinator.</summary>
     public void SetPausePoll(Func<bool> poll) =>
         _pausePoll = poll ?? throw new ArgumentNullException(nameof(poll));

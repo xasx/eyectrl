@@ -1179,8 +1179,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (!_placements.TryGetValue(note.Id, out var placement))
             return;
         var next = NextSide(placement.Side);
+        // P3 D3 row T1: the availability derives over the same avoid-rect set the placement
+        // itself used — a keyboard-covered alternative must not offer (the ⊢ window cannot be
+        // reached without leaving the gaze inside the keyboard's dwell space). The probe's
+        // raise re-derives through the Move re-registration below (OnKeyboardProbeChanged), so
+        // Other side re-appears the moment T1 frees the room back.
         var other = NoteLayout.Place(note.Anchor, next, CardSize(), _workAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX, exclude: placement.Side);
+            AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side);
         bool otherFits = other is not null;
         Window(note.Id)?.SetOtherSideAvailable(otherFits);
         if (otherFits)
@@ -1795,10 +1800,35 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// is exposed for the ownership tests instead of inferred.</summary>
     internal bool EditingOwnsKeyboardForTest => _editingOwnsKeyboard;
 
+    /// <summary>Test seam (P2 D7's coordinator wiring): places a windowless NoteData DIRECTLY in
+    /// the Move state with the move set registered and the targets-changed raise broadcast —
+    /// StartMove's body where its real NoteWindow would exist (the drawn-state mutations are the
+    /// window's). Returns the generated note id.</summary>
+    internal string AddMovingNoteTargetsForTest(PhysicalPoint anchor)
+    {
+        var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Move };
+        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _notes.Add(data);
+        _movingNoteId = data.Id;
+        _settleTracker.Reset();
+        RegisterMoveTargetsForNote(data);
+        _dwellDetector.ResetAllState();
+        LatchTargetsUnderTheGaze();
+        RaiseTargetsChanged();
+        return data.Id;
+    }
+
     /// <summary>Test seam (P2 D5): runs exactly what the chip's Undo dwell would run — the same
     /// activation the second detector's TargetActivated handler dispatches, without the 600 ms
     /// of gaze. Non-chip ids are the same defensive no-op the real path is.</summary>
     internal void UndoChipForTest(string noteId) => OnUndoActivated($"{noteId}:undo");
+
+    /// <summary>Test seams (P3 D4's Move acceptance): the Place-here state the settle path
+    /// drives — the shown flag, the accepted centroid (physical) and the window rect (DIP) it
+    /// raised beside that centroid. Read-only mirrors of the private Move-state fields.</summary>
+    internal bool PlaceShownForTest => _placeShown;
+    internal PhysicalPoint? PlaceCentroidForTest => _placeCentroid;
+    internal Rect PlaceWindowRectForTest => _placeWindowRect;
 
     /// <summary>Test seam: the live window of a note, or null. The drawn-vs-registered ⌨ check
     /// (review 01 mutant A) needs the real window the manager drives on probe changes.</summary>

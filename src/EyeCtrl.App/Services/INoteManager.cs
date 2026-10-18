@@ -27,6 +27,15 @@ public interface INoteManager : INoteTextInput
     void StartMove(string id);
     void FinishMove(string id, PhysicalPoint newPosition);
 
+    /// <summary>
+    /// P2 D7: at least one note is in the Move state. The activation-offer coordinator reads
+    /// this as its "note move" suspension reason — offers suspend for the whole Move, but the
+    /// reason is excluded from <c>ActivationOfferCoordinator.ModalSuspended</c>: that flag is
+    /// the note gate's suspender input, and a Move must not suspend the notes themselves
+    /// (the Move set's dwells ARE the live surface).
+    /// </summary>
+    bool IsMoving { get; }
+
     void OnGazeMoved(PhysicalPoint gazePoint, long timestamp);
 
     /// <summary>

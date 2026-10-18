@@ -31,6 +31,10 @@ public class NoteWindow : OverlayWindow
     private Border? _contentBorder;
     private NoteState _state;
     private string _chipText = string.Empty;
+    // The note's body text (fixup-01 B1): UpdateContent rebuilds the text block plainly empty,
+    // and the re-place paths (T6, the probe raise, Move's tails) never re-push SetText — the
+    // window alone keeps the last body text across a redraw.
+    private string _text = string.Empty;
     // The side the placement chose (P3 D2); Right until the manager applies a placement.
     private NoteSide _side = NoteSide.Right;
     // The placement the manager last applied (P3 D2): every drawn rect — the card, the title
@@ -198,7 +202,8 @@ public class NoteWindow : OverlayWindow
             Margin = new Thickness(10, 10, 0, 0),
             FontSize = Tokens.FontSizeBody,
             Foreground = _state == NoteState.Edit ? Tokens.BrushTextPrimary : Tokens.BrushAccentWarning,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap,
+            Text = _text
         };
 
         var stack = new StackPanel();
@@ -232,6 +237,7 @@ public class NoteWindow : OverlayWindow
 
     public void SetText(string text)
     {
+        _text = text;
         if (_textBlock != null) _textBlock.Text = text;
     }
 

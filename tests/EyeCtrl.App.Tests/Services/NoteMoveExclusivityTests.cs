@@ -68,4 +68,46 @@ public class NoteMoveExclusivityTests
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
+
+    /// <summary>fixup-01 m1 (review): Other side must apply the candidate the offer JUDGED —
+    /// here the keyboard's avoid rects push the next side (Left) and Below off the cycle onto
+    /// Above, so a fresh un-avoided re-derive at dwell time would apply Left instead.
+    /// Proof mutant: re-deriving with an empty avoid set in OtherSideForMoving turns this red.</summary>
+    [StaFact]
+    public void OtherSide_AppliesThePlacementTheOfferJudged()
+    {
+        var m = new WeakReferenceMessenger();
+        var area = new System.Windows.Rect(0, 0, 1920, 1200);
+        using var manager = new NoteManager(m, hitTester: InactiveNoteHitTester.Instance, clockMs: () => 0,
+            undoTimer: new Timer(), workAreaDip: () => area);
+        var probe = new NoteManagerTests.FakeKeyboardProbe
+        {
+            IsVisible = true,
+            RectsProvider = () => new[] { new PhysicalRect(800, 1000, 1000, 240) }, // DIP (400, 500, 500, 120)
+        };
+        manager.SetKeyboardProbe(probe);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The moving note sits at DIP (800, 500): its next side (Left) window and the Below
+            // window intersect the keyboard's avoid rect, so the cycle lands on Above and the
+            // offer registers.
+            var id = manager.AddMovingNoteTargetsForTest(new PhysicalPoint(1600, 1000));
+            var judged = manager.JudgedOtherSideForTest;
+            Check.WithCustomMessage("the offer must have judged an alternative under the avoid set")
+                .That(judged).IsNotNull();
+            Check.That(judged!.Side).IsEqualTo(NoteSide.Above);
+
+            manager.OtherSideForTest(id);
+
+            Check.WithCustomMessage("the Other-side dwell applied its judged side")
+                .That(manager.PlacementForTest(id)!.Side).IsEqualTo(judged!.Side);
+            Check.WithCustomMessage("the Other-side dwell applied its judged window rect")
+                .That(manager.PlacementForTest(id)!.Window).IsEqualTo(judged!.Window);
+            Check.That(manager.ActiveNotes[0].Side).IsEqualTo(NoteSide.Above);
+            Check.WithCustomMessage("the dwell ends the move")
+                .That(manager.IsMoving).IsFalse();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
 }

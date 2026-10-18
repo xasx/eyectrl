@@ -124,6 +124,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The Move state (P3 D4): at most one note moves at a time — StartMove finishes any current
     // move first, and every exit path below clears this id together with the place-here window.
     private string? _movingNoteId;
+    // fixup-01 m1 (review): the Other-side candidate RegisterMoveTargetsForNote JUDGED over the
+    // T1 avoid set — OtherSideForMoving applies exactly it, never a fresh un-avoided re-derive
+    // that could differ from what was offered. Refreshed on every move re-registration; cleared
+    // with the move.
+    private NotePlacement? _judgedOtherSideForMoving;
     private readonly NoteSettleTracker _settleTracker = new();
     // The accepted settle's centroid (physical px) the :place target will re-anchor to.
     private PhysicalPoint? _placeCentroid;
@@ -1193,6 +1198,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // Other side re-appears the moment T1 frees the room back.
         var other = NoteLayout.Place(note.Anchor, next, CardSize(), _workAreaDip(),
             AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side);
+        _judgedOtherSideForMoving = other;
         bool otherFits = other is not null;
         Window(note.Id)?.SetOtherSideAvailable(otherFits);
         if (otherFits)
@@ -1209,6 +1215,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         HidePlaceHere(); // must run while _movingNoteId still names this move
         _movingNoteId = null;
+        _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
         Window(note.Id)?.SetState(NoteState.Display);
@@ -1234,8 +1241,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (FindNote(noteId) is not { } note) return;
         if (!_placements.TryGetValue(noteId, out var current)) return;
         var next = NextSide(current.Side);
-        var other = NoteLayout.Place(note.Anchor, next, CardSize(), _workAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX, exclude: current.Side);
+        // fixup-01 m1: apply the candidate the offer judged available. The fallback (the judged
+        // one went stale without a re-registration) re-derives over the same avoid set, so even
+        // it cannot wander back over the keyboard.
+        var other = _judgedOtherSideForMoving;
+        if (other is null || other.Side != next)
+            other = NoteLayout.Place(note.Anchor, next, CardSize(), _workAreaDip(),
+                AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: current.Side);
         if (other is null)
         {
             // The target only registers while an alternative exists (RegisterMoveTargetsForNote),
@@ -1834,6 +1846,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// activation the second detector's TargetActivated handler dispatches, without the 600 ms
     /// of gaze. Non-chip ids are the same defensive no-op the real path is.</summary>
     internal void UndoChipForTest(string noteId) => OnUndoActivated($"{noteId}:undo");
+
+    /// <summary>Test seams (fixup-01 m1): the Other-side dwell's activation (the same switch the
+    /// detector dispatches, without the 600 ms gaze) and the candidate the offer judged — read
+    /// back so a test can compare what was offered against what OtherSideForMoving applied.</summary>
+    internal void OtherSideForTest(string noteId) => OnTargetActivated($"{noteId}:otherside");
+    internal NotePlacement? JudgedOtherSideForTest => _judgedOtherSideForMoving;
 
     /// <summary>Test seams (P3 D4's Move acceptance): the Place-here state the settle path
     /// drives — the shown flag, the accepted centroid (physical) and the window rect (DIP) it

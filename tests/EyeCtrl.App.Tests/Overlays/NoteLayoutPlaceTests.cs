@@ -220,14 +220,15 @@ public class NoteLayoutPlaceTests
         var triangle = TailTriangle(placement);
 
         Check.That(triangle).IsNotNull();
-        Check.That(triangle!).HasSize(3);
+        var drawn = triangle!; // NFluent's HasSize cannot narrow — this is the defensive accessor (fixup-01 n1)
+        Check.That(drawn).HasSize(3);
         // Tip first, then the two base points on the card's left edge.
-        Check.That(triangle[0].X).IsCloseTo(placement.TailTip!.Value.X - placement.Window.X, 1e-9);
-        Check.That(triangle[1].X).IsCloseTo(placement.Card.Left - placement.Window.X, 1e-9);
-        Check.That(triangle[2].X).IsCloseTo(placement.Card.Left - placement.Window.X, 1e-9);
+        Check.That(drawn[0].X).IsCloseTo(placement.TailTip!.Value.X - placement.Window.X, 1e-9);
+        Check.That(drawn[1].X).IsCloseTo(placement.Card.Left - placement.Window.X, 1e-9);
+        Check.That(drawn[2].X).IsCloseTo(placement.Card.Left - placement.Window.X, 1e-9);
         // The base straddles the tip's Y and stays inside the card.
-        Check.That(triangle[1].Y).IsStrictlyLessThan(triangle[0].Y);
-        Check.That(triangle[2].Y).IsStrictlyGreaterThan(triangle[0].Y);
+        Check.That(drawn[1].Y).IsStrictlyLessThan(drawn[0].Y);
+        Check.That(drawn[2].Y).IsStrictlyGreaterThan(drawn[0].Y);
     }
 
     [Fact]

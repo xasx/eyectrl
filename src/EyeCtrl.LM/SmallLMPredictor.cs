@@ -22,6 +22,9 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
 
     private const int MaxNewTokens = 8;
 
+    private static readonly IReadOnlyDictionary<string, string> EmptyProviderOptions =
+        new Dictionary<string, string>();
+
     private InferenceSession? _session;
     private DecoderIoPlan? _ioPlan;
     private readonly object _lock = new();
@@ -120,29 +123,27 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             return;
         }
 
-        SessionOptions? options = null;
-        try
+        var attempts = new List<GpuAttempt>();
+        if (_preferGpu)
         {
-            options = new SessionOptions();
-
-            if (_preferGpu)
+            if (SelectDmlDevice() is { } chosen)
             {
-                try
-                {
-                    options.AppendExecutionProvider_DML();
-                    _logger?.LogInformation("Using DirectML (GPU) for {Model}", _selectedModelSize);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "DirectML not available, falling back to CPU");
-                    options.Dispose();
-                    options = new SessionOptions();
-                }
+                attempts.Add(new GpuAttempt(
+                    options => options.AppendExecutionProvider(OrtEnv.Instance(), [chosen.Device], EmptyProviderOptions),
+                    chosen.Info.Description,
+                    IsDefault: false));
             }
 
-            options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+            // Always available, and the only GPU attempt when no adapter was enumerated.
+            attempts.Add(new GpuAttempt(options => options.AppendExecutionProvider_DML(), null, IsDefault: true));
+        }
 
-            _session = new InferenceSession(SelectedModelPath, options);
+        try
+        {
+            _session = DmlSessionSetup.CreateSessionWithFallback(
+                SelectedModelPath!, attempts,
+                (path, options) => new InferenceSession(path, options),
+                _logger, _selectedModelSize);
 
             // Derive the feeding plan up front: a model this predictor cannot drive is caught at
             // load, where the user can see it, instead of throwing on every keystroke.
@@ -164,11 +165,32 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             _logger?.LogError(ex, "Failed to initialize ONNX session for {Model}", _selectedModelSize);
             IsAvailable = false;
         }
-        finally
+    }
+
+    /// <summary>
+    /// The DirectML device to put the session on, or null when ORT lists none (a GPU-less or CI
+    /// machine) or enumeration fails. A hybrid laptop's high-performance ranking keeps the
+    /// discrete GPU ahead of the integrated one.
+    /// </summary>
+    private (OrtEpDevice Device, DmlDeviceInfo Info)? SelectDmlDevice()
+    {
+        try
         {
-            // InferenceSession copies the options at construction; the SessionOptions
-            // instance itself is not retained and must be disposed (native handle).
-            options?.Dispose();
+            var devices = OrtEnv.Instance().GetEpDevices()
+                .Where(device => device.EpName == DmlDeviceChooser.DmlEpName)
+                .ToList();
+            if (devices.Count == 0) return null;
+
+            var infos = devices.Select(DmlDeviceChooser.FromEpDevice).ToList();
+            var chosen = DmlDeviceChooser.Choose(infos);
+            if (chosen == null) return null;
+
+            return (devices[infos.IndexOf(chosen)], chosen);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "DirectML device enumeration failed, using the default adapter");
+            return null;
         }
     }
 

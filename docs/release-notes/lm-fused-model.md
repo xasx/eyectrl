@@ -35,3 +35,11 @@
   could fault inside the graphics driver (`0xC0000005`). Requests now share a single
   latest-wins worker: one inference at a time, a superseded request stops after the step
   already in flight, and only the newest request's suggestions are returned.
+- **DirectML now runs on the fastest graphics adapter.** On a laptop with two GPUs the model
+  was loaded on the integrated one (DirectML's default device 0), which here was about 35 %
+  slower than the discrete GPU — and slower than the CPU. The predictor now asks ONNX Runtime
+  for its DirectML devices, ranks them by DXGI's high-performance order (discrete first) and
+  puts the session on the best one; the log names it, for example
+  `Using DirectML (GPU) for 1.5B on NVIDIA GeForce RTX 5090 Laptop GPU`. If that session
+  cannot be created it retries the default adapter, then the CPU, logging each step with its
+  exception.

@@ -11,6 +11,8 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
+using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -99,6 +101,32 @@ public class NoteColumnPlacementTests
             }
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // T5 review-02 F2: the disc glyph is a GAZE-sized ink area. The pin (#190 style): every
+    // glyph box is the Solo ratio of its disc and sits CENTRED in it. Mutants - back to
+    // ContainerRatio.Small, or the old hard-coded cx-8/cy-10 offset - go RED here.
+    [StaFact]
+    public void TheDiscGlyph_IsSoloSized_AndCentredInTheDisc()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new NoteWindow("glyph-pin");
+        window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+        window.SetState(NoteState.Display);
+
+        double disc = LayoutConstants.NoteButtonRadius * 2;
+        double expected = disc * ContainerRatio.Solo;
+        foreach (var (suffix, label) in window.LabelsForTest())
+        {
+            Check.WithCustomMessage($"the {suffix} glyph must be Solo-sized (want >= {expected:0.#}, got {label.FontSize:0.#})")
+                .That(label.FontSize).IsGreaterOrEqualThan(expected);
+            var centre = window.ButtonsForTest()[suffix]; // the label key IS the full id
+            double dx = Math.Abs((Canvas.GetLeft(label) + label.FontSize / 2) - (Canvas.GetLeft(centre) + window.ButtonRadiusForTest));
+            double dy = Math.Abs((Canvas.GetTop(label) + label.FontSize / 2) - (Canvas.GetTop(centre) + window.ButtonRadiusForTest));
+            Check.WithCustomMessage($"the {suffix} glyph must sit centred in its disc (dx {dx:0.##}, dy {dy:0.##})")
+                .That(dx < 0.01 && dy < 0.01).IsTrue();
+        }
+        Check.That(window.LabelsForTest().Count).IsStrictlyGreaterThan(0);
     }
 
     private static (NoteManager Manager, WeakReferenceMessenger Messenger) MakeManager()

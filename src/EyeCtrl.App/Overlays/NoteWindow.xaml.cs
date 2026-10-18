@@ -113,6 +113,9 @@ public class NoteWindow : OverlayWindow
     /// so the window-geometry pin can check the canvas against NoteLayout.ButtonCenter.</summary>
     internal System.Collections.Generic.IReadOnlyDictionary<string, Ellipse> ButtonsForTest() => _buttons;
 
+    internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
+    internal double ButtonRadiusForTest => ButtonRadius;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Draw();
@@ -517,14 +520,18 @@ public class NoteWindow : OverlayWindow
                 var label = new TextBlock
                 {
                     Text = symbol,
-                    // Sized from the 56px disc that bounds it (ButtonDiameter above).
-                    FontSize = ButtonDiameter * ContainerRatio.Small,
+                    // T5 review-02 F2: a label-less gaze disc carries a GAZE-sized glyph - the
+                    // DwellArcButton convention for discs (Solo, 0.58 of the 56 DIP disc = about
+                    // 32 DIP). Small (0.23, for glyphs BESIDE other content) left a 12.9 DIP
+                    // stamp on a 56 DIP target.
+                    FontSize = ButtonDiameter * ContainerRatio.Solo,
                     Foreground = new SolidColorBrush(color),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                Canvas.SetLeft(label, cx - 8);
-                Canvas.SetTop(label, cy - 10);
+                // Centred in the disc: the glyph box starts at (cx - size/2, cy - size/2).
+                Canvas.SetLeft(label, cx - (label.FontSize / 2));
+                Canvas.SetTop(label, cy - (label.FontSize / 2));
                 if (accessibleName.Length > 0)
                     System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
                 _canvas.Children.Add(label);

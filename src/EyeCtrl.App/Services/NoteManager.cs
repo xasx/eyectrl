@@ -1240,13 +1240,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_movingNoteId != noteId) return;
         if (FindNote(noteId) is not { } note) return;
         if (!_placements.TryGetValue(noteId, out var current)) return;
-        var next = NextSide(current.Side);
-        // fixup-01 m1: apply the candidate the offer judged available. The fallback (the judged
-        // one went stale without a re-registration) re-derives over the same avoid set, so even
-        // it cannot wander back over the keyboard.
+        // fixup-02 nit 2: apply the candidate the offer judged available — whatever cycle step
+        // the avoid set landed it on. The fallback (the judged one went stale without a
+        // re-registration) re-derives over the same avoid set, so even it cannot wander back
+        // over the keyboard.
         var other = _judgedOtherSideForMoving;
-        if (other is null || other.Side != next)
-            other = NoteLayout.Place(note.Anchor, next, CardSize(), _workAreaDip(),
+        if (other is null)
+            other = NoteLayout.Place(note.Anchor, NextSide(current.Side), CardSize(), _workAreaDip(),
                 AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: current.Side);
         if (other is null)
         {
@@ -1281,6 +1281,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         note.Anchor = newAnchor;
         HidePlaceHere(); // must run while _movingNoteId still names this move
         _movingNoteId = null;
+        _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
         var placement = NoteLayout.Place(note.Anchor, note.Side, CardSize(), _workAreaDip(),

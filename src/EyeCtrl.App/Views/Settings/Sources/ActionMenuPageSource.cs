@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Views.Settings;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Models;
 
 internal sealed class ActionMenuPageSource : ISettingsPageSource
@@ -103,6 +104,19 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
                 { Description = PrimaryDescription(captured) });
         }
 
+        // The P4 D1 setting: the note text size. The manager observes the same NoteSettings
+        // instance, so ApplyAndSave raises T8 and every live note re-fits at once.
+        rows.Add(new SliderSpec(
+            "am_notes_text_size",
+            StringTable.Current.T("settings.action_menu.notes.textSize.label"),
+            NoteSettings.MinTextSizeDip, NoteSettings.MaxTextSizeDip, Step: 1, Decimals: 0,
+            Get: () => _ctx.Settings.Note.TextSizeDip,
+            Set: v =>
+            {
+                _ctx.Settings.Note.TextSizeDip = (int)Math.Round(v);
+                _ctx.ApplyAndSave();
+            })
+            { Description = StringTable.Current.T("settings.action_menu.notes.textSize.description") });
         rows.Add(new ButtonSpec("am_reset",
             StringTable.Current.T("settings.action_menu.reset.label"),
             () => _ctx.ShowModal(StringTable.Current.T("settings.action_menu.reset.message"), () =>

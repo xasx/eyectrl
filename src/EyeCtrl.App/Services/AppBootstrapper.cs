@@ -505,7 +505,10 @@ public class AppBootstrapper
         services.AddSingleton<NoteManager>(sp => new NoteManager(
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
-            sp.GetRequiredService<IDwellDetectorRegistry>()));
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            // T8 (P4 D1): the manager observes the SAME NoteSettings the settings UI writes,
+            // so a text-size change re-places every live note.
+            noteSettings: sp.GetRequiredService<EyeCtrlSettings>().Note));
         services.AddSingleton<INoteManager>(sp => sp.GetRequiredService<NoteManager>());
 
         // OverlayManager (manages all overlay window lifecycle)

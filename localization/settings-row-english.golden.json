@@ -412,6 +412,12 @@
           "Modal": null
         },
         {
+          "Id": "am_notes_text_size",
+          "Label": "Note text size",
+          "Description": "How large note text renders, from 18 to 48. Every note re-fits at once.",
+          "Modal": null
+        },
+        {
           "Id": "am_reset",
           "Label": "Reset Action Menu Settings",
           "Description": null,

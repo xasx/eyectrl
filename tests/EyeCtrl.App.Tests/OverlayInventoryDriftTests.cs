@@ -86,6 +86,7 @@ public class OverlayInventoryDriftTests
             // P3 D4: the Place-here window carries the Move state's :place dwell target, whose
             // rect reaches the inventory through NoteManager.LiveTargetRects — NoteWindow's shape.
             ["NotePlaceHereWindow"] = "collision-zone",
+            ["NoteNoticeWindow"] = "exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder)",
             ["RestartNoticeWindow"] = "collision-zone",
             ["LagMarkWindow"] = "collision-zone",
         };

@@ -217,4 +217,165 @@ public class NoteCapacityNoticeTests
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
+
+    // Review-01 survivor, R13 adopted: the SAME hold fires the cell once the notice is gone.
+    [Fact]
+    public void R13_TheCellFires_OnceTheNoticeIsGone()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+        var anchor = new PhysicalPoint(1600, 1000);
+        var id = manager.AddNoteTargetsForTest(anchor);
+        var close = NoteTestBench.CellCentre(manager, id, 3);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            PhysicalRect? notice = new PhysicalRect(close.X - 400, close.Y - 200, 800, 400);
+            manager.SetOccluderSources(noteNoticeBounds: () => notice);
+
+            for (long t = 0; t <= 1_500_000; t += 100_000)
+                manager.OnGazeMoved(close, t);
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            notice = null; // the notice faded out
+            for (long t = 1_600_000; t <= 1_800_000; t += 100_000)
+                manager.OnGazeMoved(new PhysicalPoint(close.X + 10_000, close.Y), t); // leave (latch release)
+            for (long t = 1_900_000; t <= 4_000_000; t += 100_000)
+                manager.OnGazeMoved(close, t);
+            Check.WithCustomMessage("with the notice gone the same hold must fire the close cell")
+                .That(manager.ActiveNotes.Count == 0 || manager.ActiveNotes[0].State != NoteState.Display).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // Review-01 survivor: the avoid list is EXERCISED - the pin lands beside an existing card,
+    // so the notice must not merely sit in an empty corner.
+    [StaFact]
+    public void TheNotice_AvoidsACardThatIsInTheWay()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.AddNoteTargetsForTest(new PhysicalPoint(1600, 1000));
+            manager.NoticeWindowShowsForTest = false;
+            // The pin sits just BELOW the card: the preferred Right window (and Left) intersects
+            // the card's band, so the avoid list must push the notice to the free Below side.
+            manager.ShowCapacityNotice(new PhysicalPoint(1800, 1400));
+
+            Check.That(manager.TryGetNoticeVisibleBounds(out var notice)).IsTrue();
+            var noticeDip = new Rect(
+                DpiHelper.PhysicalToLogicalX(notice.X),
+                DpiHelper.PhysicalToLogicalY(notice.Y),
+                DpiHelper.PhysicalToLogicalX(notice.Width),
+                DpiHelper.PhysicalToLogicalY(notice.Height));
+            var card = manager.PlacementForTest(manager.ActiveNotes[0].Id)!.Card;
+            Check.WithCustomMessage($"the notice {noticeDip} must avoid the in-the-way card {card}")
+                .That(noticeDip.IntersectsWith(card)).IsFalse();
+            Check.WithCustomMessage("the avoid was exercised: the free side is Below")
+                .That(NoticeIsBelowTheCard(manager)).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // Review-01 survivor: a notice over a pending chip STOPS its countdown.
+    [Fact]
+    public void ANoticeOverAChip_StopsItsClock()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var clock = new SurvivorsFakeClock();
+        var timer = new SurvivorsFakeUndoTimer();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            clockMs: clock.Read, undoTimer: timer, workAreaDip: NoteTestBench.WorkAreaProvider);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The scale FIRST, then the targets: the dwell cells register in physical px at the
+            // live scale (the scale-1.0 registration is exactly what silently broke the first
+            // draft of this test).
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = manager.AddNoteTargetsForTest(anchor);
+            var tUs = 0L;
+            void TickAt(PhysicalPoint sampleAt)
+            {
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(sampleAt, tUs, IsInGap: false)));
+                clock.Advance(100);
+                timer.RaiseTick();
+                tUs += 100_000;
+            }
+
+            var close = NoteTestBench.CellCentre(manager, id, 3);
+            for (var t = 0L; t <= 200_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(new PhysicalPoint(close.X + 10_000, close.Y), t, IsInGap: false)));
+            for (var t = 300_000L; t <= 1_500_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(close, t, IsInGap: false)));
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            var undo = NoteTestBench.CellCentre(manager, id, 0);
+
+            // A notice over the Undo cell: no reachable time accumulates (the clock condition 4).
+            // The tick samples park BESIDE the chip (valid + fresh, off every cell), so the dwell
+            // never fires Undo while the countdown is under test.
+            var parked = new PhysicalPoint(close.X + 10_000, close.Y);
+            manager.SetOccluderSources(noteNoticeBounds: () => new PhysicalRect(undo.X - 400, undo.Y - 200, 800, 400));
+            for (var i = 0; i < 100; i++) TickAt(parked);
+            Check.WithCustomMessage("a notice over the chip must stop its countdown (the chip survives)")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            // The notice gone: the countdown completes and the Removed chip expires (gone).
+            manager.SetOccluderSources(noteNoticeBounds: () => null);
+            for (var i = 0; i < 90; i++) TickAt(parked);
+            Check.WithCustomMessage("with the notice gone the chip clock completes (the Removed chip expires)")
+                .That(manager.ActiveNotes).IsEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // Review-01 survivor: the 3 s hold is real - fully shown just before, fading after.
+    [StaFact]
+    public void TheNoticeHolds_ThenFades()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+        for (var i = 0; i < 8; i++)
+            manager.AddNoteTargetsForTest(new PhysicalPoint(400 + (i % 4) * 600, i < 4 ? 400 : 1000));
+        manager.NoticeWindowShowsForTest = false;
+        manager.ShowCapacityNotice(new PhysicalPoint(1600, 1000));
+
+        var notice = manager.NoticeWindowForTest!;
+        Check.WithCustomMessage("the notice is fully shown right after it appears")
+            .That(notice.IsFadingForTest).IsFalse();
+        notice.OnHoldElapsedForTest();
+        Check.WithCustomMessage("the notice fades once its 3 s hold expires")
+            .That(notice.IsFadingForTest).IsTrue();
+        Check.That(manager.TryGetNoticeVisibleBounds(out _)).IsTrue(); // still up during the fade
+    }
+
+    private static bool NoticeIsBelowTheCard(NoteManager manager)
+    {
+        manager.TryGetNoticeVisibleBounds(out var notice);
+        var card = manager.PlacementForTest(manager.ActiveNotes[0].Id)!.Card;
+        double centreY = DpiHelper.PhysicalToLogicalY(notice.Y + (notice.Height / 2));
+        return centreY > card.Bottom;
+    }
+
+    internal sealed class SurvivorsFakeClock
+    {
+        private long _nowMs;
+        public long Read() => _nowMs;
+        public void Advance(long ms) => _nowMs += ms;
+    }
+
+    internal sealed class SurvivorsFakeUndoTimer : INoteUndoTimer
+    {
+        private Action? _tick;
+        public bool IsRunning { get; private set; }
+        public void Start(Action onTick) { _tick = onTick; IsRunning = true; }
+        public void Stop() => IsRunning = false;
+        public void Dispose() => Stop();
+        public void RaiseTick() => _tick?.Invoke();
+    }
 }

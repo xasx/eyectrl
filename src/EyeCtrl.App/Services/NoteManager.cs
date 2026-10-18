@@ -1223,6 +1223,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>Test seam: whether the notice puts a REAL window on the screen. Headless tests
     /// on the owner machine set this false BEFORE the first ShowCapacityNotice.</summary>
     internal bool NoticeWindowShowsForTest { get; set; } = true;
+
+    /// <summary>Test seam: the notice window instance, once created (null before the first
+    /// at-capacity pin).</summary>
+    internal NoteNoticeWindow? NoticeWindowForTest => _noticeWindow;
     internal Func<PhysicalRect?>? NoticeBoundsForTest => _noteNoticeBounds;
     /// <summary>The notice visible bounds while it shows (P2 D3) - the source the occluder
     /// wiring passes to <see cref="SetOccluderSources"/> at the composition root.</summary>
@@ -1779,16 +1783,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>The target with this id, in either detector — the card detector first, then the
     /// chips'. Ids never collide (the suffixes differ).</summary>
+    /// <summary>The target with this id, in either detector - the card detector first, then the
+    /// chips. Ids never collide (the suffixes differ).</summary>
     private DwellTarget? FindTarget(string id) =>
         _dwellDetector.Targets.FirstOrDefault(t => t.Id == id)
         ?? _undoDetector.Targets.FirstOrDefault(t => t.Id == id);
 
-    /// <summary>Whether the gaze lies inside the union of the live targets' hit areas (P2 D2's
+    /// <summary>Whether the gaze lies inside the union of the live targets hit areas (P2 D2
     /// cost cap), over BOTH detectors: rect targets by their bounds, circular targets by their
     /// circle.</summary>
     /// <summary>Whether the point lies in a target hit area (P4 D3): rect containment for the
-    /// note hit cells, circle distance for everything else (the chip Undo and Place-here
-    /// targets keep their circles).</summary>
+    /// note hit cells AND for the chip Undo cell (it is a cell too); circle distance for every
+    /// remaining target - only the Place-here dwell keeps its circle.</summary>
     private static bool TargetContains(DwellTarget target, PhysicalPoint point)
     {
         if (target.Bounds is { } bounds)

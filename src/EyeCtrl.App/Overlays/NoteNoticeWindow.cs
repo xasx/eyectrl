@@ -96,8 +96,15 @@ public sealed class NoteNoticeWindow : OverlayWindow
         _hideTimer.Start();
     }
 
+    /// <summary>Test seams (review-01 survivors): drive the hold expiry without waiting 3 s of
+    /// wall time, and read whether the fade has started.</summary>
+    internal bool IsFadingForTest { get; private set; }
+
+    internal void OnHoldElapsedForTest() => OnHideTick(this, EventArgs.Empty);
+
     private void OnHideTick(object? sender, EventArgs e)
     {
+        IsFadingForTest = true;
         _hideTimer?.Stop();
         var fade = new DoubleAnimation(1.0, 0.0, FadeOut) { FillBehavior = FillBehavior.Stop };
         fade.Completed += (_, _) => { Hide(); _showingForTest = false; };

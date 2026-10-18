@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -11,6 +12,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
@@ -119,6 +121,93 @@ public class KeyboardProbeTests
         PumpBackgroundHop();
 
         Check.That(raises).IsEqualTo(0);
+    }
+
+    // ── fixup-01 G1: the four re-place trigger sources (T2–T5) get tests that can fail ──
+    // Each triggers exactly one keyboard-relevant change and asserts exactly one Changed
+    // after the same one-hop pump the IsVisible test uses. Their proof mutants (dropping
+    // IsEmojiMode from the raise condition, the SizeChanged/Loaded subscription, the
+    // KeyboardEdgeToggledMessage registration, the ButtonSetChanged subscription) each turn
+    // exactly the matching test red.
+
+    [StaFact]
+    public void FlippingIsEmojiMode_RaisesChanged_ExactlyOnce_AfterADispatcherPump()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new KeyboardWindow();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.SetViewModel(vm);
+        using var probe = new KeyboardProbe(
+            vm, Dispatcher.CurrentDispatcher, new WeakReferenceMessenger(),
+            () => window, () => null);
+        int raises = 0;
+        probe.Changed += () => raises++;
+
+        vm.IsEmojiMode = true;
+        PumpBackgroundHop();
+        Check.WithCustomMessage("one emoji-mode flip, one raise").That(raises).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void RaisingLoaded_RaisesChanged_ExactlyOnce_AfterADispatcherPump()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new KeyboardWindow();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.SetViewModel(vm);
+        using var probe = new KeyboardProbe(
+            vm, Dispatcher.CurrentDispatcher, new WeakReferenceMessenger(),
+            () => window, () => null);
+        int raises = 0;
+        probe.Changed += () => raises++;
+
+        // Loaded rides the same handler as SizeChanged (OnKeyboardLayoutChanged); raising it
+        // directly pins the layout-changed subscription without a real window resize.
+        window.RaiseEvent(new RoutedEventArgs(System.Windows.FrameworkElement.LoadedEvent));
+        PumpBackgroundHop();
+        Check.WithCustomMessage("one layout raise")
+            .That(raises).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void EdgeToggleMessage_RaisesChanged_ExactlyOnce_AfterADispatcherPump()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new KeyboardWindow();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.SetViewModel(vm);
+        var messenger = new WeakReferenceMessenger();
+        using var probe = new KeyboardProbe(
+            vm, Dispatcher.CurrentDispatcher, messenger,
+            () => window, () => null);
+        int raises = 0;
+        probe.Changed += () => raises++;
+
+        messenger.Send(new KeyboardEdgeToggledMessage());
+        PumpBackgroundHop();
+        Check.WithCustomMessage("one edge toggle, one raise").That(raises).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void SeedingButtons_RaisesChanged_ExactlyOnce_AfterADispatcherPump()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new KeyboardWindow();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.SetViewModel(vm);
+        var bar = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        using var probe = new KeyboardProbe(
+            vm, Dispatcher.CurrentDispatcher, new WeakReferenceMessenger(),
+            () => window, () => bar);
+        int raises = 0;
+        probe.Changed += () => raises++;
+
+        bar.ShowButtons(new List<EdgeButtonDefinition>
+        {
+            new("probe.close", "✕", 600, _ => { }, VerticalOffset: 40, RadiusLogical: 30),
+        }, new PhysicalPoint(2000, 50));
+        PumpBackgroundHop();
+        Check.WithCustomMessage("one button-set change, one raise").That(raises).IsEqualTo(1);
     }
 
     /// <summary>Drains the probe's raise: it is queued at Background, one hop after the property

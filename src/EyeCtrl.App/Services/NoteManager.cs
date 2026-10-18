@@ -278,12 +278,6 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     // ── placement derivation (P3 D2) ──
 
-    /// <summary>The card size every placement is derived with (T5 may make it per-note).</summary>
-    /// <summary>The card size one note placement derives from (P4 D2): the width comes from the
-    /// text size, the height from the measured text height - capped at min(55 percent of the work
-    /// area, 12 lines) - with the control column as the floor. The DRAFT is measured while
-    /// editing, the saved text otherwise; a windowless seam note has nothing to measure with and
-    /// uses the floor.</summary>
     private Rect WorkAreaDip() => _workAreaDipOverride?.Invoke() ?? _workAreaDip();
     private Size CardSizeFor(NoteData note)
     {
@@ -453,14 +447,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// Headless geometry tests read the SAME placement the manager registered from instead of
     /// re-deriving it, so the accepted P4 layout constants cannot make a test's expectation and
     /// the manager's truth disagree.</summary>
+    internal NotePlacement? PlacementForTest(string noteId) =>
+        _placements.TryGetValue(noteId, out var p) ? p : null;
+
+
     /// <summary>Test seam (review-01 M3): redirects the work-area provider so a test can drive
     /// a T6 re-place that genuinely moves a note.</summary>
     internal void UseWorkAreaForTest(Func<Rect> provider)
     {
         _workAreaDipOverride = provider ?? throw new ArgumentNullException(nameof(provider));
     }
-    internal NotePlacement? PlacementForTest(string noteId) =>
-        _placements.TryGetValue(noteId, out var p) ? p : null;
 
     // ── typing into the note (P1 D1/D2) ──
 
@@ -1217,9 +1213,6 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _noticeWindow.ShowAt(noticePlacement.Window);
     }
 
-    /// <summary>Test/wiring seam: the occluder source the composition root registered for
-    /// the notice - non-null once <see cref="NoteOccluderWiring.Wire"/> ran, and the thing the
-    /// note gate actually reads (so a real-container test can pin the connection).</summary>
     /// <summary>Test seam: whether the notice puts a REAL window on the screen. Headless tests
     /// on the owner machine set this false BEFORE the first ShowCapacityNotice.</summary>
     internal bool NoticeWindowShowsForTest { get; set; } = true;
@@ -1227,6 +1220,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>Test seam: the notice window instance, once created (null before the first
     /// at-capacity pin).</summary>
     internal NoteNoticeWindow? NoticeWindowForTest => _noticeWindow;
+
+    /// <summary>Test/wiring seam: the occluder source the composition root registered for
+    /// the notice - non-null once <see cref="NoteOccluderWiring.Wire"/> ran, and the thing the
+    /// note gate actually reads (so a real-container test can pin the connection).</summary>
     internal Func<PhysicalRect?>? NoticeBoundsForTest => _noteNoticeBounds;
     /// <summary>The notice visible bounds while it shows (P2 D3) - the source the occluder
     /// wiring passes to <see cref="SetOccluderSources"/> at the composition root.</summary>
@@ -1781,17 +1778,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         }
     }
 
-    /// <summary>The target with this id, in either detector — the card detector first, then the
-    /// chips'. Ids never collide (the suffixes differ).</summary>
     /// <summary>The target with this id, in either detector - the card detector first, then the
     /// chips. Ids never collide (the suffixes differ).</summary>
     private DwellTarget? FindTarget(string id) =>
         _dwellDetector.Targets.FirstOrDefault(t => t.Id == id)
         ?? _undoDetector.Targets.FirstOrDefault(t => t.Id == id);
 
-    /// <summary>Whether the gaze lies inside the union of the live targets hit areas (P2 D2
-    /// cost cap), over BOTH detectors: rect targets by their bounds, circular targets by their
-    /// circle.</summary>
     /// <summary>Whether the point lies in a target hit area (P4 D3): rect containment for the
     /// note hit cells AND for the chip Undo cell (it is a cell too); circle distance for every
     /// remaining target - only the Place-here dwell keeps its circle.</summary>
@@ -1803,6 +1795,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         double dy = point.Y - target.Center.Y;
         return dx * dx + dy * dy <= (double)target.Radius * target.Radius;
     }
+
+    /// <summary>Whether the gaze lies inside the union of the live targets hit areas (P2 D2
+    /// cost cap), over BOTH detectors: rect targets by their bounds, circular targets by their
+    /// circle.</summary>
 
     private bool GazeInsideTargetUnion(PhysicalPoint gazePoint)
     {

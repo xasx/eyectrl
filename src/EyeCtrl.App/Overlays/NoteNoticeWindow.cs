@@ -100,6 +100,11 @@ public sealed class NoteNoticeWindow : OverlayWindow
     /// wall time, and read whether the fade has started.</summary>
     internal bool IsFadingForTest { get; private set; }
 
+    /// <summary>Test seams (review-02 m1): the pinned durations, readable from the timer and the fade.</summary>
+    internal TimeSpan HoldIntervalForTest => _hideTimer!.Interval;
+
+    internal Duration FadeDurationForTest => FadeOut;
+
     internal void OnHoldElapsedForTest() => OnHideTick(this, EventArgs.Empty);
 
     private void OnHideTick(object? sender, EventArgs e)

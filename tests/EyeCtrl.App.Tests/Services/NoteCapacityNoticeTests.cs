@@ -348,6 +348,13 @@ public class NoteCapacityNoticeTests
         var notice = manager.NoticeWindowForTest!;
         Check.WithCustomMessage("the notice is fully shown right after it appears")
             .That(notice.IsFadingForTest).IsFalse();
+
+        // Review-02 m1: the durations are PINNED - a 30 s hold or a 5 s fade must fail here.
+        Check.WithCustomMessage($"the hold interval must be exactly 3 s, got {notice.HoldIntervalForTest.TotalSeconds:0.#} s")
+            .That(notice.HoldIntervalForTest).IsEqualTo(TimeSpan.FromSeconds(3));
+        Check.WithCustomMessage($"the fade must run exactly 1 s, got {notice.FadeDurationForTest.TimeSpan.TotalSeconds:0.#} s")
+            .That(notice.FadeDurationForTest.TimeSpan).IsEqualTo(TimeSpan.FromSeconds(1));
+
         notice.OnHoldElapsedForTest();
         Check.WithCustomMessage("the notice fades once its 3 s hold expires")
             .That(notice.IsFadingForTest).IsTrue();

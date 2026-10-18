@@ -224,7 +224,7 @@ public class NoteLayoutPlaceTests
         // ButtonCenter returns window-RELATIVE points; the window's own rect in its own frame
         // is (0, 0, width, height).
         var windowLocal = new Rect(0, 0, placement.Window.Width, placement.Window.Height);
-        for (int slot = 0; slot < 3; slot++)
+        for (int slot = 0; slot < 4; slot++) // all four rows, the gap included (review-02 nit)
         {
             var (x, y) = ButtonCenter(placement.Side, slot, placement.Card.Width);
             Check.WithCustomMessage($"cell {slot} at ({x}, {y}) must be inside the window {windowLocal}")

@@ -8,8 +8,9 @@
         SizeToContent="WidthAndHeight">
     <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
         <DockPanel>
-            <!-- Prediction bar at top (hidden in emoji mode) -->
-            <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
+            <!-- Prediction bar at top: always one slot per suggestion in text mode, so the bar
+                 never changes the window's size. -->
+            <UniformGrid x:Name="PredictionBar" Rows="1" HorizontalAlignment="Left"
                         DockPanel.Dock="Top" Margin="0,0,0,6"/>
             <!-- Emoji category tabs (hidden in text mode) -->
             <StackPanel x:Name="CategoryBar" Orientation="Horizontal"

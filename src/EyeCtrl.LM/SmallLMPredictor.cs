@@ -462,15 +462,42 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         var results = new List<PredictionResult>();
         if (string.IsNullOrWhiteSpace(generatedText)) return results;
 
-        var words = generatedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0) return results;
-
-        var word = words[0];
-        if (!string.IsNullOrEmpty(prefix) && !word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        // The model is prompted with context + prefix, so with a prefix it returns the
+        // CONTINUATION ("Wet" -> "terdaten"), not the whole word. A continuation that starts
+        // with whitespace means the typed word is already complete; next-word prediction is out
+        // of scope.
+        if (!string.IsNullOrEmpty(prefix) && char.IsWhiteSpace(generatedText[0]))
             return results;
+
+        var text = generatedText.TrimStart();
+        var end = 0;
+        while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
+        var completion = text[..end];
+
+        // Trailing punctuation is cut ("ter." -> "ter") before the shape check; what remains
+        // must be a word (Unicode letters, with internal apostrophe/hyphen allowed).
+        var wordEnd = completion.Length;
+        while (wordEnd > 0 && !char.IsLetter(completion[wordEnd - 1])) wordEnd--;
+        completion = completion[..wordEnd];
+        if (completion.Length == 0 || !IsWordShaped(completion)) return results;
+
+        var word = string.IsNullOrEmpty(prefix) ? completion : prefix + completion;
         results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
 
         return results;
+    }
+
+    private static bool IsWordShaped(string word)
+    {
+        for (int i = 0; i < word.Length; i++)
+        {
+            var c = word[i];
+            if (char.IsLetter(c)) continue;
+            if (c is '\'' or '\u2019' or '-' && i > 0 && i < word.Length - 1) continue;
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>One token produced by a generation step, with the model's probability for it.</summary>

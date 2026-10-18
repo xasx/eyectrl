@@ -83,6 +83,25 @@ public class PredictionOrchestratorTests
     }
 
     [Fact]
+    public void GetSuggestions_HighScoreFuzzy_LandsAfterEveryPrefixMatch()
+    {
+        // "hwl" is an adjacent-key slip from "hel" (0.5) with a million-fold frequency, so it
+        // wins on score alone. The owner sees the typed letters respected first: every prefix
+        // match outranks every non-match, regardless of score.
+        var orchestrator = CreateOrchestrator(words: new Dictionary<string, int>
+        {
+            ["help"] = 100, ["hwl"] = 1_000_000,
+        });
+
+        var results = orchestrator.GetSuggestions("hel", context: null, maxCount: 5);
+
+        Check.That(results).Not.IsEmpty();
+        Check.That(results[0].Word).IsEqualTo("help");
+        Check.That(results).HasElementThatMatches(r => r.Word == "hwl");
+        Check.That(results.Last().Word).IsEqualTo("hwl");
+    }
+
+    [Fact]
     public void LearnWord_DelegatesToWordPredictor()
     {
         var orchestrator = CreateOrchestrator();

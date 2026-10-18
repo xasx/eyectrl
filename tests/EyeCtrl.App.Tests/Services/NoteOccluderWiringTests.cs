@@ -86,7 +86,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 2);
+                var closeCenter = ButtonCentrePhysical(anchor, 3);
 
                 // Leave-before-arm: 300 ms outside the circle, then a 900 ms hold on ✕.
                 for (long t = 0; t <= 300_000; t += 100_000)
@@ -158,7 +158,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // The card sits exactly over ✕, visible: a full hold must not fire.
             trackStatus.Visible = true;
@@ -199,7 +199,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 2);
+                var closeCenter = ButtonCentrePhysical(anchor, 3);
 
                 // A 2 s hold on ✕ with the source throwing on every sample: nothing escapes,
                 // and the destructive dwell can never complete (fail closed).
@@ -318,7 +318,7 @@ public class NoteOccluderWiringTests
 
             // The same held gaze now rests on ✕ (slot 2, P2 D8 — re-registered fresh by the
             // exit): the destructive control must stay gated by the fail-closed answer.
-            var slot2 = ButtonCentrePhysical(anchor, 2); // ✕ Close in Display
+            var slot2 = ButtonCentrePhysical(anchor, 3); // ✕ Close in Display
             for (long t = 2_600_000; t <= 3_600_000; t += 100_000)
                 manager.OnGazeMoved(slot2, t);
             Check.WithCustomMessage(
@@ -353,7 +353,7 @@ public class NoteOccluderWiringTests
             var anchor = new PhysicalPoint(1600, 1000);
             var idA = manager.AddNoteTargetsForTest(anchor);
             var idB = manager.AddNoteTargetsForTest(new PhysicalPoint(3000, 2000));
-            var closeCenter = ButtonCentrePhysical(anchor, 2); // ✕ (P2 D8)
+            var closeCenter = ButtonCentrePhysical(anchor, 3); // ✕ (P2 D8)
             var away = new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y);
 
             // 1. Latch ✕ under a held gaze: the gaze settles on ✕, then a neighbour's removal

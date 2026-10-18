@@ -66,38 +66,24 @@ public static class LayoutConstants
     public const double ActionMenuButtonOuterGap = 60.0;
 
     /// <summary>
-    /// Radius of note control buttons (close, edit, move) in logical pixels.
-    /// 30px radius = 60px diameter — large enough for gaze targeting, compact enough for the note sidebar.
+    /// Radius of a note control disc (close, edit, move) in logical pixels (P4 D3).
+    /// 28px radius = 56px diameter, centred inside its 80x80 DIP hit cell.
     /// </summary>
-    public const double NoteButtonRadius = 30.0;
+    public const double NoteButtonRadius = 28.0;
 
     /// <summary>
-    /// Width of the NoteWindow in logical pixels (text area + button column: 200 + 60 + 10 + 10).
+    /// Edge of the square note hit cell in logical pixels (P4 D3): every control disc is
+    /// centred inside an 80x80 DIP cell, which is the dwell target rect bounds - forgiving
+    /// hit areas around a smaller visible disc. A full empty cell between Move and Remove
+    /// carries the one-slot-apart rule (P2 D8) as geometry.
     /// </summary>
-    public const double NoteWindowWidth = 280.0;
+    public const double NoteCellDip = 80.0;
 
-    /// <summary>Height of the NoteWindow title bar in logical pixels.</summary>
-    public const double NoteTitleBarHeight = 24.0;
-
-    /// <summary>Gap between the stacked note control buttons in logical pixels.</summary>
-    public const double NoteButtonGap = 10.0;
-
-    /// <summary>Padding from the note window edges to the button column in logical pixels.</summary>
+    /// <summary>Padding from the note window edges to the control column in logical pixels.</summary>
     public const double NoteButtonPadding = 10.0;
 
-    /// <summary>
-    /// Height of the NoteWindow in logical pixels. Sized to fit the title bar plus the vertical
-    /// column of three control buttons (close/edit/move) with top and bottom padding, so no button
-    /// is clipped: title + padding + 3·diameter + 2·gap + padding.
-    /// P3 note: this is the CARD height — the window also carries the tail zone on one edge, so
-    /// the drawn window is taller on the anchor's side.
-    /// </summary>
-    public const double NoteWindowHeight =
-        NoteTitleBarHeight + NoteButtonPadding
-        + 6 * NoteButtonRadius
-        + 2 * NoteButtonGap
-        + NoteButtonPadding;
-
+    /// <summary>Width of the note control column in logical pixels (P4 D3): padding + cell + padding.</summary>
+    public const double NoteColumnWidthDip = NoteButtonPadding + NoteCellDip + NoteButtonPadding;
     // ── the Place-here window (P3 D4) ──
     // One small window per NoteManager, shown beside an accepted settle's centroid while a note
     // is being moved. It is not click-through, so the P2 own-window conjunct can resolve it.

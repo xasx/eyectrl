@@ -40,7 +40,7 @@ public class NoteReadingRenderTests
     internal const string SampleText =
         "Meds at 8:00 - drink a full glass of water.\n" +
         "Back at 14:00. Anna calls afterwards.\n" +
-        "Physiotherapy on Thursday at 10:00 - take a taxi. \u2713";
+        "Physiotherapy on Thursday at 10:00 - take a taxi.";
 
     public static IEnumerable<object[]> Cases()
     {
@@ -58,21 +58,23 @@ public class NoteReadingRenderTests
         RenderCard(themeName, size, directory);
     }
 
-    [Fact]
+    [StaFact]
     public void TheRenderSet_IsComplete_TenFilesBothThemes()
     {
+        // Self-sufficient: renders the whole set itself, so test ORDER cannot decide whether
+        // the files exist (review-02 F1a).
         var directory = RenderDirectory();
         Directory.CreateDirectory(directory);
         foreach (var themeName in ThemeNames)
             foreach (var size in Sizes)
             {
+                RenderCard(themeName, size, directory);
                 var file = Path.Combine(directory, $"note-{themeName.ToLowerInvariant()}-{size}dip.png");
-                Check.WithCustomMessage($"{file} missing - run the render theory once first")
-                    .That(File.Exists(file)).IsTrue();
+                Check.WithCustomMessage($"{file} must be a real render")
+                    .That(new FileInfo(file).Length).IsStrictlyGreaterThan(0);
             }
         Check.That(Directory.GetFiles(directory, "note-*.png").Length).IsEqualTo(10);
     }
-
     internal static void RenderCard(string themeName, int size, string directory)
     {
         using var themeScope = ThemeScope.Activate(ThemeRegistry.Resolve(themeName));
@@ -85,7 +87,9 @@ public class NoteReadingRenderTests
             window.SetTextSize(size);
             var card = new Size(
                 NoteLayout.CardWidthDip(size),
-                NoteLayout.CardHeightDip(size, NoteLayout.TextCapHeightDip(1200, size), 1200));
+                // The PRODUCTION height: the same measure the manager derives from (the text
+                // height of the sample, floor and cap applied) - not the cap itself.
+                NoteLayout.CardHeightDip(size, window.MeasureTextHeightDip(SampleText), 1200));
             var placement = NoteLayout.Place(
                 new PhysicalPoint(1200, 1000), NoteSide.Right, card,
                 NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!;

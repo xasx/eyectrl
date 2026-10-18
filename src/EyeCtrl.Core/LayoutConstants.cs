@@ -86,27 +86,17 @@ public static class LayoutConstants
     public const double NoteButtonPadding = 10.0;
 
     /// <summary>
-    /// Vertical distance (logical px) from the note window's top edge down to the gaze anchor point.
-    /// The fixation point maps to this offset below the window top so the note appears just under the gaze.
-    /// Shared by <c>NoteManager</c> (window positioning + dwell-target math) and must stay in sync.
-    /// </summary>
-    public const double NoteAnchorOffsetY = 70.0;
-
-    /// <summary>
     /// Height of the NoteWindow in logical pixels. Sized to fit the title bar plus the vertical
     /// column of three control buttons (close/edit/move) with top and bottom padding, so no button
     /// is clipped: title + padding + 3·diameter + 2·gap + padding.
+    /// P3 note: this is the CARD height — the window also carries the tail zone on one edge, so
+    /// the drawn window is taller on the anchor's side.
     /// </summary>
     public const double NoteWindowHeight =
         NoteTitleBarHeight + NoteButtonPadding
         + 6 * NoteButtonRadius
         + 2 * NoteButtonGap
         + NoteButtonPadding;
-
-    /// <summary>Radius (logical px) of the placement dwell target shown while a note is being moved.
-    /// TEMPORARILY REINSTATED for T4's intermediate build: the Move rework (P3 D4) replaces the
-    /// gaze-chasing placement target, and this constant goes with it in the same ticket.</summary>
-    public const double NotePlacementRadius = 100.0;
 
     // ── the Place-here window (P3 D4) ──
     // One small window per NoteManager, shown beside an accepted settle's centroid while a note

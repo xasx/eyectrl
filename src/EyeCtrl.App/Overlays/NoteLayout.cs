@@ -69,11 +69,6 @@ internal static class NoteLayout
         return (originX + colX, originY + colY);
     }
 
-    /// <summary>Compat shim for the pre-P3 call sites and tests, removed with T4's placement
-    /// switch: every caller moves to the side-aware overload as the manager starts deriving
-    /// rects from <see cref="Place"/>.</summary>
-    public static (double X, double Y) ButtonCenter(int index) => ButtonCenter(NoteSide.Right, index);
-
     /// <summary>Where the card rect sits inside the window, per side: the tail zone occupies the
     /// strip between the window edge and the card on the anchor's side.</summary>
     public static (double X, double Y) CardOrigin(NoteSide side) => side switch

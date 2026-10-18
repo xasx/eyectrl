@@ -29,12 +29,14 @@ public class NoteDataTests
     }
 
     [Fact]
-    public void Position_CanBeSet()
+    public void Anchor_AndSide_CanBeSet()
     {
         var note = new NoteData();
-        note.Position = new PhysicalPoint(100, 200);
-        Check.That(note.Position.X).IsEqualTo(100);
-        Check.That(note.Position.Y).IsEqualTo(200);
+        note.Anchor = new PhysicalPoint(100, 200);
+        note.Side = NoteSide.Left;
+        Check.That(note.Anchor.X).IsEqualTo(100);
+        Check.That(note.Anchor.Y).IsEqualTo(200);
+        Check.That(note.Side).IsEqualTo(NoteSide.Left);
     }
 
     [Fact]

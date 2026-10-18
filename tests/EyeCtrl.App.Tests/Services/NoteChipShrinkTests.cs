@@ -10,6 +10,7 @@ using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
@@ -105,36 +106,107 @@ public class NoteChipShrinkTests
     }
 
     [StaFact]
-    public void AWorkAreaChange_WhileAChipIsPending_KeepsItShrunk_AndTheUndoDwellLive()
+    public void AWorkAreaChange_WhileAChipIsPending_MovesTheChip_AndTheUndoTargetFollows()
     {
         var (manager, messenger) = MakeManager();
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            var anchor = new PhysicalPoint(1600, 1000);
+            var anchor = new PhysicalPoint(2600, 1000);
             var id = SavedNote(manager, "saved text", anchor);
             Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0);
-            var chip = manager.PlacementForTest(id)!;
-            var undo = NoteTestBench.CellCentre(manager, id, 0);
+            var before = manager.PlacementForTest(id)!;
+            var oldUndo = NoteTestBench.CellCentre(manager, id, 0);
 
-            // T6 while the chip is pending: the chip re-derives SHRUNK, in place, and the Undo
-            // target neither moves nor resets - the dwell the gaze is holding keeps running.
-            messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1920, 1200, 2, 2)));
+            // T6 with a REAL geometry change: the work area shrinks, the chip clamps to a new
+            // spot - and its Undo target must follow (review-01 M3), not stay at the old,
+            // now-empty spot.
+            var area = new Rect(0, 0, 1300, 1100);
+            manager.UseWorkAreaForTest(() => area);
+            messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1300, 1100, 2, 2)));
+
             var after = manager.PlacementForTest(id)!;
-            Check.WithCustomMessage("the chip stays shrunk through a T6 re-place")
+            Check.WithCustomMessage($"the chip must actually move (before {before.Window}, after {after.Window})")
+                .That((after.Window.Left, after.Window.Top))
+                .IsNotEqualTo((before.Window.Left, before.Window.Top));
+            Check.WithCustomMessage("the chip stays shrunk through the move")
                 .That((after.Window.Width, after.Window.Height))
-                .IsEqualTo((chip.Window.Width, chip.Window.Height));
-            Check.WithCustomMessage("the Undo target never moves (the gaze stays on it)")
-                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(undo);
+                .IsEqualTo((before.Window.Width, before.Window.Height));
+            var newUndo = NoteTestBench.CellCentre(manager, id, 0);
+            Check.WithCustomMessage($"the Undo target must follow the drawn cell (old {oldUndo}, new {newUndo})")
+                .That(newUndo).IsNotEqualTo(oldUndo);
 
-            // The held gaze completes the Undo dwell (the chip did not shrink away).
-            for (long t = 2_000_000; t <= 3_200_000; t += 100_000)
-                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(undo, t, IsInGap: false)));
-            Check.WithCustomMessage("a gaze resting on the Undo target still fires it after the re-place")
+            // R14, both branches: a hold on the DRAWN new centre fires Undo; a hold on the old,
+            // empty spot must not.
+            for (long t = 2_000_000; t <= 2_300_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(new PhysicalPoint(newUndo.X + 10_000, newUndo.Y), t, IsInGap: false)));
+            for (long t = 2_400_000; t <= 5_000_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(newUndo, t, IsInGap: false)));
+            Check.WithCustomMessage("a hold on the DRAWN (new) Undo cell must fire Undo")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.That(manager.ActiveNotes[0].Text).IsEqualTo("saved text");
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
+    }
+
+    // R14, old branch: the mirror scenario - a hold on the OLD centre after a T6 move fires
+    // nothing (the ghost is gone).
+    [StaFact]
+    public void AWorkAreaMove_LeavesTheOldUndoSpotDead()
+    {
+        var (manager, messenger) = MakeManager();
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(2600, 1000);
+            var id = SavedNote(manager, "saved text", anchor);
+            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0);
+            var oldUndo = NoteTestBench.CellCentre(manager, id, 0);
+
+            var area = new Rect(0, 0, 1300, 1100);
+            manager.UseWorkAreaForTest(() => area);
+            messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1300, 1100, 2, 2)));
+            var newUndo = NoteTestBench.CellCentre(manager, id, 0);
+            Check.That(newUndo).IsNotEqualTo(oldUndo);
+
+            for (long t = 2_000_000; t <= 2_300_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(new PhysicalPoint(oldUndo.X + 10_000, oldUndo.Y), t, IsInGap: false)));
+            for (long t = 2_400_000; t <= 5_000_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(oldUndo, t, IsInGap: false)));
+            Check.WithCustomMessage("a hold on the OLD, empty spot must not fire Undo")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
+    }
+
+    // R12 (adopted): a LEFT-side chip keeps its Undo cell through a text-size change - the
+    // translation reference is the chip itself, so a size-independent chip never moves.
+    [StaFact]
+    public void R12_ALeftSideChip_KeepsItsUndoCell_ThroughATextSizeChange()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.CreateNoteAt(new PhysicalPoint(3000, 1200)); // DIP (1500, 600): Left fits, Right does not
+            var id = manager.ActiveNotes[0].Id;
+            manager.Apply(new NoteAppend("hello"));
+            manager.FinishEdit(id, commit: true);
+            Check.That(manager.PlacementForTest(id)!.Side).IsEqualTo(NoteSide.Left);
+
+            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0);
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            var undoBefore = NoteTestBench.CellCentre(manager, id, 0);
+
+            settings.TextSizeDip = 40;
+
+            Check.WithCustomMessage($"the Undo cell moved from {undoBefore} to {NoteTestBench.CellCentre(manager, id, 0)}")
+                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(undoBefore);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
     [StaFact]

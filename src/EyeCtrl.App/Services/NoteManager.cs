@@ -123,6 +123,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The work area in DIP (P3 D2.7), injected: production reads SystemParameters.WorkArea
     // (primary monitor in v1); headless tests inject a fixed 1920x1200.
     private readonly Func<Rect> _workAreaDip;
+    // The test override for the provider above (null in production).
+    private Func<Rect>? _workAreaDipOverride;
     // The note text-size setting (P4 D1/T8): the live instance the App settings carry, wired
     // once. Its TextSizeDip changes re-place every note (T8); the default instance covers the
     // headless constructions that pass nothing.
@@ -282,10 +284,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// area, 12 lines) - with the control column as the floor. The DRAFT is measured while
     /// editing, the saved text otherwise; a windowless seam note has nothing to measure with and
     /// uses the floor.</summary>
+    private Rect WorkAreaDip() => _workAreaDipOverride?.Invoke() ?? _workAreaDip();
     private Size CardSizeFor(NoteData note)
     {
         double size = _noteSettings.TextSizeDip;
-        double workHeight = _workAreaDip().Height;
+        double workHeight = WorkAreaDip().Height;
         string text = note.State == NoteState.Edit ? note.Draft : note.Text;
         double textHeight = Window(note.Id)?.MeasureTextHeightDip(text) ?? 0;
         return new Size(NoteLayout.CardWidthDip(size), NoteLayout.CardHeightDip(size, textHeight, workHeight));
@@ -299,21 +302,21 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private NotePlacement ChipPlacementFor(NoteData note)
     {
         var full = PlaceFor(note, avoidKeyboard: false);
-        var chip = NoteLayout.Place(note.Anchor, full.Side, NoteLayout.ChipCardSize(), _workAreaDip(),
+        var chip = NoteLayout.Place(note.Anchor, full.Side, NoteLayout.ChipCardSize(), WorkAreaDip(),
             new List<Rect>(), DpiHelper.ScaleX)!;
-        // B1 + R12: the translation reference is the chip's OWN previous placement when one
-        // exists - the chip card is size-independent, so a T8/T1 re-derive yields the same
-        // rect and the chip does not move (R12/R14). At ENTRY there is none: the translation
-        // anchors the full card's COLUMN edge (the card edge away from the tail), so the Undo
-        // cell keeps its pre-shrink centre under a resting gaze (B1).
-        var reference = _placements.TryGetValue(note.Id, out var previous)
-            && previous.Card.Width == chip.Card.Width && previous.Card.Height == chip.Card.Height
-            ? previous
-            : full;
-        double dy = reference.Window.Top - chip.Window.Top;
-        double dx = reference.Side == NoteSide.Left
-            ? reference.Window.Left - chip.Window.Left
-            : (reference.Window.Right - chip.Window.Width) - chip.Window.Left;
+        // B1: the translation anchors the full card COLUMN edge (the card edge away from the
+        // tail: the window right for Right/Below/Above, the window left for Left), so the Undo
+        // cell keeps its pre-shrink centre under a resting gaze. A re-place (T6/T1) re-derives
+        // the full first, so the chip tracks its note geometry; T8 never re-places chips at
+        // all (see OnNoteTextSizeChanged) because the chip card is size-independent (R12).
+        double dy = full.Window.Top - chip.Window.Top;
+        double dx = full.Side switch
+        {
+            // Left: the column hugs the window left - keep the left edge.
+            NoteSide.Left => full.Window.Left - chip.Window.Left,
+            // Right/Below/Above: the column hugs the window right - keep the right edge.
+            _ => (full.Window.Right - chip.Window.Width) - chip.Window.Left,
+        };
         return new NotePlacement(
             chip.Side,
             new Rect(chip.Window.X + dx, chip.Window.Y + dy, chip.Window.Width, chip.Window.Height),
@@ -361,7 +364,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private NotePlacement PlaceFor(NoteData note, bool avoidKeyboard)
     {
         var placement = NoteLayout.Place(
-            note.Anchor, note.Side, CardSizeFor(note), _workAreaDip(), AvoidRectsDip(avoidKeyboard),
+            note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(), AvoidRectsDip(avoidKeyboard),
             DpiHelper.ScaleX);
         return placement ?? throw new InvalidOperationException(
             "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
@@ -386,6 +389,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
         window.Top = placement.Window.Top;
+
+        // T5 review-01 M3: a chip whose placement genuinely MOVED (a T6 clamp, a T1/T8 shift)
+        // re-registers its Undo target at the NEW drawn centre - the ghost at the old spot must
+        // die with the old geometry. AddTarget is an idempotent set, the window mapping is
+        // refreshed, the detector resets, and the standard leave-before-arm rule latches the
+        // target if the gaze sits on the new centre.
+        if (note.State == NoteState.PendingUndo)
+        {
+            RegisterUndoTarget(note.Id);
+            _undoDetector.ResetAllState();
+            LatchTargetsUnderTheGaze();
+        }
     }
 
     /// <summary>
@@ -416,7 +431,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (e.PropertyName is not (nameof(NoteSettings.TextSizeDip) or "")) return;
         foreach (var window in _windows.ToList())
             window.SetTextSize(_noteSettings.TextSizeDip);
-        RePlaceEveryNote();
+        // R12: chips are size-independent - the chip card does not depend on the text size, so
+        // re-placing one through T8 can only move it wrongly. T6 and T1 re-place chips with
+        // their Undo-target re-registration (review-01 M3).
+        foreach (var note in _notes.Where(n => n.State != NoteState.PendingUndo).ToList())
+            ApplyPlacementToWindow(note);
+        ReRegisterAllTargets();
+        RaiseTargetsChanged();
     }
 
     /// <summary>The next side in the fixed cycle (P3 D4's Other side walks one step).</summary>
@@ -432,6 +453,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// Headless geometry tests read the SAME placement the manager registered from instead of
     /// re-deriving it, so the accepted P4 layout constants cannot make a test's expectation and
     /// the manager's truth disagree.</summary>
+    /// <summary>Test seam (review-01 M3): redirects the work-area provider so a test can drive
+    /// a T6 re-place that genuinely moves a note.</summary>
+    internal void UseWorkAreaForTest(Func<Rect> provider)
+    {
+        _workAreaDipOverride = provider ?? throw new ArgumentNullException(nameof(provider));
+    }
     internal NotePlacement? PlacementForTest(string noteId) =>
         _placements.TryGetValue(noteId, out var p) ? p : null;
 
@@ -517,7 +544,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var window = new NoteWindow(data.Id);
         _notes.Add(data);
         _windows.Add(window);
-        _placements[data.Id] = NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), _workAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!;
+        _placements[data.Id] = NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!;
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply
@@ -1185,7 +1212,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 avoid.Add(notePlacement.Card);
         }
         var size = new Size(NoteLayout.NoticeCardWidthDip, NoteLayout.NoticeCardHeightDip);
-        var noticePlacement = NoteLayout.Place(pinPoint, NoteSide.Right, size, _workAreaDip(), avoid, DpiHelper.ScaleX)!;
+        var noticePlacement = NoteLayout.Place(pinPoint, NoteSide.Right, size, WorkAreaDip(), avoid, DpiHelper.ScaleX)!;
         _noticeWindow ??= new NoteNoticeWindow { ShowRealWindow = NoticeWindowShowsForTest };
         _noticeWindow.ShowAt(noticePlacement.Window);
     }
@@ -1335,7 +1362,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // reached without leaving the gaze inside the keyboard's dwell space). The probe's
         // raise re-derives through the Move re-registration below (OnKeyboardProbeChanged), so
         // Other side re-appears the moment T1 frees the room back.
-        var other = NoteLayout.Place(note.Anchor, next, CardSizeFor(note), _workAreaDip(),
+        var other = NoteLayout.Place(note.Anchor, next, CardSizeFor(note), WorkAreaDip(),
             AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side);
         _judgedOtherSideForMoving = other;
         bool otherFits = other is not null;
@@ -1420,7 +1447,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
-        var placement = NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), _workAreaDip(),
+        var placement = NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
             new List<Rect>(), DpiHelper.ScaleX)!;
         _placements[id] = placement;
         window.ApplyPlacement(placement);
@@ -1588,7 +1615,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// the gaze is on the place window here.</summary>
     private void ShowPlaceHere(NoteData moving, PhysicalPoint centroidPhysical)
     {
-        var work = _workAreaDip();
+        var work = WorkAreaDip();
         double w = LayoutConstants.NotePlaceHereWidthDip, h = LayoutConstants.NotePlaceHereHeightDip;
         var centroidDip = ToDipPoint(centroidPhysical);        double x = centroidDip.X + LayoutConstants.NotePlaceHereOffsetDip;
         double y = centroidDip.Y - h / 2;

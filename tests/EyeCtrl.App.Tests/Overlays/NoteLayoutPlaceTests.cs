@@ -53,6 +53,22 @@ public class NoteLayoutPlaceTests
     }
 
     [Fact]
+    public void NoFitAtTheTopLeftCorner_ClampsThePreferredInsideTheInset()
+    {
+        // 200,100: every side misses (the window would start above the inset top, or left of
+        // the inset left) - the clamp keeps the preferred Below on screen, flush against the
+        // inset right edge (the P4 card is far wider than the free strip at that corner).
+        var placement = Place(200, 100, preferred: NoteSide.Below);
+
+        Check.That(placement.Side).IsEqualTo(NoteSide.Below);
+        WindowIsInsideTheInsetArea(placement);
+        // The unclamped window (anchor.x - w/2) overflows the inset LEFT at this corner, so the
+        // clamp hugs the left edge - the mirror of the top-right corner's right-edge clamp.
+        Check.That(placement.Window.Left).IsEqualTo(Inset.Left);
+        CellsAreInsideTheWindow(placement);
+    }
+
+    [Fact]
     public void NoFitAtTheTopRightCorner_ClampsThePreferredInsideTheInset()
     {
         // 1800,100: Right/Left/Below/Above all miss (the card is 280 wide against a 1866-wide
@@ -247,25 +263,30 @@ public class NoteLayoutPlaceTests
     [Fact]
     public void TheColumn_SitsOnTheCardEdgeAwayFromTheTail_PerSide()
     {
-        // Right: tail left, column on the far right edge (the cell-column centre + the tail zone).
+        // Hand-derived, independent of the members under test. The default card is
+        // 420 (text) + 100 (cell column) + 30 (gap) = 550 wide; a cell column centre
+        // on the right edge sits at 550 - 10 (padding) - 40 (half cell) = 500; row 0
+        // centres at 10 + 40 = 50 from the card top; the tail zone is 30 deep.
+
+        // Right: tail left, column on the far right edge.
         var (rx, _) = ButtonCenter(NoteSide.Right, 0, Card.Width);
-        Check.That(rx).IsCloseTo(
-            Constants.TailLengthDip + NoteLayout.ColumnCenterX(Card.Width), 1e-9);
+        Check.That(rx).IsCloseTo(30 + 500, 1e-9);
 
         // Left: tail right, column on the far left edge.
         var (lx, _) = ButtonCenter(NoteSide.Left, 0, Card.Width);
-        Check.That(lx).IsCloseTo(NoteLayout.ColumnCenterXFromLeft, 1e-9);
+        Check.That(lx).IsCloseTo(50, 1e-9);
 
-        // Below: tail at the top strip, column on the right edge, shifted DOWN by the tail zone
-        // (the tail strip takes the window top; the card X origin does not move).
+        // Below: tail at the top strip, column on the right edge, shifted DOWN by the tail.
         var (bx, by) = ButtonCenter(NoteSide.Below, 0, Card.Width);
-        Check.That(bx).IsCloseTo(NoteLayout.ColumnCenterX(Card.Width), 1e-9);
-        Check.That(by).IsCloseTo(NoteLayout.RowCenterY(0) + Constants.TailLengthDip, 1e-9);
+        Check.That(bx).IsCloseTo(500, 1e-9);
+        Check.That(by).IsCloseTo(30 + 50, 1e-9);
 
         // Above: tail at the bottom, column on the right edge, no shift.
         var (ax2, ay2) = ButtonCenter(NoteSide.Above, 0, Card.Width);
-        Check.That(ax2).IsCloseTo(NoteLayout.ColumnCenterX(Card.Width), 1e-9);
-        Check.That(ay2).IsCloseTo(NoteLayout.RowCenterY(0), 1e-9);
+        Check.That(ax2).IsCloseTo(500, 1e-9);
+        Check.That(ay2).IsCloseTo(50, 1e-9);
     }
+
+
 
 }

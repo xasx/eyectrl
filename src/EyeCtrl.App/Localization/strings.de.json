@@ -474,9 +474,21 @@
     "text": "Shift",
     "src": "bf8f96a7"
   },
+  "overlays.note.chip.discarded": {
+    "text": "Änderungen verworfen · Rückgängig",
+    "src": "64dc14b4"
+  },
+  "overlays.note.chip.removed": {
+    "text": "Notiz entfernt · Rückgängig",
+    "src": "26a7ded8"
+  },
   "overlays.note.close": {
     "text": "Notiz schließen",
     "src": "ca177537"
+  },
+  "overlays.note.discard": {
+    "text": "Änderungen verwerfen",
+    "src": "d2ed92f8"
   },
   "overlays.note.done": {
     "text": "Fertig",
@@ -497,6 +509,10 @@
   "overlays.note.title": {
     "text": "ANGEHEFTETE NOTIZ",
     "src": "aa84667f"
+  },
+  "overlays.note.undo": {
+    "text": "Rückgängig",
+    "src": "6bc7bbf8"
   },
   "overlays.pause.title": {
     "text": "EyeCtrl pausiert",

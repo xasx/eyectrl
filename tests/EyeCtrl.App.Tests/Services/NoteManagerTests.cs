@@ -69,7 +69,7 @@ public class NoteManagerTests
         // Each note carries text: a commit-first pin on an EMPTY new note would make that note
         // disappear again (P1 D4's Done table), silently undoing the capacity fill.
         for (int i = 0; i < 8; i++)
-            TypeIntoNewNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
+            TypeIntoNewDraftNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
 
         Check.That(manager.IsAtCapacity).IsTrue();
     }
@@ -81,7 +81,7 @@ public class NoteManagerTests
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
 
         for (int i = 0; i < 8; i++)
-            TypeIntoNewNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
+            TypeIntoNewDraftNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
         manager.CreateNoteAt(new PhysicalPoint(999, 999));
 
         Check.That(manager.ActiveNotes).HasSize(8);
@@ -92,7 +92,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test text");
+        var id = TypeIntoNewDraftNote(manager, "test text");
 
         manager.StartEdit(id);
 
@@ -105,7 +105,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "hello world");
+        var id = TypeIntoNewDraftNote(manager, "hello world");
 
         manager.FinishEdit(id, commit: true);
 
@@ -119,7 +119,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test");
+        var id = TypeIntoNewDraftNote(manager, "test");
 
         manager.StartMove(id);
 
@@ -131,7 +131,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test");
+        var id = TypeIntoNewDraftNote(manager, "test");
         manager.StartMove(id);
 
         manager.FinishMove(id, new PhysicalPoint(500, 600));
@@ -146,7 +146,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "test");
+        var id = TypeIntoNewDraftNote(manager, "test");
         manager.StartMove(id);
 
         manager.OnGazeMoved(new PhysicalPoint(300, 400), 1000000);
@@ -161,7 +161,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id1 = TypeIntoNewNote(manager, "note1");
+        var id1 = TypeIntoNewDraftNote(manager, "note1");
         manager.CreateNoteAt(new PhysicalPoint(300, 0));
         var id2 = manager.ActiveNotes[1].Id;
         manager.Apply(new NoteAppend("note2"));
@@ -181,7 +181,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "original");
+        var id = TypeIntoNewDraftNote(manager, "original");
 
         // Enter edit, re-save, re-enter — should work without retrigger
         manager.StartEdit(id);
@@ -231,7 +231,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "hello");
+        var id = TypeIntoNewDraftNote(manager, "hello");
 
         manager.FinishEdit(id, commit: true);
 
@@ -263,7 +263,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "\n \nhello\n\n  ");
+        var id = TypeIntoNewDraftNote(manager, "\n \nhello\n\n  ");
 
         manager.FinishEdit(id, commit: true);
 
@@ -275,7 +275,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "original");
+        var id = TypeIntoNewDraftNote(manager, "original");
 
         manager.StartEdit(id);
         manager.Apply(new NoteAppend(" changed"));
@@ -286,26 +286,26 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void Done_ExistingNoteEmptied_RestoresPreviousText()
+    public void Done_ExistingNoteEmptied_EntersRemovedChip_AndUndoRestoresPreviousText()
     {
-        // The interim P1 row (P1 D4): an emptied existing note restores its last saved text.
-        // P2 replaces this with PendingUndo(Removed).
+        // P2 D5 replaced P1's interim silent restore: Done on an emptied existing note leaves a
+        // Removed chip, and Undo brings the saved text back (expiry would remove it instead).
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var id = TypeIntoNewNote(manager, "original");
+        var id = TypeIntoNewDraftNote(manager, "original");
         manager.FinishEdit(id, commit: true); // a real SAVED note
 
         manager.StartEdit(id);
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
-        manager.Apply(new NoteBackspace());
+        for (int i = 0; i < 8; i++)
+            manager.Apply(new NoteBackspace());
         Check.That(manager.ActiveNotes[0].Draft).IsEqualTo("");
         manager.FinishEdit(id, commit: true);
+
+        Check.WithCustomMessage("the emptied note must chip, not silently restore (P2 D5)")
+            .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.Removed);
+
+        manager.UndoChipForTest(id);
 
         Check.That(manager.ActiveNotes).HasSize(1);
         Check.That(manager.ActiveNotes[0].Text).IsEqualTo("original");
@@ -471,16 +471,16 @@ public class NoteManagerTests
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
 
-        // Hidden: Done (slot 0) + ⌨ (slot 1).
-        Check.That(manager.LiveTargetRects()).HasSize(2);
+        // Hidden: Done (slot 0) + ⌨ (slot 1) + ↩ Discard (slot 2).
+        Check.That(manager.LiveTargetRects()).HasSize(3);
 
         probe.IsVisible = true;
         probe.RaiseChanged();
-        Check.WithCustomMessage("the ⌨ target must drain when the keyboard shows").That(manager.LiveTargetRects()).HasSize(1);
+        Check.WithCustomMessage("the ⌨ target must drain when the keyboard shows").That(manager.LiveTargetRects()).HasSize(2);
 
         probe.IsVisible = false;
         probe.RaiseChanged();
-        Check.That(manager.LiveTargetRects()).HasSize(2);
+        Check.That(manager.LiveTargetRects()).HasSize(3);
         Check.That(id).IsNotEmpty();
     }
 
@@ -581,7 +581,7 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var close = ButtonCentrePhysical(anchor, 0);
+            var close = ButtonCentrePhysical(anchor, 2);
 
             probe.RectsProvider = () => new[] { new PhysicalRect(close.X - 200, close.Y - 200, 400, 400) };
             probe.IsVisible = true;
@@ -593,7 +593,7 @@ public class NoteManagerTests
             probe.RectsProvider = () => Array.Empty<PhysicalRect>();
             for (long t = 3_000_000; t <= 3_800_000; t += 33_000)
                 manager.OnGazeMoved(close, t);
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(id).IsNotEmpty();
         }
         finally
@@ -603,11 +603,12 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void DoneLeavesTheCloseTargetDisarmed_UntilTheGazeLeavesItsCircle()
+    public void DoneLeavesTheDisplayControlUnderTheGaze_DisarmedUntilTheGazeLeavesItsCircle()
     {
-        // Fixup B2, positive control for R2: the latch must RELEASE. ✓ Done and ✕ share slot 0's
-        // circle, so after Done the ✕ stays unarmed while the gaze holds; once the gaze leaves
-        // and comes back, the dwell completes and the ✕ works.
+        // Fixup B2, positive control for R2: the latch must RELEASE. P2 D8 moved ✕ to slot 2, so
+        // the Display control that appears in ✓ Done's circle after the exit is ✎ — a lingering
+        // held gaze must not re-enter Edit, and once the gaze has left and come back, the dwell
+        // completes and the ✎ works.
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         var probe = new FakeKeyboardProbe { IsVisible = false };
@@ -617,20 +618,21 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = manager.AddEditingNoteTargetsForTest(anchor);
-            manager.Apply(new NoteAppend("hello"));
+            // A REAL window: the liveness half dwells ✎, and StartEdit drives the note's window.
+            var id = TypeIntoNewDraftNote(manager, "hello", anchor);
             var slot0 = ButtonCentrePhysical(anchor, 0);
             var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y); // outside every circle
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse();
-            Check.That(manager.ActiveNotes).HasSize(1); // R2's hold: ✕ still disarmed
+            Check.WithCustomMessage("the re-registered ✎ under the held gaze must stay disarmed")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
             for (long t = 800_000; t <= 1_000_000; t += 33_000) manager.OnGazeMoved(away, t);
             for (long t = 1_100_000; t <= 2_000_000; t += 33_000) manager.OnGazeMoved(slot0, t);
-            Check.WithCustomMessage("after the gaze left and returned, ✕ must work again")
-                .That(manager.ActiveNotes).IsEmpty();
-            Check.That(id).IsNotEmpty();
+            Check.WithCustomMessage("after the gaze left and returned, ✎ must work again")
+                .That(manager.IsEditing).IsTrue();
+            Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -640,8 +642,9 @@ public class NoteManagerTests
     {
         // Fixup F4: the latch filter keeps the keyboard gate — while ANY target is latched, a
         // gated sample (gaze inside the keyboard's rect) must not complete a dwell on an ARMED
-        // target either. ✎ sits armed next to the latched ✕; the gate over ✎ must hold it, and
-        // only an ungated dwell may fire it.
+        // target either. After Done the ✎ sits LATCHED in the held slot (P2 D8) while the ↕ one
+        // slot down is armed; the gate over the ↕ must hold it, and only an ungated dwell may
+        // fire it.
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         var probe = new FakeKeyboardProbe { IsVisible = false };
@@ -651,27 +654,28 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "hello", anchor); // a real window: ✎ must be able to re-edit
+            var id = TypeIntoNewDraftNote(manager, "hello", anchor); // a real window: ↕ must be able to move
             var slot0 = ButtonCentrePhysical(anchor, 0);
             var slot1 = ButtonCentrePhysical(anchor, 1);
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
-            Check.That(manager.IsEditing).IsFalse(); // Done fired; ✕ latched → latch non-empty
+            Check.That(manager.IsEditing).IsFalse(); // Done fired; ✎ latched → latch non-empty
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
-            // The keyboard rect covers ✎: the gaze rests there, gated.
+            // The keyboard rect covers the ↕: the gaze rests there, gated.
             probe.RectsProvider = () => new[] { new PhysicalRect(slot1.X - 300, slot1.Y - 300, 600, 600) };
             probe.IsVisible = true;
             probe.RaiseChanged();
             for (long t = 800_000; t <= 1_600_000; t += 33_000) manager.OnGazeMoved(slot1, t);
-            Check.WithCustomMessage("a gated dwell must not fire ✎, even with a target latched")
-                .That(manager.IsEditing).IsFalse();
+            Check.WithCustomMessage("a gated dwell must not fire the armed ↕, even with a target latched")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
-            // The gate moves away: the same held gaze now fires ✎ — the hold was the gate.
+            // The gate moves away: the same held gaze now fires the ↕ — the hold was the gate.
             probe.RectsProvider = () => Array.Empty<PhysicalRect>();
             probe.RaiseChanged();
             for (long t = 1_700_000; t <= 2_500_000; t += 33_000) manager.OnGazeMoved(slot1, t);
-            Check.WithCustomMessage("once ungated, the armed ✎ dwell must complete")
-                .That(manager.IsEditing).IsTrue();
+            Check.WithCustomMessage("once ungated, the armed ↕ dwell must complete")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Move);
             Check.That(manager.ActiveNotes).HasSize(1);
             Check.That(id).IsNotEmpty();
         }
@@ -699,7 +703,7 @@ public class NoteManagerTests
             var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
-            Check.That(manager.IsEditing).IsFalse(); // Done fired, ✕ latched under the held gaze
+            Check.That(manager.IsEditing).IsFalse(); // Done fired; the ✎ re-registered under the held gaze is latched
 
             // The keyboard rect covers the away point: 500 ms of gated, outside-circle samples.
             probe.RectsProvider = () => new[] { new PhysicalRect(away.X - 5_000, away.Y - 5_000, 10_000, 10_000) };
@@ -707,12 +711,13 @@ public class NoteManagerTests
             probe.RaiseChanged();
             for (long t = 800_000; t <= 1_300_000; t += 33_000) manager.OnGazeMoved(away, t);
 
-            // Gate gone, gaze back on the same spot: ✕ must still be latched.
+            // Gate gone, gaze back on the same spot: ✎ must still be latched.
             probe.RectsProvider = () => Array.Empty<PhysicalRect>();
             probe.RaiseChanged();
             for (long t = 1_400_000; t <= 2_300_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.WithCustomMessage("gated samples must not count toward the latch's 150 ms leave")
-                .That(manager.ActiveNotes).HasSize(1);
+                .That(manager.IsEditing).IsFalse();
+            Check.That(manager.ActiveNotes).HasSize(1);
             Check.That(id).IsNotEmpty();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -735,20 +740,20 @@ public class NoteManagerTests
         var keyboardLabel = KeyboardGlyphLabel(window!);
         Check.That(keyboardLabel).IsNotNull();
 
-        // Keyboard hidden: ⌨ drawn AND its target registered.
+        // Keyboard hidden: ⌨ drawn AND its target registered (plus Done and ↩ Discard).
         Check.That(keyboardLabel!.Visibility).IsEqualTo(System.Windows.Visibility.Visible);
-        Check.That(manager.LiveTargetRects()).HasSize(2);
+        Check.That(manager.LiveTargetRects()).HasSize(3);
 
         probe.IsVisible = true;
         probe.RaiseChanged();
         Check.WithCustomMessage("the drawn ⌨ must drain with its target when the keyboard shows")
             .That(keyboardLabel.Visibility).IsEqualTo(System.Windows.Visibility.Collapsed);
-        Check.That(manager.LiveTargetRects()).HasSize(1);
+        Check.That(manager.LiveTargetRects()).HasSize(2);
 
         probe.IsVisible = false;
         probe.RaiseChanged();
         Check.That(keyboardLabel.Visibility).IsEqualTo(System.Windows.Visibility.Visible);
-        Check.That(manager.LiveTargetRects()).HasSize(2);
+        Check.That(manager.LiveTargetRects()).HasSize(3);
     }
 
     /// <summary>The ⌨ glyph's TextBlock in a note window's drawn tree, or null.</summary>
@@ -796,7 +801,7 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
-        var b = TypeIntoNewNote(manager, "second"); // B: a real Display note with its window
+        var b = TypeIntoNewDraftNote(manager, "second"); // B: a real Display note with its window
         manager.FinishEdit(b, commit: true);
         var a = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0)); // A: the editor
         manager.Apply(new NoteAppend("first draft"));
@@ -870,7 +875,7 @@ public class NoteManagerTests
     // production math (DpiHelper + NoteLayout), never hand-derived logical numbers.
 
     [StaFact]
-    public void LiveTargetRects_EditState_IsDonePlusKeyboardWhenHidden_DrainsOnRemove()
+    public void LiveTargetRects_EditState_IsDoneKeyboardAndDiscardWhenHidden_DrainsOnRemove()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
@@ -882,15 +887,17 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            manager.CreateNoteAt(anchor); // Edit state: Done + ⌨ (keyboard hidden)
+            manager.CreateNoteAt(anchor); // Edit state: Done + ⌨ (keyboard hidden) + ↩ Discard
 
             var done = ButtonCentrePhysical(anchor, 0);
             var keyboard = ButtonCentrePhysical(anchor, 1);
+            var discard = ButtonCentrePhysical(anchor, 2);
             var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
 
-            Check.That(rects).HasSize(2);
+            Check.That(rects).HasSize(3);
             Check.That(rects[0]).IsEqualTo(new PhysicalRect(done.X - 60, done.Y - 60, 120, 120));
             Check.That(rects[1]).IsEqualTo(new PhysicalRect(keyboard.X - 60, keyboard.Y - 60, 120, 120));
+            Check.That(rects[2]).IsEqualTo(new PhysicalRect(discard.X - 60, discard.Y - 60, 120, 120));
 
             manager.RemoveNote(manager.ActiveNotes[0].Id);
             Check.That(manager.LiveTargetRects()).IsEmpty();
@@ -902,7 +909,7 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void LiveTargetRects_EditState_WithKeyboardVisible_IsDoneOnly()
+    public void LiveTargetRects_EditState_WithKeyboardVisible_IsDoneAndDiscard()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
@@ -913,7 +920,7 @@ public class NoteManagerTests
         try
         {
             manager.CreateNoteAt(new PhysicalPoint(1600, 1000));
-            Check.That(manager.LiveTargetRects()).HasSize(1);
+            Check.That(manager.LiveTargetRects()).HasSize(2); // ✓ Done + ↩ Discard
         }
         finally
         {
@@ -933,7 +940,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true); // Display: close/edit/move
 
             // The detector snapshot's order is unspecified (dictionary-backed) — compare as a set
@@ -965,7 +972,7 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.StartMove(id); // only the :place target, radius 100 logical around the note
 
             double radius = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NotePlacementRadius);
@@ -1011,7 +1018,7 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void CloseButtonDwell_AtVisiblePosition_RemovesNote()
+    public void CloseButtonDwell_AtVisiblePosition_EntersPendingUndo()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
@@ -1023,9 +1030,9 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
-            var closeCenter = ButtonCentrePhysical(anchor, 0);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
+            manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
+            var closeCenter = ButtonCentrePhysical(anchor, 2);
 
             // Fixup B2: ✕ re-arms only after the gaze has LEFT its circle — a sample stream that
             // arrives at ✕ without a prior outside sample is exactly the held-Done hazard. Look
@@ -1037,7 +1044,10 @@ public class NoteManagerTests
             for (long t = 300_000; t <= 1_100_000; t += 33_000)
                 manager.OnGazeMoved(closeCenter, t);
 
-            Check.That(manager.ActiveNotes).IsEmpty();
+            // P2 D5: the dwell no longer deletes — the window re-renders in place as a chip.
+            Check.That(manager.ActiveNotes).HasSize(1);
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
         }
         finally
         {
@@ -1083,11 +1093,13 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
-            var probe = new CueProbe(EffectRanAtSend: () => manager.ActiveNotes.Count == 0);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
+            manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
+            // The ✕ effect (P2 D5) is the chip entry; the cue must fire AFTER the note is pending.
+            var probe = new CueProbe(EffectRanAtSend: () =>
+                manager.ActiveNotes.Count == 1 && manager.ActiveNotes[0].State == NoteState.PendingUndo);
             messenger.Register(probe);
-            var closeCenter = ButtonCentrePhysical(anchor, 0);
+            var closeCenter = ButtonCentrePhysical(anchor, 2);
 
             // Fixup B2: arm ✕ by leaving its circle first (see CloseButtonDwell_AtVisiblePosition).
             for (long t = 0; t <= 200_000; t += 33_000)
@@ -1097,11 +1109,11 @@ public class NoteManagerTests
                 manager.OnGazeMoved(closeCenter, t);
 
             // The real action ran (nothing vacuous about the count) and the cue fired exactly once,
-            // AFTER the note was already gone.
-            Check.That(manager.ActiveNotes).IsEmpty();
+            // AFTER the note was already pending.
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(probe.Count).IsEqualTo(1);
             Check.WithCustomMessage(
-                "The note removal must land BEFORE the cue publishes (spec D8).")
+                "The chip entry must land BEFORE the cue publishes (spec D8).")
                 .That(probe.EffectAtSend).IsEqualTo(true);
         }
         finally
@@ -1123,9 +1135,9 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true);
-            var closeCenter = ButtonCentrePhysical(anchor, 0);
+            var closeCenter = ButtonCentrePhysical(anchor, 2);
 
             for (long t = 0; t <= 800_000; t += 33_000)
                 messenger.Send(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: true)));
@@ -1161,7 +1173,7 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 0);
+            var closeCenter = ButtonCentrePhysical(anchor, 2);
 
             // Pre-probe: 500 ms of a 600 ms close dwell accrued on the button. Every delivered sample
             // is 100 ms after the previous one, below DwellDetector's 150 ms silence clamp.
@@ -1187,13 +1199,13 @@ public class NoteManagerTests
                 .That(manager.ActiveNotes).HasSize(1);
 
             // Negative control: leave ✕'s circle for 200 ms (past the 150 ms latch release), return,
-            // and the target is live and completes from the reset anchor.
+            // and the target is live and completes from the reset anchor — into the chip (P2 D5).
             for (long t = 1_700_000; t <= 1_900_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(
                     new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
             for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
-            Check.That(manager.ActiveNotes).IsEmpty();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
         finally
         {
@@ -1214,7 +1226,7 @@ public class NoteManagerTests
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
         // StartEdit needs the note's live window (it drives SetState on it), and the note must be
-        // in DISPLAY so ✎ exists to dwell — this file's TypeIntoNewNote leaves the note EDITING
+        // in DISPLAY so ✎ exists to dwell — this file's TypeIntoNewDraftNote leaves the note EDITING
         // (its CreateNoteAt already summoned the keyboard once), so the test exits that Edit
         // first. The counter then counts only what happens from the ✎ entry under test on.
         bool counting = false;
@@ -1228,38 +1240,43 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = TypeIntoNewNote(manager, "x", anchor);
+            var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true);
             Check.That(manager.IsEditing).IsFalse();
             counting = true;
-            var editSlot = ButtonCentrePhysical(anchor, 1); // ✎ in Display
+            var editSlot = ButtonCentrePhysical(anchor, 0); // ✎ in Display (P2 D8: ✎ · ↕ · ✕)
+            var keyboardSlot = ButtonCentrePhysical(anchor, 1); // ⌨ in Edit
             var away = new PhysicalPoint(editSlot.X + 10_000, editSlot.Y);
 
-            // Arm ✎ (200 ms outside), then dwell it: the note enters Edit, whose ⌨ sits in the
-            // slot the gaze is holding. The entry itself summons the keyboard exactly once.
+            // Arm ✎ (200 ms outside), then dwell it: the note enters Edit, whose ✓ Done sits in
+            // the slot the gaze is holding. The entry itself summons the keyboard exactly once.
             for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(away, t);
             for (long t = 300_000; t <= 1_100_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
             Check.That(manager.IsEditing).IsTrue();
             Check.That(showRequests).IsEqualTo(1);
 
-            // The held gaze must not re-summon: ⌨ is latched by the Edit-entry registration.
+            // The held gaze must not re-summon: every Edit target re-registered under it (✓ Done
+            // in the held circle) is latched by the Edit-entry registration.
             for (long t = 1_200_000; t <= 2_400_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
             Check.WithCustomMessage(
-                    "the Edit-entry latch must hold ⌨ under the held gaze — a duplicate show " +
+                    "the Edit-entry latch must hold the held slot — a duplicate show " +
                     "request is exactly the regression T3's Undo re-entry would ride")
                 .That(showRequests).IsEqualTo(1);
 
-            // Liveness: leave past the 150 ms release, return, and ⌨ re-summons.
+            // Liveness: leave past the 150 ms release, then dwell ⌨ one slot down — the arm is
+            // gone, and ⌨ re-summons.
             for (long t = 2_500_000; t <= 2_700_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 2_800_000; t <= 3_600_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
+            for (long t = 2_800_000; t <= 3_600_000; t += 100_000) manager.OnGazeMoved(keyboardSlot, t);
             Check.That(showRequests).IsEqualTo(2);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
     /// <summary>Creates a note and types <paramref name="text"/> into it through the routed
-    /// <see cref="NoteManager.Apply"/> seam — the only way text enters a note in P1.</summary>
-    private static string TypeIntoNewNote(NoteManager manager, string text, PhysicalPoint? point = null)
+    /// <see cref="NoteManager.Apply"/> seam — the only way text enters a note in P1. Leaves the
+    /// note IN EDIT (the draft holds <paramref name="text"/>; nothing is saved). T2 review-04's
+    /// helper split: the name says the state it leaves, so a test never assumes the wrong one.</summary>
+    private static string TypeIntoNewDraftNote(NoteManager manager, string text, PhysicalPoint? point = null)
     {
         manager.CreateNoteAt(point ?? new PhysicalPoint(0, 0));
         manager.Apply(new NoteAppend(text));

@@ -974,6 +974,38 @@ public class SettingsService
         return true;
     }
 
+    // Note text-size clamp (P4 D1), modelled on ClampKeyboardDwellFloor above: the setter guard
+    // throws outside 18-48, and since #153 a setter throw during deserialization reverts the
+    // property to its DEFAULT (28) while its siblings survive - so a hand-edited 17 would load as
+    // 28, a size the UI never offers. Clamping the raw node to 18-48 before deserialization keeps
+    // the owner's intent (the nearest legal size) and every sibling value.
+    private const string NoteSectionName = "note";
+    private const string NoteTextSizeKey = "textSizeDip";
+
+    private static string ClampNoteTextSize(string json)
+    {
+        // Cheap reject: the common already-legal file never mentions the key.
+        if (!json.Contains("\"textSizeDip\"", StringComparison.Ordinal))
+            return json;
+
+        JsonObject? root;
+        try { root = JsonNode.Parse(json) as JsonObject; }
+        catch (JsonException) { return json; }   // unparseable: leave it to Load's own error path
+
+        if (root?[NoteSectionName] is not JsonObject note)
+            return json;
+
+        if (note[NoteTextSizeKey] is not JsonValue node
+            || !node.TryGetValue(out int value)
+            || (value >= NoteSettings.MinTextSizeDip && value <= NoteSettings.MaxTextSizeDip))
+        {
+            return json;
+        }
+
+        note[NoteTextSizeKey] = Math.Clamp(value, NoteSettings.MinTextSizeDip, NoteSettings.MaxTextSizeDip);
+        return root.ToJsonString(JsonOptions);
+    }
+
     private static string MigrateDragActions(string json)
     {
         if (!json.Contains("\"dragStart\"", StringComparison.OrdinalIgnoreCase) &&
@@ -1077,6 +1109,9 @@ public class SettingsService
         current = RunMigrationStep(MigrateDragActions, nameof(MigrateDragActions), current);
         current = RunMigrationStep(MigrateCursorFilterUnits, nameof(MigrateCursorFilterUnits), current);
         current = RunMigrationStep(ClampKeyboardDwellFloor, nameof(ClampKeyboardDwellFloor), current);
+        // P4 D1: the note text-size clamp runs AFTER NormalizeDuplicateProperties - a duplicated
+        // "textSizeDip" key would throw ArgumentException in this step's JsonNode walk otherwise.
+        current = RunMigrationStep(ClampNoteTextSize, nameof(ClampNoteTextSize), current);
         current = RunBackdropTypeMigration(current);
         return current;
     }

@@ -1240,18 +1240,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_movingNoteId != noteId) return;
         if (FindNote(noteId) is not { } note) return;
         if (!_placements.TryGetValue(noteId, out var current)) return;
-        // fixup-02 nit 2: apply the candidate the offer judged available — whatever cycle step
-        // the avoid set landed it on. The fallback (the judged one went stale without a
-        // re-registration) re-derives over the same avoid set, so even it cannot wander back
-        // over the keyboard.
+        // fixup-02 nit 2, review-03 tidy-up: apply the candidate the offer judged available,
+        // whatever cycle step the avoid set landed it on. The old re-derive fallback was dead:
+        // the Other-side target registers ONLY while _judgedOtherSideForMoving is non-null
+        // (RegisterMoveTargetsForNote) and every Move re-registration refreshes it, so the
+        // dwell can never reach a null judged value. The defensive exit keeps a race harmless:
+        // the note stays exactly where it is.
         var other = _judgedOtherSideForMoving;
         if (other is null)
-            other = NoteLayout.Place(note.Anchor, NextSide(current.Side), CardSize(), _workAreaDip(),
-                AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: current.Side);
-        if (other is null)
         {
-            // The target only registers while an alternative exists (RegisterMoveTargetsForNote),
-            // so this is defensive: leave the note exactly where it is.
             LeaveMove(note);
             return;
         }

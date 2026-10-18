@@ -919,6 +919,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // back (and latch under whatever the gaze now holds, P2 D4).
             note.State = NoteState.Display;
             note.Draft = note.Text;
+            // The shrunk chip placement dies with the chip: re-derive the full card (P4 D3).
+            ApplyPlacementToWindow(note);
             var window = Window(noteId);
             if (window != null)
             {
@@ -953,6 +955,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         note.Text = note.PreviousText!;
         note.Draft = note.Text;
         note.State = NoteState.Display;
+        // Back to the full card - the chip placement was the shrunk one (P4 D3).
+        ApplyPlacementToWindow(note);
         var window = Window(note.Id);
         if (window != null)
         {

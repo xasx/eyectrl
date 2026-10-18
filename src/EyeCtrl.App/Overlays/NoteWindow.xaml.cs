@@ -102,6 +102,8 @@ public class NoteWindow : OverlayWindow
         });
     }
 
+    /// <summary>Test accessor (P4 D1/T8): the text size the window currently renders at.</summary>
+    internal double TextSizeForTest => _textSize;
     /// <summary>Test accessor (fixup-01 G3): the drawn buttons, keyed per note id and set slot,
     /// so the window-geometry pin can check the canvas against NoteLayout.ButtonCenter.</summary>
     internal System.Collections.Generic.IReadOnlyDictionary<string, Ellipse> ButtonsForTest() => _buttons;

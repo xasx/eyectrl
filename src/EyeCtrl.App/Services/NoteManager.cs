@@ -16,7 +16,8 @@ using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels.Messages;
 
 public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
-    IRecipient<EyeCareExerciseActiveMessage>, IRecipient<CalibrationStateChangedMessage>, IDisposable
+    IRecipient<EyeCareExerciseActiveMessage>, IRecipient<CalibrationStateChangedMessage>,
+    IRecipient<DisplayGeometryChangedMessage>, IDisposable
 {
     private readonly List<NoteWindow> _windows = new();
     private readonly List<NoteData> _notes = new();
@@ -226,6 +227,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _messenger.Register<GazeCursorMovedMessage>(this);
         _messenger.Register<EyeCareExerciseActiveMessage>(this);
         _messenger.Register<CalibrationStateChangedMessage>(this);
+        // T6 (P3 D3): the geometry watcher's message joins the WPF SystemParameters subscription —
+        // the message alone does not fire on a taskbar resize or auto-hide.
+        _messenger.Register<DisplayGeometryChangedMessage>(this);
+        SystemParameters.StaticPropertyChanged += OnSystemPropertyChanged;
         _dwellRegistry = dwellRegistry;
         // P2 D6: the explicit registration replaces ForDetector — an explicit 600 ms floor and a
         // NAMED no-op geometry applier. The no-op is the point: AdaptGeometry defaults on, with
@@ -298,16 +303,37 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>Applies a note's derived placement to its window and caches it: resize, redraw
     /// (the column follows the side, the tail appears) and position the window from the same
-    /// rect, so drawing and the dwell registrations read one answer.</summary>
+    /// rect, so drawing and the dwell registrations read one answer. Identical derivations are
+    /// skipped: a trigger's re-place of an unmoved card must not rebuild the drawn tree (held
+    /// drawn-tree references stay valid, review-01's drawn⌁registered invariant holds).</summary>
     private void ApplyPlacementToWindow(NoteData note)
     {
         var placement = PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit);
+        if (_placements.TryGetValue(note.Id, out var current) && current == placement)
+            return;
         _placements[note.Id] = placement;
         if (Window(note.Id) is not { } window)
             return;
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
         window.Top = placement.Window.Top;
+    }
+
+    /// <summary>
+    /// T6 (P3 D3): the display geometry or the work area changed — EVERY note re-derives its
+    /// placement from the fresh work area (chips included: a chip's rect is a derived
+    /// placement), the windows re-apply it in place and the registration is rebuilt so every
+    /// dwell centre and the Move/Other side availability re-derive from the placements (<see
+    /// cref="RegisterMoveTargetsForNote"/> reads <see cref="NoteLayout.Place"/> per call). The
+    /// sole-editor rule is honoured by <see cref="ReRegisterAllTargets"/> itself.
+    /// </summary>
+    private void RePlaceEveryNote()
+    {
+        if (_disposed) return;
+        foreach (var note in _notes.ToList())
+            ApplyPlacementToWindow(note);
+        ReRegisterAllTargets();
+        RaiseTargetsChanged();
     }
 
     /// <summary>The next side in the fixed cycle (P3 D4's Other side walks one step).</summary>
@@ -360,6 +386,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 return;
         }
 
+        // T7/T8 (P3 D3): a card-height or text-size change re-derives through
+        // ApplyPlacementToWindow the moment its source exists — the fixed T4 card size cannot
+        // change the derived rect, so no height trigger is wired here until T5's auto-height
+        // and the text-size setting land (T5 re-places with this same seam).
         Window(note.Id)?.SetText(note.Draft);
     }
 
@@ -473,6 +503,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private void BeginEditOn(NoteData note)
     {
         note.State = NoteState.Edit;
+        // T1-T5's state-driven avoid (P3 D3): entering Edit re-derives against the keyboard's
+        // rects — Place keeps the saved side when it already clears them and moves only when it
+        // intersects, so the restore after Done is the same derivation with the avoid gone.
+        ApplyPlacementToWindow(note);
         var window = Window(note.Id);
         if (window != null)
         {
@@ -613,6 +647,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         note.Draft = note.Text;
         note.State = NoteState.Display;
+        // T1-T5's shared restore (P3 D3): straight back to Display re-derives without the avoid —
+        // the card returns to its saved side exactly as the chip paths did in EnterPendingUndo.
+        ApplyPlacementToWindow(note);
         var window = Window(note.Id);
         if (window != null)
         {
@@ -722,6 +759,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         note.UndoKind = kind;
         if (kind == PendingUndoKind.Removed)
             note.Draft = note.Text; // the saved text is Undo's payload; Discarded* keep their draft
+
+        // T1-T5's shared restore (P3 D3): out of Edit, the re-derivation drops the keyboard avoid
+        // and the chip returns to its anchor-based rect (the saved side) — every chip kind walks
+        // through here, so this one call covers Done-Removed, DiscardedNew and DiscardedExisting.
+        ApplyPlacementToWindow(note);
 
         var window = Window(note.Id);
         if (window != null)
@@ -1060,9 +1102,20 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         if (_editingNote is { } note)
         {
+            // T1-T5 (P3 D3): the probe's five sources collapse at this one raise — re-derive the
+            // editing card against the keyboard's CURRENT rects (state-driven avoid) BEFORE the
+            // re-registration so the targets read the fresh placement. Place keeps the saved
+            // side when it clears the rects and picks the first fitting of the cycle otherwise.
+            ApplyPlacementToWindow(note);
             Window(note.Id)?.SetKeyboardControlVisible(!visible); // mutant A's guard (review 01)
             RegisterSoleEditorTargets(note.Id);
             _dwellDetector.ResetAllState();
+        }
+        else if (_movingNoteId is not null)
+        {
+            // T1-T5 while Move (P3 D4): Other side's availability re-derives from
+            // Place(..., exclude: current) inside the re-registration, latched as always.
+            ReRegisterAllTargets();
         }
     }
 
@@ -1661,6 +1714,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _calibrating = message.State is CalibrationState.Collecting or CalibrationState.Training;
     }
 
+    /// <summary>T6's message trigger (P3 D3): the display geometry or work area changed. The
+    /// payload is not read — the re-derivation reads the work-area seam, which IS the current
+    /// truth in production (SystemParameters.WorkArea) and under test (the injected provider).</summary>
+    public void Receive(DisplayGeometryChangedMessage message) => RePlaceEveryNote();
+
+    /// <summary>T6's SystemParameters trigger (P3 D3): the DisplayGeometryChangedMessage does
+    /// not fire on a taskbar resize or auto-hide; this does.</summary>
+    private void OnSystemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SystemParameters.WorkArea))
+            RePlaceEveryNote();
+    }
+
     /// <summary>The pause poll seam (P2 D1 row 2), configured once from EventCoordinator.</summary>
     public void SetPausePoll(Func<bool> poll) =>
         _pausePoll = poll ?? throw new ArgumentNullException(nameof(poll));
@@ -1938,6 +2004,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // delivered after Dispose must not resurrect state (the handlers also _disposed-guard).
         _messenger.Unregister<EyeCareExerciseActiveMessage>(this);
         _messenger.Unregister<CalibrationStateChangedMessage>(this);
+        // T6 (P3 D3): the geometry subscriptions die with the manager.
+        _messenger.Unregister<DisplayGeometryChangedMessage>(this);
+        SystemParameters.StaticPropertyChanged -= OnSystemPropertyChanged;
 
         // P3 D4: the Place-here window is manager-owned (never in DI) — a teardown closes it.
         _placeWindow?.Close();

@@ -12,16 +12,16 @@ using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
-/// F2 (fixup 01): B1's production wiring was unpinned — every <see cref="IActionMenuOverlay"/> fake
-/// ignored <c>previewMagnification</c>, so the coordinator could pass 1.0 on the zoom path (mutant
-/// R12) and the whole suite stayed green. The geometry theory proves the math; this proves the
-/// factor actually reaches it: the zoom path (back from the magnifier) passes the settings'
-/// <c>MagnificationLevel</c>; the plain menu path keeps 1.0×.
+/// G1: the action-menu preview shows the picked spot at 1×, on both paths. The zoom path (back
+/// from the magnifier) used to pass the settings' <c>MagnificationLevel</c> through, which made the
+/// menu preview inherit the magnifier's 2×; the owner asked for a plain, unzoomed picture there.
+/// A non-default <c>MagnificationLevel</c> is set so a regression that reaches for it (mutant N1)
+/// changes the recorded value and fails here.
 /// </summary>
 public class ActionMenuPreviewMagnificationWiringTests
 {
     [Fact]
-    public void ShowActionMenu_PassesTheMagnificationOnlyOnTheZoomPath()
+    public void ShowActionMenu_PassesOneToOneOnBothPaths()
     {
         var settings = new EyeCtrlSettings();
         settings.ManualSelection.MagnificationLevel = 2.5;
@@ -44,7 +44,8 @@ public class ActionMenuPreviewMagnificationWiringTests
 
         var center = new PhysicalPoint(500, 500);
 
-        // The zoom path: the manual-selection menu. A non-default factor so a hard-wired 1.0 is visible.
+        // The zoom path: the manual-selection menu. The settings' non-default factor must NOT reach
+        // the preview — the picked spot is shown at 1× (no zoom).
         menuVm.Receive(new ShowActionMenuMessage(
             center, [InteractionAction.LeftClick], ShowBack: true, DwellTimeMs: 600, GazePoint: center)
         {
@@ -54,11 +55,11 @@ public class ActionMenuPreviewMagnificationWiringTests
         InvokeActionMenuHandler(coordinator, nameof(ActionMenuViewModel.IsVisible));
 
         Check.WithCustomMessage(
-                "the zoom path did not pass the magnifier's configured factor to the preview: "
-                + $"saw {string.Join(", ", recording.PreviewMagnifications)}.")
-            .That(recording.PreviewMagnifications).ContainsExactly(2.5);
+                "the zoom path must show the preview at 1× (no zoom), not at the magnifier's "
+                + $"configured factor: saw {string.Join(", ", recording.PreviewMagnifications)}.")
+            .That(recording.PreviewMagnifications).ContainsExactly(1.0);
 
-        // The plain path: the ordinary action menu stays exactly 1:1.
+        // The plain path: the ordinary action menu is 1:1 too.
         menuVm.IsVisible = false;
         menuVm.Receive(new ShowActionMenuMessage(
             center, [InteractionAction.LeftClick], ShowBack: false, DwellTimeMs: 600, GazePoint: center));
@@ -67,7 +68,7 @@ public class ActionMenuPreviewMagnificationWiringTests
         Check.WithCustomMessage(
                 "the plain menu path must keep the preview at 1.0×: "
                 + $"saw {string.Join(", ", recording.PreviewMagnifications)}.")
-            .That(recording.PreviewMagnifications).ContainsExactly(2.5, 1.0);
+            .That(recording.PreviewMagnifications).ContainsExactly(1.0, 1.0);
     }
 
     private static void SetContext(OverlayVmBindingCoordinator coordinator, EventCoordinationContext context) =>

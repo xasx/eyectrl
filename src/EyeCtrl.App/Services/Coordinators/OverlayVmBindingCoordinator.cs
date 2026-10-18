@@ -419,9 +419,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             Context.ActionMenuVM.ManualSelectionRadius,
             Context.ActionMenuVM.GazePoint,
             Context.ActionMenuVM.ShowLabels,
-            // The zoom path's preview is shown at the magnifier's own factor; the plain menu path
-            // keeps 1.0× (its preview circle is drawn at the preview size for an exactly-1:1 view).
-            Context.ActionMenuVM.ShowBack ? Context.Settings.ManualSelection.MagnificationLevel : 1.0);
+            // Both paths show the preview at 1× (no zoom): the owner wants a plain picture of the
+            // picked spot. The zoom path still centres that picture on the commit point (see
+            // ActionMenuWindow.PreviewGeometry); the magnifier itself keeps its configured factor.
+            1.0);
     }
 
     private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

@@ -27,16 +27,30 @@ internal static class DmlDeviceChooser
     /// no ranking, a discrete adapter wins, then the larger video memory, then the lower number.
     /// </summary>
     internal static DmlDeviceInfo? Choose(IReadOnlyList<DmlDeviceInfo> devices)
+        => ChooseDevice(devices, device => device)?.Info;
+
+    /// <summary>
+    /// Returns the chosen device itself, indexed from <paramref name="devices"/>, so the caller
+    /// gets the original object rather than re-finding a record by value. Ties keep list order.
+    /// </summary>
+    internal static (TDevice Device, DmlDeviceInfo Info)? ChooseDevice<TDevice>(
+        IReadOnlyList<TDevice> devices, Func<TDevice, DmlDeviceInfo> describe)
     {
         if (devices.Count == 0) return null;
 
-        var best = devices[0];
+        var bestIndex = 0;
+        var best = describe(devices[0]);
         for (int i = 1; i < devices.Count; i++)
         {
-            if (Compare(devices[i], best) < 0) best = devices[i];
+            var info = describe(devices[i]);
+            if (Compare(info, best) < 0)
+            {
+                bestIndex = i;
+                best = info;
+            }
         }
 
-        return best;
+        return (devices[bestIndex], best);
     }
 
     /// <summary>Maps one ONNX Runtime EP device to the metadata the chooser needs.</summary>

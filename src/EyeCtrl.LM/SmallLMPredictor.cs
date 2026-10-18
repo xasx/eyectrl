@@ -22,9 +22,6 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
 
     private const int MaxNewTokens = 8;
 
-    private static readonly IReadOnlyDictionary<string, string> EmptyProviderOptions =
-        new Dictionary<string, string>();
-
     private InferenceSession? _session;
     private DecoderIoPlan? _ioPlan;
     private readonly object _lock = new();
@@ -126,16 +123,21 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         var attempts = new List<GpuAttempt>();
         if (_preferGpu)
         {
-            if (SelectDmlDevice() is { } chosen)
+            var preference = WindowsGpuPreference.ForCurrentProcess();
+            if (preference == WindowsGpuPreference.PowerSaving)
             {
-                attempts.Add(new GpuAttempt(
-                    options => options.AppendExecutionProvider(OrtEnv.Instance(), [chosen.Device], EmptyProviderOptions),
-                    chosen.Info.Description,
-                    IsDefault: false));
+                _logger?.LogInformation(
+                    "Windows graphics preference for this app is Power saving; using the default adapter");
             }
 
-            // Always available, and the only GPU attempt when no adapter was enumerated.
-            attempts.Add(new GpuAttempt(options => options.AppendExecutionProvider_DML(), null, IsDefault: true));
+            var selected = preference == WindowsGpuPreference.PowerSaving ? null : SelectDmlDevice();
+            var chosen = selected is { } match
+                ? new GpuChoice(
+                    options => options.AppendExecutionProvider(OrtEnv.Instance(), [match.Device],
+                        new Dictionary<string, string>()),
+                    match.Info.Description)
+                : null;
+            attempts = DmlSessionSetup.BuildGpuAttempts(chosen, preference);
         }
 
         try
@@ -179,13 +181,7 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             var devices = OrtEnv.Instance().GetEpDevices()
                 .Where(device => device.EpName == DmlDeviceChooser.DmlEpName)
                 .ToList();
-            if (devices.Count == 0) return null;
-
-            var infos = devices.Select(DmlDeviceChooser.FromEpDevice).ToList();
-            var chosen = DmlDeviceChooser.Choose(infos);
-            if (chosen == null) return null;
-
-            return (devices[infos.IndexOf(chosen)], chosen);
+            return DmlDeviceChooser.ChooseDevice(devices, DmlDeviceChooser.FromEpDevice);
         }
         catch (Exception ex)
         {

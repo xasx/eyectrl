@@ -99,6 +99,55 @@ public class DmlDeviceChooserTests
     }
 
     [Fact]
+    public void ChooseDevice_BestDeviceNotFirst_ReturnsItByReference()
+    {
+        var integrated = new FakeDevice("Intel", IntelIpc());
+        var discrete = new FakeDevice("NVIDIA", Nvidia());
+        Func<FakeDevice, DmlDeviceInfo> describe = device => device.Info;
+
+        var integratedFirst = DmlDeviceChooser.ChooseDevice(new[] { integrated, discrete }, describe);
+        var discreteFirst = DmlDeviceChooser.ChooseDevice(new[] { discrete, integrated }, describe);
+
+        Check.That(integratedFirst).IsNotNull();
+        Check.That(integratedFirst!.Value.Device).IsSameReferenceAs(discrete);
+        Check.That(discreteFirst).IsNotNull();
+        Check.That(discreteFirst!.Value.Device).IsSameReferenceAs(discrete);
+    }
+
+    [Fact]
+    public void ChooseDevice_IdenticalMetadata_ReturnsTheFirstByReference()
+    {
+        var first = new FakeDevice("First", new DmlDeviceInfo("Twin", true, 0, 1, 8_000));
+        var second = new FakeDevice("Second", new DmlDeviceInfo("Twin", true, 0, 1, 8_000));
+
+        var chosen = DmlDeviceChooser.ChooseDevice(new[] { first, second }, device => device.Info);
+
+        Check.That(chosen).IsNotNull();
+        Check.That(chosen!.Value.Device).IsSameReferenceAs(first);
+    }
+
+    [Fact]
+    public void ChooseDevice_EmptyMetadata_ReturnsTheFirstByReference()
+    {
+        var empty = new DmlDeviceInfo(null, null, null, null, null);
+        var first = new FakeDevice("First", empty);
+        var second = new FakeDevice("Second", empty);
+
+        var chosen = DmlDeviceChooser.ChooseDevice(new[] { first, second }, device => device.Info);
+
+        Check.That(chosen).IsNotNull();
+        Check.That(chosen!.Value.Device).IsSameReferenceAs(first);
+    }
+
+    [Fact]
+    public void ChooseDevice_NoDevices_ReturnsNull()
+    {
+        var chosen = DmlDeviceChooser.ChooseDevice(Array.Empty<FakeDevice>(), device => device.Info);
+
+        Check.That(chosen).IsNull();
+    }
+
+    [Fact]
     public void Parse_RealAdapterMetadata_ReadsEveryField()
     {
         var metadata = new Dictionary<string, string>
@@ -192,4 +241,6 @@ public class DmlDeviceChooserTests
         Check.That(info.Description).IsEqualTo("Case Tolerant GPU");
         Check.That(info.Discrete).IsEqualTo(true);
     }
+
+    private sealed record FakeDevice(string Name, DmlDeviceInfo Info);
 }

@@ -133,7 +133,9 @@ public class WordPredictor
                 var key = word.ToLowerInvariant();
 
                 var displayWord = GetDisplayWord(word);
-                score = ApplyCaseTierBonus(score, displayWord, prefix);
+                // The base casing is display-only: the tier is computed from the stored key or
+                // the LEARNED casing, never from the base dictionary's capital.
+                score = ApplyCaseTierBonus(score, GetLearnedOrStored(key), prefix);
 
                 // Keep higher-scored version for display
                 if (!scored.ContainsKey(key) || scored[key].score < score)
@@ -187,7 +189,8 @@ public class WordPredictor
                         score *= BigramContextBoost;
 
                     var displayWord = GetDisplayWord(word);
-                    score = ApplyCaseTierBonus(score, displayWord, prefix);
+                    // The base casing is display-only; see the NextWord branch above.
+                    score = ApplyCaseTierBonus(score, GetLearnedOrStored(word), prefix);
 
                     // Only preserve an existing entry when it already has an equal or higher score
                     if (!scored.ContainsKey(word) || scored[word].score < score)
@@ -278,6 +281,15 @@ public class WordPredictor
 
         return results;
     }
+
+    /// <summary>
+    /// The stored key, or the user's learned casing preference: the form the case tier is
+    /// computed from. The base dictionary's display casing is never used here.
+    /// </summary>
+    private string GetLearnedOrStored(string word) =>
+        _casingPreferences.HasPreference(word)
+            ? _casingPreferences.GetPreferredCasing(word) ?? word
+            : word;
 
     /// <summary>
     /// The display form of a stored key: the user's learned casing preference, else the base

@@ -321,13 +321,38 @@ public class FileDictionaryProvider : IDictionaryProvider
     /// owner saved before the rebuild (or with a pre-rebuild app) carries the OLD base's counts,
     /// which the new base cannot recognise. At least 90% of a base's words must appear with a
     /// count of at least that base's count (one merged save is enough; a genuine delta only holds
-    /// words the user typed, far below 90% of 10,000).
+    /// words the user typed, far below 90% of 10,000). When both bases qualify (possible if a
+    /// future refresh keeps the old words), the one whose residuals are smaller wins: the real
+    /// copy base leaves only the learned part, the wrong one leaves arbitrary counts.
     /// </summary>
     private Dictionary<string, int>? FindInflatedBase(Dictionary<string, int> userWords)
     {
-        if (IsInflated(userWords, _baseWords)) return _baseWords;
-        if (_legacyWords is { Count: > 0 } legacy && IsInflated(userWords, legacy)) return legacy;
+        var currentMatches = IsInflated(userWords, _baseWords);
+        var legacyMatches = _legacyWords is { Count: > 0 } legacy && IsInflated(userWords, legacy);
+
+        if (currentMatches && legacyMatches)
+        {
+            var currentResidual = ResidualSum(userWords, _baseWords);
+            var legacyResidual = ResidualSum(userWords, _legacyWords!);
+            return legacyResidual < currentResidual ? _legacyWords : _baseWords;   // tie -> current
+        }
+
+        if (currentMatches) return _baseWords;
+        if (legacyMatches) return _legacyWords;
         return null;
+    }
+
+    /// <summary>Sum of <c>userCount mod baseCount</c> over the base's words present in the file.</summary>
+    private static long ResidualSum(Dictionary<string, int> userWords, Dictionary<string, int> baseWords)
+    {
+        long sum = 0;
+        foreach (var (word, baseCount) in baseWords)
+        {
+            if (baseCount > 0 && userWords.TryGetValue(word, out var userCount))
+                sum += userCount % baseCount;
+        }
+
+        return sum;
     }
 
     private static bool IsInflated(Dictionary<string, int> userWords, Dictionary<string, int> baseWords)

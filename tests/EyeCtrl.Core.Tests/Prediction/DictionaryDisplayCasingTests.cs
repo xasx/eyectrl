@@ -24,18 +24,30 @@ public class DictionaryDisplayCasingTests : IDisposable
         if (Directory.Exists(_dir)) Directory.Delete(_dir, true);
     }
 
-    private WordPredictor CreatePredictor()
+    private WordPredictor CreatePredictor(Dictionary<string, int>? words = null)
     {
         var basePath = Path.Combine(_dir, "de.json");
         File.WriteAllText(basePath, JsonSerializer.Serialize(new
         {
-            words = new Dictionary<string, int> { ["wetter"] = 100, ["wettkampf"] = 50, ["wettbewerb"] = 40 },
+            words = words ?? new Dictionary<string, int> { ["wetter"] = 100, ["wettkampf"] = 50, ["wettbewerb"] = 40 },
             casing = new Dictionary<string, string> { ["wetter"] = "Wetter" },
             abbreviations = Array.Empty<string>(),
         }));
 
         var provider = new FileDictionaryProvider(basePath, _dir, "de");
         return new WordPredictor(provider, "QWERTZ");
+    }
+
+    [Fact]
+    public void GetSuggestions_BaseCasing_DoesNotDemoteTheNounInTheRanking()
+    {
+        // If the tier used the display form, "Wetter" would score 100 x 0.8 and "wetten"
+        // 90 x 1.2, flipping the order; the tier uses the stored key.
+        var predictor = CreatePredictor(new Dictionary<string, int> { ["wetter"] = 100, ["wetten"] = 90 });
+
+        var results = predictor.GetSuggestions("wet", null, maxCount: 5);
+
+        Check.That(results[0].Word).IsEqualTo("Wetter");
     }
 
     [Fact]

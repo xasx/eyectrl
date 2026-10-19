@@ -143,6 +143,64 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
     }
 
     [Fact]
+    public void Load_BothBasesMatch_RepairsALegacyFileAgainstTheLegacyBase()
+    {
+        // 100% overlap, different counts: both bases pass the inflation test. The legacy file's
+        // residuals are smaller against the legacy base, so that is the one to repair against.
+        var current = new Dictionary<string, int>
+        {
+            ["alpha"] = 7, ["beta"] = 13, ["gamma"] = 11, ["delta"] = 5, ["epsilon"] = 9,
+        };
+        var legacy = new Dictionary<string, int>
+        {
+            ["alpha"] = 10, ["beta"] = 20, ["gamma"] = 15, ["delta"] = 7, ["epsilon"] = 12,
+        };
+        WriteBase(current);
+        WriteLegacy(legacy);
+        var residuals = new Dictionary<string, int>
+        {
+            ["alpha"] = 1, ["beta"] = 2, ["gamma"] = 3, ["delta"] = 4, ["epsilon"] = 5,
+        };
+        WriteUser(legacy.ToDictionary(kv => kv.Key, kv => 57 * kv.Value + residuals[kv.Key]));
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["alpha"]).IsEqualTo(current["alpha"] + 1);
+        Check.That(loaded["beta"]).IsEqualTo(current["beta"] + 2);
+        Check.That(loaded["gamma"]).IsEqualTo(current["gamma"] + 3);
+        Check.That(loaded["delta"]).IsEqualTo(current["delta"] + 4);
+        Check.That(loaded["epsilon"]).IsEqualTo(current["epsilon"] + 5);
+    }
+
+    [Fact]
+    public void Load_BothBasesMatch_RepairsACurrentFileAgainstTheCurrentBase()
+    {
+        var current = new Dictionary<string, int>
+        {
+            ["alpha"] = 7, ["beta"] = 13, ["gamma"] = 11, ["delta"] = 5, ["epsilon"] = 9,
+        };
+        var legacy = new Dictionary<string, int>
+        {
+            ["alpha"] = 8, ["beta"] = 19, ["gamma"] = 16, ["delta"] = 6, ["epsilon"] = 10,
+        };
+        WriteBase(current);
+        WriteLegacy(legacy);
+        var residuals = new Dictionary<string, int>
+        {
+            ["alpha"] = 1, ["beta"] = 2, ["gamma"] = 3, ["delta"] = 4, ["epsilon"] = 5,
+        };
+        WriteUser(current.ToDictionary(kv => kv.Key, kv => 57 * kv.Value + residuals[kv.Key]));
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["alpha"]).IsEqualTo(current["alpha"] + 1);
+        Check.That(loaded["beta"]).IsEqualTo(current["beta"] + 2);
+        Check.That(loaded["gamma"]).IsEqualTo(current["gamma"] + 3);
+        Check.That(loaded["delta"]).IsEqualTo(current["delta"] + 4);
+        Check.That(loaded["epsilon"]).IsEqualTo(current["epsilon"] + 5);
+    }
+
+    [Fact]
     public void Load_LegacyInflatedFile_RepairsAgainstTheOldBaseOnTopOfTheNewBase()
     {
         // New base: two shared words plus eight the old file never had, so the CURRENT base

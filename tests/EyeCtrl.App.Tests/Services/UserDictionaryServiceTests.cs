@@ -51,6 +51,22 @@ public class UserDictionaryServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetLearnedWords_DeltaFile_ListsAndRemovesLearnedWords()
+    {
+        // The new user-file format holds only the learned delta (no base rows).
+        WriteUserFile(new() { ["zeppelin"] = 3, ["aardvark"] = 1 });
+        var service = Create();
+
+        Check.That(service.GetLearnedWords()).ContainsExactly("zeppelin", "aardvark");
+
+        service.ForgetWord("zeppelin");
+
+        Check.That(service.GetLearnedWords()).ContainsExactly("aardvark");
+        var onDisk = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(UserFile))!;
+        Check.That(onDisk["aardvark"]).IsEqualTo(1);
+    }
+
+    [Fact]
     public void GetLearnedWords_NoUserFile_IsEmpty()
     {
         Check.That(Create().GetLearnedWords()).IsEmpty();

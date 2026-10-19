@@ -105,6 +105,8 @@ public class OverlayVmBindingCoordinatorTests
         var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
             ManualSelectionVM = manualSelectionVm,
+            // The hide branch reads the state for its Pause fallback (the "closed by" log).
+            InteractionManager = new EyeCtrl.Core.Processing.InteractionManager(),
             Settings = settings,
             Messenger = messenger,
             OverlayManager = TestFakes.MakeOverlayManager(

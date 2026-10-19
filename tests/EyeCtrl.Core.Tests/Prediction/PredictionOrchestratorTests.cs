@@ -83,6 +83,85 @@ public class PredictionOrchestratorTests
     }
 
     [Fact]
+    public void GetSuggestions_HighScoreFuzzy_LandsAfterEveryPrefixMatch()
+    {
+        // "hwl" is an adjacent-key slip from "hel" (0.5) with a million-fold frequency, so it
+        // wins on score alone. The owner sees the typed letters respected first: every prefix
+        // match outranks every non-match, regardless of score.
+        var orchestrator = CreateOrchestrator(words: new Dictionary<string, int>
+        {
+            ["help"] = 100, ["hwl"] = 1_000_000,
+        });
+
+        var results = orchestrator.GetSuggestions("hel", context: null, maxCount: 5);
+
+        Check.That(results).Not.IsEmpty();
+        Check.That(results[0].Word).IsEqualTo("help");
+        Check.That(results).HasElementThatMatches(r => r.Word == "hwl");
+        Check.That(results.Last().Word).IsEqualTo("hwl");
+    }
+
+    [Fact]
+    public void GetSuggestions_FuzzyFlood_RealMatchesFillTheBar()
+    {
+        // Six near-misses are 0.5 slips from "Wet" and a million times more frequent than the
+        // real matches. The bar must be the five prefix matches, not the flood.
+        var orchestrator = CreateOrchestrator(words: new Dictionary<string, int>
+        {
+            ["Wetter"] = 100, ["Wettkampf"] = 90, ["Wettbewerb"] = 80, ["Wette"] = 70, ["Wetten"] = 60,
+            ["qet"] = 1_000_000_000, ["eet"] = 1_000_000_000, ["Wrt"] = 1_000_000_000,
+            ["Wwt"] = 1_000_000_000, ["Wer"] = 1_000_000_000, ["Wey"] = 1_000_000_000,
+        });
+
+        var results = orchestrator.GetSuggestions("Wet", context: null, maxCount: 5);
+
+        Check.That(results.Select(r => r.Word))
+            .ContainsExactly("Wetter", "Wettkampf", "Wettbewerb", "Wette", "Wetten");
+    }
+
+    [Fact]
+    public void GetSuggestions_LowercasePrefix_RanksTheCapitalisedMatchFirst()
+    {
+        // German nouns are capitalised while the user types lowercase; the ranking is
+        // case-insensitive.
+        var orchestrator = CreateOrchestrator(words: new Dictionary<string, int>
+        {
+            ["Wetter"] = 100, ["werden"] = 1_000_000,
+        });
+
+        var results = orchestrator.GetSuggestions("wet", context: null, maxCount: 5);
+
+        Check.That(results[0].Word).IsEqualTo("Wetter");
+    }
+
+    [Fact]
+    public void Rank_LowercasePrefix_CapitalisedMatchOutranksAHighScoreNonMatch()
+    {
+        var results = PredictionOrchestrator.Rank(
+            [
+                new PredictionResult("werden", 1_000_000, PredictionType.FuzzyMatch, 0.5),
+                new PredictionResult("Wetter", 100, PredictionType.ExactPrefix, 1.0),
+            ],
+            prefix: "wet", maxCount: 5);
+
+        Check.That(results[0].Word).IsEqualTo("Wetter");
+    }
+
+    [Fact]
+    public void GetSuggestions_WithinThePrefixGroup_HigherScoreFirst()
+    {
+        var trie = new SentenceCompletionIndex();
+        trie.Insert("Wet weather is nice", 1_000_000);
+        var orchestrator = CreateOrchestrator(words: new Dictionary<string, int> { ["Wetter"] = 1 }, trie: trie);
+
+        var results = orchestrator.GetSuggestions("Wet", context: null, maxCount: 5);
+
+        // "Wetter" scores 3; the trie completion scores ln(1e6)*3 and is appended after it.
+        Check.That(results[0].Word).IsEqualTo("Wet weather is nice");
+        Check.That(results[1].Word).IsEqualTo("Wetter");
+    }
+
+    [Fact]
     public void LearnWord_DelegatesToWordPredictor()
     {
         var orchestrator = CreateOrchestrator();

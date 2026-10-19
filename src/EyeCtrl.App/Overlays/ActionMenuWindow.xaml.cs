@@ -12,14 +12,17 @@ using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 {
     // UI Layout Constants
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
+    private const int PreviewFailureLogWindowSeconds = 30;
     private const double IndicatorOffsetMargin = 10; // Margin to keep indicator inside preview circle
     private const double IndicatorSizeRatio = 0.15; // Indicator size as ratio of preview circle size
     private const double MaxIndicatorSize = 30; // Maximum indicator size in pixels
@@ -29,6 +32,13 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     private const int PreviewCircleBorderThickness = 2; // Border thickness of preview circle
 
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
+
+    private readonly HandlerFaultReporter _previewFaults = new(
+        (context, exception) => Log.Warning(
+            "Menu preview capture FAILED: {ExceptionType:l}: {Message:l} ({Context:l})",
+            exception.GetType().Name, exception.Message, context),
+        () => Environment.TickCount64 / 1000,
+        PreviewFailureLogWindowSeconds);
 
     /// <summary>
     /// The per-item dwell-progress subscriptions this window owns, so they can be detached before
@@ -47,13 +57,19 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
     private CancellationTokenSource? _captureCts;
 
+    /// <summary>
+    /// The preview's capture seam: production grabs the screen, tests inject an image (or a fault)
+    /// so the failure/info lines are pinnable without reading any screen pixel.
+    /// </summary>
+    internal Func<PhysicalPoint, int, CaptureResult?> PreviewCapture { get; set; } = ScreenCaptureService.CaptureRegion;
+
     public ActionMenuWindow()
     {
         InitializeComponent();
         ExcludeFromScreenCapture = true; // the action-menu preview must not capture the menu itself
     }
 
-    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false)
+    public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton, int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor, PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null, int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false, double previewMagnification = 1.0)
     {
         // Detach the previous rebuild's progress handlers before clearing. A layer change hands us
         // fresh item ViewModels and would drop the old ones anyway, but a Help toggle does not —
@@ -75,75 +91,32 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
         var canvasCenter = new Point(Width / 2, Height / 2);
 
-        // Delay capture to let WPF render overlay visibility changes
-        var previewRadius = (int)(previewCircleSize / 2);
-        // In zoom path: capture the same region the zoom view showed (same center, same radius)
-        // In AtCenter path: capture the menu display center so indicator can show gaze offset
-        var captureCenter = zoomCenter ?? center;
-        var captureRadius = zoomRadius != null
-            ? (int)(zoomRadius.Value * DpiHelper.ScaleX)          // zoomRadius is logical (DIP) px → convert to physical px for capture
-            : (int)(previewRadius * DpiHelper.ScaleX);            // previewRadius is logical px → convert to physical
-        // The capture rectangle is clamped to the screen, so the image's centre is the effective
-        // one, not the requested centre. The marker must be placed against the image actually shown.
-        var effectiveCaptureCenter = ScreenCaptureService.GetEffectiveCenter(captureCenter, captureRadius);
+        // The preview ellipse's centre (the window centre) and size are what the geometry is drawn
+        // against. Delay the capture to let WPF render overlay visibility changes.
+        var (screenWidth, screenHeight) = ScreenCaptureService.PhysicalScreenSize();
+        var geometry = PreviewGeometry(
+            center, gazePoint, zoomCenter, zoomRadius, previewCircleSize, previewMagnification,
+            DpiHelper.ScaleX, screenWidth, screenHeight);
+        var captureCenter = geometry.CaptureCenter;
+        var captureRadius = geometry.CaptureRadiusPx;
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;
         var captureBorderColor = borderColor;
 
-        // Compute where within the preview circle the precise fixation point (center) lies.
-        // When not in zoom mode both offsets are 0 and the indicator stays at canvasCenter.
-        double indicatorOffsetX = 0;
-        double indicatorOffsetY = 0;
-
-        // Calculate indicator offset based on the actual gaze/fixation point
-        var indicatorPoint = gazePoint ?? center;
-        if (zoomCenter != null && zoomRadius != null)
-        {
-            double scale = previewCircleSize / (2.0 * captureRadius);
-            var markerPoint = CaptureViewMapping.ToViewPoint(effectiveCaptureCenter, canvasCenter, scale, center);
-            indicatorOffsetX = markerPoint.X - canvasCenter.X;
-            indicatorOffsetY = markerPoint.Y - canvasCenter.Y;
-            (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
-        }
-        else if (gazePoint != null && gazePoint != center)
-        {
-            double scale = previewCircleSize / (2.0 * captureRadius);
-            var markerPoint = CaptureViewMapping.ToViewPoint(effectiveCaptureCenter, canvasCenter, scale, indicatorPoint);
-            indicatorOffsetX = markerPoint.X - canvasCenter.X;
-            indicatorOffsetY = markerPoint.Y - canvasCenter.Y;
-            (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
-        }
+        // Where the commit point lands inside the preview circle. In the zoom path the capture is
+        // centred on the commit point, so the marker sits at the circle's centre: the preview shows
+        // the click point at 1:1 around itself, not the menu display point.
+        var indicatorOffsetX = geometry.MarkerOffsetDip.X;
+        var indicatorOffsetY = geometry.MarkerOffsetDip.Y;
 
         _captureCts?.Cancel();
         _captureCts = new CancellationTokenSource();
         var captureToken = _captureCts.Token;
         _ = Dispatcher.InvokeAsync(async () =>
         {
-            try
-            {
-                await Task.Delay(ScreenCaptureDelayMs, captureToken);
-                var capture = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
-                if (capture == null) return;
-
-                var previewEllipse = new Ellipse
-                {
-                    Width = captureCircleSize,
-                    Height = captureCircleSize,
-                    Fill = new ImageBrush(capture.Value.Image) { Stretch = Stretch.Fill },
-                    Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
-                    StrokeThickness = PreviewCircleBorderThickness
-                };
-                Canvas.SetLeft(previewEllipse, captureCanvasCenter.X - captureCircleSize / 2);
-                Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
-                MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
-            }
-            catch
-            {
-                // Cancellation (window re-shown, token superseded) and GDI+ capture/preview
-                // failures (secure desktop, session lock, RDP transition) alike: no preview
-                // this time, the menu itself is unaffected. Catching here also fully observes
-                // the async lambda's task — any other escape would fault it unobserved.
-            }
+            await CapturePreviewAsync(
+                captureCanvasCenter, captureCircleSize, captureCenter, captureRadius,
+                geometry.ViewScaleDipPerPx, captureBorderColor, captureToken);
         });
 
         // Position indicator at center of preview
@@ -259,6 +232,128 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     {
         if (_buttonVisuals.TryGetValue(targetId, out var btn))
             btn.UpdateProgress(progress);
+    }
+
+    /// <summary>
+    /// The preview's capture + ellipse insertion. Extracted from <c>Show</c> so the failure and
+    /// success lines are testable headlessly: a capture failure is LOUD (rate-limited warning) and
+    /// a cancellation — a re-show or layer change superseding this capture — stays silent.
+    /// </summary>
+    internal async Task CapturePreviewAsync(
+        Point canvasCenter, double circleSize, PhysicalPoint captureCenter, int captureRadius,
+        double viewScaleDipPerPx, string borderColor, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(ScreenCaptureDelayMs, token);
+            var capture = PreviewCapture(captureCenter, captureRadius);
+            if (capture is null)
+            {
+                _previewFaults.Report("Menu preview capture failed",
+                    new InvalidOperationException("the capture returned no image"));
+                return;
+            }
+
+            var previewEllipse = new Ellipse
+            {
+                Width = circleSize,
+                Height = circleSize,
+                Fill = new ImageBrush(capture.Value.Image) { Stretch = Stretch.Fill },
+                Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(borderColor)),
+                StrokeThickness = PreviewCircleBorderThickness
+            };
+            Canvas.SetLeft(previewEllipse, canvasCenter.X - circleSize / 2);
+            Canvas.SetTop(previewEllipse, canvasCenter.Y - circleSize / 2);
+
+            // An opaque under-fill below the picture, the same surface the magnifier's disc uses.
+            // The capture is centred on the commit point now, so at an edge its off-screen part is
+            // transparent; without this the menu's backdrop would show through the preview. The
+            // image ellipse goes over it, and both stay behind the buttons.
+            var previewBackdrop = new Ellipse
+            {
+                Width = circleSize,
+                Height = circleSize,
+                Fill = Tokens.BrushSurfaceDark,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(previewBackdrop, canvasCenter.X - circleSize / 2);
+            Canvas.SetTop(previewBackdrop, canvasCenter.Y - circleSize / 2);
+
+            MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
+            MenuCanvas.Children.Insert(0, previewBackdrop); // ... and the under-fill behind the image
+
+            var effectiveCenter = capture.Value.EffectiveCenter;
+            Log.Information("Menu preview: center=({X:F0},{Y:F0}) captureRadius={R}px scale={S:F2}",
+                effectiveCenter.X, effectiveCenter.Y, captureRadius, viewScaleDipPerPx);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a re-show or a layer change: no preview this time, and nothing to say.
+        }
+        catch (Exception exception)
+        {
+            // GDI+ capture/preview failures (secure desktop, session lock, RDP transition): no
+            // preview this time, the menu itself is unaffected. Catching here also fully observes
+            // the task — any other escape would fault it unobserved.
+            _previewFaults.Report("Menu preview capture failed", exception);
+        }
+    }
+
+    /// <summary>
+    /// The action-menu preview's geometry. In the zoom path (back from the magnifier) it shows the
+    /// COMMIT point: a circle of <paramref name="previewCircleSize"/> DIP renders
+    /// <paramref name="previewMagnification"/> screen pixels per captured pixel. Production passes
+    /// 1.0 on both paths — the owner's decision — so the menu shows the picked spot at 1× (no zoom)
+    /// and the magnifier's factor is not carried into the preview; the parameter stays so the pure
+    /// seam keeps its factor coverage. The old form captured the whole zoom region and shrank it
+    /// into the circle — 0.59× at the owner's settings.
+    ///
+    /// <para>
+    /// The marker is placed from <paramref name="gazePoint"/> (the precise commit point) rather than
+    /// the menu's display <paramref name="center"/>: under <c>atCenter</c> that display point is the
+    /// screen centre, so the marker used to show where the screen centre fell, not where the click
+    /// would land. In the zoom path the capture is centred on the commit point, so the marker sits
+    /// at (0,0) — at edges and corners too. The plain path is unchanged: 1.0× around the menu's
+    /// display point.
+    /// </para>
+    /// <para>
+    /// The screen size is a parameter, not a read of the live display, so the effective centre is
+    /// testable without a real screen and follows the same centred placement the capture uses.
+    /// </para>
+    /// </summary>
+    internal static (PhysicalPoint CaptureCenter, int CaptureRadiusPx, double ViewScaleDipPerPx, Vector MarkerOffsetDip) PreviewGeometry(
+        PhysicalPoint center,
+        PhysicalPoint? gazePoint,
+        PhysicalPoint? zoomCenter,
+        int? zoomRadius,
+        double previewCircleSize,
+        double previewMagnification,
+        double scaleX,
+        int screenWidth,
+        int screenHeight)
+    {
+        var commitPoint = gazePoint ?? center;
+        var zoomPath = zoomCenter is not null && zoomRadius is not null;
+
+        var captureCenter = zoomPath ? commitPoint : center;
+        // `Math.Round`, not truncation: at 1.0/1.5 the truncated radius costs a whole capture pixel
+        // and pushes the measured magnification just outside the gate's ±1 %.
+        var captureRadius = (int)Math.Round(
+            previewCircleSize / 2 / (zoomPath ? previewMagnification : 1.0) * scaleX);
+        captureRadius = Math.Max(1, captureRadius);
+
+        // The capture is centred on the requested point, so the image's centre is that point. The
+        // marker must be placed against the image actually shown; the mirror below is the same
+        // centred placement the capture service uses.
+        var effectiveCaptureCenter = CaptureViewMapping.EffectiveCaptureCenter(
+            captureCenter, captureRadius, screenWidth, screenHeight);
+        var viewScaleDipPerPx = previewCircleSize / (2.0 * captureRadius);
+        var (markerX, markerY) = ClampToScreen(
+            (commitPoint.X - effectiveCaptureCenter.X) * viewScaleDipPerPx,
+            (commitPoint.Y - effectiveCaptureCenter.Y) * viewScaleDipPerPx,
+            previewCircleSize);
+
+        return (captureCenter, captureRadius, viewScaleDipPerPx, new Vector(markerX, markerY));
     }
 
     private static (double x, double y) ClampToScreen(double offsetX, double offsetY, double circleSize)

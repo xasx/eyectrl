@@ -54,6 +54,24 @@ internal static class NoteLayout
     public static double RowCenterY(int row) =>
         LayoutConstants.NoteButtonPadding + (row * LayoutConstants.NoteCellDip) + (LayoutConstants.NoteCellDip / 2);
 
+    // == the number badge (T6 P5) ==
+
+    /// <summary>
+    /// Window-relative centre of the number badge: the control column's GAP row (slot 2). That
+    /// row is the one card region that is free on EVERY side and in EVERY state —
+    /// <see cref="SlotsFor"/> never returns slot 2, so its hit-cell fill stays Collapsed, the
+    /// text column and the 30 DIP gap sit across the card from it, and ChromeRects never reports
+    /// the row. Delegating to <see cref="ButtonCenter"/> keeps the badge on the same per-side
+    /// column math as the cells, so the column-follows-side rule holds for the badge for free.
+    /// </summary>
+    public static (double X, double Y) BadgeCenter(NoteSide side, double cardWidthDip) =>
+        ButtonCenter(side, 2, cardWidthDip);
+
+    /// <summary>The badge diameter in DIP: 1.5x the text size clamped to [32, 56]. It scales
+    /// with the note body (18 → 32, 28 → 42, 48 → 56) and never leaves the 80 DIP gap row —
+    /// 56 leaves a 12 DIP clearance to each neighbouring cell row.</summary>
+    public static double BadgeDiameterFor(double textSize) => Math.Clamp(textSize * 1.5, 32.0, 56.0);
+
     /// <summary>
     /// The per-state slot table (P4 D3). A slot IS a hit-cell row: slot 0 and 1 are adjacent,
     /// slot 2 is the full empty gap cell (P2 D8's "one cell apart", P1 D7's "Discard one slot

@@ -89,9 +89,11 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
             [
-                ("Solo", 1, "the note control discs' glyphs - a label-less gaze disc (T5 review-02 "
+                ("Solo", 2, "the note control discs' glyphs - a label-less gaze disc (T5 review-02 "
                     + "F2): the DwellArcButton convention for discs, about 32 DIP of the 56 DIP "
-                    + "disc. The P4 body text is the setting, not a ratio."),
+                    + "disc. The P4 body text is the setting, not a ratio. The second site is the "
+                    + "T6 number badge's numeral - also a label-less disc whose glyph is its "
+                    + "entire content, so the same bucket applies."),
             ],
             ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs"] =
             [

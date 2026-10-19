@@ -552,8 +552,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             FinalizeOldestYieldableChip();
         }
 
-        var data = new NoteData { Anchor = point, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
+        var data = new NoteData { Anchor = point, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty, Number = LowestFreeNumber() };
         var window = new NoteWindow(data.Id);
+        window.ControlInputActivated +=
+            (suffix, kind, fromStylus) => RunControlInput(data.Id, suffix, kind, fromStylus); // T6 P5: caretaker touch/click
         _notes.Add(data);
         _windows.Add(window);
         _placements[data.Id] = NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!;
@@ -1482,7 +1484,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// chrome zones (P2 D7). NOT called from the gaze-driven <c>:place</c> centre updates — see
     /// the message's doc for why that would be a per-sample walk.
     /// </summary>
-    private void RaiseTargetsChanged() => _messenger.Send(new NoteTargetsChangedMessage());
+    private void RaiseTargetsChanged()
+    {
+        // T6 P5: every membership or state change funnels through here (create, remove, chip
+        // entry, Undo, expiry), so the badges re-derive at the same point the targets do.
+        RefreshBadges();
+        _messenger.Send(new NoteTargetsChangedMessage());
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<PhysicalRect> ChromeRects()
@@ -1947,6 +1955,39 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// truth in production (SystemParameters.WorkArea) and under test (the injected provider).</summary>
     public void Receive(DisplayGeometryChangedMessage message) => RePlaceEveryNote();
 
+    /// <summary>
+    /// T6 P5: the LOWEST free positive integer among the live notes' numbers. Computed BEFORE a
+    /// new note joins <see cref="_notes"/>, so its own number never collides. A chip still holds
+    /// its number (it stays in <c>_notes</c> until its final removal), so Undo restores the same
+    /// numeral and a note pinned over a chip never takes the chip's number — release happens
+    /// only when <see cref="RemoveNoteInternal"/> drops the note.
+    /// </summary>
+    private int LowestFreeNumber()
+    {
+        var used = new HashSet<int>(_notes.Select(n => n.Number));
+        for (int candidate = 1; ; candidate++)
+            if (!used.Contains(candidate))
+                return candidate;
+    }
+
+    /// <summary>
+    /// T6 P5: pushes every window's badge numeral. Badges show on the card notes only while
+    /// TWO OR MORE notes are NOT chips (Display, Edit or Move); chips never show one and never
+    /// count. Idempotent per window (<c>SetBadge</c> early-returns unchanged values) and cheap
+    /// (≤ MaxNotes windows), so riding <see cref="RaiseTargetsChanged"/> — the funnel every
+    /// membership and state change already walks — cannot hot-loop it.
+    /// </summary>
+    private void RefreshBadges()
+    {
+        if (_disposed) return;
+        bool visible = _notes.Count(n => n.State != NoteState.PendingUndo) >= 2;
+        foreach (var note in _notes)
+        {
+            int? number = visible && note.State != NoteState.PendingUndo ? note.Number : null;
+            Window(note.Id)?.SetBadge(number);
+        }
+    }
+
     /// <summary>T6's SystemParameters trigger (P3 D3): the DisplayGeometryChangedMessage does
     /// not fire on a taskbar resize or auto-hide; this does.</summary>
     private void OnSystemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -2261,6 +2302,31 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var (noteId, _) = (parts[0], parts[1]);
         var window = _windows.FirstOrDefault(w => w.NoteId == noteId);
         window?.UpdateDwellProgress(targetId, progress);
+    }
+
+    /// <summary>T6 P5: a caretaker touch or click on a drawn control. The decision to act is the
+    /// pure <see cref="NoteInputPolicy"/>'s; its inputs are read HERE because the manager owns
+    /// them — the registration is the detector's truth (both detectors, so the chip's :undo
+    /// qualifies) and visibility is the drawn control's. Acting runs the SAME activation the
+    /// dwell path runs — <see cref="OnTargetActivated"/>, or <see cref="OnUndoActivated"/> for
+    /// the chip's control — plus the dwell's post-effect cue, so every Undo protection
+    /// (✕/Discard) and commit-first (✎) behaves exactly as it does by gaze.</summary>
+    internal void RunControlInput(string noteId, string suffix, NoteInputKind kind, bool fromStylus)
+    {
+        if (_disposed) return;
+        var targetId = $"{noteId}:{suffix}";
+        bool registered = FindTarget(targetId) is not null;
+        var window = Window(noteId);
+        bool visible = window?.IsControlDrawn(suffix) ?? false;
+        bool paused = _pausePoll?.Invoke() ?? false;
+        if (!NoteInputPolicy.Accepts(kind, paused, fromStylus, visible, registered))
+            return;
+
+        if (suffix == "undo")
+            OnUndoActivated(targetId);
+        else
+            OnTargetActivated(targetId);
+        _messenger.Send(new DwellActivationMessage());
     }
 
     public void Dispose()

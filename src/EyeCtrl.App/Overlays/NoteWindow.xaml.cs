@@ -13,6 +13,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Models;
+using EyeCtrl.App.Services.Notes;
 
 public class NoteWindow : OverlayWindow
 {
@@ -48,6 +49,10 @@ public class NoteWindow : OverlayWindow
     private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
     private NoteState _state;
+    // T6 P5: the badge elements are tracked so DrawBadge can replace them without a full Draw.
+    private Ellipse? _badgeDisc;
+    private TextBlock? _badgeLabel;
+    private int? _badgeNumber;
     // The note body text size in DIP (P4 D1): pushed by the manager at creation and on every
     // T8 raise; every text measurement and drawn font derives from it.
     private double _textSize = NoteSettings.DefaultTextSizeDip;
@@ -199,6 +204,81 @@ public class NoteWindow : OverlayWindow
         DrawButtons();
         UpdateContent();
         UpdateButtonVisibility();
+        DrawBadge();
+    }
+
+    /// <summary>
+    /// T6 P5: the manager pushes this note's badge numeral — null hides. Called on every
+    /// membership or state change through the manager's <c>RefreshBadges</c>; every redraw path
+    /// re-derives the drawn badge through <see cref="DrawBadge"/>.
+    /// </summary>
+    public void SetBadge(int? number)
+    {
+        if (_badgeNumber == number) return;
+        _badgeNumber = number;
+        Dispatcher.Invoke(DrawBadge);
+    }
+
+    /// <summary>
+    /// Draws (or clears) the number badge in the control column's gap row —
+    /// <see cref="NoteLayout.BadgeCenter"/>. The badge is pure chrome: it is never registered as
+    /// a dwell target, never enters ChromeRects, and carries no hit affordance, so a look at it
+    /// can never act. A PendingUndo chip NEVER draws one (T6: chips show no badge and don't
+    /// count), guarded here as well as in the manager's push.
+    /// </summary>
+    private void DrawBadge()
+    {
+        if (_badgeDisc != null) { _canvas.Children.Remove(_badgeDisc); _badgeDisc = null; }
+        if (_badgeLabel != null) { _canvas.Children.Remove(_badgeLabel); _badgeLabel = null; }
+        if (_badgeNumber is not { } number || _state == NoteState.PendingUndo || _placement is not { } placement)
+            return;
+
+        // Position: the control column's GAP row (slot 2) — the one card region free on every
+        // side and in every state. SlotsFor never returns slot 2, so its cell fill stays
+        // Collapsed; the text column and the 30 DIP gap sit across the card from it (the column
+        // hugs the edge away from the tail on all four sides), and ChromeRects never reports the
+        // row — the badge overlaps nothing a look or a caretaker reads.
+        double dia = NoteLayout.BadgeDiameterFor(_textSize);
+        var (cx, cy) = NoteLayout.BadgeCenter(_side, placement.Card.Width);
+
+        // Fill SurfaceMedium = the same disc fill as the control discs; numeral and edge
+        // TextPrimary = the theme's strongest marking colour. Measured against the composited
+        // card over both page lightnesses, the worst theme pair is Midnight's numeral at
+        // 10.9:1 (floor 4.5) and Daylight's edge at 12.5:1 (floor 3.0). TextPrimary for the
+        // edge ON PURPOSE: BorderSubtle is the card-edge token but sits at 2.80:1 against
+        // Daylight's light card — below the 1.4.11 floor this badge owes.
+        var disc = new Ellipse
+        {
+            Width = dia, Height = dia,
+            Fill = Tokens.BrushSurfaceMedium,
+            Stroke = Tokens.BrushTextPrimary,
+            StrokeThickness = Tokens.BorderThicknessStandard
+        };
+        Canvas.SetLeft(disc, cx - (dia / 2));
+        Canvas.SetTop(disc, cy - (dia / 2));
+        _canvas.Children.Add(disc);
+        _badgeDisc = disc;
+
+        // The numeral centres on its INK (T5 fixup-03 G1's convention): digits like "1" carry
+        // asymmetric advance boxes, and box centring reads off-centre. The ratio is Solo —
+        // the glyph is the disc's entire content (the same bucket the control discs read).
+        var label = new TextBlock
+        {
+            Text = number.ToString(CultureInfo.InvariantCulture),
+            FontFamily = Tokens.FontStandard,
+            FontSize = dia * ContainerRatio.Solo,
+            Foreground = Tokens.BrushTextPrimary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var formatted = new FormattedText(label.Text, CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+        Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+        Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
+        Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
+        _canvas.Children.Add(label);
+        _badgeLabel = label;
     }
 
 
@@ -396,7 +476,13 @@ public class NoteWindow : OverlayWindow
     {
         _textSize = textSize;
         if (_contentBorder != null)
-            Dispatcher.Invoke(UpdateContent);
+            Dispatcher.Invoke(() =>
+            {
+                UpdateContent();
+                // T8: the badge diameter follows the text size even when the placement is
+                // unchanged — ApplyPlacementToWindow skips identical rects, so Draw would not run.
+                DrawBadge();
+            });
     }
 
 
@@ -526,6 +612,7 @@ public class NoteWindow : OverlayWindow
                 Canvas.SetTop(ellipse, cy - ButtonRadius);
                 _canvas.Children.Add(ellipse);
                 _buttons[$"{_noteId}:{suffix}"] = ellipse;
+                AttachCaretakerInput(ellipse, suffix);
 
                 var label = new TextBlock
                 {
@@ -672,6 +759,44 @@ public class NoteWindow : OverlayWindow
         if (_buttonLabels.TryGetValue(key, out var label)) label.Visibility = vis;
         if (!visible && _arcs.TryGetValue(key, out var arc)) arc.Arc.Visibility = Visibility.Hidden;
     }
+
+    /// <summary>
+    /// T6 P5: fires when the caretaker touches or clicks a note control, carrying the control's
+    /// suffix; the manager runs the SAME action the control's dwell runs, through the input
+    /// policy. The window itself decides nothing — the accept/ignore rule lives in
+    /// <see cref="NoteInputPolicy"/> and the registration/visibility inputs come from the
+    /// manager, which owns both.
+    /// </summary>
+    internal event Action<string, NoteInputKind, bool>? ControlInputActivated;
+
+    private void AttachCaretakerInput(Ellipse ellipse, string suffix)
+    {
+        // Touch: marked handled so the platform cannot re-report it (a promoted mouse event is
+        // ignored downstream anyway — the promotion guard is the policy's business).
+        ellipse.TouchUp += (_, e) =>
+        {
+            e.Handled = true;
+            ControlInputActivated?.Invoke(suffix, NoteInputKind.Touch, false);
+        };
+        ellipse.MouseLeftButtonUp += (_, e) =>
+        {
+            // A touch promotion (StylusDevice != null) is REPORTED, not swallowed: the touch
+            // already acted at TouchUp, and the policy ignores the promoted click so the
+            // action cannot run a second time.
+            ControlInputActivated?.Invoke(suffix, NoteInputKind.Mouse, e.StylusDevice != null);
+        };
+    }
+
+    /// <summary>Whether the named control is currently DRAWN visible (its ellipse is not
+    /// Collapsed). One of the policy's two per-control inputs: a control the window has not
+    /// drawn never acts, however it is touched or clicked.</summary>
+    internal bool IsControlDrawn(string suffix) =>
+        _buttons.TryGetValue($"{_noteId}:{suffix}", out var ellipse)
+        && ellipse.Visibility == Visibility.Visible;
+
+    /// <summary>Test accessors (T6): the drawn badge elements, or nulls when none is drawn.</summary>
+    internal Ellipse? BadgeDiscForTest => _badgeDisc;
+    internal TextBlock? BadgeLabelForTest => _badgeLabel;
 
     public void UpdateDwellProgress(string targetId, double progress)
     {

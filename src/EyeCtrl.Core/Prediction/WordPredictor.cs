@@ -127,6 +127,12 @@ public class WordPredictor
                 if (!matchesPrefix)
                     continue;
 
+                // The dictionary is the single source of truth: a bigram can outlive its word
+                // (forget, eviction, a committed typo), and suggesting that word again would
+                // resurrect it after every use of its context word.
+                if (!_words.ContainsKey(word.ToLowerInvariant()))
+                    continue;
+
                 var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
                 var score = baseFreq * frequency * NextWordMultiplier;
 

@@ -179,6 +179,41 @@ public class KeyboardViewModelPairLearningTests
         }
     }
 
+    [Theory]
+    [InlineData("Ende.\"")]
+    [InlineData("Ende.)")]
+    [InlineData("Ende.»")]
+    public void SentenceEndBehindAClosingQuoteOrBracket_LearnsNoPair(string previousWord)
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            for (var round = 0; round < 2; round++)
+            {
+                TypeWordAndSpace(vm, previousWord);
+                TypeWordAndSpace(vm, "Ich");
+            }
+
+            Check.That(BarFor(vm, orchestrator, "ende")).Not.Contains("Ich");
+        }
+    }
+
+    [Fact]
+    public void ClosingQuoteWithoutASentenceEnd_StillLearnsThePair()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            for (var round = 0; round < 2; round++)
+            {
+                TypeWordAndSpace(vm, "\"Hallo\"");
+                TypeWordAndSpace(vm, "du");
+            }
+
+            Check.That(BarFor(vm, orchestrator, "hallo")).Contains("du");
+        }
+    }
+
     [Fact]
     public void TypingLetters_LearnsNoWordUntilSpace()
     {

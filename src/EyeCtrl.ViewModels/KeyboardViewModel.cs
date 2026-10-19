@@ -541,9 +541,24 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (stale) return;
         if (previousWord is null || BigramModel.NormalizeWord(previousWord) is null) return;
         if (BigramModel.NormalizeWord(word) is null) return;
-        if (previousWord[^1] is '.' or '!' or '?' or '…') return;
+        if (EndsWithSentencePunctuation(previousWord)) return;
 
         _orchestrator?.LearnPair(previousWord, word);
+    }
+
+    /// <summary>
+    /// True when the word ends a sentence, even behind closing quotes or brackets ("Ende.\"",
+    /// "Ende.)", "Ende.»"). Only the trailing closers are skipped; their presence alone does not
+    /// end a sentence ("Hallo" and James' still learn their pairs).
+    /// </summary>
+    private static bool EndsWithSentencePunctuation(string word)
+    {
+        var end = word.Length;
+        while (end > 0 && word[end - 1] is '"' or '\'' or '“' or '”' or '‘' or '’'
+                   or '«' or '»' or '‹' or '›' or ')' or ']' or '}')
+            end--;
+
+        return end > 0 && word[end - 1] is '.' or '!' or '?' or '…';
     }
 
     public void HandleTab()

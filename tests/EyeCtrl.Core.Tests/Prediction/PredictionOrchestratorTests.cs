@@ -203,6 +203,22 @@ public class PredictionOrchestratorTests
     }
 
     [Fact]
+    public void GetSuggestions_TrieCompletion_WithADigitToken_IsDropped()
+    {
+        var trie = new SentenceCompletionIndex();
+        trie.Insert("um 5 uhr", 10);
+        // "5" is in the dictionary on purpose: only the explicit digit rule can drop it.
+        var orchestrator = CreateOrchestrator(
+            words: new Dictionary<string, int> { ["um"] = 100, ["uhr"] = 100, ["5"] = 100 },
+            trie: trie);
+
+        var words = orchestrator.GetSuggestions("um", context: null, maxCount: 5)
+            .Select(result => result.Word).ToList();
+
+        Check.That(words).Not.Contains("um 5 uhr");
+    }
+
+    [Fact]
     public void GetSuggestions_LearnedWord_MakesACompletionValid()
     {
         var trie = new SentenceCompletionIndex();

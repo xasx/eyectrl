@@ -306,8 +306,16 @@ public class WordPredictor
         if (_provider is FileDictionaryProvider fileProvider
             && fileProvider.DisplayCasing.TryGetValue(word, out var display))
         {
-            if (learned is null || string.Equals(learned, word.ToLowerInvariant(), StringComparison.Ordinal))
+            // "Capitals win": an all-lowercase learned form (the key itself) gives way to the
+            // base capital. LearnWord title-cases ALL-CAPS words that are not known acronyms
+            // ("DDR" -> "Ddr"), so that normalized form gives way too; any other learned
+            // casing still wins.
+            if (learned is null
+                || string.Equals(learned, word.ToLowerInvariant(), StringComparison.Ordinal)
+                || string.Equals(learned, CasingHelper.NormalizeAllCaps(display), StringComparison.Ordinal))
+            {
                 return display;
+            }
         }
 
         return learned ?? word;

@@ -74,18 +74,64 @@ public class DictionaryDisplayCasingTests : IDisposable
     }
 
     [Fact]
-    public void GetSuggestions_LearnedNonLowercaseCasing_WinsOverTheBase()
+    public void GetSuggestions_GenuinelyDifferentLearnedCasing_WinsOverTheBase()
     {
-        // Any learned form other than the bare lowercase key still wins (LearnWord normalizes
-        // ALL-CAPS to title case, so "WLAN" is recorded as "Wlan").
-        var predictor = CreatePredictor(
-            new Dictionary<string, int> { ["wlan"] = 100 },
-            new Dictionary<string, string> { ["wlan"] = "WLAN" });
-        predictor.LearnWord("WLAN");
+        // Mixed case survives LearnWord as typed (it is not ALL-CAPS), so it outranks the base.
+        var predictor = CreatePredictor();
+        predictor.LearnWord("WeTter");
 
-        var results = predictor.GetSuggestions("wla", null, maxCount: 5);
+        var results = predictor.GetSuggestions("wet", null, maxCount: 5);
 
-        Check.That(results[0].Word).IsEqualTo("Wlan");
+        Check.That(results[0].Word).IsEqualTo("WeTter");
+    }
+
+    [Fact]
+    public void GetSuggestions_BaseAcronyms_SurviveOneSelection()
+    {
+        // LearnWord title-cases ALL-CAPS words that are not in KnownAcronyms ("DDR" -> "Ddr");
+        // that normalized learned form must not hide the base acronym on the next render.
+        var words = new Dictionary<string, int>
+        {
+            ["ddr"] = 100, ["ki"] = 90, ["ok"] = 80, ["uk"] = 70, ["e-mail"] = 60,
+        };
+        var casing = new Dictionary<string, string>
+        {
+            ["ddr"] = "DDR", ["ki"] = "KI", ["ok"] = "OK", ["uk"] = "UK", ["e-mail"] = "E-Mail",
+        };
+        var predictor = CreatePredictor(words, casing);
+
+        var cases = new (string Prefix, string Expected)[]
+        {
+            ("dd", "DDR"), ("ki", "KI"), ("ok", "OK"), ("uk", "UK"), ("e-m", "E-Mail"),
+        };
+
+        foreach (var (prefix, expected) in cases)
+        {
+            var before = predictor.GetSuggestions(prefix, null, maxCount: 5);
+            Check.WithCustomMessage($"before selecting '{prefix}'").That(before[0].Word).IsEqualTo(expected);
+
+            predictor.LearnWord(before[0].Word);
+
+            var after = predictor.GetSuggestions(prefix, null, maxCount: 5);
+            Check.WithCustomMessage($"after selecting '{expected}'").That(after[0].Word).IsEqualTo(expected);
+        }
+    }
+
+    [Fact]
+    public void GetSuggestions_NextWordWithBigrams_CapitalisedNounKeepsItsRank()
+    {
+        // The next-word branch gets its case tier from the stored key too: with the display form
+        // "Wetter" it would score 5000 x 0.8 and lose to "wetten" (4500 x 1.2).
+        var predictor = CreatePredictor(new Dictionary<string, int> { ["wetter"] = 100, ["wetten"] = 90 });
+        for (var i = 0; i < 10; i++)
+        {
+            predictor.LearnSequence(["das", "wetter"]);
+            predictor.LearnSequence(["das", "wetten"]);
+        }
+
+        var results = predictor.GetSuggestions("we", context: "das", maxCount: 5);
+
+        Check.That(results[0].Word).IsEqualTo("Wetter");
     }
 
     [Fact]

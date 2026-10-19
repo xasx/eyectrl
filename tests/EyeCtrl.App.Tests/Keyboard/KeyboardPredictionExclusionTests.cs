@@ -96,7 +96,8 @@ public class KeyboardPredictionExclusionTests
     /// an empty string and quietly makes "the bar rendered something" pass on nothing.
     /// </summary>
     private static List<string> RenderedWords(KeyboardWindow w) =>
-        w.PredictionBar.Children.Cast<Border>().Select(b => CellText(b.Child)).ToList();
+        w.PredictionBar.Children.Cast<Border>().Select(b => CellText(b.Child))
+            .Where(text => text.Length > 0).ToList();
 
     private static string CellText(UIElement? element) => element switch
     {
@@ -405,38 +406,45 @@ public class KeyboardPredictionExclusionTests
         finally { probe.Dispose(); }
     }
 
+    /// <summary>
+    /// With the same context and prefix still current, the next fetch (the next keystroke's
+    /// render - no results-ready repaint) shows the LM completion. The activation path no
+    /// longer re-fetches through a throwaway list, so the poll that renders is the poll that
+    /// consumes the pending result.
+    /// </summary>
     [StaFact]
-    public void LmResults_RenderOnTheFirstFetchAfterASuggestionIsAccepted()
+    public void LmCompletion_RendersOnTheNextFetchWithTheSameInput()
     {
         var lm = new FakeLmPredictor();
-        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000 }, lm);
+        var probe = Open(new Dictionary<string, int>
+        {
+            // "wonderful" is known (the LM vocabulary gate) but scored below the five "wo"
+            // matches, so only the LM slot can put it in the bar.
+            ["hello"] = 1000, ["world"] = 1000, ["wonder"] = 900,
+            ["would"] = 800, ["worry"] = 700, ["worth"] = 600, ["wonderful"] = 1,
+        }, lm);
         try
         {
+            // Give the keyboard a context: accepting "hello" sets the previous word.
             probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Vm.HandlePredictionSelected("hello");
+
+            probe.Vm.CurrentInput = "wo";
             probe.Window.UpdatePredictions();   // the render call triggers the LM inference
             probe.Content.UpdateLayout();
-            Check.WithCustomMessage("The render call did not trigger LM inference — nothing to starve.")
+            Check.WithCustomMessage("The render call did not trigger LM inference — nothing to show.")
                 .That(lm.PredictCalls).IsStrictlyGreaterThan(0);
 
-            lm.Complete("llmanswer");
-            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+            lm.Complete("wonderful");
+            probe.Window.UpdatePredictions();   // the next keystroke's render
 
-            string? inserted = null;
-            probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
-
-            var barCentre = ScreenCentre((FrameworkElement)probe.Window.PredictionBar.Children[0]);
-            Feed(probe, barCentre, 30_000, 540_000);   // accept the rendered suggestion
-
-            Check.WithCustomMessage("The suggestion was never accepted, so the render that follows "
-                    + "never ran — this test would be vacuous.")
-                .That(inserted).IsEqualTo("hello");
             Check.WithCustomMessage(
-                    "The LM result never rendered: the activation path re-fetched, consumed the "
-                    + "pending result for its throwaway list, and the render that follows polled "
-                    + $"null. The model ran, cost its inference, and the user never saw it. "
+                    "The fresh matching LM completion never rendered: the poll that rendered "
+                    + "either consumed it for a throwaway list or dropped it as stale. "
                     + $"[polls={lm.PollCount}, predictCalls={lm.PredictCalls}, "
                     + $"rendered={string.Join(",", RenderedWords(probe.Window))}]")
-                .That(RenderedWords(probe.Window)).Contains("llmanswer");
+                .That(RenderedWords(probe.Window)).Contains("wonderful");
         }
         finally { probe.Dispose(); }
     }
@@ -641,7 +649,8 @@ public class KeyboardPredictionExclusionTests
             probe.Content.UpdateLayout();
             probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
 
-            var cells = probe.Window.PredictionBar.Children.Cast<FrameworkElement>().ToList();
+            var cells = probe.Window.PredictionBar.Children.Cast<FrameworkElement>()
+                .Take(RenderedWords(probe.Window).Count).ToList();
             var targets = RegisteredTargets(probe.PredictionDetector);
             Check.That(targets).HasSize(cells.Count);
             for (var i = 0; i < cells.Count; i++)

@@ -72,18 +72,11 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
 
-    /// <summary>
-    /// Widest a prediction label may grow, in key widths. Expressed in keys so it tracks
-    /// KeySizeMultiplier instead of pinning a DIP value that only suits the default key size.
-    /// This bounds how far one suggestion can push the window, it does not make the bar narrower
-    /// than the keys — five MinWidth=120 cells already outrun a 10-key row at the default key
-    /// size, which is pre-existing. What matters here is that the bound is a constant: an
-    /// unbounded cell lets a single sentence move the window by an arbitrary amount.
-    /// </summary>
-    private const double PredictionLabelWidthInKeys = 5.0;
-
     private KeyboardLayout? _layout;
     private double _keySize;
+    // The widest key row, in DIP. The prediction bar is exactly this wide, divided into
+    // MaxSuggestions equal slots, so no suggestion can ever resize the keyboard.
+    private double _keyGridWidth;
     private int _predictionDwellMs;
     private string _screenEdge = "bottom";
     // Toolbar occupancy for the yield (spec B3 #6): when the toolbar is on screen at this
@@ -190,7 +183,13 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     public void SetSoundService(KeyboardSoundService svc) => _soundService = svc;
-    public void SetSettings(EyeCtrlSettings settings) => _settings = settings;
+    public void SetSettings(EyeCtrlSettings settings)
+    {
+        _settings = settings;
+        // Visibility and the slot count are settings, so an applied change re-lays out the bar
+        // (a deliberate action; typing never changes either).
+        UpdatePredictions();
+    }
     public void SetSkinTone(int skinTone) => _emojiManager?.SetSkinTone(skinTone);
 
     private void RepositionOnScreen()
@@ -215,6 +214,18 @@ public partial class KeyboardWindow : OverlayWindow
 
         ClearKeyState();
         KeyRows.Children.Clear();
+
+        // The prediction bar matches the widest row exactly: the key Border is boxWidth plus a
+        // 2-DIP margin on each side. Computed from the layout so it is exact before the first
+        // arrange; the bar never derives its size from a suggestion.
+        _keyGridWidth = 0;
+        foreach (var row in subLayout.Rows)
+        {
+            double rowWidth = 0;
+            foreach (var key in row)
+                rowWidth += _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0) + 4;
+            _keyGridWidth = Math.Max(_keyGridWidth, rowWidth);
+        }
 
         for (int rowIdx = 0; rowIdx < subLayout.Rows.Count; rowIdx++)
         {
@@ -315,6 +326,10 @@ public partial class KeyboardWindow : OverlayWindow
         // off), a ß that reads lowercase while typing ẞ. Covers LoadLayout (the VM's SetLayout
         // raise repaints, then this rebuild erases it), emoji exit, and sub-layout swaps.
         UpdateModifierVisuals();
+
+        // The bar's width tracks the active sub-layout's grid; rebuild it here so a sub-layout
+        // switch cannot leave the window sized for the previous row widths.
+        UpdatePredictions();
     }
 
     public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
@@ -531,7 +546,6 @@ public partial class KeyboardWindow : OverlayWindow
     {
         _emojiManager?.Exit();
         _predictionDwellDetector.ResetAllState();
-        PredictionBar.Visibility = Visibility.Visible;
         RebuildKeys();
     }
 
@@ -599,7 +613,11 @@ public partial class KeyboardWindow : OverlayWindow
 
     private void UpdatePredictionTargetPositions()
     {
-        if (PredictionBar.Children.Count == 0) return;
+        // Only the FILLED slots are dwellable. Placeholder cells sit after them and register
+        // nothing; iterating the rendered list (not the children) also means a pass can latch
+        // with an empty bar instead of being blocked by a child that is not a Border.
+        var filled = Math.Min(_renderedPredictions.Count, PredictionBar.Children.Count);
+        if (filled == 0) return;
 
         // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing, and
         // latch only when EVERY cell placed. The latch used to fire on a pass that happened,
@@ -607,7 +625,7 @@ public partial class KeyboardWindow : OverlayWindow
         // and the five targets stacked at screen (0,0) from a source-less pass were permanent,
         // because the else-branch only rebases geometry it was given and can never repair it.
         bool allPlaced = true;
-        for (int i = 0; i < PredictionBar.Children.Count; i++)
+        for (int i = 0; i < filled; i++)
         {
             var predId = $"pred_{i}";
             if (PredictionBar.Children[i] is not Border btn)
@@ -644,99 +662,124 @@ public partial class KeyboardWindow : OverlayWindow
 
     public void UpdatePredictions()
     {
-        if (_viewModel == null) return;
+        var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? 5, 1, 5);
+        var suggestions = _viewModel?.GetSuggestionsWithContext() ?? [];
 
         _predictionDwellDetector.ClearTargets();
         _predictionTargetsInitialized = false;
         _predictionOutlines.Clear();
         PredictionBar.Children.Clear();
 
-        var suggestions = _viewModel.GetSuggestionsWithContext();
-        // Capture exactly what gets rendered: OnPredictionDwelled indexes THIS list.
-        _renderedPredictions = suggestions;
+        // Capture exactly what gets rendered: OnPredictionDwelled indexes THIS list. Slots past
+        // this count are quiet placeholders with no dwell target.
+        _renderedPredictions = suggestions.Take(slotCount).ToList();
 
-        for (int i = 0; i < suggestions.Count; i++)
+        if (PredictionBar is System.Windows.Controls.Primitives.UniformGrid grid)
+            grid.Columns = slotCount;
+        PredictionBar.Width = _keyGridWidth > 0 ? _keyGridWidth : double.NaN;
+        PredictionBar.Visibility = (_settings?.Keyboard.PredictionEnabled ?? true)
+            && _viewModel?.IsEmojiMode != true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        // Equal slots spanning the key grid exactly: the bar is as wide as the widest row, so
+        // no suggestion can ever grow the window, and its height is one key regardless of count.
+        var slotWidth = _keyGridWidth > 0 ? _keyGridWidth / slotCount : 0;
+        var labelMaxWidth = Math.Max(0, slotWidth - 38); // minus 3+3 margin and 16+16 padding
+
+        for (int i = 0; i < slotCount; i++)
         {
-            var result = suggestions[i];
-            var predId = $"pred_{i}";
-
-            var predLabel = new TextBlock
-            {
-                Text = result.Word,
-                Foreground = GetPredictionForeground(result.Type),
-                // Sized from the prediction cell, which is _keySize tall (see the Border below),
-                // clamped at Legibility.MinimumGlyphFontSize for the reason recorded at the
-                // key-label site: KeySizeMultiplier's 0.5 floor would otherwise put this at
-                // 8.05px, under the 12px accessibility floor (§8.4). Proportional scaling still
-                // applies above ~0.75x.
-                FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                // Sentence completions are whole sentences, not words, and the cell below has no
-                // MaxWidth: the window is SizeToContent="WidthAndHeight", so one long suggestion
-                // would widen the whole keyboard and shift every key — moving each key's dwell
-                // target out from under a gaze that is mid-dwell. Bounded here rather than on the
-                // Border because the badge variant nests this in a horizontal StackPanel, which
-                // measures its children with infinite width and would defeat a Border-level cap.
-                MaxWidth = _keySize * PredictionLabelWidthInKeys,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{i}");
-
-            // Calculate background color with optional confidence shading
-            var baseColor = PredictionBarColor;
-            if (_settings?.Keyboard.ShowPredictionConfidence == true)
-            {
-                // Clamp and validate confidence to 0-1 range before converting to alpha
-                var confidence = result.Confidence;
-                if (double.IsNaN(confidence) || double.IsInfinity(confidence))
-                {
-                    confidence = 0;
-                }
-                confidence = Math.Clamp(confidence, 0.0, 1.0);
-
-                // Adjust alpha based on confidence (150-230 range for visibility)
-                var alpha = (byte)(150 + (confidence * 80));
-                baseColor = Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B);
-            }
-
-            var brush = new SolidColorBrush(baseColor);
-
-            // Optionally add type badge
-            UIElement labelOrStack = predLabel;
-            if (_settings?.Keyboard.ShowPredictionTypes == true)
-            {
-                var badge = CreateTypeBadge(result.Type);
-                if (badge != null)
-                {
-                    var stack = new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    };
-                    stack.Children.Add(predLabel);
-                    stack.Children.Add(badge);
-                    labelOrStack = stack;
-                }
-            }
-
-            var btn = new Border
-            {
-                MinWidth = 120,
-                Height = _keySize,
-                Margin = new Thickness(3),
-                Padding = new Thickness(16, 0, 16, 0),
-                Background = brush,
-                CornerRadius = Tokens.StandardCornerRadius
-            };
-            _predictionOutlines.Add(DwellOutlineOverlay.Attach(btn, labelOrStack));
-
-            PredictionBar.Children.Add(btn);
-            // No placeholder target here: a (0,0) target is never placeable and, if the latch
-            // below latched on a pass that could not place anything, it would live forever.
-            // Targets are published by UpdatePredictionTargetPositions only from a placed cell.
+            PredictionBar.Children.Add(i < _renderedPredictions.Count
+                ? CreatePredictionCell(i, _renderedPredictions[i], labelMaxWidth)
+                : CreateEmptyPredictionCell(i));
         }
+    }
+
+    private Border CreatePredictionCell(int index, PredictionResult result, double labelMaxWidth)
+    {
+        var predLabel = new TextBlock
+        {
+            Text = result.Word,
+            Foreground = GetPredictionForeground(result.Type),
+            // Sized from the prediction cell, which is _keySize tall (see the Border below),
+            // clamped at Legibility.MinimumGlyphFontSize for the reason recorded at the
+            // key-label site: KeySizeMultiplier's 0.5 floor would otherwise put this at
+            // 8.05px, under the 12px accessibility floor (§8.4). Proportional scaling still
+            // applies above ~0.75x.
+            FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            // The slot is a fixed share of the key grid, so a long word trims inside it. The
+            // cap is on the label rather than the Border because the badge variant nests this
+            // in a horizontal StackPanel, which measures its children with infinite width.
+            MaxWidth = labelMaxWidth,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{index}");
+
+        // Calculate background color with optional confidence shading
+        var baseColor = PredictionBarColor;
+        if (_settings?.Keyboard.ShowPredictionConfidence == true)
+        {
+            // Clamp and validate confidence to 0-1 range before converting to alpha
+            var confidence = result.Confidence;
+            if (double.IsNaN(confidence) || double.IsInfinity(confidence))
+            {
+                confidence = 0;
+            }
+            confidence = Math.Clamp(confidence, 0.0, 1.0);
+
+            // Adjust alpha based on confidence (150-230 range for visibility)
+            var alpha = (byte)(150 + (confidence * 80));
+            baseColor = Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B);
+        }
+
+        var brush = new SolidColorBrush(baseColor);
+
+        // Optionally add type badge
+        UIElement labelOrStack = predLabel;
+        if (_settings?.Keyboard.ShowPredictionTypes == true)
+        {
+            var badge = CreateTypeBadge(result.Type);
+            if (badge != null)
+            {
+                var stack = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                stack.Children.Add(predLabel);
+                stack.Children.Add(badge);
+                labelOrStack = stack;
+            }
+        }
+
+        var btn = new Border
+        {
+            Height = _keySize,
+            Margin = new Thickness(3),
+            Padding = new Thickness(16, 0, 16, 0),
+            Background = brush,
+            CornerRadius = Tokens.StandardCornerRadius,
+            ClipToBounds = true
+        };
+        _predictionOutlines.Add(DwellOutlineOverlay.Attach(btn, labelOrStack));
+        return btn;
+    }
+
+    private Border CreateEmptyPredictionCell(int index)
+    {
+        var cell = new Border
+        {
+            Height = _keySize,
+            Margin = new Thickness(3),
+            Background = new SolidColorBrush(PredictionBarColor),
+            CornerRadius = Tokens.StandardCornerRadius,
+            ClipToBounds = true
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(cell, $"Keyboard_PredictionEmpty_{index}");
+        return cell;
     }
 
     /// <summary>

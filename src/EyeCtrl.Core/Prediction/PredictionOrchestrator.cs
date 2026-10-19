@@ -78,48 +78,76 @@ public class PredictionOrchestrator : IDisposable
                 merged[result.Word] = result;
         }
 
-        var sorted = merged.Values
-            .OrderByDescending(r => r.Score)
-            .Take(maxCount)
-            .ToList();
+        PredictionResult? lmCompletion = null;
 
         if (_mlEnabled && _lmPredictor != null && _lmPredictor.IsAvailable)
         {
+            // Results belong to the request the predictor last ran. Only merge them when that
+            // request is still the current context (the prefix moves on between keystrokes -
+            // that is when results arrive), and only words that continue the CURRENT prefix
+            // (and are longer): a stale completion must never surface under a new word.
             var lmResults = _lmPredictor.TryGetResults();
-            if (lmResults != null && lmResults.Count > 0)
+            if (lmResults != null && lmResults.Count > 0 && context == _lastLmContext)
             {
                 foreach (var lmResult in lmResults)
                 {
+                    if (!lmResult.Word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (lmResult.Word.Length <= prefix.Length) continue;
+                    if (!_wordPredictor.KnowsWord(lmResult.Word)) continue;
+                    lmCompletion ??= lmResult;
                     if (!merged.ContainsKey(lmResult.Word))
-                    {
                         merged[lmResult.Word] = lmResult;
-                        sorted.Add(lmResult);
-                        if (sorted.Count >= maxCount) break;
-                    }
                 }
-                sorted = sorted.OrderByDescending(r => r.Score).Take(maxCount).ToList();
             }
 
-            if ((prefix != _lastLmPrefix || context != _lastLmContext) && ShouldTriggerLm(sorted, context, prefix))
+            if ((prefix != _lastLmPrefix || context != _lastLmContext) && ShouldTriggerLm(context, prefix))
             {
                 _lastLmPrefix = prefix;
                 _lastLmContext = context;
-                var lmContext = context ?? "";
-                _lmPredictor.Predict(lmContext, prefix);
+                _lmPredictor.Predict(context!, prefix);
             }
+        }
+
+        var sorted = Rank(merged.Values, prefix, maxCount);
+
+        // One fresh, matching completion gets the slot right after the top dictionary match,
+        // replacing the lowest-ranked entry when the bar is full. It starts with the prefix, so
+        // this keeps the prefix-first rule intact.
+        if (lmCompletion != null
+            && !sorted.Any(r => r.Word.Equals(lmCompletion.Word, StringComparison.OrdinalIgnoreCase)))
+        {
+            var insertAt = Math.Min(1, sorted.Count);
+            if (sorted.Count >= maxCount) sorted.RemoveAt(sorted.Count - 1);
+            sorted.Insert(Math.Min(insertAt, sorted.Count), lmCompletion);
         }
 
         return sorted;
     }
 
-    private static bool ShouldTriggerLm(List<PredictionResult> currentResults, string? context, string prefix)
-    {
-        if (string.IsNullOrEmpty(prefix) && !string.IsNullOrEmpty(context)) return false;
-        if (prefix.Length < 2 && string.IsNullOrEmpty(context)) return false;
-        if (currentResults.Count < 3) return true;
-        var avgConfidence = currentResults.Average(r => r.Confidence);
-        return avgConfidence < 0.5;
-    }
+    /// <summary>
+    /// Every suggestion whose first word starts with the typed prefix comes before every
+    /// suggestion that doesn't, then the existing score order within each group. This is the
+    /// property the user sees: a frequent near-miss may never outrank a candidate that respects
+    /// the letters actually typed. For a space-free prefix "starts with the prefix" is the same
+    /// as "first word starts with the prefix"; a multi-word prefix (sentence completion typing)
+    /// compares the whole suggestion, which is the typed text too.
+    /// </summary>
+    internal static List<PredictionResult> Rank(
+        IEnumerable<PredictionResult> results, string prefix, int maxCount)
+        => results
+            .OrderByDescending(result => string.IsNullOrEmpty(prefix)
+                || result.Word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(result => result.Score)
+            .Take(maxCount)
+            .ToList();
+
+    /// <summary>
+    /// Only ask the model when it can continue a word in a sentence: a context AND a typed
+    /// prefix. The old average-confidence heuristic kept it silent whenever the dictionary had
+    /// three exact matches, even though those say nothing about the NEXT letters.
+    /// </summary>
+    private static bool ShouldTriggerLm(string? context, string prefix)
+        => !string.IsNullOrEmpty(context) && !string.IsNullOrEmpty(prefix);
 
     /// <summary>Delegates to the underlying <see cref="WordPredictor"/> to learn a single word.</summary>
     /// <param name="word">The word to learn.</param>

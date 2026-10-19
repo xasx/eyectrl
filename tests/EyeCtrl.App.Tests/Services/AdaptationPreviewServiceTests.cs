@@ -1073,6 +1073,10 @@ public class AdaptationPreviewServiceTests
         var keyboardVm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
         var keyboard = new KeyboardWindow();
         keyboard.SetViewModel(keyboardVm);
+        // C1: the open keyboard never MOVES for a relayout. A TOP-docked keyboard demonstrates
+        // the remaining hazard exactly — it grows DOWNWARD from a fixed top edge (no move is
+        // needed), and the growth can still enter a panel that sits below it.
+        keyboard.SetScreenEdge("top");
         keyboard.Show();
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
@@ -1116,21 +1120,21 @@ public class AdaptationPreviewServiceTests
             keyboardVm.IsVisible = true;
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
 
-            // The panel occupies exactly the band the growth is about to add: anchored past a
-            // tiny toolbar placed left of it, top-aligned with the growth band's top edge. It
-            // only TOUCHES the keyboard's current rect (strict overlap ⇒ clear), so the show-time
-            // gate passes and only the grown rect can collide.
+            // The panel occupies exactly the band the growth is about to add BELOW the
+            // keyboard: anchored past a tiny toolbar placed left of it, top-aligned with the
+            // band's top edge. It only TOUCHES the keyboard's current rect (strict overlap ⇒
+            // clear), so the show-time gate passes and only the grown rect can collide.
             h.Toolbar.Bounds = new PhysicalRect(
-                before.X - 16 - 100, before.Y - growthPhysical, 100, 50);
+                before.X - 16 - 100, before.Y + before.Height + 16, 100, 50);
             h.Panel.DipSize = (before.Width, growthPhysical);
             h.Panel.Scale = 1.0;
 
             h.ShowPreview();
             Check.That(h.Panel.IsShown).IsTrue();
 
-            // The relayout: MinHeight grows the SizeToContent window (RepositionOnScreen keeps it
-            // bottom-anchored, so the growth lands exactly in the band the panel occupies) — no
-            // VM property flips.
+            // The relayout: MinHeight grows the SizeToContent window. C1 keeps the top edge
+            // fixed (the window does NOT move on a resize), so the growth extends downward into
+            // the band the panel occupies — no VM property flips.
             keyboard.MinHeight = keyboard.ActualHeight + GrowthDip;
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
 

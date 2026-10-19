@@ -86,6 +86,10 @@ public partial class KeyboardWindow : OverlayWindow
     private double _toolbarExtentDip;
     private bool _predictionTargetsInitialized;
     private string? _previousNearestKeyId;
+    // C1: the window has been positioned for the CURRENT visibility session. Cleared on every
+    // visibility transition, so the show's own layout (or the initial toolbar-occupancy query)
+    // places it once, and every later resize is a no-move. See Place.
+    private bool _placed;
 
     public KeyboardWindow(IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
@@ -94,7 +98,16 @@ public partial class KeyboardWindow : OverlayWindow
         _dwellRegistry = dwellRegistry;
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
             context: DwellContext.KeyboardPrediction, sink: sink);
-        SizeChanged += (_, _) => RepositionOnScreen();
+        SizeChanged += (_, _) => RepositionOnScreen(KeyboardMove.Keep);
+        // A new visibility session is unplaced. The placement itself happens after the show's
+        // layout (SizeChanged above) or on the coordinator's initial toolbar-occupancy query —
+        // never here: Visibility flips before the window is laid out, so ActualWidth/Height can
+        // still be stale, and a second move would be suppressed as a resize.
+        IsVisibleChanged += (_, _) => _placed = false;
+        // A DPI/display change moves the window (Windows applies a new suggested rect). There is
+        // no non-moving response, so arm the same suppression: nothing dwells until the gaze
+        // travels about half a key from where the move caught it.
+        DpiChanged += (_, _) => _viewModel?.ArmDwellSuppression();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
         // Prediction dwell times come from KeyboardPredictionDwellMs, so the validated span is the
@@ -161,7 +174,9 @@ public partial class KeyboardWindow : OverlayWindow
     public void SetScreenEdge(string edge)
     {
         _screenEdge = edge;
-        RepositionOnScreen();
+        // The edge-bar Flip: a deliberate move even while open, and therefore one that arms
+        // the D13 suppression. At load (hidden) it is just the session's first placement.
+        RepositionOnScreen(KeyboardMove.Flip);
     }
 
     /// <summary>
@@ -174,7 +189,10 @@ public partial class KeyboardWindow : OverlayWindow
         _toolbarOccupied = occupied;
         _toolbarEdge = occupied ? edge : "none";
         _toolbarExtentDip = extentDip;
-        RepositionOnScreen();
+        // C1: an appearing toolbar may move the keyboard away once; a hiding one must not move
+        // it back — the un-yield waits for the next show. On show this also performs the
+        // session's first placement (ApplyInitialToolbarOccupancy runs right after Show()).
+        RepositionOnScreen(KeyboardMove.Yield);
     }
 
     public void SetEmojiData(string emojiJsonPath, string recentEmojiPath)
@@ -192,19 +210,70 @@ public partial class KeyboardWindow : OverlayWindow
     }
     public void SetSkinTone(int skinTone) => _emojiManager?.SetSkinTone(skinTone);
 
-    private void RepositionOnScreen()
+    private void RepositionOnScreen(KeyboardMove move)
     {
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
-
         // One read: the yield clamp and the placement must be measured against the SAME
         // work-area snapshot, not two reads of a property that can change mid-call.
-        var work = SystemParameters.WorkArea;
-        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
-        (Left, Top) = OverlayPositioning.PlaceAtEdge(work, edge, ActualWidth, ActualHeight);
+        Place(SystemParameters.WorkArea, ActualWidth, ActualHeight, move);
+    }
 
-        Top += KeyboardYield.VerticalOffset(
+    /// <summary>
+    /// C1's one placement rule. The first request after a show positions the window at the
+    /// screen edge plus any current toolbar yield — that is where an un-yield happens. Once
+    /// placed, only two requests may move it (and both arm the D13 suppression): a toolbar
+    /// appearing on its edge (<see cref="KeyboardMove.Yield"/>, never a zero offset, so a
+    /// hiding toolbar cannot pull it back), and a deliberate Flip
+    /// (<see cref="KeyboardMove.Flip"/>). A resize or sub-layout switch
+    /// (<see cref="KeyboardMove.Keep"/>) moves nothing: key screen positions are recomputed on
+    /// every gaze sample, so a window move silently re-maps a resting gaze to another key.
+    /// </summary>
+    /// <param name="workArea">The work area to dock to; production passes
+    /// <c>SystemParameters.WorkArea</c>, tests pass a fixed rectangle (no display needed).</param>
+    /// <param name="widthDip">Window width in DIP (<c>ActualWidth</c> in production).</param>
+    /// <param name="heightDip">Window height in DIP (<c>ActualHeight</c> in production).</param>
+    internal void Place(Rect workArea, double widthDip, double heightDip, KeyboardMove move)
+    {
+        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
+        var (left, baseTop) = OverlayPositioning.PlaceAtEdge(workArea, edge, widthDip, heightDip);
+        var yieldOffset = KeyboardYield.VerticalOffset(
             edge, _toolbarOccupied, _toolbarEdge, _toolbarExtentDip,
-            Top, ActualHeight, work.Top, work.Bottom);
+            baseTop, heightDip, workArea.Top, workArea.Bottom);
+
+        // The first placement of the session: the show's own layout, the initial occupancy
+        // query, or an explicit show. Any request places; no suppression is armed — the gaze
+        // is not resting on the keys yet (a hide clears the VM's in-grid anchor).
+        if (!_placed || move == KeyboardMove.Show)
+        {
+            _placed = true;
+            SetPosition(left, baseTop + yieldOffset);
+            return;
+        }
+
+        switch (move)
+        {
+            case KeyboardMove.Flip:
+                _viewModel?.ArmDwellSuppression();
+                SetPosition(left, baseTop + yieldOffset);
+                break;
+
+            // A yield is one-way while open: only a non-zero offset is a move AWAY from the
+            // toolbar. Zero is a toolbar that hid (or sits on another edge) — staying put is
+            // the whole point; the next show takes the un-yielded position.
+            case KeyboardMove.Yield when yieldOffset != 0:
+                _viewModel?.ArmDwellSuppression();
+                SetPosition(left, baseTop + yieldOffset);
+                break;
+
+            // Keep: a resize / sub-layout switch / settings re-layout never moves the open
+            // window.
+        }
+    }
+
+    private void SetPosition(double left, double top)
+    {
+        Left = left;
+        Top = top;
     }
 
     private void RebuildKeys()

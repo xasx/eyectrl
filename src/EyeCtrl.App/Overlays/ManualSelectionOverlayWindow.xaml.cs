@@ -214,7 +214,7 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     internal string BuildShownLine(PhysicalPoint viewCenter, int radius, bool recapture)
     {
         var captureCenter = _captureCenter!.Value;
-        return string.Create(CultureInfo.InvariantCulture, $"Magnifier shown: P=({captureCenter.X:F0},{captureCenter.Y:F0}) view=({viewCenter.X:F0},{viewCenter.Y:F0}) mag={_magnification:0.##} viewDip={radius * 2 * _magnification:F0} recapture={recapture} picture={_pictureState} captureMs={_lastCaptureMs} captured={_lastCapturedSize}x{_lastCapturedSize}px luma={_lastLumaMean:F0}\u00B1{_lastLumaSd:F0} sameAsPrevious={_lastCaptureSameAsPrevious}");
+        return string.Create(CultureInfo.InvariantCulture, $"Magnifier shown: P=({captureCenter.X:F0},{captureCenter.Y:F0}) view=({viewCenter.X:F0},{viewCenter.Y:F0}) mag={_magnification:0.##} viewDip={radius * 2 * _magnification:F0} circleEff={radius} recapture={recapture} picture={_pictureState} captureMs={_lastCaptureMs} captured={_lastCapturedSize}x{_lastCapturedSize}px luma={_lastLumaMean:F0}\u00B1{_lastLumaSd:F0} sameAsPrevious={_lastCaptureSameAsPrevious}");
     }
 
     /// <summary>Forgets the displayed picture and its effective centre; never leaves the old one up.</summary>

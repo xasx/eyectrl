@@ -171,7 +171,8 @@ public class CaptureViewMappingTests
     /// The action-menu forward map, composed exactly as the marker branch composes it, across
     /// display scales: capture radius from the DIP zoom radius times ScaleX, the effective centre
     /// derived from the centred request, and a DIP-per-content scale from the preview circle over
-    /// the capture side. Defaults: CircleRadiusPixels 150, CircleSize 250; the selection point
+    /// the capture side. The test uses its own 150-DIP zoom radius and 250-DIP preview circle
+    /// (independent of the settings defaults); the selection point
     /// (20, 400) sits near the left edge. The capture is centred on it, so the marker must sit at
     /// the canvas centre at every scale — the old clamped form parked it 83–92 DIP off-centre.
     /// </summary>

@@ -43,7 +43,7 @@ public class ManualSelectionMagnifierLogTests
 
             Check.WithCustomMessage($"the shown line is incomplete: {line}")
                 .That(line)
-                .Contains("Magnifier shown: P=(960,540) view=(960,540) mag=2 viewDip=680 recapture=True")
+                .Contains("Magnifier shown: P=(960,540) view=(960,540) mag=2 viewDip=680 circleEff=170 recapture=True")
                 .And.Contains("picture=fresh")
                 .And.Contains("captured=680x680px")
                 .And.Contains("luma=128")

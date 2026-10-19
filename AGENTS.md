@@ -182,6 +182,8 @@ SmallLM benchmarks require ONNX model + tokenizer files in `%APPDATA%/EyeCtrl/mo
 
 Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/EyeCtrl/logs/eyectrl-.log` with daily rolling and 7-day retention. Both Serilog's static `Log` class and injected `ILogger<T>` are used.
 
+**Keyboard E1 lines (`KB-E1 <event> k=v …`).** `KeyboardE1Recorder` (Core) writes one `Information` line per keyboard EVENT — key activation, hold-on, abandonment, bar pick, pick-undo, Space, mode change, mode-undo, edge button, shown, hidden, mirror check — through `ILogger<KeyboardViewModel>`. They are **content-free by contract**: ints, bools and closed ids only (key row/column and class, timings, lengths, the dock edge, the foreground PROCESS name); never a character, a word, a prediction or a window title. `KeyboardE1PrivacyTests` is the merge gate (property names and string vocabularies are allow-lists there, so a new field needs a deliberate edit), and a double must never be logged (Serilog renders it with the current culture). `python tools/kb_log_metrics.py <day log>` turns the lines into the read-outs the key-dwell decision uses; `python tools/kb_log_metrics_test.py` self-tests it in CI.
+
 ## Key Files
 
 | File | Purpose |

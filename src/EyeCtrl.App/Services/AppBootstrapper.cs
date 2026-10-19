@@ -615,6 +615,9 @@ public class AppBootstrapper
         // ILogger<UiaSensitiveContextDetector> is auto-injected (as for ControlFinder). Started in
         // App.OnStartup; disposed by the container in OnExit (removing the UIA focus hook).
         services.AddSingleton<ISensitiveContextDetector, UiaSensitiveContextDetector>();
+        // E1 keyboard log: the foreground PROCESS name and the focused control's text tail (compared
+        // in memory, never logged). Resolved into KeyboardViewModel as an optional ctor parameter.
+        services.AddSingleton<IKeyboardContextProbe, Win32KeyboardContextProbe>();
         services.AddSingleton<IFeedbackGate>(sp => new SensitiveContextFeedbackGate(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<ISensitiveContextDetector>()));

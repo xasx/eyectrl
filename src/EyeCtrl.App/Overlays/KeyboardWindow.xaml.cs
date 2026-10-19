@@ -87,9 +87,17 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _predictionTargetsInitialized;
     private string? _previousNearestKeyId;
 
+    // E1 (content-free per-key logging) window-side facts. The recorder's clock, so the lines the
+    // view-model writes and these share one timebase. None of it is read by behaviour.
+    private long _lastMoveMs = long.MinValue;      // last time the window's position actually changed
+    private long _barRenderedMs = long.MinValue;   // when the bar's current render happened
+    private readonly long[] _slotDwellStartMs = new long[5];  // first progress per slot since render
+    private int _slotsVisitedMask;                 // slots whose dwell began at least once since render
+
     public KeyboardWindow(IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
         InitializeComponent();
+        Array.Fill(_slotDwellStartMs, long.MinValue);
         _sink = sink;
         _dwellRegistry = dwellRegistry;
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
@@ -117,6 +125,7 @@ public partial class KeyboardWindow : OverlayWindow
         _viewModel = viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.KeyDwellCompleted += OnKeyDwellCompleted;
+        _viewModel.E1Geometry = GetE1Geometry;
 
         // Re-entry replaces the emoji manager (see the _viewModel guard above): unregister the old
         // one first, or its registry entry would outlive it holding a strong reference to a dead
@@ -200,11 +209,34 @@ public partial class KeyboardWindow : OverlayWindow
         // work-area snapshot, not two reads of a property that can change mid-call.
         var work = SystemParameters.WorkArea;
         var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
+        var (previousLeft, previousTop) = (Left, Top);
         (Left, Top) = OverlayPositioning.PlaceAtEdge(work, edge, ActualWidth, ActualHeight);
 
         Top += KeyboardYield.VerticalOffset(
             edge, _toolbarOccupied, _toolbarEdge, _toolbarExtentDip,
             Top, ActualHeight, work.Top, work.Bottom);
+
+        // E1: a position change (a Flip, the toolbar yield) silently re-maps a resting gaze onto
+        // another key, so the key lines carry the time since the last one.
+        if (!(Math.Abs(Left - previousLeft) <= 0.5 && Math.Abs(Top - previousTop) <= 0.5)
+            && _viewModel is not null)
+            _lastMoveMs = _viewModel.E1.NowMs;
+    }
+
+    /// <summary>
+    /// What E1's key and abandon lines need from the window: the dock edge, the physical rect and
+    /// the time since the window last moved. Called per EVENT (an activation or an abandonment),
+    /// never per gaze sample.
+    /// </summary>
+    private KeyboardE1Geometry GetE1Geometry()
+    {
+        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
+        var sinceMove = _lastMoveMs == long.MinValue || _viewModel is null
+            ? -1 : _viewModel.E1.NowMs - _lastMoveMs;
+        return TryGetScreenRect(this, out var rect)
+            ? new KeyboardE1Geometry(edge, (int)Math.Round(rect.X), (int)Math.Round(rect.Y),
+                (int)Math.Round(rect.Width), (int)Math.Round(rect.Height), sinceMove)
+            : new KeyboardE1Geometry(edge, 0, 0, 0, 0, sinceMove);
     }
 
     private void RebuildKeys()
@@ -491,6 +523,8 @@ public partial class KeyboardWindow : OverlayWindow
 
         if (lowerAction == "enter")
         {
+            // E1 mirror check: snapshot and start BEFORE the keystroke goes out; it never waits.
+            _viewModel.BeginMirrorCheck("enter");
             _viewModel.HandleEnter();
             UpdatePredictions();
             return;
@@ -506,6 +540,7 @@ public partial class KeyboardWindow : OverlayWindow
         {
             _viewModel.HandleSpace();
             UpdatePredictions();
+            _viewModel.E1.RecordSpace(_viewModel.LastKeySeq, _renderedPredictions.Count == 0);
             return;
         }
 
@@ -674,6 +709,11 @@ public partial class KeyboardWindow : OverlayWindow
         // this count are quiet placeholders with no dwell target.
         _renderedPredictions = suggestions.Take(slotCount).ToList();
 
+        // E1: a new render starts the render-to-dwell clock and the slots-visited count over.
+        _barRenderedMs = _viewModel?.E1.NowMs ?? long.MinValue;
+        Array.Fill(_slotDwellStartMs, long.MinValue);
+        _slotsVisitedMask = 0;
+
         if (PredictionBar is System.Windows.Controls.Primitives.UniformGrid grid)
             grid.Columns = slotCount;
         PredictionBar.Width = _keyGridWidth > 0 ? _keyGridWidth : double.NaN;
@@ -833,6 +873,20 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (!targetId.StartsWith("pred_")) return;
         if (!int.TryParse(targetId.AsSpan(5), out var index)) return;
+
+        // E1: when did this slot's dwell begin, and which slots has the gaze dwelt on since the
+        // render? A few field writes per progress callback; nothing is logged here.
+        if (index >= 0 && index < _slotDwellStartMs.Length)
+        {
+            if (progress <= 0)
+                _slotDwellStartMs[index] = long.MinValue;
+            else if (_slotDwellStartMs[index] == long.MinValue && _viewModel is not null)
+            {
+                _slotDwellStartMs[index] = _viewModel.E1.NowMs;
+                _slotsVisitedMask |= 1 << index;
+            }
+        }
+
         if (index < 0 || index >= _predictionOutlines.Count) return;
 
         // Same reasoning as the keys: the wash here ran at full strength too, so a suggestion's
@@ -849,11 +903,29 @@ public partial class KeyboardWindow : OverlayWindow
         if (int.TryParse(targetId.AsSpan(5), out var index)
             && index >= 0 && index < _renderedPredictions.Count)
         {
+            RecordPickE1(index);
             _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
                                            // sound failure can never leave the bar stale (S1)
         }
+    }
+
+    /// <summary>
+    /// E1's pick line: slot, source, LENGTHS (never the word), and the reading fingerprint — the
+    /// time from the bar's render to this slot's dwell start, and how many OTHER slots the gaze
+    /// dwelt on first. Read before the selection changes CurrentInput.
+    /// </summary>
+    private void RecordPickE1(int index)
+    {
+        if (_viewModel is null || !_viewModel.E1.Enabled) return;
+        var result = _renderedPredictions[index];
+        var dwellStart = index < _slotDwellStartMs.Length ? _slotDwellStartMs[index] : long.MinValue;
+        var renderToDwellMs = dwellStart == long.MinValue || _barRenderedMs == long.MinValue
+            ? -1 : (int)Math.Max(0, dwellStart - _barRenderedMs);
+        var visited = System.Numerics.BitOperations.PopCount((uint)(_slotsVisitedMask & ~(1 << index)));
+        _viewModel.E1.RecordPick(index, KeyboardE1Recorder.PickSource(result.Type),
+            _viewModel.CurrentInput.Length, result.Word.Length, renderToDwellMs, visited);
     }
 
     private void UpdateKeyVisual(string targetId, double progress)

@@ -4,11 +4,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 
 public partial class KeyboardViewModel : MessengerViewModelBase,
@@ -70,6 +72,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     private readonly IStruggleTelemetrySink? _sink;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
+    private readonly IKeyboardContextProbe? _contextProbe;
+    private readonly ISensitiveContextDetector? _sensitiveContext;
     private readonly Action _onEffectiveSettingsChanged;
 
     [ObservableProperty] private bool _isVisible;
@@ -93,13 +97,55 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public event Action<string>? KeyDwellCompleted;
 
+    // E1 (content-free per-key logging). Everything below is bookkeeping for the per-EVENT lines
+    // KeyboardE1Recorder writes: running sums while one key is the dwell candidate, a restart
+    // count, the saccade into the key, and the post-fire hold-on watch. Nothing here logs per
+    // gaze sample and nothing here changes what the keyboard does.
+    private PhysicalPoint _e1PrevPoint;
+    private bool _e1HasPrev;
+    private double _e1SumDxPx;
+    private double _e1SumDyPx;
+    private int _e1Samples;
+    private int _e1Restarts;
+    private double _e1SaccadePx;
+    private bool _e1Resetting;
+    private bool _inAutoReturn;
+    private KeyboardMirrorChecker _mirrorChecker;
+
+    private bool _holdOnActive;
+    private long _holdOnSeq;
+    private string _holdOnKeyId = "";
+    private long _holdOnFireTimestampUs;
+    private long _holdOnLastInsideUs;
+
+    /// <summary>The longest hold-on E1 reports; read across and past the cooldown.</summary>
+    private const int HoldOnCapMs = 600;
+
+    /// <summary>The E1 recorder: the keyboard's content-free event log.</summary>
+    public KeyboardE1Recorder E1 { get; private set; }
+
+    /// <summary>
+    /// Supplied by the window: dock edge, physical rect and time since the last window move, for
+    /// the key lines. Null leaves those fields at their "unknown" values.
+    /// </summary>
+    public Func<KeyboardE1Geometry>? E1Geometry { get; set; }
+
+    /// <summary>The sequence number of the most recent logged key line (0 before the first).</summary>
+    public long LastKeySeq { get; private set; }
+
     public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger,
-        IStruggleTelemetrySink? sink = null, EffectiveSettingsProvider? effectiveSettings = null)
+        IStruggleTelemetrySink? sink = null, EffectiveSettingsProvider? effectiveSettings = null,
+        ILogger<KeyboardViewModel>? logger = null, IKeyboardContextProbe? contextProbe = null,
+        ISensitiveContextDetector? sensitiveContext = null)
         : base(messenger)
     {
         _settings = settings;
         _sink = sink;
         _effectiveSettings = effectiveSettings;
+        _contextProbe = contextProbe;
+        _sensitiveContext = sensitiveContext;
+        E1 = new KeyboardE1Recorder(logger);
+        _mirrorChecker = new KeyboardMirrorChecker(E1, contextProbe, sensitiveContext);
         if (_effectiveSettings is not null)
         {
             _onEffectiveSettingsChanged = ApplyEffectiveKeyDwell;
@@ -109,6 +155,34 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             _onEffectiveSettingsChanged = () => { };
         }
+    }
+
+    /// <summary>Replaces the E1 recorder (tests inject a clock; the mirror checker follows it).</summary>
+    internal void UseE1Recorder(KeyboardE1Recorder recorder)
+    {
+        E1 = recorder;
+        _mirrorChecker = new KeyboardMirrorChecker(recorder, _contextProbe, _sensitiveContext);
+    }
+
+    /// <summary>
+    /// The foreground PROCESS name (never a title) for the "keyboard shown" line, or <c>unknown</c>.
+    /// </summary>
+    public string ForegroundProcessName()
+    {
+        try { return _contextProbe?.GetForegroundProcessName() ?? "unknown"; }
+        catch (Exception) { return "unknown"; }
+    }
+
+    /// <summary>
+    /// Starts E1's mirror check (<c>hide</c> or <c>enter</c>) and returns at once: the keyboard's
+    /// record is snapshotted here on the calling thread, the UI Automation read and the comparison
+    /// run off-thread under a hard time box, and only a verdict and lengths are logged. The
+    /// caller must invoke it BEFORE the Enter keystroke is sent or the keyboard is hidden.
+    /// </summary>
+    public void BeginMirrorCheck(string at)
+    {
+        if (!E1.Enabled) return;
+        _ = _mirrorChecker.Begin(at, _recentText + CurrentInput);
     }
 
     public void Configure(int keyDwellMs, int cooldownMs)
@@ -152,6 +226,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         return Math.Max(_keyDwellMs, floor);
     }
 
+    // E1: emoji enter/exit as mode changes (a hide's own reset is excluded by _e1Resetting).
+    partial void OnIsEmojiModeChanged(bool value)
+    {
+        if (_e1Resetting) return;
+        E1.RecordMode("emoji", value ? "text" : "emoji", value ? "emoji" : "text");
+    }
+
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
     public void Receive(HideKeyboardMessage message) => IsVisible = false;
 
@@ -190,8 +271,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _lastSampleTimestampUs = 0;
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
+        FinishHoldOn(capped: false);
+        _e1HasPrev = false;
+        _e1Restarts = 0;
+        _e1Samples = 0;
 
-        IsEmojiMode = false;
+        // A hide's own mode resets are not the user's mode changes: they must not read as an
+        // emoji exit (or an undo of the entry) in the E1 log.
+        _e1Resetting = true;
+        try { IsEmojiMode = false; }
+        finally { _e1Resetting = false; }
         ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
 
         // M7 (impl review M2; symptom corrected r2 N4): raised AFTER the assignment above —
@@ -229,10 +318,21 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         long sinceLastSampleUs = timestampUs - _lastSampleTimestampUs;
         _lastSampleTimestampUs = timestampUs;
 
+        // E1: the previous sample (for the saccade into a newly entered key) and the post-fire
+        // hold-on watch. Both are a few field writes and one rect test; neither logs per sample.
+        var prevPoint = _e1PrevPoint;
+        var hadPrev = _e1HasPrev;
+        _e1PrevPoint = gazePoint;
+        _e1HasPrev = true;
+        if (_holdOnActive)
+            UpdateHoldOn(keyScreenPositions, keyScreenBoxes, gazePoint, isGazeInsideWindow,
+                timestampUs, sinceLastSampleUs);
+
         if (!isGazeInsideWindow)
         {
             if (NearestKeyId != null)
             {
+                _e1Restarts++;
                 EmitAbandonIfNeeded(keyScreenPositions, gazePoint, timestampUs, AbandonReason.GazeLeft);
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
@@ -275,10 +375,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         if (nearestId != NearestKeyId)
         {
+            if (NearestKeyId != null)
+                _e1Restarts++;
             EmitAbandonIfNeeded(keyScreenPositions, gazePoint, timestampUs, AbandonReason.NearestChanged);
             NearestKeyProgress = 0;
             NearestKeyId = nearestId;
             _nearestKeyEnteredTimestamp = timestampUs;
+            _e1SaccadePx = hadPrev ? Math.Sqrt(gazePoint.DistanceSquaredTo(prevPoint)) : 0;
+            if (nearestId != null)
+                StartDwellOffsets(keyScreenPositions, gazePoint, nearestId);
         }
         else if (nearestId != null)
         {
@@ -289,16 +394,19 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 // Restart instead, so only continuous gaze completes the dwell.
                 NearestKeyProgress = 0;
                 _nearestKeyEnteredTimestamp = timestampUs;
+                _e1Restarts++;
+                StartDwellOffsets(keyScreenPositions, gazePoint, nearestId);
             }
             else
             {
+                AddDwellOffset(keyScreenPositions, gazePoint, nearestId);
                 long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
                 int dwellMs = KeyDwellMsFor(nearestId);
                 NearestKeyProgress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
 
                 if (elapsed >= dwellMs * MathConstants.MicrosecondsPerMillisecond)
                 {
-                    EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
+                    EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs, keyScreenBoxes);
                     NearestKeyProgress = 0;
                     NearestKeyId = null;
                     _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
@@ -315,7 +423,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private void EmitAbandonIfNeeded(Dictionary<string, PhysicalPoint> keyScreenPositions,
         PhysicalPoint gazePoint, long timestampUs, AbandonReason reason)
     {
-        if (_sink is null || NearestKeyId is null) return;
+        if (NearestKeyId is null) return;
+        if (_sink is null && !E1.Enabled) return;
         long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
         // Progress against the abandoned KEY's own dwell (the escaping floor included), so an
         // escaping key's abandonment is not over-reported relative to the letters around it.
@@ -325,20 +434,182 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // surface using the same cut-off.
         if (progress < TelemetryThresholds.AbandonProgress) return;
         var center = keyScreenPositions.TryGetValue(NearestKeyId, out var c) ? c : gazePoint;
+        RecordAbandonE1(NearestKeyId, gazePoint, center, timestampUs, progress, reason);
+        if (_sink is null) return;
         _sink.Report(new DwellOutcome(
             timestampUs, DwellContext.Keyboard, NearestKeyId,
             OutcomeKind.Abandoned, reason, progress, gazePoint, center, 0, null));
     }
 
     private void EmitActivation(Dictionary<string, PhysicalPoint> keyScreenPositions,
-        PhysicalPoint gazePoint, string keyId, long timestampUs)
+        PhysicalPoint gazePoint, string keyId, long timestampUs,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes)
     {
+        // E1 first: it reads CurrentInput and the layout BEFORE the key's action (which the
+        // KeyDwellCompleted raise below triggers) changes either.
+        RecordKeyE1(keyScreenPositions, keyScreenBoxes, gazePoint, keyId, timestampUs);
         if (_sink is null) return;
         // gazePoint fallback is unreachable in practice (keyId just matched a dictionary entry).
         var center = keyScreenPositions.TryGetValue(keyId, out var c) ? c : gazePoint;
         _sink.Report(new DwellOutcome(
             timestampUs, DwellContext.Keyboard, keyId,
             OutcomeKind.Activated, AbandonReason.None, 1.0, gazePoint, center, 0, null));
+    }
+
+    // ---- E1 ------------------------------------------------------------------------------
+
+    private void StartDwellOffsets(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        PhysicalPoint gazePoint, string keyId)
+    {
+        _e1SumDxPx = 0;
+        _e1SumDyPx = 0;
+        _e1Samples = 0;
+        AddDwellOffset(keyScreenPositions, gazePoint, keyId);
+    }
+
+    private void AddDwellOffset(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        PhysicalPoint gazePoint, string keyId)
+    {
+        if (!keyScreenPositions.TryGetValue(keyId, out var center)) return;
+        _e1SumDxPx += gazePoint.X - center.X;
+        _e1SumDyPx += gazePoint.Y - center.Y;
+        _e1Samples++;
+    }
+
+    // The key's row/column and definition, found by the same id rule the window mints ids with.
+    // Not resolvable (emoji surface, a key from another sub-layout): -1/-1 and no definition, so
+    // an emoji's id (which can BE the glyph) is never read, let alone logged.
+    private bool TryResolveKey(string keyId, out KeyDefinition? definition, out int row, out int col)
+    {
+        definition = null;
+        row = col = -1;
+        if (_layout is null || IsEmojiMode
+            || !_layout.SubLayouts.TryGetValue(ActiveSubLayoutId, out var sub))
+            return false;
+
+        for (var r = 0; r < sub.Rows.Count; r++)
+        {
+            for (var c = 0; c < sub.Rows[r].Count; c++)
+            {
+                var key = sub.Rows[r][c];
+                var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{r}_{c}";
+                if (id != keyId) continue;
+                definition = key;
+                row = r;
+                col = c;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void RecordAbandonE1(string keyId, PhysicalPoint gazePoint, PhysicalPoint center,
+        long timestampUs, double progress, AbandonReason reason)
+    {
+        if (!E1.Enabled) return;
+        TryResolveKey(keyId, out var definition, out var row, out var col);
+        var (cls, action) = KeyboardE1Classifier.Classify(definition, IsEmojiMode);
+        var geometry = E1Geometry?.Invoke() ?? KeyboardE1Geometry.Unknown;
+        E1.RecordAbandon(new AbandonE1(
+            timestampUs, row, col, cls, action,
+            (int)Math.Round(progress * 100), reason.ToString(),
+            (int)Math.Round(gazePoint.X - center.X), (int)Math.Round(gazePoint.Y - center.Y),
+            ActiveSubLayoutId, geometry.Edge));
+    }
+
+    private void RecordKeyE1(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes,
+        PhysicalPoint gazePoint, string keyId, long timestampUs)
+    {
+        if (!E1.Enabled) return;
+        FinishHoldOn(capped: false);
+
+        TryResolveKey(keyId, out var definition, out var row, out var col);
+        var (cls, action) = KeyboardE1Classifier.Classify(definition, IsEmojiMode);
+        var center = keyScreenPositions.TryGetValue(keyId, out var c) ? c : gazePoint;
+        var dx = gazePoint.X - center.X;
+        var dy = gazePoint.Y - center.Y;
+        var meanDx = _e1Samples > 0 ? _e1SumDxPx / _e1Samples : dx;
+        var meanDy = _e1Samples > 0 ? _e1SumDyPx / _e1Samples : dy;
+        int boxW = 0, boxH = 0;
+        if (keyScreenBoxes is not null && keyScreenBoxes.TryGetValue(keyId, out var box))
+        {
+            boxW = (int)Math.Round(box.Width);
+            boxH = (int)Math.Round(box.Height);
+        }
+        var geometry = E1Geometry?.Invoke() ?? KeyboardE1Geometry.Unknown;
+
+        // Backspace class: inside the word being typed (a correction) vs into committed text.
+        var backspaceClass = KeyboardE1Classifier.None;
+        if (cls is KeyE1.Backspace or KeyE1.DeleteWord)
+            backspaceClass = CurrentInput.Length > 0 ? "word" : _recentText.Length > 0 ? "committed" : "none";
+
+        // Shadow likely-bit: was the activated letter among the 5 letters that most often continue
+        // the prefix? Evaluated once per letter keystroke, on the prefix as it stands before the
+        // key's action. SHADOW ONLY: nothing reads the result except the log.
+        bool likely = false, wordStart = false, noContinuation = false;
+        if (cls == KeyE1.Letter && definition is not null)
+        {
+            var output = IsShifted && !string.IsNullOrEmpty(definition.ShiftOutput)
+                ? definition.ShiftOutput : definition.Output;
+            var letters = _orchestrator?.WordPredictor.LikelyNextLetters(CurrentInput, 5);
+            wordStart = CurrentInput.Length == 0;
+            noContinuation = letters is null || (!wordStart && letters.Count == 0);
+            likely = letters is not null && output.Length > 0
+                && letters.Contains(char.ToLowerInvariant(output[0]));
+        }
+
+        LastKeySeq = E1.RecordKey(new KeyE1(
+            timestampUs, row, col, cls, action,
+            boxW, boxH, ActiveSubLayoutId, geometry.Edge,
+            geometry.X, geometry.Y, geometry.Width, geometry.Height, geometry.SinceMoveMs,
+            (int)Math.Round(dx), (int)Math.Round(dy), (int)Math.Round(meanDx), (int)Math.Round(meanDy),
+            _e1Restarts, (int)Math.Round(_e1SaccadePx),
+            KeyDwellMsFor(keyId), PenaltyApplied: false,
+            CurrentInput.Length > 0, backspaceClass,
+            likely, wordStart, noContinuation));
+        _e1Restarts = 0;
+
+        // Hold-on: from the fire, how long does the gaze stay in this key's box (capped)?
+        _holdOnActive = true;
+        _holdOnSeq = LastKeySeq;
+        _holdOnKeyId = keyId;
+        _holdOnFireTimestampUs = timestampUs;
+        _holdOnLastInsideUs = timestampUs;
+    }
+
+    private void UpdateHoldOn(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint,
+        bool isGazeInsideWindow, long timestampUs, long sinceLastSampleUs)
+    {
+        bool inside;
+        if (!isGazeInsideWindow || sinceLastSampleUs > MaxContinuousSampleGapUs)
+            inside = false;
+        else if (keyScreenBoxes is not null && keyScreenBoxes.TryGetValue(_holdOnKeyId, out var box))
+            inside = box.Contains(gazePoint);
+        else if (keyScreenBoxes is null)
+            inside = KeyTargeting.PickKey(gazePoint, keyScreenPositions, null) == _holdOnKeyId;
+        else
+            inside = false; // the key's box is gone (a rebuild): the hold ended
+
+        if (!inside)
+        {
+            FinishHoldOn(capped: false);
+            return;
+        }
+
+        _holdOnLastInsideUs = timestampUs;
+        if (timestampUs - _holdOnFireTimestampUs >= HoldOnCapMs * MathConstants.MicrosecondsPerMillisecond)
+            FinishHoldOn(capped: true);
+    }
+
+    private void FinishHoldOn(bool capped)
+    {
+        if (!_holdOnActive) return;
+        _holdOnActive = false;
+        var ms = (int)Math.Min(HoldOnCapMs,
+            (_holdOnLastInsideUs - _holdOnFireTimestampUs) / MathConstants.MicrosecondsPerMillisecond);
+        E1.RecordHoldOn(_holdOnSeq, ms, capped);
     }
 
     public void SetLayout(KeyboardLayout layout)
@@ -375,18 +646,23 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void ToggleModifier(ModifierKey modifier)
     {
-        if (!_activeModifiers.Remove(modifier))
+        var wasOn = _activeModifiers.Remove(modifier);
+        if (!wasOn)
             _activeModifiers.Add(modifier);
+        E1.RecordMode(KeyboardE1Classifier.ModifierKind(modifier), wasOn ? "on" : "off", wasOn ? "off" : "on");
         OnPropertyChanged(nameof(ActiveModifiers));
         OnPropertyChanged(nameof(IsShifted));
     }
 
     private void ClearOneShotModifiers()
     {
-        _activeModifiers.Remove(ModifierKey.Shift);
-        _activeModifiers.Remove(ModifierKey.Ctrl);
-        _activeModifiers.Remove(ModifierKey.Alt);
-        _activeModifiers.Remove(ModifierKey.Win);
+        // Non-short-circuit on purpose: every one-shot must be cleared.
+        var cleared = _activeModifiers.Remove(ModifierKey.Shift)
+            | _activeModifiers.Remove(ModifierKey.Ctrl)
+            | _activeModifiers.Remove(ModifierKey.Alt)
+            | _activeModifiers.Remove(ModifierKey.Win);
+        if (cleared)
+            E1.NoteModifierConsumed();
         OnPropertyChanged(nameof(ActiveModifiers));
         OnPropertyChanged(nameof(IsShifted));
     }
@@ -528,6 +804,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
         if (ActiveSubLayoutId == subLayoutId) return;
+        var fromSubLayout = ActiveSubLayoutId;
 
         // D13: arm the suppression BEFORE the swap — and the "before" is load-bearing:
         // _lastKeyScreenPositions IS the window's live _keyScreenPositions dictionary
@@ -574,6 +851,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
 
         ActiveSubLayoutId = subLayoutId;
+        if (!_inAutoReturn)
+            E1.RecordMode("sublayout", fromSubLayout, subLayoutId);
 
         // D15 … and M7: RebuildKeys (synchronous, on the assignment above) draws static
         // labels and — since impl-review r2 N1 — repaints modifier state itself at its end,
@@ -601,7 +880,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             || !_layout.SubLayouts.TryGetValue(ActiveSubLayoutId, out var sub)
             || !sub.AutoReturn)
             return;
-        SwitchSubLayout(_layout.DefaultSubLayout);
+        // The keyboard going back by itself is not the user's mode change, so E1 does not log it.
+        _inAutoReturn = true;
+        try { SwitchSubLayout(_layout.DefaultSubLayout); }
+        finally { _inAutoReturn = false; }
     }
 
     public List<string> GetSuggestions()

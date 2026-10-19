@@ -4,13 +4,13 @@ using System.Windows.Media.Imaging;
 using EyeCtrl.Core.Models;
 
 /// <summary>
-/// A completed screen capture: the image, plus the rectangle of the screen it was taken from in
-/// physical pixels. The rectangle is the effective one — the capture request is clamped to the
-/// screen — so <see cref="EffectiveCenter"/> is where the image is actually centred, which near an
-/// edge is not the centre that was requested.
+/// A completed screen capture: the image, plus the origin of the capture square it was placed in,
+/// in physical screen pixels. The square is centred on the requested point, so <see cref="X"/> and
+/// <see cref="Y"/> are negative near an edge — the off-screen part of the image is transparent and
+/// <see cref="EffectiveCenter"/> is always the requested point (truncated to whole pixels).
 /// </summary>
 public readonly record struct CaptureResult(BitmapSource Image, int X, int Y, int Size)
 {
-    /// <summary>The centre of the captured image, in physical pixels.</summary>
+    /// <summary>The centre of the captured image, in physical pixels — the requested point.</summary>
     public PhysicalPoint EffectiveCenter => CaptureRegionMath.CenterOf((X, Y, Size));
 }

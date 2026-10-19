@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
+using System.Text.Json;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.Core.Prediction;
@@ -133,6 +134,81 @@ public class PredictionStackBackgroundTests : IDisposable
         factory.Dispose(); // persists the new stack's state (words AND bigrams)
         var bigramsPath = Path.Combine(_appDataDir, "user_dictionary_en_bigrams.json");
         Check.That(File.ReadAllText(bigramsPath)).Contains("surfsalot");
+    }
+
+    [Fact]
+    public void InflatedUserFile_FirstBuildThenABackgroundRebuild_BacksUpTheOriginalOnce()
+    {
+        var basePath = Path.Combine(_baseDir, "Resources", "Dictionaries", "en.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
+        File.WriteAllText(basePath, JsonSerializer.Serialize(new
+        {
+            words = new Dictionary<string, int> { ["hello"] = 100, ["hallo"] = 5 },
+        }));
+
+        var userPath = Path.Combine(_appDataDir, "user_dictionary_en.json");
+        File.WriteAllText(userPath, JsonSerializer.Serialize(new Dictionary<string, int>
+        {
+            ["hello"] = 57 * 100 + 3,
+            ["hallo"] = 57 * 5 + 2,
+        }));
+        var original = File.ReadAllText(userPath);
+
+        using var factory = NewBackgroundFactory();
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
+        Check.That(factory.Current).IsNotNull();
+
+        // The rebuild writes the repaired snapshot through a fresh provider; the original
+        // inflated file must be kept before that write.
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
+
+        var backupPath = userPath + ".bak-inflated";
+        Check.That(File.Exists(backupPath)).IsTrue();
+        Check.That(File.ReadAllText(backupPath)).IsEqualTo(original);
+
+        var written = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(userPath))!;
+        Check.That(written["hello"]).IsEqualTo(3);
+        Check.That(written["hallo"]).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void BackgroundRebuilds_WriteOnlyTheLearnedDelta_TheUserFileNeverGrows()
+    {
+        // The background path saves a merged snapshot through a FRESH provider in WriteStateToDisk.
+        // Without the on-demand base load that provider writes the whole dictionary back, so each
+        // rebuild adds another copy of the base to the user file.
+        var basePath = Path.Combine(_baseDir, "Resources", "Dictionaries", "en.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
+        File.WriteAllText(basePath, JsonSerializer.Serialize(new
+        {
+            words = new Dictionary<string, int> { ["hello"] = 100 },
+        }));
+
+        using var factory = NewBackgroundFactory();
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
+        Check.That(factory.Current).IsNotNull();
+
+        factory.Current!.LearnWord("zebratail");
+
+        var userPath = Path.Combine(_appDataDir, "user_dictionary_en.json");
+        for (var rebuild = 0; rebuild < 3; rebuild++)
+        {
+            factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+            Pump();
+
+            var written = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(userPath))!;
+            Check.WithCustomMessage(
+                    $"rebuild {rebuild}: {string.Join(",", written.Select(kv => $"{kv.Key}={kv.Value}"))}")
+                .That(written).HasSize(1);
+            Check.That(written["zebratail"]).IsEqualTo(1);
+
+            // A genuine delta file is not inflated: no spurious backup may appear.
+            Check.WithCustomMessage($"rebuild {rebuild}: a backup was made for a delta file")
+                .That(File.Exists(userPath + ".bak-inflated")).IsFalse();
+        }
     }
 
     [Fact]

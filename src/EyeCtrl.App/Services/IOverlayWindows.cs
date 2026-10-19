@@ -125,9 +125,9 @@ public interface IManualSelectionOverlay
     PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen);
 
     /// <summary>
-    /// The centre, in physical pixels, of the capture currently displayed. The capture rectangle is
-    /// clamped to the screen, so near an edge this is not the centre that was requested; every
-    /// mapping between the magnified view and real screen coordinates reads this value.
+    /// The centre, in physical pixels, of the capture currently displayed. The capture is centred
+    /// on the requested point (near an edge its off-screen part is transparent), so this is that
+    /// point; every mapping between the magnified view and real screen coordinates reads it.
     /// </summary>
     PhysicalPoint EffectiveCaptureCenter { get; }
 }
@@ -138,10 +138,15 @@ public interface IActionMenuOverlay
     // Twelve parameters, kept as-is rather than "improved" into an options object. Reshaping the
     // call while narrowing the type would mix a mechanical change with a behavioural one, and this
     // seam's job is to remove the WPF dependency, not to redesign the menu's API.
+    // <paramref name="previewMagnification"/> is the preview's own factor. Both production paths
+    // pass 1.0: the menu shows the picked spot at 1× and the magnifier's configured factor is
+    // deliberately not carried into the preview. The parameter stays so the pure geometry seam
+    // keeps its factor coverage.
     void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton,
         int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor,
         PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null,
-        int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false);
+        int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false,
+        double previewMagnification = 1.0);
 
     void Hide();
 }

@@ -121,10 +121,50 @@ public class SmallLMPredictorTests
     }
 
     [Fact]
-    public void PostProcess_FirstWordNotMatchingPrefix_EmitsNothing()
+    public void PostProcess_WithPrefix_AppendsTheContinuationToWhatWasTyped()
     {
-        var results = SmallLMPredictor.PostProcess("banana wonder world", prefix: "wo", avgProb: 0.5);
+        var results = SmallLMPredictor.PostProcess("terdaten", prefix: "Wet", avgProb: 0.5);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].Word).IsEqualTo("Wetterdaten");
+    }
+
+    [Fact]
+    public void PostProcess_ContinuationStartingWithWhitespace_EmitsNothing()
+    {
+        // "we" is already a complete word; next-word prediction is out of scope.
+        var results = SmallLMPredictor.PostProcess(" are", prefix: "we", avgProb: 0.5);
         Check.That(results).IsEmpty();
+    }
+
+    [Fact]
+    public void PostProcess_NonWordContinuation_EmitsNothing()
+    {
+        var results = SmallLMPredictor.PostProcess("::shutter(QWidget", prefix: "h", avgProb: 0.5);
+        Check.That(results).IsEmpty();
+    }
+
+    [Fact]
+    public void PostProcess_GermanContinuation_IsAppendedVerbatim()
+    {
+        var results = SmallLMPredictor.PostProcess("chtest gern", prefix: "mö", avgProb: 0.5);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].Word).IsEqualTo("möchtest");
+    }
+
+    [Fact]
+    public void PostProcess_TrailingPunctuation_IsCut()
+    {
+        var results = SmallLMPredictor.PostProcess("ter.", prefix: "Wet", avgProb: 0.5);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].Word).IsEqualTo("Wetter");
+    }
+
+    [Fact]
+    public void PostProcess_EmptyPrefix_EmitsTheFirstCleanedWord()
+    {
+        var results = SmallLMPredictor.PostProcess("Hello, world", prefix: null, avgProb: 0.5);
+        Check.That(results).HasSize(1);
+        Check.That(results[0].Word).IsEqualTo("Hello");
     }
 
     [Fact]

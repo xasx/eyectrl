@@ -43,12 +43,14 @@ public class KeyboardPredictionBarRefreshTests
 
         var window = new KeyboardWindow();
         window.SetViewModel(vm);
+        window.SetSettings(settings);
         window.UpdatePredictions();
         Check.That(window.PredictionBar.Children.Count).IsEqualTo(5);
 
         // The mid-session change: same window, same input, only the setting moved. The bar must
         // rebuild to the new count — the redraw is what retires the now-unreachable targets.
         settings.Keyboard.MaxSuggestions = 2;
+        window.SetSettings(settings);
         window.UpdatePredictions();
         Check.That(window.PredictionBar.Children.Count).IsEqualTo(2);
     }

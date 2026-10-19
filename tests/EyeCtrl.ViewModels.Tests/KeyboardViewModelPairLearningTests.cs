@@ -149,7 +149,7 @@ public class KeyboardViewModelPairLearningTests
     }
 
     [Fact]
-    public void DeletionIntoCommittedText_SkipsTheNextPair()
+    public void DeletionIntoCommittedText_ReopensTheWord_SoTheNextWordIsNotItsPair()
     {
         var (vm, orchestrator) = Create();
         using (vm)
@@ -157,11 +157,11 @@ public class KeyboardViewModelPairLearningTests
             for (var round = 0; round < 2; round++)
             {
                 TypeWordAndSpace(vm, "ich");
-                vm.HandleBackspace();            // CurrentInput empty: reaches committed text
-                TypeWordAndSpace(vm, "möchte");
+                vm.HandleBackspace();            // eats the space: 'ich' is the open word again
+                TypeWordAndSpace(vm, "möchte");  // ... so this continues it: the app shows "ichmöchte"
             }
 
-            Check.WithCustomMessage("the stale previous word must not produce a pair")
+            Check.WithCustomMessage("'möchte' is glued to 'ich' in the app, not its follower")
                 .That(BarFor(vm, orchestrator, "ich")).Not.Contains("möchte");
         }
     }

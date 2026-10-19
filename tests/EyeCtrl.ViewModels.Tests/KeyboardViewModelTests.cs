@@ -433,16 +433,20 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void HandleBackspace_WithCtrl_DoesNotUpdateCurrentInput()
+    public void HandleBackspace_WithCtrl_IsSentPlain_SoTheMirrorStillFollows()
     {
+        // Ctrl+Backspace would delete a whole word in the app while the mirror trimmed one
+        // character: the keystroke is exempt from modifier composition instead.
         var vm = CreateViewModel();
         vm.CurrentInput = "hel";
         vm.ToggleModifier(ModifierKey.Ctrl);
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+        KeyActivatedMessage? sent = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sent = msg);
 
         vm.HandleBackspace();
 
-        Check.That(vm.CurrentInput).IsEqualTo("hel");
+        Check.That(vm.CurrentInput).IsEqualTo("he");
+        Check.That(sent!.Modifiers).IsNull();
     }
 
     [Fact]
@@ -564,7 +568,7 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void HandleDeleteWord_ComposesWithActiveOneShotModifiers_ThenClearsThem()
+    public void HandleDeleteWord_IgnoresOtherArmedModifiers_ThenClearsThem()
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.Alt);
@@ -573,8 +577,9 @@ public class KeyboardViewModelTests
 
         vm.HandleDeleteWord();
 
+        // Ctrl+Alt+Backspace is not "delete a word": the key is sent as exactly Ctrl+Backspace.
         Check.That(sentMsg!.Modifiers!).Contains(ModifierKey.Ctrl);
-        Check.That(sentMsg.Modifiers).Contains(ModifierKey.Alt);
+        Check.That(sentMsg.Modifiers!.Count).IsEqualTo(1);
         Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
@@ -589,7 +594,9 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "well-known";
         vm.HandleDeleteWord();
 
-        Check.That(vm.CurrentInput).IsEqualTo("well-");
+        // "well-" is no word under the caret: it moves to the committed mirror.
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(vm.RecentText).IsEqualTo("well-");
     }
 
     [Fact]

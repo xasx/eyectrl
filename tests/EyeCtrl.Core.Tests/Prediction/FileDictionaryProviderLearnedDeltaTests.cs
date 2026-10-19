@@ -140,6 +140,7 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
         // The background rebuild writes through a provider that has not called Load. Without the
         // base counts it would write the whole merged dictionary and re-inflate the file.
         WriteBase(new Dictionary<string, int> { ["hello"] = 100 });
+        WriteUser(new Dictionary<string, int> { ["hello"] = 3 });   // a genuine delta
         var provider = CreateProvider();
 
         provider.Save(new Dictionary<string, int> { ["hello"] = 103, ["zebratail"] = 1 });
@@ -147,6 +148,8 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
         var written = ReadUser();
         Check.That(written["hello"]).IsEqualTo(3);
         Check.That(written["zebratail"]).IsEqualTo(1);
+        Check.WithCustomMessage("A genuine delta file must not be mistaken for an inflated one")
+            .That(File.Exists(BackupPath)).IsFalse();
     }
 
     [Fact]

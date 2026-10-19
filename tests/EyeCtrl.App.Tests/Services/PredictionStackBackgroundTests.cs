@@ -204,6 +204,10 @@ public class PredictionStackBackgroundTests : IDisposable
                     $"rebuild {rebuild}: {string.Join(",", written.Select(kv => $"{kv.Key}={kv.Value}"))}")
                 .That(written).HasSize(1);
             Check.That(written["zebratail"]).IsEqualTo(1);
+
+            // A genuine delta file is not inflated: no spurious backup may appear.
+            Check.WithCustomMessage($"rebuild {rebuild}: a backup was made for a delta file")
+                .That(File.Exists(userPath + ".bak-inflated")).IsFalse();
         }
     }
 

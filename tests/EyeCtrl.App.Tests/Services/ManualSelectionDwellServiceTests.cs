@@ -606,9 +606,10 @@ public class ManualSelectionDwellServiceTests
 
     /// <summary>
     /// F2 (magnifier-default-zoom fixup 01): the acceptance rim is the MESSAGE's radius times its
-    /// magnification times ScaleX - 81 × 4 = 324 px here - never the raw setting. The fixture's
-    /// setting (200 × 2.0) would allow 400 px, so a gaze at 350 px must reset under the real
-    /// expression and must not under the raw-setting mutant.
+    /// magnification times ScaleX - 81 × 4 = 324 px here - never the raw setting. The m2c
+    /// raw-setting mutant (200 × 4.0 = 800 px) would keep a 350-px gaze inside; the raw-pair
+    /// variant (200 × 2.0 = 400 px, m2d) would too, so a gaze at 350 px must reset under the real
+    /// expression.
     /// </summary>
     [Fact]
     public void OnGazeMoved_TheAcceptanceRimUsesTheMessagesEffectiveRadius()

@@ -30,8 +30,10 @@ public class MagnifierFitDpiTests
 {
     private static readonly PhysicalPoint P = new(640, 360);
 
-    [StaFact]
-    public void AtScale15_TheFitStaysInDip_AndTheCaptureScales()
+    [StaTheory]
+    [InlineData(1280.0, 720.0)]    // landscape
+    [InlineData(720.0, 1280.0)]    // portrait: the one-axis mutants die here
+    public void AtScale15_TheFitStaysInDip_AndTheCaptureScales(double screenWidthDip, double screenHeightDip)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(1.5, 1.5);
@@ -52,7 +54,7 @@ public class MagnifierFitDpiTests
             using var adapter = new GazeEngineAdapter(
                 engine, settings, messenger, Dispatcher.CurrentDispatcher,
                 NullLogger<GazeEngineAdapter>.Instance, new StubControlFinder(),
-                screenDip: () => (1280, 720));
+                screenDip: () => (screenWidthDip, screenHeightDip));
 
             engine.InteractionManager.OnFixationStarted(P);
             engine.InteractionManager.OnFixationSettled(P);

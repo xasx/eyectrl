@@ -29,7 +29,9 @@ using Xunit;
 /// The brushes are read from the drawn visual tree of a real headless NoteWindow (never shown;
 /// the same construction as <see cref="NoteReadingRenderTests"/>), not from the token constants:
 /// a test on constants would stay green over a window that draws something else — the exact
-/// staleness the mutants in this ticket's brief exploit.
+/// staleness the mutants in this ticket's brief exploit. Widths are read from the same tree
+/// (review-01 m1): colour alone is not visibility, and a 0-width outline keeps BorderSubtle
+/// while drawing nothing.
 /// </para>
 ///
 /// <para>
@@ -56,16 +58,32 @@ public class NoteTailContrastTests
         return data;
     }
 
+    /// <summary>Every state a re-place can draw the tail in, crossed with every theme.</summary>
+    public static TheoryData<NoteState, ITheme> EveryStateAndTheme()
+    {
+        var data = new TheoryData<NoteState, ITheme>();
+        foreach (var state in new[]
+                 {
+                     NoteState.Edit, NoteState.Move, NoteState.PendingUndo, NoteState.Display
+                 })
+            foreach (var theme in ThemeRegistry.All)
+                data.Add(state, theme);
+        return data;
+    }
+
     /// <summary>
     /// The tail outline and the Display card edge are actually perceptible: in every theme,
-    /// each clears 3:1 against a white page AND a black page — the note may sit over anything.
+    /// each clears 3:1 against a white page AND a black page — the note may sit over anything —
+    /// and each is drawn at a real width.
     /// </summary>
     [StaTheory]
     [MemberData(nameof(EveryTheme))]
     public void TheTailAndTheDisplayCardEdge_ArePerceptibleAgainstAnyPage_InEveryTheme(ITheme theme)
     {
         using var themeScope = ThemeScope.Activate(theme);
-        var (tailFill, tailStroke, cardFill, cardStroke) = DrawnBrushes();
+        var (tail, card) = DrawnNote(NoteState.Edit, NoteState.Display);
+        var tailStroke = ((SolidColorBrush)tail.Stroke).Color;
+        var cardStroke = ((SolidColorBrush)card.BorderBrush).Color;
 
         // T5b's constancy half, on the DRAWN brushes: at rest in Display the tail's stroke and
         // the card's edge must be the same brush. The probe is drawn in Edit (a note is born
@@ -83,16 +101,66 @@ public class NoteTailContrastTests
                 theme.Name, tailStroke, cardStroke))
             .That(tailStroke).IsEqualTo(cardStroke);
 
+        // Review-01 m1: a 0-width outline keeps its BorderSubtle brush and passes every ratio
+        // while drawing nothing at all. Both widths are read from the same drawn tree.
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "In the {0} theme the drawn tail stroke is {1:F1} DIP wide. A zero-width stroke "
+                    + "paints nothing, so the tail has no visible outline however correct its "
+                    + "brush — the outline must be at least 1 DIP.",
+                theme.Name, tail.StrokeThickness))
+            .That(tail.StrokeThickness).IsGreaterOrEqualThan(1.0);
+
+        var thickness = card.BorderThickness;
+        var narrowest = new[] { thickness.Left, thickness.Top, thickness.Right, thickness.Bottom }.Min();
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "In the {0} theme the drawn Display card border is {1:F1} DIP at its narrowest "
+                    + "side (L{2:F1} T{3:F1} R{4:F1} B{5:F1}). A zero-width side paints no edge "
+                    + "there, and the card boundary must be visible all the way round — every "
+                    + "side at least 1 DIP.",
+                theme.Name, narrowest, thickness.Left, thickness.Top, thickness.Right,
+                thickness.Bottom))
+            .That(narrowest).IsGreaterOrEqualThan(1.0);
+
         foreach (var page in new[] { Colors.White, Colors.Black })
         {
-            CheckPart("tail", theme.Name, page, tailFill, tailStroke);
-            CheckPart("Display card", theme.Name, page, cardFill, cardStroke);
+            CheckPart("tail", theme.Name, page, ((SolidColorBrush)tail.Fill).Color, tailStroke);
+            CheckPart("Display card", theme.Name, page, ((SolidColorBrush)card.Background).Color,
+                cardStroke);
         }
+    }
+
+    /// <summary>
+    /// Review-01 m2: the tail stroke is BorderSubtle WHENEVER the tail is drawn, not only after
+    /// an Edit → Display commit. The re-place paths (keyboard show/hide in Edit, the Move
+    /// cycle, the Undo chip, a Display re-place) all run <c>ApplyPlacement</c> while the window
+    /// is already in that state, and <c>Draw</c> captures the stroke once — so the probe sets
+    /// the state FIRST and applies the placement second, exactly as production does. A state
+    /// brush here (Accent, MarkerMove) is the stale-tail defect, whatever the transition that
+    /// follows; every one of them fails the equality this pins.
+    /// </summary>
+    [StaTheory]
+    [MemberData(nameof(EveryStateAndTheme))]
+    public void TheTailStroke_IsBorderSubtle_WheneverTheTailIsDrawn_InEveryStateAndTheme(
+        NoteState drawnIn, ITheme theme)
+    {
+        using var themeScope = ThemeScope.Activate(theme);
+        var (tail, _) = DrawnNote(drawnIn, commitTo: null);
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "In the {0} theme the tail drawn while the note is in {1} carries the stroke "
+                    + "{2}, not BorderSubtle ({3}). Draw captures the stroke once per placement; "
+                    + "the tail is the pointer, not a state cue, and must be drawn with the "
+                    + "state-constant BorderSubtle in every state.",
+                theme.Name, drawnIn, ((SolidColorBrush)tail.Stroke).Color, theme.BorderSubtle))
+            .That(((SolidColorBrush)tail.Stroke).Color).IsEqualTo(theme.BorderSubtle);
     }
 
     private static void CheckPart(string part, string themeName, Color page, Color fill, Color stroke)
     {
-        var fillRatio = Contrast(fill, page);
+        var fillRatio = Contrast(CompositedOver(fill, page), page);
         var strokeRatio = Contrast(stroke, page);
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
@@ -110,22 +178,41 @@ public class NoteTailContrastTests
         page == Colors.White ? "white (#FFFFFF)" : "black (#000000)";
 
     /// <summary>
-    /// Draws a real headless note — DPI 2.0, a placement with a visible tail, the same window
-    /// construction the reading renders use — through the PRODUCTION state sequence (a note is
-    /// born in Edit: the manager draws it there, and the user commits into Display, which
-    /// restyles only the card border via UpdateBorder and never redraws the tail), and returns
-    /// the colours ACTUALLY assigned in the visual tree at rest: the tail Polygon's fill and
-    /// stroke, and the card Border's background and border brush. Drawing the probe directly in
-    /// Display would miss exactly the stale-tail defect this sequence exposes.
+    /// The SurfaceDark fills carry a real alpha (0xFA in Midnight, Ember and Daylight); the
+    /// ratio must be computed on the colour the page actually receives, so the fill is
+    /// composited over it first (review-01's nit — the raw colour overstated the ratio by up
+    /// to ~0.7). Opaque strokes are unaffected.
     /// </summary>
-    private static (Color TailFill, Color TailStroke, Color CardFill, Color CardStroke) DrawnBrushes()
+    private static Color CompositedOver(Color fill, Color page)
+    {
+        if (fill.A == 255) return fill;
+        double a = fill.A / 255.0;
+        byte Blend(byte f, byte p) => (byte)Math.Round((a * f) + ((1 - a) * p));
+        return Color.FromRgb(Blend(fill.R, page.R), Blend(fill.G, page.G), Blend(fill.B, page.B));
+    }
+
+    /// <summary>
+    /// Draws a real headless note — DPI 2.0, a placement with a visible tail, the same window
+    /// construction the reading renders use — and returns the tail Polygon and the card Border
+    /// ACTUALLY in its visual tree.
+    ///
+    /// <para>
+    /// The state sequence is the production one: the window is put in <paramref name="drawnIn"/>
+    /// FIRST and the placement is applied SECOND (Draw captures the stroke in that state — the
+    /// re-place paths do exactly this), then optionally committed into <paramref name="commitTo"/>
+    /// via SetState, whose UpdateBorder restyles only the card border and never the tail
+    /// polygon. Drawing the probe directly in Display would miss exactly the stale-tail defect
+    /// the Edit → Display sequence exposes.
+    /// </para>
+    /// </summary>
+    private static (Polygon Tail, Border Card) DrawnNote(NoteState drawnIn, NoteState? commitTo)
     {
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var window = new NoteWindow("tail-contrast");
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
-            window.SetState(NoteState.Edit);
+            window.SetState(drawnIn);
             var card = new Size(
                 NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip),
                 NoteLayout.CardHeightDip(NoteSettings.DefaultTextSizeDip, 0, NoteTestBench.WorkArea.Height));
@@ -137,7 +224,7 @@ public class NoteTailContrastTests
                 .That(placement.TailVisible).IsTrue();
             window.ApplyPlacement(placement);
             window.SetText("Meds at 8:00.");
-            window.SetState(NoteState.Display);
+            if (commitTo is { } rest) window.SetState(rest);
 
             // The canvas as the window lays it out - no HWND, nothing on the owner's screen.
             var canvas = (Canvas)window.Content;
@@ -151,12 +238,7 @@ public class NoteTailContrastTests
                     + "stopped drawing it, so there is no tail boundary to gate")
                 .That(tail).IsNotNull();
             var bg = canvas.Children.OfType<Border>().First();
-
-            return (
-                ((SolidColorBrush)tail!.Fill).Color,
-                ((SolidColorBrush)tail.Stroke).Color,
-                ((SolidColorBrush)bg.Background).Color,
-                ((SolidColorBrush)bg.BorderBrush).Color);
+            return (tail!, bg);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

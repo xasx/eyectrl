@@ -123,27 +123,43 @@ public class WordPredictorTests
     }
 
     [Fact]
-    public void GetSuggestions_HighFrequencyFuzzyBeatsLowFrequencyExact()
+    public void GetSuggestions_HighFrequencyFuzzy_DoesNotBeatTheRealPrefixMatch()
     {
+        // The near-miss is 10,000x more frequent, but it does not start with the typed letters:
+        // the real prefix match keeps the first slot.
         var predictor = CreatePredictor(new()
         {
             { "the", 10000 }, { "rheumatic", 1 }
         });
 
         var results = predictor.GetSuggestions("rhe", null, maxCount: 5);
-        Check.That(results[0].Word).IsEqualTo("the");
+        Check.That(results[0].Word).IsEqualTo("rheumatic");
     }
 
     [Fact]
-    public void GetSuggestions_NonAdjacentTypo_StillSuggestsWithinThreshold()
+    public void GetSuggestions_NonAdjacentTypoAtSixLetters_StillSuggestsWithinThreshold()
     {
         var predictor = CreatePredictor(new()
         {
-            { "the", 1000 }
+            { "theeee", 1000 }
         });
 
-        var results = predictor.GetSuggestions("she", null, maxCount: 5);
-        Check.That(results).HasElementThatMatches(r => r.Word == "the");
+        // One non-adjacent substitution costs 1.0, which is allowed from six typed letters.
+        var results = predictor.GetSuggestions("sheeee", null, maxCount: 5);
+        Check.That(results).HasElementThatMatches(r => r.Word == "theeee");
+    }
+
+    [Fact]
+    public void GetSuggestions_NonAdjacentTypoAtFourLetters_NotSuggested()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "thee", 1000 }
+        });
+
+        // One non-adjacent substitution costs 1.0: too far for a 3-5 letter prefix.
+        var results = predictor.GetSuggestions("shee", null, maxCount: 5);
+        Check.That(results.Any(r => r.Word == "thee")).IsFalse();
     }
 
     [Fact]
@@ -158,30 +174,137 @@ public class WordPredictorTests
         Check.That(results.Any(r => r.Word == "the")).IsFalse();
     }
 
+    [Fact]
+    public void GetSuggestions_ZipfLikeNearMiss_DoesNotOutrankTheRealMatch()
+    {
+        // The near-miss is 10,000x more frequent than the real match; without the length gate
+        // it wins on frequency. "her" is a non-adjacent substitution away from "hel".
+        var predictor = CreatePredictor(new()
+        {
+            { "her", 1_000_000 }, { "help", 100 }
+        });
+
+        var results = predictor.GetSuggestions("hel", null, maxCount: 5);
+
+        Check.That(results).Not.IsEmpty();
+        Check.That(results[0].Word).IsEqualTo("help");
+        Check.That(results.Any(r => r.Word == "her")).IsFalse();
+    }
+
+    [Fact]
+    public void GetSuggestions_MoreFrequentNearMissesThanSlots_RealMatchesFillTheBar()
+    {
+        // Six near-misses are one adjacent slip from "Wet" and a million times more frequent:
+        // the predictor's own top 5 must still be the real matches.
+        var predictor = CreatePredictor(new()
+        {
+            ["Wetter"] = 100, ["Wettkampf"] = 90, ["Wettbewerb"] = 80, ["Wette"] = 70, ["Wetten"] = 60,
+            ["qet"] = 1_000_000_000, ["eet"] = 1_000_000_000, ["Wrt"] = 1_000_000_000,
+            ["Wwt"] = 1_000_000_000, ["Wer"] = 1_000_000_000, ["Wey"] = 1_000_000_000,
+        });
+
+        var results = predictor.GetSuggestions("Wet", null, maxCount: 5);
+
+        Check.That(results.Select(r => r.Word))
+            .ContainsExactly("Wetter", "Wettkampf", "Wettbewerb", "Wette", "Wetten");
+    }
+
+    [Fact]
+    public void GetSuggestions_LowercasePrefixWithFuzzyFlood_CapitalisedMatchesFillTheBar()
+    {
+        // German nouns are capitalised while the user types lowercase; the predictor's own
+        // ordering must be case-insensitive, or the flood takes the slots before Rank runs.
+        var predictor = CreatePredictor(new()
+        {
+            ["Wetter"] = 100, ["Wettkampf"] = 90, ["Wettbewerb"] = 80, ["Wette"] = 70, ["Wetten"] = 60,
+            ["qet"] = 1_000_000_000, ["eet"] = 1_000_000_000, ["Wrt"] = 1_000_000_000,
+            ["Wwt"] = 1_000_000_000, ["Wer"] = 1_000_000_000, ["Wey"] = 1_000_000_000,
+        });
+
+        var results = predictor.GetSuggestions("wet", null, maxCount: 5);
+
+        Check.That(results.Select(r => r.Word))
+            .ContainsExactly("Wetter", "Wettkampf", "Wettbewerb", "Wette", "Wetten");
+    }
+
+    [Fact]
+    public void GetSuggestions_OneLetterPrefix_DoesNotFuzzyMatch()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "the", 1000 }, { "her", 1000 }
+        });
+
+        var results = predictor.GetSuggestions("h", null, maxCount: 5);
+
+        Check.That(results).HasElementThatMatches(r => r.Word == "her");
+        Check.That(results.Any(r => r.Word == "the")).IsFalse();
+    }
+
+    [Fact]
+    public void GetSuggestions_ShorterWord_IsNotFuzzyMatched()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "he", 1_000_000 }, { "help", 100 }
+        });
+
+        var results = predictor.GetSuggestions("hel", null, maxCount: 5);
+
+        Check.That(results.Any(r => r.Word == "he")).IsFalse();
+        Check.That(results[0].Word).IsEqualTo("help");
+    }
+
+    [Fact]
+    public void GetSuggestions_AdjacentSlipAtThreeLetters_StillOffered()
+    {
+        var predictor = CreatePredictor(new()
+        {
+            { "help", 100 }
+        });
+
+        // "r" is adjacent to "e" on QWERTY: one 0.5 slip, allowed from three letters.
+        var results = predictor.GetSuggestions("hrl", null, maxCount: 5);
+        Check.That(results).HasElementThatMatches(r => r.Word == "help");
+    }
+
     // The fuzzy pre-filter skips the edit-distance DP when a candidate has > 3 positional
-    // case-insensitive mismatches. These two tests pin that cutoff to the DP threshold
-    // (MaxFuzzyDistance = 1.5, adjacent-key substitution = 0.5), guarding against a future
+    // case-insensitive mismatches. Two 0.5 adjacent slips are exactly the 1.0 ceiling for a
+    // six-letter prefix (three slips are 1.5 and must be dropped), guarding against a future
     // tightening of the pre-filter that would silently drop still-matchable words.
 
     [Fact]
-    public void GetSuggestions_ThreeAdjacentTypos_AtThreshold_StillSuggested()
+    public void GetSuggestions_TwoAdjacentTyposAtSixLetters_StillSuggested()
     {
-        // "awdd" vs "seed": a↔s, w↔e, d↔e are all QWERTY-adjacent (0.5 each) and pos 3 matches,
-        // so distance = 1.5 == MaxFuzzyDistance and mismatches = 3 (pre-filter must NOT skip it).
+        // "awedfg" vs "seedfg": two adjacent slips (0.5 each), the rest match, so distance is
+        // exactly the six-letter ceiling of 1.0 and mismatches = 2.
         var predictor = CreatePredictor(new()
         {
-            { "seed", 1000 }
+            { "seedfg", 1000 }
         });
 
-        var results = predictor.GetSuggestions("awdd", null, maxCount: 5);
-        Check.That(results).HasElementThatMatches(r => r.Word == "seed");
+        var results = predictor.GetSuggestions("awedfg", null, maxCount: 5);
+        Check.That(results).HasElementThatMatches(r => r.Word == "seedfg");
+    }
+
+    [Fact]
+    public void GetSuggestions_ThreeAdjacentTyposAtSixLetters_NotSuggested()
+    {
+        // Three adjacent slips cost 1.5, beyond the six-letter ceiling of 1.0.
+        var predictor = CreatePredictor(new()
+        {
+            { "seedfg", 1000 }
+        });
+
+        var results = predictor.GetSuggestions("awddfg", null, maxCount: 5);
+        Check.That(results.Any(r => r.Word == "seedfg")).IsFalse();
     }
 
     [Fact]
     public void GetSuggestions_FourTypos_BeyondThreshold_NotSuggested()
     {
         // "awdf" vs "seed": 4 positional mismatches → even the cheapest (all-adjacent) alignment
-        // costs 2.0 > MaxFuzzyDistance, so the pre-filter cutoff agrees with the DP: dropped.
+        // costs 2.0, so the pre-filter cutoff agrees with the DP: dropped.
         var predictor = CreatePredictor(new()
         {
             { "seed", 1000 }
@@ -190,7 +313,6 @@ public class WordPredictorTests
         var results = predictor.GetSuggestions("awdf", null, maxCount: 5);
         Check.That(results.Any(r => r.Word == "seed")).IsFalse();
     }
-
     [Fact]
     public void GetSuggestions_WithBigramContext_SuggestsNextWord()
     {
@@ -300,15 +422,15 @@ public class WordPredictorTests
     {
         var predictor = CreatePredictor(new()
         {
-            { "world", 500 }, { "you", 100 }, { "your", 90 }, { "youth", 85 }
+            { "world", 500 }, { "you", 100 }, { "your", 90 }, { "youth", 85 }, { "yodel", 500 }
         });
 
         // Learn bigram "thank you" multiple times
         for (int i = 0; i < 10; i++)
             predictor.LearnSequence(new[] { "thank", "you" });
 
-        // Test with a prefix "yo" to trigger ExactPrefix/Fuzzy matching instead of NextWord
-        // This allows us to verify that BigramContextBoost is applied
+        // Prefix "yo": several exact matches, so without context a higher-frequency exact match
+        // outranks "you"; with the bigram boost "you" moves to the front.
         var withContext = predictor.GetSuggestions("yo", "thank", maxCount: 5);
         var withoutContext = predictor.GetSuggestions("yo", null, maxCount: 5);
 

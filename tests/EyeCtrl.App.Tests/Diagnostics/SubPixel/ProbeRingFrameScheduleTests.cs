@@ -6,7 +6,7 @@ using EyeCtrl.Core.Models;
 /// <summary>
 /// Review 01's two blockers, pinned headlessly: B1 — the ring must be placed in <b>window-local</b>
 /// pixels while the capture is taken in <b>screen</b> pixels — and B2 — the capture origin must be
-/// production's truncating math (<c>CaptureRegionMath.Compute</c>), constant across every fraction.
+/// production's truncating math (<c>CaptureRegionMath.Place</c>), constant across every fraction.
 /// Both lived in harness code no headless test executed, and each one alone made the on-screen run a
 /// guaranteed red on a display that works.
 ///

@@ -283,15 +283,22 @@ public class EscapeHatchWiringTests
 
     private static EventCoordinationContext MakeManualSelectionContext(
         Dispatcher dispatcher, InteractionManager im, TestFakes.FakeEscapeHatch hatch)
-        => TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+    {
+        var messenger = new WeakReferenceMessenger();
+        return TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
             InteractionManager = im,
+            Messenger = messenger,
             Dispatcher = dispatcher,
             EscapeHatch = hatch,
+            // The ESC branches attribute the magnifier's close reason on this VM; the real class is
+            // cheap and needs no window.
+            ManualSelectionVM = new ManualSelectionOverlayViewModel(new EyeCtrlSettings(), messenger),
             OverlayManager = TestFakes.MakeOverlayManager(
                 manualSelection: new FakeManualSelectionOverlay(),
                 manualSelectionIndicator: new FakeManualSelectionIndicator()),
         };
+    }
 
     /// <summary>No-op magnifier: the ESC tests never let a handler reach it.</summary>
     private sealed class FakeManualSelectionOverlay : IManualSelectionOverlay

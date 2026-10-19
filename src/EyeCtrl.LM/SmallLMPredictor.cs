@@ -20,6 +20,8 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     private readonly LMTokenizer? _tokenizer;
     private readonly bool _ownsTokenizer;
 
+    private const int MaxNewTokens = 8;
+
     private InferenceSession? _session;
     private DecoderIoPlan? _ioPlan;
     private readonly object _lock = new();
@@ -28,11 +30,20 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     private CancellationTokenSource? _pendingCts;
     private volatile int _inferenceCount;
     private ConcurrentBag<PredictionResult>? _pendingResults;
+    private PendingRequest? _pendingRequest;
+    private bool _workerRunning;
 
     /// <summary>Whether the model was successfully loaded and is ready for inference.</summary>
     public bool IsAvailable { get; private set; }
     /// <summary>Full path to the loaded ONNX model file, or null if not loaded.</summary>
     public string? SelectedModelPath { get; private set; }
+
+    /// <summary>
+    /// Test seam: one generation step used instead of the ONNX session, so the headless gates can
+    /// drive the real stepping loop - per-step cancellation included - with no model loaded.
+    /// Production never sets it.
+    /// </summary>
+    internal Func<int, CancellationToken, StepOutput?>? StepOverride { get; init; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SmallLMPredictor"/> class.
@@ -69,6 +80,23 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         Initialize(modelPath);
     }
 
+    /// <summary>
+    /// Test seam: a predictor that reports available and steps through
+    /// <paramref name="stepOverride"/> instead of an ONNX session, so the headless concurrency
+    /// gates run without a model. Production never calls it.
+    /// </summary>
+    internal static SmallLMPredictor CreateModelFree(LMTokenizer tokenizer,
+        Func<int, CancellationToken, StepOutput?> stepOverride)
+    {
+        var predictor = new SmallLMPredictor(string.Empty, modelSize: "Off", preferGpu: false,
+            logger: null, tokenizer: tokenizer, ownsTokenizer: false)
+        {
+            IsAvailable = true,
+            StepOverride = stepOverride,
+        };
+        return predictor;
+    }
+
     private void Initialize(string? explicitModelPath = null)
     {
         if (explicitModelPath != null)
@@ -92,29 +120,32 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             return;
         }
 
-        SessionOptions? options = null;
-        try
+        var attempts = new List<GpuAttempt>();
+        if (_preferGpu)
         {
-            options = new SessionOptions();
-
-            if (_preferGpu)
+            var preference = WindowsGpuPreference.ForCurrentProcess();
+            if (preference == WindowsGpuPreference.PowerSaving)
             {
-                try
-                {
-                    options.AppendExecutionProvider_DML();
-                    _logger?.LogInformation("Using DirectML (GPU) for {Model}", _selectedModelSize);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "DirectML not available, falling back to CPU");
-                    options.Dispose();
-                    options = new SessionOptions();
-                }
+                _logger?.LogInformation(
+                    "Windows graphics preference for this app is Power saving; using the default adapter");
             }
 
-            options.GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL;
+            var selected = preference == WindowsGpuPreference.PowerSaving ? null : SelectDmlDevice();
+            var chosen = selected is { } match
+                ? new GpuChoice(
+                    options => options.AppendExecutionProvider(OrtEnv.Instance(), [match.Device],
+                        new Dictionary<string, string>()),
+                    match.Info.Description)
+                : null;
+            attempts = DmlSessionSetup.BuildGpuAttempts(chosen, preference);
+        }
 
-            _session = new InferenceSession(SelectedModelPath, options);
+        try
+        {
+            _session = DmlSessionSetup.CreateSessionWithFallback(
+                SelectedModelPath!, attempts,
+                (path, options) => new InferenceSession(path, options),
+                _logger, _selectedModelSize);
 
             // Derive the feeding plan up front: a model this predictor cannot drive is caught at
             // load, where the user can see it, instead of throwing on every keystroke.
@@ -136,11 +167,26 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             _logger?.LogError(ex, "Failed to initialize ONNX session for {Model}", _selectedModelSize);
             IsAvailable = false;
         }
-        finally
+    }
+
+    /// <summary>
+    /// The DirectML device to put the session on, or null when ORT lists none (a GPU-less or CI
+    /// machine) or enumeration fails. A hybrid laptop's high-performance ranking keeps the
+    /// discrete GPU ahead of the integrated one.
+    /// </summary>
+    private (OrtEpDevice Device, DmlDeviceInfo Info)? SelectDmlDevice()
+    {
+        try
         {
-            // InferenceSession copies the options at construction; the SessionOptions
-            // instance itself is not retained and must be disposed (native handle).
-            options?.Dispose();
+            var devices = OrtEnv.Instance().GetEpDevices()
+                .Where(device => device.EpName == DmlDeviceChooser.DmlEpName)
+                .ToList();
+            return DmlDeviceChooser.ChooseDevice(devices, DmlDeviceChooser.FromEpDevice);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "DirectML device enumeration failed, using the default adapter");
+            return null;
         }
     }
 
@@ -149,55 +195,77 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     /// <param name="prefix">Optional prefix to filter predictions to.</param>
     public void Predict(string context, string? prefix = null)
     {
-        if (_disposed || !IsAvailable || _session == null) return;
+        if (_disposed || !IsAvailable) return;
 
         lock (_lock)
         {
+            if (_disposed) return;
+            var session = _session;
+            if (session == null && StepOverride == null) return;
+
             _pendingCts?.Cancel();
             _pendingCts?.Dispose();
             _pendingCts = new CancellationTokenSource();
             _pendingResults = new ConcurrentBag<PredictionResult>();
-            var bag = _pendingResults;
+            _pendingRequest = new PendingRequest(_pendingCts.Token, context, prefix, _pendingResults, session);
 
-            var token = _pendingCts.Token;
-            var session = _session;
-            var capturePrefix = prefix;
-            var captureContext = context;
-
+            // One worker at a time: a predictor's session may not have two Run calls in flight
+            // (the DirectML execution provider crashes), so a newer request replaces the queued
+            // one and the running worker picks it up when its current step is done.
+            if (_workerRunning) return;
+            _workerRunning = true;
             Interlocked.Increment(ref _inferenceCount);
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    if (token.IsCancellationRequested) return;
-                    if (_disposed) return;
-
-                    var results = RunInference(session, captureContext, capturePrefix);
-                    if (token.IsCancellationRequested) return;
-
-                    foreach (var result in results)
-                    {
-                        if (token.IsCancellationRequested) break;
-                        if (bag == null) break;
-                        bag.Add(result);
-                    }
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    _logger?.LogError(ex, "LM inference failed");
-                }
-                finally
-                {
-                    Interlocked.Decrement(ref _inferenceCount);
-                    lock (_inferenceGate) Monitor.PulseAll(_inferenceGate);
-                }
-            });
+            ThreadPool.QueueUserWorkItem(_ => RunWorker());
         }
     }
 
-    private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix)
+    private void RunWorker()
     {
+        while (true)
+        {
+            PendingRequest? request;
+            lock (_lock)
+            {
+                request = _disposed ? null : _pendingRequest;
+                _pendingRequest = null;
+
+                if (request == null)
+                {
+                    _workerRunning = false;
+                    Interlocked.Decrement(ref _inferenceCount);
+                }
+            }
+
+            if (request == null)
+            {
+                lock (_inferenceGate) Monitor.PulseAll(_inferenceGate);
+                return;
+            }
+
+            try
+            {
+                if (request.Token.IsCancellationRequested) continue;
+
+                var results = RunInference(request.Session!, request.Context, request.Prefix, request.Token);
+                foreach (var result in results)
+                {
+                    if (request.Token.IsCancellationRequested) break;
+                    request.Results.Add(result);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "LM inference failed");
+            }
+        }
+    }
+
+    private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix, CancellationToken token)
+    {
+        if (StepOverride is { } stepOverride)
+            return FinishGeneration(GenerateSteps(stepOverride, token), prefix);
+
         var plan = _ioPlan!;
         var prompt = BuildPrompt(context, prefix);
         var inputIds = _tokenizer!.Encode(prompt).ToList();
@@ -206,17 +274,13 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         if (_tokenizer.BosTokenId >= 0)
             inputIds.Insert(0, _tokenizer.BosTokenId);
 
-        const int maxNewTokens = 8;
-        var generatedTokens = new List<long>();
-        var tokenProbabilities = new List<double>();
-
         // The cache carries every token already scored, so each step after the first feeds
         // exactly one new token instead of re-running the whole sequence.
         var cache = plan.KvSlots.ToDictionary(slot => slot.PastName, EmptyCacheEntry, StringComparer.Ordinal);
         var step = inputIds.ToArray();
         var pastLength = 0;
 
-        for (int i = 0; i < maxNewTokens; i++)
+        StepOutput? RunOneStep(int stepIndex, CancellationToken stepToken)
         {
             var inputs = new List<NamedOnnxValue>(3 + plan.KvSlots.Count)
             {
@@ -264,28 +328,48 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
                 }
             }
 
-            if (_tokenizer.EosTokenId >= 0 && bestTokenId == _tokenizer.EosTokenId) break;
-
-            generatedTokens.Add(bestTokenId);
-            tokenProbabilities.Add(bestProb);
-
             // present.N.* becomes the next step's past_key_values.N.*. The values are copied out
-            // because `outputs` owns native memory that is released at the end of this iteration.
+            // because `outputs` owns native memory that is released at the end of this step.
             pastLength += step.Length;
             cache = plan.KvSlots.ToDictionary(
                 slot => slot.PastName,
                 slot => CarryForward(slot, produced[slot.PresentName]),
                 StringComparer.Ordinal);
             step = [bestTokenId];
+
+            return new StepOutput(bestTokenId, bestProb);
         }
 
-        if (generatedTokens.Count == 0) return [];
+        return FinishGeneration(GenerateSteps(RunOneStep, token), prefix);
+    }
 
-        var generatedText = _tokenizer.Decode(generatedTokens.ToArray());
-        var avgProb = tokenProbabilities.Count > 0
-            ? tokenProbabilities.Average()
-            : 0.0;
+    /// <summary>
+    /// The generation loop. The request token is checked before every step, so a superseded
+    /// request stops after the step already in flight instead of running the whole schedule.
+    /// </summary>
+    private List<StepOutput> GenerateSteps(Func<int, CancellationToken, StepOutput?> step, CancellationToken token)
+    {
+        var generated = new List<StepOutput>();
+        for (int i = 0; i < MaxNewTokens; i++)
+        {
+            if (token.IsCancellationRequested) break;
 
+            var output = step(i, token);
+            if (output is null) break;
+            if (_tokenizer!.EosTokenId >= 0 && output.Value.TokenId == _tokenizer.EosTokenId) break;
+
+            generated.Add(output.Value);
+        }
+
+        return generated;
+    }
+
+    private List<PredictionResult> FinishGeneration(List<StepOutput> generated, string? prefix)
+    {
+        if (generated.Count == 0) return [];
+
+        var generatedText = _tokenizer!.Decode(generated.Select(step => step.TokenId).ToArray());
+        var avgProb = generated.Average(step => step.Probability);
         return PostProcess(generatedText, prefix, avgProb);
     }
 
@@ -359,6 +443,7 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             _pendingCts?.Dispose();
             _pendingCts = null;
             _pendingResults = null;
+            _pendingRequest = null;
         }
     }
 
@@ -377,16 +462,54 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         var results = new List<PredictionResult>();
         if (string.IsNullOrWhiteSpace(generatedText)) return results;
 
-        var words = generatedText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0) return results;
-
-        var word = words[0];
-        if (!string.IsNullOrEmpty(prefix) && !word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        // The model is prompted with context + prefix, so with a prefix it returns the
+        // CONTINUATION ("Wet" -> "terdaten"), not the whole word. A continuation that starts
+        // with whitespace means the typed word is already complete; next-word prediction is out
+        // of scope.
+        if (!string.IsNullOrEmpty(prefix) && char.IsWhiteSpace(generatedText[0]))
             return results;
+
+        var text = generatedText.TrimStart();
+        var end = 0;
+        while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
+        var completion = text[..end];
+
+        // Trailing punctuation is cut ("ter." -> "ter") before the shape check; what remains
+        // must be a word (Unicode letters, with internal apostrophe/hyphen allowed).
+        var wordEnd = completion.Length;
+        while (wordEnd > 0 && !char.IsLetter(completion[wordEnd - 1])) wordEnd--;
+        completion = completion[..wordEnd];
+        if (completion.Length == 0 || !IsWordShaped(completion)) return results;
+
+        var word = string.IsNullOrEmpty(prefix) ? completion : prefix + completion;
         results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
 
         return results;
     }
+
+    private static bool IsWordShaped(string word)
+    {
+        for (int i = 0; i < word.Length; i++)
+        {
+            var c = word[i];
+            if (char.IsLetter(c)) continue;
+            if (c is '\'' or '\u2019' or '-' && i > 0 && i < word.Length - 1) continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>One token produced by a generation step, with the model's probability for it.</summary>
+    internal readonly record struct StepOutput(long TokenId, double Probability);
+
+    /// <summary>A queued prediction request: the newest wins and superseded ones are cancelled.</summary>
+    private sealed record PendingRequest(
+        CancellationToken Token,
+        string Context,
+        string? Prefix,
+        ConcurrentBag<PredictionResult> Results,
+        InferenceSession? Session);
 
     /// <inheritdoc />
     public void Dispose()

@@ -191,6 +191,21 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
+      "Literal": "\"fresh\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
+      "Literal": "\"none\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
+      "Literal": "\"reused\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
       "Literal": "\"restart_notice_close\"",
       "Count": 1
@@ -318,6 +333,36 @@
     {
       "Path": "src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs",
       "Literal": "\"Keyboard_flip\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"backdrop-close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"commit\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"edge-close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"esc\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"other\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"pause\"",
       "Count": 1
     },
     {
@@ -458,6 +503,16 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"unproven\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=(?,?)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=({0:F0},{1:F0})\"",
       "Count": 1
     },
     {

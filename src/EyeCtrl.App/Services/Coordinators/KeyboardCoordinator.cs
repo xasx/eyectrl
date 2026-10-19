@@ -483,9 +483,19 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // guard above (its Log.Debug the only trace). Same invisible guarantee as
         // OverlayMessageCoordinator.cs:119-121.
         bar.ShowButtons(
-            KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs),
+            KeyboardEdgeButtons.Definitions(KeyboardEdgeButtonDwellMs(Context.Settings.Dwell)),
             ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
     }
+
+    /// <summary>
+    /// The keyboard edge-bar pair's dwell: the same setting the action-menu pair reads on the
+    /// shared bar (<c>Dwell.ActionMenuDwellMs</c>), never below
+    /// <see cref="KeyboardEdgeButtons.MinimumDwellMs"/>. Close and Flip used to ride the 450 ms
+    /// keyboard KEY dwell, which made the keyboard's escape and its worst-region move cheaper
+    /// than every other edge-bar button.
+    /// </summary>
+    internal static int KeyboardEdgeButtonDwellMs(DwellSettings dwell) =>
+        Math.Max(dwell.ActionMenuDwellMs, KeyboardEdgeButtons.MinimumDwellMs);
 
     private void HideKeyboardEdgeBar()
     {

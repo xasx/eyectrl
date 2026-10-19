@@ -12,8 +12,10 @@ using Serilog;
 /// when the OS cursor is more than <see cref="RestoreThresholdPx"/> away from the anchor (an
 /// external gaze mouse moved it), the tick sends MOVE→anchor, the wheel, MOVE→back in ONE atomic
 /// batch through <see cref="IInputSimulator.ScrollAtAndRestore"/>. The net cursor position is
-/// unchanged; the hop exists only so the wheel is hit-tested at the anchor. Within the threshold
-/// the bare <see cref="IInputSimulator.Scroll"/> is sent, exactly as before.
+/// unchanged — the restore leg uses an exact pixel encoding, not the shared rounding normaliser,
+/// so Windows' truncating decode returns the very pixel that was read. The hop exists only so the
+/// wheel is hit-tested at the anchor. Within the threshold the bare
+/// <see cref="IInputSimulator.Scroll"/> is sent, exactly as before.
 /// </summary>
 public class ScrollWorker : IDisposable
 {

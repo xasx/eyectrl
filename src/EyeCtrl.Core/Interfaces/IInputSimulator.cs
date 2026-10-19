@@ -60,6 +60,9 @@ public interface IInputSimulator
     /// per wheel tick while the cursor is away from the anchor — the deliberate Part B relaxation
     /// of the scroll-start rule "no per-tick MOVE to the anchor". The batch is not interleaved, so
     /// the wheel is hit-tested at <paramref name="at"/> and the cursor is restored immediately.
+    /// The restore move uses an exact 65536/ceil encoding: Windows decodes absolute coordinates by
+    /// truncation, so the shared 65535/round normaliser would walk a held pointer 1 px up-left per
+    /// hop. "Net position unchanged" therefore holds for every pixel.
     /// </summary>
     /// <param name="at">Where the wheel must land (the scroll anchor).</param>
     /// <param name="restore">The cursor position read just before this tick.</param>

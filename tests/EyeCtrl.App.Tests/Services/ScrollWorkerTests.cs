@@ -108,6 +108,26 @@ public class ScrollWorkerTests
         }
     }
 
+    /// <summary>
+    /// F2: a FAILED cursor read (null) must keep the bare wheel. MBz's
+    /// <c>else if (cursor is not null)</c> silently drops every wheel on a failed read; this row
+    /// kills it (and nothing may throw on the way).
+    /// </summary>
+    [Fact]
+    public void GB3_NullCursorRead_KeepsTheBareWheel()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        using var worker = new ScrollWorker(input);
+        worker.Start(Anchor, isArmed: () => true, cursorReader: () => null);
+        worker.UpdateTargetVelocity(0, -600);
+
+        for (int i = 0; i < 10; i++) worker.Tick();
+
+        Check.WithCustomMessage("a failed cursor read must not drop the wheel.")
+            .That(input.BareScrolls).Not.IsEmpty();
+        Check.That(input.RestoreScrolls).IsEmpty();
+    }
+
     [Fact]
     public void GB3_NoWheelTicks_SendNothing()
     {

@@ -21,6 +21,11 @@ public class Win32InputSimulator : IInputSimulator
     private static int ScreenWidth => NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN);
     private static int ScreenHeight => NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
 
+    /// <summary>The live screen bounds the absolute normalisation uses (the same SM_CXSCREEN /
+    /// SM_CYSCREEN the shared mapper receives), so the restore-exactness gate can compute both
+    /// encodings at the real size.</summary>
+    internal static (int Width, int Height) ScreenMetrics => (ScreenWidth, ScreenHeight);
+
     private readonly IMouseCoordinateMapper _coordinateMapper;
     private readonly ILogger<Win32InputSimulator>? _logger;
 
@@ -136,6 +141,9 @@ public class Win32InputSimulator : IInputSimulator
     {
         // One batch: the wheel is hit-tested at `at`, and the cursor is put back where it was in
         // the same SendInput call (the net position is unchanged; no other input can land between).
+        // The restore leg has its OWN encoding (see BuildRestoreMouseInput): the shared
+        // 65535/round normaliser decodes 1 px low under Windows' truncation, which would make a
+        // held pointer creep up-left on every hop.
         var body = BuildWheelAtAndRestoreBody(at, restore, deltaX, deltaY);
         SendRaw((uint)body.Length, body);
     }
@@ -378,16 +386,50 @@ public class Win32InputSimulator : IInputSimulator
     /// <summary>
     /// Scroll mode's pointed hop: the pointed wheel body (absolute MOVE, then the Y and/or X wheel
     /// legs) with a trailing absolute MOVE back to <paramref name="restore"/>, so one atomic batch
-    /// lands the wheel at <paramref name="at"/> without leaving the cursor there. INSTANCE method —
+    /// lands the wheel at <paramref name="at"/> without leaving the cursor there. The anchor leg is
+    /// unchanged (shared mapper); the restore leg uses its own exact encoding. INSTANCE method —
     /// same mapper reason.
     /// </summary>
     internal NativeMethods.INPUT[] BuildWheelAtAndRestoreBody(
         PhysicalPoint at, PhysicalPoint restore, int deltaX, int deltaY)
     {
         var body = BuildModifiedWheelBody(at, deltaX, deltaY).ToList();
-        body.Add(CreateMouseInput(restore, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE));
+        body.Add(BuildRestoreMouseInput(restore, ScreenWidth, ScreenHeight));
         return body.ToArray();
     }
+
+    /// <summary>
+    /// Encodes one restore coordinate so Windows' truncating decode <c>(N × screen) &gt;&gt; 16</c>
+    /// returns EXACTLY the input pixel: <c>N = min(ceil(c × 65536 ÷ screen), 65535)</c>. The shared
+    /// mapper rounds <c>c / screen × 65535</c>; Windows divides by 65536, so most positions come
+    /// back 1 px low and a held pointer would creep up-left on every hop. Long arithmetic avoids an
+    /// FP edge at exact multiples; the cap keeps a clamped edge coordinate on the last pixel.
+    /// </summary>
+    internal static int EncodeRestoreCoordinate(double coordinate, int screenSize)
+    {
+        var clamped = Math.Clamp(coordinate, 0, screenSize);
+        var pixel = (long)Math.Round(clamped);
+        var encoded = (pixel * 65536L + screenSize - 1) / screenSize; // ceil, integer-only
+        return (int)Math.Min(encoded, 65535L);
+    }
+
+    /// <summary>The restore leg's absolute MOVE with <see cref="EncodeRestoreCoordinate"/>'s exact
+    /// encoding (the anchor leg, clicks and <c>MoveCursor</c> keep the shared mapper).</summary>
+    internal static NativeMethods.INPUT BuildRestoreMouseInput(
+        PhysicalPoint restore, int screenWidth, int screenHeight)
+        => new()
+        {
+            Type = NativeMethods.INPUT_MOUSE,
+            Union = new NativeMethods.INPUTUNION
+            {
+                Mouse = new NativeMethods.MOUSEINPUT
+                {
+                    Dx = EncodeRestoreCoordinate(restore.X, screenWidth),
+                    Dy = EncodeRestoreCoordinate(restore.Y, screenHeight),
+                    Flags = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE,
+                },
+            },
+        };
 
     /// <summary>
     /// After a PARTIAL insert (0 &lt; sent &lt; count), builds releases for every down whose up did

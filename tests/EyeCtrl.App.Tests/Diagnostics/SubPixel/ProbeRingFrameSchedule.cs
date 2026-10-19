@@ -20,11 +20,12 @@ using EyeCtrl.Core.Models;
 /// </para>
 ///
 /// <para>
-/// <b>The capture origin comes from production's own math.</b> <see cref="CaptureRegionMath.Compute"/>
+/// <b>The capture origin comes from production's own math.</b> <see cref="CaptureRegionMath.Place"/>
 /// truncates (<c>(int)center.X</c>) where a hand-rolled <c>Math.Round</c> predicts one pixel too far
-/// right for f ≥ 0.55 (review 01 B2). Under truncation the origin is constant for every
-/// f ∈ [0, 1) — which is why the shift measurement can ignore the frame's origin — and that
-/// constancy is asserted here and re-checked against every real capture by the harness.
+/// right for f ≥ 0.55 (review 01 B2). The capture square is centred on the requested point, so its
+/// origin is <c>(int)center − radius</c> — constant for every f ∈ [0, 1) under truncation, which is
+/// why the shift measurement can ignore the frame's origin — and that constancy is asserted here and
+/// re-checked against every real capture by the harness.
 /// </para>
 ///
 /// <para>
@@ -49,8 +50,8 @@ internal static class ProbeRingFrameSchedule
     /// <param name="WindowOriginPx">The window's client origin in screen physical pixels (whole pixels).</param>
     /// <param name="RingLocalCentrePx">The ring's centre in window-local physical pixels — what <c>Place</c> takes.</param>
     /// <param name="CaptureCentrePx">The ring's centre in screen physical pixels — what the capture takes.</param>
-    /// <param name="CaptureOriginX">The capture region's left edge, from <see cref="CaptureRegionMath.Compute"/>.</param>
-    /// <param name="CaptureOriginY">The capture region's top edge, from <see cref="CaptureRegionMath.Compute"/>.</param>
+    /// <param name="CaptureOriginX">The capture square's left edge, from <see cref="CaptureRegionMath.Place"/>.</param>
+    /// <param name="CaptureOriginY">The capture square's top edge, from <see cref="CaptureRegionMath.Place"/>.</param>
     internal sealed record Frame(
         double Fraction,
         PhysicalPoint WindowOriginPx,
@@ -121,17 +122,17 @@ internal static class ProbeRingFrameSchedule
         var local = new PhysicalPoint(halfDip * scale + fractionX, halfDip * scale + fractionY);
         var captureCentre = new PhysicalPoint(originX + local.X, originY + local.Y);
 
-        var region = CaptureRegionMath.Compute(
+        var placement = CaptureRegionMath.Place(
                 (int)captureCentre.X, (int)captureCentre.Y, CaptureRadiusPx, screenWidthPx, screenHeightPx)
             ?? throw new InvalidOperationException(
-                $"No valid capture region for centre ({captureCentre.X}, {captureCentre.Y}) and radius {CaptureRadiusPx}.");
+                $"No valid capture placement for centre ({captureCentre.X}, {captureCentre.Y}) and radius {CaptureRadiusPx}.");
 
         return new Frame(
             fractionX,
             new PhysicalPoint(originX, originY),
             local,
             captureCentre,
-            region.x,
-            region.y);
+            placement.OriginX,
+            placement.OriginY);
     }
 }

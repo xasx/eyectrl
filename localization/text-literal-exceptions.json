@@ -233,6 +233,24 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
+      "Literal": "\"fresh\"",
+      "Category": "log",
+      "Reason": "The picture-provenance token of the magnifier's show line (Magnifier shown: ... picture=fresh); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
+      "Literal": "\"none\"",
+      "Category": "log",
+      "Reason": "The picture-provenance token of the magnifier's show line (Magnifier shown: ... picture=none); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
+      "Literal": "\"reused\"",
+      "Category": "log",
+      "Reason": "The picture-provenance token of the magnifier's show line (Magnifier shown: ... picture=reused); written to the log only, never shown."
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
       "Literal": "\"restart_notice_close\"",
       "Category": "id",
@@ -363,6 +381,42 @@
       "Literal": "\"Keyboard_flip\"",
       "Category": "id",
       "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"backdrop-close\"",
+      "Category": "log",
+      "Reason": "The magnifier's exit-attribution token in the closed line (Magnifier closed by backdrop-close); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"commit\"",
+      "Category": "log",
+      "Reason": "The magnifier's exit-attribution token in the closed line (Magnifier closed by commit); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"edge-close\"",
+      "Category": "log",
+      "Reason": "The magnifier's exit-attribution token in the closed line (Magnifier closed by edge-close); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"esc\"",
+      "Category": "log",
+      "Reason": "The magnifier's exit-attribution token in the closed line (Magnifier closed by esc); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"other\"",
+      "Category": "log",
+      "Reason": "The magnifier's exit-attribution fallback token in the closed line (Magnifier closed by other); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"pause\"",
+      "Category": "log",
+      "Reason": "The magnifier's exit-attribution token in the closed line (Magnifier closed by pause); written to the log only, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
@@ -1329,6 +1383,19 @@
       "Literal": "\"track status\"",
       "Category": "log",
       "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=(?,?)\"",
+      "Category": "log",
+      "Reason": "The Scroll mode entry line's cursor fragment (a failed cursor read) -- log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"cursor=({0:F0},{1:F0})\"",
+      "Category": "log",
+      "Reason": "The Scroll mode entry line's cursor fragment -- log-only, never shown."
     }
   ]
 }
+

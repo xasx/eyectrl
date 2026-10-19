@@ -22,6 +22,11 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 
     private readonly ModalInteractionState _modal;
     private IGlassBackdropOverlay? _glassBackdrop;
+
+    // Field evidence for the magnifier's "closed by ... after ... ms" line: the show instant of the
+    // current session, null when the view was never shown through this coordinator.
+    private long? _magnifierShownAtTick;
+
     public OverlayVmBindingCoordinator(ModalInteractionState modal)
     {
         // Dereferenced by the cursor-visibility guard (OnCursorVMPropertyChanged reads
@@ -230,6 +235,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 // the ring's own ShowBackdropIfEnabled call re-shows the window, so the hint
                 // correctly turns off rather than needing a second toggle there.
                 _glassBackdrop?.ShowEscapeHint();
+                _magnifierShownAtTick = Environment.TickCount64;
                 ManualSelectionOverlay.Show(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification, Context.ManualSelectionVM.GazePoint, Context.ManualSelectionVM.Recapture);
                 ManualSelectionIndicator.Show();
                 // Keep the gaze dot above the opaque magnifier: the Show() above is a no-op if the
@@ -239,6 +245,20 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             }
             else
             {
+                // One line per session, with every exit's attribution: the reason is set by the
+                // coordinator whose message caused the exit; Pause is the only one the state machine
+                // owns (TogglePause sets Paused right after firing EndManualSelection), so it is read
+                // from the state at hide time.
+                var reason = Context.ManualSelectionVM.LastCloseReason
+                    ?? (Context.InteractionManager.CurrentState == InteractionState.Paused
+                        ? MagnifierCloseReasons.Pause
+                        : MagnifierCloseReasons.Other);
+                var elapsedMs = _magnifierShownAtTick is long shownAt
+                    ? Environment.TickCount64 - shownAt
+                    : 0;
+                _magnifierShownAtTick = null;
+                Log.Information("Magnifier closed by {Reason:l} after {Ms} ms", reason, elapsedMs);
+
                 ManualSelectionOverlay.Hide();
                 ManualSelectionIndicator.Hide();
                 HideBackdrop();
@@ -398,7 +418,11 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             Context.ActionMenuVM.ManualSelectionCenter,
             Context.ActionMenuVM.ManualSelectionRadius,
             Context.ActionMenuVM.GazePoint,
-            Context.ActionMenuVM.ShowLabels);
+            Context.ActionMenuVM.ShowLabels,
+            // Both paths show the preview at 1× (no zoom): the owner wants a plain picture of the
+            // picked spot. The zoom path still centres that picture on the commit point (see
+            // ActionMenuWindow.PreviewGeometry); the magnifier itself keeps its configured factor.
+            1.0);
     }
 
     private void OnToolbarVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

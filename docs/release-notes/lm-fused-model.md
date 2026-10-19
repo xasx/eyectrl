@@ -20,3 +20,28 @@
   too — until another model is chosen or downloaded on the Models page. If 0.5B was its only
   model, that page says "No models downloaded"; the files stay on disk and can be deleted by
   hand: `%APPDATA%\EyeCtrl\models\qwen2.5-0.5b.onnx` and `qwen2.5-0.5b.tokenizer.json`.
+- **The day log now records which provider ran the model.** The predictor's own lines —
+  `Using DirectML (GPU) for {Model}`, the silent CPU fallback warning, the
+  `SmallLMPredictor initialized with …` line and any load failure — now reach
+  `%APPDATA%\EyeCtrl\logs\eyectrl-<date>.log`; before, the predictor was built without a
+  logger and all of them were dropped. It also unmutes two lines the note did not name:
+  `No tokenizer provided for {Model}; LM suggestions disabled` (Warning, at each keyboard
+  stack build while the selected model is not downloaded, beside the existing "Tokenizer
+  file not found" line) and `LM inference failed` (Error, with its exception).
+- **Two suggestions in flight can no longer crash the app.** The predictor gave each request
+  its own thread-pool job without serialising the ONNX Runtime session, and DirectML's
+  execution provider does not allow two `Run` calls on one session at a time — a rapid pair of
+  requests while typing (the first key's request still running when the next one is queued)
+  could fault inside the graphics driver (`0xC0000005`). Requests now share a single
+  latest-wins worker: one inference at a time, a superseded request stops after the step
+  already in flight, and only the newest request's suggestions are returned.
+- **DirectML now runs on the fastest graphics adapter.** On a laptop with two GPUs the model
+  was loaded on the integrated one (DirectML's default device 0), which here was about 35 %
+  slower than the discrete GPU — and slower than the CPU. The predictor now asks ONNX Runtime
+  for its DirectML devices, ranks them by DXGI's high-performance order (discrete first) and
+  puts the session on the best one; the log names it, for example
+  `Using DirectML (GPU) for 1.5B on NVIDIA GeForce RTX 5090 Laptop GPU`. An explicit Windows
+  per-app **Power saving** preference for EyeCtrl (Settings › Display › Graphics) still wins:
+  the predictor then stays on the default adapter and says so in the log. If the chosen
+  session cannot be created it retries the default adapter, then the CPU, logging each step
+  with its exception.

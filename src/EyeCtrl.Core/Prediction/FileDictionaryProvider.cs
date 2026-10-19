@@ -26,6 +26,16 @@ public class FileDictionaryProvider : IDictionaryProvider
     private readonly string _userDictionaryPath;
     private readonly ILogger<FileDictionaryProvider>? _logger;
     private HashSet<string>? _abbreviations;
+    // The base counts this provider loaded: Save subtracts them so the user file only ever
+    // holds the LEARNED delta. This copy is never handed to the predictor (which mutates the
+    // merged dictionary as it learns).
+    private Dictionary<string, int> _baseWords = new(StringComparer.OrdinalIgnoreCase);
+    // Distinguishes "never loaded" from "loaded, and the base is empty": Save may be the first
+    // caller (the background rebuild writes through a fresh provider), and it needs the base
+    // counts to write the delta.
+    private bool _baseLoaded;
+    private bool _loadedInflated;
+    private int _inflatedWordCount;
 
     /// <summary>Full path to the per-language user dictionary JSON file.</summary>
     public string UserDictionaryPath => _userDictionaryPath;
@@ -55,10 +65,10 @@ public class FileDictionaryProvider : IDictionaryProvider
             : combinedPath.Replace(Path.DirectorySeparatorChar, preferredSeparator);
     }
 
-    /// <inheritdoc />
-    public Dictionary<string, int> Load()
+    /// <summary>Reads only the base dictionary counts (and abbreviations).</summary>
+    private void LoadBaseCounts()
     {
-        var words = new Dictionary<string, int>();
+        _baseWords = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         if (File.Exists(_baseDictionaryPath))
         {
@@ -71,7 +81,7 @@ public class FileDictionaryProvider : IDictionaryProvider
                 {
                     // Load words
                     foreach (var kv in data.Words)
-                        words[kv.Key] = kv.Value;
+                        _baseWords[kv.Key] = kv.Value;
 
                     // Load abbreviations if present
                     if (data.Abbreviations != null && data.Abbreviations.Count > 0)
@@ -93,6 +103,67 @@ public class FileDictionaryProvider : IDictionaryProvider
                 _logger?.LogError(ex, "Failed to read base dictionary from {Path}, returning empty dictionary", _baseDictionaryPath);
             }
         }
+    }
+
+    /// <summary>
+    /// Save can be the first caller (the background rebuild writes through a fresh provider), so
+    /// the base counts are loaded on demand for the delta. This path reads the base only: no
+    /// user file, no inflation detection, no repair or backup.
+    /// </summary>
+    private void EnsureBaseLoaded()
+    {
+        if (_baseLoaded) return;
+        LoadBaseCounts();
+        _baseLoaded = true;
+        DetectInflationForSave();
+    }
+
+    /// <summary>
+    /// A fresh provider (the background rebuild's) may be the first to write over a file left
+    /// inflated by an older build. Flag it here so Save's backup-once rule still runs before the
+    /// delta replaces the original. No repair: the caller already holds the repaired merged
+    /// snapshot, and Save subtracts the base counts.
+    /// </summary>
+    private void DetectInflationForSave()
+    {
+        if (!File.Exists(_userDictionaryPath)) return;
+
+        try
+        {
+            var userWords = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(_userDictionaryPath));
+            if (userWords == null || !IsInflated(userWords)) return;
+
+            _loadedInflated = true;
+            foreach (var word in userWords.Keys)
+            {
+                if (_baseWords.TryGetValue(word, out var baseCount) && baseCount > 0)
+                    _inflatedWordCount++;
+            }
+        }
+        catch (JsonException ex)
+        {
+            _logger?.LogError(ex, "Failed to deserialize user dictionary from {Path}", _userDictionaryPath);
+        }
+        catch (IOException ex)
+        {
+            _logger?.LogError(ex, "Failed to read user dictionary from {Path}", _userDictionaryPath);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger?.LogError(ex, "Access denied reading user dictionary from {Path}", _userDictionaryPath);
+        }
+    }
+
+    /// <inheritdoc />
+    public Dictionary<string, int> Load()
+    {
+        LoadBaseCounts();
+        _baseLoaded = true;
+        _loadedInflated = false;
+        _inflatedWordCount = 0;
+
+        var baseCounts = _baseWords;
+        var words = new Dictionary<string, int>(baseCounts, StringComparer.OrdinalIgnoreCase);
 
         if (File.Exists(_userDictionaryPath))
         {
@@ -101,8 +172,33 @@ public class FileDictionaryProvider : IDictionaryProvider
                 var json = File.ReadAllText(_userDictionaryPath);
                 var userWords = JsonSerializer.Deserialize<Dictionary<string, int>>(json);
                 if (userWords != null)
-                    foreach (var kv in userWords)
-                        words[kv.Key] = words.GetValueOrDefault(kv.Key) + kv.Value;
+                {
+                    if (IsInflated(userWords))
+                    {
+                        // The old save wrote the MERGED counts back, so whole copies of the
+                        // base accumulated (the owner's file was base x 57-59). Remove the
+                        // whole copies and keep the residual, which is what the user learned.
+                        _loadedInflated = true;
+                        foreach (var kv in userWords)
+                        {
+                            if (baseCounts.TryGetValue(kv.Key, out var baseCount) && baseCount > 0)
+                            {
+                                _inflatedWordCount++;
+                                var learned = kv.Value % baseCount;
+                                if (learned > 0) words[kv.Key] = baseCount + learned;
+                            }
+                            else
+                            {
+                                words[kv.Key] = words.GetValueOrDefault(kv.Key) + kv.Value;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        foreach (var kv in userWords)
+                            words[kv.Key] = words.GetValueOrDefault(kv.Key) + kv.Value;
+                    }
+                }
             }
             catch (JsonException ex)
             {
@@ -124,12 +220,93 @@ public class FileDictionaryProvider : IDictionaryProvider
     /// <inheritdoc />
     public void Save(Dictionary<string, int> words)
     {
+        // A fresh provider (the background rebuild's) has not loaded the base yet; without it
+        // the delta would be the whole merged dictionary and the file would re-inflate.
+        EnsureBaseLoaded();
+
         var directory = Path.GetDirectoryName(_userDictionaryPath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        var json = JsonSerializer.Serialize(words, s_writeOptions);
+        // The first save after an inflated load repairs the file; keep the original once. If the
+        // backup cannot be made, leave the file and the flag untouched so a later save retries:
+        // every load repairs in memory, and not writing cannot inflate the file further.
+        if (_loadedInflated)
+        {
+            if (!BackupInflatedFile()) return;
+            _loadedInflated = false;
+        }
+
+        // Only what the user added on top of the base: whole base copies are never written back.
+        var delta = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in words)
+        {
+            var learned = kv.Value - _baseWords.GetValueOrDefault(kv.Key);
+            if (learned > 0) delta[kv.Key] = learned;
+        }
+
+        var json = JsonSerializer.Serialize(delta, s_writeOptions);
         File.WriteAllText(_userDictionaryPath, json);
+    }
+
+    /// <summary>
+    /// True when at least 90% of the base words appear in the user file with at least twice
+    /// their base count. A genuine delta file only holds words the user typed, so it can never
+    /// trip this; a rare base word with a large delta is far below the threshold.
+    /// </summary>
+    private bool IsInflated(Dictionary<string, int> userWords)
+    {
+        if (_baseWords.Count == 0 || userWords.Count == 0) return false;
+
+        var multiplied = 0;
+        foreach (var (word, baseCount) in _baseWords)
+        {
+            if (baseCount > 0 && userWords.TryGetValue(word, out var userCount)
+                && userCount >= 2L * baseCount)
+            {
+                multiplied++;
+            }
+        }
+
+        return multiplied * 10L >= _baseWords.Count * 9L;
+    }
+
+    private bool BackupInflatedFile()
+    {
+        var backupPath = _userDictionaryPath + ".bak-inflated";
+
+        if (File.Exists(backupPath))
+        {
+            _logger?.LogInformation(
+                "Repaired the inflated user dictionary ({Words} base words carried whole copies); an existing backup was kept at {Backup}",
+                _inflatedWordCount, backupPath);
+            return true;
+        }
+
+        try
+        {
+            if (!File.Exists(_userDictionaryPath))
+            {
+                _logger?.LogInformation(
+                    "Repaired the inflated user dictionary ({Words} base words carried whole copies); the user file no longer exists, so there was nothing to back up",
+                    _inflatedWordCount);
+                return true;
+            }
+
+            File.Copy(_userDictionaryPath, backupPath);
+
+            _logger?.LogInformation(
+                "Repaired the inflated user dictionary ({Words} base words carried whole copies); the original is at {Backup}",
+                _inflatedWordCount, backupPath);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogWarning(ex,
+                "Could not back up the inflated user dictionary to {Backup}; keeping the file unchanged",
+                backupPath);
+            return false;
+        }
     }
 
     private static readonly JsonSerializerOptions s_writeOptions = new() { WriteIndented = true };

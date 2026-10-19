@@ -472,9 +472,9 @@ internal static class ProbeRingOnScreenHarness
             {
                 throw new InvalidOperationException(
                     $"The capture started at ({capture.Value.X}, {capture.Value.Y}), not the production math's "
-                    + $"({frame.CaptureOriginX}, {frame.CaptureOriginY}). Either the region was clamped — the "
-                    + "caller must initialize DpiHelper from the measured window scale — or the schedule no longer "
-                    + "matches CaptureRegionMath.Compute.");
+                    + $"({frame.CaptureOriginX}, {frame.CaptureOriginY}). The capture is centred on the requested "
+                    + "point, so check that DpiHelper was initialized from the measured window scale and that the "
+                    + "schedule still matches CaptureRegionMath.Place.");
             }
 
             lastSizePx = capture.Value.Size;

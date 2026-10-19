@@ -31,6 +31,14 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     public bool Recapture { get; private set; } = true;
 
     /// <summary>
+    /// Why the current magnifier session ended, set by the coordinator immediately before the exit
+    /// it triggers (✕ / backdrop ✕ / ESC / commit) and read when <see cref="IsVisible"/> goes false
+    /// for the field log. Null when no exit has been attributed yet; the logger falls back to the
+    /// interaction state (Paused) and then to "other".
+    /// </summary>
+    public string? LastCloseReason { get; set; }
+
+    /// <summary>
     /// Requested by the recapture edge button. Bumps <see cref="RecaptureVersion"/> so the bound
     /// window re-captures at the existing geometry without moving.
     /// </summary>
@@ -49,6 +57,7 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
         Magnification = message.Magnification;
         GazePoint = message.GazePoint;
         Recapture = message.Recapture; // set before IsVisible so the show handler reads the right value
+        LastCloseReason = null; // a new session; never inherit the previous exit's attribution
 
         IsVisible = true;
     }

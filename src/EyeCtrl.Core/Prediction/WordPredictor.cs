@@ -16,7 +16,13 @@ public class WordPredictor
     private readonly IReadOnlySet<string> _abbreviations;
     private readonly CasingPreferenceTracker _casingPreferences;
 
-    private const double MaxFuzzyDistance = 1.5;
+    // Fuzzy eligibility: a candidate must be at least as long as the prefix, and the prefix must
+    // be at least three letters. One adjacent-key slip (0.5) is allowed for 3-5 letters; from
+    // six letters a non-adjacent slip (1.0) is tolerated too. The span below is only the
+    // confidence normaliser - it does not admit matches.
+    private const double FuzzyConfidenceSpan = 1.5;
+    private const int MinFuzzyPrefixLength = 3;
+    private const int LongPrefixLength = 6;
 
     // Scoring weights (Phase 2)
     private const double ExactPrefixMultiplier = 3.0;
@@ -193,38 +199,37 @@ public class WordPredictor
                 if (scored.ContainsKey(word))
                     continue;
 
-                // Category 4: Fuzzy matches (only if we have a non-empty prefix)
+                // Category 4: Fuzzy matches (only with a long enough prefix).
                 // Note: Fuzzy matching intentionally does NOT apply case tiering because it's
                 // designed to find approximate matches based on edit distance, not exact character matching.
                 // Case-insensitive comparison is used to maximize match flexibility.
-                if (string.IsNullOrEmpty(prefix))
+                if (prefix.Length < MinFuzzyPrefixLength)
+                    continue;
+
+                // The typed word may only grow: a shorter candidate is not a plausible completion
+                // of what the user is typing ("he" for "hel"), however frequent it is.
+                if (word.Length < prefix.Length)
                     continue;
 
                 // Cheap pre-filter before the O(m*n) DP (runs per dictionary word per
-                // keystroke). For same-length comparisons, any alignment within
-                // MaxFuzzyDistance (1.5) cannot use insert/delete (a pair costs 2.0),
-                // so distance >= 0.5 * positional case-insensitive mismatches;
-                // 4+ mismatches can never qualify. Sound for first-char typos too.
-                if (word.Length >= prefix.Length)
+                // keystroke). Any alignment within the longest allowed distance (1.0) cannot
+                // use insert/delete (a pair costs 2.0), so distance >= 0.5 * positional
+                // case-insensitive mismatches; 4+ mismatches can never qualify.
+                int mismatches = 0;
+                for (int i = 0; i < prefix.Length && mismatches <= 3; i++)
                 {
-                    int mismatches = 0;
-                    for (int i = 0; i < prefix.Length && mismatches <= 3; i++)
-                    {
-                        if (char.ToLowerInvariant(word[i]) != char.ToLowerInvariant(prefix[i]))
-                            mismatches++;
-                    }
-                    if (mismatches > 3) continue;
+                    if (char.ToLowerInvariant(word[i]) != char.ToLowerInvariant(prefix[i]))
+                        mismatches++;
                 }
+                if (mismatches > 3) continue;
 
-                // Compare prefix against the same-length prefix of the word, or the full
-                // word if shorter. FuzzyEditDistance lowercases per-char internally, so
-                // no ToLowerInvariant() string allocations are needed here.
-                var wordPrefix = word.Length >= prefix.Length
-                    ? word[..prefix.Length]
-                    : word;
+                // Only the same-length prefix of the (not shorter) word: one adjacent-key slip
+                // for 3-5 letters, one slip of either kind from six letters.
+                var wordPrefix = word[..prefix.Length];
+                var maxDistance = prefix.Length >= LongPrefixLength ? 1.0 : 0.5;
 
                 var dist = FuzzyEditDistance.Compute(prefix, wordPrefix, _adjacencyMap);
-                if (dist > MaxFuzzyDistance) continue;
+                if (dist > maxDistance) continue;
 
                 double multiplier = dist <= 0.5 ? 1.5 : dist <= 1.0 ? 1.2 : 1.0;
                 var fuzzyScore = frequency * multiplier;
@@ -256,13 +261,18 @@ public class WordPredictor
                     PredictionType.Phrase => Math.Min(1.0, kv.Value.score / 400.0),
                     PredictionType.ExactPrefix => 1.0, // Exact matches have high confidence
                     PredictionType.FuzzyMatch => kv.Value.fuzzyDistance.HasValue
-                        ? Math.Max(0.0, 1.0 - (kv.Value.fuzzyDistance.Value / MaxFuzzyDistance))
+                        ? Math.Max(0.0, 1.0 - (kv.Value.fuzzyDistance.Value / FuzzyConfidenceSpan))
                         : 0.5,
                     _ => Math.Min(1.0, kv.Value.score / 1000.0)
                 };
                 return new PredictionResult(displayWord, kv.Value.score, kv.Value.type, confidence);
             })
-            .OrderByDescending(r => r.Score)
+            // Prefix matches keep the slots the user is typing for: fuzzy matches may only fill
+            // what the prefix cannot, or a frequent near-miss pushes every real match past the
+            // Take before the orchestrator's ranking ever sees it.
+            .OrderByDescending(r => string.IsNullOrEmpty(prefix)
+                || r.Word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(r => r.Score)
             .Take(maxCount)
             .ToList();
 
@@ -447,6 +457,13 @@ public class WordPredictor
     /// time, so words learned on the OLD stack while the new one built are carried over.
     /// </summary>
     public IReadOnlyDictionary<string, int> WordFrequencies => new Dictionary<string, int>(_words);
+
+    /// <summary>
+    /// True when the merged dictionary (base + learned) contains the word, case-insensitively.
+    /// The LM vocabulary gate: a completion outside it is junk ("wtf", "mohamed"). The dictionary
+    /// is OrdinalIgnoreCase (the provider's), so the lookup is already case-insensitive.
+    /// </summary>
+    internal bool KnowsWord(string word) => _words.ContainsKey(word);
 
     /// <summary>
     /// Applies positive frequency deltas (word → additional uses). The inverse of the snapshot

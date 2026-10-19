@@ -39,7 +39,11 @@ public class PredictionOrchestratorTests
         trie.Insert("thank you for your help", 7);
 
         var orchestrator = CreateOrchestrator(
-            words: new Dictionary<string, int> { ["thank"] = 50, ["you"] = 40 },
+            words: new Dictionary<string, int>
+            {
+                ["thank"] = 50, ["you"] = 40, ["very"] = 30, ["much"] = 30,
+                ["for"] = 30, ["your"] = 30, ["help"] = 30,
+            },
             trie: trie);
 
         var results = orchestrator.GetSuggestions("thank", context: null, maxCount: 5);
@@ -152,13 +156,83 @@ public class PredictionOrchestratorTests
     {
         var trie = new SentenceCompletionIndex();
         trie.Insert("Wet weather is nice", 1_000_000);
-        var orchestrator = CreateOrchestrator(words: new Dictionary<string, int> { ["Wetter"] = 1 }, trie: trie);
+        var orchestrator = CreateOrchestrator(
+            words: new Dictionary<string, int>
+            {
+                ["Wetter"] = 1, ["weather"] = 1, ["is"] = 1, ["nice"] = 1,
+            },
+            trie: trie);
 
         var results = orchestrator.GetSuggestions("Wet", context: null, maxCount: 5);
 
         // "Wetter" scores 3; the trie completion scores ln(1e6)*3 and is appended after it.
         Check.That(results[0].Word).IsEqualTo("Wet weather is nice");
         Check.That(results[1].Word).IsEqualTo("Wetter");
+    }
+
+    [Fact]
+    public void GetSuggestions_TrieCompletionWithAnUnknownWord_IsDropped()
+    {
+        var trie = new SentenceCompletionIndex();
+        trie.Insert("ist tom taub?", 10);
+        trie.Insert("ist das gut?", 5);
+        var orchestrator = CreateOrchestrator(
+            words: new Dictionary<string, int> { ["ist"] = 100, ["das"] = 100, ["gut"] = 100 },
+            trie: trie);
+
+        var words = orchestrator.GetSuggestions("ist", context: null, maxCount: 5)
+            .Select(result => result.Word).ToList();
+
+        Check.That(words).Contains("ist das gut?");
+        Check.That(words).Not.Contains("ist tom taub?");
+    }
+
+    [Fact]
+    public void GetSuggestions_TrieCompletion_TrimsBoundaryPunctuationAndKeepsApostrophes()
+    {
+        var trie = new SentenceCompletionIndex();
+        trie.Insert("ist geht's gut?", 10);
+        var orchestrator = CreateOrchestrator(
+            words: new Dictionary<string, int> { ["ist"] = 100, ["geht's"] = 100, ["gut"] = 100 },
+            trie: trie);
+
+        var words = orchestrator.GetSuggestions("ist", context: null, maxCount: 5)
+            .Select(result => result.Word).ToList();
+
+        Check.That(words).Contains("ist geht's gut?");
+    }
+
+    [Fact]
+    public void GetSuggestions_LearnedWord_MakesACompletionValid()
+    {
+        var trie = new SentenceCompletionIndex();
+        trie.Insert("ist tom taub?", 10);
+        var orchestrator = CreateOrchestrator(
+            words: new Dictionary<string, int> { ["ist"] = 100, ["taub"] = 100 },
+            trie: trie);
+
+        Check.That(orchestrator.GetSuggestions("ist", context: null, maxCount: 5)
+            .Select(result => result.Word)).Not.Contains("ist tom taub?");
+
+        orchestrator.LearnWord("tom");
+
+        Check.That(orchestrator.GetSuggestions("ist", context: null, maxCount: 5)
+            .Select(result => result.Word)).Contains("ist tom taub?");
+    }
+
+    [Fact]
+    public void GetSuggestions_TrieFilter_DoesNotRefillPastTheFilteredTopSet()
+    {
+        var trie = new SentenceCompletionIndex();
+        trie.Insert("ist tom taub?", 10);
+        trie.Insert("ist das gut?", 5);
+        var orchestrator = CreateOrchestrator(words: [], trie: trie);
+
+        // The trie's top 1 is the unknown-word completion; it is dropped and no second fetch
+        // happens, so no sentence completion survives maxCount 1.
+        var results = orchestrator.GetSuggestions("ist", context: null, maxCount: 1);
+
+        Check.That(results.Select(result => result.Type)).Not.Contains(PredictionType.SentenceCompletion);
     }
 
     [Fact]

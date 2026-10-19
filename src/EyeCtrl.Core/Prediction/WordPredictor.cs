@@ -515,6 +515,12 @@ public class WordPredictor
         }
     }
 
+    /// <summary>
+    /// Learns one word pair from typing (the words themselves are learned on the commit path,
+    /// so this must not learn them again).
+    /// </summary>
+    public void LearnPair(string previousWord, string word) => _bigrams.Learn(previousWord, word);
+
     /// <summary>Learns a sequence of words for bigram and phrase prediction.</summary>
     /// <param name="words">The words in order as typed by the user.</param>
     public void LearnSequence(string[] words)

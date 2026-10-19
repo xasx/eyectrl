@@ -279,12 +279,23 @@ public class WordPredictor
         return results;
     }
 
-    /// <summary>Returns the user's learned casing for <paramref name="word"/> (Phase 7.3),
-    /// or the word unchanged when no preference is recorded.</summary>
-    private string GetDisplayWord(string word) =>
-        _casingPreferences.HasPreference(word)
-            ? _casingPreferences.GetPreferredCasing(word) ?? word
-            : word;
+    /// <summary>
+    /// The display form of a stored key: the user's learned casing preference, else the base
+    /// dictionary's display casing, else the word as stored. Keys and learning stay lowercase.
+    /// </summary>
+    internal string GetDisplayWord(string word)
+    {
+        if (_casingPreferences.HasPreference(word))
+            return _casingPreferences.GetPreferredCasing(word) ?? word;
+
+        if (_provider is FileDictionaryProvider fileProvider
+            && fileProvider.DisplayCasing.TryGetValue(word, out var display))
+        {
+            return display;
+        }
+
+        return word;
+    }
 
     /// <summary>
     /// Phase 7.1 tiered case matching: candidates whose exact case matches the typed

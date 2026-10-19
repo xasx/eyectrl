@@ -293,20 +293,24 @@ public class WordPredictor
 
     /// <summary>
     /// The display form of a stored key: the user's learned casing preference, else the base
-    /// dictionary's display casing, else the word as stored. Keys and learning stay lowercase.
+    /// dictionary's display casing, else the word as stored. An ALL-LOWERCASE learned form (the
+    /// key itself) gives way to the base capital - "capitals win" - while any other learned
+    /// casing still wins. Display only: keys and the case tier stay key/learned based.
     /// </summary>
     internal string GetDisplayWord(string word)
     {
-        if (_casingPreferences.HasPreference(word))
-            return _casingPreferences.GetPreferredCasing(word) ?? word;
+        var learned = _casingPreferences.HasPreference(word)
+            ? _casingPreferences.GetPreferredCasing(word) ?? word
+            : null;
 
         if (_provider is FileDictionaryProvider fileProvider
             && fileProvider.DisplayCasing.TryGetValue(word, out var display))
         {
-            return display;
+            if (learned is null || string.Equals(learned, word.ToLowerInvariant(), StringComparison.Ordinal))
+                return display;
         }
 
-        return word;
+        return learned ?? word;
     }
 
     /// <summary>

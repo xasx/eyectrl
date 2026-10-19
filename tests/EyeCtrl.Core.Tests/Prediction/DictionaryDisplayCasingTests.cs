@@ -24,13 +24,14 @@ public class DictionaryDisplayCasingTests : IDisposable
         if (Directory.Exists(_dir)) Directory.Delete(_dir, true);
     }
 
-    private WordPredictor CreatePredictor(Dictionary<string, int>? words = null)
+    private WordPredictor CreatePredictor(
+        Dictionary<string, int>? words = null, Dictionary<string, string>? casing = null)
     {
         var basePath = Path.Combine(_dir, "de.json");
         File.WriteAllText(basePath, JsonSerializer.Serialize(new
         {
             words = words ?? new Dictionary<string, int> { ["wetter"] = 100, ["wettkampf"] = 50, ["wettbewerb"] = 40 },
-            casing = new Dictionary<string, string> { ["wetter"] = "Wetter" },
+            casing = casing ?? new Dictionary<string, string> { ["wetter"] = "Wetter" },
             abbreviations = Array.Empty<string>(),
         }));
 
@@ -61,14 +62,43 @@ public class DictionaryDisplayCasingTests : IDisposable
     }
 
     [Fact]
-    public void GetSuggestions_LearnedLowercasePreference_OverridesTheBaseCasing()
+    public void GetSuggestions_LearnedLowercasePreference_GivesWayToTheBaseCapital()
     {
+        // The owner's history is mostly lowercase ("wetter"); the base capital still shows.
         var predictor = CreatePredictor();
         predictor.LearnWord("wetter");
 
         var results = predictor.GetSuggestions("wet", null, maxCount: 5);
 
-        Check.That(results[0].Word).IsEqualTo("wetter");
+        Check.That(results[0].Word).IsEqualTo("Wetter");
+    }
+
+    [Fact]
+    public void GetSuggestions_LearnedNonLowercaseCasing_WinsOverTheBase()
+    {
+        // Any learned form other than the bare lowercase key still wins (LearnWord normalizes
+        // ALL-CAPS to title case, so "WLAN" is recorded as "Wlan").
+        var predictor = CreatePredictor(
+            new Dictionary<string, int> { ["wlan"] = 100 },
+            new Dictionary<string, string> { ["wlan"] = "WLAN" });
+        predictor.LearnWord("WLAN");
+
+        var results = predictor.GetSuggestions("wla", null, maxCount: 5);
+
+        Check.That(results[0].Word).IsEqualTo("Wlan");
+    }
+
+    [Fact]
+    public void GetSuggestions_LearnedLowercaseForAWordWithoutBaseCasing_StaysLowercase()
+    {
+        var predictor = CreatePredictor(
+            new Dictionary<string, int> { ["wettkampf"] = 100 },
+            new Dictionary<string, string>());
+        predictor.LearnWord("wettkampf");
+
+        var results = predictor.GetSuggestions("wettk", null, maxCount: 5);
+
+        Check.That(results[0].Word).IsEqualTo("wettkampf");
     }
 
     [Fact]

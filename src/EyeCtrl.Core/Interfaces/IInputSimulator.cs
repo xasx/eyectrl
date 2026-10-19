@@ -53,6 +53,20 @@ public interface IInputSimulator
     /// <param name="deltaX">Horizontal scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
     /// <param name="deltaY">Vertical scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
     void ScrollAt(PhysicalPoint point, int deltaX, int deltaY) => throw new NotSupportedException("This input simulator does not implement pointed scrolls.");
+    /// <summary>
+    /// Scroll mode's pointed hop, in ONE atomic batch: <c>MOVE|ABSOLUTE</c> to
+    /// <paramref name="at"/>, the wheel(s), then <c>MOVE|ABSOLUTE</c> back to
+    /// <paramref name="restore"/>. The net cursor position is unchanged, but a move DOES happen
+    /// per wheel tick while the cursor is away from the anchor — the deliberate Part B relaxation
+    /// of the scroll-start rule "no per-tick MOVE to the anchor". The batch is not interleaved, so
+    /// the wheel is hit-tested at <paramref name="at"/> and the cursor is restored immediately.
+    /// </summary>
+    /// <param name="at">Where the wheel must land (the scroll anchor).</param>
+    /// <param name="restore">The cursor position read just before this tick.</param>
+    /// <param name="deltaX">Horizontal scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
+    /// <param name="deltaY">Vertical scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
+    void ScrollAtAndRestore(PhysicalPoint at, PhysicalPoint restore, int deltaX, int deltaY)
+        => throw new NotSupportedException("This input simulator does not implement pointed scrolls with restore.");
     /// <summary>Sends a keyboard key press and release.</summary>
     /// <param name="virtualKeyCode">Win32 virtual key code.</param>
     void SendKeyPress(ushort virtualKeyCode);

@@ -132,6 +132,14 @@ public class Win32InputSimulator : IInputSimulator
         SendRaw((uint)body.Length, body);
     }
 
+    public void ScrollAtAndRestore(PhysicalPoint at, PhysicalPoint restore, int deltaX, int deltaY)
+    {
+        // One batch: the wheel is hit-tested at `at`, and the cursor is put back where it was in
+        // the same SendInput call (the net position is unchanged; no other input can land between).
+        var body = BuildWheelAtAndRestoreBody(at, restore, deltaX, deltaY);
+        SendRaw((uint)body.Length, body);
+    }
+
     public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
     {
         if (modifiers is not { Count: > 0 }) { Scroll(point, deltaX, deltaY); return; }
@@ -364,6 +372,20 @@ public class Win32InputSimulator : IInputSimulator
             input.Union.Mouse.MouseData = deltaX * PlatformConstants.MouseWheelDelta;
             body.Add(input);
         }
+        return body.ToArray();
+    }
+
+    /// <summary>
+    /// Scroll mode's pointed hop: the pointed wheel body (absolute MOVE, then the Y and/or X wheel
+    /// legs) with a trailing absolute MOVE back to <paramref name="restore"/>, so one atomic batch
+    /// lands the wheel at <paramref name="at"/> without leaving the cursor there. INSTANCE method —
+    /// same mapper reason.
+    /// </summary>
+    internal NativeMethods.INPUT[] BuildWheelAtAndRestoreBody(
+        PhysicalPoint at, PhysicalPoint restore, int deltaX, int deltaY)
+    {
+        var body = BuildModifiedWheelBody(at, deltaX, deltaY).ToList();
+        body.Add(CreateMouseInput(restore, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE));
         return body.ToArray();
     }
 

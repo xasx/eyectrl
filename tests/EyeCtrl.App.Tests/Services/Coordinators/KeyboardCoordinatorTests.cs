@@ -777,7 +777,9 @@ public class KeyboardCoordinatorTests
     private sealed class KeyboardOnlyOverlayManager : IOverlayManager
     {
         private readonly KeyboardWindow _keyboard;
-        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard) => _keyboard = keyboard;
+        private readonly IEdgeButtonBar? _edgeBar;
+        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard, IEdgeButtonBar? edgeBar = null)
+            => (_keyboard, _edgeBar) = (keyboard, edgeBar);
         public KeyboardWindow Keyboard => _keyboard;
         public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
         public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
@@ -794,9 +796,59 @@ public class KeyboardCoordinatorTests
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
-        public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
+        public IEdgeButtonBar EdgeButtonBar => _edgeBar ?? throw new NotImplementedException();
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings,
             GazeProviderType providerType) => throw new NotImplementedException();
+    }
+
+    [StaFact]
+    public void ShowKeyboardEdgeBar_TakesCloseAndFlipDwellFromTheEdgeBarSetting()
+    {
+        // C1b's behavioural pin at the CALL SITE. The definitions test supplies the setting
+        // itself, so a revert here to Dwell.KeyboardKeyDwellMs is invisible to it — measured:
+        // that mutation stayed green against the definitions-only suite. With the key dwell at
+        // 450 and the edge-bar dwell at 900, Close/Flip must read 900.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.KeyboardKeyDwellMs = 450;
+        settings.Dwell.ActionMenuDwellMs = 900;
+        var messenger = new WeakReferenceMessenger();
+        var keyboard = new KeyboardWindow();
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            var show = typeof(KeyboardCoordinator).GetMethod("ShowKeyboardEdgeBar",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Check.WithCustomMessage("ShowKeyboardEdgeBar was renamed; update this test.")
+                .That(show).IsNotNull();
+            show!.Invoke(c, null);
+
+            var close = bar.EdgeBarVm!.DefinitionFor(KeyboardEdgeButtons.CloseId);
+            var flip = bar.EdgeBarVm!.DefinitionFor(KeyboardEdgeButtons.FlipId);
+            Check.That(close).IsNotNull();
+            Check.That(flip).IsNotNull();
+            Check.WithCustomMessage(
+                    "Close did not follow the edge-bar dwell (Dwell.ActionMenuDwellMs): the "
+                    + "keyboard's escape fell back to the key dwell's 600 ms floor.")
+                .That(close!.DwellMs).IsEqualTo(900);
+            Check.WithCustomMessage(
+                    "Flip did not follow the edge-bar dwell (Dwell.ActionMenuDwellMs).")
+                .That(flip!.DwellMs).IsEqualTo(900);
+        }
+        finally
+        {
+            c.Dispose();
+            keyboard.Close();
+        }
     }
 
     [StaFact]

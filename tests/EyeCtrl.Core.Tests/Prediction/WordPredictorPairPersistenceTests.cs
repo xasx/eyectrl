@@ -26,6 +26,7 @@ public class WordPredictorPairPersistenceTests : IDisposable
     public void LearnedPair_SurvivesSaveAndReload()
     {
         var predictor = new WordPredictor(Provider());
+        predictor.LearnWord("möchte");
         predictor.LearnPair("ich", "möchte");
         predictor.LearnPair("ich", "möchte");
         predictor.SaveUserDictionary();
@@ -46,6 +47,10 @@ public class WordPredictorPairPersistenceTests : IDisposable
                 ["Ich"] = new() { ["möchte"] = 1 },
                 ["ich"] = new() { ["Möchte"] = 1 },
             }));
+        // The next-word category gates on the dictionary (a bigram can outlive its word), so the
+        // words this otherwise-legacy file references must be known to the predictor.
+        File.WriteAllText(Path.Combine(_dir, "user_dictionary_en.json"),
+            JsonSerializer.Serialize(new Dictionary<string, int> { ["ich"] = 1, ["möchte"] = 1 }));
 
         var predictor = new WordPredictor(Provider());
         var words = predictor.GetSuggestions("", "ICH", 10).Select(result => result.Word).ToList();

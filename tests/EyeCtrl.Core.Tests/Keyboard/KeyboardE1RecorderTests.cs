@@ -212,17 +212,30 @@ public class KeyboardE1RecorderTests
         Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 modeundo", StringComparison.Ordinal))).IsEqualTo(1);
     }
 
-    [Fact]
-    public void AModifierToggledOnAndOff_IsAModeUndo_ButNotOneConsumedByAKey()
+    [Theory]
+    [InlineData("shift")]
+    [InlineData("caps")]
+    public void AModifierToggledOnAndOffWithin5s_IsAModeUndo(string kind)
     {
         var (recorder, log, _) = New();
-        recorder.RecordMode("shift", "off", "on");
-        recorder.RecordMode("shift", "on", "off");
-        Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 modeundo", StringComparison.Ordinal))).IsEqualTo(1);
 
-        recorder.RecordMode("shift", "off", "on");
-        recorder.NoteModifierConsumed();                 // a key used the one-shot
-        recorder.RecordMode("shift", "on", "off");        // a later toggle is a fresh choice
+        recorder.RecordMode(kind, "off", "on");
+        recorder.RecordMode(kind, "on", "off");
+
+        Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 modeundo", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ARepeatedReversal_AfterAnUndo_IsNotASecondUndo()
+    {
+        // Defensive: the recorded state can be reset without a mode line (a layout reload sets the
+        // sub-layout silently), so a reversal arriving AGAIN after an undo must not pair with the
+        // original change a second time.
+        var (recorder, log, _) = New();
+        recorder.RecordMode("sublayout", "letters", "numbers");
+        recorder.RecordMode("sublayout", "numbers", "letters");     // the undo
+        recorder.RecordMode("sublayout", "numbers", "letters");     // arrives again
+
         Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 modeundo", StringComparison.Ordinal))).IsEqualTo(1);
     }
 

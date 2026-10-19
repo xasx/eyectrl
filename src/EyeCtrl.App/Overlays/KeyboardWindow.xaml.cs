@@ -91,13 +91,15 @@ public partial class KeyboardWindow : OverlayWindow
     // view-model writes and these share one timebase. None of it is read by behaviour.
     private long _lastMoveMs = long.MinValue;      // last time the window's position actually changed
     private long _barRenderedMs = long.MinValue;   // when the bar's current render happened
-    private readonly long[] _slotDwellStartMs = new long[5];  // first progress per slot since render
+    private readonly long[] _slotDwellStartMs = new long[5];  // start of each slot's CURRENT dwell run
+    private readonly long[] _slotLastRunStartMs = new long[5]; // start of each slot's most recent finished run
     private int _slotsVisitedMask;                 // slots whose dwell began at least once since render
 
     public KeyboardWindow(IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
         InitializeComponent();
         Array.Fill(_slotDwellStartMs, long.MinValue);
+        Array.Fill(_slotLastRunStartMs, long.MinValue);
         _sink = sink;
         _dwellRegistry = dwellRegistry;
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
@@ -712,6 +714,7 @@ public partial class KeyboardWindow : OverlayWindow
         // E1: a new render starts the render-to-dwell clock and the slots-visited count over.
         _barRenderedMs = _viewModel?.E1.NowMs ?? long.MinValue;
         Array.Fill(_slotDwellStartMs, long.MinValue);
+        Array.Fill(_slotLastRunStartMs, long.MinValue);
         _slotsVisitedMask = 0;
 
         if (PredictionBar is System.Windows.Controls.Primitives.UniformGrid grid)
@@ -879,7 +882,13 @@ public partial class KeyboardWindow : OverlayWindow
         if (index >= 0 && index < _slotDwellStartMs.Length)
         {
             if (progress <= 0)
+            {
+                // The detector raises progress 0 right BEFORE it activates a target, so the run that
+                // is about to complete must be remembered: the pick reads its start from here.
+                if (_slotDwellStartMs[index] != long.MinValue)
+                    _slotLastRunStartMs[index] = _slotDwellStartMs[index];
                 _slotDwellStartMs[index] = long.MinValue;
+            }
             else if (_slotDwellStartMs[index] == long.MinValue && _viewModel is not null)
             {
                 _slotDwellStartMs[index] = _viewModel.E1.NowMs;
@@ -920,7 +929,8 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (_viewModel is null || !_viewModel.E1.Enabled) return;
         var result = _renderedPredictions[index];
-        var dwellStart = index < _slotDwellStartMs.Length ? _slotDwellStartMs[index] : long.MinValue;
+        var dwellStart = index >= _slotDwellStartMs.Length ? long.MinValue
+            : _slotDwellStartMs[index] != long.MinValue ? _slotDwellStartMs[index] : _slotLastRunStartMs[index];
         var renderToDwellMs = dwellStart == long.MinValue || _barRenderedMs == long.MinValue
             ? -1 : (int)Math.Max(0, dwellStart - _barRenderedMs);
         var visited = System.Numerics.BitOperations.PopCount((uint)(_slotsVisitedMask & ~(1 << index)));

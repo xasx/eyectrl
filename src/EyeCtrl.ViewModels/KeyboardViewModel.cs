@@ -656,13 +656,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     private void ClearOneShotModifiers()
     {
-        // Non-short-circuit on purpose: every one-shot must be cleared.
-        var cleared = _activeModifiers.Remove(ModifierKey.Shift)
-            | _activeModifiers.Remove(ModifierKey.Ctrl)
-            | _activeModifiers.Remove(ModifierKey.Alt)
-            | _activeModifiers.Remove(ModifierKey.Win);
-        if (cleared)
-            E1.NoteModifierConsumed();
+        _activeModifiers.Remove(ModifierKey.Shift);
+        _activeModifiers.Remove(ModifierKey.Ctrl);
+        _activeModifiers.Remove(ModifierKey.Alt);
+        _activeModifiers.Remove(ModifierKey.Win);
         OnPropertyChanged(nameof(ActiveModifiers));
         OnPropertyChanged(nameof(IsShifted));
     }

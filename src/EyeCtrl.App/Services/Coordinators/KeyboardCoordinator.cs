@@ -379,14 +379,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         ApplyModalKeyboardState(visible);
         Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
 
-        // E1 logs real transitions only: a repeated show or hide request is not an event.
-        var keyboardVm = Context.KeyboardVM;
+        // E1's shown/hidden line, before the window changes (the hide's mirror snapshot must precede it).
+        RecordVisibilityE1(Context.KeyboardVM, visible, wasVisible,
+            Context.Settings.Keyboard.ScreenEdge.ToLowerInvariant(), source);
+
         if (visible)
         {
-            // E1: the foreground PROCESS name only (the keyboard window itself never takes focus).
-            if (!wasVisible)
-                keyboardVm?.E1.RecordShown(keyboardVm.ForegroundProcessName(),
-                    Context.Settings.Keyboard.ScreenEdge.ToLowerInvariant(), source);
             Context.OverlayManager.Keyboard.Show();
             ApplyInitialToolbarOccupancy();
             ShowKeyboardEdgeBar();
@@ -396,18 +394,31 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         }
         else
         {
-            // E1: the mirror snapshot is taken here, before the hide, and the check never waits.
-            if (wasVisible)
-            {
-                keyboardVm?.BeginMirrorCheck("hide");
-                keyboardVm?.E1.RecordHidden(source);
-            }
             Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
                 ApplyKeyboardSuppression(visible: false);
             HideKeyboardEdgeBar();
             Context.Messenger.Send(new HideKeyboardMessage());
         }
+    }
+
+    /// <summary>
+    /// E1's shown/hidden lines, extracted so the decision is headless-testable (the caller touches
+    /// the real window). Logs REAL transitions only — a repeated show or hide request is not an
+    /// event. A show logs the foreground PROCESS name (never a title); a hide first starts the
+    /// mirror check (which snapshots on this thread and never waits) and then logs its cause.
+    /// </summary>
+    internal static void RecordVisibilityE1(KeyboardViewModel? keyboard, bool visible, bool wasVisible,
+        string edge, string source)
+    {
+        if (keyboard is null || visible == wasVisible) return;
+        if (visible)
+        {
+            keyboard.E1.RecordShown(keyboard.ForegroundProcessName(), edge, source);
+            return;
+        }
+        keyboard.BeginMirrorCheck("hide");
+        keyboard.E1.RecordHidden(source);
     }
 
     /// <summary>

@@ -167,16 +167,6 @@ public sealed class KeyboardE1Recorder
             NoteModeChange("flip", edgeBefore, edgeAfter);
     }
 
-    /// <summary>
-    /// A one-shot modifier was consumed (cleared by a key). The state moved without the user
-    /// choosing it, so a later toggle is not the reverse of the recorded one.
-    /// </summary>
-    public void NoteModifierConsumed()
-    {
-        if (_lastMode is { Kind: "shift" or "ctrl" or "alt" or "win" })
-            _lastMode = null;
-    }
-
     private void NoteModeChange(string kind, string from, string to)
     {
         var now = _clockMs();

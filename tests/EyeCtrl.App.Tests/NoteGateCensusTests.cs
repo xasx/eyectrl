@@ -80,6 +80,8 @@ public class NoteGateCensusTests
             "exempt", "shows only while paused (ToolbarVisibilityAdapter) — paused is gate row 2, the notes are frozen (review 01 M1)"),
         ["EyeCtrl.App/Overlays/RepeatCursorWindow.xaml.cs"] = (
             "exempt", "the repeat cursor — only up during RepeatMode, a suspending state, at the live gaze"),
+        ["EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml.cs"] = (
+            "exempt", "shows only in ScrollMode (ScrollModeController.ApplyCurrentState) — a suspending state (NoteManager.InteractionStateSuspendsNotes); made click-through by main #226"),
         ["EyeCtrl.App/Overlays/TargetHighlightWindow.xaml"] = (
             "exempt", "the action-menu target highlight — shows only with the action menu (OverlayMessageCoordinator), a suspending state (review 01 M1)"),
         };

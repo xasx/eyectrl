@@ -37,7 +37,9 @@ public class ScrollModeControllerThreadingTests
     }
 
     internal static (ScrollModeController Controller, InteractionManager Im, RecordingScrollOverlay Window,
-        System.Windows.Threading.Dispatcher Dispatcher) NewScrollWorld(TestFakes.FakeInputSimulator input)
+        System.Windows.Threading.Dispatcher Dispatcher) NewScrollWorld(
+        TestFakes.FakeInputSimulator input, Func<PhysicalPoint?>? cursorReader = null,
+        IGlassBackdropOverlay? glassBackdrop = null)
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
@@ -46,7 +48,11 @@ public class ScrollModeControllerThreadingTests
         var ctx = TestFakes.MakeContext(input) with
         {
             OverlayManager = TestFakes.MakeOverlayManager(
-                new TestFakes.FakeEdgeButtonBar(), cursorCircle: new TestFakes.FakeCursorCircleOverlay()),
+                new TestFakes.FakeEdgeButtonBar(),
+                cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                // F-S1b: the scroll entry now completes the backdrop's pending hide, so the fake
+                // must be present — its getter throws when a fake was not supplied.
+                glassBackdrop: glassBackdrop ?? new TestFakes.FakeGlassBackdropOverlay()),
             InteractionManager = im,
             Messenger = messenger,
             Dispatcher = dispatcher,
@@ -54,7 +60,7 @@ public class ScrollModeControllerThreadingTests
             CursorVM = new CursorCircleViewModel(settings, messenger),
         };
         var window = new RecordingScrollOverlay();
-        var controller = new ScrollModeController(ctx, () => window);
+        var controller = new ScrollModeController(ctx, () => window, cursorReader);
         return (controller, im, window, dispatcher);
     }
 

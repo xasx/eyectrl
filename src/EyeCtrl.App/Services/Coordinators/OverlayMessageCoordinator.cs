@@ -63,6 +63,9 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                 try
                 {
                     ManualSelectionIndicator.Hide();
+                    // Attribute the hide BEFORE the state machine fires it: the dwell completed and
+                    // the action menu takes over, so the magnifier's "closed by" line says commit.
+                    Context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.Commit;
                     var realPoint = ManualSelectionOverlay.GetRealPhysicalPoint(msg.PrecisePoint);
                     im.OnManualSelectionDwell(realPoint);
                 }
@@ -90,7 +93,11 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
 
         // ManualSelectionCloseMessage -> exit ManualSelection mode
         Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
-            Context.Dispatcher.BeginInvoke(() => im.OnManualSelectionBack()));
+            Context.Dispatcher.BeginInvoke(() =>
+            {
+                Context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.EdgeClose;
+                im.OnManualSelectionBack();
+            }));
 
         // ManualSelectionRecaptureMessage -> re-capture at the existing view geometry. Deliberately
         // does NOT resend StartManualSelectionMessage: that re-derives Center from FixationPoint,
@@ -253,7 +260,11 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                 if (im.CurrentState == InteractionState.ActionMenuVisible)
                     im.OnActionMenuDismissed();
                 else if (im.CurrentState == InteractionState.ManualSelectionActive)
+                {
+                    // The backdrop's ✕ while the magnifier itself is the active view.
+                    context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.BackdropClose;
                     im.OnManualSelectionBack();
+                }
             }));
 
         // Calibration: show/hide overlay on state change, suppress interaction during capture
@@ -331,6 +342,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
             var im = context.InteractionManager;
             if (im.CurrentState == InteractionState.ManualSelectionActive)
             {
+                context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.Esc;
                 im.OnManualSelectionBack();
             }
             else if (im.CurrentState is InteractionState.ManualSelectionActionMenuVisible
@@ -343,6 +355,9 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                 // ManualSelectionActionMenuVisible alone to also cover the plain action menu:
                 // OnActionMenuDismissed already guards both states internally, and ESC dismissing
                 // the plain menu is the same "way out" story as the manual one.
+                // No LastCloseReason here: in the manual branch the magnifier was already hidden at
+                // commit (HideManualSelection's IsVisible=false wrote the commit line), so an
+                // attribution now would be inert; in the plain-menu branch there is no magnifier.
                 im.OnActionMenuDismissed();
             }
             else if (im.CurrentState == InteractionState.ScrollMode)

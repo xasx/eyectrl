@@ -175,6 +175,61 @@ public class BackdropHideBeforeInputTests
     }
 
     [StaFact]
+    public void TheScrollEntry_SeesTheMenuAndBackdropHidden_AtMoveCursor()
+    {
+        // S1b (scroll start fix): EnterScrollMode runs inside OnActionSelected, before the posted
+        // menu hide and the backdrop's deferred Background hide have run — the same injection site
+        // #219 fixed for the drag and this path missed. ORDER IS LOAD-BEARING (the #219 owner's
+        // addendum): the menu VM goes false FIRST, because its listener is what posts the
+        // backdrop's deferred hide that CompleteHideNow completes. Mutants: drop CompleteHideNow /
+        // swap the two lines / drop the menu line → the first injected action sees it visible.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(2.0, 2.0);
+        GlassBackdropWindow? window = null;
+        ScrollModeController? controller = null;
+        try
+        {
+            var harness = MenuHarness.Start();
+            window = harness.Window;
+            var ctx = harness.Context with
+            {
+                InteractionManager = new InteractionManager(),
+                CursorVM = new CursorCircleViewModel(harness.Settings, harness.Messenger),
+                OverlayManager = TestFakes.MakeOverlayManager(
+                    new TestFakes.FakeEdgeButtonBar(),
+                    cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                    activationButton: new TestFakes.FakeActivationButtonOverlay(),
+                    actionMenu: harness.MenuOverlay,
+                    glassBackdrop: window),
+            };
+            harness.RewireOverlayManager(ctx);
+            controller = new ScrollModeController(
+                ctx, () => new ScrollModeControllerThreadingTests.RecordingScrollOverlay());
+
+            harness.Input.InjectionStateProbe =
+                () => $"backdrop={window.IsVisible};menu={harness.MenuOverlay.IsVisible}";
+
+            // Production's entry path: fixation → activation → the action menu → Scroll.
+            var im = ctx.InteractionManager;
+            im.OnFixationStarted(new PhysicalPoint(400, 400));
+            im.OnActivationButtonDwelled();
+            im.OnActionSelected(InteractionAction.ScrollMode);
+
+            Check.WithCustomMessage(
+                    $"the scroll entry's first injected action ran with {harness.Input.InjectionState}; "
+                    + "the menu and the backdrop must already be hidden (the deferred Background hide "
+                    + "runs after every Normal item — this is not a race).")
+                .That(harness.Input.InjectionState).IsEqualTo("backdrop=False;menu=False");
+            Check.That(window.IsVisible).IsFalse();
+        }
+        finally
+        {
+            controller?.Dispose();
+            CloseQuietly(window);
+        }
+    }
+
+    [StaFact]
     public void ABackdropShownWithNoPendingHide_SurvivesCompleteHideNow()
     {
         // The contract's other half: CompleteHideNow completes a DEFERRED hide and nothing else. A
@@ -308,7 +363,7 @@ public class BackdropHideBeforeInputTests
         public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton,
             int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor,
             PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null,
-            int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false)
+            int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false, double previewMagnification = 1.0)
         {
             ShowCalls++;
             IsVisible = true;

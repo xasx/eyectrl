@@ -90,6 +90,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private KeyboardLayout? _layout;
     private string? _previousWord;
     private string _recentText = ""; // Track recent text for smart capitalization
+    // A deletion reached committed text since the previous word was set, so that word no longer
+    // describes what precedes the cursor: the next commit learns no pair (and clears this). The
+    // prediction context itself is deliberately unchanged (word-backspace-context ticket).
+    private bool _previousWordStale;
 
     public event Action<string>? KeyDwellCompleted;
 
@@ -421,7 +425,6 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (!HasSystemModifiers)
         {
             CurrentInput += actualOutput;
-            _orchestrator?.LearnWord(actualOutput);
         }
         Messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -436,6 +439,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             // User is deleting previously committed text, update _recentText
             _recentText = _recentText[..^1];
+            _previousWordStale = true;
         }
         Messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -454,7 +458,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             if (CurrentInput.Length > 0)
                 CurrentInput = TrimLastWord(CurrentInput);
             else if (_recentText.Length > 0)
+            {
                 _recentText = TrimLastWord(_recentText);
+                _previousWordStale = true;
+            }
         }
         var modifiers = new HashSet<ModifierKey>(_activeModifiers) { ModifierKey.Ctrl };
         Messenger.Send(new KeyActivatedMessage("\b", modifiers));
@@ -496,6 +503,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             CurrentInput = "";
             _previousWord = null;
+            _previousWordStale = false;
             _recentText = ""; // Clear on new paragraph/line
         }
         Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
@@ -509,6 +517,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             if (CurrentInput.Length > 0)
             {
                 _orchestrator?.LearnWord(CurrentInput);
+                LearnPair(_previousWord, CurrentInput);
                 _previousWord = CurrentInput;
                 AppendRecentText(CurrentInput);
             }
@@ -516,6 +525,25 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
         Messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
         ClearOneShotModifiers();
+    }
+
+    /// <summary>
+    /// Learns the pair (previous word -> first committed word) from what the user typed. Skipped
+    /// when the previous word is missing or ends a sentence, when either side is empty after
+    /// trimming punctuation, or when a deletion reached committed text since the previous word
+    /// was set (that state is cleared by the commit either way). The prediction context itself
+    /// is deliberately untouched.
+    /// </summary>
+    private void LearnPair(string? previousWord, string word)
+    {
+        var stale = _previousWordStale;
+        _previousWordStale = false;
+        if (stale) return;
+        if (previousWord is null || BigramModel.NormalizeWord(previousWord) is null) return;
+        if (BigramModel.NormalizeWord(word) is null) return;
+        if (previousWord[^1] is '.' or '!' or '?' or '…') return;
+
+        _orchestrator?.LearnPair(previousWord, word);
     }
 
     public void HandleTab()
@@ -636,9 +664,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // user actually typed; only the last word can serve as bigram context for the next one.
         var words = word.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length > 1)
+        {
             _orchestrator?.LearnSequence(words);
+            // LearnSequence covers the pairs inside the selection; the joining pair is extra.
+            LearnPair(_previousWord, words[0]);
+        }
         else
+        {
             _orchestrator?.LearnWord(word);
+            LearnPair(_previousWord, word);
+        }
 
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";

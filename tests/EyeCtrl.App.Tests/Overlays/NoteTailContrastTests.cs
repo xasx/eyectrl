@@ -58,14 +58,15 @@ public class NoteTailContrastTests
         return data;
     }
 
-    /// <summary>Every state a re-place can draw the tail in, crossed with every theme.</summary>
+    /// <summary>Every state a re-place can draw the tail in, crossed with every theme. A chip
+    /// (PendingUndo) is NOT among them: production never gives a chip a tail any more —
+    /// ChipPlacementFor returns a placement with no tail tip, because the shrink translates the
+    /// chip window off the anchor and a translated tail pointed at empty space (T5b review-02
+    /// F1). NoteChipTailTests pins the chip's tail-less drawing through the real manager path.</summary>
     public static TheoryData<NoteState, ITheme> EveryStateAndTheme()
     {
         var data = new TheoryData<NoteState, ITheme>();
-        foreach (var state in new[]
-                 {
-                     NoteState.Edit, NoteState.Move, NoteState.PendingUndo, NoteState.Display
-                 })
+        foreach (var state in new[] { NoteState.Edit, NoteState.Move, NoteState.Display })
             foreach (var theme in ThemeRegistry.All)
                 data.Add(state, theme);
         return data;
@@ -134,11 +135,12 @@ public class NoteTailContrastTests
     /// <summary>
     /// Review-01 m2: the tail stroke is BorderSubtle WHENEVER the tail is drawn, not only after
     /// an Edit → Display commit. The re-place paths (keyboard show/hide in Edit, the Move
-    /// cycle, the Undo chip, a Display re-place) all run <c>ApplyPlacement</c> while the window
-    /// is already in that state, and <c>Draw</c> captures the stroke once — so the probe sets
-    /// the state FIRST and applies the placement second, exactly as production does. A state
-    /// brush here (Accent, MarkerMove) is the stale-tail defect, whatever the transition that
-    /// follows; every one of them fails the equality this pins.
+    /// cycle, a Display re-place) all run <c>ApplyPlacement</c> while the window is already in
+    /// that state, and <c>Draw</c> captures the stroke once — so the probe sets the state FIRST
+    /// and applies the placement second, exactly as production does. A state brush here
+    /// (Accent, MarkerMove) is the stale-tail defect, whatever the transition that follows;
+    /// every one of them fails the equality this pins. PendingUndo is not a row: a chip draws
+    /// no tail (see <see cref="EveryStateAndTheme"/>).
     /// </summary>
     [StaTheory]
     [MemberData(nameof(EveryStateAndTheme))]

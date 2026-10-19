@@ -299,7 +299,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// the chip card re-placed from the anchor, then TRANSLATED so its window top-left equals the
     /// full card top-left - the Undo cell (slot 0) keeps its centre, so a gaze resting on it is
     /// never displaced by the shrink. The smaller rect at the same top-left stays inside the work
-    /// area whenever the full one did.</summary>
+    /// area whenever the full one did.
+    ///
+    /// <para>
+    /// The chip carries NO tail (T5b review-02 F1): the translation moves the chip window off
+    /// the anchor by exactly the width and height the card lost, so a translated tip would point
+    /// 155-338 DIP away from the anchor, at empty space — and re-deriving a bent tip toward it
+    /// costs more than a transient Undo affordance justifies. The chip is where the card was;
+    /// its anchor relation is not needed, and Undo of Removed restores the full card with its
+    /// real anchor tail.
+    /// </para></summary>
     private NotePlacement ChipPlacementFor(NoteData note)
     {
         var full = PlaceFor(note, avoidKeyboard: false);
@@ -322,7 +331,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             chip.Side,
             new Rect(chip.Window.X + dx, chip.Window.Y + dy, chip.Window.Width, chip.Window.Height),
             new Rect(chip.Card.X + dx, chip.Card.Y + dy, chip.Card.Width, chip.Card.Height),
-            chip.TailTip is { } tip ? new Point(tip.X + dx, tip.Y + dy) : null);
+            TailTip: null);
     }
 
 

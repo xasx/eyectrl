@@ -140,12 +140,18 @@ public class NoteWindow : OverlayWindow
         if (_placement?.TailVisible == true)
         {
             // The tail is NOT an offer zone (P2 D7): it is drawn under the card z-order and
-            // ChromeRects never reports it. Same surface fill, same border colour.
+            // ChromeRects never reports it. Its stroke is BorderSubtle in EVERY state (T5b):
+            // the tail shows the caretaker what the note points at, so it owes the same WCAG
+            // 1.4.11 3:1 the card edge owes, against a page of either lightness — and no state
+            // brush gives that (SurfaceMedium sits at 1.1-1.5:1, the Accent/MarkerMove marks
+            // carry state meaning the tail must not repeat). Constant on purpose, not
+            // borderBrush: UpdateBorder only refreshes the card Border, never this polygon, so
+            // a state-varying stroke here would go stale on every SetState.
             var tail = new Polygon
             {
                 Points = new PointCollection(NoteLayout.TailTriangle(_placement)!),
                 Fill = Tokens.BrushSurfaceDark,
-                Stroke = borderBrush,
+                Stroke = Tokens.BrushBorderSubtle,
                 StrokeThickness = 1
             };
             _canvas.Children.Add(tail);
@@ -455,7 +461,10 @@ public class NoteWindow : OverlayWindow
             NoteState.Edit => Tokens.BrushAccent,
             NoteState.PendingUndo => Tokens.BrushAccent,
             NoteState.Move => Tokens.BrushMarkerMove,
-            _ => Tokens.BrushSurfaceMedium
+            // T5b: Display's edge is BorderSubtle, not SurfaceMedium — the card edge carries the
+            // note's boundary and owes WCAG 1.4.11 3:1 against the page behind the window, which
+            // SurfaceMedium fails in every theme (1.1-1.5:1).
+            _ => Tokens.BrushBorderSubtle
         };
     }
 

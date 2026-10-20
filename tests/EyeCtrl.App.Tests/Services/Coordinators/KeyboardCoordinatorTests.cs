@@ -777,13 +777,17 @@ public class KeyboardCoordinatorTests
     private sealed class KeyboardOnlyOverlayManager : IOverlayManager
     {
         private readonly KeyboardWindow _keyboard;
-        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard) => _keyboard = keyboard;
+        private readonly IEdgeButtonBar? _edgeBar;
+        private readonly IToolbarOverlay? _toolbar;
+        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard, IEdgeButtonBar? edgeBar = null,
+            IToolbarOverlay? toolbar = null)
+            => (_keyboard, _edgeBar, _toolbar) = (keyboard, edgeBar, toolbar);
         public KeyboardWindow Keyboard => _keyboard;
         public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
         public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
         public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
         public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
-        public IToolbarOverlay Toolbar => throw new NotImplementedException();
+        public IToolbarOverlay Toolbar => _toolbar ?? throw new NotImplementedException();
         public IPauseIndicatorOverlay PauseIndicator => throw new NotImplementedException();
         public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
         public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
@@ -794,9 +798,154 @@ public class KeyboardCoordinatorTests
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
-        public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
+        public IEdgeButtonBar EdgeButtonBar => _edgeBar ?? throw new NotImplementedException();
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings,
             GazeProviderType providerType) => throw new NotImplementedException();
+    }
+
+    /// <summary>An undocked/hidden toolbar: the show-time occupancy refresh must read it as
+    /// unoccupied (R2-4).</summary>
+    private sealed class HiddenToolbarOverlay : IToolbarOverlay
+    {
+        public bool IsOnScreen => false;
+        public PhysicalRect Bounds => default;
+        public bool IsVisible => false;
+        public bool TargetsInitialized => false;
+        public bool IsSliding => false;
+        public double ExtentDip => 140;
+        public void Show() { }
+        public void Hide() { }
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
+        public void SetMode(bool isDocked, string edge) { }
+        public void SetSelectionModeState(SelectionMode mode) { }
+        public void SetPausedState(bool isPaused) { }
+        public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds) { }
+        public void BindToViewModel() { }
+        public void ShowAtRest() { }
+        public void ShowThenSlideIn() { }
+        public void SlideOutThenHide(Action onHidden) => onHidden();
+        public PhysicalRect GetPhysicalBounds() => Bounds;
+    }
+
+    [StaFact]
+    public void Show_RefreshesAStaleOccupancyBeforeTheShowPlacement()
+    {
+        // R2-4: toolbar visibility changes reach the keyboard through BeginInvoke, so a hide
+        // still queued at show time leaves a stale "occupied". If the show placed before the
+        // refresh, it would yield; the fresh 0 can never un-yield while open, so the session
+        // would stay yielded with no toolbar present.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(new KeyboardViewModel(settings, messenger));
+        // F6: invisible, non-activating show.
+        keyboard.Opacity = 0;
+        keyboard.ShowActivated = false;
+        // Stale state: the last transition said a toolbar occupied the keyboard's edge.
+        keyboard.SetToolbarOccupancyState(true, "bottom", 132);
+
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar, new HiddenToolbarOverlay()),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            messenger.Send(new ShowKeyboardRequestMessage());
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                () => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+
+            Check.That(keyboard.IsVisible).IsTrue();
+            double unYieldedTop = System.Windows.SystemParameters.WorkArea.Bottom - keyboard.ActualHeight;
+            Check.WithCustomMessage(
+                    "a stale 'occupied' yielded the show; the fresh 0 can never un-yield while "
+                    + "open, so the keyboard would stay yielded with no toolbar present.")
+                .That(keyboard.Top).IsCloseTo(unYieldedTop, 1e-6);
+        }
+        finally
+        {
+            c.Dispose();
+            keyboard.Close();
+        }
+    }
+
+    [Fact]
+    public void SetKeyboardVisible_PlacesTheShowExplicitly()
+    {
+        // F2's wiring half: the production show route must pass KeyboardMove.Show itself
+        // (PlaceForShow resets the placement session, which is the re-show un-yield). A revert
+        // to the ambient first-placement behaviour leaves the re-show path untested again.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "SetKeyboardVisible no longer refreshes the occupancy (without placing) and then "
+                + "calls PlaceForShow right after Show(): a stale 'occupied' would yield the "
+                + "whole session, and the show path would not reset the placement session.")
+            .That(source.Contains(
+                "Context.OverlayManager.Keyboard.Show();"
+                + "ApplyInitialToolbarOccupancy(place:false);"
+                + "Context.OverlayManager.Keyboard.PlaceForShow();"))
+            .IsTrue();
+    }
+
+    [StaFact]
+    public void ShowKeyboardEdgeBar_TakesCloseAndFlipDwellFromTheEdgeBarSetting()
+    {
+        // C1b's behavioural pin at the CALL SITE. The definitions test supplies the setting
+        // itself, so a revert here to Dwell.KeyboardKeyDwellMs is invisible to it — measured:
+        // that mutation stayed green against the definitions-only suite. With the key dwell at
+        // 450 and the edge-bar dwell at 900, Close/Flip must read 900.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.KeyboardKeyDwellMs = 450;
+        settings.Dwell.ActionMenuDwellMs = 900;
+        var messenger = new WeakReferenceMessenger();
+        var keyboard = new KeyboardWindow();
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            var show = typeof(KeyboardCoordinator).GetMethod("ShowKeyboardEdgeBar",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Check.WithCustomMessage("ShowKeyboardEdgeBar was renamed; update this test.")
+                .That(show).IsNotNull();
+            show!.Invoke(c, null);
+
+            var close = bar.EdgeBarVm!.DefinitionFor(KeyboardEdgeButtons.CloseId);
+            var flip = bar.EdgeBarVm!.DefinitionFor(KeyboardEdgeButtons.FlipId);
+            Check.That(close).IsNotNull();
+            Check.That(flip).IsNotNull();
+            Check.WithCustomMessage(
+                    "Close did not follow the edge-bar dwell (Dwell.ActionMenuDwellMs): the "
+                    + "keyboard's escape fell back to the key dwell's 600 ms floor.")
+                .That(close!.DwellMs).IsEqualTo(900);
+            Check.WithCustomMessage(
+                    "Flip did not follow the edge-bar dwell (Dwell.ActionMenuDwellMs).")
+                .That(flip!.DwellMs).IsEqualTo(900);
+        }
+        finally
+        {
+            c.Dispose();
+            keyboard.Close();
+        }
     }
 
     [StaFact]

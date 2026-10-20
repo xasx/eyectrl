@@ -29,6 +29,10 @@ public class GazeEngineAdapter : IDisposable
     private readonly DispatchLatencyProbe? _dispatchProbe;
     private long _dispatchSamplesSinceReport;
 
+    // The magnifier fit rule's screen source (magnifier-default-zoom, Part 2). WPF's
+    // SystemParameters report DIP; the test seam substitutes a screen without one.
+    private readonly Func<(double WidthDip, double HeightDip)> _screenDip;
+
     /// <summary>How many dispatched samples between summary log lines (~60 s at 33 Hz).</summary>
     private const long DispatchReportInterval = 2000;
 
@@ -39,10 +43,13 @@ public class GazeEngineAdapter : IDisposable
         Dispatcher dispatcher,
         ILogger<GazeEngineAdapter> logger,
         IControlFinder controlFinder,
-        DispatchLatencyProbe? dispatchProbe = null)
+        DispatchLatencyProbe? dispatchProbe = null,
+        Func<(double WidthDip, double HeightDip)>? screenDip = null)
     {
         _logger = logger;
         _dispatchProbe = dispatchProbe;
+        _screenDip = screenDip ?? (() =>
+            (System.Windows.SystemParameters.PrimaryScreenWidth, System.Windows.SystemParameters.PrimaryScreenHeight));
         _gazeEngine = gazeEngine;
         _interactionManager = gazeEngine.InteractionManager;
         _settings = settings;
@@ -327,13 +334,18 @@ public class GazeEngineAdapter : IDisposable
                 ? _settings.Dwell.ManualSelectionActionMenuDwellMs
                 : _settings.Dwell.ActionMenuDwellMs;
 
+            // The fit rule's one effective radius: the menu's buttons and preview must use the same
+            // circle the magnifier drew, or they sit on top of the magnified picture.
+            var effectiveRadius = EffectiveCircleRadius();
+
             var ManualSelectionDisplayRadius = showBack
-                ? (int)(_settings.ManualSelection.CircleRadiusPixels * _settings.ManualSelection.MagnificationLevel)
+                ? (int)(effectiveRadius * _settings.ManualSelection.MagnificationLevel)
                 : 0;
 
             // Get screen dimensions in physical pixels
-            var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
-            var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+            var (screenWidthDip, screenHeightDip) = _screenDip();
+            var physicalScreenW = DpiHelper.LogicalToPhysicalX(screenWidthDip);
+            var physicalScreenH = DpiHelper.LogicalToPhysicalY(screenHeightDip);
 
             // Calculate display point using helper (moves coordinate logic to ViewModels layer)
             var circleSize = _settings.Cursor.CircleSize;
@@ -359,7 +371,7 @@ public class GazeEngineAdapter : IDisposable
                 // FixationPoint is always non-null in the ManualSelection path (it is set before ManualSelection activation).
                 // ManualSelectionRadius is logical/DIP (CircleRadiusPixels); ActionMenuWindow converts it to physical with ScaleX.
                 ManualSelectionCenter = showBack ? _interactionManager.FixationPoint! : null,
-                ManualSelectionRadius = showBack ? _settings.ManualSelection.CircleRadiusPixels : null,
+                ManualSelectionRadius = showBack ? effectiveRadius : null,
                 ResolvedControl = im.SelectionMode == SelectionMode.AutoSelection ? im.AutoSelectionTarget : null
             });
         });
@@ -375,8 +387,9 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             // Get screen dimensions in physical pixels
-            var physicalScreenW = DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.PrimaryScreenWidth);
-            var physicalScreenH = DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.PrimaryScreenHeight);
+            var (screenWidthDip, screenHeightDip) = _screenDip();
+            var physicalScreenW = DpiHelper.LogicalToPhysicalX(screenWidthDip);
+            var physicalScreenH = DpiHelper.LogicalToPhysicalY(screenHeightDip);
 
             // Calculate display point using helper (moves coordinate logic to ViewModels layer)
             var displayPoint = ManualSelectionLayoutHelper.CalculateDisplayPoint(
@@ -387,12 +400,26 @@ public class GazeEngineAdapter : IDisposable
 
             _messenger.Send(new StartManualSelectionMessage(
                 displayPoint,
-                _settings.ManualSelection.CircleRadiusPixels,
+                EffectiveCircleRadius(),
                 _settings.ManualSelection.MagnificationLevel,
                 point,  // GazePoint - always pass the original gaze point for capture
                 recapture
             ));
         });
+
+    /// <summary>
+    /// The fit rule's effective circle radius in DIP for this screen. Every consumer - the overlay's
+    /// size and capture (through the start message), the menu's display radius and its preview -
+    /// reads this one value, so they cannot disagree (magnifier-default-zoom, Part 2).
+    /// </summary>
+    private int EffectiveCircleRadius()
+    {
+        var (widthDip, heightDip) = _screenDip();
+        return MagnifierFit.EffectiveCircleRadius(
+            _settings.ManualSelection.CircleRadiusPixels,
+            _settings.ManualSelection.MagnificationLevel,
+            Math.Min(widthDip, heightDip));
+    }
 
     private void OnEndManualSelection() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new EndManualSelectionMessage()));

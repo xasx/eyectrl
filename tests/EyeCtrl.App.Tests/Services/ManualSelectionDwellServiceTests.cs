@@ -604,6 +604,33 @@ public class ManualSelectionDwellServiceTests
     /// <summary>Grace is 300 ms, so samples 0–5 are inside it and sample 6 is the first post-grace sample.</summary>
     private const int FirstPostGraceSampleIndex = 6;
 
+    /// <summary>
+    /// F2 (magnifier-default-zoom fixup 01): the acceptance rim is the MESSAGE's radius times its
+    /// magnification times ScaleX - 81 × 4 = 324 px here - never the raw setting. The m2c
+    /// raw-setting mutant (200 × 4.0 = 800 px) would keep a 350-px gaze inside; the raw-pair
+    /// variant (200 × 2.0 = 400 px, m2d) would too, so a gaze at 350 px must reset under the real
+    /// expression.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_TheAcceptanceRimUsesTheMessagesEffectiveRadius()
+    {
+        _messenger.Send(new StartManualSelectionMessage(
+            new PhysicalPoint(500, 500), 81, 4.0, new PhysicalPoint(500, 500)));
+        _interactionManager.OnFixationStarted(new PhysicalPoint(500, 500));
+        _interactionManager.OnActivationButtonDwelled();
+
+        var resets = 0;
+        _messenger.Register<ResetManualSelectionIndicatorMessage>(this, (r, m) => resets++);
+
+        SendGazeRun(new PhysicalPoint(850, 500), 14);   // 350 px: outside 324, inside the raw 400
+
+        Check.WithCustomMessage(
+                "A gaze outside the effective rim must reset, even inside the raw setting's rim.")
+            .That(resets).IsStrictlyGreaterThan(0);
+
+        _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
+    }
+
     private void StartSession(PhysicalPoint center, PhysicalPoint gazePoint)
     {
         _messenger.Send(new StartManualSelectionMessage(center, 200, 2.0, gazePoint));

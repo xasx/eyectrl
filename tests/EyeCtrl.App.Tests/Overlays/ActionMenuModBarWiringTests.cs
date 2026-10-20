@@ -39,8 +39,10 @@ using Xunit;
 /// </para>
 ///
 /// <para>
-/// <c>[StaFact]</c> for the same reason as the ownership tests: the drag path constructs a real
-/// <c>DragTrailOverlay</c>. No app launch, no <c>Application</c> singleton.
+/// <c>[StaFact]</c> for the same reason as the ownership tests: the harness pumps a real
+/// <see cref="Dispatcher"/>. The drag's trail overlay is the recording fake through the
+/// coordinator's <c>CreateTrailOverlay</c> seam, so no window is constructed and nothing is shown
+/// on the machine running the suite.
 /// </para>
 /// </summary>
 public class ActionMenuModBarWiringTests
@@ -170,6 +172,7 @@ public class ActionMenuModBarWiringTests
             };
 
             _drag = new DragCoordinator();
+            _drag.CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay();
             _drag.Initialize(context);
 
             // The vm-binding sibling is constructed but deliberately NOT initialized (the

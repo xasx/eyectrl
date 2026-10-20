@@ -34,11 +34,25 @@ public interface IInputSimulator
     /// <summary>Releases the left mouse button at the specified position.</summary>
     /// <param name="point">Target position in physical screen pixels.</param>
     void MouseUp(PhysicalPoint point);
-    /// <summary>Sends a mouse wheel scroll event at the specified position.</summary>
-    /// <param name="point">Target position in physical screen pixels.</param>
-    /// <param name="deltaX">Horizontal scroll amount in wheel delta units (typically multiples of 120).</param>
-    /// <param name="deltaY">Vertical scroll amount in wheel delta units (typically multiples of 120).</param>
+    /// <summary>
+    /// Sends mouse wheel notches at the CURRENT cursor. The OS routes a wheel to the window under
+    /// the pointer, and this method does not move it: <paramref name="point"/> is carried only as
+    /// the intended target (recorded by fakes), not used for hit-testing. Use
+    /// <see cref="ScrollAt"/> when the wheel must land on a specific point.
+    /// </summary>
+    /// <param name="point">The intended target in physical screen pixels; the bare scroll does not
+    /// move the cursor there.</param>
+    /// <param name="deltaX">Horizontal scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
+    /// <param name="deltaY">Vertical scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
     void Scroll(PhysicalPoint point, int deltaX, int deltaY);
+    /// <summary>
+    /// Moves the pointer to <paramref name="point"/> and sends the wheel there in ONE atomic input
+    /// batch, so the wheel is hit-tested at that point even when the OS cursor is elsewhere.
+    /// </summary>
+    /// <param name="point">Target position in physical screen pixels.</param>
+    /// <param name="deltaX">Horizontal scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
+    /// <param name="deltaY">Vertical scroll amount in NOTCHES (each is multiplied by 120 inside).</param>
+    void ScrollAt(PhysicalPoint point, int deltaX, int deltaY) => throw new NotSupportedException("This input simulator does not implement pointed scrolls.");
     /// <summary>Sends a keyboard key press and release.</summary>
     /// <param name="virtualKeyCode">Win32 virtual key code.</param>
     void SendKeyPress(ushort virtualKeyCode);

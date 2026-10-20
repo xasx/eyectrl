@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels.Tests;
 
+using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -26,6 +27,26 @@ public class KeyboardViewModelPairLearningTests
         var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger());
         vm.SetOrchestrator(orchestrator);
         return (vm, orchestrator);
+    }
+
+    private static (KeyboardViewModel Vm, PredictionOrchestrator Orchestrator) CreateWithAbbreviations(string dir)
+    {
+        var basePath = Path.Combine(dir, "base_dictionary_en.json");
+        File.WriteAllText(basePath,
+            "{\"words\":{\"hello\":100},\"abbreviations\":[\"usw.\",\"bzw.\",\"ca.\",\"dr.\"]}");
+        var settings = new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } };
+        var predictor = new WordPredictor(new FileDictionaryProvider(basePath, dir, "en"));
+        var orchestrator = new PredictionOrchestrator(predictor);
+        var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger());
+        vm.SetOrchestrator(orchestrator);
+        return (vm, orchestrator);
+    }
+
+    private static string NewTempDir()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "eyectrl_abbr_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
     }
 
     private static void Type(KeyboardViewModel vm, string text)
@@ -246,6 +267,117 @@ public class KeyboardViewModelPairLearningTests
             vm.HandlePredictionSelected("Schöneck,");
 
             var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("schöneck")).IsTrue();
+            Check.That(words.ContainsKey("schöneck,")).IsFalse();
+        }
+    }
+
+    [Theory]
+    [InlineData("usw.")]
+    [InlineData("z.B.")]
+    [InlineData("bzw.")]
+    [InlineData("d.h.")]
+    public void AbbreviationWithPeriod_KeepsItsPeriodWhenTyped(string abbreviation)
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                TypeWordAndSpace(vm, abbreviation);
+
+                vm.CurrentInput = abbreviation[..2];
+                Check.WithCustomMessage(
+                        "the learned abbreviation lost its period, so picking it would type it without one")
+                    .That(BarFor(vm, orchestrator, null)).Contains(abbreviation);
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void AbbreviationWithPeriod_KeepsItsPeriodWhenPicked()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                vm.HandlePredictionSelected("usw.");
+
+                vm.CurrentInput = "us";
+                Check.That(BarFor(vm, orchestrator, null)).Contains("usw.");
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void AbbreviationsInAMultiWordSelection_KeepTheirPeriods()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                vm.HandlePredictionSelected("usw. z.B. bzw. d.h.");
+
+                var words = orchestrator.WordPredictor.WordFrequencies;
+                Check.That(words.ContainsKey("usw.")).IsTrue();
+                Check.That(words.ContainsKey("z.b.")).IsTrue();
+                Check.That(words.ContainsKey("bzw.")).IsTrue();
+                Check.That(words.ContainsKey("d.h.")).IsTrue();
+                Check.That(words.ContainsKey("usw")).IsFalse();
+                Check.That(words.ContainsKey("z.b")).IsFalse();
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void SymbolTermThatTrimsToOneCharacter_IsNotLearned()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            TypeWordAndSpace(vm, "C#");
+            TypeWordAndSpace(vm, ":-)");
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("c")).IsFalse();
+            Check.That(words.ContainsKey("c#")).IsFalse();
+            Check.That(words.ContainsKey(":-)")).IsFalse();
+        }
+    }
+
+    [Fact]
+    public void AddWord_TrimsTheWord()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            vm.CurrentInput = "Schöneck,";
+            vm.HandleAddWord();
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("schöneck")).IsTrue();
+            Check.That(words.ContainsKey("schöneck,")).IsFalse();
+        }
+    }
+
+    [Fact]
+    public void MultiWordSelection_TrimsEveryToken()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            vm.HandlePredictionSelected("Herr Schöneck,");
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("herr")).IsTrue();
             Check.That(words.ContainsKey("schöneck")).IsTrue();
             Check.That(words.ContainsKey("schöneck,")).IsFalse();
         }

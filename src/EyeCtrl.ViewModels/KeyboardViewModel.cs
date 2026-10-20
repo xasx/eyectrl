@@ -479,7 +479,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void HandleAddWord()
     {
         if (CurrentInput.Length == 0) return;
-        _orchestrator?.LearnWord(CurrentInput);
+        LearnCommittedWord(CurrentInput);
     }
 
     /// <summary>
@@ -519,8 +519,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 // Learn the word the way the pair keys store it: trailing/leading punctuation is
                 // not part of the word ("Schöneck," must be learned as "Schöneck"), otherwise the
                 // dictionary holds a form the normalised pair key can never find.
-                if (TrimWordBoundaries(CurrentInput) is { } learnedWord)
-                    _orchestrator?.LearnWord(learnedWord);
+                LearnCommittedWord(CurrentInput);
                 LearnPair(_previousWord, CurrentInput);
                 _previousWord = CurrentInput;
                 AppendRecentText(CurrentInput);
@@ -579,6 +578,72 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         var end = word.Length;
         while (end > start && !char.IsLetterOrDigit(word[end - 1])) end--;
         return end <= start ? null : word[start..end];
+    }
+
+    /// <summary>
+    /// The single learn path for one committed word (Space, a selection, Add Word). Applies the
+    /// shared trim and learns the result; returns the learned form, or null when the raw token
+    /// does not qualify. Pair learning stays on the RAW word - only the dictionary entry is trimmed.
+    /// </summary>
+    private string? LearnCommittedWord(string rawWord)
+    {
+        if (TrimLearnedWord(rawWord) is not { } word) return null;
+        _orchestrator?.LearnWord(word);
+        return word;
+    }
+
+    /// <summary>
+    /// The sequence counterpart of <see cref="LearnCommittedWord"/> (multi-word selections):
+    /// applies the shared trim to every token and learns the qualifying ones in one sequence.
+    /// </summary>
+    private void LearnCommittedSequence(IReadOnlyList<string> rawWords)
+    {
+        var learnedWords = new List<string>(rawWords.Count);
+        foreach (var rawWord in rawWords)
+            if (TrimLearnedWord(rawWord) is { } word)
+                learnedWords.Add(word);
+
+        if (learnedWords.Count > 0)
+            _orchestrator?.LearnSequence(learnedWords.ToArray());
+    }
+
+    /// <summary>
+    /// The learned form of a word, beyond the boundary trim.
+    /// <list type="bullet">
+    /// <item>T1: a German abbreviation keeps its final period - either because the trimmed form
+    /// still contains an inner dot ("z.B."), or because trimmed + "." is in the dictionary's
+    /// abbreviation list ("usw.", "bzw."). Without this the bar would type "usw " with no period.</item>
+    /// <item>T2: a token that trims down to one character is not learned at all ("C#" must not
+    /// become a junk word "c").</item>
+    /// </list>
+    /// </summary>
+    private string? TrimLearnedWord(string rawWord)
+    {
+        if (TrimWordBoundaries(rawWord) is not { } trimmed) return null;
+        if (trimmed.Length == 1) return null;
+
+        if (rawWord.EndsWith('.')
+            && (trimmed.Contains('.') || IsAbbreviation(trimmed + ".")))
+        {
+            return trimmed + ".";
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Case-insensitive membership in the language's abbreviation set, the same comparison the
+    /// predictor uses for sentence-start capitalisation.
+    /// </summary>
+    private bool IsAbbreviation(string candidate)
+    {
+        var abbreviations = _orchestrator?.WordPredictor.Abbreviations;
+        if (abbreviations is null) return false;
+
+        foreach (var abbreviation in abbreviations)
+            if (string.Equals(abbreviation, candidate, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     public void HandleTab()
@@ -701,20 +766,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (words.Length > 1)
         {
             // Learn the selection's words without their boundary punctuation, like Space does.
-            var learnedWords = new List<string>(words.Length);
-            foreach (var rawWord in words)
-                if (TrimWordBoundaries(rawWord) is { } trimmedWord)
-                    learnedWords.Add(trimmedWord);
-
-            if (learnedWords.Count > 0)
-                _orchestrator?.LearnSequence(learnedWords.ToArray());
-            // LearnSequence covers the pairs inside the selection; the joining pair is extra.
-            LearnPair(_previousWord, learnedWords.Count > 0 ? learnedWords[0] : words[0]);
+            LearnCommittedSequence(words);
+            // LearnSequence covers the pairs inside the selection; the joining pair is extra and
+            // stays on the RAW words, like every other pair.
+            LearnPair(_previousWord, words[0]);
         }
         else
         {
-            if (TrimWordBoundaries(word) is { } learnedWord)
-                _orchestrator?.LearnWord(learnedWord);
+            LearnCommittedWord(word);
             LearnPair(_previousWord, word);
         }
 

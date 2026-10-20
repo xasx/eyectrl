@@ -69,17 +69,17 @@ public class NoteWindowGeometryTests
         var placement = manager.PlacementForTest(id)!;
         var window = manager.WindowForTest(id)!;
 
-        // The window reports the placement's rect: Width/Height/Left/Top within the half-DIP
-        // rounding the 2× DPI transform applies (fixup-04: the tag's protrusion is a fractional
-        // ink height, so the window's top strip is no longer a whole number of DIP).
+        // The window reports the placement's rect: Width/Height/Left/Top EXACTLY (fixup-05: the
+        // tag's height is a whole DIP again, so the 2× DPI transform has nothing to round and
+        // the half-DIP tolerance fixup-04 needed is gone — it hid exactly this drift).
         Check.WithCustomMessage("the window's width must come from the placement's window rect")
-            .That(Math.Abs(window.Width - placement.Window.Width)).IsStrictlyLessThan(0.5);
+            .That(window.Width).IsEqualTo(placement.Window.Width);
         Check.WithCustomMessage("the window's height must come from the placement's window rect")
-            .That(Math.Abs(window.Height - placement.Window.Height)).IsStrictlyLessThan(0.5);
+            .That(window.Height).IsEqualTo(placement.Window.Height);
         Check.WithCustomMessage("the window's Left must come from ApplyPlacementToWindow")
-            .That(Math.Abs(window.Left - placement.Window.Left)).IsStrictlyLessThan(0.5);
+            .That(window.Left).IsEqualTo(placement.Window.Left);
         Check.WithCustomMessage("the window's Top must come from ApplyPlacementToWindow")
-            .That(Math.Abs(window.Top - placement.Window.Top)).IsStrictlyLessThan(0.5);
+            .That(window.Top).IsEqualTo(placement.Window.Top);
 
         // The drawn button column (the display set's ✎ ↕ ✕ are slots 0-2, drawn once per side)
         // must sit on NoteLayout.ButtonCenter for the CURRENT side — per-slot, on the even

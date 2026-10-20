@@ -107,9 +107,15 @@ internal static class NoteLayout
         return height;
     }
 
-    /// <summary>The tag's height: the numeral ink plus the padding above and below.</summary>
+    /// <summary>The tag's height: the numeral ink plus the padding above and below, rounded UP
+    /// to a whole DIP (T6 fixup-05, review-04 F1). The window's origin snaps to whole pixels
+    /// and the canvas draws the card <see cref="TagProtrusionDip(double)"/> below it, so a
+    /// fractional height put the whole note — the card rim, the cells, the discs, the text and
+    /// the tag — on a fractional pixel phase and every straight edge went soft on the owner's
+    /// 2.0 display. The ceil costs at most 1 DIP of padding (invisible) and makes the height,
+    /// the width and the protrusion whole DIPs again.</summary>
     public static double TagHeightDip(double textSizeDip) =>
-        TagNumeralInkHeightDip(textSizeDip) + (2 * TagVerticalPadDip);
+        Math.Ceiling(TagNumeralInkHeightDip(textSizeDip) + (2 * TagVerticalPadDip));
 
     /// <summary>The tag's width: never below the floor, otherwise the height (a near-square box
     /// around one numeral).</summary>

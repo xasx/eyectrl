@@ -169,11 +169,12 @@ public class NoteBadgeTests
 
     /// <summary>The ink height of <c>text</c> at <c>fontDip</c> — the same FormattedText +
     /// BuildGeometry measurement the tag's numeral ink derives from, so the comparison below
-    /// is like-for-like.</summary>
+    /// is like-for-like. The pixelsPerDip is 1.0, as production measures it
+    /// (<see cref="NoteLayout.TagNumeralInkHeightDip"/>).</summary>
     private static double InkHeight(string text, double fontDip) =>
         new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
             new Typeface(Tokens.FontStandard.Source), fontDip, Brushes.Transparent,
-            null, TextFormattingMode.Ideal)
+            null, TextFormattingMode.Ideal, 1.0)
             .BuildGeometry(new Point(0, 0)).Bounds.Height;
 
     /// <summary>A physical-rect containment within a rounding DIP.</summary>
@@ -502,15 +503,21 @@ public class NoteBadgeTests
     /// clearance; with the base beyond the tag's reach the tag stays at the corner inset.
     /// Mutant: a TagRect that ignores the tail, slides into the column, or slides the wrong
     /// edge, goes red. Pure geometry: the placement is built by the same record the window
-    /// consumes; the DRAWN tag is the theory above's job.</summary>
+    /// consumes; the DRAWN tag is the theory above's job.
+    /// <para>
+    /// T6 fixup-05 (P2, review-04): the theory also runs at the LARGE text size, where the tag
+    /// is WIDER than the 28 DIP floor — at 28 the width IS the floor, so a slide that measured
+    /// the band with the floor could not be seen. The 48/67 row puts the tail's base inside
+    /// the wide tag's band but outside the floor-width one, so the slide decision differs.
+    /// </para></summary>
     [StaTheory]
-    [InlineData(30.0)]  // base [12, 48]: reaches the tag's home [12, 40] — must slide
-    [InlineData(60.0)]  // base [42, 78]: reaches within the clearance band — must slide
-    [InlineData(100.0)] // base [82, 118]: beyond the tag's reach + clearance — must NOT slide
-    [InlineData(240.0)] // base [222, 258]: farther still — must NOT slide
-    public void TheTag_SlidesOutOfTheTail_NeverIntoTheColumn(double tipCardRelX)
+    [InlineData(30.0, 28.0)]  // base [12, 48]: reaches the tag's home [12, 40] — must slide
+    [InlineData(60.0, 28.0)]  // base [42, 78]: reaches within the clearance band — must slide
+    [InlineData(100.0, 28.0)] // base [82, 118]: beyond the tag's reach + clearance — must NOT slide
+    [InlineData(240.0, 28.0)] // base [222, 258]: farther still — must NOT slide
+    [InlineData(67.0, 48.0)]  // base [49, 85]: inside the 35-wide tag's band, outside the 28 floor's
+    public void TheTag_SlidesOutOfTheTail_NeverIntoTheColumn(double tipCardRelX, double textSize)
     {
-        const double textSize = NoteSettings.DefaultTextSizeDip;
         const double width = 270.0, height = 340.0;
         var window = new Rect(64.0, 766.0, width, height + NoteLayout.TagProtrusionDip(textSize));
         var card = new Rect(window.Left, window.Top + NoteLayout.CardOrigin(NoteSide.Below).Y + NoteLayout.TagProtrusionDip(textSize),
@@ -523,10 +530,10 @@ public class NoteBadgeTests
         var tagRect = NoteLayout.TagRect(placement, textSize);
         var tri = NoteLayout.TailTriangle(placement)!;
         var cardLocal = NoteLayout.RectLocal(placement);
-        Check.WithCustomMessage($"tip {tipCardRelX}: the triangle's base must sit on the card's top edge")
+        Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the triangle's base must sit on the card's top edge")
             .That(tri[1].Y).IsCloseTo(cardLocal.Top, 1e-6);
 
-        Check.WithCustomMessage($"tip {tipCardRelX}: the tag must not intersect the tail")
+        Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must not intersect the tail")
             .That(NoteBadgeTestSupport.TriIntersectsRect(tri, tagRect)).IsFalse();
 
         // The slide decision: the base juts into the tag's band exactly when the base's left
@@ -537,23 +544,23 @@ public class NoteBadgeTests
         double baseRight = Math.Max(tri[1].X, tri[2].X);
         bool expectedSlid = baseLeft - NoteLayout.TagTailClearanceDip < homeRight;
         bool actuallySlid = tagRect.Left != home;
-        Check.WithCustomMessage($"tip {tipCardRelX}: the slide decision must follow the tail")
+        Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the slide decision must follow the tail")
             .That(actuallySlid).IsEqualTo(expectedSlid);
 
         if (expectedSlid)
-            Check.WithCustomMessage($"tip {tipCardRelX}: the tag's left must clear the base's right end")
+            Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag's left must clear the base's right end")
                 .That(tagRect.Left).IsCloseTo(baseRight + NoteLayout.TagTailClearanceDip, 1e-6);
         else
-            Check.WithCustomMessage($"tip {tipCardRelX}: an unthreatened tag stays at the corner inset")
+            Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: an unthreatened tag stays at the corner inset")
                 .That(tagRect.Left).IsCloseTo(home, 1e-6);
 
         // Never over the column, never off the card, never off the top edge.
         double limit = cardLocal.Right - LayoutConstants.NoteColumnWidthDip - NoteLayout.TagWidthDip(textSize);
-        Check.WithCustomMessage($"tip {tipCardRelX}: the tag must stop short of the column strip")
+        Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must stop short of the column strip")
             .That(tagRect.Right).IsStrictlyLessThan(limit);
-        Check.WithCustomMessage($"tip {tipCardRelX}: the tag must stay within the card's x-range")
+        Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must stay within the card's x-range")
             .That(tagRect.Left >= cardLocal.Left && tagRect.Right <= cardLocal.Right).IsTrue();
-        Check.WithCustomMessage($"tip {tipCardRelX}: the tag must straddle the top edge")
+        Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must straddle the top edge")
             .That(tagRect.Top).IsCloseTo(cardLocal.Top - NoteLayout.TagProtrusionDip(textSize), 1e-6);
     }
 
@@ -620,11 +627,20 @@ public class NoteBadgeTests
     /// cref="NoteManager.ChromeRects"/>, byte-for-byte and following the badge-visibility
     /// rule. The inner half legitimately rides the card (and the first column cell — the
     /// straddle is the point). Mutants: a tag drawn over the column's cells, a tag chrome
-    /// entry for a hidden badge, or a tag registered as a dwell target, go red.</summary>
-    [StaFact]
-    public void TheTag_IsNeverADwellTargetOrChrome()
+    /// entry for a hidden badge, or a tag registered as a dwell target, go red.
+    /// <para>
+    /// T6 fixup-05 (P1, review-04): the theory runs at every STOCK text size, because a
+    /// chrome rect that reported the tag at the DEFAULT (28) size whatever the real text size
+    /// is invisible at 28 — the two sizes are the same there. At 18 and 48 the tag's height
+    /// differs from the 28 DIP one, so the chrome must carry the REAL tag rect there.
+    /// </para></summary>
+    [StaTheory]
+    [InlineData(18.0)]
+    [InlineData(28.0)]
+    [InlineData(48.0)]
+    public void TheTag_IsNeverADwellTargetOrChrome(double textSize)
     {
-        using var manager = MakeManager(out _, out _);
+        using var manager = MakeManagerAt(textSize, out _, out _);
         manager.NoticeWindowShowsForTest = false;
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -634,7 +650,7 @@ public class NoteBadgeTests
             Check.That(DrawnBadge(manager.WindowForTest(a)!)).IsEqualTo("1");
 
             var placement = manager.PlacementForTest(a)!;
-            var tagScreen = TagScreenRect(placement, NoteLayout.TagRect(placement, NoteSettings.DefaultTextSizeDip));
+            var tagScreen = TagScreenRect(placement, NoteLayout.TagRect(placement, textSize));
 
             Check.WithCustomMessage("the tag must never enter LiveTargetRects — it is not a dwell target")
                 .That(manager.LiveTargetRects().Any(r =>
@@ -665,20 +681,27 @@ public class NoteBadgeTests
     /// (its badge hidden — one non-chip note) carries NO tag rect in ChromeRects; a chip in a
     /// two-note set (the chip never badged) carries none either — the other note's card, cells
     /// and tag fill the list instead. Mutant: a ChromeRects that reports the tag whenever a
-    /// placement exists goes red.</summary>
+    /// placement exists goes red.
+    /// <para>
+    /// T6 fixup-05 (P1, review-04): the theory also runs at a NON-default text size, and
+    /// asserts the positive direction there — while A's badge shows, the chrome must carry A's
+    /// tag rect at the REAL text size. A chrome that reported the tag at the 28 DIP size
+    /// whatever the real size was invisible at 28 (the two are the same there).
+    /// </para></summary>
     [StaTheory]
-    [InlineData(true)]  // a lone card note: its badge is hidden — no tag chrome
-    [InlineData(false)] // a chip beside a card note: the chip shows no badge — no chip tag chrome
-    public void ChromeRects_CarryTheTagRect_OnlyWhileABadgeShows(bool loneProse)
+    [InlineData(true, 28.0)]  // a lone card note: its badge is hidden — no tag chrome
+    [InlineData(false, 28.0)] // a chip beside a card note: the chip shows no badge — no chip tag chrome
+    [InlineData(false, 48.0)] // the same at the LARGE text size: the chrome must carry the 48 DIP tag
+    public void ChromeRects_CarryTheTagRect_OnlyWhileABadgeShows(bool loneProse, double textSize)
     {
-        using var manager = MakeManager(out _, out _);
+        using var manager = MakeManagerAt(textSize, out _, out _);
         manager.NoticeWindowShowsForTest = false;
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var a = SavedNote(manager, "a", new PhysicalPoint(1600, 1000));
             var aPlacement = manager.PlacementForTest(a)!;
-            var aTag = TagScreenRect(aPlacement, NoteLayout.TagRect(aPlacement, NoteSettings.DefaultTextSizeDip));
+            var aTag = TagScreenRect(aPlacement, NoteLayout.TagRect(aPlacement, textSize));
 
             if (loneProse)
             {
@@ -691,13 +714,17 @@ public class NoteBadgeTests
                 var b = SavedNote(manager, "b", new PhysicalPoint(1200, 100));
                 Check.WithCustomMessage("two notes: A's badge shows")
                     .That(DrawnBadge(manager.WindowForTest(a)!)).IsEqualTo("1");
+                Check.WithCustomMessage($"at {textSize} DIP the chrome must carry A's tag rect at the "
+                        + "REAL text size — not at the default 28 DIP one")
+                    .That(manager.ChromeRects().Any(r => SameRect(r, aTag))).IsTrue();
                 TagNoteAndChipIt(manager, b);
                 Check.WithCustomMessage("B is a chip now: its badge is hidden")
                     .That(DrawnBadge(manager.WindowForTest(b)!)).IsNull();
                 Check.WithCustomMessage("with B chipped only A is a non-chip — A's badge hides "
                         + "again, so A's tag chrome drops too")
                     .That(DrawnBadge(manager.WindowForTest(a)!)).IsNull();
-                var bTag = TagScreenRect(manager.PlacementForTest(b)!, NoteLayout.TagRect(manager.PlacementForTest(b)!, NoteSettings.DefaultTextSizeDip));
+                var bPlacement = manager.PlacementForTest(b)!;
+                var bTag = TagScreenRect(bPlacement, NoteLayout.TagRect(bPlacement, textSize));
                 Check.WithCustomMessage("no badged note remains: A's tag chrome must drop too")
                     .That(manager.ChromeRects().Any(r => SameRect(r, aTag))).IsFalse();
                 Check.WithCustomMessage("the chip must add no tag chrome anywhere")
@@ -750,13 +777,12 @@ public class NoteBadgeTests
                 .That(NoteTestBench.WorkArea.Contains(placement.Window)).IsTrue();
 
             var window = manager.WindowForTest(a)!;
-            Check.WithCustomMessage("the drawn window must be the grown rect — within the half-DIP "
-                    + "rounding the 2× DPI transform applies (the protrusion is no longer a whole "
-                    + "number of DIP, so the height and top land on the 0.5 grid)")
-                .That((window.Width - placement.Window.Width) is > -0.5 and < 0.5
-                    && (window.Height - placement.Window.Height) is > -0.5 and < 0.5
-                    && (window.Left - placement.Window.Left) is > -0.5 and < 0.5
-                    && (window.Top - placement.Window.Top) is > -0.5 and < 0.5).IsTrue();
+            Check.WithCustomMessage("the drawn window must be the grown rect — EXACTLY (fixup-05: "
+                    + "the tag's height is a whole DIP again, so the 2× DPI transform has nothing "
+                    + "to round and the half-DIP tolerance is gone)")
+                .That((window.Width, window.Height, window.Left, window.Top))
+                .IsEqualTo((placement.Window.Width, placement.Window.Height,
+                    placement.Window.Left, placement.Window.Top));
             // The drawn tag straddling the grown card is proven on the arranged manual windows
             // (TheTag_StraddlesTheTopEdge...); a lone note keeps its badge hidden, so nothing
             // is drawn to read here.

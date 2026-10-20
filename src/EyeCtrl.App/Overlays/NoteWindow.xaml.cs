@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -90,6 +91,7 @@ public class NoteWindow : OverlayWindow
 
         _canvas = new Canvas { ClipToBounds = false };
         Content = _canvas;
+        AttachStalePressGuards();
         Loaded += OnLoaded;
     }
 
@@ -832,6 +834,46 @@ public class NoteWindow : OverlayWindow
     /// release. Press and release must land on the SAME control — a finger sliding onto a
     /// control and lifting there acts through nothing without it. Draw() clears it.</summary>
     private string? _pendingCaretakerPress;
+
+    /// <summary>
+    /// T6 fixup-03 (review-02 F2): a pending press never survives a release or a leave the
+    /// window can see. The bubbling Up clears — with <c>handledEventsToo</c>, so the mark a
+    /// control set on its own acted Up does not stop it — consume the press on every release
+    /// the routing passes THROUGH the window: TouchUp for touch, the core MouseUp for the
+    /// mouse (the button-specific MouseLeftButtonUp routes DIRECT — it never reaches an
+    /// ancestor — so a release over the card body can only be observed on the core route).
+    /// Routing order keeps a control's own release first: its handlers run at the element,
+    /// the window's after it — and the core mouse clear does not take a press away from a
+    /// release ON a wired control either, because the direct left-button release that follows
+    /// it inside the same pipeline clears and acts through that control.
+    /// The Leave/capture clears catch a press dragged out of the note, whose lift will never
+    /// arrive as an Up anywhere in this tree. The canvas carries the Leave clears separately
+    /// because TouchLeave/MouseLeave route DIRECT: a drag that exits the note through the
+    /// canvas never reaches the window's own leave.
+    /// </summary>
+    private void AttachStalePressGuards()
+    {
+        AddHandler(UIElement.TouchUpEvent,
+            new EventHandler<TouchEventArgs>((_, _) => _pendingCaretakerPress = null), handledEventsToo: true);
+        AddHandler(Mouse.MouseUpEvent, new MouseButtonEventHandler(OnBubblingMouseUp), handledEventsToo: true);
+
+        TouchLeave += (_, _) => _pendingCaretakerPress = null;
+        MouseLeave += (_, _) => _pendingCaretakerPress = null;
+        LostTouchCapture += (_, _) => _pendingCaretakerPress = null;
+        _canvas.TouchLeave += (_, _) => _pendingCaretakerPress = null;
+        _canvas.MouseLeave += (_, _) => _pendingCaretakerPress = null;
+    }
+
+    /// <summary>The core mouse release bubble: keep the press alive when the release is over a
+    /// wired control (its own release consumes it, act-or-not), take it otherwise — over the
+    /// card body, the chrome, wherever no control handler will run.</summary>
+    private void OnBubblingMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is UIElement u &&
+            (_buttons.Values.Any(b => ReferenceEquals(b, u)) || _cellFills.Values.Any(c => ReferenceEquals(c, u))))
+            return;
+        _pendingCaretakerPress = null;
+    }
 
     private void AttachCaretakerInput(UIElement element, string suffix)
     {

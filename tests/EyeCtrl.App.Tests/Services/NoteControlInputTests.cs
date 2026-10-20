@@ -113,6 +113,16 @@ public class NoteControlInputTests
             RoutedEvent = UIElement.MouseLeftButtonUpEvent
         });
 
+    /// <summary>The release a real pipeline bubbles to ancestors — the core MouseUp: the
+    /// button-specific MouseLeftButtonUp routes direct (never reaches a handler above the
+    /// source; the window can only observe releases over non-controlled surfaces on the core
+    /// route). The window's bubbling clear watches exactly this event.</summary>
+    private static void RaiseMouseUp(UIElement element) =>
+        element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = Mouse.MouseUpEvent
+        });
+
     [StaFact]
     public void TouchUp_RunsTheEditAction_ExactlyOnce_AndMarksTheEventHandled()
     {
@@ -585,6 +595,204 @@ public class NoteControlInputTests
             Check.WithCustomMessage("the badge tag is pure chrome — a filled Border would otherwise "
                     + "be a hit surface over the card's top edge")
                 .That(window.BadgeTagForTest!.IsHitTestVisible).IsFalse();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ------------------------------------------------------------------ T6 fixup-03 (review-02 F2)
+    // The review's measurings: a pending press survived releases and leaves the window never
+    // saw an Up for — press ✕, drag off the note and lift outside, then a bare Up on ✕ REMOVED
+    // the note; press ✕ and release over the card body, then a bare Up on ✕ did the same. The
+    // fix consumes the pending press on every release/leave the WINDOW can see, while a
+    // control's own Up still acts first (routing order: the element's handlers run before the
+    // window's). These pins run the two measured sequences and the hit path a SHOWN window
+    // would use, headlessly on the real manager and window at DPI 2.0.
+
+    /// <summary>The element a SHOWN window routes input to: skip Collapsed / Hidden /
+    /// non-hit-testable elements — an unshown window does not apply that view filter, which is
+    /// why the plain headless HitTest can serve collapsed siblings' 0×0 artefacts.</summary>
+    private static UIElement? TopHit(Canvas canvas, Point p)
+    {
+        UIElement? top = null;
+        VisualTreeHelper.HitTest(canvas,
+            d => d is UIElement u && (u.Visibility != Visibility.Visible || !u.IsHitTestVisible)
+                ? HitTestFilterBehavior.ContinueSkipSelfAndChildren
+                : HitTestFilterBehavior.Continue,
+            r => { top = r.VisualHit as UIElement; return HitTestResultBehavior.Stop; },
+            new PointHitTestParameters(p));
+        return top;
+    }
+
+    private static void RaiseTouchLeave(UIElement element) =>
+        element.RaiseEvent(new TouchEventArgs(new FakeTouchDevice(), Environment.TickCount)
+        {
+            RoutedEvent = UIElement.TouchLeaveEvent
+        });
+
+    private static void RaiseMouseLeave(UIElement element) =>
+        element.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount)
+        {
+            RoutedEvent = UIElement.MouseLeaveEvent
+        });
+
+    [StaFact]
+    public void Touch_OnTheShownWindowHitElement_ActsExactlyOnce()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            var window = manager.WindowForTest(id)!;
+            var canvas = (Canvas)window.Content;
+            canvas.Measure(new Size(window.Width, window.Height));
+            canvas.Arrange(new Rect(new Point(0, 0), new Size(window.Width, window.Height)));
+            var editDisc = ControlFor(manager, id, "edit");
+            double cx = Canvas.GetLeft(editDisc) + editDisc.Width / 2;
+            double cy = Canvas.GetTop(editDisc) + editDisc.Height / 2;
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+
+            // What a shown window routes a finger at the glyph's middle to: the DISC — the
+            // label (not hit-testable) and every collapsed sibling artefact are filtered —
+            // and down+up there enters Edit exactly once.
+            var centre = TopHit(canvas, new Point(cx, cy));
+            Check.WithCustomMessage("the shown-window hit at the glyph's middle is the disc — " +
+                    "the label is skipped by the view filter")
+                .That(centre).IsSameReferenceAs(editDisc);
+            RaiseTouchDown(centre!);
+            RaiseTouch(centre!);
+            Check.WithCustomMessage("down+up on what a shown window routes the glyph-centre touch to acts ONCE")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
+            Check.That(fired).IsEqualTo(1);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
+            manager.FinishEdit(id, commit: true); // back to Display for the second point
+
+            // The cell edge left of the disc: outside the disc the shown window routes to the
+            // CELL, and down+up there acts exactly once too.
+            var edge = TopHit(canvas, new Point(cx - 38, cy));
+            Check.WithCustomMessage("the shown-window hit at the cell edge outside the disc is the cell fill")
+                .That(edge).IsSameReferenceAs(CellFor(manager, id, 0));
+            RaiseTouchDown(edge!);
+            RaiseTouch(edge!);
+            Check.WithCustomMessage("down+up on what a shown window routes the cell-edge touch to acts ONCE")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
+            Check.That(fired).IsEqualTo(2);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(2);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void Touch_PressClose_DragOffTheWindow_ThenBareUpOnClose_RunsNothing()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "kept", new PhysicalPoint(1600, 1000));
+            var window = manager.WindowForTest(id)!;
+            var close = ControlFor(manager, id, "close");
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseTouchDown(close);
+            RaiseTouchLeave(window); // the finger dragged off the note and lifted outside — no Up arrives
+            RaiseTouch(close);       // later a finger slides onto ✕ with no Down on it and lifts
+
+            Check.WithCustomMessage("press ✕, drag off the window, then a bare Up on ✕ must keep the note")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(fired).IsEqualTo(0);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(0);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PausedMouse_PressClose_DragOffTheWindow_ThenBareUpOnClose_RunsNothing()
+    {
+        var (manager, counter) = MakeManager(out _, pausePoll: () => true);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "kept", new PhysicalPoint(1600, 1000));
+            var window = manager.WindowForTest(id)!;
+            var close = ControlFor(manager, id, "close");
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseMousePress(close);
+            RaiseMouseLeave(window); // the caretaker dragged the pointer off the note
+            RaiseClick(close);       // later a bare release on ✕
+
+            Check.WithCustomMessage("press ✕, drag the pointer off the window, then a bare Up on ✕ must keep the note")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(fired).IsEqualTo(0);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(0);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void Touch_PressClose_ReleasedOnTheCardBody_ThenBareUpOnClose_RunsNothing()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "kept", new PhysicalPoint(1600, 1000));
+            var window = manager.WindowForTest(id)!;
+            var canvas = (Canvas)window.Content;
+            var close = ControlFor(manager, id, "close");
+            var cardBody = canvas.Children.OfType<Border>().First();
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseTouchDown(close);
+            RaiseTouch(cardBody); // lifted over the card text — no control handler runs there
+            RaiseTouch(close);    // later a bare Up on ✕
+
+            Check.WithCustomMessage("press ✕, release over the card body, then a bare Up on ✕ must keep the note")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(fired).IsEqualTo(0);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(0);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PausedMouse_PressClose_ReleasedOnTheCardBody_ThenBareUpOnClose_RunsNothing()
+    {
+        var (manager, counter) = MakeManager(out _, pausePoll: () => true);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "kept", new PhysicalPoint(1600, 1000));
+            var window = manager.WindowForTest(id)!;
+            var canvas = (Canvas)window.Content;
+            var close = ControlFor(manager, id, "close");
+            var cardBody = canvas.Children.OfType<Border>().First();
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseMousePress(close);
+            RaiseMouseUp(cardBody); // lifted over the card text
+            RaiseClick(close);    // later a bare Up on ✕
+
+            Check.WithCustomMessage("paused press ✕, release over the card body, then a bare Up on ✕ must keep the note")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(fired).IsEqualTo(0);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(0);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

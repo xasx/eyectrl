@@ -10,6 +10,13 @@ using EyeCtrl.App.Tests.Fixtures;
 /// A3 (splash frame pin), A4a (explicit-size frame resolution + pixel probes).
 /// Headless: no window, no app launch; the pack URI needs the WpfApplicationGate.
 /// </summary>
+/// <remarks>
+/// <c>[Collection("WpfApplication")]</c> is required by the gate's own rule: this file calls
+/// <c>WpfApplicationGate.EnsureApplicationWithTokens</c>, which creates the process-wide
+/// <c>Application</c> singleton, so it must not run concurrently with another such creator
+/// (<c>WpfApplicationCreatorIsolationTests</c> pins the rule).
+/// </remarks>
+[Collection("WpfApplication")]
 public class AppIconTests
 {
     // Assembly-qualified: bare "pack://application:,,,/Assets/..." resolves against the

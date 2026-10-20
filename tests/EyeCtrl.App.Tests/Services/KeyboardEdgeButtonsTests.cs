@@ -103,6 +103,34 @@ public class KeyboardEdgeButtonsTests
     }
 
     [Fact]
+    public void Definitions_CloseAndFlip_NeverGoBelow600()
+    {
+        // C1b: Close and Flip used to ride the 450 ms KEY dwell, while every other edge-bar
+        // button in the owner's settings is 600. Even a caller that still passes the key dwell
+        // must land at the floor, never below it.
+        var defs = KeyboardEdgeButtons.Definitions(450);
+
+        Check.That(defs.Select(d => d.DwellMs)).ContainsOnlyElementsThatMatch(m => m == 600);
+    }
+
+    [Fact]
+    public void KeyboardPair_FollowsTheEdgeBarDwell_WhenItIsAbove600()
+    {
+        // The pair rides the same setting as the action-menu pair that shares the edge bar
+        // (Dwell.ActionMenuDwellMs), NOT KeyboardKeyDwellMs — with the key dwell at 450 and the
+        // edge-bar dwell raised to 900, the definitions must say 900. A regression back to the
+        // key dwell reads 450 → floored to 600 and fails here.
+        var dwell = new DwellSettings { KeyboardKeyDwellMs = 450 };
+        Check.That(KeyboardCoordinator.KeyboardEdgeButtonDwellMs(dwell)).IsEqualTo(600);
+
+        dwell.ActionMenuDwellMs = 900;
+        Check.That(KeyboardCoordinator.KeyboardEdgeButtonDwellMs(dwell)).IsEqualTo(900);
+
+        var defs = KeyboardEdgeButtons.Definitions(KeyboardCoordinator.KeyboardEdgeButtonDwellMs(dwell));
+        Check.That(defs.Select(d => d.DwellMs)).ContainsOnlyElementsThatMatch(m => m == 900);
+    }
+
+    [Fact]
     public void CloseActivation_SendsHideMessage()
     {
         var messenger = new WeakReferenceMessenger();

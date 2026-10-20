@@ -47,10 +47,13 @@ using Xunit;
 /// </para>
 ///
 /// <para>
-/// <c>[StaFact]</c> because a successful drag constructs a real <c>DragTrailOverlay</c> — the same
-/// reason <c>DragCoordinatorTests.DisposeDuringALiveDrag_ReleasesTheButton</c> is. That window
-/// needs no <c>Application</c> singleton and no app resource dictionary, so this class stays out of
-/// <c>WpfApplicationCollection</c>, exactly as that one does.
+/// <c>[StaFact]</c> because the harness drives a real <see cref="Dispatcher"/>, which these tests
+/// pump to let production's marshalling decide the ordering. It no longer needs an STA thread for
+/// the drag's own overlay: the coordinator's trail factory is pointed at a recording fake
+/// (<see cref="TestFakes.FakeDragTrailOverlay"/>), so no window is constructed and nothing appears
+/// on the machine running the suite. That is the F2 seam — before it, a successful drag built a
+/// real maximized, topmost <c>DragTrailOverlay</c> here, which is what made this class unsafe to
+/// run locally and dependent on the CI desktop.
 /// </para>
 /// </summary>
 public class HideActionMenuBarOwnershipTests
@@ -74,6 +77,18 @@ public class HideActionMenuBarOwnershipTests
         // Choosing Drag fires HideActionMenu and then DragStarted. The first is marshalled, the
         // second is not — so the cancel button is on the bar before the hide is even sent.
         h.InteractionManager.OnActionSelected(InteractionAction.Drag);
+
+        // The flake this ticket exists for: a throw anywhere in the drag's setup aborts the drag to
+        // FreeLook before the assertions below, and the exception used to go only to a logger the
+        // test process never configures. Asserting null first (with the exception in the message)
+        // turns the next occurrence from "state was FreeLook" into a named cause.
+        Check.WithCustomMessage(h.Drag.LastSetupFailure?.ToString() ?? "")
+             .That(h.Drag.LastSetupFailure).IsNull();
+
+        // The seam was actually used: the recording fake was configured and shown, and no real
+        // overlay was constructed (which would have no place in this count).
+        Check.That(h.TrailOverlay.ConfigureCount).IsEqualTo(1);
+        Check.That(h.TrailOverlay.ShowCount).IsEqualTo(1);
 
         Check.That(h.InteractionManager.CurrentState).IsEqualTo(InteractionState.Dragging);
         Check.That(h.Bar.ShownButtonIds).ContainsExactly("Drag_cancel");
@@ -197,6 +212,8 @@ public class HideActionMenuBarOwnershipTests
             };
 
             _drag = new DragCoordinator();
+            TrailOverlay = new TestFakes.FakeDragTrailOverlay();
+            _drag.CreateTrailOverlay = () => TrailOverlay;
             _drag.Initialize(context);
 
             // The vm-binding sibling is constructed but deliberately NOT initialized: the message
@@ -212,6 +229,12 @@ public class HideActionMenuBarOwnershipTests
         internal InteractionManager InteractionManager { get; }
 
         internal TestFakes.FakeEdgeButtonBar Bar { get; }
+
+        /// <summary>The drag's trail overlay fake — no window, and it counts Configure/Show.</summary>
+        internal TestFakes.FakeDragTrailOverlay TrailOverlay { get; }
+
+        /// <summary>The drag coordinator under test, exposed so a test can read its diagnostics.</summary>
+        internal DragCoordinator Drag => _drag;
 
         /// <summary>
         /// The messenger the adapter and coordinators share — exposed so a test can observe the

@@ -168,10 +168,18 @@ internal static class TestFakes
         public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
         {
             Calls.Add("ShowButtons");
+            if (ShowButtonsFailure is not null) throw ShowButtonsFailure;
             ShownButtonIds.Clear();
             ShownButtonIds.AddRange(definitions.Select(d => d.Id));
             _vm.ShowButtons(definitions, edgeAnchor);
         }
+
+        /// <summary>
+        /// When set, <see cref="ShowButtons"/> throws it AFTER recording the call. Models a setup
+        /// failure that happens after the trail overlay already exists, which is the only way to
+        /// reach the abort's overlay close: the factory-based failures leave nothing to close.
+        /// </summary>
+        public Exception? ShowButtonsFailure { get; set; }
 
         public void AddButton(EdgeButtonDefinition definition)
         {
@@ -190,9 +198,74 @@ internal static class TestFakes
         public void Hide()
         {
             Calls.Add("Hide");
+            if (HideFailure is not null) throw HideFailure;
             ShownButtonIds.Clear();
             _vm.Hide();
         }
+
+        /// <summary>
+        /// When set, <see cref="Hide"/> throws it AFTER recording the call. Models an overlay
+        /// teardown that fails: the release must already have happened by then, which is the
+        /// ordering the cancel/drop release gates pin.
+        /// </summary>
+        public Exception? HideFailure { get; set; }
+    }
+
+    /// <summary>
+    /// Recording fake for <see cref="IDragTrailOverlay"/>: the drag's full-screen trail window,
+    /// replaced by counters so a drag test needs no STA thread, no <c>Application</c> singleton and
+    /// nothing on the desktop. Records the call order so a gate can pin "configure, show, then
+    /// press".
+    /// </summary>
+    internal sealed class FakeDragTrailOverlay : IDragTrailOverlay
+    {
+        public List<string> Calls { get; } = new();
+
+        public int ConfigureCount => Calls.Count(c => c == "Configure");
+
+        public int ShowCount => Calls.Count(c => c == "Show");
+
+        public int UpdateCount => Calls.Count(c => c == "Update");
+
+        public int CloseCount => Calls.Count(c => c == "Close");
+
+        public string? TrailColor { get; private set; }
+
+        public double TrailOpacity { get; private set; }
+
+        public void Configure(string trailColor, double trailOpacity)
+        {
+            Calls.Add("Configure");
+            TrailColor = trailColor;
+            TrailOpacity = trailOpacity;
+        }
+
+        public void Show() => Calls.Add("Show");
+
+        public void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
+            PhysicalPoint releasePos)
+        {
+            Calls.Add("Update");
+            if (UpdateFailure is null) return;
+            if (UpdateFailureOnCall is { } only && only != UpdateCount) return;
+            throw UpdateFailure;
+        }
+
+        public void Close() => Calls.Add("Close");
+
+        /// <summary>
+        /// When set, <see cref="Update"/> throws it. The post-press trail start drives this through
+        /// <c>DragTrailViewModel.Receive</c>'s property setters, so this is how a gate reaches the
+        /// coordinator's post-press catch without any WPF.
+        /// </summary>
+        public Exception? UpdateFailure { get; set; }
+
+        /// <summary>
+        /// When set with <see cref="UpdateFailure"/>, only the n-th (1-based) <see cref="Update"/>
+        /// throws. A later call leaves the drag-trail VM half-initialised first — which is the
+        /// state the reset after an aborted start has to undo.
+        /// </summary>
+        public int? UpdateFailureOnCall { get; set; }
     }
 
     /// <summary>
@@ -503,6 +576,14 @@ internal static class TestFakes
         public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
         public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
+        /// <summary>Pointed one-shot scrolls: the point is recorded so a dispatcher mutant passing
+        /// the wrong point (the M3 lesson) cannot survive.</summary>
+        public List<(PhysicalPoint Point, int Dx, int Dy)> PointedScrolls { get; } = new();
+
+        /// <summary>Every <see cref="MoveCursor"/> target, so a gate can assert the worker never
+        /// parks or hops the pointer.</summary>
+        public List<PhysicalPoint> Moves { get; } = new();
+
         /// <summary>
         /// Set by the injection-ordering gates: read INSIDE the first injected action (the moment
         /// real OS input would be sent) so a gate can pin what the overlays' visibility was at that
@@ -520,6 +601,7 @@ internal static class TestFakes
             // The injection-ordering gates read at the FIRST injected action; a parked MOVE is one
             // (S1b's scroll entry parks the cursor before the worker's first wheel).
             RecordInjection();
+            Moves.Add(point);
         }
 
         public void LeftClick(PhysicalPoint point) { RecordInjection(); BareClickCount++; }
@@ -539,6 +621,12 @@ internal static class TestFakes
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
         public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { RecordInjection(); BareScrolls.Add((deltaX, deltaY)); }
+
+        public void ScrollAt(PhysicalPoint point, int deltaX, int deltaY)
+        {
+            RecordInjection();
+            PointedScrolls.Add((point, deltaX, deltaY));
+        }
 
         // The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a
         // nullable) and record otherwise:

@@ -94,6 +94,86 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(glassBackdrop.EscapeHintVisible).IsFalse();
     }
 
+    // F2 (magnifier-default-zoom fixup 01): pin the REAL chain, not a direct call. The adapter's
+    // start message (the fit's 81 DIP on a 720-DIP screen) flows through the real
+    // ManualSelectionOverlayViewModel into this coordinator and out to the overlay: BOTH the Show
+    // and the recapture UpdateCenter must carry 81, never the raw setting (100). Mutants: either
+    // branch reading Context.Settings.ManualSelection.CircleRadiusPixels instead of VM.Radius.
+
+    [Fact]
+    public void ManualSelectionStart_OnA720DipScreen_TheRealChainCarriesTheEffectiveRadius()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.ManualSelection.CircleRadiusPixels = 100;   // the raw setting: must NOT reach the window
+        settings.ManualSelection.MagnificationLevel = 4.0;
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ManualSelectionOverlayViewModel(settings, messenger);
+        var recording = new RecordingManualSelectionOverlay();
+        var glassBackdrop = new TestFakes.FakeGlassBackdropOverlay();
+
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ManualSelectionVM = vm,
+            InteractionManager = new EyeCtrl.Core.Processing.InteractionManager(),
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                activationButton: new TestFakes.FakeActivationButtonOverlay(),
+                manualSelection: recording,
+                manualSelectionIndicator: new TestFakes.FakeManualSelectionIndicatorOverlay(),
+                glassBackdrop: glassBackdrop),
+        };
+
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+        typeof(OverlayVmBindingCoordinator)
+            .GetField("_glassBackdrop", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, glassBackdrop);
+
+        messenger.Send(new StartManualSelectionMessage(
+            new PhysicalPoint(640, 360), 81, 4.0, new PhysicalPoint(640, 360)));
+        Check.That(vm.Radius).IsEqualTo(81);
+
+        InvokeManualSelectionHandler(coordinator, nameof(ManualSelectionOverlayViewModel.IsVisible));
+
+        Check.WithCustomMessage($"the magnifier must be shown once; saw {recording.Shows.Count}")
+            .That(recording.Shows).HasSize(1);
+        Check.WithCustomMessage($"Show must carry the message radius; saw {recording.Shows[0].Radius}")
+            .That(recording.Shows[0].Radius).IsEqualTo(81);
+        Check.That(recording.Shows[0].Magnification).IsEqualTo(4.0);
+
+        vm.RequestRecapture();
+        InvokeManualSelectionHandler(coordinator, nameof(ManualSelectionOverlayViewModel.RecaptureVersion));
+
+        Check.WithCustomMessage($"the recapture must reposition once; saw {recording.UpdateCenters.Count}")
+            .That(recording.UpdateCenters).HasSize(1);
+        Check.WithCustomMessage($"the recapture UpdateCenter must carry 81; saw {recording.UpdateCenters[0].Radius}")
+            .That(recording.UpdateCenters[0].Radius).IsEqualTo(81);
+    }
+
+    /// <summary>The magnifier, recording what the coordinator hands it (F2).</summary>
+    private sealed class RecordingManualSelectionOverlay : IManualSelectionOverlay
+    {
+        public List<(PhysicalPoint Center, int Radius, double Magnification)> Shows { get; } = [];
+        public List<(PhysicalPoint Center, int Radius, double Magnification)> UpdateCenters { get; } = [];
+
+        public void Show(PhysicalPoint center, int radius, double magnification,
+            PhysicalPoint? gazePoint = null, bool recapture = true)
+            => Shows.Add((center, radius, magnification));
+
+        public void UpdateCenter(PhysicalPoint center, int radius, double magnification,
+            PhysicalPoint? gazePoint = null, bool recapture = true)
+            => UpdateCenters.Add((center, radius, magnification));
+
+        public void Hide() { }
+
+        public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) => gazeOnScreen;
+
+        public PhysicalPoint EffectiveCaptureCenter =>
+            throw new NotImplementedException("this recording overlay does not exercise the capture centre");
+    }
+
     private static OverlayVmBindingCoordinator BuildCoordinatorForManualSelectionHint(
         TestFakes.FakeGlassBackdropOverlay glassBackdrop,
         out ManualSelectionOverlayViewModel manualSelectionVm)

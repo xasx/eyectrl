@@ -1,5 +1,7 @@
 namespace EyeCtrl.Core.Tests.Prediction;
 
+using System.IO;
+using System.Text.Json;
 using EyeCtrl.Core.Prediction;
 
 /// <summary>
@@ -169,5 +171,81 @@ public class PredictionOrchestratorLmTests
 
         Check.WithCustomMessage($"rendered: {string.Join("|", current.Select(r => r.Word))}")
             .That(current.Any(r => r.Word == "Wetterfrosch")).IsFalse();
+    }
+
+    [Fact]
+    public void GetSuggestions_LmCompletionOfAKnownWord_AppearsInSlotTwoWithTheDisplayForm()
+    {
+        // The bar is full of higher-ranked prefix matches, so the known "wetter" (score 1) can
+        // only enter through the reserved LM slot - and it must show the base casing there.
+        var dir = Path.Combine(Path.GetTempPath(), $"dict_lm_slot_{Guid.NewGuid()}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var basePath = Path.Combine(dir, "de.json");
+            File.WriteAllText(basePath, JsonSerializer.Serialize(new
+            {
+                words = new Dictionary<string, int>
+                {
+                    ["wetten"] = 100, ["wetter"] = 1, ["wettkampf"] = 90,
+                    ["wettbewerb"] = 80, ["wette"] = 70, ["wettbewerbe"] = 60,
+                },
+                casing = new Dictionary<string, string> { ["wetter"] = "Wetter" },
+                abbreviations = Array.Empty<string>(),
+            }));
+            var provider = new FileDictionaryProvider(basePath, dir, "de");
+            var lm = new FakeLm();
+            using var orchestrator = new PredictionOrchestrator(
+                new WordPredictor(provider, "QWERTZ"), lmPredictor: lm);
+
+            orchestrator.GetSuggestions("wet", context: "das", maxCount: 5);
+            lm.Complete("wetter");
+            var current = orchestrator.GetSuggestions("wet", context: "das", maxCount: 5);
+
+            Check.That(current).HasSize(5);
+            Check.WithCustomMessage($"rendered: {string.Join("|", current.Select(r => r.Word))}")
+                .That(current[1].Word).IsEqualTo("Wetter");
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void GetSuggestions_LmCompletionOfAKnownWord_ShowsTheDictionaryDisplayForm()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"dict_lm_casing_{Guid.NewGuid()}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var basePath = Path.Combine(dir, "de.json");
+            File.WriteAllText(basePath, JsonSerializer.Serialize(new
+            {
+                words = new Dictionary<string, int> { ["wetter"] = 100, ["wetterdaten"] = 1 },
+                casing = new Dictionary<string, string>
+                {
+                    ["wetter"] = "Wetter",
+                    ["wetterdaten"] = "Wetterdaten",
+                },
+                abbreviations = Array.Empty<string>(),
+            }));
+            var provider = new FileDictionaryProvider(basePath, dir, "de");
+            var lm = new FakeLm();
+            using var orchestrator = new PredictionOrchestrator(
+                new WordPredictor(provider, "QWERTZ"), lmPredictor: lm);
+
+            orchestrator.GetSuggestions("Wet", context: "das", maxCount: 5);
+            lm.Complete("wetterdaten");
+            var current = orchestrator.GetSuggestions("Wet", context: "das", maxCount: 5);
+
+            Check.WithCustomMessage($"rendered: {string.Join("|", current.Select(r => r.Word))}")
+                .That(current.Any(r => r.Word == "Wetterdaten")).IsTrue();
+            Check.That(current.Any(r => r.Word == "wetterdaten")).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
     }
 }

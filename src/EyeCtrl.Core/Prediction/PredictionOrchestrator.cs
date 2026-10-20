@@ -94,9 +94,11 @@ public class PredictionOrchestrator : IDisposable
                     if (!lmResult.Word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
                     if (lmResult.Word.Length <= prefix.Length) continue;
                     if (!_wordPredictor.KnowsWord(lmResult.Word)) continue;
-                    lmCompletion ??= lmResult;
-                    if (!merged.ContainsKey(lmResult.Word))
-                        merged[lmResult.Word] = lmResult;
+                    // Known words show the dictionary's display casing (German nouns).
+                    var displayed = lmResult with { Word = _wordPredictor.GetDisplayWord(lmResult.Word) };
+                    lmCompletion ??= displayed;
+                    if (!merged.ContainsKey(displayed.Word))
+                        merged[displayed.Word] = displayed;
                 }
             }
 

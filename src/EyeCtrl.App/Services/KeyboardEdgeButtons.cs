@@ -31,9 +31,21 @@ internal static class KeyboardEdgeButtons
     /// RightEdgeInsetLogical = 30). Ours so ScreenGeometry's keyboard variant can use it.</summary>
     internal const double RightEdgeInsetLogical = 30;
 
-    /// <param name="dwellMs">Keyboard key dwell — the bar is part of the keyboard session.</param>
+    /// <summary>
+    /// Close/Flip's dwell floor. They used to ride the 450 ms key dwell, while every other
+    /// edge-bar button in the owner's settings is 600. Hide now clears the editing mirror, which
+    /// raises the price of an accidental Close, and Flip moves the keyboard into the
+    /// worst-measured region — so the keyboard pair is never easier than the rest of the bar.
+    /// </summary>
+    internal const int MinimumDwellMs = 600;
+
+    /// <param name="dwellMs">The edge-bar family's dwell (<c>Dwell.ActionMenuDwellMs</c>, the
+    /// setting the action-menu pair sharing this bar reads), floored at
+    /// <see cref="MinimumDwellMs"/>.</param>
     internal static IReadOnlyList<EdgeButtonDefinition> Definitions(int dwellMs)
     {
+        dwellMs = Math.Max(dwellMs, MinimumDwellMs);
+
         var offset = DpiHelper.LogicalToPhysicalY(
             UIConstants.ButtonRadius + UIConstants.ManualSelectionSideButtonGap / 2);
 

@@ -128,6 +128,16 @@ public class NoteWindow : OverlayWindow
     internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
     internal double ButtonRadiusForTest => ButtonRadius;
 
+    /// <summary>Test accessor (T6 fixup-02): the drawn cell fill of a hit-cell row, the element
+    /// the caretaker input is wired to beside the disc and label — or null when the row never
+    /// got one.</summary>
+    internal Rectangle? CellFillForTest(int row) => _cellFills.TryGetValue(row, out var fill) ? fill : null;
+
+    /// <summary>Test accessor (T6 fixup-02): the drawn dwell arc of a control, for the
+    /// non-interactivity pins.</summary>
+    internal Path? ArcForTest(string suffix) =>
+        _arcs.TryGetValue($"{_noteId}:{suffix}", out var arc) ? arc.Arc : null;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Draw();
@@ -136,6 +146,9 @@ public class NoteWindow : OverlayWindow
     private void Draw()
     {
         _canvas.Children.Clear();
+        // A redraw replaces every wired element: a pending press recorded against elements
+        // this Draw just destroyed must not survive it.
+        _pendingCaretakerPress = null;
         _buttons.Clear();
         _buttonLabels.Clear();
         _arcs.Clear();
@@ -264,7 +277,11 @@ public class NoteWindow : OverlayWindow
             Background = Tokens.BrushTextSecondary,
             BorderBrush = Tokens.BrushSurfaceDark,
             BorderThickness = new Thickness(1),
-            CornerRadius = Tokens.SmallCornerRadius
+            CornerRadius = Tokens.SmallCornerRadius,
+            // T6 fixup-02 B1: pure chrome, and a filled Border would otherwise be a
+            // hit-testable surface over the card's top edge — a click on the tag must fall
+            // through to whatever is under it, never stop here.
+            IsHitTestVisible = false
         };
         Canvas.SetLeft(tag, rect.Left);
         Canvas.SetTop(tag, rect.Top);
@@ -630,6 +647,11 @@ public class NoteWindow : OverlayWindow
                 Canvas.SetTop(ellipse, cy - ButtonRadius);
                 _canvas.Children.Add(ellipse);
                 _buttons[$"{_noteId}:{suffix}"] = ellipse;
+                // T6 fixup-02 B1/m1: the caretaker input is wired to the WHOLE control the way
+                // hit-testing and gaze see it — the disc, the glyph label and the 80×80 hit cell
+                // (the slot's Rectangle, Collapsed exactly when the slot is unused) all press
+                // and release the SAME suffix. The pending-press gate lives in the shared
+                // Record/Release helpers below.
                 AttachCaretakerInput(ellipse, suffix);
 
                 var label = new TextBlock
@@ -642,32 +664,45 @@ public class NoteWindow : OverlayWindow
                     // measures the same face the TextBlock renders.
                     FontFamily = Tokens.FontStandard,
                     FontSize = ButtonDiameter * ContainerRatio.Solo,
-                    Foreground = new SolidColorBrush(color),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                // T5 fixup-03 G1: centre the glyph on its INK, not on its box. A TextBlock box
-                // is advance width x line height (~43 DIP tall), so box centring sat every glyph
-                // 6-10 DIP low. BuildGeometry gives the ink bounds relative to the text origin,
-                // which for an auto-sized TextBlock is the box top-left. The brush is never
-                // painted - only the ink geometry is measured; the palette test rejects raw
-                // Brush literals in UI files, so it reads a Tokens brush.
-                var formatted = new FormattedText(symbol, CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
-                    Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
-                Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
-                Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
-                Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
-                if (accessibleName.Length > 0)
-                    System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
-                _canvas.Children.Add(label);
-                _buttonLabels[$"{_noteId}:{suffix}"] = label;
+                // T6 fixup-02 B1: the glyph box (32×43 DIP) covers the middle of every 56 DIP
+                // disc — hit-testable it swallows every input over the symbol and bubbles to the
+                // Canvas, never reaching any wired element. Non hit-testable, a finger at the
+                // glyph falls through to the disc. (RaiseEvent on the label still works — no
+                // hit-testing involved — so the wiring below covers the review's literal pin.)
+                IsHitTestVisible = false,
+                Foreground = new SolidColorBrush(color),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            // T5 fixup-03 G1: centre the glyph on its INK, not on its box. A TextBlock box
+            // is advance width x line height (~43 DIP tall), so box centring sat every glyph
+            // 6-10 DIP low. BuildGeometry gives the ink bounds relative to the text origin,
+            // which for an auto-sized TextBlock is the box top-left. The brush is never
+            // painted - only the ink geometry is measured; the palette test rejects raw
+            // Brush literals in UI files, so it reads a Tokens brush.
+            var formatted = new FormattedText(symbol, CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+                Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+            Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+            Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
+            Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
+            if (accessibleName.Length > 0)
+                System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
+            _canvas.Children.Add(label);
+            _buttonLabels[$"{_noteId}:{suffix}"] = label;
+            AttachCaretakerInput(label, suffix);
 
-                var arcPath = new Path
-                {
-                    Stroke = Tokens.BrushAccent,
-                    StrokeThickness = 3, Visibility = Visibility.Hidden
-                };
+            if (_cellFills.TryGetValue(slot, out var cell))
+                AttachCaretakerInput(cell, suffix);
+
+            var arcPath = new Path
+            {
+                Stroke = Tokens.BrushAccent,
+                StrokeThickness = 3, Visibility = Visibility.Hidden,
+                // T6 fixup-02 B1: the arc becomes Visible during a dwell — a stroke ring over
+                // the disc's rim must not swallow the input under it.
+                IsHitTestVisible = false
+            };
                 Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
                 _canvas.Children.Add(arcPath);
                 _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
@@ -787,22 +822,63 @@ public class NoteWindow : OverlayWindow
     /// </summary>
     internal event Action<string, NoteInputKind, bool>? ControlInputActivated;
 
-    private void AttachCaretakerInput(Ellipse ellipse, string suffix)
+    /// <summary>T6 fixup-02 m1: the pause state a mouse press must be made under. Only the
+    /// manager owns the pause seam (<see cref="NoteManager.SetPausePoll"/>), so it forwards the
+    /// same poll here at wiring — the window cannot read pause itself, and a mouse press made
+    /// while EyeCtrl runs never records (a caretaker clicks a note only while paused).</summary>
+    internal Func<bool>? PausePollForInput { get; set; }
+
+    /// <summary>T6 fixup-02 m1: the suffix of the control whose DOWN is still pending a
+    /// release. Press and release must land on the SAME control — a finger sliding onto a
+    /// control and lifting there acts through nothing without it. Draw() clears it.</summary>
+    private string? _pendingCaretakerPress;
+
+    private void AttachCaretakerInput(UIElement element, string suffix)
     {
+        // Touch, and a paused non-stylus mouse press, record the pending control.
+        element.TouchDown += (_, _) => RecordCaretakerPress(suffix);
+        element.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.StylusDevice != null) return;
+            if ((PausePollForInput?.Invoke() ?? false) == false) return;
+            RecordCaretakerPress(suffix);
+        };
+
         // Touch: marked handled so the platform cannot re-report it (a promoted mouse event is
         // ignored downstream anyway — the promotion guard is the policy's business).
-        ellipse.TouchUp += (_, e) =>
+        element.TouchUp += (_, e) =>
         {
             e.Handled = true;
-            ControlInputActivated?.Invoke(suffix, NoteInputKind.Touch, false);
+            ReleaseCaretaker(suffix, NoteInputKind.Touch, stylus: false);
         };
-        ellipse.MouseLeftButtonUp += (_, e) =>
+        element.MouseLeftButtonUp += (_, e) =>
         {
             // A touch promotion (StylusDevice != null) is REPORTED, not swallowed: the touch
             // already acted at TouchUp, and the policy ignores the promoted click so the
             // action cannot run a second time.
-            ControlInputActivated?.Invoke(suffix, NoteInputKind.Mouse, e.StylusDevice != null);
+            ReleaseCaretaker(suffix, NoteInputKind.Mouse, stylus: e.StylusDevice != null);
         };
+    }
+
+    /// <summary>m1, press half: a DOWN records the control as pending — but only while the
+    /// control is DRAWN. The state rows share one cell Rectangle per slot, so every state's
+    /// controls have handlers on the same cell; without the drawn gate, the collapsed twins of
+    /// one slot would overwrite the drawn control's pending press.</summary>
+    private void RecordCaretakerPress(string suffix)
+    {
+        if (IsControlDrawn(suffix)) _pendingCaretakerPress = suffix;
+    }
+
+    /// <summary>m1, release half: the UP acts only when the pending press belongs to THIS
+    /// control, then clears — every Up (matched or not) consumes what is pending, so a stale
+    /// press can never act on a later release. The policy (NoteInputPolicy) stays the single
+    /// acceptance rule this feed runs into.</summary>
+    private void ReleaseCaretaker(string suffix, NoteInputKind kind, bool stylus)
+    {
+        var pressed = _pendingCaretakerPress;
+        _pendingCaretakerPress = null;
+        if (pressed != suffix) return;
+        ControlInputActivated?.Invoke(suffix, kind, stylus);
     }
 
     /// <summary>Whether the named control is currently DRAWN visible (its ellipse is not

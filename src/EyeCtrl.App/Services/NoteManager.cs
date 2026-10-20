@@ -556,6 +556,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var window = new NoteWindow(data.Id);
         window.ControlInputActivated +=
             (suffix, kind, fromStylus) => RunControlInput(data.Id, suffix, kind, fromStylus); // T6 P5: caretaker touch/click
+        // T6 fixup-02 m1: the window's mouse press must be made while paused, and only the
+        // manager owns the pause poll — forwarded for the press half of the pending gate. The
+        // lambda re-reads `_pausePoll` at call time, so a later SetPausePoll still applies.
+        window.PausePollForInput = () => _pausePoll?.Invoke() ?? false;
         _notes.Add(data);
         _windows.Add(window);
         _placements[data.Id] = NoteLayout.WithTagClearance(

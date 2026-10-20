@@ -4,7 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -18,12 +20,14 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// T6 P5: the caretaker input WIRING, proven headlessly through the real control element — a
-/// routed <c>TouchUp</c>/<c>MouseLeftButtonUp</c> raised on the drawn Ellipse (a fake
-/// TouchDevice subclass stands in for the digitizer) — with the actions observed through the
-/// manager's state and the messages it sends. Every accept path runs the SAME NoteManager
-/// action the control's dwell runs: ✕ and Discard go through Undo, ✎ commits the current
-/// editor first, the chip's ↺ undoes.
+/// T6 P5: the caretaker input WIRING, proven headlessly through the real control element —
+/// a routed press (TouchDown / paused MouseLeftButtonDown) followed by the release raised on
+/// the drawn Ellipse (a fake TouchDevice subclass stands in for the digitizer) — with the
+/// actions observed through the manager's state and the messages it sends. T6 fixup-02:
+/// press and release must land on the SAME control (m1), and the disc, glyph label and hit
+/// cell all carry the wiring (B1). Every accept path runs the SAME NoteManager action the
+/// control's dwell runs: ✕ and Discard go through Undo, ✎ commits the current editor first,
+/// the chip's ↺ undoes.
 /// </summary>
 [Collection("DpiHelper Tests (App)")]
 public class NoteControlInputTests
@@ -85,10 +89,22 @@ public class NoteControlInputTests
         return window.ButtonsForTest()[$"{id}:{suffix}"];
     }
 
+    private static void RaiseTouchDown(UIElement element) =>
+        element.RaiseEvent(new TouchEventArgs(new FakeTouchDevice(), Environment.TickCount)
+        {
+            RoutedEvent = UIElement.TouchDownEvent
+        });
+
     private static void RaiseTouch(UIElement element) =>
         element.RaiseEvent(new TouchEventArgs(new FakeTouchDevice(), Environment.TickCount)
         {
             RoutedEvent = UIElement.TouchUpEvent
+        });
+
+    private static void RaiseMousePress(UIElement element) =>
+        element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.MouseLeftButtonDownEvent
         });
 
     private static void RaiseClick(UIElement element) =>
@@ -124,6 +140,8 @@ public class NoteControlInputTests
             void OnHandled(object s, RoutedEventArgs e) { if (e.Handled) handled++; }
             edit.AddHandler(UIElement.TouchUpEvent, new RoutedEventHandler(OnHandled), handledEventsToo: true);
 
+            // m1: a release needs a matching press on the SAME control first.
+            RaiseTouchDown(edit);
             RaiseTouch(edit);
 
             Check.WithCustomMessage("the touch must enter Edit through the same action the dwell runs")
@@ -187,6 +205,8 @@ public class NoteControlInputTests
             Check.That(counter.Started).IsEqualTo(startedBefore);
 
             paused = true;
+            // m1: the click is a press AND a release on the same control, both while paused.
+            RaiseMousePress(edit);
             RaiseClick(edit);
             Check.WithCustomMessage("a click while paused acts — the caretaker at the machine")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
@@ -228,12 +248,16 @@ public class NoteControlInputTests
         try
         {
             var id = SavedNote(manager, "kept text", new PhysicalPoint(1600, 1000));
-            RaiseTouch(ControlFor(manager, id, "close"));
+            var close = ControlFor(manager, id, "close");
+            RaiseTouchDown(close);
+            RaiseTouch(close);
             Check.WithCustomMessage("✕ by touch must go through the SAME Undo protection as the dwell")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.Removed);
 
-            RaiseTouch(ControlFor(manager, id, "undo"));
+            var undo = ControlFor(manager, id, "undo");
+            RaiseTouchDown(undo);
+            RaiseTouch(undo);
             Check.WithCustomMessage("↺ by touch restores the note")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.That(manager.ActiveNotes[0].Text).IsEqualTo("kept text");
@@ -265,7 +289,9 @@ public class NoteControlInputTests
             Check.That(manager.ActiveNotes[0].Draft).IsEqualTo("base draft a");
             int startedBefore = counter.Started;
 
-            RaiseTouch(ControlFor(manager, b, "edit"));
+            var bEdit = ControlFor(manager, b, "edit");
+            RaiseTouchDown(bEdit);
+            RaiseTouch(bEdit);
             Check.WithCustomMessage("the single-editor rule protects the editor: B's ✎ touch "
                     + "(its target unregistered) must do nothing — A keeps the draft")
                 .That(manager.ActiveNotes[0].Draft).IsEqualTo("base draft a");
@@ -275,11 +301,290 @@ public class NoteControlInputTests
             // The commit-first entry through touch, over the code ✎ shares: the chip's ↺ touch
             // runs ExitEditing(commit: true, handOver: true) BEFORE its Edit entry — it commits
             // A's draft first, then B enters Edit with its kept draft.
-            RaiseTouch(ControlFor(manager, b, "undo"));
+            var bUndo = ControlFor(manager, b, "undo");
+            RaiseTouchDown(bUndo);
+            RaiseTouch(bUndo);
             Check.WithCustomMessage("the commit-first rule: the ↺ touch commits A's draft first")
                 .That(manager.ActiveNotes.First(n => n.Id == a).Text).IsEqualTo("base draft a");
             Check.WithCustomMessage("and B enters Edit with its kept draft — the single editor")
                 .That(manager.ActiveNotes.First(n => n.Id == b).State).IsEqualTo(NoteState.Edit);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ------------------------------------------------------------------ T6 fixup-02 (B1 + m1)
+    // The review's measurings: the glyph TextBlock (32×43 DIP) is a hit-testable sibling drawn
+    // ABOVE the disc, so only a thin disc ring acted; the 80×80 cell outside the disc was not a
+    // touch target at all; and an Up without a matching Down acted. These pins run on the real
+    // manager and the real window at DPI 2.0.
+
+    private static TextBlock LabelFor(NoteManager manager, string id, string suffix) =>
+        manager.WindowForTest(id)!.LabelsForTest()[$"{id}:{suffix}"];
+
+    private static Rectangle CellFor(NoteManager manager, string id, int row) =>
+        manager.WindowForTest(id)!.CellFillForTest(row)!;
+
+    [StaFact]
+    public void Touch_OnTheGlyphLabel_EntersEditExactlyOnce()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            var label = LabelFor(manager, id, "edit");
+            var editDisc = ControlFor(manager, id, "edit");
+
+            // What a finger at the glyph lands on: at the glyph's middle the topmost hit must
+            // never be the LABEL — a hit-testable label swallows the input and bubbles it to
+            // the Canvas, past every wired element. Headless, WPF may serve a collapsed
+            // sibling's 0×0 artefact as the top hit (the reviewer's probe saw the same), so
+            // the discriminating assertion is the NEGATIVE one.
+            var window = manager.WindowForTest(id)!;
+            var canvas = (Canvas)window.Content;
+            canvas.Measure(new Size(window.Width, window.Height));
+            canvas.Arrange(new Rect(new Point(0, 0), new Size(window.Width, window.Height)));
+            var centre = new Point(Canvas.GetLeft(editDisc) + editDisc.Width / 2, Canvas.GetTop(editDisc) + editDisc.Height / 2);
+            var hit = VisualTreeHelper.HitTest(canvas, centre)?.VisualHit;
+            Check.That(hit).IsNotNull();
+            Check.WithCustomMessage("a finger at the glyph's middle must land on ANY wired element — never the label")
+                .That(ReferenceEquals(hit, label)).IsFalse();
+
+            int startedBefore = counter.Started;
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseTouchDown(label);
+            RaiseTouch(label);
+
+            Check.WithCustomMessage("a tap on the GLYPH — what a caretaker actually aims at — must act")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
+            Check.That(fired).IsEqualTo(1);
+            Check.That(counter.Started - startedBefore).IsEqualTo(1);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PausedMouse_OnTheGlyphLabel_EntersEditExactlyOnce()
+    {
+        var (manager, counter) = MakeManager(out _, pausePoll: () => true);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            var label = LabelFor(manager, id, "edit");
+            int startedBefore = counter.Started;
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            manager.WindowForTest(id)!.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseMousePress(label);
+            RaiseClick(label);
+
+            Check.WithCustomMessage("a paused click on the GLYPH must act exactly once")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
+            Check.That(fired).IsEqualTo(1);
+            Check.That(counter.Started - startedBefore).IsEqualTo(1);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void Touch_And_PausedMouse_OnTheCellOutsideTheDisc_ActExactlyOnce()
+    {
+        var (manager, counter) = MakeManager(out _, pausePoll: () => true);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            var window = manager.WindowForTest(id)!;
+
+            // The cell outside the disc is what hit-testing serves a finger at a cell corner:
+            // 80×80 fill, the 56 DIP disc centred on it — a point 2,2 in from the cell corner
+            // is ~53.7 DIP off centre, well outside the disc's radius (28 DIP).
+            var canvas = (Canvas)window.Content;
+            canvas.Measure(new Size(window.Width, window.Height));
+            canvas.Arrange(new Rect(new Point(0, 0), new Size(window.Width, window.Height)));
+            var cell = window.CellFillForTest(3)!;
+            var corner = new Point(Canvas.GetLeft(cell) + 2, Canvas.GetTop(cell) + 2);
+            var hit = VisualTreeHelper.HitTest(canvas, corner)?.VisualHit;
+            Check.WithCustomMessage("a finger at the cell corner lands on the CELL FILL — the touch "
+                    + "target must be at least the area gaze uses")
+                .That(hit).IsSameReferenceAs(cell);
+
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            window.ControlInputActivated += (_, _, _) => fired++;
+            RaiseTouchDown(cell);
+            RaiseTouch(cell);
+            Check.WithCustomMessage("a release over the cell corner outside the disc runs the control's action")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.Removed);
+            Check.That(fired).IsEqualTo(1);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PausedMouse_OnTheCellOutsideTheDisc_EntersEditExactlyOnce()
+    {
+        var (manager, counter) = MakeManager(out _, pausePoll: () => true);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            var cell = CellFor(manager, id, 0);
+            int startedBefore = counter.Started;
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            manager.WindowForTest(id)!.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseMousePress(cell);
+            RaiseClick(cell);
+
+            Check.WithCustomMessage("a paused click on the cell corner outside the disc must act exactly once")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
+            Check.That(fired).IsEqualTo(1);
+            Check.That(counter.Started - startedBefore).IsEqualTo(1);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PressOnEdit_ReleasedOnClose_RunsNothing()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            manager.WindowForTest(id)!.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseTouchDown(ControlFor(manager, id, "edit"));
+            RaiseTouch(ControlFor(manager, id, "close"));
+
+            Check.WithCustomMessage("a press on ✎ and a release on ✕ must run nothing — "
+                    + "press and release belong to the SAME control")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(fired).IsEqualTo(0);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(0);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void ReleaseWithoutAnyPress_RunsNothing()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            manager.WindowForTest(id)!.ControlInputActivated += (_, _, _) => fired++;
+
+            RaiseTouch(ControlFor(manager, id, "edit"));
+
+            Check.WithCustomMessage("a release without a matching press must run nothing — "
+                    + "a finger that slid onto the control and lifted cannot act")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(fired).IsEqualTo(0);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(0);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void MousePressWhileEyeCtrlRuns_StartsNothing_EvenReleasedWhilePaused()
+    {
+        bool paused = false;
+        var (manager, counter) = MakeManager(out _, pausePoll: () => paused);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "hello", new PhysicalPoint(1600, 1000));
+            int startedBefore = counter.Started;
+
+            // The press is made while EyeCtrl runs: it records nothing even though the
+            // release lands while paused — a caretaker click is made AND given while paused.
+            RaiseMousePress(ControlFor(manager, id, "edit"));
+            paused = true;
+            RaiseClick(ControlFor(manager, id, "edit"));
+
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            Check.That(counter.Started).IsEqualTo(startedBefore);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void PressAndReleaseOnClose_MarksRemovedExactlyOnce()
+    {
+        var (manager, counter) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = SavedNote(manager, "kept", new PhysicalPoint(1600, 1000));
+            int cuesBefore = counter.Cues;
+            int fired = 0;
+            manager.WindowForTest(id)!.ControlInputActivated += (_, _, _) => fired++;
+
+            var close = ControlFor(manager, id, "close");
+            RaiseTouchDown(close);
+            RaiseTouch(close);
+            RaiseTouch(close); // the release consumed the pending press; a second Up acts nothing
+
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.Removed);
+            Check.That(fired).IsEqualTo(1);
+            Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void GlyphLabel_Arc_AndBadgeTag_AreNotHitTestable()
+    {
+        var (manager, _) = MakeManager(out _);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // Two notes so a badge is pushed (RefreshBadges shows tags from 2 non-chip notes).
+            SavedNote(manager, "one", new PhysicalPoint(1600, 1000));
+            var second = SavedNote(manager, "two", new PhysicalPoint(1200, 100));
+            var window = manager.WindowForTest(second)!;
+            Check.That(window.BadgeTagForTest).IsNotNull();
+
+            foreach (var (key, label) in window.LabelsForTest())
+            {
+                Check.WithCustomMessage($"the glyph label {key} must not be a hit target — it covers the "
+                        + "middle of every disc and would swallow the input")
+                    .That(label.IsHitTestVisible).IsFalse();
+            }
+            Check.WithCustomMessage("the dwell arc is drawn above the disc during a dwell and must "
+                    + "never swallow the input under it")
+                .That(window.ArcForTest("edit")!.IsHitTestVisible).IsFalse();
+            Check.WithCustomMessage("the badge tag is pure chrome — a filled Border would otherwise "
+                    + "be a hit surface over the card's top edge")
+                .That(window.BadgeTagForTest!.IsHitTestVisible).IsFalse();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

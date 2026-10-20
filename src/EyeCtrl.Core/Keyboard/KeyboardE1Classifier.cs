@@ -4,8 +4,8 @@ namespace EyeCtrl.Core.Keyboard;
 /// Maps a key to the CLASS and id E1 logs. The class is a closed set (<see cref="KeyE1"/>); the
 /// id is the layout's own special-action string (<c>backspace</c>, <c>switchSub:numbers</c>,
 /// <c>shortcut:Ctrl+C</c>, …), which the window already uses as the key's stable dwell-target id.
-/// A plain key's id is <c>-</c>: its position is logged as row/column instead, and its character
-/// is never logged.
+/// A plain (text) key's id is <c>-</c> and the recorder logs no row or column for it: its character
+/// and its position are both withheld.
 /// </summary>
 public static class KeyboardE1Classifier
 {
@@ -56,6 +56,7 @@ public static class KeyboardE1Classifier
             if (char.IsLetter(output[0])) return (KeyE1.Letter, None);
             if (char.IsDigit(output[0])) return (KeyE1.Digit, None);
         }
-        return (KeyE1.Other, None);
+        // Any other plain key types text (punctuation, a symbol): a text key, so no identity either.
+        return (KeyE1.Symbol, None);
     }
 }

@@ -149,10 +149,11 @@ public class KeyboardE1LoggingTests
         var key = rig.Log.Of("key");
         Check.That(key).HasSize(1);
         var f = Fields(key[0]);
-        Check.That(f["r"]).IsEqualTo("0");
-        Check.That(f["c"]).IsEqualTo("1");
         Check.That(f["cls"]).IsEqualTo("letter");
-        Check.That(f["act"]).IsEqualTo("-");
+        // A letter is a TEXT key: its position and id would spell the text, so neither is logged.
+        Check.That(f.ContainsKey("r")).IsFalse();
+        Check.That(f.ContainsKey("c")).IsFalse();
+        Check.That(f.ContainsKey("act")).IsFalse();
         Check.That(f["boxw"]).IsEqualTo("200");
         Check.That(f["boxh"]).IsEqualTo("200");
         Check.That(f["sub"]).IsEqualTo("letters");
@@ -167,8 +168,9 @@ public class KeyboardE1LoggingTests
         Check.That(f["bs"]).IsEqualTo("-");
         Check.That(f["edge"]).IsEqualTo("-");          // no window supplied geometry
         Check.That(f["movems"]).IsEqualTo("-1");
-        // The saccade is the distance from the last sample before the key to its first sample.
-        Check.That(int.Parse(f["saccade"])).IsStrictlyGreaterThan(1000);
+        // The saccade is a CLASS of the distance from the last sample before the key to its first
+        // sample, in key pitches (here > 5 pitches away): never pixels.
+        Check.That(f["saccade"]).IsEqualTo("long");
     }
 
     [Fact]
@@ -350,14 +352,14 @@ public class KeyboardE1LoggingTests
         rig.Hold(rig.Positions["key_0_2"], 30);                                // moves on: NearestChanged
 
         var f = Fields(rig.Log.Of("abandon").Single());
-        Check.That(f["r"]).IsEqualTo("0");
-        Check.That(f["c"]).IsEqualTo("1");
         Check.That(f["cls"]).IsEqualTo("letter");
+        Check.That(f.ContainsKey("r") || f.ContainsKey("c") || f.ContainsKey("act")).IsFalse();
         Check.That(f["why"]).IsEqualTo("NearestChanged");
-        // dx/dy are measured at the sample that ENDED the dwell (the same point DwellOutcome carries):
-        // here the gaze has already landed on the next key, 220 px to the right of a's centre.
-        Check.That(f["dx"]).IsEqualTo("220");
-        Check.That(f["dy"]).IsEqualTo("0");
+        // The offset is the MEAN over the abandoned dwell (where the gaze rested on the key). The
+        // sample that ended it already sits on the NEXT key, 220 px right: using it would hand over
+        // the direction from one key to the next.
+        Check.That(f["mdx"]).IsEqualTo("4");
+        Check.That(f["mdy"]).IsEqualTo("6");
         Check.That(int.Parse(f["pct"])).IsStrictlyGreaterThan(29);
     }
 
@@ -486,6 +488,111 @@ public class KeyboardE1LoggingTests
             "KB-E1 mode kind=shift from=off to=on",
             "KB-E1 mode kind=shift from=off to=on");
         Check.That(rig.Log.Lines.Any(l => l.StartsWith("KB-E1 modeundo ", StringComparison.Ordinal))).IsFalse();
+    }
+
+    // ---- the slip line: a relation, never a key ------------------------------------------------
+
+    [Fact]
+    public void ASlipOntoANeighbour_LogsAdjacencyDirectionAndDistance_ButNoKey()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");                  // the slipped letter
+        rig.Clock = 800;
+        rig.Type("backspace");                // taken back inside the word, 800 ms later
+        rig.Clock = 5_000;
+        rig.Type("key_0_1");                  // the replacement: the key to its right
+
+        Check.That(rig.Log.Of("slip")).ContainsExactly("KB-E1 slip adj=True dir=E dist=1 ms=800 reg=top");
+    }
+
+    [Fact]
+    public void ASlipOntoAFarKey_IsNotAdjacent_HasNoDirection_AndKeepsTheDistance()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Clock = 300;
+        rig.Type("backspace");
+        rig.Type("key_0_2");                  // two keys away
+
+        Check.That(rig.Log.Of("slip")).ContainsExactly("KB-E1 slip adj=False dir=- dist=2 ms=300 reg=top");
+    }
+
+    [Fact]
+    public void ASlipToTheLeft_ReadsWest()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_1");
+        rig.Type("backspace");
+        rig.Type("key_0_0");
+
+        Check.That(rig.Log.Of("slip").Single()).Contains("adj=True dir=W dist=1 ");
+    }
+
+    [Fact]
+    public void TheReplacementBecomesTheNextSlipCandidate()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Type("backspace");
+        rig.Type("key_0_1");                  // slip 1: h -> a
+        rig.Type("backspace");
+        rig.Type("key_0_2");                  // slip 2: a -> x
+
+        Check.That(rig.Log.Of("slip")).HasSize(2);
+        Check.That(rig.Log.Of("slip")[1]).Contains("adj=True dir=E dist=1 ");
+    }
+
+    [Fact]
+    public void NoSlipLine_WhenTheBackspaceCameTooLate_IntoCommittedText_OrWasFollowedByAnotherBackspace()
+    {
+        using var rig = new Rig();
+
+        // Too late: more than 3 s after the letter.
+        rig.Type("key_0_0");
+        rig.Clock = 3_001;
+        rig.Type("backspace");
+        rig.Type("key_0_1");
+
+        // Into committed text: the word was committed with Space first.
+        rig.Clock = 10_000;
+        rig.Type("key_0_0");
+        rig.Type("space");
+        rig.Type("backspace");
+        rig.Type("key_0_1");
+
+        // Two Backspaces in a row: not one slip and one repair.
+        rig.Clock = 20_000;
+        rig.Type("key_0_0");
+        rig.Type("key_0_1");
+        rig.Type("backspace");
+        rig.Type("backspace");
+        rig.Type("key_0_2");
+
+        Check.That(rig.Log.Of("slip")).IsEmpty();
+    }
+
+    [Fact]
+    public void ASlipLine_CarriesOnlyTheFiveRelationFields()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Type("backspace");
+        rig.Type("key_0_1");
+
+        Check.That(Fields(rig.Log.Of("slip").Single()).Keys.OrderBy(k => k, StringComparer.Ordinal))
+            .ContainsExactly("adj", "dir", "dist", "ms", "reg");
+    }
+
+    [Fact]
+    public void AnythingBetweenTheBackspaceAndTheReplacement_EndsTheSlip()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Type("backspace");
+        rig.Type("space");                    // not a letter or digit
+        rig.Type("key_0_1");
+
+        Check.That(rig.Log.Of("slip")).IsEmpty();
     }
 
     // ---- mirror check ----------------------------------------------------------------------

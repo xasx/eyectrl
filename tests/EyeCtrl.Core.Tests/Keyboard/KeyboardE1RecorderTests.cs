@@ -43,7 +43,7 @@ public class KeyboardE1RecorderTests
     private static KeyE1 Key(string cls, string action = "-") => new(
         TimestampUs: 1_000, Row: 1, Col: 2, Class: cls, Action: action, BoxWidthPx: 210, BoxHeightPx: 210,
         SubLayout: "letters", Edge: "top", WindowX: 500, WindowY: 0, WindowWidth: 2800, WindowHeight: 1000,
-        SinceWindowMoveMs: 7000, DxPx: -3, DyPx: 4, MeanDxPx: -2, MeanDyPx: 5, Restarts: 1, SaccadePx: 640,
+        SinceWindowMoveMs: 7000, DxPx: -3, DyPx: 4, MeanDxPx: -2, MeanDyPx: 5, Restarts: 1, Saccade: "mid",
         EffectiveDwellMs: 450, PenaltyApplied: false, Typing: true, BackspaceClass: "-",
         Likely: true, WordStart: false, NoContinuation: false);
 
@@ -56,10 +56,83 @@ public class KeyboardE1RecorderTests
 
         Check.That(seq).IsEqualTo(1L);
         Check.That(log.Lines).HasSize(1);
+        // A letter is a TEXT key: no row, column or action id (they would spell the text).
         Check.That(log.Lines[0]).IsEqualTo(
-            "KB-E1 key seq=1 ts=1000 r=1 c=2 cls=letter act=- boxw=210 boxh=210 sub=letters edge=top " +
-            "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=-3 dy=4 mdx=-2 mdy=5 restarts=1 saccade=640 " +
+            "KB-E1 key seq=1 ts=1000 cls=letter boxw=210 boxh=210 sub=letters edge=top " +
+            "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=-3 dy=4 mdx=-2 mdy=5 restarts=1 saccade=mid " +
             "sincekey=-1 dwell=450 penalty=False typing=True bs=- likely=True start=False nocont=False");
+    }
+
+    [Theory]
+    [InlineData(KeyE1.Letter)]
+    [InlineData(KeyE1.Digit)]
+    [InlineData(KeyE1.Symbol)]
+    [InlineData(KeyE1.Emoji)]
+    public void ATextKeyLine_CarriesNoRowColumnOrActionId_WhateverTheCallerPasses(string cls)
+    {
+        var (recorder, log, _) = New();
+
+        // The caller hands over a position and an id; the recorder must drop both on its own.
+        recorder.RecordKey(Key(cls, "shortcut:Ctrl+C") with { Row = 3, Col = 7 });
+
+        Check.That(log.Lines[0]).Not.Contains(" r=");
+        Check.That(log.Lines[0]).Not.Contains(" c=");
+        Check.That(log.Lines[0]).Not.Contains(" act=");
+        Check.That(log.Lines[0]).Not.Contains("shortcut");
+        Check.That(log.Props[0].Select(p => p.Key)).Not.Contains("Row");
+        Check.That(log.Props[0].Select(p => p.Key)).Not.Contains("Col");
+        Check.That(log.Props[0].Select(p => p.Key)).Not.Contains("Act");
+    }
+
+    [Theory]
+    [InlineData(KeyE1.Space, "space")]
+    [InlineData(KeyE1.Backspace, "backspace")]
+    [InlineData(KeyE1.Enter, "enter")]
+    [InlineData(KeyE1.Shift, "modifier:shift")]
+    [InlineData(KeyE1.SwitchSub, "switchSub:numbers")]
+    [InlineData(KeyE1.Other, "shortcut:Ctrl+C")]
+    public void ANonTextKeyLine_KeepsItsPositionAndId_BecauseTheyDoNotSpellText(string cls, string action)
+    {
+        var (recorder, log, _) = New();
+
+        recorder.RecordKey(Key(cls, action));
+
+        Check.That(log.Lines[0]).Contains($" r=1 c=2 cls={cls} act={action} ");
+    }
+
+    [Theory]
+    [InlineData(KeyE1.Letter, true)]
+    [InlineData(KeyE1.Digit, true)]
+    [InlineData(KeyE1.Symbol, true)]
+    [InlineData(KeyE1.Emoji, true)]
+    [InlineData(KeyE1.Space, false)]
+    [InlineData(KeyE1.Backspace, false)]
+    [InlineData(KeyE1.DeleteWord, false)]
+    [InlineData(KeyE1.Enter, false)]
+    [InlineData(KeyE1.Shift, false)]
+    [InlineData(KeyE1.Caps, false)]
+    [InlineData(KeyE1.Mode, false)]
+    [InlineData(KeyE1.SwitchSub, false)]
+    [InlineData(KeyE1.Other, false)]
+    public void OnlyTextKeyClasses_AreIdentityFree(string cls, bool expected)
+    {
+        Check.That(KeyboardE1Recorder.IsIdentityFree(cls)).IsEqualTo(expected);
+    }
+
+    [Fact]
+    public void ASlipLine_DescribesTheRelationOnly()
+    {
+        var (recorder, log, _) = New();
+
+        recorder.RecordSlip(adjacent: true, direction: "W", distancePitches: 1, msToBackspace: 800, rowBand: "top");
+        recorder.RecordSlip(adjacent: false, direction: "-", distancePitches: 3, msToBackspace: 1200, rowBand: "bot");
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 slip adj=True dir=W dist=1 ms=800 reg=top",
+            "KB-E1 slip adj=False dir=- dist=3 ms=1200 reg=bot");
+        Check.That(log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}")
+                .OrderBy(k => k, StringComparer.Ordinal))
+            .ContainsExactly("Adj", "Dir", "Dist", "Ms", "Reg");
     }
 
     [Fact]
@@ -301,12 +374,14 @@ public class KeyboardE1RecorderTests
         recorder.RecordSpace(7, barEmpty: true);
         recorder.RecordHoldOn(7, 600, capped: true);
         recorder.RecordAbandon(new AbandonE1(5_000, 0, 3, KeyE1.Letter, "-", 65, "NearestChanged", 12, -9, "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(6_000, 3, 0, KeyE1.Shift, "modifier:shift", 40, "GazeLeft", 5, 6, "letters", "top"));
         recorder.RecordMirror("enter", "mismatch", mirrorLength: 14, controlLength: 14, commonSuffix: 6);
 
         Check.That(log.Lines).ContainsExactly(
             "KB-E1 space seq=7 empty=True",
             "KB-E1 holdon seq=7 ms=600 capped=True",
-            "KB-E1 abandon ts=5000 r=0 c=3 cls=letter act=- pct=65 why=NearestChanged dx=12 dy=-9 sub=letters edge=top",
+            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged mdx=12 mdy=-9 sub=letters edge=top",
+            "KB-E1 abandon ts=6000 r=3 c=0 cls=shift act=modifier:shift pct=40 why=GazeLeft mdx=5 mdy=6 sub=letters edge=top",
             "KB-E1 mirror at=enter res=mismatch mirrorlen=14 ctllen=14 common=6");
     }
 

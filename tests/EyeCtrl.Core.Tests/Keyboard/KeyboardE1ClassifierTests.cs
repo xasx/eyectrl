@@ -13,9 +13,9 @@ public class KeyboardE1ClassifierTests
     [InlineData("ß", KeyE1.Letter)]
     [InlineData("ä", KeyE1.Letter)]
     [InlineData("7", KeyE1.Digit)]
-    [InlineData(".", KeyE1.Other)]
-    [InlineData(",", KeyE1.Other)]
-    [InlineData("€", KeyE1.Other)]
+    [InlineData(".", KeyE1.Symbol)]
+    [InlineData(",", KeyE1.Symbol)]
+    [InlineData("€", KeyE1.Symbol)]
     public void PlainKeys_AreClassedByTheirOutput_AndCarryNoId(string output, string expectedClass)
     {
         var (cls, action) = KeyboardE1Classifier.Classify(Plain(output), emojiMode: false);
@@ -69,11 +69,11 @@ public class KeyboardE1ClassifierTests
     }
 
     [Fact]
-    public void AMultiCharacterOutput_IsOther_NotALetter()
+    public void AMultiCharacterOutput_IsAText_Symbol_NotALetter()
     {
         var (cls, _) = KeyboardE1Classifier.Classify(Plain("qu"), emojiMode: false);
 
-        Check.That(cls).IsEqualTo(KeyE1.Other);
+        Check.That(cls).IsEqualTo(KeyE1.Symbol);
     }
 
     [Theory]

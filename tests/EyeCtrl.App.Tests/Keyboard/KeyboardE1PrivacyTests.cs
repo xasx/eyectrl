@@ -62,13 +62,22 @@ public class KeyboardE1PrivacyTests
 
     // ---- the allow-lists --------------------------------------------------------------------
 
+    /// <summary>Key classes whose lines carry NO position or id: text keys (they would spell the text).</summary>
+    private static readonly HashSet<string> TextKeyClasses = ["letter", "digit", "symbol", "emoji"];
+
+    /// <summary>The names that identify a key. A text key's line must carry none of them.</summary>
+    private static readonly string[] IdentityNames = ["Row", "Col", "Act"];
+
     private static readonly Dictionary<string, string[]> AllowedNames = new()
     {
-        ["key"] = ["Seq", "TsUs", "Row", "Col", "Class", "Act", "BoxW", "BoxH", "Sub", "Edge", "WinX", "WinY",
-                   "WinW", "WinH", "SinceMoveMs", "Dx", "Dy", "MeanDx", "MeanDy", "Restarts", "SaccadePx",
+        // Every key line. Non-text keys (Space, Backspace, Enter, modifiers, switches, shortcuts) add
+        // IdentityNames; text keys never do. See NamesAllowedFor.
+        ["key"] = ["Seq", "TsUs", "Class", "BoxW", "BoxH", "Sub", "Edge", "WinX", "WinY",
+                   "WinW", "WinH", "SinceMoveMs", "Dx", "Dy", "MeanDx", "MeanDy", "Restarts", "Saccade",
                    "SinceKeyMs", "DwellMs", "Penalty", "Typing", "Bs", "Likely", "Start", "NoCont"],
         ["holdon"] = ["Seq", "Ms", "Capped"],
-        ["abandon"] = ["TsUs", "Row", "Col", "Class", "Act", "Pct", "Why", "Dx", "Dy", "Sub", "Edge"],
+        ["abandon"] = ["TsUs", "Class", "Pct", "Why", "MeanDx", "MeanDy", "Sub", "Edge"],
+        ["slip"] = ["Adj", "Dir", "Dist", "Ms", "Reg"],
         ["pick"] = ["Slot", "Source", "PrefixLen", "InsLen", "SinceKeyMs", "SincePickMs", "RenderMs", "Visited"],
         ["pickundo"] = ["Ms", "By"],
         ["space"] = ["Seq", "Empty"],
@@ -83,9 +92,12 @@ public class KeyboardE1PrivacyTests
     /// <summary>The closed vocabulary of every string-valued property, by property name.</summary>
     private static readonly Dictionary<string, HashSet<string>> AllowedStrings = new()
     {
-        ["Class"] = ["letter", "digit", "space", "backspace", "deleteword", "enter", "shift", "caps", "mode",
+        ["Class"] = ["letter", "digit", "symbol", "space", "backspace", "deleteword", "enter", "shift", "caps", "mode",
                      "switchsub", "emoji", "other"],
-        ["Act"] = ["-", "space", "backspace", "deleteWord", "enter", "shift", "modifier:shift", "toggle:capslock",
+        ["Saccade"] = ["short", "mid", "long", "-"],
+        ["Dir"] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "-"],
+        ["Reg"] = ["top", "mid", "bot", "-"],
+        ["Act"] = ["space", "backspace", "deleteWord", "enter", "shift", "modifier:shift", "toggle:capslock",
                    "modifier:ctrl", "modifier:alt", "modifier:win", "switchEmoji", "switchSub:letters",
                    "switchSub:numbers", "switchSub:symbols", "switchSub:accents", "switchSub:function",
                    "tab", "addWord"],
@@ -105,6 +117,15 @@ public class KeyboardE1PrivacyTests
         ["At"] = ["hide", "enter"],
         ["Res"] = ["match", "mismatch", "unsupported", "suppressed", "empty"],
     };
+
+    /// <summary>The allowed property names of one logged line: by event, and for key/abandon lines by class.</summary>
+    private static string[] NamesAllowedFor(Line line)
+    {
+        var names = AllowedNames[line.Event];
+        if (line.Event is "key" or "abandon" && !TextKeyClasses.Contains((string)line.Props["Class"]!))
+            return names.Concat(IdentityNames).ToArray();
+        return names;
+    }
 
     // ---- capture ----------------------------------------------------------------------------
 
@@ -162,7 +183,12 @@ public class KeyboardE1PrivacyTests
             .GetField("_keyScreenPositions", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
 
-    private static Probe Open()
+    private static readonly Dictionary<string, int> SessionWords = new()
+    {
+        ["zebrafink"] = 900, ["zebra"] = 500, ["hallo"] = 700, ["welt"] = 300,
+    };
+
+    private static Probe Open(Dictionary<string, int>? words = null)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var log = new Capture();
@@ -171,10 +197,7 @@ public class KeyboardE1PrivacyTests
         var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger(),
             logger: log, contextProbe: new SpyProbe());
         vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(
-            new InMemoryDictProvider(new Dictionary<string, int>
-            {
-                ["zebrafink"] = 900, ["zebra"] = 500, ["hallo"] = 700, ["welt"] = 300,
-            }), "QWERTZ")));
+            new InMemoryDictProvider(words ?? SessionWords), "QWERTZ")));
 
         var layout = KeyboardLayoutLoader.Load(Path.Combine(
             SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
@@ -266,6 +289,7 @@ public class KeyboardE1PrivacyTests
         Dwell(p, SpecialId(p, "space"), ref ts);
         Dwell(p, IdOf(p, "k"), ref ts);
         Dwell(p, SpecialId(p, "backspace"), ref ts);
+        Dwell(p, IdOf(p, "l"), ref ts);                 // the repair: the key beside k, so a slip line
         Dwell(p, SpecialId(p, "backspace"), ref ts);
 
         // An abandoned dwell: look at a key long enough to count, then away.
@@ -317,15 +341,15 @@ public class KeyboardE1PrivacyTests
         foreach (var expected in new[]
                  {
                      "key", "holdon", "abandon", "pick", "space", "mode", "modeundo", "edge", "shown", "hidden",
-                     "mirror", "pickundo",
+                     "mirror", "pickundo", "slip",
                  })
         {
             Check.WithCustomMessage($"The typing session produced no '{expected}' line ({lines.Count} E1 lines in all).")
                 .That(seen.Contains(expected)).IsTrue();
         }
 
-        // z e b, Space, k, two Backspaces, Enter.
-        Check.That(lines.Count(l => l.Event == "key")).IsEqualTo(8);
+        // z e b, Space, k, Backspace, l, Backspace, Enter.
+        Check.That(lines.Count(l => l.Event == "key")).IsEqualTo(9);
     }
 
     [StaFact]
@@ -342,6 +366,9 @@ public class KeyboardE1PrivacyTests
 
             foreach (var (name, value) in line.Props)
             {
+                // A compass point (N, E, ...) is one letter by nature; its closed vocabulary is pinned
+                // by EveryStringValue_IsFromAClosedVocabulary..., so it cannot carry a key label.
+                if (name == "Dir") continue;
                 var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
                 // Not the marker or any 3+ letter run of it, and never a single key label (a letter)
                 // standing alone as a value — "act=z" is exactly what leaking a key's character looks like.
@@ -363,7 +390,7 @@ public class KeyboardE1PrivacyTests
         {
             Check.WithCustomMessage($"An E1 event with no allow-list entry: '{line.Event}' ({line.Message})")
                 .That(AllowedNames.ContainsKey(line.Event)).IsTrue();
-            var expected = AllowedNames[line.Event].OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            var expected = NamesAllowedFor(line).OrderBy(n => n, StringComparer.Ordinal).ToArray();
             var actual = line.Props.Keys.OrderBy(n => n, StringComparer.Ordinal).ToArray();
             Check.WithCustomMessage(
                     $"'{line.Event}' property names changed. A new field needs a deliberate edit of " +
@@ -400,6 +427,105 @@ public class KeyboardE1PrivacyTests
                 }
             }
         }
+    }
+
+    [StaFact]
+    public void ALetterDigitSymbolOrEmojiLine_CarriesNoRowColumnOrActionId_ButASpaceOrBackspaceLineDoes()
+    {
+        var lines = CaptureSession();
+
+        var textLines = lines.Where(l => l.Event is "key" or "abandon"
+            && TextKeyClasses.Contains((string)l.Props["Class"]!)).ToList();
+        var nonTextLines = lines.Where(l => l.Event is "key" or "abandon"
+            && !TextKeyClasses.Contains((string)l.Props["Class"]!)).ToList();
+
+        Check.WithCustomMessage("The session typed no text keys: this gate would pass over nothing.")
+            .That(textLines.Count).IsStrictlyGreaterThan(5);
+        foreach (var line in textLines)
+            foreach (var identity in IdentityNames)
+                Check.WithCustomMessage($"A text key's line names '{identity}' (position/id would spell the text): {line.Message}")
+                    .That(line.Props.ContainsKey(identity)).IsFalse();
+
+        Check.That(nonTextLines.Count).IsStrictlyGreaterThan(2);
+        foreach (var line in nonTextLines.Where(l => l.Event == "key"))
+            foreach (var identity in IdentityNames)
+                Check.WithCustomMessage($"A non-text key's line lost '{identity}': {line.Message}")
+                    .That(line.Props.ContainsKey(identity)).IsTrue();
+    }
+
+    [StaFact]
+    public void TheSlipLine_DescribesTheRepairAndNamesNeitherKey()
+    {
+        var lines = CaptureSession();
+
+        var slip = lines.Single(l => l.Event == "slip");
+        // k -> l in the session: the key beside it, to the east, one pitch away.
+        Check.That((bool)slip.Props["Adj"]!).IsTrue();
+        Check.That((string)slip.Props["Dir"]!).IsEqualTo("E");
+        Check.That((int)slip.Props["Dist"]!).IsEqualTo(1);
+        Check.That(slip.Props.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            .ContainsExactly("Adj", "Dir", "Dist", "Ms", "Reg");
+    }
+
+    // ---- the log cannot spell the text --------------------------------------------------------
+
+    /// <summary>The fields that are timing or gaze-offset noise; everything else must not depend on the letter.</summary>
+    private static readonly string[] NoiseNames =
+        ["Seq", "TsUs", "SinceKeyMs", "SinceMoveMs", "Dx", "Dy", "MeanDx", "MeanDy", "Restarts"];
+
+    private static List<string> Signature(IEnumerable<Line> lines) =>
+        lines.Select(l => string.Join(" ", l.Props
+                .Where(p => !NoiseNames.Contains(p.Key))
+                .OrderBy(p => p.Key, StringComparer.Ordinal)
+                .Select(p => $"{p.Key}={Convert.ToString(p.Value, CultureInfo.InvariantCulture)}")))
+            .ToList();
+
+    [StaTheory]
+    [InlineData("hund", "mond")]
+    [InlineData("wert", "yxcv")]      // top row against bottom row: the row would be the loudest tell
+    [InlineData("quap", "mnbv")]
+    public void TwoDifferentWordsOfTheSameLength_LeaveIndistinguishableKeyLines(string first, string second)
+    {
+        // Everything is likely, so even the dictionary-derived shadow bits agree; what could still
+        // differ is any field that depends on WHICH key was hit. None may.
+        var words = new Dictionary<string, int>
+        {
+            [first] = 500, [second] = 500, ["hund"] = 500, ["mond"] = 500, ["wert"] = 500, ["yxcv"] = 500,
+            ["quap"] = 500, ["mnbv"] = 500,
+        };
+        var p = Open(words);
+        try
+        {
+            long ts = 1_000;
+            p.Vm.IsVisible = true;
+            foreach (var word in new[] { first, second })
+            {
+                foreach (var letter in word)
+                    Dwell(p, IdOf(p, letter.ToString()), ref ts);
+                Dwell(p, SpecialId(p, "space"), ref ts);
+            }
+
+            var keyLines = p.Log.All().Where(l => l.Event == "key").ToList();
+            Check.That(keyLines).HasSize(2 * (first.Length + 1));
+            var perWord = first.Length + 1;
+            var a = keyLines.Take(perWord).ToList();
+            var b = keyLines.Skip(perWord).ToList();
+
+            // 1. No line names a position or an id for a letter...
+            foreach (var line in a.Concat(b).Where(l => (string)l.Props["Class"]! == "letter"))
+                foreach (var identity in IdentityNames)
+                    Check.That(line.Props.ContainsKey(identity)).IsFalse();
+
+            // 2. ...and, noise removed, the two words' line sequences are identical, field for field.
+            Check.WithCustomMessage($"'{first}' and '{second}' are distinguishable from their key lines")
+                .That(Signature(b)).ContainsExactly(Signature(a).ToArray());
+
+            // 3. Nothing in any rendered line contains either word or one of its letters standing alone.
+            foreach (var line in p.Log.All())
+                foreach (var word in new[] { first, second })
+                    Check.That(line.Message.ToLowerInvariant()).Not.Contains(word);
+        }
+        finally { p.Dispose(); }
     }
 
     [Fact]
@@ -440,18 +566,35 @@ public class KeyboardE1PrivacyTests
 
         recorder.RecordKey(new KeyE1(
             1_234_567, 1, 2, KeyE1.Letter, "-", 210, 210, "letters", "top", 500, 0, 2800, 1000, 7000,
-            -3, 4, -2, 5, 1, 640, 450, false, true, "-", true, false, false));
+            -3, 4, -2, 5, 1, "mid", 450, false, true, "-", true, false, false));
+        recorder.RecordKey(new KeyE1(
+            1_300_000, 3, 9, KeyE1.Backspace, "backspace", 210, 210, "letters", "top", 500, 0, 2800, 1000, 7000,
+            0, 0, 0, 0, 0, "long", 450, false, true, "word", false, false, false));
 
         // Exactly the day log's {Message:lj} (literal strings, JSON-ish scalars), under German.
         var formatter = new Serilog.Formatting.Display.MessageTemplateTextFormatter(
             "{Message:lj}", CultureInfo.GetCultureInfo("de-DE"));
         using var writer = new StringWriter();
-        formatter.Format(sink.Events.Single(), writer);
+        formatter.Format(sink.Events[0], writer);
         var rendered = writer.ToString();
+        var renderedBackspace = Render(formatter, sink.Events[1]);
         Check.That(rendered).IsEqualTo(
-            "KB-E1 key seq=1 ts=1234567 r=1 c=2 cls=letter act=- boxw=210 boxh=210 sub=letters edge=top " +
-            "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=-3 dy=4 mdx=-2 mdy=5 restarts=1 saccade=640 " +
+            "KB-E1 key seq=1 ts=1234567 cls=letter boxw=210 boxh=210 sub=letters edge=top " +
+            "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=-3 dy=4 mdx=-2 mdy=5 restarts=1 saccade=mid " +
             "sincekey=-1 dwell=450 penalty=false typing=true bs=- likely=true start=false nocont=false");
+        // The same line for a NON-text key keeps its position and id.
+        Check.That(renderedBackspace).IsEqualTo(
+            "KB-E1 key seq=2 ts=1300000 r=3 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top " +
+            "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=0 dy=0 mdx=0 mdy=0 restarts=0 saccade=long " +
+            "sincekey=0 dwell=450 penalty=false typing=true bs=word likely=false start=false nocont=false");
+    }
+
+    private static string Render(Serilog.Formatting.Display.MessageTemplateTextFormatter formatter,
+        Serilog.Events.LogEvent logEvent)
+    {
+        using var writer = new StringWriter();
+        formatter.Format(logEvent, writer);
+        return writer.ToString();
     }
 
     private sealed class CollectingSink : Serilog.Core.ILogEventSink

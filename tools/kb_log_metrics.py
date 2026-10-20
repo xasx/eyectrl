@@ -15,10 +15,18 @@ parse: a half-written last line must not sink the whole report. The lines are co
 contract -- geometry, key CLASSES, timings, lengths, the foreground process NAME -- so this
 script never sees a typed character, and cannot print one.
 
-The events: key, holdon, abandon, pick, pickundo, space, mode, modeundo, edge, shown, hidden,
-mirror. ``key`` carries the whole activation (seq, ts, r/c, cls, act, boxw/boxh, sub, edge,
-win*, movems, dx/dy, mdx/mdy, restarts, saccade, sincekey, dwell, penalty, typing, bs, likely,
-start, nocont); ``holdon`` and ``space`` follow a key line and name it by ``seq``.
+The events: key, holdon, abandon, slip, pick, pickundo, space, mode, modeundo, edge, shown,
+hidden, mirror. ``key`` carries the whole activation (seq, ts, cls, boxw/boxh, sub, edge, win*,
+movems, dx/dy, mdx/mdy, restarts, saccade, sincekey, dwell, penalty, typing, bs, likely, start,
+nocont); ``holdon`` and ``space`` follow a key line and name it by ``seq``.
+
+Privacy (the owner's rule): a TEXT key's line (class letter, digit, symbol, emoji) carries NO
+row, column or action id -- those would spell the text -- and ``saccade`` is a class
+(short/mid/long), never pixels. Only non-text keys (space, backspace, enter, modifiers, switches,
+shortcuts) keep ``r``/``c``/``act``. So this script cannot say WHICH letter was slipped: the
+``slip`` event is the live, content-free substitute -- it says only whether the replacement was a
+geometric neighbour of the slipped key, in which compass direction, how many key pitches away,
+how long before the Backspace, and in which third of the grid's rows (``reg``: top/mid/bot).
 
 Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
 ------------------------------------------------------------
@@ -27,6 +35,14 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      (``bs=word``), no more than 3 s later by the log's own clock. A Backspace
                      into committed text is editing, not a slip, and does not count.
 * slip rate          slips / letters
+* repairs            the ``slip`` events: share whose replacement was ADJACENT to the slipped key,
+                     the compass-direction histogram of the adjacent ones, and the same per row
+                     band (``reg``). The steward's C2 rule 2 -- ">= 60 % of slips adjacent with
+                     one consistent direction in a region" -- is flagged per region as
+                     ``meets_rule2``: adjacent share >= 60 % AND the commonest direction holds
+                     >= 50 % of the adjacent ones (the steward gives no number for "consistent";
+                     50 % of 8 directions is a strong plurality) AND the region has at least
+                     ``MIN_REGION_SLIPS`` repairs.
 * likely=0 share     of slipped letters, those whose letter was NOT in the predictor's top-5
                      continuation set, excluding word starts (``start``) and prefixes with no
                      continuation (``nocont``). The rule wants n >= 20 before it is read.
@@ -68,6 +84,9 @@ LINE = re.compile(
 FIELD = re.compile(r"(\w+)=(\S+)")
 
 SLIP_WINDOW_MS = 3000
+ADJACENT_SHARE_RULE2 = 0.6      # the steward's ">= 60 % of slips are adjacent"
+CONSISTENT_DIRECTION_SHARE = 0.5
+MIN_REGION_SLIPS = 5
 CHAIN_PICK_MS = 1000
 NEAR_MOVE_MS = 1000
 HOLD_ON_GATE_MS = 150
@@ -103,6 +122,7 @@ REQUIRED: dict[str, dict[str, type]] = {
             "penalty": bool, "bs": str, "movems": int},
     "holdon": {"seq": int, "ms": int},
     "abandon": {"ts": int, "cls": str},
+    "slip": {"adj": bool, "dir": str, "dist": int, "ms": int, "reg": str},
     "pick": {"slot": int, "src": str, "sincekey": int, "sincepick": int},
     "pickundo": {"ms": int},
     "space": {"seq": int, "empty": bool},
@@ -160,7 +180,41 @@ def _hold_stats(values: list[int]) -> dict[str, Any]:
     }
 
 
-def metrics(events: list[dict[str, Any]], edge: str | None = None) -> dict[str, Any]:
+def repairs(events: list[dict[str, Any]], min_region_slips: int) -> dict[str, Any]:
+    """The ``slip`` events (a letter/digit slipped, taken back, replaced): adjacency, direction, region."""
+    slips = [e for e in events if e["event"] == "slip"]
+
+    def summary(group: list[dict[str, Any]]) -> dict[str, Any]:
+        adjacent = [e for e in group if e["adj"]]
+        directions = Counter(e["dir"] for e in adjacent)
+        top_dir, top_n = directions.most_common(1)[0] if directions else (None, 0)
+        adjacent_share = _share(len(adjacent), len(group))
+        top_dir_share = _share(top_n, len(adjacent))
+        return {
+            "n": len(group),
+            "adjacent": len(adjacent),
+            "adjacent_share": adjacent_share,
+            "directions": dict(directions),
+            "top_direction": top_dir,
+            "top_direction_share": top_dir_share,
+            "median_ms_to_backspace": statistics.median([e["ms"] for e in group]) if group else None,
+            "meets_rule2": bool(
+                len(group) >= min_region_slips
+                and adjacent_share is not None and adjacent_share >= ADJACENT_SHARE_RULE2
+                and top_dir_share is not None and top_dir_share >= CONSISTENT_DIRECTION_SHARE),
+        }
+
+    result = summary(slips)
+    by_region: dict[str, Any] = {}
+    for reg in sorted({e["reg"] for e in slips}):
+        by_region[reg] = summary([e for e in slips if e["reg"] == reg])
+    result["by_region"] = by_region
+    result["rule2_regions"] = sorted(r for r, v in by_region.items() if v["meets_rule2"])
+    return result
+
+
+def metrics(events: list[dict[str, Any]], edge: str | None = None,
+            min_region_slips: int = MIN_REGION_SLIPS) -> dict[str, Any]:
     if edge is not None:
         events = [e for e in events if e["dock"] == edge]
 
@@ -231,6 +285,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None) -> dict[str, 
         "slipped_letters_counted": len(countable),
         "slipped_likely0": len(unlikely),
         "slipped_likely0_share": _share(len(unlikely), len(countable)),
+        "repairs": repairs(events, min_region_slips),
         "mode_undos": len(mode_undos),
         "mode_undos_per_100_letters": None if not letters else 100 * len(mode_undos) / len(letters),
         "hold_on": {name: _hold_stats(values) for name, values in holds.items()},
@@ -267,6 +322,13 @@ def render(m: dict[str, Any]) -> str:
     add(f"slips                     {m['slips']}   slip rate {_pct(m['slip_rate'])}")
     add(f"slipped letters counted   {m['slipped_likely0']} of {m['slipped_letters_counted']} "
         f"have likely=0 ({_pct(m['slipped_likely0_share'])}); start / nocont excluded")
+    r = m["repairs"]
+    add(f"repairs (slip lines)       {r['n']}   adjacent {_pct(r['adjacent_share'])}"
+        f"   directions {r['directions']}")
+    for reg, v in r["by_region"].items():
+        add(f"  {reg:<5} n={v['n']:<4} adjacent {_pct(v['adjacent_share']):<8} "
+            f"top dir {v['top_direction']} {_pct(v['top_direction_share'])}   "
+            + ("MEETS rule 2" if v["meets_rule2"] else "-"))
     add(f"mode-undos                {m['mode_undos']}   = "
         + ("n/a" if m["mode_undos_per_100_letters"] is None
            else f"{m['mode_undos_per_100_letters']:.2f}") + " per 100 letters")

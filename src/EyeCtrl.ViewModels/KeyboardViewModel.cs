@@ -112,6 +112,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private bool _inAutoReturn;
     private KeyboardMirrorChecker _mirrorChecker;
 
+    // E1 slip tracking: a letter/digit, then an in-word Backspace, then the replacement. Only the
+    // slipped key's centre, box and row band are kept, and only until the replacement arrives.
+    private readonly record struct SlipCandidate(PhysicalPoint Centre, PhysicalRect? Box, string Band, long AtMs);
+    private SlipCandidate? _slipCandidate;
+    private bool _slipArmed;
+    private long _slipBackspaceAtMs;
+
     private bool _holdOnActive;
     private long _holdOnSeq;
     private string _holdOnKeyId = "";
@@ -272,6 +279,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
         FinishHoldOn(capped: false);
+        _slipCandidate = null;
+        _slipArmed = false;
         _e1HasPrev = false;
         _e1Restarts = 0;
         _e1Samples = 0;
@@ -510,10 +519,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         TryResolveKey(keyId, out var definition, out var row, out var col);
         var (cls, action) = KeyboardE1Classifier.Classify(definition, IsEmojiMode);
         var geometry = E1Geometry?.Invoke() ?? KeyboardE1Geometry.Unknown;
+        // The offset is the MEAN over the abandoned dwell (where the gaze rested on the key), not the
+        // sample that ended it: on NearestChanged that sample already sits on the NEXT key, and its
+        // offset would hand over the direction from one key to the next.
+        var meanDx = _e1Samples > 0 ? _e1SumDxPx / _e1Samples : gazePoint.X - center.X;
+        var meanDy = _e1Samples > 0 ? _e1SumDyPx / _e1Samples : gazePoint.Y - center.Y;
         E1.RecordAbandon(new AbandonE1(
             timestampUs, row, col, cls, action,
             (int)Math.Round(progress * 100), reason.ToString(),
-            (int)Math.Round(gazePoint.X - center.X), (int)Math.Round(gazePoint.Y - center.Y),
+            (int)Math.Round(meanDx), (int)Math.Round(meanDy),
             ActiveSubLayoutId, geometry.Edge));
     }
 
@@ -532,12 +546,19 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         var meanDx = _e1Samples > 0 ? _e1SumDxPx / _e1Samples : dx;
         var meanDy = _e1Samples > 0 ? _e1SumDyPx / _e1Samples : dy;
         int boxW = 0, boxH = 0;
+        PhysicalRect? boxRect = null;
         if (keyScreenBoxes is not null && keyScreenBoxes.TryGetValue(keyId, out var box))
         {
             boxW = (int)Math.Round(box.Width);
             boxH = (int)Math.Round(box.Height);
+            boxRect = box;
         }
         var geometry = E1Geometry?.Invoke() ?? KeyboardE1Geometry.Unknown;
+
+        // The saccade into the key as one of three classes (never pixels), in units of the live key
+        // pitch: a raw distance, strung along consecutive keys, approximates key-to-key distances.
+        var pitch = KeyboardE1Slip.Pitch(keyScreenPositions.Values);
+        var saccadeClass = KeyboardE1Slip.SaccadeClass(_e1SaccadePx, pitch);
 
         // Backspace class: inside the word being typed (a correction) vs into committed text.
         var backspaceClass = KeyboardE1Classifier.None;
@@ -564,11 +585,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             boxW, boxH, ActiveSubLayoutId, geometry.Edge,
             geometry.X, geometry.Y, geometry.Width, geometry.Height, geometry.SinceMoveMs,
             (int)Math.Round(dx), (int)Math.Round(dy), (int)Math.Round(meanDx), (int)Math.Round(meanDy),
-            _e1Restarts, (int)Math.Round(_e1SaccadePx),
+            _e1Restarts, saccadeClass,
             KeyDwellMsFor(keyId), PenaltyApplied: false,
             CurrentInput.Length > 0, backspaceClass,
             likely, wordStart, noContinuation));
         _e1Restarts = 0;
+
+        TrackSlipE1(cls, backspaceClass, center, boxRect, row, pitch);
 
         // Hold-on: from the fire, how long does the gaze stay in this key's box (capped)?
         _holdOnActive = true;
@@ -576,6 +599,47 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _holdOnKeyId = keyId;
         _holdOnFireTimestampUs = timestampUs;
         _holdOnLastInsideUs = timestampUs;
+    }
+
+    /// <summary>
+    /// The slip state machine: letter/digit → in-word Backspace within 3 s → replacement letter/digit
+    /// logs ONE relation line (adjacent?, compass point, distance in pitches, ms to the Backspace,
+    /// row band of the slipped key). Anything else in between (Space, Shift, a second Backspace, a
+    /// mode key) drops the candidate. The slipped key is kept as geometry only, never as an id.
+    /// </summary>
+    private void TrackSlipE1(string cls, string backspaceClass, PhysicalPoint centre, PhysicalRect? box,
+        int row, double pitch)
+    {
+        var now = E1.NowMs;
+        if (cls is KeyE1.Letter or KeyE1.Digit)
+        {
+            if (_slipArmed && _slipCandidate is { } slipped)
+            {
+                var adjacent = pitch > 0 && slipped.Box is { } slippedBox && box is { } replacementBox
+                    && KeyboardE1Slip.Adjacent(slippedBox, replacementBox, pitch);
+                E1.RecordSlip(adjacent,
+                    adjacent ? KeyboardE1Slip.Direction(slipped.Centre, centre) : KeyboardE1Slip.None,
+                    KeyboardE1Slip.DistancePitches(slipped.Centre, centre, pitch),
+                    (int)(_slipBackspaceAtMs - slipped.AtMs), slipped.Band);
+            }
+
+            var rowCount = _layout is not null && _layout.SubLayouts.TryGetValue(ActiveSubLayoutId, out var sub)
+                ? sub.Rows.Count : 0;
+            _slipCandidate = new SlipCandidate(centre, box, KeyboardE1Slip.RowBand(row, rowCount), now);
+            _slipArmed = false;
+            return;
+        }
+
+        if (cls == KeyE1.Backspace && backspaceClass == "word" && !_slipArmed
+            && _slipCandidate is { } candidate && now - candidate.AtMs <= KeyboardE1Recorder.SlipWindowMs)
+        {
+            _slipArmed = true;
+            _slipBackspaceAtMs = now;
+            return;
+        }
+
+        _slipCandidate = null;
+        _slipArmed = false;
     }
 
     private void UpdateHoldOn(Dictionary<string, PhysicalPoint> keyScreenPositions,

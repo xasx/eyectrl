@@ -20,6 +20,15 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
+/// <b>No key identity for text keys.</b> A key line (and an abandonment) for a letter, digit,
+/// symbol or emoji key carries NO row, column, action id or label: those would spell the text
+/// (position plus the layout is a lossless cipher of it). Only non-text keys (Space, Backspace,
+/// Enter, modifiers, sub-layout switches, shortcuts) keep their position and id, because they do
+/// not spell anything. The recorder enforces this itself, whatever the caller passes. The slip
+/// line (<see cref="RecordSlip"/>) describes the relation between two keys, never either key.
+/// </para>
+///
+/// <para>
 /// Not a per-sample logger: every call here is per EVENT. The recorder also owns the small
 /// cross-event state the derived events need (the previous key and pick, the last mode change
 /// for mode-undo, the pick awaiting a possible undo).
@@ -32,6 +41,9 @@ public sealed class KeyboardE1Recorder
 
     /// <summary>A Backspace/DeleteWord this soon after a pick counts as undoing it.</summary>
     public const int PickUndoWindowMs = 3000;
+
+    /// <summary>A Backspace this soon after a letter/digit, inside the word, marks it a slip.</summary>
+    public const int SlipWindowMs = 3000;
 
     /// <summary>A mode change reversed this soon counts as undone.</summary>
     public const int ModeUndoWindowMs = 5000;
@@ -92,15 +104,31 @@ public sealed class KeyboardE1Recorder
         _lastKeyMs = now;
         if (!Enabled) return seq;
 
+        if (IsIdentityFree(k.Class))
+        {
+            _logger!.LogInformation(
+                "KB-E1 key seq={Seq} ts={TsUs} cls={Class} boxw={BoxW} boxh={BoxH} " +
+                "sub={Sub} edge={Edge} winx={WinX} winy={WinY} winw={WinW} winh={WinH} movems={SinceMoveMs} " +
+                "dx={Dx} dy={Dy} mdx={MeanDx} mdy={MeanDy} restarts={Restarts} saccade={Saccade} " +
+                "sincekey={SinceKeyMs} dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs} " +
+                "likely={Likely} start={Start} nocont={NoCont}",
+                seq, k.TimestampUs, k.Class, k.BoxWidthPx, k.BoxHeightPx,
+                k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth, k.WindowHeight, k.SinceWindowMoveMs,
+                k.DxPx, k.DyPx, k.MeanDxPx, k.MeanDyPx, k.Restarts, k.Saccade,
+                sinceKey, k.EffectiveDwellMs, k.PenaltyApplied, k.Typing, k.BackspaceClass,
+                k.Likely, k.WordStart, k.NoContinuation);
+            return seq;
+        }
+
         _logger!.LogInformation(
             "KB-E1 key seq={Seq} ts={TsUs} r={Row} c={Col} cls={Class} act={Act} boxw={BoxW} boxh={BoxH} " +
             "sub={Sub} edge={Edge} winx={WinX} winy={WinY} winw={WinW} winh={WinH} movems={SinceMoveMs} " +
-            "dx={Dx} dy={Dy} mdx={MeanDx} mdy={MeanDy} restarts={Restarts} saccade={SaccadePx} " +
+            "dx={Dx} dy={Dy} mdx={MeanDx} mdy={MeanDy} restarts={Restarts} saccade={Saccade} " +
             "sincekey={SinceKeyMs} dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs} " +
             "likely={Likely} start={Start} nocont={NoCont}",
             seq, k.TimestampUs, k.Row, k.Col, k.Class, k.Action, k.BoxWidthPx, k.BoxHeightPx,
             k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth, k.WindowHeight, k.SinceWindowMoveMs,
-            k.DxPx, k.DyPx, k.MeanDxPx, k.MeanDyPx, k.Restarts, k.SaccadePx,
+            k.DxPx, k.DyPx, k.MeanDxPx, k.MeanDyPx, k.Restarts, k.Saccade,
             sinceKey, k.EffectiveDwellMs, k.PenaltyApplied, k.Typing, k.BackspaceClass,
             k.Likely, k.WordStart, k.NoContinuation);
         return seq;
@@ -117,12 +145,43 @@ public sealed class KeyboardE1Recorder
     public void RecordAbandon(in AbandonE1 a)
     {
         if (!Enabled) return;
+        if (IsIdentityFree(a.Class))
+        {
+            _logger!.LogInformation(
+                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} mdx={MeanDx} mdy={MeanDy} " +
+                "sub={Sub} edge={Edge}",
+                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.MeanDxPx, a.MeanDyPx, a.SubLayout, a.Edge);
+            return;
+        }
         _logger!.LogInformation(
-            "KB-E1 abandon ts={TsUs} r={Row} c={Col} cls={Class} act={Act} pct={Pct} why={Why} dx={Dx} dy={Dy} " +
+            "KB-E1 abandon ts={TsUs} r={Row} c={Col} cls={Class} act={Act} pct={Pct} why={Why} mdx={MeanDx} mdy={MeanDy} " +
             "sub={Sub} edge={Edge}",
-            a.TimestampUs, a.Row, a.Col, a.Class, a.Action, a.ProgressPct, a.Reason, a.DxPx, a.DyPx,
+            a.TimestampUs, a.Row, a.Col, a.Class, a.Action, a.ProgressPct, a.Reason, a.MeanDxPx, a.MeanDyPx,
             a.SubLayout, a.Edge);
     }
+
+    /// <summary>
+    /// A slip and its repair: a letter or digit was followed by a Backspace inside the word and then
+    /// by a replacement letter or digit. The line describes the RELATION between the two keys and
+    /// identifies neither: whether the replacement is a geometric neighbour of the slipped key
+    /// (<see cref="KeyboardE1Slip"/> says by which rule), the compass point from one to the other
+    /// (only when adjacent), the distance in key pitches (capped at 3), the time between the slip
+    /// and the Backspace, and the thirds-of-the-grid row band of the slipped key.
+    /// </summary>
+    public void RecordSlip(bool adjacent, string direction, int distancePitches, int msToBackspace, string rowBand)
+    {
+        if (!Enabled) return;
+        _logger!.LogInformation(
+            "KB-E1 slip adj={Adj} dir={Dir} dist={Dist} ms={Ms} reg={Reg}",
+            adjacent, direction, distancePitches, msToBackspace, rowBand);
+    }
+
+    /// <summary>
+    /// Whether a key class is TEXT: its row, column, action id and label would spell what was typed,
+    /// so a line for it carries none of them.
+    /// </summary>
+    public static bool IsIdentityFree(string keyClass) =>
+        keyClass is KeyE1.Letter or KeyE1.Digit or KeyE1.Symbol or KeyE1.Emoji;
 
     /// <summary>One bar pick. Lengths and ids only; the picked word is never passed in.</summary>
     public void RecordPick(int slot, string source, int prefixLength, int insertedLength,
@@ -236,7 +295,7 @@ public readonly record struct KeyE1(
     int WindowX, int WindowY, int WindowWidth, int WindowHeight,
     long SinceWindowMoveMs,
     int DxPx, int DyPx, int MeanDxPx, int MeanDyPx,
-    int Restarts, int SaccadePx,
+    int Restarts, string Saccade,
     int EffectiveDwellMs, bool PenaltyApplied,
     bool Typing, string BackspaceClass,
     bool Likely, bool WordStart, bool NoContinuation)
@@ -263,14 +322,16 @@ public readonly record struct KeyE1(
     public const string SwitchSub = "switchsub";
     /// <summary>Class: any key while the emoji surface is up.</summary>
     public const string Emoji = "emoji";
-    /// <summary>Class: everything else (punctuation, Tab, shortcuts, function keys).</summary>
+    /// <summary>Class: a plain key that types a symbol (punctuation, currency, …): text, so no identity.</summary>
+    public const string Symbol = "symbol";
+    /// <summary>Class: everything else (Tab, shortcuts, function keys, navigation).</summary>
     public const string Other = "other";
 }
 
 /// <summary>Everything E1 logs for one abandonment.</summary>
 public readonly record struct AbandonE1(
     long TimestampUs, int Row, int Col, string Class, string Action,
-    int ProgressPct, string Reason, int DxPx, int DyPx, string SubLayout, string Edge);
+    int ProgressPct, string Reason, int MeanDxPx, int MeanDyPx, string SubLayout, string Edge);
 
 /// <summary>
 /// The window facts a key line carries and the view-model cannot see: the dock edge, the window's

@@ -39,6 +39,12 @@ The fixture, in event order (times are the log clock, ms after 10:00:00):
     L10 near a move (500 ms) likely hold-on 300, L11 unlikely hold-on 120 then BS in word
     (a counted slip), L12 likely hold-on 600; mirror suppressed; hide by edge-close.
 
+  Text-key lines (letters) carry NO r/c/act and a saccade CLASS; non-text keys (Backspace, Space,
+  switchSub, Shift) keep r/c/act. Four 'slip' repair lines follow the replacement keys:
+    L3 -> L4  adj E  dist 1  800 ms  top        L5 -> L6  adj E  dist 1  500 ms  top
+    L6 -> L7  not adjacent, dist 2   400 ms  mid        L11 -> L12 adj W dist 1  500 ms  bot (bottom edge)
+  and two abandon lines (one identity-free letter, one Shift that keeps its position).
+
   Noise that must be skipped: a non-E1 line, a damaged 'key seq=zzz' line, a line cut off by
   a crash.
 """
@@ -140,6 +146,102 @@ class WholeDay(unittest.TestCase):
 
     def test_hides_by_cause(self) -> None:
         self.assertEqual(self.m["hides_by_cause"], {"toolbar-toggle": 1, "edge-close": 1})
+
+
+class Repairs(unittest.TestCase):
+    def setUp(self) -> None:
+        self.m = fixture_metrics()
+        self.r = self.m["repairs"]
+
+    def test_adjacent_share_and_direction_histogram(self) -> None:
+        self.assertEqual(self.r["n"], 4)
+        self.assertEqual(self.r["adjacent"], 3)
+        self.assertAlmostEqual(self.r["adjacent_share"], 0.75)
+        self.assertEqual(self.r["directions"], {"E": 2, "W": 1})
+        self.assertEqual(self.r["top_direction"], "E")
+        self.assertAlmostEqual(self.r["top_direction_share"], 2 / 3)
+        self.assertEqual(self.r["median_ms_to_backspace"], 500)     # 800 500 400 500
+
+    def test_by_region_uses_the_row_band_on_the_line(self) -> None:
+        by = self.r["by_region"]
+        self.assertEqual(sorted(by), ["bot", "mid", "top"])
+        self.assertEqual((by["top"]["n"], by["top"]["adjacent"]), (2, 2))
+        self.assertEqual(by["top"]["top_direction"], "E")
+        self.assertEqual((by["mid"]["n"], by["mid"]["adjacent"]), (1, 0))
+        self.assertIsNone(by["mid"]["top_direction"])
+        self.assertEqual((by["bot"]["n"], by["bot"]["adjacent"]), (1, 1))
+        self.assertEqual(by["bot"]["top_direction"], "W")
+
+    def test_rule2_needs_the_minimum_repairs_in_a_region(self) -> None:
+        # With the real minimum (5) a tiny log qualifies nowhere.
+        self.assertEqual(self.r["rule2_regions"], [])
+        events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
+        # Lowered to 2: the top band (2 of 2 adjacent, both E) qualifies; mid (0 adjacent) and
+        # bot (1 repair) do not.
+        low = kb.metrics(events, min_region_slips=2)["repairs"]
+        self.assertEqual(low["rule2_regions"], ["top"])
+        self.assertTrue(low["by_region"]["top"]["meets_rule2"])
+        self.assertFalse(low["by_region"]["mid"]["meets_rule2"])
+        self.assertFalse(low["by_region"]["bot"]["meets_rule2"])
+
+    def test_rule2_needs_a_consistent_direction_not_just_adjacency(self) -> None:
+        def slip(direction: str) -> str:
+            return ("2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=true dir=%s dist=1 ms=500 reg=top"
+                    % direction)
+        scattered = kb.metrics(kb.parse([slip(d) for d in ("E", "W", "N", "S", "NE", "SW")]),
+                               min_region_slips=2)["repairs"]
+        self.assertEqual(scattered["adjacent_share"], 1.0)
+        self.assertEqual(scattered["rule2_regions"], [])           # all adjacent, no direction dominates
+        agreeing = kb.metrics(kb.parse([slip("E")] * 4 + [slip("W")] * 2), min_region_slips=2)["repairs"]
+        self.assertEqual(agreeing["rule2_regions"], ["top"])       # 4 of 6 east
+
+    def test_rule2_needs_the_adjacent_share(self) -> None:
+        lines = ["2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=true dir=E dist=1 ms=500 reg=top"] * 2
+        lines += ["2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=false dir=- dist=3 ms=500 reg=top"] * 3
+        m = kb.metrics(kb.parse(lines), min_region_slips=2)["repairs"]
+        self.assertAlmostEqual(m["adjacent_share"], 0.4)
+        self.assertEqual(m["rule2_regions"], [])
+
+    def test_a_damaged_slip_line_is_skipped(self) -> None:
+        good = "2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=true dir=E dist=1 ms=500 reg=top"
+        self.assertEqual(len(kb.parse([good])), 1)
+        self.assertEqual(kb.parse([good.replace("adj=true", "adj=1")]), [])
+        self.assertEqual(kb.parse([good.replace(" reg=top", "")]), [])
+
+    def test_the_slip_split_by_edge_follows_the_flip(self) -> None:
+        self.assertEqual(fixture_metrics("top")["repairs"]["n"], 3)
+        self.assertEqual(fixture_metrics("bottom")["repairs"]["n"], 1)
+
+
+class Privacy(unittest.TestCase):
+    """The fixture is what a real day log looks like: a text key's line names no position or id."""
+
+    def test_fixture_letter_lines_carry_no_row_column_or_action(self) -> None:
+        for line in FIXTURE.read_text(encoding="utf-8").splitlines():
+            if "KB-E1 key " in line and " cls=letter " in line:
+                for banned in (" r=", " c=", " act="):
+                    self.assertNotIn(banned, line)
+                self.assertRegex(line, r" saccade=(short|mid|long|-) ")
+
+    def test_non_text_lines_keep_their_position_and_id(self) -> None:
+        backspaces = [l for l in FIXTURE.read_text(encoding="utf-8").splitlines() if " cls=backspace " in l]
+        self.assertTrue(backspaces)
+        for line in backspaces:
+            self.assertIn(" act=backspace ", line)
+            self.assertRegex(line, r" r=\d+ c=\d+ ")
+
+    def test_parsing_never_needs_a_key_identity(self) -> None:
+        events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
+        letters = [e for e in events if e["event"] == "key" and e["cls"] == "letter"]
+        self.assertEqual(len(letters), 12)
+        for e in letters:
+            self.assertNotIn("r", e)
+            self.assertNotIn("c", e)
+            self.assertNotIn("act", e)
+        abandons = [e for e in events if e["event"] == "abandon"]
+        self.assertEqual(len(abandons), 2)
+        self.assertNotIn("r", abandons[0])
+        self.assertEqual(abandons[1]["r"], 3)
 
 
 class ByEdge(unittest.TestCase):

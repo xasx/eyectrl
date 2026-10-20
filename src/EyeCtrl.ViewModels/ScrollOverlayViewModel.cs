@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels;
 
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
@@ -26,6 +27,20 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     public double DeadZoneRadiusPx =>
         Math.Max(ScrollEngine.DeadZoneRadiusPixels, _dwellSettings.FixationRadiusPixels);
 
+    /// <summary>The start circle's radius in DIP (scroll arming fix, D1): looking anywhere inside
+    /// it for <see cref="StartHoldMs"/> starts scrolling. 250 DIP across — roughly the menu's
+    /// central circle — so this tracker's typical error no longer decides whether it starts.</summary>
+    public const double StartRadiusDip = 125;
+
+    /// <summary>How long, in ms of sample time, the gaze must stay inside the start circle to arm
+    /// (D3): a short fixation rather than one sample, so a passing glance does not start it.</summary>
+    public const int StartHoldMs = 150;
+
+    /// <summary>The start circle's radius in PHYSICAL px: <see cref="StartRadiusDip"/> × the live
+    /// scale (250 px at 200 %), never below the dead zone. Arming uses this; the dead zone itself
+    /// (<see cref="DeadZoneRadiusPx"/>) is unchanged.</summary>
+    public double StartRadiusPx => Math.Max(DeadZoneRadiusPx, StartRadiusDip * DpiHelper.ScaleX);
+
     /// <summary>The stop button's own radius in physical px (50 DIP × the live scale): its whole
     /// drawn face stops the scroll, not its inner half.</summary>
     public double StopZoneRadiusPx => DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
@@ -41,6 +56,18 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     private bool _armed;
     private long _enteredAtMs;
 
+    // Scroll arming fix (C2/C3/C5): the unarmed fixation run — consecutive gated samples inside the
+    // start circle: its first timestamp, its sample count and coordinate sums (for the centroid).
+    private long _runStartUs;
+    private int _runCount;
+    private double _runSumX;
+    private double _runSumY;
+    // The joystick's neutral point: the anchor at entry, the arming fixation's centroid once armed.
+    // The scroll TARGET and the crosshair stay on the anchor.
+    private PhysicalPoint _restPoint;
+    // The closest any gated sample came to the anchor while unarmed (-1 until the first), for the log.
+    private double _nearestPx = -1;
+
     [ObservableProperty] private double _anchorDotOffsetX;
     [ObservableProperty] private double _anchorDotOffsetY;
     [ObservableProperty] private double _scrollVelocityX;
@@ -48,6 +75,14 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     [ObservableProperty] private double _velocityMagnitude;
 
     public PhysicalPoint Anchor => _anchor;
+
+    /// <summary>The joystick's neutral point: the anchor until the arming fixation, then that
+    /// fixation's centroid (D2). Velocity and the dot feedback are measured from it.</summary>
+    public PhysicalPoint RestPoint => _restPoint;
+
+    /// <summary>The minimum distance of any gated sample to the anchor while unarmed, in physical
+    /// px; -1 until the first. Frozen once armed.</summary>
+    public double NearestPx => _nearestPx;
 
     /// <summary>Whether the eye has visited the dead zone since entry. The window uses it as the
     /// arming cue (the crosshair is full-opacity and double-thick until the first visit) and the
@@ -78,8 +113,11 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     public void EnterScrollMode(PhysicalPoint anchor, PhysicalPoint stopButtonCenter)
     {
         _anchor = anchor;
+        _restPoint = anchor;
         _stopButtonCenter = stopButtonCenter;
         _armed = false;
+        ResetRun();
+        _nearestPx = -1;
         _enteredAtMs = Environment.TickCount64;
         IsVisible = true;
         AnchorDotOffsetX = 0;
@@ -101,12 +139,51 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         // (TargetVelocityChanged drives ScrollWorker → SendInput.Scroll). Unreachable today
         // (TogglePause refuses Paused from ScrollMode and fixation is dead while paused), but
         // the gate makes the stated contract true instead of aspirational.
-        if (!IsVisible || !SampleMayDwell(message)) return;
+        if (!IsVisible) return;
+        if (!SampleMayDwell(message))
+        {
+            // A dropped sample (gap, paused) breaks the arming run: the fixation must be unbroken.
+            if (!_armed) ResetRun();
+            return;
+        }
 
-        double dx = message.Position.X - _anchor.X;
-        double dy = _anchor.Y - message.Position.Y;
-        double dist = message.Position.DistanceTo(_anchor);
-        if (dist > 1.0)
+        // F-S4 + the arming fix: until the eye has FIXATED inside the start circle around the
+        // anchor (StartHoldMs of unbroken samples), the ring follows the dot feedback but nothing
+        // scrolls — the entry gaze (the menu's Scroll slot) must not lurch the page. The fixation
+        // arms the joystick for the rest of the session and its centroid becomes the rest point.
+        if (!_armed)
+        {
+            double anchorDist = message.Position.DistanceTo(_anchor);
+            if (_nearestPx < 0 || anchorDist < _nearestPx) _nearestPx = anchorDist;
+
+            if (anchorDist <= StartRadiusPx)
+            {
+                if (_runCount == 0) _runStartUs = message.TimestampMicroseconds;
+                _runCount++;
+                _runSumX += message.Position.X;
+                _runSumY += message.Position.Y;
+
+                if (message.TimestampMicroseconds - _runStartUs >= StartHoldMs * 1000L)
+                {
+                    _armed = true;
+                    _restPoint = new PhysicalPoint(_runSumX / _runCount, _runSumY / _runCount);
+                    _log?.Invoke(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Scroll armed after {0} ms (offset=({1:F0},{2:F0})px, nearest={3:F0}px)",
+                        Environment.TickCount64 - _enteredAtMs,
+                        Whole(_restPoint.X - _anchor.X), Whole(_restPoint.Y - _anchor.Y), _nearestPx));
+                }
+            }
+            else
+            {
+                ResetRun();
+            }
+        }
+
+        // The dot rides the gaze relative to the rest point, so what is drawn is what is controlled.
+        double dx = message.Position.X - _restPoint.X;
+        double dy = _restPoint.Y - message.Position.Y;
+        if (message.Position.DistanceTo(_restPoint) > 1.0)
         {
             AnchorDotOffsetX = Math.Clamp(dx / MaxOffsetPx, -1.0, 1.0);
             AnchorDotOffsetY = Math.Clamp(dy / MaxOffsetPx, -1.0, 1.0);
@@ -117,29 +194,18 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
             AnchorDotOffsetY = 0;
         }
 
-        // F-S4: until the eye first visits the dead zone around the anchor, the ring follows the
-        // dot feedback but nothing scrolls — the entry gaze (the menu's Scroll slot) must not
-        // lurch the page. A visit arms the joystick for the rest of the session.
         if (!_armed)
         {
-            if (dist <= DeadZoneRadiusPx)
-            {
-                _armed = true;
-                _log?.Invoke($"Scroll armed after {Environment.TickCount64 - _enteredAtMs} ms");
-            }
-            else
-            {
-                ScrollVelocityX = 0;
-                ScrollVelocityY = 0;
-                VelocityMagnitude = 0;
-                TargetVelocityChanged?.Invoke(0, 0);
-                FeedbackChanged?.Invoke();
-                return;
-            }
+            ScrollVelocityX = 0;
+            ScrollVelocityY = 0;
+            VelocityMagnitude = 0;
+            TargetVelocityChanged?.Invoke(0, 0);
+            FeedbackChanged?.Invoke();
+            return;
         }
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
-            message.Position, _anchor, _scrollSettings.Sensitivity,
+            message.Position, _restPoint, _scrollSettings.Sensitivity,
             DeadZoneRadiusPx, DpiHelper.ScaleX, _stopButtonCenter, StopZoneRadiusPx);
 
         ScrollVelocityX = vx;
@@ -149,4 +215,15 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         TargetVelocityChanged?.Invoke(vx, vy);
         FeedbackChanged?.Invoke();
     }
+
+    private void ResetRun()
+    {
+        _runCount = 0;
+        _runStartUs = 0;
+        _runSumX = 0;
+        _runSumY = 0;
+    }
+
+    // Rounds for the log and folds -0 into 0, so a tiny negative offset never prints "-0".
+    private static double Whole(double v) => Math.Round(v) + 0.0;
 }

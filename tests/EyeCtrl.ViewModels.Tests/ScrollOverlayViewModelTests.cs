@@ -22,6 +22,27 @@ public class ScrollOverlayViewModelTests
 
     private static readonly PhysicalPoint StopCenter = new(2000, 600);
 
+    /// <summary>Sample spacing of the helpers below: ~30 Hz, as the engine delivers.</summary>
+    private const long StepUs = 30_000;
+
+    /// <summary>
+    /// Feeds ordinary samples at <paramref name="at"/> every 30 ms from <paramref name="startUs"/>
+    /// for <paramref name="durationMs"/> of sample time (inclusive: 150 ms gives samples at 0…150) and
+    /// returns the timestamp of the NEXT sample, so calls chain.
+    /// </summary>
+    private static long Feed(
+        ScrollOverlayViewModel vm, PhysicalPoint at, long startUs, int durationMs)
+    {
+        long t = startUs;
+        for (; t <= startUs + durationMs * 1000L; t += StepUs)
+            vm.Receive(new GazeCursorMovedMessage(at, t));
+        return t;
+    }
+
+    /// <summary>The arming fixation: <see cref="ScrollOverlayViewModel.StartHoldMs"/> of samples.</summary>
+    private static long Arm(ScrollOverlayViewModel vm, PhysicalPoint at, long startUs = 0) =>
+        Feed(vm, at, startUs, ScrollOverlayViewModel.StartHoldMs);
+
     [Fact]
     public void GazeAtAnchor_DotIsCentered_NoScrollVelocity()
     {
@@ -41,8 +62,8 @@ public class ScrollOverlayViewModelTests
         double cvx = double.NaN, cvy = double.NaN;
         vm.TargetVelocityChanged += (x, y) => { cvx = x; cvy = y; };
         vm.EnterScrollMode(Anchor, StopCenter);
-        vm.Receive(new GazeCursorMovedMessage(Anchor, 0));   // F-S4: the first neutral-zone visit arms
-        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000, 600), 0));
+        long t = Arm(vm, Anchor);   // the arming fix: a fixation in the start circle arms
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000, 600), t));
         Check.That(cvy).IsStrictlyGreaterThan(0);
         Check.That(cvx).IsCloseTo(0, 1e-6);
     }
@@ -88,12 +109,12 @@ public class ScrollOverlayViewModelTests
         Check.That(vm.IsArmed).IsFalse();
         Check.That(publishes[^1]).IsEqualTo((0.0, 0.0));
 
-        // Inside the dead zone but NOT on the anchor: a visit, not an exact hit.
-        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(SlotAnchor.X + 20, SlotAnchor.Y), 30_000));
+        // Inside the start circle but NOT on the anchor: a fixation, not an exact hit.
+        long t = Arm(vm, new PhysicalPoint(SlotAnchor.X + 20, SlotAnchor.Y), 30_000);
 
         Check.That(vm.IsArmed).IsTrue();
 
-        vm.Receive(new GazeCursorMovedMessage(ScrollSlot, 60_000));   // armed: the slot drives now
+        vm.Receive(new GazeCursorMovedMessage(ScrollSlot, t));   // armed: the slot drives now
 
         Check.WithCustomMessage("the armed slot gaze must scroll down (the slot is below the anchor)")
             .That(publishes[^1].vy).IsStrictlyLessThan(0);
@@ -107,41 +128,187 @@ public class ScrollOverlayViewModelTests
         vm.TargetVelocityChanged += (_, y) => vy = y;
         vm.EnterScrollMode(SlotAnchor, new PhysicalPoint(3640, 1200));
 
-        vm.Receive(new GazeCursorMovedMessage(SlotAnchor, 0));       // the first sample arms
+        long t = Arm(vm, SlotAnchor);                                // the fixation arms
         Check.That(vm.IsArmed).IsTrue();
 
-        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(2100, 1200), 30_000));
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(2100, 1200), t));
 
         Check.That(vy).IsStrictlyLessThan(0);                        // follows immediately, as today
+    }
+
+    // ── Scroll arming fix: the start circle, the fixation, the rest point ──────
+
+    private static ScrollOverlayViewModel NewVm80() => NewVm80(new WeakReferenceMessenger());
+
+    private static ScrollOverlayViewModel NewVm80(IMessenger messenger, Action<string>? log = null)
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.FixationRadiusPixels = 80;
+        return new ScrollOverlayViewModel(messenger, settings.Scroll, settings.Dwell, log);
+    }
+
+    [Fact]
+    public void G1_ArmingNeedsAFixation_NotASingleSample()
+    {
+        // Mutant M1: arm on the first sample inside the circle → the lone 100-px sample arms, red.
+        // The boundary (149 ms no, 150 ms yes) pins the >= against a > mutant too.
+        var vm = NewVm80();
+        vm.EnterScrollMode(new PhysicalPoint(1000, 1000), new PhysicalPoint(3000, 600));
+        var at100 = new PhysicalPoint(1100, 1000);
+
+        vm.Receive(new GazeCursorMovedMessage(at100, 0));
+        Check.WithCustomMessage("ONE sample inside the circle must not arm").That(vm.IsArmed).IsFalse();
+
+        Feed(vm, at100, 30_000, 90);   // samples to 120 ms
+        Check.WithCustomMessage("120 ms of fixation is short of StartHoldMs").That(vm.IsArmed).IsFalse();
+
+        vm.Receive(new GazeCursorMovedMessage(at100, 149_000));
+        Check.WithCustomMessage("149 ms is one ms short").That(vm.IsArmed).IsFalse();
+
+        vm.Receive(new GazeCursorMovedMessage(at100, 150_000));
+        Check.WithCustomMessage("a 150-ms run arms").That(vm.IsArmed).IsTrue();
+    }
+
+    [Theory]
+    [InlineData(2.0, 240.0, 260.0)]
+    [InlineData(1.0, 120.0, 130.0)]
+    public void G2_TheStartRadius_IsTheScaledStartRadiusDip(double scale, double inside, double outside)
+    {
+        // The owner runs 2.0: 125 DIP = 250 px. Mutants: M2 the radius back to the dead zone (80 px)
+        // → the 240/120-px runs stay unarmed; M3 StartRadiusDip unscaled → at 2.0 the 240-px run
+        // stays unarmed (a 125-px circle).
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            var anchor = new PhysicalPoint(1000, 1000);
+
+            var hit = NewVm80();
+            hit.EnterScrollMode(anchor, new PhysicalPoint(3000, 600));
+            Arm(hit, new PhysicalPoint(anchor.X + inside, anchor.Y));
+            Check.WithCustomMessage($"scale {scale}: 150 ms at {inside} px must arm").That(hit.IsArmed).IsTrue();
+
+            var miss = NewVm80();
+            miss.EnterScrollMode(anchor, new PhysicalPoint(3000, 600));
+            Arm(miss, new PhysicalPoint(anchor.X + outside, anchor.Y));
+            Check.WithCustomMessage($"scale {scale}: 150 ms at {outside} px must NOT arm").That(miss.IsArmed).IsFalse();
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [Fact]
+    public void G3_TheRunMustBeUnbroken_AnOutsideSampleResetsIt()
+    {
+        // Mutant M4: the out-of-circle sample does not reset the run → 100 ms + 100 ms spans 230 ms
+        // and arms, red. The restart is proven too: the run that follows arms on its own 150 ms.
+        var vm = NewVm80();
+        vm.EnterScrollMode(new PhysicalPoint(1000, 1000), new PhysicalPoint(3000, 600));
+        var inside = new PhysicalPoint(1100, 1000);
+
+        long t = Feed(vm, inside, 0, 90);                          // 0…90
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1600, 1000), t));   // outside
+        t += StepUs;
+        t = Feed(vm, inside, t, 90);                               // a fresh 90-ms run
+
+        Check.WithCustomMessage("100 ms + one outside sample + 100 ms must not arm").That(vm.IsArmed).IsFalse();
+
+        Feed(vm, inside, t, 60);                                   // the fresh run reaches 150 ms
+        Check.WithCustomMessage("the restarted run arms on its own 150 ms").That(vm.IsArmed).IsTrue();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void G3_ADroppedSample_ResetsTheRun(bool paused)
+    {
+        // Mutant M5: gap samples are not dropped-and-reset (they are counted, or skipped without a
+        // reset) → the run 0…90, a gap at 120, 150… spans 150 ms and arms, red. The pause gate drops
+        // paused samples the same way.
+        var vm = NewVm80();
+        vm.EnterScrollMode(new PhysicalPoint(1000, 1000), new PhysicalPoint(3000, 600));
+        var inside = new PhysicalPoint(1100, 1000);
+
+        Feed(vm, inside, 0, 90);
+        var dropped = new GazeFrame(inside, 120_000, IsInGap: !paused);
+        vm.Receive(new GazeCursorMovedMessage(dropped) { IsPaused = paused });
+        long t = Feed(vm, inside, 150_000, 90);                    // 150…240: 90 ms after the drop
+
+        Check.WithCustomMessage("a dropped sample inside the run must break it").That(vm.IsArmed).IsFalse();
+
+        Feed(vm, inside, t, 60);
+        Check.WithCustomMessage("the run after the drop arms on its own 150 ms").That(vm.IsArmed).IsTrue();
+    }
+
+    [Fact]
+    public void G4_TheRestPoint_IsTheCentroidOfTheArmingFixation()
+    {
+        // The owner's tracker sits off the cross: 150 px left, 60 px down. Mutants: M6 velocity still
+        // computed from the anchor → the sample at the centroid scrolls, red; M7 rest point = the last
+        // sample (10 px off the centroid) → RestPoint misses by 10.
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var vm = NewVm80();
+            double vx = double.NaN, vy = double.NaN;
+            vm.TargetVelocityChanged += (x, y) => { vx = x; vy = y; };
+            var anchor = new PhysicalPoint(1000, 800);
+            vm.EnterScrollMode(anchor, new PhysicalPoint(3000, 400));
+            var centre = new PhysicalPoint(anchor.X - 150, anchor.Y + 60);
+
+            long t = 0;
+            for (int k = 0; k < 6; k++, t += StepUs)   // 0…150 ms, jitter ±10 px: the mean is the centre
+                vm.Receive(new GazeCursorMovedMessage(
+                    new PhysicalPoint(centre.X + (k % 2 == 0 ? -10 : 10), centre.Y), t));
+
+            Check.That(vm.IsArmed).IsTrue();
+            Check.That(vm.RestPoint.X).IsCloseTo(centre.X, 1.0);
+            Check.That(vm.RestPoint.Y).IsCloseTo(centre.Y, 1.0);
+            Check.WithCustomMessage("the anchor itself is unchanged").That(vm.Anchor).IsEqualTo(anchor);
+
+            vm.Receive(new GazeCursorMovedMessage(centre, t));
+            Check.WithCustomMessage("gaze on the rest point is the neutral position: no scroll")
+                .That(Math.Abs(vx) + Math.Abs(vy)).IsCloseTo(0, 1e-6);
+            Check.WithCustomMessage("the dot follows the rest point too").That(vm.AnchorDotOffsetX).IsCloseTo(0, 1e-9);
+            Check.That(vm.AnchorDotOffsetY).IsCloseTo(0, 1e-9);
+
+            t += StepUs;
+            vm.Receive(new GazeCursorMovedMessage(anchor, t));
+            Check.WithCustomMessage("gaze at the anchor is now 162 px right-and-up of the rest point")
+                .That(vx).IsStrictlyGreaterThan(0);
+            Check.That(vy).IsStrictlyGreaterThan(0);   // up: the rest point is BELOW the anchor on screen
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
     }
 
     [Theory]
     [InlineData(1.0)]
     [InlineData(2.0)]
-    public void Arming_RadiusFollowsTheFixationRadius_InPhysicalPx(double scale)
+    public void G6_TheDeadZone_IsUnchanged_AndNeverExceedsTheStartCircle(double scale)
     {
-        // F3 (fixup 01): pin the arming radius at R = 80 — a sample 60–79 px from the anchor arms;
-        // 81+ px does not (the dead zone is physical px, never DPI-converted, so the same values
-        // hold at both scales). Mutant: arm on the legacy 30-px constant (G-R1) → the 60/79 cases
-        // stay unarmed, red.
+        // Mutant M9: the dead zone set to the start radius → 125/250 instead of 80, red.
         DpiHelper.Initialize(scale, scale);
         try
         {
-            foreach (var (offset, expected) in new[] { (60.0, true), (79.0, true), (81.0, false) })
-            {
-                var settings = new EyeCtrlSettings();
-                settings.Dwell.FixationRadiusPixels = 80;
-                var vm = new ScrollOverlayViewModel(
-                    new WeakReferenceMessenger(), settings.Scroll, settings.Dwell);
-                vm.EnterScrollMode(new PhysicalPoint(1000, 1000), new PhysicalPoint(3000, 600));
+            var vm = NewVm80();
+            Check.That(vm.DeadZoneRadiusPx).IsCloseTo(80.0, 1e-9);
+            Check.That(vm.DeadZoneRadiusPx <= vm.StartRadiusPx).IsTrue();
+            Check.That(vm.StartRadiusPx).IsCloseTo(ScrollOverlayViewModel.StartRadiusDip * scale, 1e-9);
 
-                vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000 + offset, 1000), 0));
+            var settings = new EyeCtrlSettings();
+            settings.Dwell.FixationRadiusPixels = 10;
+            Check.WithCustomMessage("the legacy floor of 30 is unchanged")
+                .That(new ScrollOverlayViewModel(new WeakReferenceMessenger(), settings.Scroll, settings.Dwell).DeadZoneRadiusPx)
+                .IsCloseTo(30.0, 1e-9);
 
-                Check.WithCustomMessage(
-                        $"scale {scale}: a sample {offset} px from the anchor: armed={vm.IsArmed}, "
-                        + $"expected {expected}")
-                    .That(vm.IsArmed).IsEqualTo(expected);
-            }
+            settings.Dwell.FixationRadiusPixels = 200;   // the setting's maximum
+            var wide = new ScrollOverlayViewModel(new WeakReferenceMessenger(), settings.Scroll, settings.Dwell);
+            Check.WithCustomMessage("the start circle is never smaller than the dead zone")
+                .That(wide.StartRadiusPx).IsCloseTo(Math.Max(200.0, ScrollOverlayViewModel.StartRadiusDip * scale), 1e-9);
         }
         finally
         {
@@ -180,13 +347,15 @@ public class ScrollOverlayViewModelTests
         vm.Receive(new GazeCursorMovedMessage(ScrollSlot, 0));
         Check.That(lines).IsEmpty();
 
-        vm.Receive(new GazeCursorMovedMessage(SlotAnchor, 30_000));
+        long t = Arm(vm, SlotAnchor, 30_000);
         Check.That(lines).HasSize(1);
         Check.WithCustomMessage($"saw: {string.Join(" | ", lines)}")
             .That(lines[0].StartsWith("Scroll armed after ", StringComparison.Ordinal)).IsTrue();
-        Check.That(lines[0].EndsWith(" ms", StringComparison.Ordinal)).IsTrue();
+        // C5: the offset (rest point - anchor) and the nearest approach ride the line; the fixation
+        // sat exactly on the anchor, so both are zero.
+        Check.That(lines[0].EndsWith(" ms (offset=(0,0)px, nearest=0px)", StringComparison.Ordinal)).IsTrue();
 
-        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(2100, 900), 60_000));
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(2100, 900), t));
         Check.That(lines).HasSize(1);
     }
 
@@ -211,24 +380,24 @@ public class ScrollOverlayViewModelTests
             double vx = double.NaN, vy = double.NaN;
             vm.TargetVelocityChanged += (x, y) => { vx = x; vy = y; };
             vm.EnterScrollMode(anchor, stop);
-            vm.Receive(new GazeCursorMovedMessage(anchor, 0));
+            long t = Arm(vm, anchor);
             Check.That(vm.IsArmed).IsTrue();
 
-            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 70, anchor.Y), 30_000));
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 70, anchor.Y), t));
             Check.WithCustomMessage("70 px is inside the 80-px dead zone")
                 .That(Math.Abs(vx) + Math.Abs(vy)).IsCloseTo(0, 1e-6);
 
             // A 100-DIP effective offset: 80 + 200 px from the anchor.
-            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 280, anchor.Y), 60_000));
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 280, anchor.Y), t + 30_000));
             Check.WithCustomMessage("the gain must be per DIP at 2.0")
                 .That(vx).IsCloseTo(100 * ScrollEngine.DefaultPixelsToNotchesFactor, 1e-9);
 
             vm.Receive(new GazeCursorMovedMessage(
-                new PhysicalPoint(stop.X + 80, stop.Y), 90_000));   // the stop button's outer half
+                new PhysicalPoint(stop.X + 80, stop.Y), t + 60_000));   // the stop button's outer half
             Check.WithCustomMessage("80 px from the stop centre is inside its 100-px zone")
                 .That(Math.Abs(vx) + Math.Abs(vy)).IsCloseTo(0, 1e-6);
 
-            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 200, anchor.Y), 120_000));
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 200, anchor.Y), t + 90_000));
             Check.WithCustomMessage("the dot feedback's range is 400 px at 2.0")
                 .That(vm.AnchorDotOffsetX).IsCloseTo(0.5, 1e-9);
         }
@@ -253,12 +422,12 @@ public class ScrollOverlayViewModelTests
             double vx = double.NaN, vy = double.NaN;
             vm.TargetVelocityChanged += (x, y) => { vx = x; vy = y; };
             vm.EnterScrollMode(anchor, stop);
-            vm.Receive(new GazeCursorMovedMessage(anchor, 0));
+            long t = Arm(vm, anchor);
 
-            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 70, anchor.Y), 30_000));
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(anchor.X + 70, anchor.Y), t));
             Check.That(Math.Abs(vx) + Math.Abs(vy)).IsCloseTo(0, 1e-6);
 
-            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(stop.X + 80, stop.Y), 60_000));
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(stop.X + 80, stop.Y), t + 30_000));
             Check.WithCustomMessage("the stop zone is 50 px at 1.0, so 80 px scrolls")
                 .That(Math.Abs(vx) + Math.Abs(vy)).IsStrictlyGreaterThan(0);
         }

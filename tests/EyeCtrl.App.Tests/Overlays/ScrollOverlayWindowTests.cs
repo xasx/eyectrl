@@ -11,6 +11,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -95,7 +96,8 @@ public class ScrollOverlayWindowTests
                 .That(haloH.StrokeThickness).IsCloseTo(h.StrokeThickness + 2, 1e-9);
             Check.That(haloV.StrokeThickness).IsCloseTo(v.StrokeThickness + 2, 1e-9);
 
-            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000, 1000), 0));   // arm it
+            for (long t = 0; t <= 150_000; t += 30_000)   // arm it: a 150-ms fixation on the cross
+                vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(1000, 1000), t));
             Check.That(vm.IsArmed).IsTrue();
             window.UpdateFeedback(0, 0, 0);
 
@@ -110,6 +112,56 @@ public class ScrollOverlayWindowTests
         }
         finally
         {
+            window.Close();
+        }
+    }
+
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void G8_TheStartCircle_ShowsWhileUnarmedOnly(double scale)
+    {
+        // C4: a faint circle of 2 x StartRadiusDip DIP around the cross, centred on the anchor,
+        // drawn only until scrolling has started. Window constructed, never shown. Mutants: M12 the
+        // circle never shown → the unarmed assertions red; M13 shown after arming → the armed
+        // assertion red.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(scale, scale);
+        var settings = new EyeCtrlSettings();
+        var vm = new ScrollOverlayViewModel(new WeakReferenceMessenger(), settings.Scroll, settings.Dwell);
+        var anchor = new PhysicalPoint(1000, 1000);
+        vm.EnterScrollMode(anchor, new PhysicalPoint(3000, 600));
+        var window = new ScrollOverlayWindow();
+        try
+        {
+            window.Place(vm);
+            window.UpdateFeedback(0, 0, 0);
+
+            double expected = 2 * ScrollOverlayViewModel.StartRadiusDip;
+            double anchorX = DpiHelper.PhysicalToLogicalX(anchor.X);
+            double anchorY = DpiHelper.PhysicalToLogicalY(anchor.Y);
+            foreach (var ring in new[] { window.StartCircle, window.StartCircleHalo })
+            {
+                Check.WithCustomMessage($"scale {scale}: the unarmed start circle must be visible")
+                    .That(ring.Visibility).IsEqualTo(Visibility.Visible);
+                Check.That(ring.Width).IsCloseTo(expected, 1e-9);
+                Check.That(ring.Height).IsCloseTo(expected, 1e-9);
+                Check.That(Canvas.GetLeft(ring) + ring.Width / 2).IsCloseTo(anchorX, 1e-9);
+                Check.That(Canvas.GetTop(ring) + ring.Height / 2).IsCloseTo(anchorY, 1e-9);
+            }
+
+            for (long t = 0; t <= 150_000; t += 30_000)
+                vm.Receive(new GazeCursorMovedMessage(anchor, t));
+            Check.That(vm.IsArmed).IsTrue();
+            window.UpdateFeedback(0, 0, 0);
+
+            Check.WithCustomMessage("the start circle disappears the moment scrolling starts")
+                .That(window.StartCircle.Visibility).IsEqualTo(Visibility.Collapsed);
+            Check.That(window.StartCircleHalo.Visibility).IsEqualTo(Visibility.Collapsed);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
             window.Close();
         }
     }

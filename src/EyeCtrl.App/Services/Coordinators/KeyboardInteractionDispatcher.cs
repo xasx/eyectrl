@@ -182,9 +182,13 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
             Context.Messenger.Send(new KeyboardShowRequestedMessage());
 
         // Modifier routing: a non-empty set goes to the modified (atomic-batch) overloads; null
-        // AND empty sets stay on the bare methods — byte-identical to the pre-modifier paths.
-        // Modified scrolls send exactly one notch (the batch's leading move already puts the wheel
-        // on the point; the arm's sign still carries the direction).
+        // AND empty sets stay on the bare click methods — byte-identical to the pre-modifier
+        // paths. Modified scrolls send exactly one notch (the batch's leading move already puts
+        // the wheel on the point; the arm's sign still carries the direction).
+        //
+        // Unmodified one-shot scrolls use ScrollAt: FreeLook has already resumed MoveCursor by the
+        // time this doubly-deferred handler runs, so the OS cursor is NOT at pt. ScrollAt's leading
+        // absolute move is what makes the wheel land where the owner looked.
         var mods = msg.Modifiers;
         var modified = mods is { Count: > 0 };
 
@@ -204,16 +208,16 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
                 break;
 
             case InteractionAction.ScrollUp:
-                if (modified) Context.InputSimulator.Scroll(pt, 0, 1, mods); else Context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);
+                if (modified) Context.InputSimulator.Scroll(pt, 0, 1, mods); else Context.InputSimulator.ScrollAt(pt, 0, DefaultScrollAmount);
                 break;
             case InteractionAction.ScrollDown:
-                if (modified) Context.InputSimulator.Scroll(pt, 0, -1, mods); else Context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);
+                if (modified) Context.InputSimulator.Scroll(pt, 0, -1, mods); else Context.InputSimulator.ScrollAt(pt, 0, -DefaultScrollAmount);
                 break;
             case InteractionAction.ScrollLeft:
-                if (modified) Context.InputSimulator.Scroll(pt, -1, 0, mods); else Context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);
+                if (modified) Context.InputSimulator.Scroll(pt, -1, 0, mods); else Context.InputSimulator.ScrollAt(pt, -DefaultScrollAmount, 0);
                 break;
             case InteractionAction.ScrollRight:
-                if (modified) Context.InputSimulator.Scroll(pt, 1, 0, mods); else Context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);
+                if (modified) Context.InputSimulator.Scroll(pt, 1, 0, mods); else Context.InputSimulator.ScrollAt(pt, DefaultScrollAmount, 0);
                 break;
         }
 

@@ -495,6 +495,14 @@ internal static class TestFakes
         public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
         public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
+        /// <summary>Pointed one-shot scrolls: the point is recorded so a dispatcher mutant passing
+        /// the wrong point (the M3 lesson) cannot survive.</summary>
+        public List<(PhysicalPoint Point, int Dx, int Dy)> PointedScrolls { get; } = new();
+
+        /// <summary>Every <see cref="MoveCursor"/> target, so a gate can assert the worker never
+        /// parks or hops the pointer.</summary>
+        public List<PhysicalPoint> Moves { get; } = new();
+
         /// <summary>
         /// Set by the injection-ordering gates: read INSIDE the first injected action (the moment
         /// real OS input would be sent) so a gate can pin what the overlays' visibility was at that
@@ -512,6 +520,7 @@ internal static class TestFakes
             // The injection-ordering gates read at the FIRST injected action; a parked MOVE is one
             // (S1b's scroll entry parks the cursor before the worker's first wheel).
             RecordInjection();
+            Moves.Add(point);
         }
 
         public void LeftClick(PhysicalPoint point) { RecordInjection(); BareClickCount++; }
@@ -531,6 +540,12 @@ internal static class TestFakes
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
         public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { RecordInjection(); BareScrolls.Add((deltaX, deltaY)); }
+
+        public void ScrollAt(PhysicalPoint point, int deltaX, int deltaY)
+        {
+            RecordInjection();
+            PointedScrolls.Add((point, deltaX, deltaY));
+        }
 
         // The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a
         // nullable) and record otherwise:

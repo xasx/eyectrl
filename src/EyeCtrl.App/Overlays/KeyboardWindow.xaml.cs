@@ -107,7 +107,7 @@ public partial class KeyboardWindow : OverlayWindow
         // A DPI/display change moves the window (Windows applies a new suggested rect). There is
         // no non-moving response, so arm the same suppression: nothing dwells until the gaze
         // travels about half a key from where the move caught it.
-        DpiChanged += (_, _) => _viewModel?.ArmDwellSuppression();
+        DpiChanged += (_, _) => _viewModel?.ArmDwellSuppressionForMove();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
         // Prediction dwell times come from KeyboardPredictionDwellMs, so the validated span is the
@@ -195,13 +195,23 @@ public partial class KeyboardWindow : OverlayWindow
     /// </summary>
     public void SetToolbarOccupancy(bool occupied, string edge, double extentDip)
     {
-        _toolbarOccupied = occupied;
-        _toolbarEdge = occupied ? edge : "none";
-        _toolbarExtentDip = extentDip;
+        SetToolbarOccupancyState(occupied, edge, extentDip);
         // C1: an appearing toolbar may move the keyboard away once; a hiding one must not move
         // it back — the un-yield waits for the next show. On show this also performs the
         // session's first placement (ApplyInitialToolbarOccupancy runs right after Show()).
         RepositionOnScreen(KeyboardMove.Yield);
+    }
+
+    /// <summary>
+    /// The state half of <see cref="SetToolbarOccupancy"/>, without placing (R2-4): the show
+    /// path refreshes the occupancy BEFORE its first placement, because a toolbar hide still
+    /// queued at show time leaves a stale "occupied" that would yield the whole session.
+    /// </summary>
+    internal void SetToolbarOccupancyState(bool occupied, string edge, double extentDip)
+    {
+        _toolbarOccupied = occupied;
+        _toolbarEdge = occupied ? edge : "none";
+        _toolbarExtentDip = extentDip;
     }
 
     public void SetEmojiData(string emojiJsonPath, string recentEmojiPath)
@@ -331,13 +341,15 @@ public partial class KeyboardWindow : OverlayWindow
     private static double LargerMagnitude(double applied, double candidate) =>
         Math.Abs(candidate) > Math.Abs(applied) ? candidate : applied;
 
-    /// <summary>Moves the window and arms D13 when either axis actually changed.</summary>
+    /// <summary>Moves the window and arms D13 when either axis actually changed. The arm is the
+    /// non-destructive one (R2-1): a Keep runs mid-rebuild after a swap has already armed, and
+    /// the key-position dictionary is empty then.</summary>
     private void MoveTo(double left, double top)
     {
         bool moved = Math.Abs(Top - top) > 1e-9 || Math.Abs(Left - left) > 1e-9;
         SetPosition(left, top);
         if (moved)
-            _viewModel?.ArmDwellSuppression();
+            _viewModel?.ArmDwellSuppressionForMove();
     }
 
     private void SetPosition(double left, double top)

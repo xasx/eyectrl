@@ -136,6 +136,34 @@ public class KeyboardNeverMovesTests
             .That(probe.Window.Top + function.Height <= WorkArea.Bottom).IsTrue();
         Check.That(probe.Window.Top + function.Height).IsEqualTo(WorkArea.Bottom);
         Check.That(probe.Window.Top).IsEqualTo(WorkArea.Bottom - function.Height);
+        // R2-2: a width change must re-centre horizontally (N6).
+        Check.WithCustomMessage("the keyboard is not horizontally centred after the width change")
+            .That(probe.Window.Left + function.Width / 2).IsEqualTo(WorkArea.Width / 2);
+    }
+
+    [StaFact]
+    public void Yield_OnlyGrowsWhileOpen_ASmallerExtentDoesNotPartiallyUnYield()
+    {
+        // R2-3: the toolbar's extent can shrink while it is still visible. A smaller non-zero
+        // yield must NOT move the keyboard back under the gaze (N1b).
+        var window = NewWindow();
+        try
+        {
+            window.SetScreenEdge("bottom");
+            window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+            window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);   // 132
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+            Check.That(window.Top).IsEqualTo(BottomTop - ToolbarExtentDip);
+
+            window.SetToolbarOccupancy(true, "bottom", 60);                 // smaller, non-zero
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+            Check.WithCustomMessage("a smaller non-zero yield partially un-yielded the open keyboard")
+                .That(window.Top).IsEqualTo(BottomTop - ToolbarExtentDip);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [StaFact]
@@ -227,6 +255,82 @@ public class KeyboardNeverMovesTests
             .That(source.Contains(
                 "varmove=MoveForEdgeChange(_screenEdge,edge);_screenEdge=edge;RepositionOnScreen(move);"))
             .IsTrue();
+    }
+
+    [StaFact]
+    public void SwapThenKeep_QwertzLettersToFunction_RestingGazeFiresNothing()
+    {
+        // R2-1 (the reviewer's measured regression): the swap arms D13, RebuildKeys empties the
+        // key-position dictionary, then the size change's Keep moves the window. The window-move
+        // arm must be non-destructive: a destructive re-arm takes the "no centres" path and
+        // NULLS the swap's anchor, and the resting gaze types the key that landed under it
+        // (measured: `space` x4 on qwertz).
+        using var probe = OpenShippedKeys("qwertz");
+        AssertSwapThenKeepFiresNothing(probe, "switchSub:function", "function");
+    }
+
+    [StaFact]
+    public void SwapThenKeep_QwertyLettersToNumbers_RestingGazeFiresNothing()
+    {
+        // The width-only variant: the Keep re-centres horizontally (Left changes, Top does not).
+        // A destructive arm here lets the ABC key fire (a switchSub bounce back to letters).
+        using var probe = OpenShippedKeys("qwerty");
+        AssertSwapThenKeepFiresNothing(probe, "switchSub:numbers", "numbers");
+    }
+
+    [StaFact]
+    public void KeepWithoutASwap_StillArmsTheSuppression()
+    {
+        // The non-destructive arm must still arm when nothing is live (N5k: Keep moves without
+        // arming). No swap here — a settings-reload-style resize moves the window under a
+        // resting gaze, and nothing may fire.
+        using var probe = Open();
+        var fired = new List<string>();
+        probe.Vm.KeyDwellCompleted += id => fired.Add(id);
+
+        var centre = Centres(probe.Window)["key_0_0"];
+        probe.Window.UpdateGaze(centre, 0);
+
+        probe.Window.Place(WorkArea, WidthDip, 600, KeyboardMove.Keep);   // taller → Top moves
+
+        for (long t = 50_000; t < 2_050_000; t += 50_000)
+        {
+            probe.Window.UpdateGaze(centre, t);
+            Check.WithCustomMessage("a key fired after a Keep that moved the window")
+                .That(fired).IsEmpty();
+        }
+    }
+
+    private static void AssertSwapThenKeepFiresNothing(
+        Probe probe, string switchKeyId, string expectedSubLayout)
+    {
+        var fired = new List<string>();
+        probe.Vm.KeyDwellCompleted += id => fired.Add(id);
+        var centre = Centres(probe.Window)[switchKeyId];
+
+        long ts = 0;
+        for (; ts < 2_000_000 && probe.Vm.ActiveSubLayoutId != expectedSubLayout; ts += 50_000)
+            probe.Window.UpdateGaze(centre, ts);
+
+        Check.WithCustomMessage($"the {switchKeyId} dwell did not reach {expectedSubLayout}")
+            .That(probe.Vm.ActiveSubLayoutId).IsEqualTo(expectedSubLayout);
+        Check.WithCustomMessage("the swap itself did not fire the switch key")
+            .That(fired).Contains(switchKeyId);
+
+        // The production order: the swap rebuilt the grid and emptied the key positions, the
+        // layout pass re-arranges and raises SizeChanged → Keep with the new size.
+        fired.Clear();
+        var resized = MeasureContent(probe);
+        probe.Window.Place(WorkArea, resized.Width, resized.Height, KeyboardMove.Keep);
+
+        for (long t = ts + 50_000; t < ts + 2_050_000; t += 50_000)
+        {
+            probe.Window.UpdateGaze(centre, t);
+            Check.WithCustomMessage(
+                    "a key fired after the swap+Keep under the resting gaze — the move arm "
+                    + "destroyed the swap's suppression")
+                .That(fired).IsEmpty();
+        }
     }
 
     [StaFact]
@@ -363,6 +467,14 @@ public class KeyboardNeverMovesTests
         var layout = KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
         return Open(layout, scaleToDip: false);
+    }
+
+    /// <summary>A shipped layout with its real key geometry, for the swap+Keep probes.</summary>
+    private static Probe OpenShippedKeys(string layoutName)
+    {
+        var layout = KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Resources", "Layouts", $"{layoutName}.json"));
+        return Open(layout, scaleToDip: true);
     }
 
     private static Probe Open(KeyboardLayout layout, bool scaleToDip = true)

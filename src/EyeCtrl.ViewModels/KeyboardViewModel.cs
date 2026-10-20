@@ -562,10 +562,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// Arms the D13 spatial suppression at the gaze's last in-grid position: while the gaze stays
-    /// within about half a key of it, nothing dwells. Shared by every event that moves the keys
-    /// under a resting gaze — a sub-layout swap (manual or auto-return) and every window move the
-    /// keyboard still makes while open (a yield to an appearing toolbar, a Flip, a DPI change).
-    /// One mechanism, one radius rule; do not build a second suppression for window moves.
+    /// within about half a key of it, nothing dwells. Used by a sub-layout swap (manual or
+    /// auto-return), which must re-anchor against the OLD grid; a window move uses the
+    /// non-destructive <see cref="ArmDwellSuppressionForMove"/>.
     ///
     /// <para>
     /// The anchor is only set when the last gaze sample was on the key area (a prediction pick
@@ -576,8 +575,24 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// infinite (plan-r2).
     /// </para>
     /// </summary>
-    public void ArmDwellSuppression()
+    public void ArmDwellSuppression() => ArmDwellSuppressionCore(clearWhenUnavailable: true);
+
+    /// <summary>
+    /// The arm for a WINDOW move (R2-1). It is deliberately NON-destructive: the move that
+    /// follows a sub-layout swap runs during RebuildKeys, after ClearKeyState has emptied the
+    /// key-position dictionary but while the swap's anchor is live. Re-arming there would take
+    /// the "no centres" path and NULL the swap's anchor, letting a resting gaze type the key
+    /// that landed under it (measured: qwertz letters→Fn types space). So: a live anchor is
+    /// kept; a fresh one is computed only when none is live and the old centres are known; and
+    /// an unavailable computation leaves the anchor alone instead of clearing it.
+    /// </summary>
+    public void ArmDwellSuppressionForMove() => ArmDwellSuppressionCore(clearWhenUnavailable: false);
+
+    private void ArmDwellSuppressionCore(bool clearWhenUnavailable)
     {
+        if (!clearWhenUnavailable && _swapSuppressedAnchor is not null)
+            return;   // a live swap/yield arm wins; the rebuild's move must not disturb it
+
         if (_lastGazeInsideWindowPoint is { } anchor
             && _lastKeyScreenPositions is { } positions
             && positions.Count >= 2)
@@ -600,11 +615,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
             _swapSuppressedAnchor = anchor;
             _swapSuppressedClearRadiusSquared = 0.25 * d2;
+            return;
         }
-        else
-        {
+
+        if (clearWhenUnavailable)
             _swapSuppressedAnchor = null;
-        }
     }
 
     /// <summary>

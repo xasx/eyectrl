@@ -373,12 +373,15 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (visible)
         {
             Context.OverlayManager.Keyboard.Show();
-            // F2: the explicit show placement. This is the session's one un-yield (docked
-            // position plus the toolbar yield that is true now); it must run after Show() so
-            // the window has its real size. The window no longer infers a show from
-            // IsVisibleChanged.
+            // R2-4: refresh the occupancy state BEFORE the show placement, without placing.
+            // Toolbar visibility changes reach the keyboard through BeginInvoke, so a hide still
+            // queued at show time leaves a stale "occupied". Placing with it would yield the
+            // whole session, and the fresh 0 that follows can never un-yield while open.
+            ApplyInitialToolbarOccupancy(place: false);
+            // F2: the explicit show placement. It is the session's one un-yield (docked position
+            // plus the refreshed toolbar yield); it must run after Show() so the window has its
+            // real size. The window no longer infers a show from IsVisibleChanged.
             Context.OverlayManager.Keyboard.PlaceForShow();
-            ApplyInitialToolbarOccupancy();
             ShowKeyboardEdgeBar();
             if (manageSuppression)
                 ApplyKeyboardSuppression(visible: true);
@@ -657,7 +660,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         Context.Dispatcher.BeginInvoke(() => ApplyToolbarOccupancy(toolbarVisible));
     }
 
-    private void ApplyToolbarOccupancy(bool toolbarVisible)
+    private void ApplyToolbarOccupancy(bool toolbarVisible, bool place = true)
     {
         if (Context is null) return;
         var toolbar = Context.OverlayManager.Toolbar;
@@ -665,7 +668,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             toolbarVisible, toolbar.IsVisible,
             Context.Settings.Toolbar.IsDocked, Context.Settings.Toolbar.DockedEdge,
             toolbar.ExtentDip);
-        Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
+        if (place)
+            Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
+        else
+            Context.OverlayManager.Keyboard.SetToolbarOccupancyState(occupied, edge, extent);
     }
 
     /// <summary>
@@ -682,10 +688,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             ? (true, isDocked ? dockedEdge : "none", extentDip)
             : (false, "none", 0);
 
-    private void ApplyInitialToolbarOccupancy()
+    private void ApplyInitialToolbarOccupancy(bool place = true)
     {
         if (Context is null) return;
-        ApplyToolbarOccupancy(Context.OverlayManager.Toolbar.IsVisible);
+        ApplyToolbarOccupancy(Context.OverlayManager.Toolbar.IsVisible, place);
     }
 
     protected override void OnDispose()

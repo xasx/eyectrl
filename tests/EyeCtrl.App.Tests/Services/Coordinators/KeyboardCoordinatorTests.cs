@@ -778,14 +778,16 @@ public class KeyboardCoordinatorTests
     {
         private readonly KeyboardWindow _keyboard;
         private readonly IEdgeButtonBar? _edgeBar;
-        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard, IEdgeButtonBar? edgeBar = null)
-            => (_keyboard, _edgeBar) = (keyboard, edgeBar);
+        private readonly IToolbarOverlay? _toolbar;
+        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard, IEdgeButtonBar? edgeBar = null,
+            IToolbarOverlay? toolbar = null)
+            => (_keyboard, _edgeBar, _toolbar) = (keyboard, edgeBar, toolbar);
         public KeyboardWindow Keyboard => _keyboard;
         public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
         public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
         public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
         public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
-        public IToolbarOverlay Toolbar => throw new NotImplementedException();
+        public IToolbarOverlay Toolbar => _toolbar ?? throw new NotImplementedException();
         public IPauseIndicatorOverlay PauseIndicator => throw new NotImplementedException();
         public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
         public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
@@ -801,6 +803,78 @@ public class KeyboardCoordinatorTests
             GazeProviderType providerType) => throw new NotImplementedException();
     }
 
+    /// <summary>An undocked/hidden toolbar: the show-time occupancy refresh must read it as
+    /// unoccupied (R2-4).</summary>
+    private sealed class HiddenToolbarOverlay : IToolbarOverlay
+    {
+        public bool IsOnScreen => false;
+        public PhysicalRect Bounds => default;
+        public bool IsVisible => false;
+        public bool TargetsInitialized => false;
+        public bool IsSliding => false;
+        public double ExtentDip => 140;
+        public void Show() { }
+        public void Hide() { }
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
+        public void SetMode(bool isDocked, string edge) { }
+        public void SetSelectionModeState(SelectionMode mode) { }
+        public void SetPausedState(bool isPaused) { }
+        public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds) { }
+        public void BindToViewModel() { }
+        public void ShowAtRest() { }
+        public void ShowThenSlideIn() { }
+        public void SlideOutThenHide(Action onHidden) => onHidden();
+        public PhysicalRect GetPhysicalBounds() => Bounds;
+    }
+
+    [StaFact]
+    public void Show_RefreshesAStaleOccupancyBeforeTheShowPlacement()
+    {
+        // R2-4: toolbar visibility changes reach the keyboard through BeginInvoke, so a hide
+        // still queued at show time leaves a stale "occupied". If the show placed before the
+        // refresh, it would yield; the fresh 0 can never un-yield while open, so the session
+        // would stay yielded with no toolbar present.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(new KeyboardViewModel(settings, messenger));
+        // F6: invisible, non-activating show.
+        keyboard.Opacity = 0;
+        keyboard.ShowActivated = false;
+        // Stale state: the last transition said a toolbar occupied the keyboard's edge.
+        keyboard.SetToolbarOccupancyState(true, "bottom", 132);
+
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar, new HiddenToolbarOverlay()),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            messenger.Send(new ShowKeyboardRequestMessage());
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                () => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+
+            Check.That(keyboard.IsVisible).IsTrue();
+            double unYieldedTop = System.Windows.SystemParameters.WorkArea.Bottom - keyboard.ActualHeight;
+            Check.WithCustomMessage(
+                    "a stale 'occupied' yielded the show; the fresh 0 can never un-yield while "
+                    + "open, so the keyboard would stay yielded with no toolbar present.")
+                .That(keyboard.Top).IsCloseTo(unYieldedTop, 1e-6);
+        }
+        finally
+        {
+            c.Dispose();
+            keyboard.Close();
+        }
+    }
+
     [Fact]
     public void SetKeyboardVisible_PlacesTheShowExplicitly()
     {
@@ -814,11 +888,13 @@ public class KeyboardCoordinatorTests
             @"\s+", string.Empty);
 
         Check.WithCustomMessage(
-                "SetKeyboardVisible no longer calls PlaceForShow right after Show(): the show "
-                + "path would not reset the placement session, so a re-show could keep a stale "
-                + "yielded position.")
+                "SetKeyboardVisible no longer refreshes the occupancy (without placing) and then "
+                + "calls PlaceForShow right after Show(): a stale 'occupied' would yield the "
+                + "whole session, and the show path would not reset the placement session.")
             .That(source.Contains(
-                "Context.OverlayManager.Keyboard.Show();Context.OverlayManager.Keyboard.PlaceForShow();"))
+                "Context.OverlayManager.Keyboard.Show();"
+                + "ApplyInitialToolbarOccupancy(place:false);"
+                + "Context.OverlayManager.Keyboard.PlaceForShow();"))
             .IsTrue();
     }
 

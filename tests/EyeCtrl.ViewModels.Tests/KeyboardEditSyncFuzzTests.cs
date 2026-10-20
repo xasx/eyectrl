@@ -35,7 +35,10 @@ using EyeCtrl.ViewModels;
 /// a Backspace into an already open word edits it in place and must not re-split it — "don'r" + ⌫ is
 /// "don'", not a committed "don'" and an open ""; so for that press the fuzz instead checks the
 /// in-place contract (RecentText untouched, CurrentInput = one grapheme shorter). Word-Backspace
-/// deletes across the boundary and keeps the full I2 whatever was open.
+/// follows the same rule when the open word holds a letter or digit (R2-1: the committed text always
+/// ends in a separator, so the app's Ctrl+Backspace stops inside the open token and "E-Maik" keeps
+/// "E-"); only an open token WITHOUT a letter or digit (",") lets the deletion reach the committed
+/// text, and there the full I2 still applies.
 /// </para>
 ///
 /// <para>
@@ -204,7 +207,17 @@ public class KeyboardEditSyncFuzzTests
                 continue;
             }
 
-            // I2 (the re-open press, and Word-Backspace always).
+            // Word-Backspace into an open word that holds a letter or digit stops inside it (R2-1).
+            if (op is Op.WordBackspace or Op.ModifiedWordBackspace && currentBefore.Any(char.IsLetterOrDigit))
+            {
+                Check.WithCustomMessage(Fail("R2-1: Word-Backspace into an open word must not touch the committed text"))
+                    .That(vm.RecentText).IsEqualTo(recentBefore);
+                Check.WithCustomMessage(Fail("R2-1: Word-Backspace into an open word must drop only its last word"))
+                    .That(vm.CurrentInput).IsEqualTo(DropLastWordOf(currentBefore));
+                continue;
+            }
+
+            // I2 (the re-open press, and Word-Backspace over a token without a letter or digit).
             var run = TrailingRunStart(mirror);
             Check.WithCustomMessage(Fail("I2: CurrentInput is not the trailing letter/digit run of the mirror"))
                 .That(vm.CurrentInput).IsEqualTo(mirror[run..]);
@@ -326,6 +339,16 @@ public class KeyboardEditSyncFuzzTests
             roll -= weight;
         }
         return mix[^1].Op;
+    }
+
+    /// <summary>Ctrl+Backspace on the open word: trailing separators, then one run of letters/digits.</summary>
+    private static string DropLastWordOf(string text)
+    {
+        var end = text.Length;
+        while (end > 0 && !char.IsLetterOrDigit(text[end - 1])) end--;
+        var start = end;
+        while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
+        return text[..start];
     }
 
     private static string DropLastGrapheme(string text)

@@ -493,10 +493,26 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// to the focused app while the mirror loses the same word, so the prediction context keeps
     /// tracking what the target app now shows. The word is gone (the gesture stays destructive:
     /// Backspace re-opens, this deletes). Sent as exactly Ctrl+Backspace whatever else is armed.
+    ///
+    /// <para>
+    /// Like Backspace, an already OPEN word that still holds a letter or digit is edited in place:
+    /// the committed text always ends in a separator, so the app's Ctrl+Backspace stops inside the
+    /// open token ("E-Maik" loses "Maik", "don'r" loses "r") and the token stays open — re-splitting
+    /// would commit "E-" and learn "Mail" alone. Only an open token with NO letter or digit (",", "?")
+    /// lets the deletion reach the committed text, so only that case needs the whole mirror.
+    /// </para>
     /// </summary>
     public void HandleDeleteWord()
     {
-        ApplyDeletion(TrimLastWord);
+        if (CurrentInput.Any(char.IsLetterOrDigit))
+        {
+            CurrentInput = TrimLastWord(CurrentInput);
+            _reopenedUnmodified = false;
+        }
+        else
+        {
+            ApplyDeletion(TrimLastWord);
+        }
         Messenger.Send(new KeyActivatedMessage("\b", new HashSet<ModifierKey> { ModifierKey.Ctrl }));
         ClearOneShotModifiers();
     }

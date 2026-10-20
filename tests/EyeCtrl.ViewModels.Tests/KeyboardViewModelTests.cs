@@ -597,9 +597,11 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "well-known";
         vm.HandleDeleteWord();
 
-        // "well-" is no word under the caret: it moves to the committed mirror.
-        Check.That(vm.CurrentInput).IsEqualTo("");
-        Check.That(vm.RecentText).IsEqualTo("well-");
+        // Flipped back (R1-d fixup 02, R2-1): the open token keeps its "well-", as before the re-open
+        // work; the committed text always ends in a separator, so the app's Ctrl+Backspace stopped
+        // inside the token.
+        Check.That(vm.CurrentInput).IsEqualTo("well-");
+        Check.That(vm.RecentText).IsEqualTo("");
     }
 
     [Fact]

@@ -107,7 +107,7 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
         // Hiding or re-showing the keyboard is a session change: no slot may stay dead across it.
-        IsVisibleChanged += (_, _) => _predictionRearm.Clear();
+        IsVisibleChanged += (_, _) => ResetPredictionRearm();
         // Prediction dwell times come from KeyboardPredictionDwellMs, so the validated span is the
         // keyboard guard family.
         _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
@@ -150,12 +150,18 @@ public partial class KeyboardWindow : OverlayWindow
         _emojiManager.SkinToneChanged += tone => SkinToneChanged?.Invoke(tone);
     }
 
+    /// <summary>
+    /// Clears every prediction-bar latch. The single body both the hide/re-show subscription and
+    /// the layout reload go through, so the tested reload path covers the clear itself.
+    /// </summary>
+    private void ResetPredictionRearm() => _predictionRearm.Clear();
+
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs)
     {
         _layout = layout;
         _keySize = BaseKeySize * keySizeMultiplier;
         _predictionDwellMs = predictionDwellMs;
-        _predictionRearm.Clear();
+        ResetPredictionRearm();
 
         _predictionDwellDetector.SetCooldown(cooldownMs);
 
@@ -866,7 +872,16 @@ public partial class KeyboardWindow : OverlayWindow
             && index >= 0 && index < _renderedPredictions.Count)
         {
             _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
-            _predictionRearm.Latch(targetId);
+            // The target still exists here (UpdatePredictions clears it), so capture its LIVE rect
+            // for the samples where the re-rendered bar has no target for this slot.
+            PhysicalRect? latchedRect = null;
+            foreach (var target in _predictionDwellDetector.Targets)
+            {
+                if (target.Id != targetId) continue;
+                latchedRect = target.Bounds;
+                break;
+            }
+            _predictionRearm.Latch(targetId, latchedRect);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
                                            // sound failure can never leave the bar stale (S1)

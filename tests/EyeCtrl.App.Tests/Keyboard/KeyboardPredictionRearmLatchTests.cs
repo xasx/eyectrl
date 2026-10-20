@@ -154,11 +154,12 @@ public class KeyboardPredictionRearmLatchTests
         return positions.Values.First();
     }
 
-    private static void Feed(Probe probe, PhysicalPoint point, long fromUs, long toUs)
+    private static void Feed(Probe probe, PhysicalPoint point, long fromUs, long toUs, bool layout = true)
     {
         for (var ts = fromUs; ts <= toUs; ts += StepUs)
         {
             probe.Window.UpdateGaze(point, ts);
+            if (!layout) continue;
             // The real UI thread runs a layout pass between gaze samples. The probe has no
             // dispatcher loop, so run it here or re-rendered cells never acquire a size and
             // UpdatePredictionTargetPositions registers nothing after a pick.
@@ -237,9 +238,11 @@ public class KeyboardPredictionRearmLatchTests
 
             Feed(probe, slot, 100_000, 800_000);   // first pick at ~628 ms
             Feed(probe, keys, 833_000, 866_000);   // 66 ms off: not a leave
-            Feed(probe, slot, 899_000, 2_000_000);
+            Feed(probe, slot, 899_000, 1_200_000); // back on for > 120 ms: the clock must reset
+            Feed(probe, keys, 1_233_000, 1_266_000); // second 66 ms off
+            Feed(probe, slot, 1_299_000, 2_300_000);
 
-            Check.WithCustomMessage("a 66 ms excursion cleared the 120 ms latch")
+            Check.WithCustomMessage("two short excursions accumulated into a 120 ms leave")
                 .That(picks).HasSize(1);
         }
         finally { probe.Dispose(); }
@@ -266,6 +269,108 @@ public class KeyboardPredictionRearmLatchTests
                 .That(picks).HasSize(2);
             Check.That(picks[0]).IsEqualTo("hello");
             Check.That(new[] { "world", "there" }).Contains(picks[1]);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void LeavingOntoAnotherSlotFor120ms_ReArmsThePickedSlot()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 });
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var first = SlotCenter(probe, "pred_0");
+
+            Feed(probe, first, 100_000, 800_000); // first pick at ~628 ms
+            var second = SlotCenter(probe, "pred_1");
+            Feed(probe, second, 833_000, 1_000_000); // >= 120 ms on another slot
+            Feed(probe, first, 1_033_000, 2_100_000);
+
+            Check.WithCustomMessage("a leave onto another slot did not re-arm the picked slot")
+                .That(picks).HasSize(2);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void PickedSlotWithAnEmptyAfterPickBar_ReArmsAfterLeavingOntoTheKeys()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 300, ["helmet"] = 200, ["help"] = 100 });
+        try
+        {
+            var picks = CollectPicks(probe);
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_2");
+            var keys = KeyPoint(probe.Window);
+
+            Feed(probe, slot, 100_000, 800_000); // picks "help"; the after-pick bar is empty
+            Check.WithCustomMessage("the after-pick bar was not empty - the fixture is wrong")
+                .That(probe.Vm.GetSuggestionsWithContext()).IsEmpty();
+
+            Feed(probe, keys, 833_000, 1_400_000); // >= 120 ms on the keys, slot target absent
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            Feed(probe, slot, 1_433_000, 2_500_000);
+
+            Check.WithCustomMessage(
+                    "the empty slot stayed latched after a real leave onto the keys - it is dead")
+                .That(picks).HasSize(2);
+            Check.That(picks).ContainsOnlyElementsThatMatch(word => word == "help");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void LeavingOnTheVeryNextSample_ReArmsThePickedSlot()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 });
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+            var keys = KeyPoint(probe.Window);
+
+            Feed(probe, slot, 100_000, 628_000); // ends exactly on the pick sample
+            Feed(probe, keys, 661_000, 1_100_000); // the very next sample leaves the bar
+            Feed(probe, slot, 1_133_000, 2_100_000);
+
+            Check.WithCustomMessage("a leave starting on the next sample did not re-arm the slot")
+                .That(picks).HasSize(2);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void AbsentTargetUnderARestingGaze_IsNotALeave()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 });
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+
+            // Pick directly: the re-render clears every target, and no sample follows before the
+            // no-layout feed, so the slot is genuinely absent under the resting gaze.
+            probe.Window.OnPredictionDwelled("pred_0");
+
+            Feed(probe, slot, 662_000, 800_000, layout: false);
+
+            probe.Content.UpdateLayout();
+            Feed(probe, slot, 833_000, 1_900_000);
+
+            Check.WithCustomMessage("absence under a resting gaze cleared the latch")
+                .That(picks).HasSize(1);
         }
         finally { probe.Dispose(); }
     }

@@ -516,7 +516,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             if (CurrentInput.Length > 0)
             {
-                _orchestrator?.LearnWord(CurrentInput);
+                // Learn the word the way the pair keys store it: trailing/leading punctuation is
+                // not part of the word ("Schöneck," must be learned as "Schöneck"), otherwise the
+                // dictionary holds a form the normalised pair key can never find.
+                if (TrimWordBoundaries(CurrentInput) is { } learnedWord)
+                    _orchestrator?.LearnWord(learnedWord);
                 LearnPair(_previousWord, CurrentInput);
                 _previousWord = CurrentInput;
                 AppendRecentText(CurrentInput);
@@ -559,6 +563,22 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             end--;
 
         return end > 0 && word[end - 1] is '.' or '!' or '?' or '…';
+    }
+
+    /// <summary>
+    /// Strips leading/trailing punctuation from a word about to be learned, keeping the typed case
+    /// and inner apostrophes/hyphens - the same boundary rule <see cref="BigramModel.NormalizeWord"/>
+    /// applies to pair keys. Returns null when nothing word-like remains.
+    /// </summary>
+    private static string? TrimWordBoundaries(string? word)
+    {
+        if (string.IsNullOrWhiteSpace(word)) return null;
+
+        var start = 0;
+        while (start < word.Length && !char.IsLetterOrDigit(word[start])) start++;
+        var end = word.Length;
+        while (end > start && !char.IsLetterOrDigit(word[end - 1])) end--;
+        return end <= start ? null : word[start..end];
     }
 
     public void HandleTab()
@@ -680,13 +700,21 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         var words = word.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length > 1)
         {
-            _orchestrator?.LearnSequence(words);
+            // Learn the selection's words without their boundary punctuation, like Space does.
+            var learnedWords = new List<string>(words.Length);
+            foreach (var rawWord in words)
+                if (TrimWordBoundaries(rawWord) is { } trimmedWord)
+                    learnedWords.Add(trimmedWord);
+
+            if (learnedWords.Count > 0)
+                _orchestrator?.LearnSequence(learnedWords.ToArray());
             // LearnSequence covers the pairs inside the selection; the joining pair is extra.
-            LearnPair(_previousWord, words[0]);
+            LearnPair(_previousWord, learnedWords.Count > 0 ? learnedWords[0] : words[0]);
         }
         else
         {
-            _orchestrator?.LearnWord(word);
+            if (TrimWordBoundaries(word) is { } learnedWord)
+                _orchestrator?.LearnWord(learnedWord);
             LearnPair(_previousWord, word);
         }
 

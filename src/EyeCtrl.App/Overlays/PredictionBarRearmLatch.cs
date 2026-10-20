@@ -21,6 +21,13 @@ using EyeCtrl.Core.Processing;
 /// asks the detector's <see cref="DwellDetector.HitTest"/> for "is the gaze still on this slot?",
 /// so adaptation's routed geometry is honoured and no dwell state is perturbed.
 /// </para>
+///
+/// <para>
+/// A re-render clears and re-registers the targets, and an empty slot gets no target at all, so a
+/// latched slot can be absent for a while. <see cref="Latch"/> therefore remembers the slot's rect
+/// at activation time: while the target is absent the gaze is tested against that rect, so a real
+/// leave onto the keys still re-arms the slot, while absence under a resting gaze does not.
+/// </para>
 /// </summary>
 internal sealed class PredictionBarRearmLatch
 {
@@ -32,48 +39,66 @@ internal sealed class PredictionBarRearmLatch
     /// </summary>
     private const long LeaveUs = 120 * MathConstants.MicrosecondsPerMillisecond;
 
-    // A latched slot and the start of its current continuous off-target run. null = the last
-    // sample was still inside (or no sample has been evaluated yet), i.e. no leave has begun.
-    private readonly Dictionary<string, long?> _offTargetSinceUs = new();
+    private sealed class SlotState
+    {
+        /// <summary>The slot's rect when it was latched - the fallback geometry while the
+        /// detector has no target for it (after a re-render, or for a now-empty slot).</summary>
+        public PhysicalRect? RememberedRect;
 
-    internal bool IsLatched(string targetId) => _offTargetSinceUs.ContainsKey(targetId);
+        /// <summary>Start of the current continuous off-target run, or null when the last
+        /// evaluated sample was still inside (or no sample has been evaluated yet).</summary>
+        public long? OffTargetSinceUs;
+    }
 
-    /// <summary>Latches a slot that just fired. Repeated latches restart the leave window.</summary>
-    internal void Latch(string targetId) => _offTargetSinceUs[targetId] = null;
+    private readonly Dictionary<string, SlotState> _slots = new();
+
+    internal bool IsLatched(string targetId) => _slots.ContainsKey(targetId);
+
+    /// <summary>
+    /// Latches a slot that just fired, remembering its current rect for the samples where the
+    /// re-rendered bar has no target for it. Repeated latches restart the leave window.
+    /// </summary>
+    internal void Latch(string targetId, PhysicalRect? rect)
+        => _slots[targetId] = new SlotState { RememberedRect = rect };
 
     /// <summary>Clears every latch (hide/re-show and layout reloads must not leave a slot dead).</summary>
-    internal void Clear() => _offTargetSinceUs.Clear();
+    internal void Clear() => _slots.Clear();
 
     /// <summary>
     /// One gaze frame: advances the leave clock for every latched slot and clears the ones that
-    /// have been continuously outside their live hit area for <see cref="LeaveUs"/>. Runs on EVERY
-    /// sample (keys included) - gaze on the key grid is outside the bar and must count as a leave.
-    /// Allocation-free while nothing is latched.
+    /// have been continuously outside their live hit area (or, while absent, outside the rect
+    /// remembered at latch time) for <see cref="LeaveUs"/>. Runs on EVERY sample (keys included) -
+    /// gaze on the key grid is outside the bar and must count as a leave. Allocation-free while
+    /// nothing is latched.
     /// </summary>
     internal void Update(PhysicalPoint position, long timestampMicroseconds, DwellDetector detector)
     {
-        if (_offTargetSinceUs.Count == 0) return;
+        if (_slots.Count == 0) return;
 
         List<string>? due = null;
-        foreach (var id in _offTargetSinceUs.Keys)
+        foreach (var (id, slot) in _slots)
         {
-            // Re-rendering the bar clears and re-registers its targets, so there is a window
-            // (one sample, by construction) where a latched slot has no target at all. Absence is
-            // not a leave: advancing the clock there would re-arm on the frame the slot comes
-            // back. Only a registered target can be left.
-            if (!HasTarget(detector, id))
-                continue;
-
+            bool inside;
             if (detector.HitTest(id, position))
+                inside = true;
+            else if (!HasTarget(detector, id))
+                // Absent: the bar re-render has cleared the targets, or the slot is now empty.
+                // The remembered rect keeps "resting on the slot" distinct from "left it"; with no
+                // remembered geometry there is nothing to judge, so absence is not a leave.
+                inside = slot.RememberedRect?.Contains(position) ?? true;
+            else
+                inside = false;
+
+            if (inside)
             {
                 // Back inside: any off-target run so far was not a leave.
-                _offTargetSinceUs[id] = null;
+                slot.OffTargetSinceUs = null;
                 continue;
             }
 
-            if (_offTargetSinceUs[id] is not { } since)
+            if (slot.OffTargetSinceUs is not { } since)
             {
-                _offTargetSinceUs[id] = timestampMicroseconds;
+                slot.OffTargetSinceUs = timestampMicroseconds;
                 continue;
             }
 
@@ -83,7 +108,7 @@ internal sealed class PredictionBarRearmLatch
 
         if (due is null) return;
         foreach (var id in due)
-            _offTargetSinceUs.Remove(id);
+            _slots.Remove(id);
     }
 
     private static bool HasTarget(DwellDetector detector, string targetId)

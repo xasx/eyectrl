@@ -215,6 +215,43 @@ public class KeyboardViewModelPairLearningTests
     }
 
     [Fact]
+    public void TypedWordWithTrailingPunctuation_IsLearnedWithoutIt()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            for (var round = 0; round < 2; round++)
+            {
+                TypeWordAndSpace(vm, "und");
+                TypeWordAndSpace(vm, "Schöneck,");
+            }
+
+            // The pair key is normalised, so the learned word must be trimmed too or the
+            // dictionary gate can never find it.
+            var afterUnd = BarFor(vm, orchestrator, "und");
+            Check.That(afterUnd).Contains("Schöneck");
+            Check.That(afterUnd).Not.Contains("Schöneck,");
+
+            vm.CurrentInput = "Schö";
+            Check.That(BarFor(vm, orchestrator, null)).Contains("Schöneck");
+        }
+    }
+
+    [Fact]
+    public void PickedWordWithTrailingPunctuation_IsLearnedWithoutIt()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            vm.HandlePredictionSelected("Schöneck,");
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("schöneck")).IsTrue();
+            Check.That(words.ContainsKey("schöneck,")).IsFalse();
+        }
+    }
+
+    [Fact]
     public void TypingLetters_LearnsNoWordUntilSpace()
     {
         var (vm, orchestrator) = Create();

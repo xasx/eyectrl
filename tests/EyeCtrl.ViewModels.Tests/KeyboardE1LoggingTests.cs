@@ -572,6 +572,24 @@ public class KeyboardE1LoggingTests
     }
 
     [Fact]
+    public void ABackspaceIntoCommittedText_RightAfterAShortcutLetter_IsNotASlip()
+    {
+        // A letter pressed with Ctrl armed types nothing into the word, so the Backspace that follows
+        // it goes into COMMITTED text. That is editing, not a slip, even though it directly follows a letter.
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Type("space");                              // "h " is now committed
+        rig.Vm.ToggleModifier(ModifierKey.Ctrl);
+        rig.Type("key_0_1");                            // Ctrl+letter: no CurrentInput
+        rig.Type("backspace");                          // bs=committed
+        rig.Type("key_0_2");
+
+        var backspace = rig.Log.Of("key").Select(Fields).Single(f => f["cls"] == "backspace");
+        Check.That(backspace["bs"]).IsEqualTo("committed");
+        Check.That(rig.Log.Of("slip")).IsEmpty();
+    }
+
+    [Fact]
     public void ASlipLine_CarriesOnlyTheFiveRelationFields()
     {
         using var rig = new Rig();

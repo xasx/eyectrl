@@ -89,6 +89,7 @@ public class LostGazeExitCoordinatorTests
                 Dispatcher = Dispatcher,
                 CursorVM = new CursorCircleViewModel(dragCtx.Settings, dragCtx.Messenger),
             };
+            Drag.CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay();
             Drag.Initialize(ctx);
             Repeat.Initialize(ctx);
             Scroll = new ScrollModeController(ctx, () => ScrollWindow);

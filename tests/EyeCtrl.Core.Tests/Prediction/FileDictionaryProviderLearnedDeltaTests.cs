@@ -134,6 +134,144 @@ public class FileDictionaryProviderLearnedDeltaTests : IDisposable
         Check.That(File.ReadAllText(BackupPath)).IsEqualTo("keep me");
     }
 
+    private string LegacyPath => Path.Combine(_dir, "legacy", "base.v1.json");
+
+    private void WriteLegacy(Dictionary<string, int> words)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(LegacyPath)!);
+        File.WriteAllText(LegacyPath, JsonSerializer.Serialize(new { words }));
+    }
+
+    [Fact]
+    public void Load_BothBasesMatch_RepairsALegacyFileAgainstTheLegacyBase()
+    {
+        // 100% overlap, different counts: both bases pass the inflation test. The legacy file's
+        // residuals are smaller against the legacy base, so that is the one to repair against.
+        var current = new Dictionary<string, int>
+        {
+            ["alpha"] = 7, ["beta"] = 13, ["gamma"] = 11, ["delta"] = 5, ["epsilon"] = 9,
+        };
+        var legacy = new Dictionary<string, int>
+        {
+            ["alpha"] = 10, ["beta"] = 20, ["gamma"] = 15, ["delta"] = 7, ["epsilon"] = 12,
+        };
+        WriteBase(current);
+        WriteLegacy(legacy);
+        var residuals = new Dictionary<string, int>
+        {
+            ["alpha"] = 1, ["beta"] = 2, ["gamma"] = 3, ["delta"] = 4, ["epsilon"] = 5,
+        };
+        WriteUser(legacy.ToDictionary(kv => kv.Key, kv => 57 * kv.Value + residuals[kv.Key]));
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["alpha"]).IsEqualTo(current["alpha"] + 1);
+        Check.That(loaded["beta"]).IsEqualTo(current["beta"] + 2);
+        Check.That(loaded["gamma"]).IsEqualTo(current["gamma"] + 3);
+        Check.That(loaded["delta"]).IsEqualTo(current["delta"] + 4);
+        Check.That(loaded["epsilon"]).IsEqualTo(current["epsilon"] + 5);
+    }
+
+    [Fact]
+    public void Load_BothBasesMatch_RepairsACurrentFileAgainstTheCurrentBase()
+    {
+        var current = new Dictionary<string, int>
+        {
+            ["alpha"] = 7, ["beta"] = 13, ["gamma"] = 11, ["delta"] = 5, ["epsilon"] = 9,
+        };
+        var legacy = new Dictionary<string, int>
+        {
+            ["alpha"] = 8, ["beta"] = 19, ["gamma"] = 16, ["delta"] = 6, ["epsilon"] = 10,
+        };
+        WriteBase(current);
+        WriteLegacy(legacy);
+        var residuals = new Dictionary<string, int>
+        {
+            ["alpha"] = 1, ["beta"] = 2, ["gamma"] = 3, ["delta"] = 4, ["epsilon"] = 5,
+        };
+        WriteUser(current.ToDictionary(kv => kv.Key, kv => 57 * kv.Value + residuals[kv.Key]));
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["alpha"]).IsEqualTo(current["alpha"] + 1);
+        Check.That(loaded["beta"]).IsEqualTo(current["beta"] + 2);
+        Check.That(loaded["gamma"]).IsEqualTo(current["gamma"] + 3);
+        Check.That(loaded["delta"]).IsEqualTo(current["delta"] + 4);
+        Check.That(loaded["epsilon"]).IsEqualTo(current["epsilon"] + 5);
+    }
+
+    [Fact]
+    public void Load_LegacyInflatedFile_RepairsAgainstTheOldBaseOnTopOfTheNewBase()
+    {
+        // New base: two shared words plus eight the old file never had, so the CURRENT base
+        // cannot be the one that produced the counts (under 90% coverage).
+        var current = new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 };
+        for (var i = 0; i < 8; i++) current[$"neu{i}"] = 100;
+        WriteBase(current);
+        WriteLegacy(new Dictionary<string, int> { ["weiss"] = 80, ["hallo"] = 10 });
+
+        WriteUser(new Dictionary<string, int>
+        {
+            ["weiss"] = 58 * 80 + 3,
+            ["hallo"] = 58 * 10 + 2,
+        });
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["weiss"]).IsEqualTo(103);   // new base + the learned residual
+        Check.That(loaded["hallo"]).IsEqualTo(7);
+        Check.That(loaded["neu0"]).IsEqualTo(100);
+    }
+
+    [Fact]
+    public void Load_SingleCopyMergedLegacyFile_IsRepairedToo()
+    {
+        var current = new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 };
+        for (var i = 0; i < 8; i++) current[$"neu{i}"] = 100;
+        WriteBase(current);
+        WriteLegacy(new Dictionary<string, int> { ["weiss"] = 80, ["hallo"] = 10 });
+
+        // One merged save (not 57): the >= 1x rule must catch it; the old >= 2x rule would not.
+        WriteUser(new Dictionary<string, int> { ["weiss"] = 83, ["hallo"] = 12 });
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["weiss"]).IsEqualTo(103);
+        Check.That(loaded["hallo"]).IsEqualTo(7);
+    }
+
+    [Fact]
+    public void Load_GenuineDeltaWithALargeRareWord_IsLeftUntouched()
+    {
+        var current = new Dictionary<string, int> { ["rare"] = 1 };
+        for (var i = 0; i < 9; i++) current[$"neu{i}"] = 100;
+        WriteBase(current);
+        WriteLegacy(new Dictionary<string, int> { ["rare"] = 1, ["weiss"] = 80 });
+
+        WriteUser(new Dictionary<string, int> { ["rare"] = 5 });   // typed five times
+
+        var loaded = CreateProvider().Load();
+
+        Check.That(loaded["rare"]).IsEqualTo(6);   // 1 + 5, not modulo-repaired
+    }
+
+    [Fact]
+    public void Save_OnAFreshProviderOverALegacyInflatedFile_BacksUpBeforeWriting()
+    {
+        var current = new Dictionary<string, int> { ["weiss"] = 100, ["hallo"] = 5 };
+        for (var i = 0; i < 8; i++) current[$"neu{i}"] = 100;
+        WriteBase(current);
+        WriteLegacy(new Dictionary<string, int> { ["weiss"] = 80, ["hallo"] = 10 });
+        WriteUser(new Dictionary<string, int> { ["weiss"] = 58 * 80 + 3, ["hallo"] = 58 * 10 + 2 });
+        var original = File.ReadAllText(UserPath);
+
+        var provider = CreateProvider();
+        provider.Save(new Dictionary<string, int> { ["weiss"] = 103, ["hallo"] = 7 });
+
+        Check.That(File.Exists(BackupPath)).IsTrue();
+        Check.That(File.ReadAllText(BackupPath)).IsEqualTo(original);
+    }
+
     [Fact]
     public void Save_OnAFreshProviderThatNeverLoaded_WritesOnlyTheLearnedDelta()
     {

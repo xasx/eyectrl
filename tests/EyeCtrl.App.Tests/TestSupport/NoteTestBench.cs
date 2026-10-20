@@ -47,7 +47,10 @@ internal static class NoteTestBench
 
     internal static PhysicalPoint CellCentre(NotePlacement placement, int slot)
     {
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
+        // T6 fixup-01: the placement the manager registered from already carries the tag's top
+        // strip (WithTagClearance), and ButtonCenter reads the extra top clearance off it, so a
+        // grown placement's cell centre lands where the geometry always was.
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
         return new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));

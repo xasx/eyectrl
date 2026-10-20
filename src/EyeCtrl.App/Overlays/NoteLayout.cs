@@ -54,23 +54,81 @@ internal static class NoteLayout
     public static double RowCenterY(int row) =>
         LayoutConstants.NoteButtonPadding + (row * LayoutConstants.NoteCellDip) + (LayoutConstants.NoteCellDip / 2);
 
-    // == the number badge (T6 P5) ==
+    // == the number tag (T6 fixup-01) ==
+
+    public const double TagWidthDip = 28.0;
+    public const double TagHeightDip = 18.0;
+
+    /// <summary>How much of the tag rides ABOVE the card's top edge (the tag straddles it). The
+    /// window grows by this much at the top when the tag shows — the card's screen rect is
+    /// untouched, and Place's 64 DIP work-area inset guarantees the strip stays inside the work
+    /// area even for a clamped placement.</summary>
+    public const double TagProtrusionDip = 9.0;
+
+    /// <summary>The tag's inset from the card's text-side top corner.</summary>
+    public const double TagCornerInsetDip = 12.0;
+
+    /// <summary>Clearance the tag keeps from the tail base when it slides along the top edge.</summary>
+    public const double TagTailClearanceDip = 6.0;
 
     /// <summary>
-    /// Window-relative centre of the number badge: the control column's GAP row (slot 2). That
-    /// row is the one card region that is free on EVERY side and in EVERY state —
-    /// <see cref="SlotsFor"/> never returns slot 2, so its hit-cell fill stays Collapsed, the
-    /// text column and the 30 DIP gap sit across the card from it, and ChromeRects never reports
-    /// the row. Delegating to <see cref="ButtonCenter"/> keeps the badge on the same per-side
-    /// column math as the cells, so the column-follows-side rule holds for the badge for free.
+    /// Grows the placement's window upward by <see cref="TagProtrusionDip"/> so the tag can
+    /// straddle the card's top edge. The CARD rect — and therefore every screen position, the
+    /// text and all hit cells — is untouched; only the window's top rises and its height grows.
+    /// Idempotent: a placement that already carries the clearance passes through unchanged.
     /// </summary>
-    public static (double X, double Y) BadgeCenter(NoteSide side, double cardWidthDip) =>
-        ButtonCenter(side, 2, cardWidthDip);
+    public static NotePlacement WithTagClearance(NotePlacement placement)
+    {
+        if (ExtraTopClearance(placement) > 0)
+            return placement; // already grown
+        var w = placement.Window;
+        return placement with { Window = new Rect(w.Left, w.Top - TagProtrusionDip, w.Width, w.Height + TagProtrusionDip) };
+    }
 
-    /// <summary>The badge diameter in DIP: 1.5x the text size clamped to [32, 56]. It scales
-    /// with the note body (18 → 32, 28 → 42, 48 → 56) and never leaves the 80 DIP gap row —
-    /// 56 leaves a 12 DIP clearance to each neighbouring cell row.</summary>
-    public static double BadgeDiameterFor(double textSize) => Math.Clamp(textSize * 1.5, 32.0, 56.0);
+    /// <summary>How far the placement's card sits below the STATIC per-side window origin
+    /// (<see cref="CardOrigin"/>) — zero for every placement Place derives, and
+    /// <see cref="TagProtrusionDip"/> once <see cref="WithTagClearance"/> grew the window.
+    /// The tag clearance rides every window-relative placement computation (target centres,
+    /// drawn buttons) so a grown window draws and registers at the SAME screen positions.</summary>
+    public static double ExtraTopClearance(NotePlacement placement)
+    {
+        var (_, originY) = CardOrigin(placement.Side);
+        return (placement.Card.Top - placement.Window.Top) - originY;
+    }
+
+    /// <summary>
+    /// The drawn tag's rect in window-relative coordinates: straddling the card's top edge
+    /// (half above), at the TEXT-side end — the end away from the control column, which hugs
+    /// the edge away from the tail — inset from the corner. On a Below placement the tail
+    /// shares the top edge, so the tag slides along it toward the column (never over it) until
+    /// it clears the tail polygon's base.
+    /// </summary>
+    public static Rect TagRect(NotePlacement placement)
+    {
+        var card = RectLocal(placement);
+        bool textOnRight = placement.Side == NoteSide.Left;
+        double x = textOnRight
+            ? card.Right - TagCornerInsetDip - TagWidthDip
+            : card.Left + TagCornerInsetDip;
+        double y = card.Top - TagProtrusionDip;
+
+        if (placement.Side == NoteSide.Below && TailTriangle(placement) is { } tri)
+        {
+            // The tail base sits on the card's top edge between the triangle's 2nd/3rd points.
+            double baseLeft = Math.Min(tri[1].X, tri[2].X) - TagTailClearanceDip;
+            double baseRight = Math.Max(tri[1].X, tri[2].X) + TagTailClearanceDip;
+            bool overlaps = x < baseRight && x + TagWidthDip > baseLeft;
+            if (overlaps)
+            {
+                // Slide toward the column so the tag's LEFT edge clears the base's right end.
+                x = baseRight;
+                // Never over the column: the tag stops short of the column strip.
+                double limit = card.Right - LayoutConstants.NoteColumnWidthDip - TagWidthDip;
+                if (x > limit) x = limit;
+            }
+        }
+        return new Rect(x, y, TagWidthDip, TagHeightDip);
+    }
 
     /// <summary>
     /// The per-state slot table (P4 D3). A slot IS a hit-cell row: slot 0 and 1 are adjacent,
@@ -93,13 +151,27 @@ internal static class NoteLayout
     /// the slot maps 1:1 to its hit-cell row. The card origin inside the window shifts by the
     /// tail zone, so the returned point is window-relative, directly usable on the window's
     /// canvas and by <c>NoteManager</c>'s dwell-target placement.
+    /// <para>
+    /// T6 fixup-01: <paramref name="extraTopClearanceDip"/> rides the number tag's window
+    /// growth (<see cref="ExtraTopClearance"/>) — a grown window's card sits lower in the
+    /// window by the protrusion, and the drawn cells and registered targets must follow so
+    /// every screen position stays byte-for-byte where the ungrown world put it.
+    /// </para>
     /// </summary>
-    public static (double X, double Y) ButtonCenter(NoteSide side, int slot, double cardWidthDip)
+    public static (double X, double Y) ButtonCenter(NoteSide side, int slot, double cardWidthDip,
+        double extraTopClearanceDip = 0)
     {
         double colX = side == NoteSide.Left ? ColumnCenterXFromLeft : ColumnCenterX(cardWidthDip);
         var (originX, originY) = CardOrigin(side);
-        return (originX + colX, originY + RowCenterY(slot));
+        return (originX + colX, originY + extraTopClearanceDip + RowCenterY(slot));
     }
+
+    /// <summary>Window-relative centre of hit cell #<paramref name="slot"/> for a stored
+    /// placement (T6 fixup-01): the ONE shape every read-from-the-placement caller uses, so the
+    /// drawn cells, the dwell targets and the chrome rects all carry the tag's top-clearance
+    /// ride and can never disagree with the drawn geometry over a grown window.</summary>
+    public static (double X, double Y) ButtonCenter(NotePlacement placement, int slot) =>
+        ButtonCenter(placement.Side, slot, placement.Card.Width, ExtraTopClearance(placement));
 
 
     // == the card size (P4 D2): the text size drives the width, the measured text height

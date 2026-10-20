@@ -387,9 +387,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// drawn-tree references stay valid, review-01's drawn⌁registered invariant holds).</summary>
     private void ApplyPlacementToWindow(NoteData note)
     {
-        var placement = note.State == NoteState.PendingUndo
+        var placement = NoteLayout.WithTagClearance(note.State == NoteState.PendingUndo
             ? ChipPlacementFor(note)
-            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit);
+            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit));
 
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
@@ -558,7 +558,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             (suffix, kind, fromStylus) => RunControlInput(data.Id, suffix, kind, fromStylus); // T6 P5: caretaker touch/click
         _notes.Add(data);
         _windows.Add(window);
-        _placements[data.Id] = NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!;
+        _placements[data.Id] = NoteLayout.WithTagClearance(
+            NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!);
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply
@@ -1438,12 +1439,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             return;
         }
         note.Side = other.Side;
-        _placements[noteId] = other;
+        var grown = NoteLayout.WithTagClearance(other);
+        _placements[noteId] = grown;
         if (Window(noteId) is { } window)
         {
-            window.ApplyPlacement(other);
-            window.Left = other.Window.Left;
-            window.Top = other.Window.Top;
+            window.ApplyPlacement(grown);
+            window.Left = grown.Window.Left;
+            window.Top = grown.Window.Top;
         }
         LeaveMove(note);
     }
@@ -1466,8 +1468,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
-        var placement = NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX)!;
+        var placement = NoteLayout.WithTagClearance(NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
+            new List<Rect>(), DpiHelper.ScaleX)!);
         _placements[id] = placement;
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
@@ -1496,13 +1498,27 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     public IReadOnlyList<PhysicalRect> ChromeRects()
     {
         var rects = new List<PhysicalRect>(_notes.Count * 4 + 1);
+        // T6 fixup-01: the tag's straddled half rides ABOVE the card — outside every other
+        // chrome rect — so activation offers and keep-clears must see it. It follows the exact
+        // badge-visibility rule (RefreshBadges): shown on card notes only while TWO OR MORE
+        // notes are non-chips; a lone card note or a chip carries none.
+        bool badged = _notes.Count(n => n.State != NoteState.PendingUndo) >= 2;
         foreach (var note in _notes)
         {
             // P3 D2: the card is the drawn card (the placement's Card rect, tail zone excluded —
             // P2 D7 keeps the tail and the raw window rect out of the chrome zones), and the three
             // column cells follow the placement's side.
             if (_placements.TryGetValue(note.Id, out var placement))
+            {
                 rects.Add(DipRectToPhysical(placement.Card));
+                if (badged && note.State != NoteState.PendingUndo)
+                {
+                    var tagLocal = NoteLayout.TagRect(placement);
+                    rects.Add(DipRectToPhysical(new Rect(
+                        placement.Window.X + tagLocal.X, placement.Window.Y + tagLocal.Y,
+                        tagLocal.Width, tagLocal.Height)));
+                }
+            }
 
             // The occupied cells only (P4 D3): the gap cell and the states other rows are
             // chrome for nobody.
@@ -1527,7 +1543,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         centre = default;
         if (!_placements.TryGetValue(noteId, out var placement))
             return false;
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
         centre = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
@@ -2041,7 +2057,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
-        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false));
         _notes.Add(data);
         RegisterDwellTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -2058,7 +2074,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         ExitEditing(commit: true, handOver: true);
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
-        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false));
         _notes.Add(data);
         RegisterSoleEditorTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -2078,7 +2094,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddMovingNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Move };
-        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false));
         _notes.Add(data);
         _movingNoteId = data.Id;
         _settleTracker.Reset();
@@ -2248,7 +2264,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         if (!_placements.TryGetValue(noteId, out var placement))
             throw new InvalidOperationException($"No placement derived for note {noteId} - derive one before registering its targets");
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
         var center = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
@@ -2389,3 +2405,4 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _placeCentroid = null;
     }
 }
+

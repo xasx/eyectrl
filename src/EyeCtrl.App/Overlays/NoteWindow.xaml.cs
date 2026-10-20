@@ -49,8 +49,8 @@ public class NoteWindow : OverlayWindow
     private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
     private NoteState _state;
-    // T6 P5: the badge elements are tracked so DrawBadge can replace them without a full Draw.
-    private Ellipse? _badgeDisc;
+    // T6 fixup-01: the tag elements are tracked so DrawBadge can replace them without a full Draw.
+    private Border? _badgeTag;
     private TextBlock? _badgeLabel;
     private int? _badgeNumber;
     // The note body text size in DIP (P4 D1): pushed by the manager at creation and on every
@@ -100,9 +100,15 @@ public class NoteWindow : OverlayWindow
     /// drawn geometry and the window position can never disagree. Safe before Show(): Draw is
     /// idempotent and the Loaded handler re-runs it. Internal: <see cref="NotePlacement"/> is,
     /// and only the manager (same assembly) applies placements.
+    /// <para>
+    /// T6 fixup-01: the window rides <see cref="NoteLayout.WithTagClearance"/> on entry — every
+    /// applied placement carries the tag's top strip (idempotent), so a window applied from any
+    /// seam grows the same way and the tag never draws outside the window bounds.
+    /// </para>
     /// </summary>
     internal void ApplyPlacement(NotePlacement placement)
     {
+        placement = NoteLayout.WithTagClearance(placement);
         _placement = placement;
         _side = placement.Side;
         Dispatcher.Invoke(() =>
@@ -181,7 +187,9 @@ public class NoteWindow : OverlayWindow
         // like the buttons; UpdateButtonVisibility picks the state rows.
         for (int row = 0; row < 4; row++)
         {
-            var (cx, cy) = NoteLayout.ButtonCenter(_side, row, CardWidthDip);
+            var (cx, cy) = _placement is { } wp
+                ? NoteLayout.ButtonCenter(wp, row)
+                : NoteLayout.ButtonCenter(_side, row, CardWidthDip);
             var fill = new Rectangle
             {
                 Width = CellDip, Height = CellDip,
@@ -220,54 +228,58 @@ public class NoteWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Draws (or clears) the number badge in the control column's gap row —
-    /// <see cref="NoteLayout.BadgeCenter"/>. The badge is pure chrome: it is never registered as
-    /// a dwell target, never enters ChromeRects, and carries no hit affordance, so a look at it
-    /// can never act. A PendingUndo chip NEVER draws one (T6: chips show no badge and don't
-    /// count), guarded here as well as in the manager's push.
+    /// Draws (or clears) the number tag — <see cref="NoteLayout.TagRect"/>: a small FILLED
+    /// rounded rectangle straddling the card's top edge at the text-side end, out of the button
+    /// column (T6 fixup-01, owner decision: the gap-row badge read as a fourth dwell button —
+    /// a decoy next to ✕). The tag is pure chrome: never registered as a dwell target, never
+    /// chrome of its own, carries no hit affordance. A PendingUndo chip NEVER draws one (T6:
+    /// chips show no badge and don't count), guarded here as well as in the manager's push.
     /// </summary>
     private void DrawBadge()
     {
-        if (_badgeDisc != null) { _canvas.Children.Remove(_badgeDisc); _badgeDisc = null; }
+        if (_badgeTag != null) { _canvas.Children.Remove(_badgeTag); _badgeTag = null; }
         if (_badgeLabel != null) { _canvas.Children.Remove(_badgeLabel); _badgeLabel = null; }
         if (_badgeNumber is not { } number || _state == NoteState.PendingUndo || _placement is not { } placement)
             return;
 
-        // Position: the control column's GAP row (slot 2) — the one card region free on every
-        // side and in every state. SlotsFor never returns slot 2, so its cell fill stays
-        // Collapsed; the text column and the 30 DIP gap sit across the card from it (the column
-        // hugs the edge away from the tail on all four sides), and ChromeRects never reports the
-        // row — the badge overlaps nothing a look or a caretaker reads.
-        double dia = NoteLayout.BadgeDiameterFor(_textSize);
-        var (cx, cy) = NoteLayout.BadgeCenter(_side, placement.Card.Width);
+        // Position: straddling the card's TOP edge at the TEXT-side end (the column hugs the
+        // edge away from the tail), inset from the corner; on a Below placement the tail shares
+        // the top edge, so the tag slides toward the column to clear the polygon. The window
+        // grew upward by the protrusion when the badge pushed (WithTagClearance), so the top
+        // half has room; the card's screen rect never moved.
+        var rect = NoteLayout.TagRect(placement);
 
-        // Fill SurfaceMedium = the same disc fill as the control discs; numeral and edge
-        // TextPrimary = the theme's strongest marking colour. Measured against the composited
-        // card over both page lightnesses, the worst theme pair is Midnight's numeral at
-        // 10.9:1 (floor 4.5) and Daylight's edge at 12.5:1 (floor 3.0). TextPrimary for the
-        // edge ON PURPOSE: BorderSubtle is the card-edge token but sits at 2.80:1 against
-        // Daylight's light card — below the 1.4.11 floor this badge owes.
-        var disc = new Ellipse
+        // Fill TextSecondary, numeral SurfaceDark, and the rim SurfaceDark at 1 DIP (T6
+        // fixup-01 + owner addendum: a solid tag, no ring — the numeral's brush keys the body
+        // so it reads as one inked piece, not a control). Contrast is gated in max(fill, edge)
+        // form on the drawn brushes: the TEXT floor (numeral vs fill ≥ 4.5) holds everywhere;
+        // the fill clears the card it straddles (worst case 6.57:1, floor 3.0); the pair clears
+        // the pages of both lightnesses the protruding half can sit over (in Midnight/Ember/
+        // Daylight the fill fails only the too-bright page and the dark rim carries it, in
+        // Contrast the light fill and the black rim face each other's extremes) —
+        // NoteBadgeContrastTests gates the drawn brushes.
+        var tag = new Border
         {
-            Width = dia, Height = dia,
-            Fill = Tokens.BrushSurfaceMedium,
-            Stroke = Tokens.BrushTextPrimary,
-            StrokeThickness = Tokens.BorderThicknessStandard
+            Width = rect.Width, Height = rect.Height,
+            Background = Tokens.BrushTextSecondary,
+            BorderBrush = Tokens.BrushSurfaceDark,
+            BorderThickness = new Thickness(1),
+            CornerRadius = Tokens.SmallCornerRadius
         };
-        Canvas.SetLeft(disc, cx - (dia / 2));
-        Canvas.SetTop(disc, cy - (dia / 2));
-        _canvas.Children.Add(disc);
-        _badgeDisc = disc;
+        Canvas.SetLeft(tag, rect.Left);
+        Canvas.SetTop(tag, rect.Top);
+        _canvas.Children.Add(tag);
+        _badgeTag = tag;
 
         // The numeral centres on its INK (T5 fixup-03 G1's convention): digits like "1" carry
         // asymmetric advance boxes, and box centring reads off-centre. The ratio is Solo —
-        // the glyph is the disc's entire content (the same bucket the control discs read).
+        // the glyph is the tag's entire content (the same bucket the control discs read).
         var label = new TextBlock
         {
             Text = number.ToString(CultureInfo.InvariantCulture),
             FontFamily = Tokens.FontStandard,
-            FontSize = dia * ContainerRatio.Solo,
-            Foreground = Tokens.BrushTextPrimary,
+            FontSize = NoteLayout.TagHeightDip * ContainerRatio.Solo,
+            Foreground = Tokens.BrushSurfaceDark,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -275,6 +287,8 @@ public class NoteWindow : OverlayWindow
             FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
             Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
         Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+        double cx = rect.Left + (rect.Width / 2);
+        double cy = rect.Top + (rect.Height / 2);
         Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
         Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
         _canvas.Children.Add(label);
@@ -479,8 +493,9 @@ public class NoteWindow : OverlayWindow
             Dispatcher.Invoke(() =>
             {
                 UpdateContent();
-                // T8: the badge diameter follows the text size even when the placement is
-                // unchanged — ApplyPlacementToWindow skips identical rects, so Draw would not run.
+                // T8: the tag is size-independent (fixed 28x18 DIP), but its rect derives from
+                // the placement — ApplyPlacementToWindow skips identical rects, so Draw would
+                // not run and a placement-inflight read must not go stale.
                 DrawBadge();
             });
     }
@@ -598,8 +613,11 @@ public class NoteWindow : OverlayWindow
             {
                 // Window-relative logical centre, shared with NoteManager dwell-target
                 // placement - column side follows the placement side (P3 D2.6), the slot maps
-                // 1:1 to its hit-cell row (P4 D3).
-                var (cx, cy) = NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
+                // 1:1 to its hit-cell row (P4 D3); the read rides the tag's top clearance so
+                // a grown window draws the cells at the same screen positions.
+                var (cx, cy) = _placement is { } bp
+                    ? NoteLayout.ButtonCenter(bp, slot)
+                    : NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
 
                 var ellipse = new Ellipse
                 {
@@ -794,8 +812,8 @@ public class NoteWindow : OverlayWindow
         _buttons.TryGetValue($"{_noteId}:{suffix}", out var ellipse)
         && ellipse.Visibility == Visibility.Visible;
 
-    /// <summary>Test accessors (T6): the drawn badge elements, or nulls when none is drawn.</summary>
-    internal Ellipse? BadgeDiscForTest => _badgeDisc;
+    /// <summary>Test accessors (T6): the drawn tag elements, or nulls when none is drawn.</summary>
+    internal Border? BadgeTagForTest => _badgeTag;
     internal TextBlock? BadgeLabelForTest => _badgeLabel;
 
     public void UpdateDwellProgress(string targetId, double progress)

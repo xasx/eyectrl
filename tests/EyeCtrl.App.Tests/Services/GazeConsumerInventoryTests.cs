@@ -174,6 +174,11 @@ public class GazeConsumerInventoryTests
             kit.Overlays = () => new KeyboardOnlyOverlays(keyboard);
 
             using var inventory = kit.Build();
+            // F6: the owner controls the PC only by eye-tracking. This test needs the real
+            // Show() layout, so make the window fully transparent and non-activating: it lays
+            // out identically (the chrome rect is what is under test) and shows nothing.
+            keyboard.Opacity = 0;
+            keyboard.ShowActivated = false;
             keyboard.Show();
             Pump();
             kit.KeyboardVm.IsVisible = true;

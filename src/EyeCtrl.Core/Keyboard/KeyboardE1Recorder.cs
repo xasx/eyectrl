@@ -20,18 +20,32 @@ using Microsoft.Extensions.Logging;
 /// </para>
 ///
 /// <para>
-/// <b>No key identity for text keys.</b> A key line (and an abandonment) for a letter, digit,
-/// symbol or emoji key carries NO row, column, action id or label: those would spell the text
-/// (position plus the layout is a lossless cipher of it). Only non-text keys (Space, Backspace,
-/// Enter, modifiers, sub-layout switches, shortcuts) keep their position and id, because they do
-/// not spell anything. The recorder enforces this itself, whatever the caller passes. The slip
-/// line (<see cref="RecordSlip"/>) describes the relation between two keys, never either key.
+/// <b>A text key's line says only "a text key was typed".</b> For a letter, digit, symbol or
+/// emoji key the line carries NO row, column, action id, label, box size or pixel offset, and no
+/// per-key saccade, restart count or likelihood: each of those either IS the key's position or
+/// leaks it (the tracker's bias field turns a pixel offset into a column; box sizes differ by one
+/// pixel per column at fractional display scales; a saccade class or a likelihood bit narrows the
+/// word). What remains is timing, the dock edge, which outer quarter of the box the gaze rested
+/// in (<c>edgeq</c>, the one class the edge-crowding rule needs), whether a word was open, and —
+/// on a separate keyed line — the hold-on time. The things a correction needs about the SLIPPED
+/// key are logged only when it is corrected (<see cref="RecordCorrection"/>, <see cref="RecordSlip"/>).
+/// Only non-text keys (Space, Backspace, Enter, modifiers, sub-layout switches, shortcuts) keep
+/// their position and id, because they do not spell anything. The recorder enforces all of this
+/// itself, whatever the caller passes.
+/// </para>
+///
+/// <para>
+/// <b>Nothing at all in a password field.</b> While the injected sensitivity probe reports a
+/// sensitive context, no key, abandon, hold-on, slip, correction, pick, pick-undo, space or mode
+/// line is written (a password's length, composition and order would be in them); one
+/// <c>KB-E1 sensitive</c> marker with no count is written when the context is entered.
 /// </para>
 ///
 /// <para>
 /// Not a per-sample logger: every call here is per EVENT. The recorder also owns the small
 /// cross-event state the derived events need (the previous key and pick, the last mode change
-/// for mode-undo, the pick awaiting a possible undo).
+/// for mode-undo, the pick awaiting a possible undo). Logging must never throw into the keyboard:
+/// every write is guarded.
 /// </para>
 /// </summary>
 public sealed class KeyboardE1Recorder
@@ -57,19 +71,28 @@ public sealed class KeyboardE1Recorder
     private bool _pickAwaitingUndo;
     private ModeChange? _lastMode;
     private long _shownAtMs = long.MinValue;
+    private bool _inSensitive;
 
     private readonly record struct ModeChange(string Kind, string From, string To, long AtMs);
 
     /// <param name="logger">The logger the lines go to; null makes every call a no-op.</param>
     /// <param name="clockMs">A monotonic millisecond clock; injected so tests are deterministic.</param>
-    public KeyboardE1Recorder(ILogger? logger, Func<long>? clockMs = null)
+    /// <param name="isSensitive">Whether a password-like field has focus; null means never.</param>
+    public KeyboardE1Recorder(ILogger? logger, Func<long>? clockMs = null, Func<bool>? isSensitive = null)
     {
         _logger = logger;
         _clockMs = clockMs ?? MonotonicMs;
+        IsSensitive = isSensitive;
     }
 
     /// <summary>A recorder that records nothing.</summary>
     public static KeyboardE1Recorder Disabled { get; } = new(null);
+
+    /// <summary>
+    /// Reports whether a sensitive (password) context has focus. Assigned by the view-model from the
+    /// injected <c>ISensitiveContextDetector</c>; a throwing probe counts as not sensitive.
+    /// </summary>
+    public Func<bool>? IsSensitive { get; set; }
 
     /// <summary>The recorder's own monotonic time, in ms.</summary>
     public long NowMs => _clockMs();
@@ -79,9 +102,45 @@ public sealed class KeyboardE1Recorder
 
     private static long MonotonicMs() => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
-    /// <summary>One key activation. Returns the line's sequence number (follow-up lines carry it).</summary>
+    /// <summary>
+    /// True while a sensitive context has focus: callers (and every recorder method below) must then
+    /// log nothing per key. The first call after entering drops the pending pick-undo and mode-undo
+    /// state and writes ONE <c>KB-E1 sensitive</c> marker with no count.
+    /// </summary>
+    public bool Muted()
+    {
+        bool sensitive;
+        try { sensitive = IsSensitive?.Invoke() == true; }
+        catch (Exception) { sensitive = false; }
+
+        if (sensitive && !_inSensitive)
+        {
+            _inSensitive = true;
+            _pickAwaitingUndo = false;
+            _lastMode = null;
+            if (Enabled) Emit("KB-E1 sensitive");
+        }
+        else if (!sensitive)
+        {
+            _inSensitive = false;
+        }
+        return sensitive;
+    }
+
+    private void Emit(string template, params object?[] args)
+    {
+        try { _logger!.LogInformation(template, args); }
+        catch (Exception) { /* a logging failure must never reach the keyboard */ }
+    }
+
+    /// <summary>
+    /// One key activation. Returns the line's sequence number (follow-up lines carry it), or 0 when
+    /// nothing was logged because a sensitive context has focus.
+    /// </summary>
     public long RecordKey(in KeyE1 k)
     {
+        if (Muted()) return 0;
+
         var now = _clockMs();
         var seq = ++_seq;
         var sinceKey = _lastKeyMs == long.MinValue ? -1 : now - _lastKeyMs;
@@ -91,8 +150,7 @@ public sealed class KeyboardE1Recorder
             if (_pickAwaitingUndo && now - _lastPickMs <= PickUndoWindowMs && Enabled)
             {
                 _pickAwaitingUndo = false;
-                _logger!.LogInformation(
-                    "KB-E1 pickundo ms={Ms} by={By}", now - _lastPickMs, k.Class);
+                Emit("KB-E1 pickundo ms={Ms} by={By}", now - _lastPickMs, k.Class);
             }
         }
         else if (k.Class is KeyE1.Letter or KeyE1.Digit or KeyE1.Space)
@@ -106,56 +164,62 @@ public sealed class KeyboardE1Recorder
 
         if (IsIdentityFree(k.Class))
         {
-            _logger!.LogInformation(
-                "KB-E1 key seq={Seq} ts={TsUs} cls={Class} boxw={BoxW} boxh={BoxH} " +
-                "sub={Sub} edge={Edge} winx={WinX} winy={WinY} winw={WinW} winh={WinH} movems={SinceMoveMs} " +
-                "dx={Dx} dy={Dy} mdx={MeanDx} mdy={MeanDy} restarts={Restarts} saccade={Saccade} " +
-                "sincekey={SinceKeyMs} dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs} " +
-                "likely={Likely} start={Start} nocont={NoCont}",
-                seq, k.TimestampUs, k.Class, k.BoxWidthPx, k.BoxHeightPx,
-                k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth, k.WindowHeight, k.SinceWindowMoveMs,
-                k.DxPx, k.DyPx, k.MeanDxPx, k.MeanDyPx, k.Restarts, k.Saccade,
-                sinceKey, k.EffectiveDwellMs, k.PenaltyApplied, k.Typing, k.BackspaceClass,
-                k.Likely, k.WordStart, k.NoContinuation);
+            Emit(
+                "KB-E1 key seq={Seq} ts={TsUs} cls={Class} sub={Sub} edge={Edge} winx={WinX} winy={WinY} " +
+                "winw={WinW} winh={WinH} movems={SinceMoveMs} edgeq={EdgeQ} sincekey={SinceKeyMs} " +
+                "dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs}",
+                seq, k.TimestampUs, k.Class, k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth,
+                k.WindowHeight, k.SinceWindowMoveMs, k.EdgeQuarter, sinceKey, k.EffectiveDwellMs,
+                k.PenaltyApplied, k.Typing, k.BackspaceClass);
             return seq;
         }
 
-        _logger!.LogInformation(
+        Emit(
             "KB-E1 key seq={Seq} ts={TsUs} r={Row} c={Col} cls={Class} act={Act} boxw={BoxW} boxh={BoxH} " +
             "sub={Sub} edge={Edge} winx={WinX} winy={WinY} winw={WinW} winh={WinH} movems={SinceMoveMs} " +
             "dx={Dx} dy={Dy} mdx={MeanDx} mdy={MeanDy} restarts={Restarts} saccade={Saccade} " +
-            "sincekey={SinceKeyMs} dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs} " +
-            "likely={Likely} start={Start} nocont={NoCont}",
+            "sincekey={SinceKeyMs} dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs}",
             seq, k.TimestampUs, k.Row, k.Col, k.Class, k.Action, k.BoxWidthPx, k.BoxHeightPx,
             k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth, k.WindowHeight, k.SinceWindowMoveMs,
             k.DxPx, k.DyPx, k.MeanDxPx, k.MeanDyPx, k.Restarts, k.Saccade,
-            sinceKey, k.EffectiveDwellMs, k.PenaltyApplied, k.Typing, k.BackspaceClass,
-            k.Likely, k.WordStart, k.NoContinuation);
+            sinceKey, k.EffectiveDwellMs, k.PenaltyApplied, k.Typing, k.BackspaceClass);
         return seq;
+    }
+
+    /// <summary>
+    /// What a correction needs about the key that was SLIPPED, logged only on the in-word Backspace
+    /// that takes it back (keyed to that Backspace's <paramref name="seq"/>): how the gaze arrived,
+    /// how many dwells were discarded, and the shadow likelihood bits. Never on an ordinary letter.
+    /// </summary>
+    public void RecordCorrection(long seq, in CorrE1 c)
+    {
+        if (seq <= 0 || Muted() || !Enabled) return;
+        Emit(
+            "KB-E1 corr seq={Seq} saccade={Saccade} restarts={Restarts} likely={Likely} start={Start} nocont={NoCont}",
+            seq, c.Saccade, c.Restarts, c.Likely, c.WordStart, c.NoContinuation);
     }
 
     /// <summary>How long the gaze stayed in the activated key's box after the fire (capped).</summary>
     public void RecordHoldOn(long seq, int ms, bool capped)
     {
-        if (!Enabled) return;
-        _logger!.LogInformation("KB-E1 holdon seq={Seq} ms={Ms} capped={Capped}", seq, ms, capped);
+        if (seq <= 0 || Muted() || !Enabled) return;
+        Emit("KB-E1 holdon seq={Seq} ms={Ms} capped={Capped}", seq, ms, capped);
     }
 
     /// <summary>An abandoned dwell at or above <c>TelemetryThresholds.AbandonProgress</c>.</summary>
     public void RecordAbandon(in AbandonE1 a)
     {
-        if (!Enabled) return;
+        if (Muted() || !Enabled) return;
         if (IsIdentityFree(a.Class))
         {
-            _logger!.LogInformation(
-                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} mdx={MeanDx} mdy={MeanDy} " +
-                "sub={Sub} edge={Edge}",
-                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.MeanDxPx, a.MeanDyPx, a.SubLayout, a.Edge);
+            Emit(
+                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} edgeq={EdgeQ} sub={Sub} edge={Edge}",
+                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.EdgeQuarter, a.SubLayout, a.Edge);
             return;
         }
-        _logger!.LogInformation(
-            "KB-E1 abandon ts={TsUs} r={Row} c={Col} cls={Class} act={Act} pct={Pct} why={Why} mdx={MeanDx} mdy={MeanDy} " +
-            "sub={Sub} edge={Edge}",
+        Emit(
+            "KB-E1 abandon ts={TsUs} r={Row} c={Col} cls={Class} act={Act} pct={Pct} why={Why} mdx={MeanDx} " +
+            "mdy={MeanDy} sub={Sub} edge={Edge}",
             a.TimestampUs, a.Row, a.Col, a.Class, a.Action, a.ProgressPct, a.Reason, a.MeanDxPx, a.MeanDyPx,
             a.SubLayout, a.Edge);
     }
@@ -166,14 +230,18 @@ public sealed class KeyboardE1Recorder
     /// identifies neither: whether the replacement is a geometric neighbour of the slipped key
     /// (<see cref="KeyboardE1Slip"/> says by which rule), the compass point from one to the other
     /// (only when adjacent), the distance in key pitches (capped at 3), the time between the slip
-    /// and the Backspace, and the thirds-of-the-grid row band of the slipped key.
+    /// and the Backspace, the row band of the slipped key among the rows that hold text keys, and
+    /// the slipped key's own arrival and likelihood facts.
     /// </summary>
-    public void RecordSlip(bool adjacent, string direction, int distancePitches, int msToBackspace, string rowBand)
+    public void RecordSlip(bool adjacent, string direction, int distancePitches, int msToBackspace,
+        string rowBand, in CorrE1 slipped)
     {
-        if (!Enabled) return;
-        _logger!.LogInformation(
-            "KB-E1 slip adj={Adj} dir={Dir} dist={Dist} ms={Ms} reg={Reg}",
-            adjacent, direction, distancePitches, msToBackspace, rowBand);
+        if (Muted() || !Enabled) return;
+        Emit(
+            "KB-E1 slip adj={Adj} dir={Dir} dist={Dist} ms={Ms} reg={Reg} saccade={Saccade} restarts={Restarts} " +
+            "likely={Likely} start={Start} nocont={NoCont}",
+            adjacent, direction, distancePitches, msToBackspace, rowBand, slipped.Saccade, slipped.Restarts,
+            slipped.Likely, slipped.WordStart, slipped.NoContinuation);
     }
 
     /// <summary>
@@ -187,13 +255,14 @@ public sealed class KeyboardE1Recorder
     public void RecordPick(int slot, string source, int prefixLength, int insertedLength,
         int renderToDwellMs, int slotsVisited)
     {
+        if (Muted()) return;
         var now = _clockMs();
         var sinceKey = _lastKeyMs == long.MinValue ? -1 : now - _lastKeyMs;
         var sincePick = _lastPickMs == long.MinValue ? -1 : now - _lastPickMs;
         _lastPickMs = now;
         _pickAwaitingUndo = true;
         if (!Enabled) return;
-        _logger!.LogInformation(
+        Emit(
             "KB-E1 pick slot={Slot} src={Source} prefixlen={PrefixLen} inslen={InsLen} sincekey={SinceKeyMs} " +
             "sincepick={SincePickMs} renderms={RenderMs} visited={Visited}",
             slot, source, prefixLength, insertedLength, sinceKey, sincePick, renderToDwellMs, slotsVisited);
@@ -202,8 +271,8 @@ public sealed class KeyboardE1Recorder
     /// <summary>After a Space: was the bar empty?</summary>
     public void RecordSpace(long seq, bool barEmpty)
     {
-        if (!Enabled) return;
-        _logger!.LogInformation("KB-E1 space seq={Seq} empty={Empty}", seq, barEmpty);
+        if (seq <= 0 || Muted() || !Enabled) return;
+        Emit("KB-E1 space seq={Seq} empty={Empty}", seq, barEmpty);
     }
 
     /// <summary>
@@ -212,8 +281,9 @@ public sealed class KeyboardE1Recorder
     /// </summary>
     public void RecordMode(string kind, string from, string to)
     {
+        if (Muted()) return;
         if (Enabled)
-            _logger!.LogInformation("KB-E1 mode kind={Kind} from={From} to={To}", kind, from, to);
+            Emit("KB-E1 mode kind={Kind} from={From} to={To}", kind, from, to);
         NoteModeChange(kind, from, to);
     }
 
@@ -221,8 +291,8 @@ public sealed class KeyboardE1Recorder
     public void RecordEdge(string button, string edgeAfter, string edgeBefore)
     {
         if (Enabled)
-            _logger!.LogInformation("KB-E1 edge button={Button} edge={Edge}", button, edgeAfter);
-        if (button == "flip")
+            Emit("KB-E1 edge button={Button} edge={Edge}", button, edgeAfter);
+        if (button == "flip" && !Muted())
             NoteModeChange("flip", edgeBefore, edgeAfter);
     }
 
@@ -235,20 +305,30 @@ public sealed class KeyboardE1Recorder
             && now - last.AtMs <= ModeUndoWindowMs)
         {
             if (Enabled)
-                _logger!.LogInformation(
-                    "KB-E1 modeundo kind={Kind} ms={Ms}", kind, now - last.AtMs);
+                Emit("KB-E1 modeundo kind={Kind} ms={Ms}", kind, now - last.AtMs);
             _lastMode = null;   // an undo is not itself undoable
             return;
         }
         _lastMode = new ModeChange(kind, from, to, now);
     }
 
-    /// <summary>The keyboard was shown. <paramref name="process"/> is the foreground PROCESS name, never a title.</summary>
-    public void RecordShown(string process, string edge, string via)
+    /// <summary>
+    /// The keyboard was shown. <paramref name="process"/> is the foreground PROCESS name, never a title;
+    /// the letter-box size (0 when not yet laid out) is logged here once instead of on every key.
+    /// </summary>
+    public void RecordShown(string process, string edge, string via, int boxWidthPx = 0, int boxHeightPx = 0)
     {
         _shownAtMs = _clockMs();
         if (!Enabled) return;
-        _logger!.LogInformation("KB-E1 shown proc={Proc} edge={Edge} via={Via}", process, edge, via);
+        Emit("KB-E1 shown proc={Proc} edge={Edge} via={Via} boxw={BoxW} boxh={BoxH}",
+            process, edge, via, boxWidthPx, boxHeightPx);
+    }
+
+    /// <summary>The letter-box size after a (re)layout: logged once per layout, never per key.</summary>
+    public void RecordLayout(string subLayout, int boxWidthPx, int boxHeightPx)
+    {
+        if (!Enabled) return;
+        Emit("KB-E1 layout sub={Sub} boxw={BoxW} boxh={BoxH}", subLayout, boxWidthPx, boxHeightPx);
     }
 
     /// <summary>The keyboard was hidden, and why.</summary>
@@ -260,14 +340,14 @@ public sealed class KeyboardE1Recorder
         _lastMode = null;
         _pickAwaitingUndo = false;
         if (!Enabled) return;
-        _logger!.LogInformation("KB-E1 hidden cause={Cause} visiblems={VisibleMs}", cause, visibleMs);
+        Emit("KB-E1 hidden cause={Cause} visiblems={VisibleMs}", cause, visibleMs);
     }
 
     /// <summary>The mirror check's verdict: an outcome and lengths, never a string.</summary>
     public void RecordMirror(string at, string result, int mirrorLength, int controlLength, int commonSuffix)
     {
         if (!Enabled) return;
-        _logger!.LogInformation(
+        Emit(
             "KB-E1 mirror at={At} res={Res} mirrorlen={MirrorLen} ctllen={CtlLen} common={Common}",
             at, result, mirrorLength, controlLength, commonSuffix);
     }
@@ -285,7 +365,11 @@ public sealed class KeyboardE1Recorder
     };
 }
 
-/// <summary>Everything E1 logs for one key activation. Ints, bools and closed ids only.</summary>
+/// <summary>
+/// Everything E1 logs for one key activation. Ints, bools and closed ids only. For a text key the
+/// recorder logs only <see cref="EdgeQuarter"/> of the gaze fields (see the recorder's remarks);
+/// the pixel offsets, box size, saccade and restarts are kept here for NON-text keys alone.
+/// </summary>
 public readonly record struct KeyE1(
     long TimestampUs,
     int Row, int Col,
@@ -294,11 +378,10 @@ public readonly record struct KeyE1(
     string SubLayout, string Edge,
     int WindowX, int WindowY, int WindowWidth, int WindowHeight,
     long SinceWindowMoveMs,
-    int DxPx, int DyPx, int MeanDxPx, int MeanDyPx,
+    int DxPx, int DyPx, int MeanDxPx, int MeanDyPx, string EdgeQuarter,
     int Restarts, string Saccade,
     int EffectiveDwellMs, bool PenaltyApplied,
-    bool Typing, string BackspaceClass,
-    bool Likely, bool WordStart, bool NoContinuation)
+    bool Typing, string BackspaceClass)
 {
     /// <summary>Class: a letter key.</summary>
     public const string Letter = "letter";
@@ -328,10 +411,17 @@ public readonly record struct KeyE1(
     public const string Other = "other";
 }
 
+/// <summary>
+/// What a correction needs about the slipped key: how the gaze arrived (a class of the displacement
+/// from the PREVIOUS fire point to this dwell's start, in key pitches), how many dwells were
+/// discarded on the way, and the shadow likelihood bits.
+/// </summary>
+public readonly record struct CorrE1(string Saccade, int Restarts, bool Likely, bool WordStart, bool NoContinuation);
+
 /// <summary>Everything E1 logs for one abandonment.</summary>
 public readonly record struct AbandonE1(
     long TimestampUs, int Row, int Col, string Class, string Action,
-    int ProgressPct, string Reason, int MeanDxPx, int MeanDyPx, string SubLayout, string Edge);
+    int ProgressPct, string Reason, int MeanDxPx, int MeanDyPx, string EdgeQuarter, string SubLayout, string Edge);
 
 /// <summary>
 /// The window facts a key line carries and the view-model cannot see: the dock edge, the window's

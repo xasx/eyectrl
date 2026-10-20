@@ -147,7 +147,7 @@ public class KeyboardMirrorCheckerTests
 
         Check.That(probe.Reads).IsEqualTo(0);
         Check.That(log.Snapshot()).ContainsExactly(
-            "KB-E1 mirror at=enter res=suppressed mirrorlen=7 ctllen=0 common=0");
+            "KB-E1 mirror at=enter res=suppressed mirrorlen=0 ctllen=0 common=0");   // not even the length
     }
 
     [Fact]

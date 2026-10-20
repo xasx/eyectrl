@@ -43,9 +43,18 @@ public class KeyboardE1RecorderTests
     private static KeyE1 Key(string cls, string action = "-") => new(
         TimestampUs: 1_000, Row: 1, Col: 2, Class: cls, Action: action, BoxWidthPx: 210, BoxHeightPx: 210,
         SubLayout: "letters", Edge: "top", WindowX: 500, WindowY: 0, WindowWidth: 2800, WindowHeight: 1000,
-        SinceWindowMoveMs: 7000, DxPx: -3, DyPx: 4, MeanDxPx: -2, MeanDyPx: 5, Restarts: 1, Saccade: "mid",
-        EffectiveDwellMs: 450, PenaltyApplied: false, Typing: true, BackspaceClass: "-",
-        Likely: true, WordStart: false, NoContinuation: false);
+        SinceWindowMoveMs: 7000, DxPx: -3, DyPx: 4, MeanDxPx: -2, MeanDyPx: 5, EdgeQuarter: "NE", Restarts: 1,
+        Saccade: "mid", EffectiveDwellMs: 450, PenaltyApplied: false, Typing: true, BackspaceClass: "-");
+
+    private static CorrE1 Corr(bool likely = true) => new("mid", 1, likely, false, false);
+
+    private sealed class ThrowingLogger : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => throw new InvalidOperationException("sink down");
+    }
 
     [Fact]
     public void KeyLine_StartsWithThePrefixAndCarriesEveryField()
@@ -56,11 +65,30 @@ public class KeyboardE1RecorderTests
 
         Check.That(seq).IsEqualTo(1L);
         Check.That(log.Lines).HasSize(1);
-        // A letter is a TEXT key: no row, column or action id (they would spell the text).
+        // A letter is a TEXT key: no row/column/id, no box size, no pixel offset, no saccade/restarts,
+        // no likelihood. It says a text key was typed, plus timing, the dock edge and ONE edge class.
         Check.That(log.Lines[0]).IsEqualTo(
-            "KB-E1 key seq=1 ts=1000 cls=letter boxw=210 boxh=210 sub=letters edge=top " +
-            "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=-3 dy=4 mdx=-2 mdy=5 restarts=1 saccade=mid " +
-            "sincekey=-1 dwell=450 penalty=False typing=True bs=- likely=True start=False nocont=False");
+            "KB-E1 key seq=1 ts=1000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 " +
+            "movems=7000 edgeq=NE sincekey=-1 dwell=450 penalty=False typing=True bs=-");
+    }
+
+    [Theory]
+    [InlineData(KeyE1.Letter)]
+    [InlineData(KeyE1.Digit)]
+    [InlineData(KeyE1.Symbol)]
+    [InlineData(KeyE1.Emoji)]
+    public void ATextKeyLine_CarriesNoBoxSizePixelOffsetSaccadeRestartsOrLikelihood(string cls)
+    {
+        var (recorder, log, _) = New();
+
+        recorder.RecordKey(Key(cls));
+
+        foreach (var banned in new[] { " boxw=", " boxh=", " dx=", " dy=", " mdx=", " mdy=", " saccade=",
+                     " restarts=", " likely=", " start=", " nocont=" })
+            Check.That(log.Lines[0]).Not.Contains(banned);
+        Check.That(log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}").OrderBy(k => k, StringComparer.Ordinal))
+            .ContainsExactly("Bs", "Class", "DwellMs", "Edge", "EdgeQ", "Penalty", "Seq", "SinceKeyMs",
+                "SinceMoveMs", "Sub", "TsUs", "Typing", "WinH", "WinW", "WinX", "WinY");
     }
 
     [Theory]
@@ -98,6 +126,11 @@ public class KeyboardE1RecorderTests
         recorder.RecordKey(Key(cls, action));
 
         Check.That(log.Lines[0]).Contains($" r=1 c=2 cls={cls} act={action} ");
+        // A non-text key keeps its box and pixel offsets and saccade/restarts, but never the likelihood bits.
+        Check.That(log.Lines[0]).Contains(" boxw=210 boxh=210 ");
+        Check.That(log.Lines[0]).Contains(" dx=-3 dy=4 mdx=-2 mdy=5 restarts=1 saccade=mid ");
+        Check.That(log.Lines[0]).Not.Contains(" likely=");
+        Check.That(log.Lines[0]).Not.Contains(" edgeq=");
     }
 
     [Theory]
@@ -124,15 +157,17 @@ public class KeyboardE1RecorderTests
     {
         var (recorder, log, _) = New();
 
-        recorder.RecordSlip(adjacent: true, direction: "W", distancePitches: 1, msToBackspace: 800, rowBand: "top");
-        recorder.RecordSlip(adjacent: false, direction: "-", distancePitches: 3, msToBackspace: 1200, rowBand: "bot");
+        recorder.RecordSlip(adjacent: true, direction: "W", distancePitches: 1, msToBackspace: 800, rowBand: "top",
+            Corr());
+        recorder.RecordSlip(adjacent: false, direction: "-", distancePitches: 3, msToBackspace: 1200, rowBand: "bot",
+            new CorrE1("long", 0, false, true, true));
 
         Check.That(log.Lines).ContainsExactly(
-            "KB-E1 slip adj=True dir=W dist=1 ms=800 reg=top",
-            "KB-E1 slip adj=False dir=- dist=3 ms=1200 reg=bot");
+            "KB-E1 slip adj=True dir=W dist=1 ms=800 reg=top saccade=mid restarts=1 likely=True start=False nocont=False",
+            "KB-E1 slip adj=False dir=- dist=3 ms=1200 reg=bot saccade=long restarts=0 likely=False start=True nocont=True");
         Check.That(log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}")
                 .OrderBy(k => k, StringComparer.Ordinal))
-            .ContainsExactly("Adj", "Dir", "Dist", "Ms", "Reg");
+            .ContainsExactly("Adj", "Dir", "Dist", "Likely", "Ms", "NoCont", "Reg", "Restarts", "Saccade", "Start");
     }
 
     [Fact]
@@ -341,13 +376,13 @@ public class KeyboardE1RecorderTests
     public void ShownAndHidden_CarryTheProcessNameAndTheCause()
     {
         var (recorder, log, clock) = New();
-        recorder.RecordShown("WINWORD.exe", "top", "toolbar-toggle");
+        recorder.RecordShown("WINWORD.exe", "top", "toolbar-toggle", 158, 157);
         clock.Ms = 12_500;
 
         recorder.RecordHidden("edge-close");
 
         Check.That(log.Lines).ContainsExactly(
-            "KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle",
+            "KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=158 boxh=157",
             "KB-E1 hidden cause=edge-close visiblems=12500");
     }
 
@@ -373,16 +408,156 @@ public class KeyboardE1RecorderTests
 
         recorder.RecordSpace(7, barEmpty: true);
         recorder.RecordHoldOn(7, 600, capped: true);
-        recorder.RecordAbandon(new AbandonE1(5_000, 0, 3, KeyE1.Letter, "-", 65, "NearestChanged", 12, -9, "letters", "top"));
-        recorder.RecordAbandon(new AbandonE1(6_000, 3, 0, KeyE1.Shift, "modifier:shift", 40, "GazeLeft", 5, 6, "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(5_000, 0, 3, KeyE1.Letter, "-", 65, "NearestChanged", 12, -9, "NE", "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(6_000, 3, 0, KeyE1.Shift, "modifier:shift", 40, "GazeLeft", 5, 6, "-", "letters", "top"));
         recorder.RecordMirror("enter", "mismatch", mirrorLength: 14, controlLength: 14, commonSuffix: 6);
 
         Check.That(log.Lines).ContainsExactly(
             "KB-E1 space seq=7 empty=True",
             "KB-E1 holdon seq=7 ms=600 capped=True",
-            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged mdx=12 mdy=-9 sub=letters edge=top",
+            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged edgeq=NE sub=letters edge=top",
             "KB-E1 abandon ts=6000 r=3 c=0 cls=shift act=modifier:shift pct=40 why=GazeLeft mdx=5 mdy=6 sub=letters edge=top",
             "KB-E1 mirror at=enter res=mismatch mirrorlen=14 ctllen=14 common=6");
+    }
+
+    [Fact]
+    public void ACorrectionLine_IsKeyedToTheBackspace_AndCarriesTheSlippedKeysArrivalAndLikelihood()
+    {
+        var (recorder, log, _) = New();
+
+        recorder.RecordCorrection(9, new CorrE1("short", 2, false, false, true));
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 corr seq=9 saccade=short restarts=2 likely=False start=False nocont=True");
+    }
+
+    [Fact]
+    public void ALayoutLine_CarriesTheLetterBoxOnce()
+    {
+        var (recorder, log, _) = New();
+
+        recorder.RecordLayout("letters", 157, 158);
+
+        Check.That(log.Lines).ContainsExactly("KB-E1 layout sub=letters boxw=157 boxh=158");
+    }
+
+    // ---- F1: nothing per key while a password field has focus ----------------------------------
+
+    private sealed class Sensitivity
+    {
+        public bool On;
+        public bool Probe() => On;
+    }
+
+    private static (KeyboardE1Recorder Recorder, Capture Log, Clock Clock, Sensitivity Sens) NewSensitive()
+    {
+        var log = new Capture();
+        var clock = new Clock();
+        var sens = new Sensitivity();
+        return (new KeyboardE1Recorder(log, clock.Now, sens.Probe), log, clock, sens);
+    }
+
+    [Fact]
+    public void InASensitiveContext_NoPerKeyLineIsWritten_OnlyOneMarkerWithNoCount()
+    {
+        var (recorder, log, _, sens) = NewSensitive();
+        sens.On = true;
+
+        var seq1 = recorder.RecordKey(Key(KeyE1.Letter));
+        recorder.RecordKey(Key(KeyE1.Digit));
+        recorder.RecordKey(Key(KeyE1.Backspace, "backspace"));
+        recorder.RecordHoldOn(1, 300, capped: false);
+        recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 0, 0, "-", "letters", "top"));
+        recorder.RecordCorrection(2, Corr());
+        recorder.RecordSlip(true, "E", 1, 500, "top", Corr());
+        recorder.RecordPick(0, "dict", 1, 5, 100, 0);
+        recorder.RecordSpace(3, true);
+        recorder.RecordMode("shift", "off", "on");
+
+        Check.That(seq1).IsEqualTo(0L);
+        Check.That(log.Lines).ContainsExactly("KB-E1 sensitive");
+        Check.That(log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}")).IsEmpty();
+    }
+
+    [Fact]
+    public void TheMarker_IsWrittenOncePerEntry_AndAgainOnTheNextEntry()
+    {
+        var (recorder, log, _, sens) = NewSensitive();
+
+        sens.On = true;
+        recorder.RecordKey(Key(KeyE1.Letter));
+        recorder.RecordKey(Key(KeyE1.Letter));
+        sens.On = false;
+        recorder.RecordKey(Key(KeyE1.Letter));          // a normal line again
+        sens.On = true;
+        recorder.RecordKey(Key(KeyE1.Letter));
+
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(2);
+        Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 key ", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void EnteringASensitiveContext_DropsAPendingPickUndoAndModeUndo()
+    {
+        var (recorder, log, clock, sens) = NewSensitive();
+        recorder.RecordMode("emoji", "text", "emoji");
+        recorder.RecordPick(0, "dict", 0, 4, 200, 0);
+
+        sens.On = true;
+        recorder.RecordKey(Key(KeyE1.Letter));          // enters: state dropped
+        sens.On = false;
+        clock.Ms = 500;
+        recorder.RecordMode("emoji", "emoji", "text");
+        recorder.RecordKey(Key(KeyE1.Backspace, "backspace"));
+
+        Check.That(log.Lines.Any(l => l.Contains("modeundo") || l.Contains("pickundo"))).IsFalse();
+    }
+
+    [Fact]
+    public void ShownHiddenAndEdge_StillLog_InASensitiveContext()
+    {
+        var (recorder, log, _, sens) = NewSensitive();
+        sens.On = true;
+
+        recorder.RecordShown("chrome.exe", "top", "request", 1, 2);
+        recorder.RecordEdge("close", "top", "top");
+        recorder.RecordHidden("edge-close");
+
+        Check.That(log.Lines.Count).IsEqualTo(3);
+    }
+
+    [Fact]
+    public void AThrowingSensitivityProbe_CountsAsNotSensitive()
+    {
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, null, () => throw new InvalidOperationException("uia"));
+
+        recorder.RecordKey(Key(KeyE1.Letter));
+
+        Check.That(log.Lines).HasSize(1);
+    }
+
+    // ---- F10: logging never reaches the keyboard -----------------------------------------------
+
+    [Fact]
+    public void AFailingLogger_NeverThrowsOutOfTheRecorder()
+    {
+        var recorder = new KeyboardE1Recorder(new ThrowingLogger());
+
+        recorder.RecordKey(Key(KeyE1.Letter));
+        recorder.RecordKey(Key(KeyE1.Backspace, "backspace"));
+        recorder.RecordCorrection(1, Corr());
+        recorder.RecordSlip(true, "E", 1, 1, "top", Corr());
+        recorder.RecordHoldOn(1, 1, false);
+        recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 0, 0, "-", "letters", "top"));
+        recorder.RecordPick(0, "dict", 1, 1, 1, 0);
+        recorder.RecordSpace(1, true);
+        recorder.RecordMode("emoji", "text", "emoji");
+        recorder.RecordEdge("flip", "top", "bottom");
+        recorder.RecordShown("p.exe", "top", "ring", 1, 1);
+        recorder.RecordLayout("letters", 1, 1);
+        recorder.RecordHidden("edge-close");
+        recorder.RecordMirror("hide", "match", 1, 1, 1);
     }
 
     [Theory]

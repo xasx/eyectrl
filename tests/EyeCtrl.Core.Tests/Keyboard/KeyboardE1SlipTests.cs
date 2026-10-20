@@ -135,19 +135,46 @@ public class KeyboardE1SlipTests
     }
 
     [Theory]
+    [InlineData(0, 3, "top")]      // QWERTZ: the q-row
+    [InlineData(1, 3, "mid")]      // the a-row
+    [InlineData(2, 3, "bot")]      // the y-row
     [InlineData(0, 4, "top")]
     [InlineData(1, 4, "top")]
     [InlineData(2, 4, "mid")]
     [InlineData(3, 4, "bot")]
-    [InlineData(0, 3, "top")]
-    [InlineData(1, 3, "mid")]
-    [InlineData(2, 3, "bot")]
     [InlineData(0, 1, "top")]
-    [InlineData(-1, 4, "-")]
-    [InlineData(4, 4, "-")]
+    [InlineData(-1, 3, "-")]
+    [InlineData(3, 3, "-")]
     [InlineData(0, 0, "-")]
-    public void RowBand_IsThirdsOfTheSubLayoutsRows(int row, int rowCount, string expected)
+    public void RowBand_IsThirdsOverTheRowsThatHoldTextKeys(int textRowIndex, int textRowCount, string expected)
     {
-        Check.That(KeyboardE1Slip.RowBand(row, rowCount)).IsEqualTo(expected);
+        // The input is the row's position among the TEXT rows, so a layout's Space/function row (which
+        // holds no text key) is not counted and cannot push the a-row into the top third.
+        Check.That(KeyboardE1Slip.RowBand(textRowIndex, textRowCount)).IsEqualTo(expected);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, "-")]                  // dead centre
+    [InlineData(52.0, 0.0, "-")]                 // 24.8 % of a 210 box: still the inner half
+    [InlineData(53.0, 0.0, "E")]                 // just past a quarter of the width
+    [InlineData(-53.0, 0.0, "W")]
+    [InlineData(0.0, 53.0, "S")]                 // screen down
+    [InlineData(0.0, -53.0, "N")]
+    [InlineData(60.0, -60.0, "NE")]
+    [InlineData(60.0, 60.0, "SE")]
+    [InlineData(-60.0, 60.0, "SW")]
+    [InlineData(-60.0, -60.0, "NW")]
+    [InlineData(300.0, 0.0, "E")]                // beyond the box is still the east quarter
+    public void EdgeQuarter_NamesTheOuterQuarterTheMeanOffsetFallsIn(double dx, double dy, string expected)
+    {
+        Check.That(KeyboardE1Slip.EdgeQuarter(dx, dy, 210, 210)).IsEqualTo(expected);
+    }
+
+    [Fact]
+    public void EdgeQuarter_FollowsEachAxisOfANonSquareBox_AndIsUnknownWithoutABox()
+    {
+        Check.That(KeyboardE1Slip.EdgeQuarter(60, 0, 400, 210)).IsEqualTo("-");   // 15 % of 400
+        Check.That(KeyboardE1Slip.EdgeQuarter(0, 60, 400, 210)).IsEqualTo("S");    // 28.6 % of 210
+        Check.That(KeyboardE1Slip.EdgeQuarter(100, 100, 0, 0)).IsEqualTo("-");
     }
 }

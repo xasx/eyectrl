@@ -15,18 +15,27 @@ parse: a half-written last line must not sink the whole report. The lines are co
 contract -- geometry, key CLASSES, timings, lengths, the foreground process NAME -- so this
 script never sees a typed character, and cannot print one.
 
-The events: key, holdon, abandon, slip, pick, pickundo, space, mode, modeundo, edge, shown,
-hidden, mirror. ``key`` carries the whole activation (seq, ts, cls, boxw/boxh, sub, edge, win*,
-movems, dx/dy, mdx/mdy, restarts, saccade, sincekey, dwell, penalty, typing, bs, likely, start,
-nocont); ``holdon`` and ``space`` follow a key line and name it by ``seq``.
+The events: key, holdon, abandon, corr, slip, pick, pickundo, space, mode, modeundo, edge, shown,
+layout, hidden, mirror, sensitive.
 
-Privacy (the owner's rule): a TEXT key's line (class letter, digit, symbol, emoji) carries NO
-row, column or action id -- those would spell the text -- and ``saccade`` is a class
-(short/mid/long), never pixels. Only non-text keys (space, backspace, enter, modifiers, switches,
-shortcuts) keep ``r``/``c``/``act``. So this script cannot say WHICH letter was slipped: the
-``slip`` event is the live, content-free substitute -- it says only whether the replacement was a
-geometric neighbour of the slipped key, in which compass direction, how many key pitches away,
-how long before the Backspace, and in which third of the grid's rows (``reg``: top/mid/bot).
+Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
+symbol, emoji) the line says only that a text key was typed -- plus timing (``ts``, ``sincekey``),
+the dock edge, ``typing`` (was a word open), the dwell, and ONE closed class ``edgeq`` (which outer
+quarter of the key box the dwell's mean offset fell in: N NE E SE S SW W NW, or ``-`` for the inner
+half). It carries NO row/column/action id, NO box size (``boxw``/``boxh`` come once on ``shown`` and
+``layout`` lines), NO pixel offset, and NO saccade, restart count or likelihood. Those arrival facts
+exist only for a CORRECTED letter: the in-word Backspace is followed by a keyed ``corr`` line
+(``seq`` = the Backspace's) and the ``slip`` line repeats them for the slipped key. Only non-text keys
+(space, backspace, enter, modifiers, switches, shortcuts) keep ``r``/``c``/``act``, box size, pixel
+offsets, ``saccade`` and ``restarts`` -- except that those last two are withheld (``saccade=-``,
+``restarts=-1``) when the PREVIOUS activation was a text key, because the path from a letter to a Space
+would carry the letter's position. While a password-like field has focus the keyboard writes NO
+per-key line at all, only a single ``KB-E1 sensitive`` marker per entry (no count).
+
+So this script cannot say WHICH letter was slipped: the ``slip`` event is the live, content-free
+substitute -- whether the replacement was a geometric neighbour of the slipped key, in which compass
+direction, how many key pitches away, how long before the Backspace, and in which third of the
+rows that hold text keys (``reg``: top/mid/bot; on QWERTZ the q-row, the a-row, the y-row).
 
 Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
 ------------------------------------------------------------
@@ -39,13 +48,27 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      the compass-direction histogram of the adjacent ones, and the same per row
                      band (``reg``). The steward's C2 rule 2 -- ">= 60 % of slips adjacent with
                      one consistent direction in a region" -- is flagged per region as
-                     ``meets_rule2``: adjacent share >= 60 % AND the commonest direction holds
-                     >= 50 % of the adjacent ones (the steward gives no number for "consistent";
-                     50 % of 8 directions is a strong plurality) AND the region has at least
-                     ``MIN_REGION_SLIPS`` repairs.
-* likely=0 share     of slipped letters, those whose letter was NOT in the predictor's top-5
-                     continuation set, excluding word starts (``start``) and prefixes with no
-                     continuation (``nocont``). The rule wants n >= 20 before it is read.
+                     ``meets_rule2``. The steward gave no number for "consistent" or for how
+                     many repairs a region needs, and simulating a bias-free day shows why that
+                     matters: with n = 5 and a top-share bar of 50 % one region trips about one
+                     time in five by chance (and always for row slips, which can only go E/W).
+                     So the rule here needs ALL of: at least ``MIN_REGION_SLIPS`` (10) repairs
+                     in the region, >= 3/5 of them adjacent, and the commonest direction holding
+                     >= 2/3 of the adjacent ones (about 1 in 500 by chance at n = 10 with six
+                     neighbours). A one-sided binomial test against the region's own
+                     neighbour-direction base rate would be the sharper alternative; this
+                     integer rule was chosen because it can be read without a table.
+* rule 2b            edge-crowding, the other half of the steward's rule 2: ">= 30 % of accepted
+                     dwells in the outer quarter of the box on one side". From the ``edgeq`` class
+                     on text-key lines: per dock edge, the share of accepted dwells whose mean
+                     offset sat in the outer quarter of each side (a diagonal counts for both
+                     sides it touches); flagged ``meets_rule2b`` when one side holds >= 3/10 of at
+                     least ``MIN_EDGE_DWELLS`` (50) dwells. With option B there is no per-letter
+                     region, so it is computed per dock edge only.
+* likely=0 share     of slipped letters (read from their ``corr`` lines), those whose letter was
+                     NOT in the predictor's top-5 continuation set, excluding word starts
+                     (``start``) and prefixes with no continuation (``nocont``). The rule wants
+                     n >= 20 before it is read.
 * mode-undos         ``modeundo`` events per 100 letters
 * hold-on            by dwell class (unpenalised letters, penalised letters, mode keys): n,
                      median ms, and the share >= 150 ms (the uniform-600 gate wants >= 90 %)
@@ -84,9 +107,15 @@ LINE = re.compile(
 FIELD = re.compile(r"(\w+)=(\S+)")
 
 SLIP_WINDOW_MS = 3000
-ADJACENT_SHARE_RULE2 = 0.6      # the steward's ">= 60 % of slips are adjacent"
-CONSISTENT_DIRECTION_SHARE = 0.5
-MIN_REGION_SLIPS = 5
+# Rule 2 (steward): >= 60 % of repairs adjacent, one consistent direction, in a region. Fractions are
+# (numerator, denominator) so the boundary is exact integer arithmetic, not float rounding.
+ADJACENT_SHARE_RULE2 = (3, 5)
+CONSISTENT_DIRECTION_SHARE = (2, 3)
+MIN_REGION_SLIPS = 10
+# Rule 2b (steward): >= 30 % of accepted dwells in the outer quarter of the box, on one side.
+EDGE_CROWDING_SHARE = (3, 10)
+MIN_EDGE_DWELLS = 50
+TEXT_CLASSES = {"letter", "digit", "symbol", "emoji"}
 CHAIN_PICK_MS = 1000
 NEAR_MOVE_MS = 1000
 HOLD_ON_GATE_MS = 150
@@ -118,8 +147,8 @@ def _millis(stamp: str) -> int:
 # Per event: the fields that must be present, and their types. A KB-E1 line that fails this is
 # damaged (a crash cut it off, a hand edit mangled it) and is skipped, never half-counted.
 REQUIRED: dict[str, dict[str, type]] = {
-    "key": {"seq": int, "ts": int, "cls": str, "likely": bool, "start": bool, "nocont": bool,
-            "penalty": bool, "bs": str, "movems": int},
+    "key": {"seq": int, "ts": int, "cls": str, "penalty": bool, "bs": str, "movems": int},
+    "corr": {"seq": int, "saccade": str, "restarts": int, "likely": bool, "start": bool, "nocont": bool},
     "holdon": {"seq": int, "ms": int},
     "abandon": {"ts": int, "cls": str},
     "slip": {"adj": bool, "dir": str, "dist": int, "ms": int, "reg": str},
@@ -130,6 +159,8 @@ REQUIRED: dict[str, dict[str, type]] = {
     "modeundo": {"kind": str},
     "edge": {"button": str},
     "shown": {"proc": str, "edge": str},
+    "layout": {"sub": str, "boxw": int, "boxh": int},
+    "sensitive": {},
     "hidden": {"cause": str},
     "mirror": {"res": str},
 }
@@ -180,6 +211,32 @@ def _hold_stats(values: list[int]) -> dict[str, Any]:
     }
 
 
+def _at_least(part: int, whole: int, fraction: tuple[int, int]) -> bool:
+    """part/whole >= numerator/denominator, exactly (integers only)."""
+    return whole > 0 and part * fraction[1] >= whole * fraction[0]
+
+
+def edge_crowding(events: list[dict[str, Any]], min_dwells: int) -> dict[str, Any]:
+    """Rule 2b: per dock edge, the share of accepted text-key dwells in the outer quarter, by side."""
+    by_dock: dict[str, list[str]] = defaultdict(list)
+    for e in events:
+        if e["event"] == "key" and e.get("cls") in TEXT_CLASSES and isinstance(e.get("edgeq"), str):
+            by_dock[str(e["dock"])].append(e["edgeq"])
+    result: dict[str, Any] = {}
+    for dock, quarters in sorted(by_dock.items()):
+        n = len(quarters)
+        outer = sum(1 for q in quarters if q != "-")
+        sides = {side: sum(1 for q in quarters if side in q) for side in "NESW"}
+        result[dock] = {
+            "n": n,
+            "outer": outer,
+            "outer_share": _share(outer, n),
+            "sides": {side: {"n": c, "share": _share(c, n)} for side, c in sides.items()},
+            "meets_rule2b": n >= min_dwells and any(_at_least(c, n, EDGE_CROWDING_SHARE) for c in sides.values()),
+        }
+    return result
+
+
 def repairs(events: list[dict[str, Any]], min_region_slips: int) -> dict[str, Any]:
     """The ``slip`` events (a letter/digit slipped, taken back, replaced): adjacency, direction, region."""
     slips = [e for e in events if e["event"] == "slip"]
@@ -200,8 +257,8 @@ def repairs(events: list[dict[str, Any]], min_region_slips: int) -> dict[str, An
             "median_ms_to_backspace": statistics.median([e["ms"] for e in group]) if group else None,
             "meets_rule2": bool(
                 len(group) >= min_region_slips
-                and adjacent_share is not None and adjacent_share >= ADJACENT_SHARE_RULE2
-                and top_dir_share is not None and top_dir_share >= CONSISTENT_DIRECTION_SHARE),
+                and _at_least(len(adjacent), len(group), ADJACENT_SHARE_RULE2)
+                and _at_least(top_n, len(adjacent), CONSISTENT_DIRECTION_SHARE)),
         }
 
     result = summary(slips)
@@ -214,7 +271,7 @@ def repairs(events: list[dict[str, Any]], min_region_slips: int) -> dict[str, An
 
 
 def metrics(events: list[dict[str, Any]], edge: str | None = None,
-            min_region_slips: int = MIN_REGION_SLIPS) -> dict[str, Any]:
+            min_region_slips: int = MIN_REGION_SLIPS, min_edge_dwells: int = MIN_EDGE_DWELLS) -> dict[str, Any]:
     if edge is not None:
         events = [e for e in events if e["dock"] == edge]
 
@@ -223,13 +280,19 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
     letters = [k for k in keys if k.get("cls") == "letter"]
 
     # --- slips: a letter immediately followed (next activation) by an in-word Backspace <= 3 s.
+    # The slipped letter's own arrival and likelihood facts are NOT on its key line any more: they ride on
+    # the keyed ``corr`` line of the Backspace that takes it back.
+    corr_by_seq = {e["seq"]: e for e in events if e["event"] == "corr"}
     slipped: list[dict[str, Any]] = []
+    slipped_corr: list[dict[str, Any]] = []
     for prev, nxt in zip(keys, keys[1:]):
         if (prev.get("cls") == "letter" and nxt.get("cls") == "backspace"
                 and nxt.get("bs") == "word" and 0 <= nxt["at"] - prev["at"] <= SLIP_WINDOW_MS):
             slipped.append(prev)
-    countable = [k for k in slipped if not k.get("start") and not k.get("nocont")]
-    unlikely = [k for k in countable if not k.get("likely")]
+            if nxt["seq"] in corr_by_seq:
+                slipped_corr.append(corr_by_seq[nxt["seq"]])
+    countable = [c for c in slipped_corr if not c.get("start") and not c.get("nocont")]
+    unlikely = [c for c in countable if not c.get("likely")]
 
     # --- hold-on, by dwell class
     holds: dict[str, list[int]] = {"letters_unpenalised": [], "letters_penalised": [], "mode_keys": []}
@@ -285,7 +348,10 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "slipped_letters_counted": len(countable),
         "slipped_likely0": len(unlikely),
         "slipped_likely0_share": _share(len(unlikely), len(countable)),
+        "slipped_saccades": dict(Counter(str(c.get("saccade")) for c in slipped_corr)),
         "repairs": repairs(events, min_region_slips),
+        "edge_crowding": edge_crowding(events, min_edge_dwells),
+        "sensitive_entries": sum(1 for e in events if e["event"] == "sensitive"),
         "mode_undos": len(mode_undos),
         "mode_undos_per_100_letters": None if not letters else 100 * len(mode_undos) / len(letters),
         "hold_on": {name: _hold_stats(values) for name, values in holds.items()},
@@ -329,6 +395,12 @@ def render(m: dict[str, Any]) -> str:
         add(f"  {reg:<5} n={v['n']:<4} adjacent {_pct(v['adjacent_share']):<8} "
             f"top dir {v['top_direction']} {_pct(v['top_direction_share'])}   "
             + ("MEETS rule 2" if v["meets_rule2"] else "-"))
+    add("edge-crowding (rule 2b, text-key dwells in the outer quarter, per dock edge)")
+    for dock, v in m["edge_crowding"].items():
+        sides = "  ".join(f"{side} {_pct(info['share'])}" for side, info in v["sides"].items())
+        add(f"  {dock:<7} n={v['n']:<5} outer {_pct(v['outer_share']):<8} {sides}   "
+            + ("MEETS rule 2b" if v["meets_rule2b"] else "-"))
+    add(f"password-field entries    {m['sensitive_entries']}   (no per-key lines are logged inside them)")
     add(f"mode-undos                {m['mode_undos']}   = "
         + ("n/a" if m["mode_undos_per_100_letters"] is None
            else f"{m['mode_undos_per_100_letters']:.2f}") + " per 100 letters")

@@ -128,6 +128,7 @@ public partial class KeyboardWindow : OverlayWindow
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.KeyDwellCompleted += OnKeyDwellCompleted;
         _viewModel.E1Geometry = GetE1Geometry;
+        _viewModel.E1LetterBox = GetE1LetterBox;
 
         // Re-entry replaces the emoji manager (see the _viewModel guard above): unregister the old
         // one first, or its registry entry would outlive it holding a strong reference to a dead
@@ -239,6 +240,24 @@ public partial class KeyboardWindow : OverlayWindow
             ? new KeyboardE1Geometry(edge, (int)Math.Round(rect.X), (int)Math.Round(rect.Y),
                 (int)Math.Round(rect.Width), (int)Math.Round(rect.Height), sinceMove)
             : new KeyboardE1Geometry(edge, 0, 0, 0, 0, sinceMove);
+    }
+
+    /// <summary>
+    /// The standard letter box in physical pixels (the narrowest plain key's box), for the keyboard's
+    /// <c>shown</c> and <c>layout</c> lines. Logged once per layout, never per key: at fractional
+    /// display scales the box differs by a pixel between odd and even columns, which would be a column
+    /// fingerprint on every letter. (0, 0) when no layout has been measured yet.
+    /// </summary>
+    private (int Width, int Height) GetE1LetterBox()
+    {
+        double width = double.MaxValue, height = 0;
+        foreach (var (id, box) in _keyScreenBoxes)
+        {
+            if (!id.StartsWith("key_", StringComparison.Ordinal) || box.Width >= width) continue;
+            width = box.Width;
+            height = box.Height;
+        }
+        return width == double.MaxValue ? (0, 0) : ((int)Math.Round(width), (int)Math.Round(height));
     }
 
     private void RebuildKeys()
@@ -927,15 +946,22 @@ public partial class KeyboardWindow : OverlayWindow
     /// </summary>
     private void RecordPickE1(int index)
     {
-        if (_viewModel is null || !_viewModel.E1.Enabled) return;
-        var result = _renderedPredictions[index];
-        var dwellStart = index >= _slotDwellStartMs.Length ? long.MinValue
-            : _slotDwellStartMs[index] != long.MinValue ? _slotDwellStartMs[index] : _slotLastRunStartMs[index];
-        var renderToDwellMs = dwellStart == long.MinValue || _barRenderedMs == long.MinValue
-            ? -1 : (int)Math.Max(0, dwellStart - _barRenderedMs);
-        var visited = System.Numerics.BitOperations.PopCount((uint)(_slotsVisitedMask & ~(1 << index)));
-        _viewModel.E1.RecordPick(index, KeyboardE1Recorder.PickSource(result.Type),
-            _viewModel.CurrentInput.Length, result.Word.Length, renderToDwellMs, visited);
+        try
+        {
+            if (_viewModel is null || !_viewModel.E1.Enabled) return;
+            var result = _renderedPredictions[index];
+            var dwellStart = index >= _slotDwellStartMs.Length ? long.MinValue
+                : _slotDwellStartMs[index] != long.MinValue ? _slotDwellStartMs[index] : _slotLastRunStartMs[index];
+            var renderToDwellMs = dwellStart == long.MinValue || _barRenderedMs == long.MinValue
+                ? -1 : (int)Math.Max(0, dwellStart - _barRenderedMs);
+            var visited = System.Numerics.BitOperations.PopCount((uint)(_slotsVisitedMask & ~(1 << index)));
+            _viewModel.E1.RecordPick(index, KeyboardE1Recorder.PickSource(result.Type),
+                _viewModel.CurrentInput.Length, result.Word.Length, renderToDwellMs, visited);
+        }
+        catch (Exception)
+        {
+            // Logging must never swallow a bar pick.
+        }
     }
 
     private void UpdateKeyVisual(string targetId, double progress)

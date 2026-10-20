@@ -39,11 +39,15 @@ The fixture, in event order (times are the log clock, ms after 10:00:00):
     L10 near a move (500 ms) likely hold-on 300, L11 unlikely hold-on 120 then BS in word
     (a counted slip), L12 likely hold-on 600; mirror suppressed; hide by edge-close.
 
-  Text-key lines (letters) carry NO r/c/act and a saccade CLASS; non-text keys (Backspace, Space,
-  switchSub, Shift) keep r/c/act. Four 'slip' repair lines follow the replacement keys:
+  Text-key lines (letters) carry NO r/c/act/box size/pixel offset/saccade/restarts/likelihood, only an
+  ``edgeq`` class (top letters: - E E - NE - E - S; bottom: - W -). The slipped letters' arrival and
+  likelihood facts ride on ``corr`` lines keyed to the in-word Backspace (L3: likely 0; L5: nocont; L6:
+  start) and the bottom's L11 (likely 0). Non-text keys (Backspace, Space, switchSub, Shift) keep r/c/act.
+  Four 'slip' repair lines follow the replacement keys:
     L3 -> L4  adj E  dist 1  800 ms  top        L5 -> L6  adj E  dist 1  500 ms  top
     L6 -> L7  not adjacent, dist 2   400 ms  mid        L11 -> L12 adj W dist 1  500 ms  bot (bottom edge)
-  and two abandon lines (one identity-free letter, one Shift that keeps its position).
+  and two abandon lines (one identity-free letter, one Shift that keeps its position), a ``shown``
+  line with the letter box, ``layout`` lines, and ONE ``KB-E1 sensitive`` marker (a password field).
 
   Noise that must be skipped: a non-E1 line, a damaged 'key seq=zzz' line, a line cut off by
   a crash.
@@ -144,6 +148,16 @@ class WholeDay(unittest.TestCase):
         self.assertEqual(by_proc["chrome.exe"]["verdicts"], {"suppressed": 1})
         self.assertIsNone(by_proc["chrome.exe"]["divergence"])
 
+    def test_the_slipped_letters_arrival_comes_from_the_corr_lines(self) -> None:
+        # L3, L5, L6 (top) and L11 (bottom): their saccade classes ride on the keyed corr lines.
+        self.assertEqual(self.m["slipped_saccades"], {"mid": 2, "short": 1, "long": 1})
+
+    def test_the_password_marker_is_counted_and_carries_nothing(self) -> None:
+        self.assertEqual(self.m["sensitive_entries"], 1)
+        events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
+        marker = [e for e in events if e["event"] == "sensitive"]
+        self.assertEqual(set(marker[0]) - {"event", "at", "dock"}, set())      # no fields, no count
+
     def test_hides_by_cause(self) -> None:
         self.assertEqual(self.m["hides_by_cause"], {"toolbar-toggle": 1, "edge-close": 1})
 
@@ -173,7 +187,7 @@ class Repairs(unittest.TestCase):
         self.assertEqual(by["bot"]["top_direction"], "W")
 
     def test_rule2_needs_the_minimum_repairs_in_a_region(self) -> None:
-        # With the real minimum (5) a tiny log qualifies nowhere.
+        # With the real minimum (10) a tiny log qualifies nowhere.
         self.assertEqual(self.r["rule2_regions"], [])
         events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
         # Lowered to 2: the top band (2 of 2 adjacent, both E) qualifies; mid (0 adjacent) and
@@ -184,21 +198,55 @@ class Repairs(unittest.TestCase):
         self.assertFalse(low["by_region"]["mid"]["meets_rule2"])
         self.assertFalse(low["by_region"]["bot"]["meets_rule2"])
 
+    @staticmethod
+    def _slips(adjacent_dirs: list[str], not_adjacent: int = 0, reg: str = "top") -> list[str]:
+        head = "2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip"
+        tail = f"dist=1 ms=500 reg={reg} saccade=mid restarts=0 likely=false start=false nocont=false"
+        return ([f"{head} adj=true dir={d} {tail}" for d in adjacent_dirs]
+                + [f"{head} adj=false dir=- {tail}"] * not_adjacent)
+
+    def _rule2(self, lines: list[str]) -> list[str]:
+        return kb.metrics(kb.parse(lines))["repairs"]["rule2_regions"]       # the REAL thresholds
+
+    def test_rule2_boundary_exactly_at_the_thresholds_meets(self) -> None:
+        # n = 10 (the minimum), 6 adjacent (exactly 3/5), 4 of those 6 east (exactly 2/3).
+        self.assertEqual(self._rule2(self._slips(["E"] * 4 + ["W"] * 2, not_adjacent=4)), ["top"])
+
+    def test_rule2_one_below_the_minimum_repairs_does_not_meet(self) -> None:
+        # The same perfect pattern at n = 9.
+        self.assertEqual(self._rule2(self._slips(["E"] * 6, not_adjacent=3)), [])
+        self.assertEqual(self._rule2(self._slips(["E"] * 6, not_adjacent=4)), ["top"])     # n = 10
+
+    def test_rule2_one_below_the_adjacent_share_does_not_meet(self) -> None:
+        # 5 of 10 adjacent (one below 3/5), all east.
+        self.assertEqual(self._rule2(self._slips(["E"] * 5, not_adjacent=5)), [])
+        self.assertEqual(self._rule2(self._slips(["E"] * 6, not_adjacent=4)), ["top"])     # 6 of 10
+
+    def test_rule2_one_below_the_direction_share_does_not_meet(self) -> None:
+        # 7 adjacent: 4 east is 4/7 (< 2/3), 5 east is 5/7.
+        self.assertEqual(self._rule2(self._slips(["E"] * 4 + ["W"] * 3, not_adjacent=3)), [])
+        self.assertEqual(self._rule2(self._slips(["E"] * 5 + ["W"] * 2, not_adjacent=3)), ["top"])
+
+    def test_rule2_is_not_tripped_by_a_row_that_can_only_go_east_or_west(self) -> None:
+        # The old "top share >= 50 %" bar was vacuous with two directions: a bias-free day of row slips
+        # (E/W only, evenly split) met it. At 2/3 it does not.
+        self.assertEqual(self._rule2(self._slips(["E"] * 5 + ["W"] * 5)), [])
+
+    def test_rule2_is_decided_per_region(self) -> None:
+        east_top = self._slips(["E"] * 6, not_adjacent=4, reg="top")
+        scattered_mid = self._slips(["E", "W", "N", "S", "NE", "SW", "NW", "SE", "E", "W"], reg="mid")
+        self.assertEqual(self._rule2(east_top + scattered_mid), ["top"])
+
     def test_rule2_needs_a_consistent_direction_not_just_adjacency(self) -> None:
-        def slip(direction: str) -> str:
-            return ("2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=true dir=%s dist=1 ms=500 reg=top"
-                    % direction)
-        scattered = kb.metrics(kb.parse([slip(d) for d in ("E", "W", "N", "S", "NE", "SW")]),
+        scattered = kb.metrics(kb.parse(self._slips(["E", "W", "N", "S", "NE", "SW"])),
                                min_region_slips=2)["repairs"]
         self.assertEqual(scattered["adjacent_share"], 1.0)
         self.assertEqual(scattered["rule2_regions"], [])           # all adjacent, no direction dominates
-        agreeing = kb.metrics(kb.parse([slip("E")] * 4 + [slip("W")] * 2), min_region_slips=2)["repairs"]
-        self.assertEqual(agreeing["rule2_regions"], ["top"])       # 4 of 6 east
+        agreeing = kb.metrics(kb.parse(self._slips(["E"] * 4 + ["W"] * 2)), min_region_slips=2)["repairs"]
+        self.assertEqual(agreeing["rule2_regions"], ["top"])       # 4 of 6 east: exactly 2/3
 
     def test_rule2_needs_the_adjacent_share(self) -> None:
-        lines = ["2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=true dir=E dist=1 ms=500 reg=top"] * 2
-        lines += ["2026-10-19 10:00:00.000 [INF] [X] KB-E1 slip adj=false dir=- dist=3 ms=500 reg=top"] * 3
-        m = kb.metrics(kb.parse(lines), min_region_slips=2)["repairs"]
+        m = kb.metrics(kb.parse(self._slips(["E"] * 2, not_adjacent=3)), min_region_slips=2)["repairs"]
         self.assertAlmostEqual(m["adjacent_share"], 0.4)
         self.assertEqual(m["rule2_regions"], [])
 
@@ -213,15 +261,112 @@ class Repairs(unittest.TestCase):
         self.assertEqual(fixture_metrics("bottom")["repairs"]["n"], 1)
 
 
+class EdgeCrowding(unittest.TestCase):
+    """Rule 2b: >= 30 % of accepted text-key dwells in the outer quarter of the box on one side."""
+
+    @staticmethod
+    def _keys(quarters: list[str], dock: str = "top") -> list[str]:
+        lines = [f"2026-10-19 10:00:00.000 [INF] [X] KB-E1 shown proc=a.exe edge={dock} via=ring boxw=210 boxh=210"]
+        for i, q in enumerate(quarters):
+            lines.append(f"2026-10-19 10:00:{i % 60:02d}.000 [INF] [X] KB-E1 key seq={i + 1} ts={i} cls=letter "
+                         f"sub=letters edge={dock} winx=0 winy=0 winw=1 winh=1 movems=-1 edgeq={q} sincekey=1 "
+                         f"dwell=450 penalty=false typing=true bs=-")
+        return lines
+
+    def _crowding(self, quarters: list[str], min_dwells: int = 10, dock: str = "top") -> dict:
+        return kb.metrics(kb.parse(self._keys(quarters, dock)), min_edge_dwells=min_dwells)["edge_crowding"]
+
+    def test_the_fixture_reads_per_dock_edge(self) -> None:
+        low = kb.metrics(kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines()),
+                         min_edge_dwells=2)["edge_crowding"]
+        # top: - E E - NE - E - S -> east holds E, E, NE, E = 4 of 9; north 1, south 1, west 0.
+        self.assertEqual(low["top"]["n"], 9)
+        self.assertEqual(low["top"]["outer"], 5)
+        self.assertEqual(low["top"]["sides"]["E"]["n"], 4)
+        self.assertEqual(low["top"]["sides"]["N"]["n"], 1)
+        self.assertTrue(low["top"]["meets_rule2b"])
+        # bottom: one of three in the west quarter = 1/3 >= 3/10.
+        self.assertEqual(low["bottom"]["sides"]["W"]["n"], 1)
+        self.assertTrue(low["bottom"]["meets_rule2b"])
+
+    def test_a_tiny_log_does_not_meet_rule_2b_at_the_real_minimum(self) -> None:
+        real = kb.metrics(kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines()))["edge_crowding"]
+        self.assertFalse(real["top"]["meets_rule2b"])
+        self.assertFalse(real["bottom"]["meets_rule2b"])
+
+    def test_only_text_keys_are_counted(self) -> None:
+        # A non-text key never carries edgeq in a real log; were one to, it must not count as a text dwell.
+        lines = self._keys(["-"] * 10)
+        for i in range(10):
+            lines.append(f"2026-10-19 10:01:{i:02d}.000 [INF] [X] KB-E1 key seq={100 + i} ts={100 + i} r=3 c=2 "
+                         f"cls=space act=space boxw=210 boxh=210 sub=letters edge=top winx=0 winy=0 winw=1 winh=1 "
+                         f"movems=-1 dx=0 dy=0 mdx=0 mdy=0 restarts=0 saccade=mid sincekey=1 dwell=450 "
+                         f"penalty=false typing=true bs=- edgeq=E")
+        top = kb.metrics(kb.parse(lines), min_edge_dwells=10)["edge_crowding"]["top"]
+        self.assertEqual(top["n"], 10)
+        self.assertFalse(top["meets_rule2b"])
+
+    def test_exactly_30_percent_on_one_side_meets_and_one_below_does_not(self) -> None:
+        self.assertTrue(self._crowding(["E"] * 3 + ["-"] * 7)["top"]["meets_rule2b"])       # 3 of 10
+        self.assertFalse(self._crowding(["E"] * 2 + ["-"] * 8)["top"]["meets_rule2b"])      # 2 of 10
+
+    def test_the_minimum_number_of_dwells_is_enforced_exactly(self) -> None:
+        self.assertTrue(self._crowding(["E"] * 5 + ["-"] * 5, min_dwells=10)["top"]["meets_rule2b"])
+        self.assertFalse(self._crowding(["E"] * 5 + ["-"] * 4, min_dwells=10)["top"]["meets_rule2b"])
+
+    def test_the_default_minimum_is_50_dwells_exactly(self) -> None:
+        def at(n: int) -> bool:
+            quarters = ["E"] * (n // 2) + ["-"] * (n - n // 2)
+            return kb.metrics(kb.parse(self._keys(quarters)))["edge_crowding"]["top"]["meets_rule2b"]
+        self.assertFalse(at(49))
+        self.assertTrue(at(50))
+        self.assertEqual(kb.MIN_EDGE_DWELLS, 50)
+        self.assertEqual(kb.MIN_REGION_SLIPS, 10)
+        self.assertEqual(kb.ADJACENT_SHARE_RULE2, (3, 5))
+        self.assertEqual(kb.CONSISTENT_DIRECTION_SHARE, (2, 3))
+        self.assertEqual(kb.EDGE_CROWDING_SHARE, (3, 10))
+
+    def test_it_is_one_side_not_the_sum_of_sides(self) -> None:
+        # 2 east + 2 west + 2 north + 2 south of 10 is 80 % outer but only 20 % on any one side.
+        self.assertFalse(self._crowding(["E"] * 2 + ["W"] * 2 + ["N"] * 2 + ["S"] * 2 + ["-"] * 2)["top"]["meets_rule2b"])
+
+    def test_a_diagonal_counts_for_both_sides_it_touches(self) -> None:
+        crowding = self._crowding(["NE"] * 3 + ["-"] * 7)["top"]
+        self.assertEqual(crowding["sides"]["N"]["n"], 3)
+        self.assertEqual(crowding["sides"]["E"]["n"], 3)
+        self.assertTrue(crowding["meets_rule2b"])
+
+    def test_non_text_keys_and_the_inner_half_do_not_count(self) -> None:
+        lines = self._keys(["-"] * 10)
+        lines.append("2026-10-19 10:00:30.000 [INF] [X] KB-E1 key seq=50 ts=1 r=3 c=2 cls=space act=space boxw=210 "
+                     "boxh=210 sub=letters edge=top winx=0 winy=0 winw=1 winh=1 movems=-1 dx=90 dy=0 mdx=90 mdy=0 "
+                     "restarts=0 saccade=mid sincekey=1 dwell=450 penalty=false typing=true bs=-")
+        crowding = kb.metrics(kb.parse(lines), min_edge_dwells=10)["edge_crowding"]["top"]
+        self.assertEqual(crowding["n"], 10)
+        self.assertEqual(crowding["outer"], 0)
+
+    def test_it_is_split_by_dock_edge(self) -> None:
+        both = self._keys(["E"] * 4 + ["-"] * 6, "top") + self._keys(["-"] * 10, "bottom")
+        crowding = kb.metrics(kb.parse(both), min_edge_dwells=10)["edge_crowding"]
+        self.assertTrue(crowding["top"]["meets_rule2b"])
+        self.assertFalse(crowding["bottom"]["meets_rule2b"])
+
+
 class Privacy(unittest.TestCase):
     """The fixture is what a real day log looks like: a text key's line names no position or id."""
 
-    def test_fixture_letter_lines_carry_no_row_column_or_action(self) -> None:
+    TEXT_BANNED = (" r=", " c=", " act=", " boxw=", " boxh=", " dx=", " dy=", " mdx=", " mdy=", " saccade=",
+                   " restarts=", " likely=", " start=", " nocont=")
+
+    def test_fixture_letter_lines_carry_only_the_text_key_fields(self) -> None:
+        seen = 0
         for line in FIXTURE.read_text(encoding="utf-8").splitlines():
             if "KB-E1 key " in line and " cls=letter " in line:
-                for banned in (" r=", " c=", " act="):
+                seen += 1
+                for banned in self.TEXT_BANNED:
                     self.assertNotIn(banned, line)
-                self.assertRegex(line, r" saccade=(short|mid|long|-) ")
+                self.assertRegex(line, r" edgeq=(N|NE|E|SE|S|SW|W|NW|-) ")
+        self.assertEqual(seen, 12)
 
     def test_non_text_lines_keep_their_position_and_id(self) -> None:
         backspaces = [l for l in FIXTURE.read_text(encoding="utf-8").splitlines() if " cls=backspace " in l]
@@ -229,19 +374,26 @@ class Privacy(unittest.TestCase):
         for line in backspaces:
             self.assertIn(" act=backspace ", line)
             self.assertRegex(line, r" r=\d+ c=\d+ ")
+            self.assertNotIn(" likely=", line)
 
     def test_parsing_never_needs_a_key_identity(self) -> None:
         events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
         letters = [e for e in events if e["event"] == "key" and e["cls"] == "letter"]
         self.assertEqual(len(letters), 12)
         for e in letters:
-            self.assertNotIn("r", e)
-            self.assertNotIn("c", e)
-            self.assertNotIn("act", e)
+            for banned in ("r", "c", "act", "boxw", "boxh", "dx", "dy", "mdx", "mdy", "saccade", "restarts",
+                           "likely", "start", "nocont"):
+                self.assertNotIn(banned, e)
         abandons = [e for e in events if e["event"] == "abandon"]
         self.assertEqual(len(abandons), 2)
         self.assertNotIn("r", abandons[0])
+        self.assertEqual(abandons[0]["edgeq"], "-")
         self.assertEqual(abandons[1]["r"], 3)
+
+    def test_the_letter_box_comes_on_shown_and_layout_lines_only(self) -> None:
+        events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
+        self.assertEqual([e["boxw"] for e in events if e["event"] == "shown"], [210, 210])
+        self.assertEqual(len([e for e in events if e["event"] == "layout"]), 2)
 
 
 class ByEdge(unittest.TestCase):
@@ -288,11 +440,11 @@ class Parsing(unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_a_key_line_missing_a_required_field_is_skipped(self) -> None:
-        line = ("2026-10-19 10:00:00.000 [INF] [X] KB-E1 key seq=1 ts=5 cls=letter likely=True start=False "
-                "nocont=False penalty=False bs=- movems=-1")
+        line = ("2026-10-19 10:00:00.000 [INF] [X] KB-E1 key seq=1 ts=5 cls=letter penalty=False "
+                "bs=- movems=-1")
         self.assertEqual(len(kb.parse([line])), 1)
         self.assertEqual(kb.parse([line.replace("movems=-1", "")]), [])
-        self.assertEqual(kb.parse([line.replace("likely=True", "likely=1")]), [])   # wrong type
+        self.assertEqual(kb.parse([line.replace("penalty=False", "penalty=1")]), [])   # wrong type
 
     def test_quoted_strings_are_accepted(self) -> None:
         events = kb.parse(['2026-10-19 10:00:00.000 [INF] [X] KB-E1 shown proc="WINWORD.exe" edge="top" via="ring"'])
@@ -301,7 +453,7 @@ class Parsing(unittest.TestCase):
     def test_a_slip_needs_the_backspace_to_be_the_very_next_activation(self) -> None:
         def key(ms: int, cls: str, seq: int, bs: str = "-") -> str:
             return (f"2026-10-19 10:00:{ms // 1000:02d}.{ms % 1000:03d} [INF] [X] KB-E1 key seq={seq} ts={ms} "
-                    f"cls={cls} likely=False start=False nocont=False penalty=False bs={bs} movems=-1")
+                    f"cls={cls} penalty=False bs={bs} movems=-1")
         lines = [key(1000, "letter", 1), key(1500, "letter", 2), key(2000, "backspace", 3, "word")]
         m = kb.metrics(kb.parse(lines))
         self.assertEqual(m["slips"], 1)       # only the second letter, never the first

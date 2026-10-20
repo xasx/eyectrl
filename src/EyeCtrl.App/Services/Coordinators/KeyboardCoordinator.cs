@@ -414,7 +414,8 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (keyboard is null || visible == wasVisible) return;
         if (visible)
         {
-            keyboard.E1.RecordShown(keyboard.ForegroundProcessName(), edge, source);
+            var (boxW, boxH) = keyboard.LetterBoxPx();
+            keyboard.E1.RecordShown(keyboard.ForegroundProcessName(), edge, source, boxW, boxH);
             return;
         }
         keyboard.BeginMirrorCheck("hide");

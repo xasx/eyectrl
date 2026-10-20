@@ -92,12 +92,40 @@ public static class KeyboardE1Slip
         return (int)Math.Min(MaxDistancePitches, Math.Round(pitches));
     }
 
-    /// <summary>The thirds of the active sub-layout's rows: <c>top</c>, <c>mid</c> or <c>bot</c>; <c>-</c> when unknown.</summary>
-    public static string RowBand(int row, int rowCount)
+    /// <summary>
+    /// The thirds of the rows that HOLD TEXT KEYS (on QWERTZ: the q-row is <c>top</c>, the a-row <c>mid</c>,
+    /// the y-row <c>bot</c>; the Space/function row holds none and is not counted): <c>top</c>, <c>mid</c>
+    /// or <c>bot</c>; <c>-</c> when unknown. <paramref name="textRowIndex"/> is the row's position among
+    /// the text rows, not its index in the layout.
+    /// </summary>
+    public static string RowBand(int textRowIndex, int textRowCount)
     {
-        if (row < 0 || rowCount <= 0 || row >= rowCount) return None;
-        return (row * 3 / rowCount) switch { 0 => "top", 1 => "mid", _ => "bot" };
+        if (textRowIndex < 0 || textRowCount <= 0 || textRowIndex >= textRowCount) return None;
+        return (textRowIndex * 3 / textRowCount) switch { 0 => "top", 1 => "mid", _ => "bot" };
     }
+
+    /// <summary>A row needs at least this many plain (text) keys to count as a text row.</summary>
+    public const int MinTextKeysPerTextRow = 3;
+
+    /// <summary>
+    /// Which outer quarter of the key box the dwell's mean offset falls in, as one closed class:
+    /// <c>N</c>/<c>NE</c>/<c>E</c>/<c>SE</c>/<c>S</c>/<c>SW</c>/<c>W</c>/<c>NW</c>, or <c>-</c> for the inner half
+    /// (the centre) and for an unknown box. The box is split at a quarter of its width and height from each
+    /// edge. This is the only gaze-offset fact a text key's line carries: it is all the edge-crowding
+    /// rule needs, and unlike a pixel offset it cannot be calibrated into a column through the tracker's
+    /// bias field (only a bias strong enough to push the gaze into the outer quarter shows).
+    /// </summary>
+    public static string EdgeQuarter(double meanDxPx, double meanDyPx, double boxWidthPx, double boxHeightPx)
+    {
+        if (boxWidthPx <= 0 || boxHeightPx <= 0) return None;
+        var horizontal = meanDxPx > OuterQuarter * boxWidthPx ? "E" : meanDxPx < -OuterQuarter * boxWidthPx ? "W" : "";
+        var vertical = meanDyPx > OuterQuarter * boxHeightPx ? "S" : meanDyPx < -OuterQuarter * boxHeightPx ? "N" : "";
+        var quarter = vertical + horizontal;
+        return quarter.Length == 0 ? None : quarter;
+    }
+
+    /// <summary>The outer quarter of a box side, as a share of its width/height.</summary>
+    public const double OuterQuarter = 0.25;
 
     private static double DistanceSquared(PhysicalPoint a, PhysicalPoint b)
     {

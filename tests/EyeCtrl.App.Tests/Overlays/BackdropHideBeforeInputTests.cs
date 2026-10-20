@@ -142,14 +142,24 @@ public class BackdropHideBeforeInputTests
             var harness = MenuHarness.Start();
             window = harness.Window;
             var input = harness.Input;
+            var bar = new TestFakes.FakeEdgeButtonBar();
             var ctx = harness.Context with
             {
                 InteractionManager = new InteractionManager(),
                 DragTrailVM = new DragTrailViewModel(harness.Settings, harness.Messenger),
+                // F3: the press only happens once the drag is ready, so this gate needs a setup
+                // that SUCCEEDS. A recording edge bar and the fake trail overlay (no window) make
+                // that headless; the question here is still what MouseDown sees.
+                OverlayManager = TestFakes.MakeOverlayManager(
+                    bar,
+                    cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                    activationButton: new TestFakes.FakeActivationButtonOverlay(),
+                    actionMenu: harness.MenuOverlay,
+                    glassBackdrop: window),
             };
             harness.RewireOverlayManager(ctx);
 
-            drag = new DragCoordinator();
+            drag = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
             drag.Initialize(ctx);
 
             input.InjectionStateProbe =
@@ -162,9 +172,10 @@ public class BackdropHideBeforeInputTests
                     + "hidden (OnDragStarted completes the same chain the posted hide would have).")
                 .That(input.InjectionState).IsEqualTo("backdrop=False;menu=False");
             Check.That(window.IsVisible).IsFalse();
-            // The failure-free ordering must not leave the OS button pressed (the manager below has
-            // no edge bar, so the drag SETUP fails after the press — the release path is the one the
-            // sibling coordinator tests pin; here the point is what MouseDown saw).
+            // The setup succeeded, so the button is genuinely held here; end the drag (the cancel
+            // button is the user's way out) and assert the class invariant on the way through.
+            drag.OnDragCancel();
+            Check.That(input.MouseDownCount).IsEqualTo(1);
             Check.That(input.ButtonsBalanced).IsTrue();
         }
         finally

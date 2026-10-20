@@ -1,10 +1,12 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
@@ -22,9 +24,26 @@ using Xunit;
 /// does not throw. The seam, the fake and the test class all already existed; the assertion was
 /// simply aimed at the wrong property, and <c>MouseUp</c> ended up asserted nowhere in the suite.
 /// </para>
+/// <para>
+/// Two things shape the file after the drag-cancel flake fix. The trail overlay is behind
+/// <c>DragCoordinator.CreateTrailOverlay</c>, so a successful drag runs on
+/// <see cref="TestFakes.FakeDragTrailOverlay"/> — no STA thread, no window, nothing on the
+/// desktop. And the drag's setup (overlay, anchor, cancel button) now runs BEFORE the press
+/// (owner decision D1: "a drag that can't get ready does nothing"), so a setup failure issues no
+/// button input at all and the genuinely-held states the release-ordering gates need are reached
+/// through a successful start rather than through a compensated failure.
+/// </para>
 /// </summary>
 public class DragCoordinatorTests
 {
+    private static DragCoordinator ThrowingOverlayFactory(
+        DragCoordinator coordinator, Exception? failure = null)
+    {
+        var thrown = failure ?? new InvalidOperationException("the trail overlay refused to construct");
+        coordinator.CreateTrailOverlay = () => throw thrown;
+        return coordinator;
+    }
+
     [Fact]
     public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()
     {
@@ -48,38 +67,43 @@ public class DragCoordinatorTests
     }
 
     [Fact]
-    public void SetupFailureAfterThePress_StillReleasesTheButton()
+    public void SetupFailureBeforeThePress_SendsNoButtonInput()
     {
-        // The window between MouseDown and the cancel button existing. Here the overlay
-        // construction fails (WPF refuses a Window off an STA thread), which is exactly the shape
-        // the guard exists for: something between the press and the escape hatch throws. Before
-        // the guard this escaped into the dispatcher, and the crash-to-die policy killed the
-        // process with the button still pressed.
+        // F3, owner D1: a drag that cannot get ready does nothing. The overlay, the anchor and the
+        // cancel button are all prepared BEFORE the press now, so this failure changes no OS button
+        // state — the old order pressed first and released again at the grab origin, which is a
+        // click the user never asked for. The explicit throwing factory replaces the old implicit
+        // "WPF refuses a Window off an STA thread", so the failure is exactly the one under test.
         var input = new TestFakes.FakeInputSimulator();
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(input));
+        var (context, _) = TestFakes.MakeDragContextWithBar(input);
+        var c = ThrowingOverlayFactory(new DragCoordinator());
+        c.Initialize(context);
 
         c.OnDragStarted(new PhysicalPoint(100, 100));
 
-        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(c.LastSetupFailure).IsNotNull();
+        Check.That(context.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        Check.That(input.MouseDownCount).IsEqualTo(0);
+        Check.That(input.MouseUpCount).IsEqualTo(0);
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
     [Fact]
-    public void FatalExitRelease_AfterSetupFailureReleased_DoesNotSendASecondMouseUp()
+    public void FatalExitRelease_AfterASetupFailure_SendsNothing()
     {
-        // The fatal-exit release must be idempotent like every other release path: after a
-        // setup-failure release the button is no longer held, and a second MouseUp could release
-        // a caregiver's physically held button.
+        // The fatal-exit release must be conditional on this coordinator actually holding the
+        // button, like every other release path. After a setup failure no press was made, so it
+        // owns nothing; a bare MouseUp here could release a caregiver's physically held button.
         var input = new TestFakes.FakeInputSimulator();
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(input));
+        var (context, _) = TestFakes.MakeDragContextWithBar(input);
+        var c = ThrowingOverlayFactory(new DragCoordinator());
+        c.Initialize(context);
 
-        c.OnDragStarted(new PhysicalPoint(30, 40));   // presses; setup fails; auto-releases
+        c.OnDragStarted(new PhysicalPoint(30, 40));   // setup fails before any press
         c.ReleaseHeldButtonForFatalExit();            // must be a no-op
 
-        Check.That(input.MouseDownCount).IsEqualTo(1);
-        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.MouseDownCount).IsEqualTo(0);
+        Check.That(input.MouseUpCount).IsEqualTo(0);
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
@@ -89,26 +113,169 @@ public class DragCoordinatorTests
         // Sibling to the above and the reason it matters: the throw must be contained, not merely
         // compensated for. An escaping exception reaches DispatcherUnhandledException, which the
         // app deliberately leaves unhandled.
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(new TestFakes.FakeInputSimulator()));
+        var (context, _) = TestFakes.MakeDragContextWithBar(new TestFakes.FakeInputSimulator());
+        var c = ThrowingOverlayFactory(new DragCoordinator());
+        c.Initialize(context);
 
         Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(10, 20))).DoesNotThrow();
+        Check.That(c.LastSetupFailure).IsNotNull();
     }
 
     [Fact]
-    public void DisposeAfterAReleasedDrag_DoesNotReleaseTwice()
+    public void SetupFailure_RecordsTheThrownException()
     {
-        // Idempotence, which is what lets the invariant be stated as a count identity rather than
-        // per-path bookkeeping: the release is owed once, no matter how many paths run.
+        // The flake's cause used to go only to the process-global Serilog logger, which a test
+        // process leaves unconfigured — so CI reported "the state was FreeLook" and the exception
+        // was unrecoverable. The SAME instance is recorded, so the next flake names its cause.
+        var boom = new InvalidOperationException("the trail overlay refused to construct");
+        var (context, _) = TestFakes.MakeDragContextWithBar(new TestFakes.FakeInputSimulator());
+        var c = ThrowingOverlayFactory(new DragCoordinator(), boom);
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+
+        Check.That(c.LastSetupFailure).IsSameReferenceAs(boom);
+    }
+
+    [Fact]
+    public void SuccessfulStart_LeavesLastSetupFailureNull()
+    {
         var input = new TestFakes.FakeInputSimulator();
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(input));
+        var (context, _) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
 
-        c.OnDragStarted(new PhysicalPoint(5, 5));   // presses, fails setup, releases
-        c.Dispose();                                 // must not release again
+        c.OnDragStarted(new PhysicalPoint(10, 10));
 
+        Check.That(c.LastSetupFailure).IsNull();
+    }
+
+    [Fact]
+    public void AFailedStartThenASuccessfulStart_ClearsLastSetupFailure()
+    {
+        // LastSetupFailure describes the LAST attempt, not "has anything ever failed": it is
+        // cleared at the top of every start, before anything can fail.
+        var (context, _) = TestFakes.MakeDragContextWithBar(new TestFakes.FakeInputSimulator());
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var c = ThrowingOverlayFactory(new DragCoordinator());
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        Check.That(c.LastSetupFailure).IsNotNull();
+
+        c.CreateTrailOverlay = () => overlay;
+        c.OnDragStarted(new PhysicalPoint(20, 20));
+
+        Check.That(c.LastSetupFailure).IsNull();
+        Check.That(overlay.ShowCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void SuccessfulStart_ShowsTheOverlayAndTheCancelButtonBeforePressing()
+    {
+        // F3's ordering, observed at the only instant that matters: FakeInputSimulator reads this
+        // probe INSIDE MouseDown, so the values are what was true when the press was issued. Move
+        // the press back before setup and the probe reports trailShown=False / cancelOnBar=False.
+        var input = new TestFakes.FakeInputSimulator();
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+
+        input.InjectionStateProbe =
+            () => $"trailShown={overlay.ShowCount == 1};"
+                + $"cancelOnBar={bar.ShownButtonIds.Contains("Drag_cancel")}";
+        c.OnDragStarted(new PhysicalPoint(50, 60));
+
+        Check.WithCustomMessage($"the press saw {input.InjectionState}.")
+             .That(input.InjectionState).IsEqualTo("trailShown=True;cancelOnBar=True");
+        Check.That(overlay.Calls[0]).IsEqualTo("Configure");
+        Check.That(overlay.Calls[1]).IsEqualTo("Show");
+        Check.That(bar.Calls[0]).IsEqualTo("ShowButtons");
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void TrailStartFailureAfterThePress_ReleasesTheButtonAndClosesTheOverlay()
+    {
+        // R1: the Send that starts the trail VM is the ONE step that runs after the press. It fans
+        // out into DragTrailViewModel.Receive, whose property setters re-enter this coordinator's
+        // PropertyChanged handler and call Update on the overlay — a WPF window plus DPI
+        // arithmetic, so it can throw. Before this guard, that throw escaped OnDragStarted with the
+        // button still down. The failure fires on the SECOND update so the VM is genuinely half
+        // set up (IsDragActive true, SetupDwellTargets never reached); the reset has something to
+        // undo, and its own assertion is discriminating.
+        var input = new TestFakes.FakeInputSimulator();
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var boom = new InvalidOperationException("the trail update refused to draw");
+        overlay.UpdateFailure = boom;
+        overlay.UpdateFailureOnCall = 2;
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+
+        Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(70, 80))).DoesNotThrow();
+
+        Check.That(c.LastSetupFailure).IsSameReferenceAs(boom);
         Check.That(input.MouseDownCount).IsEqualTo(1);
         Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+        Check.That(context.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        Check.That(overlay.CloseCount).IsEqualTo(1);
+        Check.That(bar.Calls).Contains("Hide");
+        Check.That(context.DragTrailVM.IsDragActive).IsFalse();
+    }
+
+    [Fact]
+    public void ShowButtonsFailureAfterTheOverlayIsUp_ClosesTheOverlayAndHidesTheBar()
+    {
+        // R2 (survivor MK): every other setup failure throws from the factory, so the overlay does
+        // not exist yet and the abort's CloseDragOverlay has nothing to close — deleting it stayed
+        // green. Here the overlay exists and the bar refuses the buttons, so the abort must hide
+        // the bar AND close the maximized trail window, with no button input at all.
+        var input = new TestFakes.FakeInputSimulator();
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        bar.ShowButtonsFailure = new InvalidOperationException("the bar refused the buttons");
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(11, 12));
+
+        Check.That(c.LastSetupFailure).IsNotNull();
+        Check.That(input.MouseDownCount).IsEqualTo(0);
+        Check.That(input.MouseUpCount).IsEqualTo(0);
+        Check.That(overlay.CloseCount).IsEqualTo(1);
+        Check.That(bar.Calls).Contains("Hide");
+        Check.That(context.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [StaFact]
+    public void ProductionFactory_ReturnsTheRealOverlay()
+    {
+        // Construction only — no Show, so no HWND is created. The default must stay production's
+        // real window: the seam exists so tests can substitute a fake, not so production can
+        // silently lose its trail to a no-op.
+        var c = new DragCoordinator();
+        Check.That(c.CreateTrailOverlay()).IsInstanceOf<DragTrailOverlay>();
+    }
+
+    [Fact]
+    public void DisposeAfterAFailedStart_DoesNotReleaseTwice()
+    {
+        // Idempotence, which is what lets the invariant be stated as a count identity rather than
+        // per-path bookkeeping: the release is owed once, no matter how many paths run. After a
+        // setup failure nothing is owed at all — there was no press — so dispose must not invent one.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input);
+        var c = ThrowingOverlayFactory(new DragCoordinator());
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(5, 5));   // setup fails before any press
+        c.Dispose();                                 // must not touch the button
+
+        Check.That(input.MouseDownCount).IsEqualTo(0);
+        Check.That(input.MouseUpCount).IsEqualTo(0);
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
@@ -133,42 +300,40 @@ public class DragCoordinatorTests
         // Covers the dispose release itself — the headline path, since tray Exit, Settings →
         // Restart and Windows logoff all reach Dispose and none of them released before.
         //
-        // Reaching "the button is genuinely still held" is the hard part: every other test here
-        // exercises the setup-failure path, where the abort has already released, so removing the
-        // dispose release leaves them all green (verified by mutation — that is how this gap was
-        // found). Driving a SUCCESSFUL setup would need a real EdgeButtonBarWindow, an Application
-        // singleton and an exclusive STA collection.
-        //
-        // A failing MouseUp gets there headlessly, and tests a documented guarantee on the way:
-        // the held flag is cleared only AFTER a successful release, so a release that throws stays
-        // outstanding rather than being marked done. Dispose is the retry.
+        // A failing MouseUp gets to a genuinely-held button headlessly: the drag's setup now
+        // SUCCEEDS over the fake overlay and the fake bar, and the first release attempt — the
+        // fatal-exit one — throws. A documented guarantee is tested on the way: the held flag is
+        // cleared only AFTER a successful release, so a release that throws stays outstanding
+        // rather than being marked done. Dispose is the retry.
         var input = new ThrowOnFirstReleaseSimulator();
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(input));
+        var (context, _) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
 
-        // Press, setup fails, abort attempts the release — and that release throws.
-        Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(9, 9))).Throws<InvalidOperationException>();
+        c.OnDragStarted(new PhysicalPoint(9, 9));   // setup succeeds: the button is genuinely held
         Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(0);
+
+        Check.ThatCode(() => c.ReleaseHeldButtonForFatalExit()).Throws<InvalidOperationException>();
         Check.That(input.MouseUpCount).IsEqualTo(0);   // attempted, did not happen
 
-        try { c.Dispose(); }
-        catch (NullReferenceException) { /* harness has no OverlayManager; release precedes it */ }
+        c.Dispose();
 
         Check.That(input.MouseUpCount).IsEqualTo(1);
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
-    [StaFact]
+    [Fact]
     public void FatalExitRelease_DuringALiveDrag_SendsTheMouseUp()
     {
         // The POSITIVE case for the fatal-exit path (review finding #9: only the negative,
-        // not-held case was covered). Same genuinely-held setup as the dispose test: on STA
-        // with a working edge bar, OnDragStarted's setup SUCCEEDS, so the button is down with
-        // no abort having released it. This is the state a fatal exception elsewhere in the
-        // process must not strand — the press outlives the process.
+        // not-held case was covered). "Genuinely held" is now reached headlessly: the fake overlay
+        // and the fake bar let the setup SUCCEED, so the button is down with no abort having
+        // released it. This is the state a fatal exception elsewhere in the process must not
+        // strand — the press outlives the process.
         var input = new TestFakes.FakeInputSimulator();
         var (context, bar) = TestFakes.MakeDragContextWithBar(input);
-        var c = new DragCoordinator();
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
         c.Initialize(context);
 
         c.OnDragStarted(new PhysicalPoint(300, 300));
@@ -183,7 +348,7 @@ public class DragCoordinatorTests
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
-    [StaFact]
+    [Fact]
     public void DisposeDuringALiveDrag_ReleasesTheButton()
     {
         // THE headline path, and until IOverlayManager.EdgeButtonBar was narrowed to an interface
@@ -193,16 +358,11 @@ public class DragCoordinatorTests
         // became a drag they could not stop.
         //
         // "Genuinely in progress" is the hard part: it requires OnDragStarted's setup to SUCCEED,
-        // which calls ShowButtons. While that property was the concrete EdgeButtonBarWindow, a fake
-        // had to be a real WPF window, so every other test here could only cover the setup-FAILURE
-        // path — where the abort has already released — and deleting the dispose release left them
-        // all green. This is the test that closes that gap.
-        //
-        // Still [StaFact]: the drag trail overlay is a real window. But that one constructs without
-        // an Application singleton or the app resource dictionary, which the edge bar needed.
+        // which calls ShowButtons. The fake bar made that possible; the fake trail overlay (the
+        // CreateTrailOverlay seam) keeps the last window out of it, so this is a plain [Fact].
         var input = new TestFakes.FakeInputSimulator();
         var (context, bar) = TestFakes.MakeDragContextWithBar(input);
-        var c = new DragCoordinator();
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
         c.Initialize(context);
 
         c.OnDragStarted(new PhysicalPoint(300, 300));
@@ -219,15 +379,16 @@ public class DragCoordinatorTests
         Check.That(input.ButtonsBalanced).IsTrue();
     }
 
-    [StaFact]
+    [Fact]
     public void ASuccessfulDragThenDrop_BalancesAndClearsTheBar()
     {
         // The ordinary path, now observable end to end. Also pins that the drop clears the cancel
-        // button: leaving it on screen after the drag ends would dwell-activate into a cancel for a
-        // drag that no longer exists.
+        // button and closes the trail: leaving either up after the drag ends would dwell-activate
+        // into a cancel for a drag that no longer exists, or paint over the desktop indefinitely.
         var input = new TestFakes.FakeInputSimulator();
+        var overlay = new TestFakes.FakeDragTrailOverlay();
         var (context, bar) = TestFakes.MakeDragContextWithBar(input);
-        var c = new DragCoordinator();
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
         c.Initialize(context);
 
         c.OnDragStarted(new PhysicalPoint(10, 10));
@@ -236,16 +397,17 @@ public class DragCoordinatorTests
         Check.That(input.ButtonsBalanced).IsTrue();
         Check.That(bar.ShownButtonIds).IsEmpty();
         Check.That(bar.Calls).Contains("Hide");
+        Check.That(overlay.CloseCount).IsEqualTo(1);
     }
 
-    [StaFact]
+    [Fact]
     public void ASuccessfulDragThenCancel_ReleasesAtTheGrabOrigin()
     {
         // Cancel releases where the drag STARTED, not where gaze happens to be — releasing at a
         // stale or arbitrary point drops the dragged object somewhere the user never chose.
         var input = new TestFakes.FakeInputSimulator();
-        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
-        var c = new DragCoordinator();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
         c.Initialize(context);
 
         var origin = new PhysicalPoint(123, 456);
@@ -266,19 +428,21 @@ public class DragCoordinatorTests
         // so a throw in EdgeButtonBar.Hide() skipped the release entirely and escaped into the
         // dispatcher, where the process dies with the button still pressed.
         //
-        // The harness has no OverlayManager, so the overlay teardown throws here by construction.
-        // That is the point: the release must already have happened by then. Asserting only
-        // "balanced at the end" cannot see this — the ordering has to be observed through a throw.
-        var input = new ThrowOnFirstReleaseSimulator();
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(input));
+        // The bar is made to throw from Hide, and the drag is genuinely held through a successful
+        // start, so this observes the throw AFTER the release. Asserting only "balanced at the end"
+        // cannot see the ordering.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
 
-        // Leaves the button genuinely held: the abort's release throws and stays outstanding.
-        Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(3, 3))).Throws<InvalidOperationException>();
-        Check.That(input.MouseUpCount).IsEqualTo(0);
+        c.OnDragStarted(new PhysicalPoint(3, 3));
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(0);   // genuinely held
 
+        bar.HideFailure = new InvalidOperationException("the bar refused the hide");
         try { c.OnDragCancel(); }
-        catch (NullReferenceException) { /* the overlay hide — must come AFTER the release */ }
+        catch (InvalidOperationException) { /* the overlay teardown — must come AFTER the release */ }
 
         Check.That(input.MouseUpCount).IsEqualTo(1);
         Check.That(input.ButtonsBalanced).IsTrue();
@@ -288,14 +452,17 @@ public class DragCoordinatorTests
     public void DropReleasesBeforeTouchingTheOverlays()
     {
         // Same ordering guarantee on the drop path, which is the common one.
-        var input = new ThrowOnFirstReleaseSimulator();
-        var c = new DragCoordinator();
-        c.Initialize(TestFakes.MakeDragContext(input));
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
 
-        Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(4, 4))).Throws<InvalidOperationException>();
+        c.OnDragStarted(new PhysicalPoint(4, 4));
+        Check.That(input.MouseDownCount).IsEqualTo(1);
 
+        bar.HideFailure = new InvalidOperationException("the bar refused the hide");
         try { c.OnDragDrop(new DragDropMessage(new PhysicalPoint(80, 80))); }
-        catch (NullReferenceException) { /* the overlay hide — must come AFTER the release */ }
+        catch (InvalidOperationException) { /* the overlay teardown — must come AFTER the release */ }
 
         Check.That(input.MouseUpCount).IsEqualTo(1);
         Check.That(input.ButtonsBalanced).IsTrue();
@@ -345,33 +512,32 @@ public class DragCoordinatorTests
     [Fact]
     public void EveryOrderOfTeardown_LeavesTheButtonsBalanced()
     {
-        // The generalised form. Drives the reachable exit paths in several orders and asserts only
-        // the identity, so a path added later is covered without anyone remembering to extend a
-        // per-path assertion.
-        //
-        // The overlay teardown inside cancel/drop throws here, because this harness deliberately
-        // has no OverlayManager. That is not an obstacle to the assertion — it IS the assertion.
-        // Release now happens before any overlay work, so the button comes up even when the
-        // cosmetic teardown fails; writing this test the other way round is what would hide a
-        // regression. This exact throw caught the release sitting second on both paths.
-        // (A fake bar is available via MakeDragContextWithBar for the tests that need the drag to
-        // succeed; this one wants the failure.)
+        // The generalised form. Drives the reachable exit paths in several orders against a drag
+        // that genuinely started — the fake overlay and the fake bar let setup succeed — and
+        // asserts the identity, so a path added later is covered without anyone remembering to
+        // extend a per-path assertion. Exactly ONE MouseUp is asserted rather than balance alone:
+        // the last case drops (releasing once) and then runs the fatal-exit release on a button
+        // that is no longer held, which must be a no-op rather than a second release of whatever
+        // the caregiver's physical mouse may now be holding.
         foreach (var teardown in new Action<DragCoordinator>[]
         {
             c => c.Dispose(),
             c => { c.OnDragCancel(); c.Dispose(); },
             c => { c.OnDragDrop(new DragDropMessage(new PhysicalPoint(7, 7))); c.Dispose(); },
             c => { c.Dispose(); c.Dispose(); },
+            c => { c.OnDragDrop(new DragDropMessage(new PhysicalPoint(7, 7))); c.ReleaseHeldButtonForFatalExit(); },
         })
         {
             var input = new TestFakes.FakeInputSimulator();
-            var c = new DragCoordinator();
-            c.Initialize(TestFakes.MakeDragContext(input));
+            var (context, _) = TestFakes.MakeDragContextWithBar(input);
+            var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+            c.Initialize(context);
             c.OnDragStarted(new PhysicalPoint(42, 42));
+            Check.That(input.MouseDownCount).IsEqualTo(1);
 
-            try { teardown(c); }
-            catch (NullReferenceException) { /* harness has no OverlayManager; see above */ }
+            teardown(c);
 
+            Check.That(input.MouseUpCount).IsEqualTo(1);
             Check.That(input.ButtonsBalanced).IsTrue();
         }
     }

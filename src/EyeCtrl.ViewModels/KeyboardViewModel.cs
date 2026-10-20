@@ -479,7 +479,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void HandleAddWord()
     {
         if (CurrentInput.Length == 0) return;
-        LearnCommittedWord(CurrentInput);
+        // An explicit one-word teach keeps a deliberate trailing period ("Bsp." -> "bsp.").
+        LearnCommittedWord(CurrentInput, keepDeliberatePeriod: true);
     }
 
     /// <summary>
@@ -565,29 +566,41 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Strips leading/trailing punctuation from a word about to be learned, keeping the typed case
-    /// and inner apostrophes/hyphens - the same boundary rule <see cref="BigramModel.NormalizeWord"/>
-    /// applies to pair keys. Returns null when nothing word-like remains.
+    /// Boundary/display trim - NOT the learn trim. Learn paths pass the RAW token to
+    /// <see cref="LearnCommittedWord"/> / <see cref="LearnCommittedSequence"/>, because the
+    /// abbreviation rules need the period that this trim removes. Strips leading/trailing
+    /// punctuation, keeping the typed case and inner apostrophes/hyphens - the same boundary rule
+    /// <see cref="BigramModel.NormalizeWord"/> applies to pair keys. Returns null when nothing
+    /// word-like remains.
     /// </summary>
     private static string? TrimWordBoundaries(string? word)
     {
         if (string.IsNullOrWhiteSpace(word)) return null;
 
+        var (start, end) = WordSpan(word);
+        return end <= start ? null : word[start..end];
+    }
+
+    /// <summary>The raw token's word-like span: first/last letter-or-digit indexes.</summary>
+    private static (int Start, int End) WordSpan(string word)
+    {
         var start = 0;
         while (start < word.Length && !char.IsLetterOrDigit(word[start])) start++;
         var end = word.Length;
         while (end > start && !char.IsLetterOrDigit(word[end - 1])) end--;
-        return end <= start ? null : word[start..end];
+        return (start, end);
     }
 
     /// <summary>
     /// The single learn path for one committed word (Space, a selection, Add Word). Applies the
     /// shared trim and learns the result; returns the learned form, or null when the raw token
     /// does not qualify. Pair learning stays on the RAW word - only the dictionary entry is trimmed.
+    /// <paramref name="keepDeliberatePeriod"/> is Add Word's explicit one-word teach: it keeps a
+    /// single trailing "." on a letters-only word ("Bsp."), where typing would strip it.
     /// </summary>
-    private string? LearnCommittedWord(string rawWord)
+    private string? LearnCommittedWord(string rawWord, bool keepDeliberatePeriod = false)
     {
-        if (TrimLearnedWord(rawWord) is not { } word) return null;
+        if (TrimLearnedWord(rawWord, keepDeliberatePeriod) is not { } word) return null;
         _orchestrator?.LearnWord(word);
         return word;
     }
@@ -608,22 +621,31 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// The learned form of a word, beyond the boundary trim.
+    /// The learned form of a word, beyond the boundary trim. The final period is kept only when
+    /// the character right after the trimmed span is a period AND one of these holds:
     /// <list type="bullet">
-    /// <item>T1: a German abbreviation keeps its final period - either because the trimmed form
-    /// still contains an inner dot ("z.B."), or because trimmed + "." is in the dictionary's
-    /// abbreviation list ("usw.", "bzw."). Without this the bar would type "usw " with no period.</item>
-    /// <item>T2: a token that trims down to one character is not learned at all ("C#" must not
-    /// become a junk word "c").</item>
+    /// <item>an inner-dot abbreviation: every dot-separated segment is 1-2 letters ("z.B.",
+    /// "d.h.", "u.a.") - so a dotted address/version/domain keeps no sentence period;</item>
+    /// <item>trimmed + "." is in the language's abbreviation list ("usw.", "bzw."), matched
+    /// case-insensitively;</item>
+    /// <item>Add Word's deliberate period on a letters-only word.</item>
     /// </list>
+    /// A token that trims down to one character is not learned at all ("C#" must not become a
+    /// junk word "c"), and a period is never invented where the raw token had none.
     /// </summary>
-    private string? TrimLearnedWord(string rawWord)
+    private string? TrimLearnedWord(string rawWord, bool keepDeliberatePeriod = false)
     {
-        if (TrimWordBoundaries(rawWord) is not { } trimmed) return null;
+        var (start, end) = WordSpan(rawWord);
+        if (end <= start) return null;
+
+        var trimmed = rawWord[start..end];
         if (trimmed.Length == 1) return null;
 
-        if (rawWord.EndsWith('.')
-            && (trimmed.Contains('.') || IsAbbreviation(trimmed + ".")))
+        var endsWithPeriod = end < rawWord.Length && rawWord[end] == '.';
+        if (endsWithPeriod
+            && (IsInnerDotAbbreviation(trimmed)
+                || IsAbbreviation(trimmed + ".")
+                || (keepDeliberatePeriod && IsLettersOnly(trimmed))))
         {
             return trimmed + ".";
         }
@@ -632,19 +654,44 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Case-insensitive membership in the language's abbreviation set, the same comparison the
-    /// predictor uses for sentence-start capitalisation.
+    /// Every dot-separated segment is 1-2 letters ("z.B", "d.h", "u.a", "z.T", "u.U") - the only
+    /// inner-dot shape that is an abbreviation rather than an address, version or filename.
+    /// </summary>
+    private static bool IsInnerDotAbbreviation(string trimmed)
+    {
+        if (!trimmed.Contains('.')) return false;
+
+        var segmentLength = 0;
+        foreach (var ch in trimmed)
+        {
+            if (ch == '.')
+            {
+                if (segmentLength is < 1 or > 2) return false;
+                segmentLength = 0;
+                continue;
+            }
+
+            if (!char.IsLetter(ch)) return false;
+            segmentLength++;
+        }
+
+        return segmentLength is >= 1 and <= 2;
+    }
+
+    private static bool IsLettersOnly(string text)
+    {
+        foreach (var ch in text)
+            if (!char.IsLetter(ch)) return false;
+        return text.Length > 0;
+    }
+
+    /// <summary>
+    /// Case-insensitive membership in the language's abbreviation set. The set is an
+    /// OrdinalIgnoreCase <see cref="HashSet{T}"/> (FileDictionaryProvider), so Contains is the
+    /// same comparison the predictor uses for sentence-start capitalisation.
     /// </summary>
     private bool IsAbbreviation(string candidate)
-    {
-        var abbreviations = _orchestrator?.WordPredictor.Abbreviations;
-        if (abbreviations is null) return false;
-
-        foreach (var abbreviation in abbreviations)
-            if (string.Equals(abbreviation, candidate, StringComparison.OrdinalIgnoreCase))
-                return true;
-        return false;
-    }
+        => _orchestrator?.WordPredictor.Abbreviations.Contains(candidate) ?? false;
 
     public void HandleTab()
     {

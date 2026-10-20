@@ -277,6 +277,9 @@ public class KeyboardViewModelPairLearningTests
     [InlineData("z.B.")]
     [InlineData("bzw.")]
     [InlineData("d.h.")]
+    [InlineData("z.T.")]
+    [InlineData("u.U.")]
+    [InlineData("Bzw.")]
     public void AbbreviationWithPeriod_KeepsItsPeriodWhenTyped(string abbreviation)
     {
         var dir = NewTempDir();
@@ -350,6 +353,115 @@ public class KeyboardViewModelPairLearningTests
             Check.That(words.ContainsKey("c")).IsFalse();
             Check.That(words.ContainsKey("c#")).IsFalse();
             Check.That(words.ContainsKey(":-)")).IsFalse();
+        }
+    }
+
+    [Theory]
+    [InlineData("max@web.de.", "max@web.de")]
+    [InlineData("v1.2.", "v1.2")]
+    [InlineData("www.example.de.", "www.example.de")]
+    [InlineData("3.5.", "3.5")]
+    public void DottedNonAbbreviation_LosesTheFinalPeriod(string raw, string expectedKey)
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            TypeWordAndSpace(vm, raw);
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey(expectedKey)).IsTrue();
+            Check.That(words.ContainsKey(expectedKey + ".")).IsFalse();
+        }
+    }
+
+    [Theory]
+    [InlineData("z.B.,", "z.b.")]
+    [InlineData("usw.)", "usw.")]
+    [InlineData("(bzw.)", "bzw.")]
+    [InlineData("ca.:", "ca.")]
+    public void AbbreviationFollowedByPunctuation_KeepsItsPeriod(string raw, string expectedKey)
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                TypeWordAndSpace(vm, raw);
+
+                var words = orchestrator.WordPredictor.WordFrequencies;
+                Check.WithCustomMessage("the period after the trimmed span was missed")
+                    .That(words.ContainsKey(expectedKey)).IsTrue();
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void AbbreviationTypedWithoutADot_DoesNotGainOne()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                TypeWordAndSpace(vm, "ca");
+
+                var words = orchestrator.WordPredictor.WordFrequencies;
+                Check.That(words.ContainsKey("ca")).IsTrue();
+                Check.That(words.ContainsKey("ca.")).IsFalse();
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void AllCapsAbbreviation_KeepsItsPeriod()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                TypeWordAndSpace(vm, "USW.");
+
+                var words = orchestrator.WordPredictor.WordFrequencies;
+                Check.That(words.ContainsKey("usw.")).IsTrue();
+                Check.That(words.ContainsKey("usw")).IsFalse();
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void AddWord_KeepsADeliberatePeriodAfterALettersWord()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            vm.CurrentInput = "Bsp.";
+            vm.HandleAddWord();
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("bsp.")).IsTrue();
+            Check.That(words.ContainsKey("bsp")).IsFalse();
+        }
+    }
+
+    [Fact]
+    public void AddWord_StripsOtherTrailingPunctuation()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            vm.CurrentInput = "Bsp,";
+            vm.HandleAddWord();
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("bsp")).IsTrue();
+            Check.That(words.ContainsKey("bsp,")).IsFalse();
         }
     }
 

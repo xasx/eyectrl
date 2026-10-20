@@ -26,8 +26,24 @@ using EyeCtrl.ViewModels;
 /// deletes keyboard-placed text, and exactly <c>CurrentInput</c>.</item>
 /// </list>
 ///
-/// Every event that ends an editing session (Enter, hide, caret/clipboard keys) must leave the mirror
-/// empty. Seeds are fixed, so a failure names a seed and a step and replays exactly.
+/// Every event that ends an editing session (Enter — modified or not —, hide, Space or a character
+/// key with a system modifier armed, caret/clipboard keys) must leave the mirror empty. Seeds are
+/// fixed, so a failure names a seed and a step and replays exactly.
+///
+/// <para>
+/// I2 is narrowed to "CurrentInput was EMPTY before the press" for a plain Backspace (review 01, D1):
+/// a Backspace into an already open word edits it in place and must not re-split it — "don'r" + ⌫ is
+/// "don'", not a committed "don'" and an open ""; so for that press the fuzz instead checks the
+/// in-place contract (RecentText untouched, CurrentInput = one grapheme shorter). Word-Backspace
+/// deletes across the boundary and keeps the full I2 whatever was open.
+/// </para>
+///
+/// <para>
+/// Known limit (review 01, D4): the oracle shares the VM's definition of a "word"
+/// (<c>char.IsLetterOrDigit</c>, BMP only) and of the Ctrl+Backspace rule, so a mistake in that
+/// definition itself would not show here; the sync checks against the target's own text (mirror ==
+/// placed tail, picks delete exactly CurrentInput) are what stay independent of it.
+/// </para>
 /// </summary>
 public class KeyboardEditSyncFuzzTests
 {
@@ -42,6 +58,7 @@ public class KeyboardEditSyncFuzzTests
     {
         Letter, Digit, Punctuation, Emoji, Space, DoubleSpace, Backspace, WordBackspace, Pick, Enter,
         HideShow, Arrow, CtrlV, CtrlZ, ModifiedBackspace, ModifiedWordBackspace, Tab, DeleteKey, PrintScreen, CtrlC,
+        ModifiedEnter, ModifiedSpace, ModifiedLetter,
     }
 
     private static readonly (Op Op, int Weight)[] FullMix =
@@ -50,6 +67,7 @@ public class KeyboardEditSyncFuzzTests
         (Op.Backspace, 36), (Op.WordBackspace, 8), (Op.Pick, 12), (Op.Enter, 4), (Op.HideShow, 3),
         (Op.Arrow, 4), (Op.CtrlV, 2), (Op.CtrlZ, 2), (Op.ModifiedBackspace, 4), (Op.ModifiedWordBackspace, 2),
         (Op.Tab, 2), (Op.DeleteKey, 1), (Op.PrintScreen, 1), (Op.CtrlC, 1),
+        (Op.ModifiedEnter, 3), (Op.ModifiedSpace, 3), (Op.ModifiedLetter, 4),
     ];
 
     // Hide/show is the base's gap: only typing, Space, Enter and hide/show — no editing keys.
@@ -111,6 +129,7 @@ public class KeyboardEditSyncFuzzTests
             var messagesBefore = target.KeyMessages.Count;
             var caretBefore = target.Caret;
             var currentBefore = vm.CurrentInput;
+            var recentBefore = vm.RecentText;
             var deletionOp = op is Op.Backspace or Op.WordBackspace or Op.ModifiedBackspace or Op.ModifiedWordBackspace;
 
             var what = Apply(op, rng, vm, target);
@@ -174,7 +193,18 @@ public class KeyboardEditSyncFuzzTests
                     .That(mods.Count == 1 && mods.Contains(ModifierKey.Ctrl)).IsTrue();
             }
 
-            // I2.
+            // A plain Backspace into an open word edits it in place (D1): the committed half is
+            // untouched and the open word is exactly one grapheme shorter.
+            if (op is Op.Backspace or Op.ModifiedBackspace && currentBefore.Length > 0)
+            {
+                Check.WithCustomMessage(Fail("D1: a Backspace into an open word must not touch the committed text"))
+                    .That(vm.RecentText).IsEqualTo(recentBefore);
+                Check.WithCustomMessage(Fail("D1: a Backspace into an open word must trim it by exactly one grapheme"))
+                    .That(vm.CurrentInput).IsEqualTo(DropLastGrapheme(currentBefore));
+                continue;
+            }
+
+            // I2 (the re-open press, and Word-Backspace always).
             var run = TrailingRunStart(mirror);
             Check.WithCustomMessage(Fail("I2: CurrentInput is not the trailing letter/digit run of the mirror"))
                 .That(vm.CurrentInput).IsEqualTo(mirror[run..]);
@@ -252,6 +282,19 @@ public class KeyboardEditSyncFuzzTests
                 var armed2 = Arm(rng, vm);
                 vm.HandleDeleteWord();
                 return $"{armed2}+word-backspace";
+            case Op.ModifiedEnter:
+                var armedE = Arm(rng, vm);
+                vm.HandleEnter();
+                return $"{armedE}+enter";
+            case Op.ModifiedSpace:
+                var armedS = Arm(rng, vm);
+                vm.HandleSpace();
+                return $"{armedS}+space";
+            case Op.ModifiedLetter:
+                var armedL = Arm(rng, vm);
+                var ml = Letters[rng.Next(Letters.Length)].ToString();
+                vm.ActivateKey(ml, null);
+                return $"{armedL}+letter {ml}";
             case Op.Tab:
                 vm.HandleTab();
                 return "tab";
@@ -283,6 +326,12 @@ public class KeyboardEditSyncFuzzTests
             roll -= weight;
         }
         return mix[^1].Op;
+    }
+
+    private static string DropLastGrapheme(string text)
+    {
+        var starts = System.Globalization.StringInfo.ParseCombiningCharacters(text);
+        return text[..starts[^1]];
     }
 
     private static int TrailingRunStart(string text)

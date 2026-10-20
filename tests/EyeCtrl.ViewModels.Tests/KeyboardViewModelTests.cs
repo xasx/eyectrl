@@ -450,8 +450,11 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void HandleEnter_WithAlt_DoesNotClearCurrentInput()
+    public void HandleEnter_WithAlt_EndsTheSession()
     {
+        // Flipped on purpose (R1-d fixup 01, D2): this used to pin that Alt+Enter keeps the mirror.
+        // Ctrl+Enter sends the message in Teams/Outlook and Alt+Enter opens properties; either way the
+        // text under the caret is no longer the mirror's, and a later pick would delete foreign text.
         var vm = CreateViewModel();
         vm.CurrentInput = "hello";
         vm.ToggleModifier(ModifierKey.Alt);
@@ -459,7 +462,7 @@ public class KeyboardViewModelTests
 
         vm.HandleEnter();
 
-        Check.That(vm.CurrentInput).IsEqualTo("hello");
+        Check.That(vm.CurrentInput).IsEqualTo("");
     }
 
     // --- Prediction tests ---

@@ -465,10 +465,25 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// again, the bar follows it, and a pick replaces it in place. The keystroke is always sent PLAIN
     /// — an armed Ctrl would turn it into a word deletion and an armed Alt into Undo, neither of which
     /// the mirror could follow.
+    ///
+    /// <para>
+    /// A press into a word that is already OPEN edits it in place and never re-splits the mirror:
+    /// the open word is whatever the user typed since the last separator ("don'r", "E-Maik"), and
+    /// re-splitting at the trailing letter/digit run would commit "don'" and learn "t" on Space.
+    /// Only the re-open — the press that finds nothing open — moves a run of committed text back.
+    /// </para>
     /// </summary>
     public void HandleBackspace()
     {
-        ApplyDeletion(TrimLastGrapheme);
+        if (CurrentInput.Length > 0)
+        {
+            CurrentInput = TrimLastGrapheme(CurrentInput);
+            _reopenedUnmodified = false;
+        }
+        else
+        {
+            ApplyDeletion(TrimLastGrapheme);
+        }
         Messenger.Send(new KeyActivatedMessage("\b"));
         ClearOneShotModifiers();
     }
@@ -487,9 +502,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Applies one deletion to the mirror and restores its invariants: <see cref="CurrentInput"/> is
-    /// the trailing letter/digit run of the whole mirror, <c>_recentText</c> is everything before it,
-    /// and <c>_previousWord</c> is the last word before that (or null).
+    /// Applies one deletion to the WHOLE mirror and restores its invariants: <see cref="CurrentInput"/>
+    /// is the trailing letter/digit run of the mirror, <c>_recentText</c> is everything before it, and
+    /// <c>_previousWord</c> is the last word before that (or null). Used by the re-open (Backspace with
+    /// nothing open) and by Word-Backspace, which deletes across the word boundary whatever is open.
     /// </summary>
     private void ApplyDeletion(Func<string, string> trim)
     {
@@ -556,14 +572,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Enter ends the editing session. An armed system modifier makes it a shortcut (Alt+Enter, ...)
-    /// rather than a new line, and a shortcut leaves the mirror as it was — the long-standing,
-    /// test-pinned behaviour this release keeps.
+    /// Every Enter ends the editing session, modified or not: Ctrl+Enter sends the message in Teams
+    /// and Outlook, Alt+Enter opens properties — either way the text under the caret is no longer the
+    /// text the mirror describes, and a later pick would delete whatever the app shows now.
     /// </summary>
     public void HandleEnter()
     {
-        if (!HasSystemModifiers)
-            EndEditingSession();
+        EndEditingSession();
         Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
@@ -596,6 +611,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             }
             CurrentInput = "";
             _reopenedUnmodified = false;
+        }
+        else
+        {
+            // Ctrl/Alt/Win+Space is no space (Alt+Space opens the window menu, Win+Space switches the
+            // input language, Ctrl+Space toggles an IME): the app is somewhere the mirror cannot see.
+            EndEditingSession();
         }
         Messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -1042,8 +1063,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// The word before the caret: the last run of letters/digits in the committed text, with the
-    /// punctuation attached after it ("Ende." — the sentence-end guard needs it), or null. This is
-    /// what a Space after typing it would have recorded, so deletion and typing agree.
+    /// punctuation attached after it ("Ende." — the sentence-end guard needs it), or null. Deletion
+    /// and typing do NOT always agree: typing "well-known" and a Space records the whole token
+    /// "well-known", while this reads the run before the open word as "well-" (the run ends at the
+    /// hyphen). Both normalise to the same bigram word; only the sentence-end punctuation matters.
     /// </summary>
     private static string? ComputePreviousWord(string recentText)
     {

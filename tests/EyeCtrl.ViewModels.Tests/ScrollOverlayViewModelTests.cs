@@ -285,6 +285,39 @@ public class ScrollOverlayViewModelTests
         }
     }
 
+    [Fact]
+    public void G4_NearestPx_FreezesOnceArmed()
+    {
+        // The diagnostic reports how close the gaze came BEFORE scrolling started; the armed line and
+        // every later per-second line must keep that value. Mutant R4: keep updating nearest after
+        // arming → the sample on the anchor drags it to 0, red.
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var vm = NewVm80();
+            var anchor = new PhysicalPoint(1000, 800);
+            vm.EnterScrollMode(anchor, new PhysicalPoint(3000, 400));
+            var centre = new PhysicalPoint(anchor.X - 150, anchor.Y + 60);
+
+            long t = Arm(vm, centre);
+            Check.That(vm.IsArmed).IsTrue();
+            double frozen = vm.NearestPx;
+            Check.WithCustomMessage("the premise: nearest is the arming fixation's distance, ~162 px")
+                .That(frozen).IsCloseTo(centre.DistanceTo(anchor), 1e-9);
+
+            vm.Receive(new GazeCursorMovedMessage(anchor, t));
+            Check.WithCustomMessage("a sample ON the anchor after arming must not move nearest")
+                .That(vm.NearestPx).IsEqualTo(frozen);
+
+            vm.Receive(new GazeCursorMovedMessage(anchor, t + StepUs));
+            Check.That(vm.NearestPx).IsEqualTo(frozen);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     [Theory]
     [InlineData(1.0)]
     [InlineData(2.0)]

@@ -5,11 +5,12 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
+using EyeCtrl.App.Services;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class DragTrailOverlay : OverlayWindow
+public partial class DragTrailOverlay : OverlayWindow, IDragTrailOverlay
 {
     private const double TrailThickness = 2;
     private const double SettleRingThickness = 3;

@@ -3,8 +3,11 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
@@ -257,13 +260,76 @@ public class KeyboardInteractionDispatcherTests
             (new PhysicalPoint(0, 0), 1, 0)); // point included per external review M3
     }
 
+    /// <summary>
+    /// GA3, precise arm: every unmodified one-shot scroll must go through ScrollAt (move + wheel
+    /// in one batch) at the action's point, with the same ±3 notches and no bare wheel. Kills MA4
+    /// (branch back to Scroll) and MA5 (the wrong point).
+    /// </summary>
     [Fact]
-    public void UnmodifiedScroll_KeepsThreeNotches()
+    public void UnmodifiedScrolls_RouteToScrollAt_AtThePrecisePoint_WithThreeNotches()
     {
         var (dispatcher, simulator) = BuildWithFakeInput();
+        var pt = new PhysicalPoint(123, 456);
 
-        dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollUp, new PhysicalPoint(0, 0), IsPreciseTarget: true));
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollUp, pt, IsPreciseTarget: true));
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollDown, pt, IsPreciseTarget: true));
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollLeft, pt, IsPreciseTarget: true));
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollRight, pt, IsPreciseTarget: true));
 
-        Check.That(simulator.BareScrolls).ContainsExactly(((int Dx, int Dy))(0, 3));
+        Check.That(simulator.PointedScrolls).ContainsExactly(
+            ((PhysicalPoint Point, int Dx, int Dy))(pt, 0, 3),
+            (pt, 0, -3),
+            (pt, -3, 0),
+            (pt, 3, 0));
+        Check.WithCustomMessage("a one-shot scroll must never send a bare wheel.")
+            .That(simulator.BareScrolls).IsEmpty();
+    }
+
+    /// <summary>
+    /// GA3, non-precise arm: without a magnifier commitment pt is the STABLE CENTROID (where the
+    /// owner is looking), not the message's point. Kills MA5 (msg.Point / (0,0)).
+    /// </summary>
+    [Fact]
+    public void UnmodifiedScroll_WithANonPreciseTarget_UsesTheStableCentroid()
+    {
+        var recorder = new TestFakes.FakeInputSimulator();
+        var provider = new ScriptedGazeProvider();
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.Start();
+
+        // 20 samples at 50 Hz establish a fixation (it starts at 300 ms); the centroid then tracks it.
+        for (int i = 0; i <= 19; i++)
+            provider.Emit(new GazePoint(700, 900, i * 20_000, IsValid: true));
+        var centroid = engine.StableCentroid;
+        Check.WithCustomMessage("the premise: the engine has a stable centroid").That(centroid).IsNotNull();
+
+        var ctx = WithBackdrop(TestFakes.MakeContext(recorder)) with
+        {
+            TargetHighlightVM = new TargetHighlightOverlayViewModel(),
+            GazeEngine = engine,
+        };
+        var dispatcher = new KeyboardInteractionDispatcher();
+        dispatcher.Initialize(ctx);
+
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(
+            InteractionAction.ScrollUp, new PhysicalPoint(0, 0), IsPreciseTarget: false));
+
+        Check.That(recorder.PointedScrolls).ContainsExactly(
+            ((PhysicalPoint Point, int Dx, int Dy))(centroid!.Value, 0, 3));
+        Check.WithCustomMessage("the fallback point must not be used while a stable centroid exists.")
+            .That(recorder.BareScrolls).IsEmpty();
+    }
+
+    /// <summary>A provider whose samples the test pushes synchronously (no timer, no device).</summary>
+    private sealed class ScriptedGazeProvider : IGazeProvider
+    {
+        public event Action<GazePoint>? GazePointReceived;
+        public bool IsConnected => true;
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+        public void Emit(GazePoint point) => GazePointReceived?.Invoke(point);
     }
 }

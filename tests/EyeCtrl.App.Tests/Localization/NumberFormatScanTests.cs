@@ -90,7 +90,7 @@ public class NumberFormatScanTests
         // The magnifier's shown line: machine-read field evidence (the A4 session check), never
         // screen text. A German decimal comma here would break an invariant parse of mag=1.5.
         ("src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs",
-            "$\"Magnifier shown: P=({captureCenter.X:F0},{captureCenter.Y:F0}) view=({viewCenter.X:F0},{viewCenter.Y:F0}) mag={_magnification:0.##} viewDip={radius * 2 * _magnification:F0} recapture={recapture} picture={_pictureState} captureMs={_lastCaptureMs} captured={_lastCapturedSize}x{_lastCapturedSize}px luma={_lastLumaMean:F0}\\u00B1{_lastLumaSd:F0} sameAsPrevious={_lastCaptureSameAsPrevious}\"",
+            "$\"Magnifier shown: P=({captureCenter.X:F0},{captureCenter.Y:F0}) view=({viewCenter.X:F0},{viewCenter.Y:F0}) mag={_magnification:0.##} viewDip={radius * 2 * _magnification:F0} circleEff={radius} recapture={recapture} picture={_pictureState} captureMs={_lastCaptureMs} captured={_lastCapturedSize}x{_lastCapturedSize}px luma={_lastLumaMean:F0}\\u00B1{_lastLumaSd:F0} sameAsPrevious={_lastCaptureSameAsPrevious}\"",
             "the magnifier's shown Serilog line — never screen text, read by the field-log check"),
         // T0(a): the two LAG MARK log lines are machine-read by the session readout, whose format
         // is pinned invariant (spec §2.3) — a German decimal comma would break its parse.

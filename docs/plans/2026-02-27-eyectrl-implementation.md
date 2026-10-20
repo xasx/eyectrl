@@ -2528,7 +2528,7 @@ git add -A && git commit -m "feat: add built-in keyboard layouts (QWERTY, QWERTZ
 
 **Step 1: Create English dictionary**
 
-A JSON file with the top ~10,000 English words and their relative frequencies. Source from public domain word frequency lists.
+A JSON file with the top ~10,000 English words and their relative frequencies. Source from word frequency lists whose content is licensed CC BY-SA 4.0 (hermitdave/FrequencyWords, derived from OpenSubtitles).
 
 Format: `{ "the": 69971, "of": 36411, "and": 28852, ... }`
 

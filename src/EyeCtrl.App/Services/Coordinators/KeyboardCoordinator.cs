@@ -373,6 +373,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (visible)
         {
             Context.OverlayManager.Keyboard.Show();
+            // F2: the explicit show placement. This is the session's one un-yield (docked
+            // position plus the toolbar yield that is true now); it must run after Show() so
+            // the window has its real size. The window no longer infers a show from
+            // IsVisibleChanged.
+            Context.OverlayManager.Keyboard.PlaceForShow();
             ApplyInitialToolbarOccupancy();
             ShowKeyboardEdgeBar();
             if (manageSuppression)
@@ -489,13 +494,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
     /// <summary>
     /// The keyboard edge-bar pair's dwell: the same setting the action-menu pair reads on the
-    /// shared bar (<c>Dwell.ActionMenuDwellMs</c>), never below
-    /// <see cref="KeyboardEdgeButtons.MinimumDwellMs"/>. Close and Flip used to ride the 450 ms
+    /// shared bar (<c>Dwell.ActionMenuDwellMs</c>). Close and Flip used to ride the 450 ms
     /// keyboard KEY dwell, which made the keyboard's escape and its worst-region move cheaper
-    /// than every other edge-bar button.
+    /// than every other edge-bar button. The 600 ms floor lives in
+    /// <see cref="KeyboardEdgeButtons.Definitions"/> so every caller gets it.
     /// </summary>
-    internal static int KeyboardEdgeButtonDwellMs(DwellSettings dwell) =>
-        Math.Max(dwell.ActionMenuDwellMs, KeyboardEdgeButtons.MinimumDwellMs);
+    internal static int KeyboardEdgeButtonDwellMs(DwellSettings dwell) => dwell.ActionMenuDwellMs;
 
     private void HideKeyboardEdgeBar()
     {

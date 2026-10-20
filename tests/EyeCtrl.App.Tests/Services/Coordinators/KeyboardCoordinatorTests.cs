@@ -801,6 +801,27 @@ public class KeyboardCoordinatorTests
             GazeProviderType providerType) => throw new NotImplementedException();
     }
 
+    [Fact]
+    public void SetKeyboardVisible_PlacesTheShowExplicitly()
+    {
+        // F2's wiring half: the production show route must pass KeyboardMove.Show itself
+        // (PlaceForShow resets the placement session, which is the re-show un-yield). A revert
+        // to the ambient first-placement behaviour leaves the re-show path untested again.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "SetKeyboardVisible no longer calls PlaceForShow right after Show(): the show "
+                + "path would not reset the placement session, so a re-show could keep a stale "
+                + "yielded position.")
+            .That(source.Contains(
+                "Context.OverlayManager.Keyboard.Show();Context.OverlayManager.Keyboard.PlaceForShow();"))
+            .IsTrue();
+    }
+
     [StaFact]
     public void ShowKeyboardEdgeBar_TakesCloseAndFlipDwellFromTheEdgeBarSetting()
     {

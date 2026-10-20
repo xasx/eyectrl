@@ -20,6 +20,10 @@ using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
+// A handful of the tests below create a real KeyboardWindow through WpfApplicationGate's
+// process-wide Application singleton, so the class belongs in WpfApplicationCollection — the
+// gate's documented rule, pinned by WpfApplicationCreatorIsolationTests.
+[Collection("WpfApplication")]
 public class KeyboardCoordinatorTests
 {
     // The ctor needs a ModalInteractionState, a QuickActionsCoordinator, and a

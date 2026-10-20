@@ -34,7 +34,14 @@ using Xunit;
 /// window's <c>Tokens.Brush*</c> reads need; the async screen-capture preview is fully
 /// try-contained in production and is not awaited here.
 /// </para>
+/// <para>
+/// <c>[Collection("WpfApplication")]</c> is required by the gate's own rule: this file calls
+/// <c>WpfApplicationGate.EnsureApplicationWithTokens</c>, which creates the process-wide
+/// <c>Application</c> singleton from the parallel phase otherwise
+/// (<c>WpfApplicationCreatorIsolationTests</c> pins the rule).
+/// </para>
 /// </summary>
+[Collection("WpfApplication")]
 public class ActionMenuWindowDimRenderTests
 {
     [StaFact]

@@ -513,4 +513,64 @@ public class KeyboardViewModelPairLearningTests
             Check.That(orchestrator.WordPredictor.WordFrequencies["hallo"]).IsEqualTo(1);
         }
     }
+
+    // ── R1-d: a re-opened word goes through the same learn helper ───────────
+
+    [Fact]
+    public void ReopenedWord_EditedWithTrailingPunctuation_LearnsTheTrimmedWord()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            TypeWordAndSpace(vm, "hallo");
+            vm.HandleBackspace();            // re-opens 'hallo' ...
+            Type(vm, ",");                   // ... and the user edits it to "hallo,"
+            vm.HandleSpace();
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.WithCustomMessage("learned: " + string.Join("|", words.Keys))
+                .That(words.ContainsKey("hallo,")).IsFalse();
+            Check.That(words["hallo"]).IsEqualTo(2);
+        }
+    }
+
+    [Fact]
+    public void ReopenedAbbreviation_EditedToCarryItsPeriod_KeepsThePeriod()
+    {
+        var dir = NewTempDir();
+        try
+        {
+            var (vm, orchestrator) = CreateWithAbbreviations(dir);
+            using (vm)
+            {
+                TypeWordAndSpace(vm, "usw");
+                vm.HandleBackspace();        // re-opens 'usw'
+                Type(vm, ".");               // "usw." is in the abbreviation list
+                vm.HandleSpace();
+
+                var words = orchestrator.WordPredictor.WordFrequencies;
+                Check.WithCustomMessage("learned: " + string.Join("|", words.Keys))
+                    .That(words.ContainsKey("usw.")).IsTrue();
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void AddWord_OnAReopenedWordWithPunctuation_LearnsTheTrimmedWord()
+    {
+        var (vm, orchestrator) = Create();
+        using (vm)
+        {
+            TypeWordAndSpace(vm, "hallo");
+            vm.HandleBackspace();
+            Type(vm, ",");
+
+            vm.HandleAddWord();
+
+            var words = orchestrator.WordPredictor.WordFrequencies;
+            Check.That(words.ContainsKey("hallo,")).IsFalse();
+            Check.That(words["hallo"]).IsEqualTo(2);
+        }
+    }
 }

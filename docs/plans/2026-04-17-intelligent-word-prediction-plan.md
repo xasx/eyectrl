@@ -795,13 +795,13 @@ Following PR review feedback, several quality improvements were made:
 
 #### 6.1 Dictionary Expansion Strategy ✅ IMPLEMENTED
 - Target: Expand from ~5,000 to 10,000 words per language ✅
-- Source: Public domain frequency lists (hermitdave/FrequencyWords repository)
+- Source: hermitdave/FrequencyWords frequency lists (content licensed CC BY-SA 4.0, code MIT)
 - Quality control: Automated filtering with validation rules
 - Format: Maintained existing JSON structure `{"words": {word: frequency}, "abbreviations": [...]}`
 
 **Completion Summary:**
 - All dictionaries expanded from ~5,000 to exactly 10,000 words
-- Source: hermitdave/FrequencyWords GitHub repository (OpenSubtitles corpus)
+- Source: hermitdave/FrequencyWords GitHub repository (OpenSubtitles corpus); content licensed CC BY-SA 4.0
 - Filtering applied to ensure quality:
   - No words starting/ending with apostrophes or hyphens
   - No words with numbers

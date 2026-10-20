@@ -190,9 +190,54 @@ internal static class TestFakes
         public void Hide()
         {
             Calls.Add("Hide");
+            if (HideFailure is not null) throw HideFailure;
             ShownButtonIds.Clear();
             _vm.Hide();
         }
+
+        /// <summary>
+        /// When set, <see cref="Hide"/> throws it AFTER recording the call. Models an overlay
+        /// teardown that fails: the release must already have happened by then, which is the
+        /// ordering the cancel/drop release gates pin.
+        /// </summary>
+        public Exception? HideFailure { get; set; }
+    }
+
+    /// <summary>
+    /// Recording fake for <see cref="IDragTrailOverlay"/>: the drag's full-screen trail window,
+    /// replaced by counters so a drag test needs no STA thread, no <c>Application</c> singleton and
+    /// nothing on the desktop. Records the call order so a gate can pin "configure, show, then
+    /// press".
+    /// </summary>
+    internal sealed class FakeDragTrailOverlay : IDragTrailOverlay
+    {
+        public List<string> Calls { get; } = new();
+
+        public int ConfigureCount => Calls.Count(c => c == "Configure");
+
+        public int ShowCount => Calls.Count(c => c == "Show");
+
+        public int UpdateCount => Calls.Count(c => c == "Update");
+
+        public int CloseCount => Calls.Count(c => c == "Close");
+
+        public string? TrailColor { get; private set; }
+
+        public double TrailOpacity { get; private set; }
+
+        public void Configure(string trailColor, double trailOpacity)
+        {
+            Calls.Add("Configure");
+            TrailColor = trailColor;
+            TrailOpacity = trailOpacity;
+        }
+
+        public void Show() => Calls.Add("Show");
+
+        public void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
+            PhysicalPoint releasePos) => Calls.Add("Update");
+
+        public void Close() => Calls.Add("Close");
     }
 
     /// <summary>

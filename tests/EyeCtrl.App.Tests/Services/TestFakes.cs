@@ -168,10 +168,18 @@ internal static class TestFakes
         public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
         {
             Calls.Add("ShowButtons");
+            if (ShowButtonsFailure is not null) throw ShowButtonsFailure;
             ShownButtonIds.Clear();
             ShownButtonIds.AddRange(definitions.Select(d => d.Id));
             _vm.ShowButtons(definitions, edgeAnchor);
         }
+
+        /// <summary>
+        /// When set, <see cref="ShowButtons"/> throws it AFTER recording the call. Models a setup
+        /// failure that happens after the trail overlay already exists, which is the only way to
+        /// reach the abort's overlay close: the factory-based failures leave nothing to close.
+        /// </summary>
+        public Exception? ShowButtonsFailure { get; set; }
 
         public void AddButton(EdgeButtonDefinition definition)
         {
@@ -235,9 +243,29 @@ internal static class TestFakes
         public void Show() => Calls.Add("Show");
 
         public void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
-            PhysicalPoint releasePos) => Calls.Add("Update");
+            PhysicalPoint releasePos)
+        {
+            Calls.Add("Update");
+            if (UpdateFailure is null) return;
+            if (UpdateFailureOnCall is { } only && only != UpdateCount) return;
+            throw UpdateFailure;
+        }
 
         public void Close() => Calls.Add("Close");
+
+        /// <summary>
+        /// When set, <see cref="Update"/> throws it. The post-press trail start drives this through
+        /// <c>DragTrailViewModel.Receive</c>'s property setters, so this is how a gate reaches the
+        /// coordinator's post-press catch without any WPF.
+        /// </summary>
+        public Exception? UpdateFailure { get; set; }
+
+        /// <summary>
+        /// When set with <see cref="UpdateFailure"/>, only the n-th (1-based) <see cref="Update"/>
+        /// throws. A later call leaves the drag-trail VM half-initialised first — which is the
+        /// state the reset after an aborted start has to undo.
+        /// </summary>
+        public int? UpdateFailureOnCall { get; set; }
     }
 
     /// <summary>

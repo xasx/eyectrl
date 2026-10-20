@@ -195,6 +195,61 @@ public class DragCoordinatorTests
         Check.That(input.MouseDownCount).IsEqualTo(1);
     }
 
+    [Fact]
+    public void TrailStartFailureAfterThePress_ReleasesTheButtonAndClosesTheOverlay()
+    {
+        // R1: the Send that starts the trail VM is the ONE step that runs after the press. It fans
+        // out into DragTrailViewModel.Receive, whose property setters re-enter this coordinator's
+        // PropertyChanged handler and call Update on the overlay — a WPF window plus DPI
+        // arithmetic, so it can throw. Before this guard, that throw escaped OnDragStarted with the
+        // button still down. The failure fires on the SECOND update so the VM is genuinely half
+        // set up (IsDragActive true, SetupDwellTargets never reached); the reset has something to
+        // undo, and its own assertion is discriminating.
+        var input = new TestFakes.FakeInputSimulator();
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var boom = new InvalidOperationException("the trail update refused to draw");
+        overlay.UpdateFailure = boom;
+        overlay.UpdateFailureOnCall = 2;
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+
+        Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(70, 80))).DoesNotThrow();
+
+        Check.That(c.LastSetupFailure).IsSameReferenceAs(boom);
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+        Check.That(context.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        Check.That(overlay.CloseCount).IsEqualTo(1);
+        Check.That(bar.Calls).Contains("Hide");
+        Check.That(context.DragTrailVM.IsDragActive).IsFalse();
+    }
+
+    [Fact]
+    public void ShowButtonsFailureAfterTheOverlayIsUp_ClosesTheOverlayAndHidesTheBar()
+    {
+        // R2 (survivor MK): every other setup failure throws from the factory, so the overlay does
+        // not exist yet and the abort's CloseDragOverlay has nothing to close — deleting it stayed
+        // green. Here the overlay exists and the bar refuses the buttons, so the abort must hide
+        // the bar AND close the maximized trail window, with no button input at all.
+        var input = new TestFakes.FakeInputSimulator();
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        bar.ShowButtonsFailure = new InvalidOperationException("the bar refused the buttons");
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(11, 12));
+
+        Check.That(c.LastSetupFailure).IsNotNull();
+        Check.That(input.MouseDownCount).IsEqualTo(0);
+        Check.That(input.MouseUpCount).IsEqualTo(0);
+        Check.That(overlay.CloseCount).IsEqualTo(1);
+        Check.That(bar.Calls).Contains("Hide");
+        Check.That(context.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
     [StaFact]
     public void ProductionFactory_ReturnsTheRealOverlay()
     {
@@ -459,14 +514,18 @@ public class DragCoordinatorTests
     {
         // The generalised form. Drives the reachable exit paths in several orders against a drag
         // that genuinely started — the fake overlay and the fake bar let setup succeed — and
-        // asserts only the identity, so a path added later is covered without anyone remembering
-        // to extend a per-path assertion.
+        // asserts the identity, so a path added later is covered without anyone remembering to
+        // extend a per-path assertion. Exactly ONE MouseUp is asserted rather than balance alone:
+        // the last case drops (releasing once) and then runs the fatal-exit release on a button
+        // that is no longer held, which must be a no-op rather than a second release of whatever
+        // the caregiver's physical mouse may now be holding.
         foreach (var teardown in new Action<DragCoordinator>[]
         {
             c => c.Dispose(),
             c => { c.OnDragCancel(); c.Dispose(); },
             c => { c.OnDragDrop(new DragDropMessage(new PhysicalPoint(7, 7))); c.Dispose(); },
             c => { c.Dispose(); c.Dispose(); },
+            c => { c.OnDragDrop(new DragDropMessage(new PhysicalPoint(7, 7))); c.ReleaseHeldButtonForFatalExit(); },
         })
         {
             var input = new TestFakes.FakeInputSimulator();
@@ -478,6 +537,7 @@ public class DragCoordinatorTests
 
             teardown(c);
 
+            Check.That(input.MouseUpCount).IsEqualTo(1);
             Check.That(input.ButtonsBalanced).IsTrue();
         }
     }

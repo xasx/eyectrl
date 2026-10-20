@@ -44,7 +44,7 @@ public class NoteBadgeRenderTests
     }
 
     [StaFact]
-    public void TheRenderSet_IsComplete_FourFilesBothThemes()
+    public void TheRenderSet_IsComplete_SixFilesBothThemesAndAllSizes()
     {
         // Self-sufficient: renders the whole set itself, so test ORDER cannot decide whether
         // the files exist (the NoteReadingRenderTests discipline).
@@ -52,17 +52,25 @@ public class NoteBadgeRenderTests
         Directory.CreateDirectory(directory);
         foreach (var themeName in new[] { "Midnight", "Daylight" })
             RenderSet(themeName, directory);
+        RenderBadgedSet("Midnight", 18, directory);
+        RenderBadgedSet("Midnight", 48, directory);
 
-        Check.WithCustomMessage("the badge render set must hold exactly 4 PNGs")
-            .That(Directory.GetFiles(directory, "note-badges-*.png").Length).IsEqualTo(4);
+        Check.WithCustomMessage("the badge render set must hold exactly 6 PNGs — the 4 at 28 "
+                + "plus the Midnight column at 18 and at 48")
+            .That(Directory.GetFiles(directory, "note-badges-*.png").Length).IsEqualTo(6);
     }
 
     private static void RenderSet(string themeName, string directory)
     {
-        var badged = RenderThreeBadgedCards(themeName);
+        RenderBadgedSet(themeName, 28, directory);
         var lone = RenderOneLoneCard(themeName);
-        Write(badged, Path.Combine(directory, $"note-badges-{themeName.ToLowerInvariant()}-28dip.png"));
         Write(lone, Path.Combine(directory, $"note-badges-{themeName.ToLowerInvariant()}-lone-28dip.png"));
+    }
+
+    private static void RenderBadgedSet(string themeName, double textSize, string directory)
+    {
+        var badged = RenderThreeBadgedCards(themeName, textSize);
+        Write(badged, Path.Combine(directory, $"note-badges-{themeName.ToLowerInvariant()}-{(int)textSize}dip.png"));
     }
 
     private static void Write(RenderTargetBitmap bitmap, string file)
@@ -75,14 +83,14 @@ public class NoteBadgeRenderTests
             .That(new FileInfo(file).Length).IsStrictlyGreaterThan(0);
     }
 
-    /// <summary>Renders three 28 DIP Display cards with badges 1, 2 and 3, composed vertically
-    /// into one bitmap.</summary>
-    private static RenderTargetBitmap RenderThreeBadgedCards(string themeName)
+    /// <summary>Renders three Display cards with badges 1, 2 and 3 at the given text size,
+    /// composed vertically into one bitmap.</summary>
+    private static RenderTargetBitmap RenderThreeBadgedCards(string themeName, double textSize)
     {
         using var themeScope = ThemeScope.Activate(ThemeRegistry.Resolve(themeName));
         var frames = new (RenderTargetBitmap Bitmap, double Width, double Height)[3];
         for (int i = 0; i < 3; i++)
-            frames[i] = RenderCard(themeName, badgeNumber: i + 1, lone: false);
+            frames[i] = RenderCard(themeName, badgeNumber: i + 1, lone: false, textSize: textSize);
 
         double width = frames.Max(f => f.Width);
         double height = frames.Sum(f => f.Height) + 40;
@@ -92,12 +100,12 @@ public class NoteBadgeRenderTests
     private static RenderTargetBitmap RenderOneLoneCard(string themeName)
     {
         using var themeScope = ThemeScope.Activate(ThemeRegistry.Resolve(themeName));
-        var frame = RenderCard(themeName, badgeNumber: null, lone: true);
+        var frame = RenderCard(themeName, badgeNumber: null, lone: true, textSize: 28);
         return Compose(new[] { frame }, frame.Width, frame.Height);
     }
 
     private static (RenderTargetBitmap Bitmap, double Width, double Height) RenderCard(
-        string themeName, int? badgeNumber, bool lone)
+        string themeName, int? badgeNumber, bool lone, double textSize)
     {
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -105,17 +113,19 @@ public class NoteBadgeRenderTests
             var window = new NoteWindow($"badge-render-{badgeNumber?.ToString() ?? "lone"}");
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(NoteState.Display);
-            window.SetTextSize(28);
+            window.SetTextSize(textSize);
             string text = lone
                 ? "Only one note - no badge."
                 : $"Note {badgeNumber} of three - the badge names it.";
             var card = new Size(
-                NoteLayout.CardWidthDip(28),
-                NoteLayout.CardHeightDip(28, window.MeasureTextHeightDip(text), 1200));
+                NoteLayout.CardWidthDip(textSize),
+                NoteLayout.CardHeightDip(textSize, window.MeasureTextHeightDip(text), 1200));
             double y = badgeNumber switch { 1 => 900, 2 => 100, 3 => 300, _ => 1200 };
-            var placement = NoteLayout.Place(
-                new PhysicalPoint(1200, y), NoteSide.Right, card,
-                NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!;
+            var placement = NoteLayout.WithTagClearance(
+                NoteLayout.Place(
+                    new PhysicalPoint(1200, y), NoteSide.Right, card,
+                    NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!,
+                textSize);
             window.ApplyPlacement(placement);
             window.SetText(text);
             window.UpdateContent();

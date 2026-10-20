@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 
 using EyeCtrl.App.Tests.TestSupport;
 
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;
@@ -68,14 +69,17 @@ public class NoteWindowGeometryTests
         var placement = manager.PlacementForTest(id)!;
         var window = manager.WindowForTest(id)!;
 
+        // The window reports the placement's rect: Width/Height/Left/Top within the half-DIP
+        // rounding the 2× DPI transform applies (fixup-04: the tag's protrusion is a fractional
+        // ink height, so the window's top strip is no longer a whole number of DIP).
         Check.WithCustomMessage("the window's width must come from the placement's window rect")
-            .That(window.Width).IsEqualTo(placement.Window.Width);
+            .That(Math.Abs(window.Width - placement.Window.Width)).IsStrictlyLessThan(0.5);
         Check.WithCustomMessage("the window's height must come from the placement's window rect")
-            .That(window.Height).IsEqualTo(placement.Window.Height);
+            .That(Math.Abs(window.Height - placement.Window.Height)).IsStrictlyLessThan(0.5);
         Check.WithCustomMessage("the window's Left must come from ApplyPlacementToWindow")
-            .That(window.Left).IsEqualTo(placement.Window.Left);
+            .That(Math.Abs(window.Left - placement.Window.Left)).IsStrictlyLessThan(0.5);
         Check.WithCustomMessage("the window's Top must come from ApplyPlacementToWindow")
-            .That(window.Top).IsEqualTo(placement.Window.Top);
+            .That(Math.Abs(window.Top - placement.Window.Top)).IsStrictlyLessThan(0.5);
 
         // The drawn button column (the display set's ✎ ↕ ✕ are slots 0-2, drawn once per side)
         // must sit on NoteLayout.ButtonCenter for the CURRENT side — per-slot, on the even

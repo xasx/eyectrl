@@ -99,8 +99,8 @@ public class NoteBadgeContrastTests
         // The tag Border and the drawn numeral exist and carry the real tag size (a 0-size tag
         // would pass every ratio while drawing nothing), the edge is drawn at a real width (a
         // 0-width stroke paints nothing — review-01 m1's discipline), and the numeral reads off.
-        Check.That(tag.Width).IsGreaterOrEqualThan(NoteLayout.TagWidthDip - 0.5);
-        Check.That(tag.Height).IsGreaterOrEqualThan(NoteLayout.TagHeightDip - 0.5);
+        Check.That(tag.Width).IsGreaterOrEqualThan(NoteLayout.TagWidthDip(NoteSettings.DefaultTextSizeDip) - 0.5);
+        Check.That(tag.Height).IsGreaterOrEqualThan(NoteLayout.TagHeightDip(NoteSettings.DefaultTextSizeDip) - 0.5);
         Check.WithCustomMessage("the drawn tag edge must be at least 1 DIP wide — a zero-width "
                 + "stroke paints no rim however correct its brush")
             .That(tag.BorderThickness.Left).IsGreaterOrEqualThan(1.0);

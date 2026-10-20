@@ -113,10 +113,10 @@ public class NoteControlInputTests
             RoutedEvent = UIElement.MouseLeftButtonUpEvent
         });
 
-    /// <summary>The release a real pipeline bubbles to ancestors — the core MouseUp: the
-    /// button-specific MouseLeftButtonUp routes direct (never reaches a handler above the
-    /// source; the window can only observe releases over non-controlled surfaces on the core
-    /// route). The window's bubbling clear watches exactly this event.</summary>
+    /// <summary>The release the window's clear watches — the core MouseUp, the ONE route every
+    /// button's release bubbles on, visible through handledEventsToo even when a control marked
+    /// its own (review-03 n.1: live input ALSO re-raises the direct MouseLeftButtonUp at every
+    /// element along this route, so the window would see a left-button release either way).</summary>
     private static void RaiseMouseUp(UIElement element) =>
         element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
         {
@@ -805,5 +805,133 @@ public class NoteControlInputTests
                 new PhysicalPoint(close.X + 10_000, close.Y), t, IsInGap: false)));
         for (long t = 300_000; t <= 1_200_000; t += 100_000)
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(close, t, IsInGap: false)));
+    }
+
+    // ------------------------------------------------------------------ T6 fixup-04 (review-03 P1-P4)
+    // review-03's concern about the fixup-03 test model: control releases were raised on the
+    // LEFT-SPECIFIC event, which skips the core bubble a live release always has; live input's
+    // path is the core MouseDown/MouseUp on the hit element, whose class handlers re-raise the
+    // direct left-button events at EVERY element along the route. These pins adopt the
+    // reviewer's core-event probes: with the fixup-04 cleanup in place (no OriginalSource
+    // guard), each sequence's outcome must be identical on the class-handler path.
+
+    /// <summary>The press a live mouse raises: the CORE MouseDown on the hit element — the
+    /// class handler re-raises the direct MouseLeftButtonDown there, so the paused-press gate
+    /// records the control exactly as it must when the caretaker really clicks.</summary>
+    private static void CoreMousePress(UIElement element) =>
+        element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = Mouse.MouseDownEvent
+        });
+
+    /// <summary>The release a live mouse raises: the CORE MouseUp on the element under the
+    /// pointer — the class handler re-raises the direct MouseLeftButtonUp there, its instance
+    /// handlers run, and only then does the core event bubble on to the window's clear.</summary>
+    private static void CoreMouseRelease(UIElement element) =>
+        element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = Mouse.MouseUpEvent
+        });
+
+    private static (NoteManager Manager, string Id, NoteWindow Window, int[] Cues) SavedSetup()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var cues = new int[1];
+        messenger.Register<DwellActivationMessage>(cues, (_, _) => cues[0]++);
+        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+        manager.NoticeWindowShowsForTest = false;
+        manager.SetPausePoll(() => true); // a caretaker click: EyeCtrl paused
+        var id = SavedNote(manager, "hello", new PhysicalPoint(1200, 1000));
+        return (manager, id, manager.WindowForTest(id)!, cues);
+    }
+
+    [StaFact]
+    public void CoreEventPipeline_TheReviewersProbeSequences_KeepTheirOutcomes()
+    {
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // P1: down and up on ✕ — the standard caretaker click acts exactly once.
+            {
+                var (m, id, w, cues) = SavedSetup();
+                try
+                {
+                    var close = w.ButtonsForTest()[$"{id}:close"];
+                    int cuesBefore = cues[0];
+                    CoreMousePress(close);
+                    CoreMouseRelease(close);
+                    Check.WithCustomMessage("P1: a core down+up on ✕ must enter the Undo chip exactly once")
+                        .That(m.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+                    Check.That(cues[0] - cuesBefore).IsEqualTo(1);
+                }
+                finally { m.Dispose(); }
+            }
+
+            // P2: down on ✕, release over the card body; then a bare up on ✕ — no act, no act.
+            {
+                var (m, id, w, cues) = SavedSetup();
+                try
+                {
+                    var close = w.ButtonsForTest()[$"{id}:close"];
+                    var cardBody = ((Canvas)w.Content).Children.OfType<Border>().First();
+                    int cuesBefore = cues[0];
+                    int fired = 0;
+                    w.ControlInputActivated += (_, _, _) => fired++;
+                    CoreMousePress(close);
+                    CoreMouseRelease(cardBody);
+                    Check.WithCustomMessage("P2: a core release over the card body must not act")
+                        .That(m.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+                    CoreMouseRelease(close);
+                    Check.WithCustomMessage("P2: the bare core up after the card-body release must not act (F2)")
+                        .That(m.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+                    Check.That(fired).IsEqualTo(0);
+                    Check.That(cues[0] - cuesBefore).IsEqualTo(0);
+                }
+                finally { m.Dispose(); }
+            }
+
+            // P3: overshoot — down on the ✕ disc, release on ✕'s own cell: same control, acts once.
+            {
+                var (m, id, w, cues) = SavedSetup();
+                try
+                {
+                    var close = w.ButtonsForTest()[$"{id}:close"];
+                    var cell = w.CellFillForTest(3)!;
+                    int cuesBefore = cues[0];
+                    CoreMousePress(close);
+                    CoreMouseRelease(cell);
+                    Check.WithCustomMessage("P3: an in-window overshoot onto ✕'s own cell acts exactly once")
+                        .That(m.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+                    Check.That(cues[0] - cuesBefore).IsEqualTo(1);
+                }
+                finally { m.Dispose(); }
+            }
+
+            // P4: down on ✕, up on the ✎ disc; then a bare up on ✕ — the ✎ release consumed the
+            // pending press (it belonged to ✕), so nothing is left to act on either up.
+            {
+                var (m, id, w, cues) = SavedSetup();
+                try
+                {
+                    var close = w.ButtonsForTest()[$"{id}:close"];
+                    var edit = w.ButtonsForTest()[$"{id}:edit"];
+                    int cuesBefore = cues[0];
+                    int fired = 0;
+                    w.ControlInputActivated += (_, _, _) => fired++;
+                    CoreMousePress(close);
+                    CoreMouseRelease(edit);
+                    Check.WithCustomMessage("P4: a core release on the WRONG control must not act")
+                        .That(m.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+                    CoreMouseRelease(close);
+                    Check.WithCustomMessage("P4: the bare core up after the wrong-control release must not act")
+                        .That(m.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+                    Check.That(fired).IsEqualTo(0);
+                    Check.That(cues[0] - cuesBefore).IsEqualTo(0);
+                }
+                finally { m.Dispose(); }
+            }
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 }

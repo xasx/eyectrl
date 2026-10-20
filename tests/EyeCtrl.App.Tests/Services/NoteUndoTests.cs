@@ -275,7 +275,10 @@ public class NoteUndoTests
                 .That(after.Card.Width).IsEqualTo(full.Card.Width);
             Check.That(after.Card.Height).IsEqualTo(full.Card.Height);
             var window = manager.WindowForTest(id)!;
-            Check.That((window.Width, window.Height)).IsEqualTo((after.Window.Width, after.Window.Height));
+            // Within the half-DIP rounding at 2× (the grown strip is a fractional ink height).
+            Check.WithCustomMessage("the real window must follow the chip placement")
+                .That(Math.Abs(window.Width - after.Window.Width) < 0.5
+                    && Math.Abs(window.Height - after.Window.Height) < 0.5).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

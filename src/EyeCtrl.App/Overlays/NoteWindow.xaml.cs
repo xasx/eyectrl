@@ -1,7 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
 using System.Globalization;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -105,12 +104,15 @@ public class NoteWindow : OverlayWindow
     /// <para>
     /// T6 fixup-01: the window rides <see cref="NoteLayout.WithTagClearance"/> on entry — every
     /// applied placement carries the tag's top strip (idempotent), so a window applied from any
-    /// seam grows the same way and the tag never draws outside the window bounds.
+    /// seam grows the same way and the tag never draws outside the window bounds. Fixup-04: the
+    /// strip follows THIS window's text size, the same size the manager grew the placement with
+    /// (it sets <see cref="SetTextSize"/> before every placement, and T8 re-sizes the strip with
+    /// the re-derivation).
     /// </para>
     /// </summary>
     internal void ApplyPlacement(NotePlacement placement)
     {
-        placement = NoteLayout.WithTagClearance(placement);
+        placement = NoteLayout.WithTagClearance(placement, _textSize);
         _placement = placement;
         _side = placement.Side;
         Dispatcher.Invoke(() =>
@@ -262,7 +264,7 @@ public class NoteWindow : OverlayWindow
         // the top edge, so the tag slides toward the column to clear the polygon. The window
         // grew upward by the protrusion when the badge pushed (WithTagClearance), so the top
         // half has room; the card's screen rect never moved.
-        var rect = NoteLayout.TagRect(placement);
+        var rect = NoteLayout.TagRect(placement, _textSize);
 
         // Fill TextSecondary, numeral SurfaceDark, and the rim SurfaceDark at 1 DIP (T6
         // fixup-01 + owner addendum: a solid tag, no ring — the numeral's brush keys the body
@@ -291,13 +293,15 @@ public class NoteWindow : OverlayWindow
         _badgeTag = tag;
 
         // The numeral centres on its INK (T5 fixup-03 G1's convention): digits like "1" carry
-        // asymmetric advance boxes, and box centring reads off-centre. The ratio is Solo —
+        // asymmetric advance boxes, and box centring reads off-centre. The font is 0.75× the
+        // body text (T6 fixup-04, review-02 F1: the caretaker reads the numeral from ~0.8 m, so
+        // it belongs near the body size at every T8 step) — and the ink centring is Solo-style:
         // the glyph is the tag's entire content (the same bucket the control discs read).
         var label = new TextBlock
         {
             Text = number.ToString(CultureInfo.InvariantCulture),
             FontFamily = Tokens.FontStandard,
-            FontSize = NoteLayout.TagHeightDip * ContainerRatio.Solo,
+            FontSize = NoteLayout.TagNumeralFontDip(_textSize),
             Foreground = Tokens.BrushSurfaceDark,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
@@ -512,9 +516,11 @@ public class NoteWindow : OverlayWindow
             Dispatcher.Invoke(() =>
             {
                 UpdateContent();
-                // T8: the tag is size-independent (fixed 28x18 DIP), but its rect derives from
-                // the placement — ApplyPlacementToWindow skips identical rects, so Draw would
-                // not run and a placement-inflight read must not go stale.
+                // T8: the tag is size-DEPENDENT now (fixup-04: the numeral at 0.75× the body
+                // size and the derived box around it), and DrawBadge redraws it from the
+                // current placement — ApplyPlacementToWindow skips identical rects, so Draw
+                // would not run and a placement-inflight read must not go stale. The window
+                // rect itself follows with the manager's re-derivation from the T8 trigger.
                 DrawBadge();
             });
     }
@@ -840,12 +846,14 @@ public class NoteWindow : OverlayWindow
     /// window can see. The bubbling Up clears — with <c>handledEventsToo</c>, so the mark a
     /// control set on its own acted Up does not stop it — consume the press on every release
     /// the routing passes THROUGH the window: TouchUp for touch, the core MouseUp for the
-    /// mouse (the button-specific MouseLeftButtonUp routes DIRECT — it never reaches an
-    /// ancestor — so a release over the card body can only be observed on the core route).
+    /// mouse. The core MouseUp is the one route for EVERY button's release on the same
+    /// bounding (review-03 n.1: live input also re-raises the direct MouseLeftButtonUp at
+    /// every element along the MouseUp route, so the window would see a left-button release
+    /// either way — but the core route covers Right/Middle/X buttons on one hook, and
+    /// handledEventsToo keeps a marked release from hiding the clear).
     /// Routing order keeps a control's own release first: its handlers run at the element,
-    /// the window's after it — and the core mouse clear does not take a press away from a
-    /// release ON a wired control either, because the direct left-button release that follows
-    /// it inside the same pipeline clears and acts through that control.
+    /// the window's after it — the control's ReleaseCaretaker consumes the press, so by the
+    /// time the window's Up-clear runs, a release over a wired control has nothing left to clear.
     /// The Leave/capture clears catch a press dragged out of the note, whose lift will never
     /// arrive as an Up anywhere in this tree. The canvas carries the Leave clears separately
     /// because TouchLeave/MouseLeave route DIRECT: a drag that exits the note through the
@@ -855,24 +863,14 @@ public class NoteWindow : OverlayWindow
     {
         AddHandler(UIElement.TouchUpEvent,
             new EventHandler<TouchEventArgs>((_, _) => _pendingCaretakerPress = null), handledEventsToo: true);
-        AddHandler(Mouse.MouseUpEvent, new MouseButtonEventHandler(OnBubblingMouseUp), handledEventsToo: true);
+        AddHandler(Mouse.MouseUpEvent, new MouseButtonEventHandler((_, _) => _pendingCaretakerPress = null),
+            handledEventsToo: true);
 
         TouchLeave += (_, _) => _pendingCaretakerPress = null;
         MouseLeave += (_, _) => _pendingCaretakerPress = null;
         LostTouchCapture += (_, _) => _pendingCaretakerPress = null;
         _canvas.TouchLeave += (_, _) => _pendingCaretakerPress = null;
         _canvas.MouseLeave += (_, _) => _pendingCaretakerPress = null;
-    }
-
-    /// <summary>The core mouse release bubble: keep the press alive when the release is over a
-    /// wired control (its own release consumes it, act-or-not), take it otherwise — over the
-    /// card body, the chrome, wherever no control handler will run.</summary>
-    private void OnBubblingMouseUp(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is UIElement u &&
-            (_buttons.Values.Any(b => ReferenceEquals(b, u)) || _cellFills.Values.Any(c => ReferenceEquals(c, u))))
-            return;
-        _pendingCaretakerPress = null;
     }
 
     private void AttachCaretakerInput(UIElement element, string suffix)

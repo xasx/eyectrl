@@ -1,18 +1,22 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.App.Tests.TestSupport;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
@@ -53,6 +57,18 @@ public class NoteBadgeTests
         return new NoteManager(new WeakReferenceMessenger(),
             hitTester: InactiveNoteHitTester.Instance, clockMs: clock.Read, undoTimer: timer,
             workAreaDip: NoteTestBench.WorkAreaProvider);
+    }
+
+    /// <summary><see cref="MakeManager"/> at a fixed text-size setting (T8's rail live on the
+    /// injected instance — mutating it there re-renders and re-places like production).</summary>
+    private static NoteManager MakeManagerAt(double textSize, out FakeClock clock, out FakeUndoTimer timer)
+    {
+        clock = new FakeClock();
+        timer = new FakeUndoTimer();
+        return new NoteManager(new WeakReferenceMessenger(),
+            hitTester: InactiveNoteHitTester.Instance, clockMs: clock.Read, undoTimer: timer,
+            workAreaDip: NoteTestBench.WorkAreaProvider,
+            noteSettings: new NoteSettings { TextSizeDip = (int)textSize });
     }
 
     private static void Sample(NoteManager manager, PhysicalPoint point, long tUs) =>
@@ -105,7 +121,8 @@ public class NoteBadgeTests
             NoteLayout.CardWidthDip(textSize),
             NoteLayout.CardHeightDip(textSize, window.MeasureTextHeightDip(text), NoteTestBench.WorkArea.Height));
         var placement = NoteLayout.WithTagClearance(
-            NoteLayout.Place(anchor, side, card, NoteTestBench.WorkArea, Array.Empty<Rect>(), DpiHelper.ScaleX)!);
+            NoteLayout.Place(anchor, side, card, NoteTestBench.WorkArea, Array.Empty<Rect>(), DpiHelper.ScaleX)!,
+            textSize);
         window.ApplyPlacement(placement);
         window.SetText(text);
         window.UpdateContent();
@@ -148,6 +165,116 @@ public class NoteBadgeTests
             DpiHelper.LogicalToPhysicalY(window.Top + tagLocal.Top),
             DpiHelper.LogicalToPhysicalX(tagLocal.Width),
             DpiHelper.LogicalToPhysicalY(tagLocal.Height));
+    }
+
+    /// <summary>The ink height of <c>text</c> at <c>fontDip</c> — the same FormattedText +
+    /// BuildGeometry measurement the tag's numeral ink derives from, so the comparison below
+    /// is like-for-like.</summary>
+    private static double InkHeight(string text, double fontDip) =>
+        new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(Tokens.FontStandard.Source), fontDip, Brushes.Transparent,
+            null, TextFormattingMode.Ideal)
+            .BuildGeometry(new Point(0, 0)).Bounds.Height;
+
+    /// <summary>A physical-rect containment within a rounding DIP.</summary>
+    private static bool ContainsRounded(PhysicalRect outer, PhysicalRect inner) =>
+        inner.X >= outer.X - 0.5 && inner.Y >= outer.Y - 0.5
+        && inner.X + inner.Width <= outer.X + outer.Width + 0.5
+        && inner.Y + inner.Height <= outer.Y + outer.Height + 0.5;
+
+    // ------------------------------------------------------------------ T6 fixup-04 (ticket D8)
+    // The tag now derives from the note's TEXT SIZE: numeral 0.75×, height ink + 8, width
+    // max(28, height), fixed 9 DIP in-card depth, protrusion height − 9. These pins make every
+    // derivation observable at the three stock sizes — small, default and large (18/28/48) —
+    // because a numeral pinned to the CONSTANT tag height (M1's defect: always 18 × 0.58) is
+    // indistinguishable from the real thing at the default size.
+
+    /// <summary>The drawn numeral follows the text size, and what it draws is INK, not a
+    /// font-size figure of speech: the digit union clears 0.7 of the body cap height at every
+    /// stock size. Also hands B: at every size the tag still lies fully on its own window —
+    /// the window that grew for it (straddling and pure-TagRect equality are the theory
+    /// above's job; this pin is about the SIZES, not the slide).
+    /// Mutant: a numeral font fixed regardless of size (e.g. 18 × 0.58), or a window that
+    /// does not grow for the pushed tag, goes red at the larger sizes.</summary>
+    [StaTheory]
+    [InlineData(18.0)]
+    [InlineData(28.0)]
+    [InlineData(48.0)]
+    public void TheTag_SizesWithTheText_AndStaysOnItsOwnWindow(double textSize)
+    {
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var (window, placement, _) = ManualNoteWindow(
+                id: "sizes", text: "sized", textSize, anchor: new PhysicalPoint(1600, 1000),
+                side: NoteSide.Right);
+            var tag = DrawnTagRect(window);
+            SameTagRect($"{textSize}: the drawn tag must follow the text-size derivation",
+                tag, NoteLayout.TagRect(placement, textSize));
+
+            // (A) the numeral: the drawn FONT is 0.75× the text size, and its INK — the union
+            // of the drawn digits' geometry, which is what paints — clears 0.7 of the body
+            // cap height. (The digits share the body's baseline; the union ≈ one cap height
+            // of the numeral font, so only a truly fixed numeral loses this at 48.)
+            var label = window.BadgeLabelForTest!;
+            Check.WithCustomMessage($"{textSize}: the numeral font must be TagNumeralScale × the text size")
+                .That(label.FontSize).IsCloseTo(NoteLayout.TagNumeralFontDip(textSize), 1e-6);
+            double bodyCap = InkHeight("H", textSize);
+            Check.WithCustomMessage(
+                    $"{textSize}: the numeral's ink (height {NoteLayout.TagNumeralInkHeightDip(textSize):F3}) "
+                        + $"must stay legible beside body text cap {bodyCap:F3} — at least 0.7 of it")
+                .That(NoteLayout.TagNumeralInkHeightDip(textSize))
+                .IsGreaterOrEqualThan(0.7 * bodyCap);
+
+            // (B) the tag stays on its own window: TagRect's top edge IS the grown window top,
+            // and Bottom ≤ window.Height.
+            Check.WithCustomMessage(
+                    $"{textSize}: the tag must lie fully on its own (grown) window")
+                .That(tag.Top >= 0 && tag.Left >= 0
+                    && tag.Right <= window.Width + 1e-6 && tag.Bottom <= window.Height + 1e-6).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    /// <summary>Top-clamped containment (reviewer D): an anchor too near the top clamps the
+    /// raw derivation to the EdgeMargin; the tag's growth then lifts the WINDOW into the work
+    /// area's upper band — the tag itself must STILL be inside the work area and never off the
+    /// screen, even at the largest stock size where the protrusion is deepest.
+    /// Mutant: a growth that pushes the pushed half off the screen goes red.</summary>
+    [StaTheory]
+    [InlineData(18.0)]
+    [InlineData(28.0)]
+    [InlineData(48.0)]
+    public void TheTopClampedTag_StaysInTheWorkArea_AtEveryStockSize(double textSize)
+    {
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // Physical (1600, 80) = DIP (800, 40): the raw Right placement clamps its window
+            // top to the 64 DIP EdgeMargin, and the growth eats into the remaining headroom.
+            var (window, placement, _) = ManualNoteWindow(
+                id: "clamped", text: "clamped", textSize, anchor: new PhysicalPoint(1600, 80),
+                side: NoteSide.Right);
+            Check.WithCustomMessage("the anchor must actually clamp the raw derivation (test validity)")
+                .That(placement.Window.Top)
+                .IsStrictlyLessThan(NoteLayout.Constants.EdgeMarginDip);
+
+            var workDip = NoteTestBench.WorkArea;
+            Check.WithCustomMessage($"{textSize}: the grown window must stay in the work area")
+                .That(workDip.Contains(placement.Window)).IsTrue();
+
+            var workPhys = new PhysicalRect(
+                DpiHelper.LogicalToPhysicalX(workDip.X), DpiHelper.LogicalToPhysicalY(workDip.Y),
+                DpiHelper.LogicalToPhysicalX(workDip.Width), DpiHelper.LogicalToPhysicalY(workDip.Height));
+            var tagPhys = TagScreenRect(placement, NoteLayout.TagRect(placement, textSize));
+            Check.WithCustomMessage(
+                    $"{textSize}: the tag's protruding half sits over the page — it must stay on screen")
+                .That(ContainsRounded(workPhys, tagPhys)).IsTrue();
+
+            // And the DRAWN tag on the arranged window matches the containment's input.
+            SameTagRect($"{textSize}: the drawn tag", DrawnTagRect(window), NoteLayout.TagRect(placement, textSize));
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
     [StaFact]
@@ -280,6 +407,10 @@ public class NoteBadgeTests
     /// straddle, text side. It must never overlap the drawn text, an occupied hit cell, the 30
     /// DIP gap strip or the tail polygon; a tag in the column or on the tail goes red here.</summary>
     [StaTheory]
+    [InlineData("Right", 1200.0, 1000.0, 18.0)]
+    [InlineData("Left", 3000.0, 1200.0, 18.0)]
+    [InlineData("Below", 1920.0, 200.0, 18.0)]
+    [InlineData("Above", 1920.0, 2000.0, 18.0)]
     [InlineData("Right", 1200.0, 1000.0, 28.0)]
     [InlineData("Left", 3000.0, 1200.0, 28.0)]
     [InlineData("Below", 1920.0, 200.0, 28.0)]
@@ -298,14 +429,15 @@ public class NoteBadgeTests
                 .That(placement.TailVisible).IsTrue();
 
             var tag = DrawnTagRect(window);
-            var expected = NoteLayout.TagRect(placement);
+            var expected = NoteLayout.TagRect(placement, textSize);
             SameTagRect($"{label}/{textSize}: the drawn tag must be the pure TagRect", tag, expected);
 
             var card = NoteLayout.RectLocal(placement);
-            Check.WithCustomMessage($"{label}/{textSize}: the tag must straddle the card's top edge")
-                .That(tag.Top).IsCloseTo(card.Top - NoteLayout.TagProtrusionDip, 1e-6);
+            Check.WithCustomMessage($"{label}/{textSize}: the tag must straddle the card's top edge "
+                    + "with the fixed in-card depth")
+                .That(tag.Top).IsCloseTo(card.Top - NoteLayout.TagProtrusionDip(textSize), 1e-6);
             Check.WithCustomMessage($"{label}/{textSize}: the tag's height must straddle the edge")
-                .That(tag.Height).IsCloseTo(NoteLayout.TagHeightDip, 1e-6);
+                .That(tag.Height).IsCloseTo(NoteLayout.TagHeightDip(textSize), 1e-6);
             // AT the text-side end — inset from the corner the text side hugs (Left's text side
             // is the card's right corner; every other side the left corner). A tag parked
             // anywhere else along the top edge — e.g. over the text column's empty top band,
@@ -378,16 +510,17 @@ public class NoteBadgeTests
     [InlineData(240.0)] // base [222, 258]: farther still — must NOT slide
     public void TheTag_SlidesOutOfTheTail_NeverIntoTheColumn(double tipCardRelX)
     {
+        const double textSize = NoteSettings.DefaultTextSizeDip;
         const double width = 270.0, height = 340.0;
-        var window = new Rect(64.0, 766.0, width, height + NoteLayout.TagProtrusionDip);
-        var card = new Rect(window.Left, window.Top + NoteLayout.CardOrigin(NoteSide.Below).Y + NoteLayout.TagProtrusionDip,
+        var window = new Rect(64.0, 766.0, width, height + NoteLayout.TagProtrusionDip(textSize));
+        var card = new Rect(window.Left, window.Top + NoteLayout.CardOrigin(NoteSide.Below).Y + NoteLayout.TagProtrusionDip(textSize),
             width, height);
         var placement = new NotePlacement(
             NoteSide.Below, window, card,
             new Point(window.Left + tipCardRelX, window.Top + NoteLayout.Constants.TipGapDip));
-        Check.That(NoteLayout.ExtraTopClearance(placement)).IsEqualTo(NoteLayout.TagProtrusionDip);
+        Check.That(NoteLayout.ExtraTopClearance(placement)).IsEqualTo(NoteLayout.TagProtrusionDip(textSize));
 
-        var tagRect = NoteLayout.TagRect(placement);
+        var tagRect = NoteLayout.TagRect(placement, textSize);
         var tri = NoteLayout.TailTriangle(placement)!;
         var cardLocal = NoteLayout.RectLocal(placement);
         Check.WithCustomMessage($"tip {tipCardRelX}: the triangle's base must sit on the card's top edge")
@@ -399,7 +532,7 @@ public class NoteBadgeTests
         // The slide decision: the base juts into the tag's band exactly when the base's left
         // end passes the tag home's right edge minus the clearance.
         double home = cardLocal.Left + NoteLayout.TagCornerInsetDip;
-        double homeRight = home + NoteLayout.TagWidthDip;
+        double homeRight = home + NoteLayout.TagWidthDip(textSize);
         double baseLeft = Math.Min(tri[1].X, tri[2].X);
         double baseRight = Math.Max(tri[1].X, tri[2].X);
         bool expectedSlid = baseLeft - NoteLayout.TagTailClearanceDip < homeRight;
@@ -415,23 +548,27 @@ public class NoteBadgeTests
                 .That(tagRect.Left).IsCloseTo(home, 1e-6);
 
         // Never over the column, never off the card, never off the top edge.
-        double limit = cardLocal.Right - LayoutConstants.NoteColumnWidthDip - NoteLayout.TagWidthDip;
+        double limit = cardLocal.Right - LayoutConstants.NoteColumnWidthDip - NoteLayout.TagWidthDip(textSize);
         Check.WithCustomMessage($"tip {tipCardRelX}: the tag must stop short of the column strip")
             .That(tagRect.Right).IsStrictlyLessThan(limit);
         Check.WithCustomMessage($"tip {tipCardRelX}: the tag must stay within the card's x-range")
             .That(tagRect.Left >= cardLocal.Left && tagRect.Right <= cardLocal.Right).IsTrue();
         Check.WithCustomMessage($"tip {tipCardRelX}: the tag must straddle the top edge")
-            .That(tagRect.Top).IsCloseTo(cardLocal.Top - NoteLayout.TagProtrusionDip, 1e-6);
+            .That(tagRect.Top).IsCloseTo(cardLocal.Top - NoteLayout.TagProtrusionDip(textSize), 1e-6);
     }
 
     /// <summary>The tag shows and hides WITHOUT moving anything: the drawn card rect, every
     /// drawn cell's rect and the window's own rect are identical with the badge shown, hidden
-    /// and shown again (T6 fixup-01). Mutant: a growth that shifts the card, or a redraw that
-    /// re-derives the cells from a different origin, goes red.</summary>
-    [StaFact]
-    public void TheCardAndCellRects_AreIdentical_WithTheBadgeShownAndHidden()
+    /// and shown again (T6 fixup-01) — now at every stock text size (fixup-04: the geometry
+    /// the cells re-derive under differs at 48). Mutant: a growth that shifts the card, or a
+    /// redraw that re-derives the cells from a different origin, goes red.</summary>
+    [StaTheory]
+    [InlineData(18.0)]
+    [InlineData(28.0)]
+    [InlineData(48.0)]
+    public void TheCardAndCellRects_AreIdentical_WithTheBadgeShownAndHidden(double textSize)
     {
-        using var manager = MakeManager(out _, out _);
+        using var manager = MakeManagerAt(textSize, out _, out _);
         manager.NoticeWindowShowsForTest = false;
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -497,7 +634,7 @@ public class NoteBadgeTests
             Check.That(DrawnBadge(manager.WindowForTest(a)!)).IsEqualTo("1");
 
             var placement = manager.PlacementForTest(a)!;
-            var tagScreen = TagScreenRect(placement, NoteLayout.TagRect(placement));
+            var tagScreen = TagScreenRect(placement, NoteLayout.TagRect(placement, NoteSettings.DefaultTextSizeDip));
 
             Check.WithCustomMessage("the tag must never enter LiveTargetRects — it is not a dwell target")
                 .That(manager.LiveTargetRects().Any(r =>
@@ -541,7 +678,7 @@ public class NoteBadgeTests
         {
             var a = SavedNote(manager, "a", new PhysicalPoint(1600, 1000));
             var aPlacement = manager.PlacementForTest(a)!;
-            var aTag = TagScreenRect(aPlacement, NoteLayout.TagRect(aPlacement));
+            var aTag = TagScreenRect(aPlacement, NoteLayout.TagRect(aPlacement, NoteSettings.DefaultTextSizeDip));
 
             if (loneProse)
             {
@@ -560,7 +697,7 @@ public class NoteBadgeTests
                 Check.WithCustomMessage("with B chipped only A is a non-chip — A's badge hides "
                         + "again, so A's tag chrome drops too")
                     .That(DrawnBadge(manager.WindowForTest(a)!)).IsNull();
-                var bTag = TagScreenRect(manager.PlacementForTest(b)!, NoteLayout.TagRect(manager.PlacementForTest(b)!));
+                var bTag = TagScreenRect(manager.PlacementForTest(b)!, NoteLayout.TagRect(manager.PlacementForTest(b)!, NoteSettings.DefaultTextSizeDip));
                 Check.WithCustomMessage("no badged note remains: A's tag chrome must drop too")
                     .That(manager.ChromeRects().Any(r => SameRect(r, aTag))).IsFalse();
                 Check.WithCustomMessage("the chip must add no tag chrome anywhere")
@@ -600,25 +737,77 @@ public class NoteBadgeTests
 
             Check.WithCustomMessage("the card rect must be byte-for-byte the raw derivation's")
                 .That(placement.Card).IsEqualTo(raw.Card);
+            double protrusion = NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip);
             Check.WithCustomMessage("the window must grow by the protrusion above the raw window")
                 .That((placement.Window.Left, placement.Window.Top, placement.Window.Width, placement.Window.Height))
-                .IsEqualTo((raw.Window.Left, raw.Window.Top - NoteLayout.TagProtrusionDip,
-                    raw.Window.Width, raw.Window.Height + NoteLayout.TagProtrusionDip));
+                .IsEqualTo((raw.Window.Left, raw.Window.Top - protrusion,
+                    raw.Window.Width, raw.Window.Height + protrusion));
             Check.WithCustomMessage("the top clearance must ride exactly the protrusion")
-                .That(NoteLayout.ExtraTopClearance(placement)).IsEqualTo(NoteLayout.TagProtrusionDip);
+                .That(NoteLayout.ExtraTopClearance(placement)).IsEqualTo(protrusion);
             Check.WithCustomMessage("the growth must be idempotent")
-                .That(NoteLayout.WithTagClearance(placement)).IsEqualTo(placement);
+                .That(NoteLayout.WithTagClearance(placement, NoteSettings.DefaultTextSizeDip)).IsEqualTo(placement);
             Check.WithCustomMessage("the grown window must stay inside the work area")
                 .That(NoteTestBench.WorkArea.Contains(placement.Window)).IsTrue();
 
             var window = manager.WindowForTest(a)!;
-            Check.WithCustomMessage("the drawn window must be the grown rect")
-                .That((window.Width, window.Height, window.Left, window.Top))
-                .IsEqualTo((placement.Window.Width, placement.Window.Height,
-                    placement.Window.Left, placement.Window.Top));
+            Check.WithCustomMessage("the drawn window must be the grown rect — within the half-DIP "
+                    + "rounding the 2× DPI transform applies (the protrusion is no longer a whole "
+                    + "number of DIP, so the height and top land on the 0.5 grid)")
+                .That((window.Width - placement.Window.Width) is > -0.5 and < 0.5
+                    && (window.Height - placement.Window.Height) is > -0.5 and < 0.5
+                    && (window.Left - placement.Window.Left) is > -0.5 and < 0.5
+                    && (window.Top - placement.Window.Top) is > -0.5 and < 0.5).IsTrue();
             // The drawn tag straddling the grown card is proven on the arranged manual windows
             // (TheTag_StraddlesTheTopEdge...); a lone note keeps its badge hidden, so nothing
             // is drawn to read here.
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ------------------------------------------------------------------ T6 fixup-04 (ticket D8 T8)
+    /// <summary>A T8 text-size change re-sizes the TAG with the text: the drawn tag re-derives
+    /// from the new size, the window lifts by the protrusion delta, and the CARD stays
+    /// byte-for-byte where it was — the same stillness discipline the straddle pin holds at a
+    /// fixed size, through the live settings rail instead. Two notes so the badge actually
+    /// shows. Mutant: a DrawBadge or placement strip that keeps the old size (the M-shaped bug
+    /// the ticket's T8 clause names), or a re-size that moves the card, goes red.</summary>
+    [StaFact]
+    public void ATextSizeChange_ReSizesTheTag_AndTheCardNeverMoves()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+        manager.NoticeWindowShowsForTest = false;
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var a = SavedNote(manager, "one", new PhysicalPoint(1600, 1000));
+            SavedNote(manager, "two", new PhysicalPoint(1200, 100));
+            var windowA = manager.WindowForTest(a)!;
+            Check.WithCustomMessage("two notes: the badge must show before the change")
+                .That(DrawnBadge(windowA)).IsEqualTo("1");
+
+            var beforePlacement = manager.PlacementForTest(a)!;
+            var beforeTag = DrawnTagRect(windowA);
+
+            settings.TextSizeDip = 48;
+
+            var afterPlacement = manager.PlacementForTest(a)!;
+            SameTagRect("the tag must re-derive at 48 through the manager rail",
+                DrawnTagRect(windowA), NoteLayout.TagRect(afterPlacement, 48));
+
+            Check.WithCustomMessage("the card's drawn top must be exactly one protrusion under "
+                    + "the window's top at the new size (the T8 card may clamp, the STRADDLE may not)")
+                .That(afterPlacement.Card.Top - afterPlacement.Window.Top)
+                .IsCloseTo(NoteLayout.TagProtrusionDip(48), 1e-6);
+            Check.WithCustomMessage("the window's grown strip must equal one protrusion over the card")
+                .That(afterPlacement.Window.Height - afterPlacement.Card.Height)
+                .IsCloseTo(NoteLayout.TagProtrusionDip(48), 1e-6);
+            Check.WithCustomMessage("the tag BEFORE the change must differ from the one after — "
+                    + "the pin would be vacuous if the re-size changed nothing")
+                .That(beforeTag.Height != DrawnTagRect(windowA).Height
+                    || beforeTag.Width != DrawnTagRect(windowA).Width).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

@@ -1,6 +1,10 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
+using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 
@@ -54,16 +58,74 @@ internal static class NoteLayout
     public static double RowCenterY(int row) =>
         LayoutConstants.NoteButtonPadding + (row * LayoutConstants.NoteCellDip) + (LayoutConstants.NoteCellDip / 2);
 
-    // == the number tag (T6 fixup-01) ==
+    // == the number tag (T6 fixup-01; fixup-04: the whole block scales with the body text) ==
 
-    public const double TagWidthDip = 28.0;
-    public const double TagHeightDip = 18.0;
+    /// <summary>The tag numeral's font size as a fraction of the body text size (review-02 F1 /
+    /// owner decision fixup-04): 0.75, so the numeral's ink reads near the body capital at every
+    /// T8 size — 13.5/21/36 DIP at 18/28/48, next to a body cap of about 19.6 DIP at 28.</summary>
+    private const double TagNumeralScale = 0.75;
 
-    /// <summary>How much of the tag rides ABOVE the card's top edge (the tag straddles it). The
-    /// window grows by this much at the top when the tag shows — the card's screen rect is
-    /// untouched, and Place's 64 DIP work-area inset guarantees the strip stays inside the work
-    /// area even for a clamped placement.</summary>
-    public const double TagProtrusionDip = 9.0;
+    /// <summary>The tag's vertical padding above and below the numeral ink.</summary>
+    public const double TagVerticalPadDip = 4.0;
+
+    /// <summary>The tag's fixed in-card DEPTH: how far it rides INTO the card below its top
+    /// edge. The body text's top margin is 10 DIP, so the first text line stays clear whatever
+    /// the tag's height grows to; the extra height of a bigger text size goes UP instead.</summary>
+    public const double TagInsetDepthDip = 9.0;
+
+    /// <summary>The tag's minimum width: at the smallest text size the derived height drops
+    /// under what a straddling tag needs to read as its own piece, so the floor keeps the box
+    /// proportionate to the disc column beside it.</summary>
+    public const double TagMinWidthDip = 28.0;
+
+    /// <summary>The tag numeral's font size in DIP: 0.75 × the body text size.</summary>
+    public static double TagNumeralFontDip(double textSizeDip) => TagNumeralScale * textSizeDip;
+
+    /// <summary>The tag numeral's INK height at its drawn font: the bounding box of the tallest
+    /// digit the tag can paint. Height and width derive from this measured ink, so the drawn
+    /// label and the derived geometry cannot drift apart. Measured per text size and memoized —
+    /// the FormattedText/BuildGeometry walk is not free and every placement re-derivation reads it.</summary>
+    public static double TagNumeralInkHeightDip(double textSizeDip)
+    {
+        lock (_tagInkCache)
+        {
+            if (_tagInkCache.TryGetValue(textSizeDip, out double ink))
+                return ink;
+        }
+
+        var formatted = new FormattedText(
+            "0123456789", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(Tokens.FontStandard.Source), TagNumeralFontDip(textSizeDip),
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+        // All ten digits sit on one shared baseline, so the union box HEIGHT is the tallest
+        // digit's ink — the height the numeral box must hold for any number.
+        double height = formatted.BuildGeometry(new Point(0, 0)).Bounds.Height;
+        lock (_tagInkCache)
+        {
+            _tagInkCache[textSizeDip] = height;
+        }
+        return height;
+    }
+
+    /// <summary>The tag's height: the numeral ink plus the padding above and below.</summary>
+    public static double TagHeightDip(double textSizeDip) =>
+        TagNumeralInkHeightDip(textSizeDip) + (2 * TagVerticalPadDip);
+
+    /// <summary>The tag's width: never below the floor, otherwise the height (a near-square box
+    /// around one numeral).</summary>
+    public static double TagWidthDip(double textSizeDip) =>
+        Math.Max(TagMinWidthDip, TagHeightDip(textSizeDip));
+
+    /// <summary>How much of the tag rides ABOVE the card's top edge (the tag straddles it): the
+    /// tag height minus the fixed in-card depth. The window grows by exactly this at the top
+    /// when the tag shows — the card's screen rect is untouched, and Place's 64 DIP work-area
+    /// inset guarantees the strip stays inside the work area even for a clamped placement (the
+    /// largest growth, at the 48 DIP text, is under 30 DIP).</summary>
+    public static double TagProtrusionDip(double textSizeDip) =>
+        TagHeightDip(textSizeDip) - TagInsetDepthDip;
+
+    /// <summary>The tag ink heights, memoized per text size (see <see cref="TagNumeralInkHeightDip"/>).</summary>
+    private static readonly Dictionary<double, double> _tagInkCache = [];
 
     /// <summary>The tag's inset from the card's text-side top corner.</summary>
     public const double TagCornerInsetDip = 12.0;
@@ -72,22 +134,27 @@ internal static class NoteLayout
     public const double TagTailClearanceDip = 6.0;
 
     /// <summary>
-    /// Grows the placement's window upward by <see cref="TagProtrusionDip"/> so the tag can
+    /// Grows the placement's window upward by the tag's protrusion (fixup-04: the growth
+    /// follows the body text size, <see cref="TagProtrusionDip(double)"/>) so the tag can
     /// straddle the card's top edge. The CARD rect — and therefore every screen position, the
     /// text and all hit cells — is untouched; only the window's top rises and its height grows.
     /// Idempotent: a placement that already carries the clearance passes through unchanged.
     /// </summary>
-    public static NotePlacement WithTagClearance(NotePlacement placement)
+    /// <param name="placement">The raw derivation's placement.</param>
+    /// <param name="textSizeDip">The body text size the tag sits beside — the setting's
+    /// <c>TextSizeDip</c> at derivation time, so a T8 re-derivation re-sizes the strip.</param>
+    public static NotePlacement WithTagClearance(NotePlacement placement, double textSizeDip)
     {
         if (ExtraTopClearance(placement) > 0)
             return placement; // already grown
+        double protrusion = TagProtrusionDip(textSizeDip);
         var w = placement.Window;
-        return placement with { Window = new Rect(w.Left, w.Top - TagProtrusionDip, w.Width, w.Height + TagProtrusionDip) };
+        return placement with { Window = new Rect(w.Left, w.Top - protrusion, w.Width, w.Height + protrusion) };
     }
 
     /// <summary>How far the placement's card sits below the STATIC per-side window origin
     /// (<see cref="CardOrigin"/>) — zero for every placement Place derives, and
-    /// <see cref="TagProtrusionDip"/> once <see cref="WithTagClearance"/> grew the window.
+    /// <see cref="TagProtrusionDip(double)"/> once <see cref="WithTagClearance"/> grew the window.
     /// The tag clearance rides every window-relative placement computation (target centres,
     /// drawn buttons) so a grown window draws and registers at the SAME screen positions.</summary>
     public static double ExtraTopClearance(NotePlacement placement)
@@ -97,37 +164,42 @@ internal static class NoteLayout
     }
 
     /// <summary>
-    /// The drawn tag's rect in window-relative coordinates: straddling the card's top edge
-    /// (half above), at the TEXT-side end — the end away from the control column, which hugs
-    /// the edge away from the tail — inset from the corner. On a Below placement the tail
-    /// shares the top edge, so the tag slides along it toward the column (never over it) until
-    /// it clears the tail polygon's base.
+    /// The drawn tag's rect in window-relative coordinates (fixup-04: sized from the body text
+    /// size — the numeral's 0.75× font sets the height, and the window grew for the matching
+    /// protrusion): straddling the card's top edge at the TEXT-side end — the end away from the
+    /// control column, which hugs the edge away from the tail — inset from the corner. The
+    /// in-card depth stays fixed at <see cref="TagInsetDepthDip"/>, so the first text line stays
+    /// clear whatever the height; the extra height of a larger text size rides above the edge.
+    /// On a Below placement the tail shares the top edge, so the tag slides along it toward the
+    /// column (never over it) until it clears the tail polygon's base.
     /// </summary>
-    public static Rect TagRect(NotePlacement placement)
+    public static Rect TagRect(NotePlacement placement, double textSizeDip)
     {
         var card = RectLocal(placement);
         bool textOnRight = placement.Side == NoteSide.Left;
+        double width = TagWidthDip(textSizeDip);
+        double height = TagHeightDip(textSizeDip);
         double x = textOnRight
-            ? card.Right - TagCornerInsetDip - TagWidthDip
+            ? card.Right - TagCornerInsetDip - width
             : card.Left + TagCornerInsetDip;
-        double y = card.Top - TagProtrusionDip;
+        double y = card.Top - TagProtrusionDip(textSizeDip);
 
         if (placement.Side == NoteSide.Below && TailTriangle(placement) is { } tri)
         {
             // The tail base sits on the card's top edge between the triangle's 2nd/3rd points.
             double baseLeft = Math.Min(tri[1].X, tri[2].X) - TagTailClearanceDip;
             double baseRight = Math.Max(tri[1].X, tri[2].X) + TagTailClearanceDip;
-            bool overlaps = x < baseRight && x + TagWidthDip > baseLeft;
+            bool overlaps = x < baseRight && x + width > baseLeft;
             if (overlaps)
             {
                 // Slide toward the column so the tag's LEFT edge clears the base's right end.
                 x = baseRight;
                 // Never over the column: the tag stops short of the column strip.
-                double limit = card.Right - LayoutConstants.NoteColumnWidthDip - TagWidthDip;
+                double limit = card.Right - LayoutConstants.NoteColumnWidthDip - width;
                 if (x > limit) x = limit;
             }
         }
-        return new Rect(x, y, TagWidthDip, TagHeightDip);
+        return new Rect(x, y, width, height);
     }
 
     /// <summary>

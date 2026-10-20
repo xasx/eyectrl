@@ -389,7 +389,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         var placement = NoteLayout.WithTagClearance(note.State == NoteState.PendingUndo
             ? ChipPlacementFor(note)
-            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit));
+            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit), _noteSettings.TextSizeDip);
 
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
@@ -563,7 +563,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _notes.Add(data);
         _windows.Add(window);
         _placements[data.Id] = NoteLayout.WithTagClearance(
-            NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!);
+            NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!,
+            _noteSettings.TextSizeDip);
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply
@@ -1443,7 +1444,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             return;
         }
         note.Side = other.Side;
-        var grown = NoteLayout.WithTagClearance(other);
+        var grown = NoteLayout.WithTagClearance(other, _noteSettings.TextSizeDip);
         _placements[noteId] = grown;
         if (Window(noteId) is { } window)
         {
@@ -1473,7 +1474,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _settleTracker.Reset();
         note.State = NoteState.Display;
         var placement = NoteLayout.WithTagClearance(NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX)!);
+            new List<Rect>(), DpiHelper.ScaleX)!, _noteSettings.TextSizeDip);
         _placements[id] = placement;
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
@@ -1517,7 +1518,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 rects.Add(DipRectToPhysical(placement.Card));
                 if (badged && note.State != NoteState.PendingUndo)
                 {
-                    var tagLocal = NoteLayout.TagRect(placement);
+                    var tagLocal = NoteLayout.TagRect(placement, _noteSettings.TextSizeDip);
                     rects.Add(DipRectToPhysical(new Rect(
                         placement.Window.X + tagLocal.X, placement.Window.Y + tagLocal.Y,
                         tagLocal.Width, tagLocal.Height)));
@@ -2061,7 +2062,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
-        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false));
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
         _notes.Add(data);
         RegisterDwellTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -2078,7 +2079,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         ExitEditing(commit: true, handOver: true);
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
-        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false));
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
         _notes.Add(data);
         RegisterSoleEditorTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -2098,7 +2099,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddMovingNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Move };
-        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false));
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
         _notes.Add(data);
         _movingNoteId = data.Id;
         _settleTracker.Reset();

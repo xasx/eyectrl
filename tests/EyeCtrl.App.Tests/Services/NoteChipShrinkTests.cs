@@ -71,9 +71,10 @@ public class NoteChipShrinkTests
             Check.WithCustomMessage("the shrunk window keeps the full window column edge")
                 .That((chip.Window.Right, chip.Window.Top))
                 .IsEqualTo((full.Window.Right, full.Window.Top));
-            Check.WithCustomMessage("the real window follows the chip placement")
-                .That((window.Width, window.Height))
-                .IsEqualTo((chip.Window.Width, chip.Window.Height));
+            Check.WithCustomMessage("the real window follows the chip placement — within the "
+                    + "half-DIP rounding at 2× (the grown strip is a fractional ink height)")
+                .That(Math.Abs(window.Width - chip.Window.Width) < 0.5
+                    && Math.Abs(window.Height - chip.Window.Height) < 0.5).IsTrue();
             Check.WithCustomMessage("the Undo cell keeps its centre - the gaze is never displaced")
                 .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(undoBefore);
         }

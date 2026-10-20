@@ -9,6 +9,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
@@ -40,7 +41,7 @@ public class NotePlaceTriggerTests
             manager.Apply(new NoteAppend("hello"));      // a draft to save: Done takes the straight-back exit
             var editing = manager.PlacementForTest(id)!;
             Check.That(editing.Side).IsEqualTo(NoteSide.Right);
-            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 580, 340) with { Y = 330 - NoteLayout.TagProtrusionDip, Height = 340 + NoteLayout.TagProtrusionDip }); // tail zone + card, DIP (P4 card: 550 text+column+gap), grown up by the number tag's protrusion
+            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 580, 340) with { Y = 330 - NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip), Height = 340 + NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip) }); // tail zone + card, DIP (P4 card: 550 text+column+gap), grown up by the number tag's protrusion
 
             // T1: the keyboard appears over the card's right-side window (the bench work area DIP
             // rect doubled to physical when the probe delivers it).

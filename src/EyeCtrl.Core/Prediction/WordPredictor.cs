@@ -127,6 +127,12 @@ public class WordPredictor
                 if (!matchesPrefix)
                     continue;
 
+                // The dictionary is the single source of truth: a bigram can outlive its word
+                // (forget, eviction, a committed typo), and suggesting that word again would
+                // resurrect it after every use of its context word.
+                if (!_words.ContainsKey(word.ToLowerInvariant()))
+                    continue;
+
                 var baseFreq = _words.GetValueOrDefault(word.ToLowerInvariant(), 1);
                 var score = baseFreq * frequency * NextWordMultiplier;
 
@@ -548,6 +554,12 @@ public class WordPredictor
             _words[lower] = Math.Max(1, _words.GetValueOrDefault(lower) + delta);
         }
     }
+
+    /// <summary>
+    /// Learns one word pair from typing (the words themselves are learned on the commit path,
+    /// so this must not learn them again).
+    /// </summary>
+    public void LearnPair(string previousWord, string word) => _bigrams.Learn(previousWord, word);
 
     /// <summary>Learns a sequence of words for bigram and phrase prediction.</summary>
     /// <param name="words">The words in order as typed by the user.</param>

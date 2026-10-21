@@ -498,6 +498,14 @@ internal static class NoteLayout
     /// card. With <paramref name="exclude"/>, a miss returns NULL: the caller (the Move state's
     /// "Other side") must not offer a side that does not exist.
     /// </para>
+    /// <para>
+    /// T6 fixup-06 G2: with <paramref name="allowDisplaced"/> (the Edit state only) and no
+    /// fitting side, the windows that STEP CLEAR of an avoid rect are tried before the clamp
+    /// fallback: the same card shifted just outside the rect it hits, by the clearance gap, so a
+    /// note whose anchor lies under the keyboard lands beside it instead of on it. The closest
+    /// accepted candidate to the anchor wins, ties broken by the side order. With no accepted
+    /// candidate the old clamp fallback stands, unchanged.
+    /// </para>
     /// </summary>
     /// <param name="anchor">The anchor in physical pixels; converted to DIP once, here.</param>
     /// <param name="preferred">The side tried first.</param>
@@ -506,6 +514,9 @@ internal static class NoteLayout
     /// <param name="avoidDip">Rects the window must not intersect, in DIP (Edit: keyboard + edge bar).</param>
     /// <param name="scale">The DPI scale that converts the physical anchor into DIP.</param>
     /// <param name="exclude">A side never to choose, or null.</param>
+    /// <param name="allowDisplaced">Whether the displaced candidates may be used. The EDIT
+    /// state alone opts in: the Move state's "Other side" excludes a side and must offer one
+    /// that exists, and Display, Move and the chips never want a displaced window.</param>
     /// <returns>The placement, or null only when <paramref name="exclude"/> removed the only
     /// fitting side.</returns>
     public static NotePlacement? Place(
@@ -515,7 +526,8 @@ internal static class NoteLayout
         Rect workAreaDip,
         IReadOnlyList<Rect> avoidDip,
         double scale,
-        NoteSide? exclude = null)
+        NoteSide? exclude = null,
+        bool allowDisplaced = false)
     {
         var anchorDip = new Point(anchor.X / scale, anchor.Y / scale);
         var inset = Inset(workAreaDip, Constants.EdgeMarginDip);
@@ -531,6 +543,38 @@ internal static class NoteLayout
             return Build(side, window, cardDip, anchorDip, clamped: false);
         }
 
+        // Pass 2 (G2): no side fits clear, so the windows that STEP CLEAR of the rect they hit
+        // are tried. The closest accepted candidate to the anchor wins; the side order breaks
+        // a tie, so the walk order is the tie-break order.
+        // The Edit state is the ONLY caller that opts in: the one call site that excludes a
+        // side (the Move state's "Other side") must offer a side that EXISTS, never a displaced
+        // one, so it never opts in - the "exclude is null" precondition the ticket names.
+        if (allowDisplaced && avoidDip.Count > 0)
+        {
+            NotePlacement? best = null;
+            double bestDistance = double.MaxValue;
+            foreach (var side in Candidates(preferred, exclude))
+            {
+                var window = WindowFor(anchorDip, side, cardDip);
+                if (!IntersectsAny(window, avoidDip))
+                    continue; // pass 1 would have taken it
+                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset))
+                {
+                    if (!FitsInside(displaced, inset))
+                        continue;
+                    if (!ClearsEvery(displaced, avoidDip))
+                        continue;
+                    double distance = DistanceToRect(anchorDip, displaced);
+                    if (best is not null && distance >= bestDistance)
+                        continue; // a tie keeps the earlier side
+                    bestDistance = distance;
+                    best = Build(side, displaced, cardDip, anchorDip, clamped: true);
+                }
+            }
+            if (best is not null)
+                return best;
+        }
+
         if (exclude is not null)
             return null; // P3 D2: null only when exclude removed the only fitting side
 
@@ -540,6 +584,62 @@ internal static class NoteLayout
         return Build(preferred, clamped, cardDip, anchorDip, clamped: true);
     }
 
+    /// <summary>
+    /// The windows that step clear of the avoid rects (T6 fixup-06 G2): for every rect the
+    /// window hits, the same window shifted just outside it - below, above, right or left - by
+    /// the clearance gap, then clamped into the inset work area. A shift that does not clear
+    /// every rect is rejected by the caller.
+    /// </summary>
+    private static IEnumerable<Rect> DisplacedCandidates(Rect window, IReadOnlyList<Rect> avoid, Rect inset)
+    {
+        double gap = Constants.AvoidGapDip;
+        foreach (var rect in avoid)
+        {
+            if (!window.IntersectsWith(rect))
+                continue;
+            // Below the rect.
+            yield return ClampInto(new Rect(window.Left, rect.Bottom + gap, window.Width, window.Height), inset);
+            // Above the rect.
+            yield return ClampInto(new Rect(window.Left, rect.Top - gap - window.Height, window.Width, window.Height), inset);
+            // Right of the rect.
+            yield return ClampInto(new Rect(rect.Right + gap, window.Top, window.Width, window.Height), inset);
+            // Left of the rect.
+            yield return ClampInto(new Rect(rect.Left - gap - window.Width, window.Top, window.Width, window.Height), inset);
+        }
+    }
+
+    /// <summary>Whether the window keeps the clearance gap from EVERY avoid rect (G2): a note
+    /// control never sits within a key's reach of the keyboard's edge.</summary>
+    private static bool ClearsEvery(Rect window, IReadOnlyList<Rect> avoid)
+    {
+        foreach (var rect in avoid)
+        {
+            if (!KeepsGapFrom(window, rect, Constants.AvoidGapDip))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Whether the window keeps at least <paramref name="gap"/> DIP from the rect on
+    /// every side: the window lies wholly beyond the rect, inflated by the gap. Touching the
+    /// inflated edge counts as clearing - the gap is a MINIMUM, not an exact distance.</summary>
+    private static bool KeepsGapFrom(Rect window, Rect rect, double gap)
+    {
+        if (window.Right <= rect.Left - gap) return true;
+        if (window.Left >= rect.Right + gap) return true;
+        if (window.Bottom <= rect.Top - gap) return true;
+        if (window.Top >= rect.Bottom + gap) return true;
+        return false;
+    }
+
+    /// <summary>The distance from a point to a rect: zero inside it, otherwise the distance to
+    /// the nearest point of the rect (G2's "closest to the anchor" measure).</summary>
+    private static double DistanceToRect(Point point, Rect rect)
+    {
+        double dx = Math.Max(rect.Left - point.X, 0) + Math.Max(point.X - rect.Right, 0);
+        double dy = Math.Max(rect.Top - point.Y, 0) + Math.Max(point.Y - rect.Bottom, 0);
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
 
     /// <summary>The tail triangle in window-relative points (tip first), or null when the tail is
     /// hidden. The base sits on the card edge facing the anchor, half-width
@@ -732,5 +832,12 @@ internal static class NoteLayout
         public const double TailHalfWidthDip = 18.0;
         public const double EdgeMarginDip = (LayoutConstants.NoteCellDip / 2) + 24.0;
 
+        /// <summary>The clearance an avoid rect keeps around a note (T6 fixup-06 G2): a
+        /// displaced note stops this far outside the keyboard's edge, so a gaze on the key at
+        /// that edge is never on a note control. A gaze target is a DISC of
+        /// <see cref="LayoutConstants.NoteButtonRadius"/> (28 DIP) around its centre, and the
+        /// half of that plus a hand's width of slack is the 24 DIP the caret needs to cross
+        /// from the keyboard to the note without a dwell ever landing on both.</summary>
+        public const double AvoidGapDip = 24.0;
     }
 }

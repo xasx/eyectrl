@@ -1,0 +1,347 @@
+namespace EyeCtrl.App.Tests.Overlays;
+
+using System.Windows;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Notes;
+using EyeCtrl.App.Tests.TestSupport;
+using EyeCtrl.App.Tests.Services;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
+using NFluent;
+using Xunit;
+
+/// <summary>
+/// T6 fixup-06 G2 — in Edit, the note steps clear of the keyboard even when its anchor lies
+/// under it. The owner's keyboard sits on the TOP edge of a 3840x2400 screen at 200 %: physical
+/// (502, 0, 2836, 1150) = DIP (251, 0, 1418, 575) — almost the top half. An anchor under it has
+/// no clear side, so the old clamp put the card ON the keyboard and the note was invisible.
+/// <para>
+/// The displaced candidates step the same card just outside the rect it hits, by the clearance
+/// gap, inside the inset work area and clear of EVERY avoid rect; the closest accepted candidate
+/// to the anchor wins. With no room at all the old clamp stands. Display, Move and the chips
+/// keep the placements they always had — the displacement is the Edit state's alone.
+/// </para>
+/// </summary>
+[Collection("WpfApplication")]
+public class NoteKeyboardAvoidanceTests
+{
+    /// <summary>The owner's work area in DIP at 2.0 (1920x1152 DIP on the 3840x2400 screen).</summary>
+    private static readonly Rect WorkArea = new(0, 0, 1920, 1152);
+
+    /// <summary>The owner's keyboard on the TOP edge, in DIP: physical (502, 0, 2836, 1150) at 2.0.</summary>
+    private static readonly Rect KeyboardTop = new(251, 0, 1418, 575);
+
+    /// <summary>The keyboard's edge bar (the Close/Flip pair), on the same top edge.</summary>
+    private static readonly Rect EdgeBarTop = new(251, 0, 1418, 40);
+
+    /// <summary>The same keyboard on the BOTTOM edge.</summary>
+    private static readonly Rect KeyboardBottom = new(251, 1152 - 575, 1418, 575);
+
+    /// <summary>The same edge bar on the bottom edge.</summary>
+    private static readonly Rect EdgeBarBottom = new(251, 1152 - 40, 1418, 40);
+
+    private const double Scale = 2.0;
+
+    /// <summary>The note card at the default text size: 550 wide, the control column's 340 tall.</summary>
+    private static readonly Size Card = new(
+        NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip),
+        NoteLayout.CardHeightDip(NoteSettings.DefaultTextSizeDip, 0, WorkArea.Height));
+
+    private static readonly Rect Inset = new(
+        NoteLayout.Constants.EdgeMarginDip,
+        NoteLayout.Constants.EdgeMarginDip,
+        WorkArea.Width - 2 * NoteLayout.Constants.EdgeMarginDip,
+        WorkArea.Height - 2 * NoteLayout.Constants.EdgeMarginDip);
+
+    private static PhysicalPoint Phys(double dipX, double dipY) => new(dipX * Scale, dipY * Scale);
+
+    private static NotePlacement Place(double dipX, double dipY, IReadOnlyList<Rect> avoid,
+        bool allowDisplaced = true) =>
+        NoteLayout.Place(Phys(dipX, dipY), NoteSide.Right, Card, WorkArea, avoid, Scale,
+            exclude: null, allowDisplaced: allowDisplaced)!;
+
+    // ── the pure layout: the owner's geometry, keyboard on the top edge ──
+
+    [Theory]
+    [InlineData(960, 300)]
+    [InlineData(300, 100)]
+    [InlineData(1600, 520)]
+    public void AnAnchorUnderTheKeyboard_StepsClearOfIt(double x, double y)
+    {
+        var avoid = new[] { KeyboardTop, EdgeBarTop };
+        var placement = Place(x, y, avoid);
+
+        Check.WithCustomMessage($"the window {placement.Window} must lie inside the inset {Inset}")
+            .That(placement.Window.Left >= Inset.Left && placement.Window.Top >= Inset.Top
+                && placement.Window.Right <= Inset.Right && placement.Window.Bottom <= Inset.Bottom)
+            .IsTrue();
+        foreach (var rect in avoid)
+        {
+            Check.WithCustomMessage($"the window {placement.Window} must not touch the avoid rect {rect}")
+                .That(placement.Window.IntersectsWith(rect)).IsFalse();
+            Check.WithCustomMessage($"the window {placement.Window} must keep the clearance gap from {rect}")
+                .That(GapFrom(placement.Window, rect)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+    }
+
+    [Theory]
+    [InlineData(960, 300)]
+    [InlineData(300, 100)]
+    [InlineData(1600, 520)]
+    public void AnAnchorUnderTheKeyboard_StepsClearOfIt_OnTheBottomEdgeToo(double x, double y)
+    {
+        var avoid = new[] { KeyboardBottom, EdgeBarBottom };
+        var placement = Place(x, y, avoid);
+
+        Check.WithCustomMessage($"the window {placement.Window} must lie inside the inset {Inset}")
+            .That(placement.Window.Left >= Inset.Left && placement.Window.Top >= Inset.Top
+                && placement.Window.Right <= Inset.Right && placement.Window.Bottom <= Inset.Bottom)
+            .IsTrue();
+        foreach (var rect in avoid)
+        {
+            Check.That(placement.Window.IntersectsWith(rect)).IsFalse();
+            Check.That(GapFrom(placement.Window, rect)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+    }
+
+    [Fact]
+    public void TheDisplacedWindow_IsTheClosestAcceptedCandidate()
+    {
+        // The expected window, derived by hand from the owner's geometry: the anchor at DIP
+        // (960, 300) is under the top keyboard, so the card steps just BELOW it (the keyboard's
+        // bottom edge plus the 24 DIP clearance), centred on the anchor.
+        var placement = Place(960, 300, new[] { KeyboardTop, EdgeBarTop });
+
+        Check.WithCustomMessage("the card must sit just below the keyboard, clear of the gap")
+            .That(placement.Window.Top).IsEqualTo(KeyboardTop.Bottom + NoteLayout.Constants.AvoidGapDip);
+        Check.WithCustomMessage("the card must be centred on the anchor")
+            .That(placement.Window.Left + (placement.Window.Width / 2)).IsEqualTo(960);
+    }
+
+    [Fact]
+    public void NoRoomClearOfTheKeyboard_KeepsTheOldClampedPlacement()
+    {
+        // The avoid rects cover the whole work area: no displaced candidate can be accepted, so
+        // the old clamp fallback stands, unchanged.
+        var avoid = new[] { new Rect(0, 0, 1920, 1152) };
+        var displaced = Place(960, 300, avoid);
+        var old = Place(960, 300, avoid, allowDisplaced: false);
+
+        Check.WithCustomMessage("with no room the clamped placement must stand")
+            .That(displaced).IsEqualTo(old);
+    }
+
+    [StaFact]
+    public void OutsideEdit_ThePlacementIsExactlyTheOneBeforeTheDisplacement()
+    {
+        // Display, Move and the chips never displace: a DISPLAY note with the keyboard on
+        // screen keeps the placement it always had - the keyboard's rects are the EDIT state's
+        // business alone.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            manager.Apply(new NoteAppend("saved text"));
+            manager.FinishEdit(id, commit: true); // Display
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            probe.RaiseChanged();
+
+            var display = manager.PlacementForTest(id)!;
+            var expected = NoteLayout.WithTagClearance(
+                NoteLayout.Place(Phys(960, 300), display.Side, display.Card.Size, WorkArea,
+                    Array.Empty<Rect>(), Scale)!,
+                NoteSettings.DefaultTextSizeDip);
+            Check.WithCustomMessage("outside Edit the placement must not change")
+                .That(display.Window).IsEqualTo(expected.Window);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── the real path through the note manager ──
+
+    [StaFact]
+    public void InEdit_WithTheAnchorUnderTheKeyboard_TheNoteStepsClearOfIt()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The anchor under the keyboard: DIP (960, 300) = physical (1920, 600).
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            probe.RaiseChanged();
+
+            var placement = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage($"the note {placement.Window} must not be under the keyboard")
+                .That(placement.Window.IntersectsWith(KeyboardTop)).IsFalse();
+            // The CONTROLS live on the card, so the card is what must keep the clearance: the
+            // window's top strip is the tail zone and the number tag, pure chrome, and the tag
+            // grows the window upward by its protrusion.
+            Check.That(GapFrom(placement.Card, KeyboardTop))
+                .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void Done_PutsTheNoteBackNextToItsAnchor()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            probe.RaiseChanged();
+            var displaced = manager.PlacementForTest(id)!;
+
+            manager.Apply(new NoteAppend("typed text"));
+            manager.FinishEdit(id, commit: true);
+
+            var after = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage("Done must move the note back off the displaced spot")
+                .That(after.Window).IsNotEqualTo(displaced.Window);
+
+            // The Display placement next to the anchor: the same derivation with no avoid rects.
+            var display = NoteLayout.WithTagClearance(
+                NoteLayout.Place(Phys(960, 300), after.Side, after.Card.Size, WorkArea,
+                    Array.Empty<Rect>(), Scale)!,
+                NoteSettings.DefaultTextSizeDip);
+            Check.WithCustomMessage("Done must leave the note next to its anchor")
+                .That(after.Window).IsEqualTo(display.Window);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void AKeyboardFlipMidEdit_RePlacesTheNote()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            probe.RaiseChanged();
+            var top = manager.PlacementForTest(id)!.Window;
+
+            // The keyboard flips to the bottom edge: the note must step clear of the NEW rect.
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardBottom), ToPhysical(EdgeBarBottom) };
+            probe.RaiseChanged();
+            var bottom = manager.PlacementForTest(id)!.Window;
+
+            Check.WithCustomMessage("the keyboard flip must re-place the note")
+                .That(bottom).IsNotEqualTo(top);
+            Check.That(bottom.IntersectsWith(KeyboardBottom)).IsFalse();
+            Check.That(GapFrom(bottom, KeyboardBottom))
+                .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void TheMoveStatesOtherSide_StaysTheSideThatExists()
+    {
+        // The Move state's "Other side" offer must remain a side that EXISTS beside the note: a
+        // displaced window is neither, and the Move state is not Edit.
+        //
+        // The geometry is synthetic on purpose: the keyboard band covers the LEFT of the anchor
+        // (so the other side's window is under it) while the card's own control column stands
+        // clear of it (so the pick-up's dwell is not occluded). Then no side other than the
+        // current one fits, the offer stays hidden - and a displacement would offer it anyway.
+        var keyboard = new Rect(0, 0, 1200, 575);
+        var anchorX = 1200.0;
+        var anchorY = 300.0;
+
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.CreateNoteAt(Phys(anchorX, anchorY));
+            var id = manager.ActiveNotes[0].Id;
+            manager.Apply(new NoteAppend("saved text"));
+            manager.FinishEdit(id, commit: true);
+            probe.RectsProvider = () => new[] { ToPhysical(keyboard) };
+            probe.RaiseChanged();
+
+            // Pick the note up for a Move: the other side is then judged over the avoid set.
+            long present = 0;
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present);
+            Check.That(manager.IsMoving).IsTrue();
+
+            var current = manager.PlacementForTest(id)!;
+            var next = current.Side == NoteSide.Right ? NoteSide.Left : NoteSide.Right;
+            var expected = NoteLayout.Place(Phys(anchorX, anchorY), next, current.Card.Size, WorkArea,
+                new[] { keyboard }, Scale, exclude: current.Side);
+
+            Check.WithCustomMessage("the other side must not fit at all under the keyboard")
+                .That(expected).IsNull();
+            Check.WithCustomMessage("the Move's other side must be the one the pre-G2 code produced")
+                .That(manager.JudgedOtherSideForTest).IsEqualTo(expected);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── helpers ──
+
+    /// <summary>The clearance between a window and a rect: zero when they touch or overlap.</summary>
+    private static double GapFrom(Rect window, Rect rect)
+    {
+        double dx = Math.Max(rect.Left - window.Right, 0) + Math.Max(window.Left - rect.Right, 0);
+        double dy = Math.Max(rect.Top - window.Bottom, 0) + Math.Max(window.Top - rect.Bottom, 0);
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
+
+    /// <summary>A DIP rect as the probe reports it: physical pixels.</summary>
+    private static PhysicalRect ToPhysical(Rect dip) => new(
+        DpiHelper.LogicalToPhysicalX(dip.X),
+        DpiHelper.LogicalToPhysicalY(dip.Y),
+        DpiHelper.LogicalToPhysicalX(dip.Width),
+        DpiHelper.LogicalToPhysicalY(dip.Height));
+
+    /// <summary>Looks away past every control for 200 ms, then holds past the 600 ms dwell -
+    /// the cadence the note manager's own dwells expect.</summary>
+    private static long HoldGaze(NoteManager manager, PhysicalPoint point, long present, int ms = 1200)
+    {
+        var away = new PhysicalPoint(point.X + 10_000, point.Y);
+        for (var t = present; t <= present + 220_000; t += 33_000)
+            manager.OnGazeMoved(away, t);
+        for (var t = present + 240_000; t <= present + ms * 1000; t += 33_000)
+            manager.OnGazeMoved(point, t);
+        return present + ms * 1000 + 33_000;
+    }
+}

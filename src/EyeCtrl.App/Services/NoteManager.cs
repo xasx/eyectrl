@@ -417,7 +417,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         var placement = NoteLayout.Place(
             note.Anchor, note.Side, CardSizeFor(note, textSizeDip), WorkAreaDip(), AvoidRectsDip(avoidKeyboard),
-            DpiHelper.ScaleX, exclude: null);
+            DpiHelper.ScaleX, exclude: null,
+            // T6 fixup-06 G2: the displaced candidates are the EDIT state's alone. A note whose
+            // anchor lies under the keyboard steps clear of it instead of landing on it; Display,
+            // Move and the chips keep the placement they always had.
+            allowDisplaced: avoidKeyboard);
         return placement ?? throw new InvalidOperationException(
             "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
     }
@@ -1468,7 +1472,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // raise re-derives through the Move re-registration below (OnKeyboardProbeChanged), so
         // Other side re-appears the moment T1 frees the room back.
         var other = NoteLayout.Place(note.Anchor, next, CardSizeFor(note), WorkAreaDip(),
-            AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side);
+            AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side,
+            // T6 fixup-06 G2: the Move state never displaces - the "Other side" offer must be a
+            // side that EXISTS beside the note, and a displaced window is neither (the Edit
+            // state is the only one that opts in).
+            allowDisplaced: false);
         _judgedOtherSideForMoving = other;
         bool otherFits = other is not null;
         Window(note.Id)?.SetOtherSideAvailable(otherFits);

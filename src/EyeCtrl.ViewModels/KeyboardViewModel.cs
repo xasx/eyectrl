@@ -1065,8 +1065,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         EndSessionOnSensitivityChange();
         if (CurrentInput.Length == 0) return;
-        // An explicit one-word teach keeps a deliberate trailing period ("Bsp." -> "bsp.").
-        LearnCommittedWord(CurrentInput, keepDeliberatePeriod: true);
+        // Add Word learns the same form Space would: the owner vetoed a deliberate period.
+        LearnCommittedWord(CurrentInput);
     }
 
     /// <summary>
@@ -1199,13 +1199,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// The single learn path for one committed word (Space, a selection, Add Word). Applies the
     /// shared trim and learns the result; returns the learned form, or null when the raw token
     /// does not qualify. Pair learning stays on the RAW word - only the dictionary entry is trimmed.
-    /// <paramref name="keepDeliberatePeriod"/> is Add Word's explicit one-word teach: it keeps a
-    /// single trailing "." on a letters-only word ("Bsp."), where typing would strip it.
     /// </summary>
-    private string? LearnCommittedWord(string rawWord, bool keepDeliberatePeriod = false)
+    private string? LearnCommittedWord(string rawWord)
     {
         if (SensitiveNow()) return null;   // never learn from a password field
-        if (TrimLearnedWord(rawWord, keepDeliberatePeriod) is not { } word) return null;
+        if (TrimLearnedWord(rawWord) is not { } word) return null;
         _orchestrator?.LearnWord(word);
         return word;
     }
@@ -1233,13 +1231,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <item>an inner-dot abbreviation: every dot-separated segment is 1-2 letters ("z.B.",
     /// "d.h.", "u.a.") - so a dotted address/version/domain keeps no sentence period;</item>
     /// <item>trimmed + "." is in the language's abbreviation list ("usw.", "bzw."), matched
-    /// case-insensitively;</item>
-    /// <item>Add Word's deliberate period on a letters-only word.</item>
+    /// case-insensitively.</item>
     /// </list>
     /// A token that trims down to one character is not learned at all ("C#" must not become a
     /// junk word "c"), and a period is never invented where the raw token had none.
     /// </summary>
-    private string? TrimLearnedWord(string rawWord, bool keepDeliberatePeriod = false)
+    private string? TrimLearnedWord(string rawWord)
     {
         var (start, end) = WordSpan(rawWord);
         if (end <= start) return null;
@@ -1250,8 +1247,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         var endsWithPeriod = end < rawWord.Length && rawWord[end] == '.';
         if (endsWithPeriod
             && (IsInnerDotAbbreviation(trimmed)
-                || IsAbbreviation(trimmed + ".")
-                || (keepDeliberatePeriod && IsLettersOnly(trimmed))))
+                || IsAbbreviation(trimmed + ".")))
         {
             return trimmed + ".";
         }
@@ -1282,13 +1278,6 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
 
         return segmentLength is >= 1 and <= 2;
-    }
-
-    private static bool IsLettersOnly(string text)
-    {
-        foreach (var ch in text)
-            if (!char.IsLetter(ch)) return false;
-        return text.Length > 0;
     }
 
     /// <summary>

@@ -66,10 +66,11 @@ public class KeyboardE1RecorderTests
         Check.That(seq).IsEqualTo(1L);
         Check.That(log.Lines).HasSize(1);
         // A letter is a TEXT key: no row/column/id, no box size, no pixel offset, no saccade/restarts,
-        // no likelihood. It says a text key was typed, plus timing, the dock edge and ONE edge class.
+        // no likelihood and no edge class (the quarter is only COUNTED, in the per-edge tally line).
+        // It says a text key was typed, plus timing and the dock edge.
         Check.That(log.Lines[0]).IsEqualTo(
             "KB-E1 key seq=1 ts=1000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 " +
-            "movems=7000 edgeq=NE sincekey=-1 dwell=450 penalty=False typing=True bs=-");
+            "movems=7000 sincekey=-1 dwell=450 penalty=False typing=True bs=-");
     }
 
     [Theory]
@@ -84,10 +85,10 @@ public class KeyboardE1RecorderTests
         recorder.RecordKey(Key(cls));
 
         foreach (var banned in new[] { " boxw=", " boxh=", " dx=", " dy=", " mdx=", " mdy=", " saccade=",
-                     " restarts=", " likely=", " start=", " nocont=" })
+                     " restarts=", " likely=", " start=", " nocont=", " edgeq=" })
             Check.That(log.Lines[0]).Not.Contains(banned);
         Check.That(log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}").OrderBy(k => k, StringComparer.Ordinal))
-            .ContainsExactly("Bs", "Class", "DwellMs", "Edge", "EdgeQ", "Penalty", "Seq", "SinceKeyMs",
+            .ContainsExactly("Bs", "Class", "DwellMs", "Edge", "Penalty", "Seq", "SinceKeyMs",
                 "SinceMoveMs", "Sub", "TsUs", "Typing", "WinH", "WinW", "WinX", "WinY");
     }
 
@@ -415,9 +416,146 @@ public class KeyboardE1RecorderTests
         Check.That(log.Lines).ContainsExactly(
             "KB-E1 space seq=7 empty=True",
             "KB-E1 holdon seq=7 ms=600 capped=True",
-            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged edgeq=NE sub=letters edge=top",
+            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged sub=letters edge=top",
             "KB-E1 abandon ts=6000 r=3 c=0 cls=shift act=modifier:shift pct=40 why=GazeLeft mdx=5 mdy=6 sub=letters edge=top",
             "KB-E1 mirror at=enter res=mismatch mirrorlen=14 ctllen=14 common=6");
+    }
+
+    // ---- the per-dock-edge tally (replaces the per-letter edge class) ------------------------------
+
+    private static AbandonE1 Abandon(string cls, string quarter, string edge = "top") =>
+        new(5_000, 0, 3, cls, "-", 65, "NearestChanged", 12, -9, quarter, "letters", edge);
+
+    private const string TopTally =
+        "KB-E1 edgeq edge=top fires=3 c=1 n=0 ne=1 e=1 se=0 s=0 sw=0 w=0 nw=0 " +
+        "aborts=1 ac=0 an=0 ane=0 ae=1 ase=0 as=0 asw=0 aw=0 anw=0";
+
+    [Fact]
+    public void TheTally_CountsTextDwellsAndAbandonmentsPerQuarter_AndIsWrittenRightBeforeTheHiddenLine()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE" });
+        recorder.RecordKey(Key(KeyE1.Digit) with { EdgeQuarter = "-" });
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "E" });
+        recorder.RecordAbandon(Abandon(KeyE1.Letter, "E"));
+        log.Lines.Clear(); log.Props.Clear();
+
+        recorder.RecordHidden("toolbar-toggle");
+
+        Check.That(log.Lines).ContainsExactly(TopTally, "KB-E1 hidden cause=toolbar-toggle visiblems=-1");
+    }
+
+    [Fact]
+    public void TheTally_StartsFresh_AfterAHide_SoNothingIsCountedTwice()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "E" });
+        recorder.RecordHidden("a");
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "W" });
+        log.Lines.Clear(); log.Props.Clear();
+
+        recorder.RecordHidden("b");
+
+        Check.That(log.Lines[0]).Contains(" fires=1 ").And.Contains(" w=1 ").And.Contains(" e=0 ");
+        recorder.RecordHidden("c");                                       // empty now: no tally line
+        Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 edgeq ", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AFlip_WritesTheTallyOfTheEdgeBeingLeft_BeforeTheEdgeLine_AndStartsANewOne()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "E" });
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "E" });
+        log.Lines.Clear(); log.Props.Clear();
+
+        recorder.RecordEdge("flip", "bottom", "top");
+        recorder.RecordKey(Key(KeyE1.Letter) with { Edge = "bottom", EdgeQuarter = "S" });
+        recorder.RecordHidden("x");
+
+        Check.That(log.Lines.Where(l => !l.StartsWith("KB-E1 key ", StringComparison.Ordinal))).ContainsExactly(
+            "KB-E1 edgeq edge=top fires=2 c=0 n=0 ne=0 e=2 se=0 s=0 sw=0 w=0 nw=0 " +
+            "aborts=0 ac=0 an=0 ane=0 ae=0 ase=0 as=0 asw=0 aw=0 anw=0",
+            "KB-E1 edge button=flip edge=bottom",
+            "KB-E1 edgeq edge=bottom fires=1 c=0 n=0 ne=0 e=0 se=0 s=1 sw=0 w=0 nw=0 " +
+            "aborts=0 ac=0 an=0 ane=0 ae=0 ase=0 as=0 asw=0 aw=0 anw=0",
+            "KB-E1 hidden cause=x visiblems=-1");
+    }
+
+    [Fact]
+    public void ADwellOnAnotherDockEdge_FlushesTheOldEdgesTallyFirst()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "E" });
+        log.Lines.Clear(); log.Props.Clear();
+
+        recorder.RecordKey(Key(KeyE1.Letter) with { Edge = "bottom", EdgeQuarter = "W" });
+
+        Check.That(log.Lines[0]).StartsWith("KB-E1 edgeq edge=top fires=1 ");
+        Check.That(log.Lines[1]).StartsWith("KB-E1 key ");
+    }
+
+    [Fact]
+    public void AnEmptyTally_WritesNothing_AtAHideOrAFlip()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordEdge("flip", "bottom", "top");
+        recorder.RecordHidden("x");
+
+        Check.That(log.Lines.Any(l => l.StartsWith("KB-E1 edgeq ", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Fact]
+    public void OnlyTextKeysAreTallied_NotSpaceBackspaceOrModifiers()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordKey(Key(KeyE1.Space, "space") with { EdgeQuarter = "E" });
+        recorder.RecordKey(Key(KeyE1.Backspace, "backspace") with { EdgeQuarter = "E" });
+        recorder.RecordKey(Key(KeyE1.Shift, "modifier:shift") with { EdgeQuarter = "E" });
+        recorder.RecordAbandon(Abandon(KeyE1.Shift, "E"));
+        recorder.RecordHidden("x");
+
+        Check.That(log.Lines.Any(l => l.StartsWith("KB-E1 edgeq ", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Fact]
+    public void KeysInAPasswordField_AreNeverTallied()
+    {
+        var sensitive = false;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE" });
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE" });
+        recorder.RecordAbandon(Abandon(KeyE1.Letter, "NE"));
+        sensitive = false;
+
+        recorder.RecordHidden("x");
+        Check.WithCustomMessage("a tally that saw only muted keys writes nothing")
+            .That(log.Lines.Any(l => l.StartsWith("KB-E1 edgeq ", StringComparison.Ordinal))).IsFalse();
+
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE" });
+        sensitive = false;
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "E" });
+        recorder.RecordHidden("y");
+        var tally = log.Lines.Single(l => l.StartsWith("KB-E1 edgeq ", StringComparison.Ordinal));
+        Check.That(tally).Contains(" fires=1 ").And.Contains(" e=1 ").And.Contains(" ne=0 ");
+    }
+
+    [Fact]
+    public void ATallyLine_CarriesCountsOnly()
+    {
+        var (recorder, log, _) = New();
+        recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE", Row = 3, Col = 7 });
+        log.Lines.Clear(); log.Props.Clear();
+        recorder.RecordHidden("x");
+
+        var names = log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}").ToArray();
+        Check.That(names).ContainsExactly("Edge", "Fires", "C", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
+            "Aborts", "AC", "AN", "ANE", "AE", "ASE", "AS", "ASW", "AW", "ANW");
+        foreach (var banned in new[] { " r=", " c=3", " act=", " ts=", " seq=" })
+            Check.That(log.Lines[0]).Not.Contains(banned);
     }
 
     [Fact]

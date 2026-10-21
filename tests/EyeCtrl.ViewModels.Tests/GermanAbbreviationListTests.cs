@@ -177,14 +177,18 @@ public class GermanAbbreviationListTests : IDisposable
                 "Das ist die Siemens AG.", predictor.Abbreviations)).IsTrue();
     }
 
-    [Fact]
-    public void RealAbbreviation_DoesNotForceTheNextCapital()
+    [Theory]
+    [InlineData("Das gilt bzgl.")]
+    [InlineData("Siehe Hrsg.")]
+    public void RealAbbreviation_DoesNotForceTheNextCapital(string text)
     {
+        // The last token is longer than 4 characters, so CapitalizationHelper's short-lowercase
+        // heuristic cannot suppress the capital - only the abbreviation LIST can.
         var predictor = CreatePredictor();
 
-        Check.WithCustomMessage("usw. is an abbreviation and must not force a capital")
-            .That(CapitalizationHelper.ShouldCapitalize(
-                "Das ist usw.", predictor.Abbreviations)).IsFalse();
+        Check.WithCustomMessage(
+                "a >4-char list abbreviation must suppress the capital via the list, not the heuristic")
+            .That(CapitalizationHelper.ShouldCapitalize(text, predictor.Abbreviations)).IsFalse();
     }
 
     [Fact]

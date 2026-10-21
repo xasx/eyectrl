@@ -20,9 +20,13 @@ layout, hidden, mirror, sensitive.
 
 Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
 symbol, emoji) the line says only that a text key was typed -- plus timing (``ts``, ``sincekey``),
-the dock edge, ``typing`` (was a word open), the dwell, and ONE closed class ``edgeq`` (which outer
-quarter of the key box the dwell's mean offset fell in: N NE E SE S SW W NW, or ``-`` for the inner
-half). It carries NO row/column/action id, NO box size (``boxw``/``boxh`` come once on ``shown`` and
+the dock edge, ``typing`` (was a word open) and the dwell. It carries NO edge-quarter class either
+(older logs had one per line, ``edgeq=N|NE|E|SE|S|SW|W|NW|-``; this script still reads them): the outer
+quarter of the box the gaze rested in is only COUNTED per dock edge, in one ``edgeq`` tally line
+(``KB-E1 edgeq edge=top fires=F c=.. n=.. ne=.. e=.. se=.. s=.. sw=.. w=.. nw=.. aborts=A ac=.. an=.. ...``,
+written right before a ``hidden`` line and, for the edge being left, right before a Flip's ``edge``
+line; ``c`` = the inner half, the other keys the outer quarters; ``a*`` the same for abandonments).
+It carries NO row/column/action id, NO box size (``boxw``/``boxh`` come once on ``shown`` and
 ``layout`` lines), NO pixel offset, and NO saccade, restart count or likelihood. Those arrival facts
 exist only for a CORRECTED letter: the in-word Backspace is followed by a keyed ``corr`` line
 (``seq`` = the Backspace's) and the ``slip`` line repeats them for the slipped key. Only non-text keys
@@ -59,8 +63,8 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      neighbour-direction base rate would be the sharper alternative; this
                      integer rule was chosen because it can be read without a table.
 * rule 2b            edge-crowding, the other half of the steward's rule 2: ">= 30 % of accepted
-                     dwells in the outer quarter of the box on one side". From the ``edgeq`` class
-                     on text-key lines: per dock edge, the share of accepted dwells whose mean
+                     dwells in the outer quarter of the box on one side". From the ``edgeq`` tally
+                     lines (and, in older logs, the per-line ``edgeq`` class): per dock edge, the share of accepted dwells whose mean
                      offset sat in the outer quarter of each side (a diagonal counts for both
                      sides it touches); flagged ``meets_rule2b`` when one side holds >= 3/10 of at
                      least ``MIN_EDGE_DWELLS`` (50) dwells. With option B there is no per-letter
@@ -125,6 +129,11 @@ MIN_REGION_SLIPS = 10
 EDGE_CROWDING_SHARE = (3, 10)
 MIN_EDGE_DWELLS = 50
 TEXT_CLASSES = {"letter", "digit", "symbol", "emoji"}
+# The ``edgeq`` tally line's counters: accepted text-key dwells per outer quarter (c = the inner half),
+# then abandoned ones (prefix a). The quarter names are the old per-line ``edgeq`` classes, lower-cased.
+TALLY_QUARTERS = ["-", "N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+TALLY_FIRES = ["c"] + [q.lower() for q in TALLY_QUARTERS[1:]]
+TALLY_ABORTS = ["a" + name for name in TALLY_FIRES]
 CHAIN_PICK_MS = 1000
 NEAR_MOVE_MS = 1000
 HOLD_ON_GATE_MS = 150
@@ -169,6 +178,7 @@ REQUIRED: dict[str, dict[str, type]] = {
     "edge": {"button": str},
     "shown": {"proc": str, "edge": str},
     "layout": {"sub": str, "boxw": int, "boxh": int},
+    "edgeq": {"edge": str, "fires": int, "aborts": int, **{name: int for name in TALLY_FIRES + TALLY_ABORTS}},
     "sensitive": {},
     "hidden": {"cause": str},
     "mirror": {"res": str},
@@ -204,7 +214,8 @@ def parse(lines) -> list[dict[str, Any]]:
             edge = fields["edge"]
         elif event == "edge" and fields.get("button") == "flip" and isinstance(fields.get("edge"), str):
             edge = fields["edge"]
-        events.append({"event": event, "at": at, "dock": edge, **fields})
+        dock = fields["edge"] if event == "edgeq" else edge
+        events.append({"event": event, "at": at, "dock": dock, **fields})
     return events
 
 
@@ -226,16 +237,24 @@ def _at_least(part: int, whole: int, fraction: tuple[int, int]) -> bool:
 
 
 def edge_crowding(events: list[dict[str, Any]], min_dwells: int) -> dict[str, Any]:
-    """Rule 2b: per dock edge, the share of accepted text-key dwells in the outer quarter, by side."""
-    by_dock: dict[str, list[str]] = defaultdict(list)
+    """Rule 2b: per dock edge, the share of accepted text-key dwells in the outer quarter, by side.
+
+    Reads the per-edge ``edgeq`` tally lines AND, so older logs still parse, the per-line ``edgeq``
+    class of a text key; a log holding both is summed."""
+    by_dock: dict[str, Counter] = defaultdict(Counter)
     for e in events:
-        if e["event"] == "key" and e.get("cls") in TEXT_CLASSES and isinstance(e.get("edgeq"), str):
-            by_dock[str(e["dock"])].append(e["edgeq"])
+        if e["event"] == "edgeq":
+            for quarter, name in zip(TALLY_QUARTERS, TALLY_FIRES):
+                by_dock[str(e["dock"])][quarter] += e[name]
+        elif e["event"] == "key" and e.get("cls") in TEXT_CLASSES and isinstance(e.get("edgeq"), str):
+            by_dock[str(e["dock"])][e["edgeq"]] += 1
     result: dict[str, Any] = {}
-    for dock, quarters in sorted(by_dock.items()):
-        n = len(quarters)
-        outer = sum(1 for q in quarters if q != "-")
-        sides = {side: sum(1 for q in quarters if side in q) for side in "NESW"}
+    for dock, counts in sorted(by_dock.items()):
+        n = sum(counts.values())
+        if n == 0:
+            continue
+        outer = n - counts["-"]
+        sides = {side: sum(c for q, c in counts.items() if side in q) for side in "NESW"}
         result[dock] = {
             "n": n,
             "outer": outer,

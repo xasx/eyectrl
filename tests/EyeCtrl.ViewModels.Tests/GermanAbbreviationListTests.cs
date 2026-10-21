@@ -60,11 +60,13 @@ public class GermanAbbreviationListTests : IDisposable
             "de.json was not found above " + AppContext.BaseDirectory);
     }
 
+    private WordPredictor CreatePredictor()
+        => new(new FileDictionaryProvider(_baseDictionaryPath, _appDataDir, "de"));
+
     private (KeyboardViewModel Vm, WordPredictor Predictor) Create()
     {
         var settings = new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } };
-        var predictor = new WordPredictor(
-            new FileDictionaryProvider(_baseDictionaryPath, _appDataDir, "de"));
+        var predictor = CreatePredictor();
         var orchestrator = new PredictionOrchestrator(predictor);
         var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger());
         vm.SetOrchestrator(orchestrator);
@@ -133,6 +135,56 @@ public class GermanAbbreviationListTests : IDisposable
             Check.WithCustomMessage("Add Word dropped the period of a list abbreviation")
                 .That(addPredictor.WordFrequencies.ContainsKey(abbreviation)).IsTrue();
         }
+    }
+
+    [Theory]
+    [InlineData("AG.", "ag")]
+    [InlineData("GmbH.", "gmbh")]
+    [InlineData("kg.", "kg")]
+    public void UnitAndCompanyAbbreviations_LearnWithoutThePeriod_OnBothPaths(
+        string raw, string expectedKey)
+    {
+        // AG, GmbH and kg are written without a period, so the period is a sentence end.
+        var (spaceVm, spacePredictor) = Create();
+        using (spaceVm)
+        {
+            CommitWithSpace(spaceVm, raw);
+
+            Check.WithCustomMessage("Space kept the sentence period on a no-period abbreviation")
+                .That(spacePredictor.WordFrequencies.ContainsKey(expectedKey)).IsTrue();
+        }
+
+        var (addVm, addPredictor) = Create();
+        using (addVm)
+        {
+            CommitWithAddWord(addVm, raw);
+
+            Check.WithCustomMessage("Add Word kept the sentence period on a no-period abbreviation")
+                .That(addPredictor.WordFrequencies.ContainsKey(expectedKey)).IsTrue();
+        }
+    }
+
+    [Fact]
+    public void NameAndCompanySentenceEnds_ForceTheNextCapital()
+    {
+        var predictor = CreatePredictor();
+
+        Check.WithCustomMessage("a name's period was treated as an abbreviation")
+            .That(CapitalizationHelper.ShouldCapitalize("Ich heiße Max.", predictor.Abbreviations))
+            .IsTrue();
+        Check.WithCustomMessage("AG. is a sentence end and must start a new sentence")
+            .That(CapitalizationHelper.ShouldCapitalize(
+                "Das ist die Siemens AG.", predictor.Abbreviations)).IsTrue();
+    }
+
+    [Fact]
+    public void RealAbbreviation_DoesNotForceTheNextCapital()
+    {
+        var predictor = CreatePredictor();
+
+        Check.WithCustomMessage("usw. is an abbreviation and must not force a capital")
+            .That(CapitalizationHelper.ShouldCapitalize(
+                "Das ist usw.", predictor.Abbreviations)).IsFalse();
     }
 
     [Fact]

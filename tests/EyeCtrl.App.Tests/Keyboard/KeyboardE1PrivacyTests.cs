@@ -154,8 +154,12 @@ public class KeyboardE1PrivacyTests
         private readonly object _gate = new();
         private readonly List<Line> _lines = new();
 
+        /// <summary>Makes <see cref="IsEnabled"/> throw, as a broken logging stack would.</summary>
+        public volatile bool ThrowOnIsEnabled;
+
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
+        public bool IsEnabled(LogLevel logLevel) =>
+            ThrowOnIsEnabled ? throw new InvalidOperationException("logger broke") : true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
@@ -189,9 +193,12 @@ public class KeyboardE1PrivacyTests
         public void Save(Dictionary<string, int> words) { }
     }
 
+    /// <summary>The recorder's clock under test: set from each gaze sample's timestamp.</summary>
+    private sealed class FakeClock { public long Ms; }
+
     private sealed record Probe(
         KeyboardWindow Window, KeyboardViewModel Vm, FrameworkElement Content, HwndSource Source, Capture Log,
-        KeyboardLayout Layout) : IDisposable
+        KeyboardLayout Layout, FakeClock Clock) : IDisposable
     {
         public void Dispose() { Source.Dispose(); Window.Close(); }
     }
@@ -220,6 +227,8 @@ public class KeyboardE1PrivacyTests
         settings.Keyboard.SmartCapitalizationEnabled = false;
         var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger(),
             logger: log, contextProbe: new SpyProbe(), sensitiveContext: sensitive);
+        var clock = new FakeClock();
+        vm.UseE1Recorder(new KeyboardE1Recorder(log, () => clock.Ms));
         vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(
             new InMemoryDictProvider(words ?? SessionWords), "QWERTZ")));
 
@@ -252,7 +261,14 @@ public class KeyboardE1PrivacyTests
 
         w.UpdateGaze(new PhysicalPoint(0, 0), 0);
         Check.That(Centres(w)).Not.IsEmpty();
-        return new Probe(w, vm, content, source, log, layout);
+        return new Probe(w, vm, content, source, log, layout, clock);
+    }
+
+    /// <summary>One gaze sample; the recorder's fake clock follows the sample's timestamp.</summary>
+    private static void Gaze(Probe p, PhysicalPoint point, long timestampUs)
+    {
+        p.Clock.Ms = timestampUs / 1000;
+        p.Window.UpdateGaze(point, timestampUs);
     }
 
     /// <summary>The key id (as the window mints it) whose output is <paramref name="output"/>.</summary>
@@ -280,21 +296,21 @@ public class KeyboardE1PrivacyTests
     private static void Dwell(Probe p, string keyId, ref long ts, long holdAfterUs = 0, long dwellUs = DwellUs)
     {
         p.Content.UpdateLayout();
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         var centre = Centres(p.Window)[keyId];
         var latch = ts;
-        p.Window.UpdateGaze(centre, latch); ts += 1_000;
+        Gaze(p, centre, latch); ts += 1_000;
         for (var t = latch + 50_000; t < latch + dwellUs; t += 50_000)
-            p.Window.UpdateGaze(centre, t);
-        p.Window.UpdateGaze(centre, latch + dwellUs);
+            Gaze(p, centre, t);
+        Gaze(p, centre, latch + dwellUs);
         ts = latch + dwellUs + 1_000;
         if (holdAfterUs > 0)
         {
             for (var t = ts; t < ts + holdAfterUs; t += 50_000)
-                p.Window.UpdateGaze(centre, t);
+                Gaze(p, centre, t);
             ts += holdAfterUs;
         }
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
     }
 
     private static void RunTypingSession(Probe p)
@@ -318,12 +334,12 @@ public class KeyboardE1PrivacyTests
 
         // An abandoned dwell: look at a key long enough to count, then away.
         var centres = Centres(p.Window);
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         var start = ts;
         for (var t = start; t < start + 300_000; t += 50_000)
-            p.Window.UpdateGaze(centres[IdOf(p, "f")], t);
+            Gaze(p, centres[IdOf(p, "f")], t);
         ts = start + 350_000;
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
 
         // A mode round trip, a modifier, emoji enter/exit, Enter, a Flip and a hide.
         vm.SwitchSubLayout("numbers");
@@ -542,15 +558,18 @@ public class KeyboardE1PrivacyTests
     // ---- the log cannot spell the text --------------------------------------------------------
 
     /// <summary>
-    /// The only fields allowed to be excluded from the comparison: pure clock values. Everything else
-    /// must not depend on WHICH letter was hit, except the documented residual (hold-on, and the timing
-    /// that rides with it).
+    /// The only fields excluded from a comparison by default: the sequence number and the absolute
+    /// timestamp, which differ between two words by construction. The recorder runs on a fake clock, so
+    /// every other timing field (<c>SinceKeyMs</c>, <c>SinceMoveMs</c>) is deterministic and is compared
+    /// too: a column that leaked into <c>movems</c> or <c>sincekey</c> fails the gate. Everything must not
+    /// depend on WHICH letter was hit, except the documented residual (hold-on, and the time since the
+    /// previous key, which rides with a doubled letter's long stay).
     /// </summary>
-    private static readonly string[] NoiseNames = ["Seq", "TsUs", "SinceKeyMs", "SinceMoveMs"];
+    private static readonly string[] NoiseNames = ["Seq", "TsUs"];
 
-    private static List<string> Signature(IEnumerable<Line> lines) =>
+    private static List<string> Signature(IEnumerable<Line> lines, params string[] alsoExcluded) =>
         lines.Select(l => l.Event + " " + string.Join(" ", l.Props
-                .Where(p => !NoiseNames.Contains(p.Key))
+                .Where(p => !NoiseNames.Contains(p.Key) && !alsoExcluded.Contains(p.Key))
                 .OrderBy(p => p.Key, StringComparer.Ordinal)
                 .Select(p => $"{p.Key}={Convert.ToString(p.Value, CultureInfo.InvariantCulture)}")))
             .ToList();
@@ -576,12 +595,12 @@ public class KeyboardE1PrivacyTests
     private static void TypeLookingAway(Probe p, string word, ref long ts)
     {
         var first = IdOf(p, word[0].ToString());
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         var glance = Aim(p, first);
         for (var t = ts; t < ts + 300_000; t += 50_000)
-            p.Window.UpdateGaze(glance, t);
+            Gaze(p, glance, t);
         ts += 350_000;
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
 
         foreach (var letter in word)
             Dwell(p, IdOf(p, letter.ToString()), ref ts, holdAfterUs: 100_000);
@@ -595,7 +614,7 @@ public class KeyboardE1PrivacyTests
     private static void TypeKeyToKey(Probe p, string word, ref long ts)
     {
         p.Content.UpdateLayout();
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         var centres = Centres(p.Window);          // refreshed by the sample above
         for (var i = 0; i < word.Length; i++)
         {
@@ -604,17 +623,17 @@ public class KeyboardE1PrivacyTests
             var heldUs = double_ ? 2 * DwellUs + 200_000 : DwellUs + 100_000;
             var start = ts;
             for (var t = start; t <= start + heldUs; t += 50_000)
-                p.Window.UpdateGaze(aim, t);
+                Gaze(p, aim, t);
             ts = start + heldUs + 50_000;
             if (double_) i++;                     // the second letter was typed by the same stay
         }
         var space = Aim(p, SpecialId(p, "space"));
         var from = ts;
         for (var t = from; t <= from + DwellUs; t += 50_000)
-            p.Window.UpdateGaze(space, t);
+            Gaze(p, space, t);
         ts = from + DwellUs + 50_000;
         // Look away so the Space's hold-on is logged inside its own word.
-        p.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         _ = centres;
     }
 
@@ -659,12 +678,13 @@ public class KeyboardE1PrivacyTests
         {
             long ts = 1_000;
             p.Vm.IsVisible = true;
+            TypeLookingAway(p, "hallo", ref ts);       // warm-up: both compared words then follow a Space
             TypeLookingAway(p, first, ref ts);
             TypeLookingAway(p, second, ref ts);
 
             var all = p.Log.All().Where(l => l.Event is "key" or "abandon" or "holdon").ToList();
-            var a = LinesOfWord(all, 0, 2);
-            var b = LinesOfWord(all, 1, 2);
+            var a = LinesOfWord(all, 1, 3);
+            var b = LinesOfWord(all, 2, 3);
             Check.WithCustomMessage("The driver produced no key lines").That(a.Count(l => l.Event == "key"))
                 .IsEqualTo(first.Length + 1);
             Check.That(a.Count(l => l.Event == "abandon")).IsStrictlyGreaterThan(0);
@@ -681,6 +701,31 @@ public class KeyboardE1PrivacyTests
             foreach (var line in p.Log.All())
                 foreach (var word in new[] { first, second })
                     Check.That(line.Message.ToLowerInvariant()).Not.Contains(word);
+        }
+        finally { p.Dispose(); }
+    }
+
+    [StaFact]
+    public void ABrokenLogger_NeverSwallowsABarPick()
+    {
+        // KeyboardWindow.RecordPickE1 runs BEFORE the selection. A logging stack that throws (here
+        // IsEnabled) must reach its catch and leave the pick working.
+        var p = Open();
+        try
+        {
+            long ts = 1_000;
+            p.Vm.IsVisible = true;
+            Dwell(p, IdOf(p, "z"), ref ts);
+            Dwell(p, IdOf(p, "e"), ref ts);
+            Dwell(p, IdOf(p, "b"), ref ts);
+            Check.That(p.Vm.CurrentInput).IsEqualTo("zeb");
+
+            p.Log.ThrowOnIsEnabled = true;
+            try { p.Window.OnPredictionDwelled("pred_0"); }
+            finally { p.Log.ThrowOnIsEnabled = false; }
+
+            Check.WithCustomMessage("the bar pick did not happen")
+                .That(p.Vm.CurrentInput).IsNotEqualTo("zeb");
         }
         finally { p.Dispose(); }
     }
@@ -712,8 +757,10 @@ public class KeyboardE1PrivacyTests
             Check.That(plainKeys).HasSize(6);
 
             // 1. Key lines: identical, field for field (noise = clock values only).
+            // (sincekey is the one excluded timing field: the doubled key's second fire follows its first
+            // after the long stay, which is the documented residual below.)
             Check.WithCustomMessage("hallo and haben are distinguishable from their KEY lines going key to key")
-                .That(Signature(plainKeys)).ContainsExactly(Signature(doubledKeys).ToArray());
+                .That(Signature(plainKeys, "SinceKeyMs")).ContainsExactly(Signature(doubledKeys, "SinceKeyMs").ToArray());
 
             // 2. The residual: the doubled key's hold-on is the long stay between its two fires.
             var doubledHolds = doubled.Where(l => l.Event == "holdon").Select(l => (int)l.Props["Ms"]!).ToList();

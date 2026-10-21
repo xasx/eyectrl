@@ -109,6 +109,15 @@ FIELD = re.compile(r"(\w+)=(\S+)")
 SLIP_WINDOW_MS = 3000
 # Rule 2 (steward): >= 60 % of repairs adjacent, one consistent direction, in a region. Fractions are
 # (numerator, denominator) so the boundary is exact integer arithmetic, not float rounding.
+#
+# CHANCE RATE, read before acting on a "meets_rule2" flag: a region whose slips can only go EAST or
+# WEST (a row of keys with no row above or below it, e.g. a single-row sub-layout) trips this rule by
+# chance about 34 % of the time at n = 10 and about 12 % at n = 20 (review 02's figures for a bias-free
+# day, taken from its simulation, not re-derived here), because every adjacent slip there
+# is E or W and the top direction then holds >= 2/3 of them almost always. The thresholds only
+# separate bias from chance for regions with several neighbour directions. So ALWAYS check the
+# direction histogram (`directions`) of a flagged region before acting: a flag whose histogram is just
+# E and W says nothing about a bias.
 ADJACENT_SHARE_RULE2 = (3, 5)
 CONSISTENT_DIRECTION_SHARE = (2, 3)
 MIN_REGION_SLIPS = 10

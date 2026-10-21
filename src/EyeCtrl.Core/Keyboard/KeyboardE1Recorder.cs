@@ -97,6 +97,20 @@ public sealed class KeyboardE1Recorder
     /// <summary>The recorder's own monotonic time, in ms.</summary>
     public long NowMs => _clockMs();
 
+    private bool _tainted;
+
+    /// <summary>
+    /// True from the first muted (sensitive-context) call until the editing session ends. The keyboard's
+    /// record of typed text may then hold what was typed into a password field (focus can leave the
+    /// field by gaze, without any key the keyboard sees), so a mirror check must not report its length
+    /// or read the control. Cleared by <see cref="ClearTaint"/>, which the view-model calls when the
+    /// mirror is cleared.
+    /// </summary>
+    public bool Tainted => _tainted;
+
+    /// <summary>The mirror was cleared: what it held can no longer be a password.</summary>
+    public void ClearTaint() => _tainted = false;
+
     /// <summary>False when there is no logger or Information is filtered out.</summary>
     public bool Enabled => _logger is not null && _logger.IsEnabled(LogLevel.Information);
 
@@ -112,6 +126,8 @@ public sealed class KeyboardE1Recorder
         bool sensitive;
         try { sensitive = IsSensitive?.Invoke() == true; }
         catch (Exception) { sensitive = false; }
+
+        if (sensitive) _tainted = true;
 
         if (sensitive && !_inSensitive)
         {

@@ -141,6 +141,13 @@ public class KeyboardE1LoggingTests
             Hold(new PhysicalPoint(5000, 5000), CooldownMs + 100, inside: false);
         }
 
+        /// <summary>Key to key with no look-away: hold on the key, then stay through the cooldown.</summary>
+        public void TypeDirect(string keyId)
+        {
+            Hold(Positions[keyId], DwellMs);
+            Hold(Positions[keyId], CooldownMs + 60);
+        }
+
         public void Dispose() => Vm.Dispose();
     }
 
@@ -967,6 +974,94 @@ public class KeyboardE1LoggingTests
         rig.Type("key_0_1");
 
         Check.That(rig.Fired).ContainsExactly("key_0_1");
+    }
+
+    // ---- N1/N2: the password guard's holes (review 02) ----------------------------------------------
+
+    private static string FirstNonTextLineAfterAPassword(string lastPasswordKey)
+    {
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.TypeDirect("key_0_1");
+        rig.TypeDirect(lastPasswordKey);
+        rig.Sensitive.IsSensitiveActive = false;        // focus left the field by gaze (no key the keyboard sees)
+        rig.TypeDirect("space");
+        rig.TypeDirect("backspace");
+
+        var keys = rig.Log.Of("key");
+        Check.WithCustomMessage("nothing is logged inside the password field, then Space and Backspace")
+            .That(keys.Length).IsEqualTo(2);
+        var space = Fields(keys[0]);
+        Check.WithCustomMessage("Space after a password must withhold its saccade: " + keys[0])
+            .That(space["saccade"]).IsEqualTo("-");
+        Check.That(space["restarts"]).IsEqualTo("-1");
+        // The reset is not permanent: the next non-text key is measured from the Space again.
+        Check.That(Fields(keys[1])["saccade"]).IsEqualTo("mid");
+        return keys[0];
+    }
+
+    [Fact]
+    public void TheFirstNonTextKeyAfterAPassword_LogsNoSaccade_WhicheverKeyEndedThePassword()
+    {
+        var afterH = FirstNonTextLineAfterAPassword("key_0_0");   // 4 pitches from Space
+        var afterX = FirstNonTextLineAfterAPassword("key_0_2");   // 2 pitches from Space
+        Check.That(Strip(afterH)).IsEqualTo(Strip(afterX));
+    }
+
+    private static string CorrectedLetterLineAfterAPassword(string lastPasswordKey)
+    {
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.TypeDirect("key_0_1");
+        rig.TypeDirect(lastPasswordKey);
+        rig.Sensitive.IsSensitiveActive = false;
+        rig.TypeDirect("key_0_1");                      // the first letter after the password ...
+        rig.TypeDirect("backspace");                    // ... corrected inside its word
+        rig.TypeDirect("key_0_2");
+
+        var corr = rig.Log.Of("corr");
+        Check.That(corr).HasSize(1);
+        Check.WithCustomMessage("the corrected letter's arrival must not be measured from the password: " + corr[0])
+            .That(Fields(corr[0])["saccade"]).IsEqualTo("-");
+        var slip = rig.Log.Of("slip");
+        Check.That(slip).HasSize(1);
+        Check.That(Fields(slip[0])["saccade"]).IsEqualTo("-");
+        return Strip(corr[0]) + " | " + Strip(slip[0]);
+    }
+
+    [Fact]
+    public void TheFirstLetterAfterAPassword_WhenCorrected_LogsNoSaccadeFromThePassword()
+    {
+        Check.That(CorrectedLetterLineAfterAPassword("key_0_0"))
+            .IsEqualTo(CorrectedLetterLineAfterAPassword("key_0_2"));
+    }
+
+    private static string Strip(string line) =>
+        string.Join(" ", line.Split(' ').Where(t => !t.StartsWith("seq=") && !t.StartsWith("ts=")));
+
+    [Fact]
+    public void AMirrorCheckAfterLeavingAPasswordFieldByGaze_ReportsSuppressed_WithNoLength_UntilTheSessionEnds()
+    {
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        foreach (var key in new[] { "key_0_0", "key_0_1", "key_0_2", "key_0_1" })   // "haxa"
+            rig.TypeDirect(key);
+        rig.Sensitive.IsSensitiveActive = false;        // gaze-clicked "Log in": no keyboard key ended the field
+        rig.Vm.BeginMirrorCheck("hide");
+
+        var first = rig.Log.Of("mirror");
+        Check.That(first).HasSize(1);
+        Check.WithCustomMessage("the mirror line after a password must not carry its length: " + first[0])
+            .That(first[0]).Contains("res=suppressed").And.Contains("mirrorlen=0");
+
+        // Once the session ends (Enter) the mirror is a fresh one and is measured again.
+        rig.Vm.HandleEnter();
+        rig.TypeDirect("key_0_1");
+        rig.Vm.BeginMirrorCheck("hide");
+        var second = rig.Log.Of("mirror");
+        Check.That(second).HasSize(2);
+        Check.That(second[1]).Contains("mirrorlen=1");
+        Check.That(second[1]).Not.Contains("res=suppressed");
     }
 
     [Fact]

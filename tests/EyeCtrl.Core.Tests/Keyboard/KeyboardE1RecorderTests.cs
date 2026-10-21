@@ -540,6 +540,25 @@ public class KeyboardE1RecorderTests
     // ---- F10: logging never reaches the keyboard -----------------------------------------------
 
     [Fact]
+    public void ASensitiveContext_TaintsTheRecorder_UntilTheTaintIsCleared()
+    {
+        var sensitive = false;
+        var recorder = new KeyboardE1Recorder(new Capture(), () => 0) { IsSensitive = () => sensitive };
+        Check.That(recorder.Tainted).IsFalse();
+        Check.That(recorder.Muted()).IsFalse();
+        Check.That(recorder.Tainted).IsFalse();
+
+        sensitive = true;
+        Check.That(recorder.Muted()).IsTrue();
+        sensitive = false;
+        Check.That(recorder.Muted()).IsFalse();
+        Check.That(recorder.Tainted).IsTrue();                   // focus moved on; the record is still suspect
+
+        recorder.ClearTaint();
+        Check.That(recorder.Tainted).IsFalse();
+    }
+
+    [Fact]
     public void AFailingLogger_NeverThrowsOutOfTheRecorder()
     {
         var recorder = new KeyboardE1Recorder(new ThrowingLogger());

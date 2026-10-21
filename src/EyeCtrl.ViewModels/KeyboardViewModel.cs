@@ -597,7 +597,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _slipArmed = false;
         _holdOnActive = false;
         _e1Restarts = 0;
-        _e1PreviousFireWasText = false;
+        // The next non-text key's saccade would be measured from the last key typed INSIDE the muted
+        // field: forget that fire point, and withhold the next line's saccade as after a text key.
+        _e1HasLastFire = false;
+        _e1PreviousFireWasText = true;
         LastKeySeq = 0;
     }
 
@@ -1002,6 +1005,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _previousWord = null;
         _recentText = "";
         _reopenedUnmodified = false;
+        E1.ClearTaint();   // E1 only: the mirror no longer holds anything a password could have left
     }
 
     private static bool IsCopyChord(IReadOnlySet<ModifierKey> modifiers, string key) =>

@@ -77,7 +77,7 @@ public sealed class KeyboardMirrorChecker
                 return Task.CompletedTask;
             if (mirror.Length == 0)
                 return Report(at, Empty, 0, 0, 0);
-            if (_sensitive?.IsSensitiveActive == true)
+            if (_sensitive?.IsSensitiveActive == true || _recorder.Tainted)
                 return Report(at, Suppressed, 0, 0, 0);   // not even the length: a password's length is content
             if (_probe is null)
                 return Report(at, Unsupported, mirror.Length, 0, 0);

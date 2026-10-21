@@ -151,6 +151,30 @@ public class KeyboardMirrorCheckerTests
     }
 
     [Fact]
+    public async Task AfterAMutedKey_TheMirrorIsTainted_UntilTheSessionEnds_EvenWhenFocusMovedOn()
+    {
+        // Focus can leave a password field by gaze, with no key the keyboard sees: the mirror still holds
+        // what was typed there. A check after that must not report its length or read the control.
+        var log = new Capture();
+        var probe = new FakeProbe { Read = _ => "hunter2" };
+        var recorder = new KeyboardE1Recorder(log) { IsSensitive = () => true };
+        Check.That(recorder.Muted()).IsTrue();                   // a key typed inside the password field
+        recorder.IsSensitive = () => false;                      // focus left the field
+        var checker = new KeyboardMirrorChecker(recorder, probe, null, TimeSpan.FromSeconds(5));
+
+        await Done(checker.Begin("hide", "hunter2"));
+
+        Check.That(recorder.Tainted).IsTrue();
+        Check.That(probe.Reads).IsEqualTo(0);
+        Check.That(log.Snapshot().Where(l => l.StartsWith("KB-E1 mirror", StringComparison.Ordinal))).ContainsExactly(
+            "KB-E1 mirror at=hide res=suppressed mirrorlen=0 ctllen=0 common=0");
+
+        recorder.ClearTaint();                                   // the session ended: the mirror was cleared
+        await Done(checker.Begin("hide", "ok"));
+        Check.That(probe.Reads).IsEqualTo(1);
+    }
+
+    [Fact]
     public async Task AnEmptyMirror_IsEmpty_AndNothingIsRead()
     {
         var log = new Capture();

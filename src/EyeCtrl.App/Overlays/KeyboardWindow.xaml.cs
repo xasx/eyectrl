@@ -40,6 +40,14 @@ public partial class KeyboardWindow : OverlayWindow
     private static Brush ForegroundLMSuggestion => Tokens.BrushTextPrimary;
 
     private readonly DwellDetector _predictionDwellDetector;
+    // Per-slot leave-before-re-arm: a slot that just fired is held out of dwell (and so shows no
+    // progress) until the gaze has been continuously outside its live cell for 120 ms. Without it
+    // the after-pick re-render puts a new suggestion under the resting gaze and one long look
+    // picks one word per cooldown cycle.
+    private readonly PredictionBarRearmLatch _predictionRearm = new();
+    // One delegate for every sample: excludes latched slots from the detector's nearest-target
+    // selection, so they accumulate nothing while latched and start from 0 after the latch clears.
+    private readonly Func<DwellTarget, bool> _predictionTargetFilter;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     // One mutable brush per key, installed as its Container.Background and mutated in place by
     // ResetKeyVisual/UpdateModifierVisuals on a STATE change (modifier active/inactive).
@@ -101,6 +109,7 @@ public partial class KeyboardWindow : OverlayWindow
         _dwellRegistry = dwellRegistry;
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
             context: DwellContext.KeyboardPrediction, sink: sink);
+        _predictionTargetFilter = target => !_predictionRearm.IsLatched(target.Id);
         // F1: a resize re-anchors the docked edge (a grown function layout must not run off the
         // work area). See Place/Keep.
         SizeChanged += (_, _) => RepositionOnScreen(KeyboardMove.Keep);
@@ -110,6 +119,8 @@ public partial class KeyboardWindow : OverlayWindow
         DpiChanged += (_, _) => _viewModel?.ArmDwellSuppressionForMove();
         _predictionDwellDetector.TargetActivated += OnPredictionDwelled;
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
+        // Hiding or re-showing the keyboard is a session change: no slot may stay dead across it.
+        IsVisibleChanged += (_, _) => ResetPredictionRearm();
         // Prediction dwell times come from KeyboardPredictionDwellMs, so the validated span is the
         // keyboard guard family.
         _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
@@ -152,11 +163,18 @@ public partial class KeyboardWindow : OverlayWindow
         _emojiManager.SkinToneChanged += tone => SkinToneChanged?.Invoke(tone);
     }
 
+    /// <summary>
+    /// Clears every prediction-bar latch. The single body both the hide/re-show subscription and
+    /// the layout reload go through, so the tested reload path covers the clear itself.
+    /// </summary>
+    private void ResetPredictionRearm() => _predictionRearm.Clear();
+
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs)
     {
         _layout = layout;
         _keySize = BaseKeySize * keySizeMultiplier;
         _predictionDwellMs = predictionDwellMs;
+        ResetPredictionRearm();
 
         _predictionDwellDetector.SetCooldown(cooldownMs);
 
@@ -513,6 +531,10 @@ public partial class KeyboardWindow : OverlayWindow
         var gazeInsideKeyArea = TryGetScreenRect(KeyRows, out var keyArea)
             && keyArea.Contains(screenPoint.X, screenPoint.Y);
 
+        // Every sample advances the prediction bar's leave clocks, including samples on the key
+        // grid: a gaze that moved to the keys is outside the fired slot and must count as a leave.
+        _predictionRearm.Update(screenPoint, timestampMicroseconds, _predictionDwellDetector);
+
         if (_viewModel.IsEmojiMode)
         {
             if (!gazeInsideKeyArea)
@@ -526,7 +548,7 @@ public partial class KeyboardWindow : OverlayWindow
         else if (!gazeInsideKeyArea)
         {
             UpdatePredictionTargetPositions();
-            _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
+            _predictionDwellDetector.Update(screenPoint, timestampMicroseconds, _predictionTargetFilter);
         }
         else
         {
@@ -1001,6 +1023,16 @@ public partial class KeyboardWindow : OverlayWindow
             && index >= 0 && index < _renderedPredictions.Count)
         {
             _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
+            // The target still exists here (UpdatePredictions clears it), so capture its LIVE rect
+            // for the samples where the re-rendered bar has no target for this slot.
+            PhysicalRect? latchedRect = null;
+            foreach (var target in _predictionDwellDetector.Targets)
+            {
+                if (target.Id != targetId) continue;
+                latchedRect = target.Bounds;
+                break;
+            }
+            _predictionRearm.Latch(targetId, latchedRect);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
                                            // sound failure can never leave the bar stale (S1)

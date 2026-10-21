@@ -90,6 +90,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private KeyboardLayout? _layout;
     private string? _previousWord;
     private string _recentText = ""; // Track recent text for smart capitalization
+    // A deletion reached committed text since the previous word was set, so that word no longer
+    // describes what precedes the cursor: the next commit learns no pair (and clears this). The
+    // prediction context itself is deliberately unchanged (word-backspace-context ticket).
+    private bool _previousWordStale;
 
     public event Action<string>? KeyDwellCompleted;
 
@@ -421,7 +425,6 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (!HasSystemModifiers)
         {
             CurrentInput += actualOutput;
-            _orchestrator?.LearnWord(actualOutput);
         }
         Messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -436,6 +439,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             // User is deleting previously committed text, update _recentText
             _recentText = _recentText[..^1];
+            _previousWordStale = true;
         }
         Messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -454,7 +458,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             if (CurrentInput.Length > 0)
                 CurrentInput = TrimLastWord(CurrentInput);
             else if (_recentText.Length > 0)
+            {
                 _recentText = TrimLastWord(_recentText);
+                _previousWordStale = true;
+            }
         }
         var modifiers = new HashSet<ModifierKey>(_activeModifiers) { ModifierKey.Ctrl };
         Messenger.Send(new KeyActivatedMessage("\b", modifiers));
@@ -472,7 +479,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void HandleAddWord()
     {
         if (CurrentInput.Length == 0) return;
-        _orchestrator?.LearnWord(CurrentInput);
+        // An explicit one-word teach keeps a deliberate trailing period ("Bsp." -> "bsp.").
+        LearnCommittedWord(CurrentInput, keepDeliberatePeriod: true);
     }
 
     /// <summary>
@@ -496,6 +504,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             CurrentInput = "";
             _previousWord = null;
+            _previousWordStale = false;
             _recentText = ""; // Clear on new paragraph/line
         }
         Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
@@ -508,7 +517,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             if (CurrentInput.Length > 0)
             {
-                _orchestrator?.LearnWord(CurrentInput);
+                // Learn the word the way the pair keys store it: trailing/leading punctuation is
+                // not part of the word ("Schöneck," must be learned as "Schöneck"), otherwise the
+                // dictionary holds a form the normalised pair key can never find.
+                LearnCommittedWord(CurrentInput);
+                LearnPair(_previousWord, CurrentInput);
                 _previousWord = CurrentInput;
                 AppendRecentText(CurrentInput);
             }
@@ -517,6 +530,168 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         Messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
+
+    /// <summary>
+    /// Learns the pair (previous word -> first committed word) from what the user typed. Skipped
+    /// when the previous word is missing or ends a sentence, when either side is empty after
+    /// trimming punctuation, or when a deletion reached committed text since the previous word
+    /// was set (that state is cleared by the commit either way). The prediction context itself
+    /// is deliberately untouched.
+    /// </summary>
+    private void LearnPair(string? previousWord, string word)
+    {
+        var stale = _previousWordStale;
+        _previousWordStale = false;
+        if (stale) return;
+        if (previousWord is null || BigramModel.NormalizeWord(previousWord) is null) return;
+        if (BigramModel.NormalizeWord(word) is null) return;
+        if (EndsWithSentencePunctuation(previousWord)) return;
+
+        _orchestrator?.LearnPair(previousWord, word);
+    }
+
+    /// <summary>
+    /// True when the word ends a sentence, even behind closing quotes or brackets ("Ende.\"",
+    /// "Ende.)", "Ende.»"). Only the trailing closers are skipped; their presence alone does not
+    /// end a sentence ("Hallo" and James' still learn their pairs).
+    /// </summary>
+    private static bool EndsWithSentencePunctuation(string word)
+    {
+        var end = word.Length;
+        while (end > 0 && word[end - 1] is '"' or '\'' or '“' or '”' or '‘' or '’'
+                   or '«' or '»' or '‹' or '›' or ')' or ']' or '}')
+            end--;
+
+        return end > 0 && word[end - 1] is '.' or '!' or '?' or '…';
+    }
+
+    /// <summary>
+    /// Boundary/display trim - NOT the learn trim. Learn paths pass the RAW token to
+    /// <see cref="LearnCommittedWord"/> / <see cref="LearnCommittedSequence"/>, because the
+    /// abbreviation rules need the period that this trim removes. Strips leading/trailing
+    /// punctuation, keeping the typed case and inner apostrophes/hyphens - the same boundary rule
+    /// <see cref="BigramModel.NormalizeWord"/> applies to pair keys. Returns null when nothing
+    /// word-like remains.
+    /// </summary>
+    private static string? TrimWordBoundaries(string? word)
+    {
+        if (string.IsNullOrWhiteSpace(word)) return null;
+
+        var (start, end) = WordSpan(word);
+        return end <= start ? null : word[start..end];
+    }
+
+    /// <summary>The raw token's word-like span: first/last letter-or-digit indexes.</summary>
+    private static (int Start, int End) WordSpan(string word)
+    {
+        var start = 0;
+        while (start < word.Length && !char.IsLetterOrDigit(word[start])) start++;
+        var end = word.Length;
+        while (end > start && !char.IsLetterOrDigit(word[end - 1])) end--;
+        return (start, end);
+    }
+
+    /// <summary>
+    /// The single learn path for one committed word (Space, a selection, Add Word). Applies the
+    /// shared trim and learns the result; returns the learned form, or null when the raw token
+    /// does not qualify. Pair learning stays on the RAW word - only the dictionary entry is trimmed.
+    /// <paramref name="keepDeliberatePeriod"/> is Add Word's explicit one-word teach: it keeps a
+    /// single trailing "." on a letters-only word ("Bsp."), where typing would strip it.
+    /// </summary>
+    private string? LearnCommittedWord(string rawWord, bool keepDeliberatePeriod = false)
+    {
+        if (TrimLearnedWord(rawWord, keepDeliberatePeriod) is not { } word) return null;
+        _orchestrator?.LearnWord(word);
+        return word;
+    }
+
+    /// <summary>
+    /// The sequence counterpart of <see cref="LearnCommittedWord"/> (multi-word selections):
+    /// applies the shared trim to every token and learns the qualifying ones in one sequence.
+    /// </summary>
+    private void LearnCommittedSequence(IReadOnlyList<string> rawWords)
+    {
+        var learnedWords = new List<string>(rawWords.Count);
+        foreach (var rawWord in rawWords)
+            if (TrimLearnedWord(rawWord) is { } word)
+                learnedWords.Add(word);
+
+        if (learnedWords.Count > 0)
+            _orchestrator?.LearnSequence(learnedWords.ToArray());
+    }
+
+    /// <summary>
+    /// The learned form of a word, beyond the boundary trim. The final period is kept only when
+    /// the character right after the trimmed span is a period AND one of these holds:
+    /// <list type="bullet">
+    /// <item>an inner-dot abbreviation: every dot-separated segment is 1-2 letters ("z.B.",
+    /// "d.h.", "u.a.") - so a dotted address/version/domain keeps no sentence period;</item>
+    /// <item>trimmed + "." is in the language's abbreviation list ("usw.", "bzw."), matched
+    /// case-insensitively;</item>
+    /// <item>Add Word's deliberate period on a letters-only word.</item>
+    /// </list>
+    /// A token that trims down to one character is not learned at all ("C#" must not become a
+    /// junk word "c"), and a period is never invented where the raw token had none.
+    /// </summary>
+    private string? TrimLearnedWord(string rawWord, bool keepDeliberatePeriod = false)
+    {
+        var (start, end) = WordSpan(rawWord);
+        if (end <= start) return null;
+
+        var trimmed = rawWord[start..end];
+        if (trimmed.Length == 1) return null;
+
+        var endsWithPeriod = end < rawWord.Length && rawWord[end] == '.';
+        if (endsWithPeriod
+            && (IsInnerDotAbbreviation(trimmed)
+                || IsAbbreviation(trimmed + ".")
+                || (keepDeliberatePeriod && IsLettersOnly(trimmed))))
+        {
+            return trimmed + ".";
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Every dot-separated segment is 1-2 letters ("z.B", "d.h", "u.a", "z.T", "u.U") - the only
+    /// inner-dot shape that is an abbreviation rather than an address, version or filename.
+    /// </summary>
+    private static bool IsInnerDotAbbreviation(string trimmed)
+    {
+        if (!trimmed.Contains('.')) return false;
+
+        var segmentLength = 0;
+        foreach (var ch in trimmed)
+        {
+            if (ch == '.')
+            {
+                if (segmentLength is < 1 or > 2) return false;
+                segmentLength = 0;
+                continue;
+            }
+
+            if (!char.IsLetter(ch)) return false;
+            segmentLength++;
+        }
+
+        return segmentLength is >= 1 and <= 2;
+    }
+
+    private static bool IsLettersOnly(string text)
+    {
+        foreach (var ch in text)
+            if (!char.IsLetter(ch)) return false;
+        return text.Length > 0;
+    }
+
+    /// <summary>
+    /// Case-insensitive membership in the language's abbreviation set. The set is an
+    /// OrdinalIgnoreCase <see cref="HashSet{T}"/> (FileDictionaryProvider), so Contains is the
+    /// same comparison the predictor uses for sentence-start capitalisation.
+    /// </summary>
+    private bool IsAbbreviation(string candidate)
+        => _orchestrator?.WordPredictor.Abbreviations.Contains(candidate) ?? false;
 
     public void HandleTab()
     {
@@ -672,9 +847,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // user actually typed; only the last word can serve as bigram context for the next one.
         var words = word.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (words.Length > 1)
-            _orchestrator?.LearnSequence(words);
+        {
+            // Learn the selection's words without their boundary punctuation, like Space does.
+            LearnCommittedSequence(words);
+            // LearnSequence covers the pairs inside the selection; the joining pair is extra and
+            // stays on the RAW words, like every other pair.
+            LearnPair(_previousWord, words[0]);
+        }
         else
-            _orchestrator?.LearnWord(word);
+        {
+            LearnCommittedWord(word);
+            LearnPair(_previousWord, word);
+        }
 
         var deleteCount = CurrentInput.Length;
         CurrentInput = "";

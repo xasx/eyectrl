@@ -724,7 +724,9 @@ public partial class KeyboardWindow : OverlayWindow
 
         if (lowerAction == "tab")
         {
+            // Tab ends the editing session; the bar must stop offering completions of the old word.
             _viewModel.HandleTab();
+            UpdatePredictions();
             return;
         }
 
@@ -747,6 +749,7 @@ public partial class KeyboardWindow : OverlayWindow
         if (lowerAction.StartsWith("shortcut:"))
         {
             _viewModel.HandleShortcut(action[9..]);
+            UpdatePredictions();   // a paste/undo/cut ends the editing session: refresh the bar
             return;
         }
 
@@ -755,6 +758,7 @@ public partial class KeyboardWindow : OverlayWindow
         {
             var keyName = lowerAction[4..];  // Extract the normalized key name after "key:"
             _viewModel.HandleSpecialKey(keyName);
+            UpdatePredictions();   // arrows/Home/End/Delete... end the editing session: refresh the bar
             return;
         }
 

@@ -10,6 +10,7 @@ using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using System.Collections.Generic;
+using System.Globalization;
 
 public partial class KeyboardViewModel : MessengerViewModelBase,
     IRecipient<ShowKeyboardMessage>,
@@ -90,10 +91,23 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private KeyboardLayout? _layout;
     private string? _previousWord;
     private string _recentText = ""; // Track recent text for smart capitalization
-    // A deletion reached committed text since the previous word was set, so that word no longer
-    // describes what precedes the cursor: the next commit learns no pair (and clears this). The
-    // prediction context itself is deliberately unchanged (word-backspace-context ticket).
-    private bool _previousWordStale;
+    // The text mirror (_recentText + CurrentInput) describes what the keyboard itself typed at the
+    // app's caret, within one editing session. It is the only thing a prediction pick trusts: the
+    // pick deletes CurrentInput's length from whatever has focus, so CurrentInput may only ever hold
+    // characters the keyboard placed. The session ends on Enter, on hide, and on every key that moves
+    // the caret or edits the text behind the mirror's back (EndEditingSession).
+    //
+    // True while CurrentInput is a word that Backspace re-opened from committed text and that has not
+    // been touched since: re-committing it as it was is not new evidence, so it learns nothing.
+    private bool _reopenedUnmodified;
+
+    private const int RecentTextLimit = 100;
+
+    /// <summary>The committed half of the text mirror: what precedes <see cref="CurrentInput"/>.</summary>
+    internal string RecentText => _recentText;
+
+    /// <summary>The word before <see cref="CurrentInput"/> — the prediction's bigram context.</summary>
+    internal string? PreviousWord => _previousWord;
 
     public event Action<string>? KeyDwellCompleted;
 
@@ -194,6 +208,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _lastSampleTimestampUs = 0;
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
+
+        // The focus may have moved while the keyboard was away, and the singleton VM outlives the
+        // hidden window: a mirror kept across the hide would let the next pick delete the wrong
+        // text. The owner's rule says exiting ends the editing session.
+        EndEditingSession();
 
         IsEmojiMode = false;
         ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
@@ -425,48 +444,118 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (!HasSystemModifiers)
         {
             CurrentInput += actualOutput;
+            _reopenedUnmodified = false;
+        }
+        else if (!IsCopyChord(_activeModifiers, actualOutput))
+        {
+            // An armed Ctrl+V pastes, Ctrl+Z undoes, Win+<key> does anything: the mirror no longer
+            // describes the text under the caret.
+            EndEditingSession();
         }
         Messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
         AutoReturnIfNeeded();
     }
 
+    /// <summary>
+    /// Backspace deletes exactly one visible character in the app, always, so the mirror trims one
+    /// grapheme to match. When the word under the caret is gone (CurrentInput empty) the press eats
+    /// the committed text before it, and once that leaves a letter or digit at the end, the whole
+    /// trailing run moves back into <see cref="CurrentInput"/>: the previous word is open for editing
+    /// again, the bar follows it, and a pick replaces it in place. The keystroke is always sent PLAIN
+    /// — an armed Ctrl would turn it into a word deletion and an armed Alt into Undo, neither of which
+    /// the mirror could follow.
+    ///
+    /// <para>
+    /// A press into a word that is already OPEN edits it in place and never re-splits the mirror:
+    /// the open word is whatever the user typed since the last separator ("don'r", "E-Maik"), and
+    /// re-splitting at the trailing letter/digit run would commit "don'" and learn "t" on Space.
+    /// Only the re-open — the press that finds nothing open — moves a run of committed text back.
+    /// </para>
+    /// </summary>
     public void HandleBackspace()
     {
-        if (!HasSystemModifiers && CurrentInput.Length > 0)
-            CurrentInput = CurrentInput[..^1];
-        else if (!HasSystemModifiers && CurrentInput.Length == 0 && _recentText.Length > 0)
+        if (CurrentInput.Length > 0)
         {
-            // User is deleting previously committed text, update _recentText
-            _recentText = _recentText[..^1];
-            _previousWordStale = true;
+            CurrentInput = TrimLastGrapheme(CurrentInput);
+            _reopenedUnmodified = false;
         }
-        Messenger.Send(new KeyActivatedMessage("\b", ModifiersSnapshot));
+        else
+        {
+            ApplyDeletion(TrimLastGrapheme);
+        }
+        Messenger.Send(new KeyActivatedMessage("\b"));
         ClearOneShotModifiers();
     }
 
     /// <summary>
     /// Ctrl+Backspace word deletion, mirroring <see cref="HandleBackspace"/>: the keystroke goes
-    /// to the focused app while <see cref="CurrentInput"/> (and, once that is empty, the committed
-    /// text) loses the same word, so the prediction context keeps tracking what the target app
-    /// now shows.
+    /// to the focused app while the mirror loses the same word, so the prediction context keeps
+    /// tracking what the target app now shows. The word is gone (the gesture stays destructive:
+    /// Backspace re-opens, this deletes). Sent as exactly Ctrl+Backspace whatever else is armed.
+    ///
+    /// <para>
+    /// Like Backspace, an already OPEN word that still holds a letter or digit is edited in place:
+    /// the committed text always ends in a separator, so the app's Ctrl+Backspace stops inside the
+    /// open token ("E-Maik" loses "Maik", "don'r" loses "r") and the token stays open — re-splitting
+    /// would commit "E-" and learn "Mail" alone. Only an open token with NO letter or digit (",", "?")
+    /// lets the deletion reach the committed text, so only that case needs the whole mirror.
+    /// </para>
     /// </summary>
     public void HandleDeleteWord()
     {
-        if (!HasSystemModifiers)
+        if (CurrentInput.Any(char.IsLetterOrDigit))
         {
-            if (CurrentInput.Length > 0)
-                CurrentInput = TrimLastWord(CurrentInput);
-            else if (_recentText.Length > 0)
-            {
-                _recentText = TrimLastWord(_recentText);
-                _previousWordStale = true;
-            }
+            CurrentInput = TrimLastWord(CurrentInput);
+            _reopenedUnmodified = false;
         }
-        var modifiers = new HashSet<ModifierKey>(_activeModifiers) { ModifierKey.Ctrl };
-        Messenger.Send(new KeyActivatedMessage("\b", modifiers));
+        else
+        {
+            ApplyDeletion(TrimLastWord);
+        }
+        Messenger.Send(new KeyActivatedMessage("\b", new HashSet<ModifierKey> { ModifierKey.Ctrl }));
         ClearOneShotModifiers();
     }
+
+    /// <summary>
+    /// Applies one deletion to the WHOLE mirror and restores its invariants: <see cref="CurrentInput"/>
+    /// is the trailing letter/digit run of the mirror, <c>_recentText</c> is everything before it, and
+    /// <c>_previousWord</c> is the last word before that (or null). Used by the re-open (Backspace with
+    /// nothing open) and by Word-Backspace, which deletes across the word boundary whatever is open.
+    /// </summary>
+    private void ApplyDeletion(Func<string, string> trim)
+    {
+        var hadOpenWord = CurrentInput.Length > 0;
+        var mirror = trim(_recentText + CurrentInput);
+
+        var split = TrailingWordStart(mirror);
+        _recentText = mirror[..split];
+        CurrentInput = mirror[split..];
+        _previousWord = ComputePreviousWord(_recentText);
+
+        // A word that was re-opened (nothing was open before this press) is untouched until the user
+        // edits it; any press that reaches into an already open word is an edit.
+        _reopenedUnmodified = !hadOpenWord && CurrentInput.Length > 0;
+    }
+
+    /// <summary>
+    /// The mirror stops being believed: Enter, hide, and every key that moves the caret, changes the
+    /// focus or edits the text without the mirror seeing it. Nothing is learned from the cleared text.
+    /// </summary>
+    private void EndEditingSession()
+    {
+        CurrentInput = "";
+        _previousWord = null;
+        _recentText = "";
+        _reopenedUnmodified = false;
+    }
+
+    private static bool IsCopyChord(IReadOnlySet<ModifierKey> modifiers, string key) =>
+        key.Equals("c", StringComparison.OrdinalIgnoreCase)
+        && modifiers.Contains(ModifierKey.Ctrl)
+        && !modifiers.Contains(ModifierKey.Alt)
+        && !modifiers.Contains(ModifierKey.Win)
+        && !modifiers.Contains(ModifierKey.Shift);
 
     /// <summary>
     /// The "Add Word" layout key (Fn clipboard row): teaches the predictor the word currently
@@ -498,15 +587,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         return text[..start];
     }
 
+    /// <summary>
+    /// Every Enter ends the editing session, modified or not: Ctrl+Enter sends the message in Teams
+    /// and Outlook, Alt+Enter opens properties — either way the text under the caret is no longer the
+    /// text the mirror describes, and a later pick would delete whatever the app shows now.
+    /// </summary>
     public void HandleEnter()
     {
-        if (!HasSystemModifiers)
-        {
-            CurrentInput = "";
-            _previousWord = null;
-            _previousWordStale = false;
-            _recentText = ""; // Clear on new paragraph/line
-        }
+        EndEditingSession();
         Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
@@ -517,15 +605,34 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             if (CurrentInput.Length > 0)
             {
-                // Learn the word the way the pair keys store it: trailing/leading punctuation is
-                // not part of the word ("Schöneck," must be learned as "Schöneck"), otherwise the
-                // dictionary holds a form the normalised pair key can never find.
-                LearnCommittedWord(CurrentInput);
-                LearnPair(_previousWord, CurrentInput);
+                // Re-committing a re-opened word the user never touched is not new evidence: no
+                // frequency bump and no pair. An edited word learns its final form and the pair
+                // with the previous word as it is NOW (recomputed on every deletion).
+                if (!_reopenedUnmodified)
+                {
+                    // Learn the word the way the pair keys store it: trailing/leading punctuation is
+                    // not part of the word ("Schöneck," is learned as "Schöneck"); the pair stays raw.
+                    LearnCommittedWord(CurrentInput);
+                    LearnPair(_previousWord, CurrentInput);
+                }
                 _previousWord = CurrentInput;
                 AppendRecentText(CurrentInput);
             }
+            else
+            {
+                // The app still receives the space, so the mirror must hold it too — a double space
+                // would otherwise leave the mirror one character short, and a re-opened word's pick
+                // would then delete the space instead of the word's last letter.
+                AppendRecent(" ");
+            }
             CurrentInput = "";
+            _reopenedUnmodified = false;
+        }
+        else
+        {
+            // Ctrl/Alt/Win+Space is no space (Alt+Space opens the window menu, Win+Space switches the
+            // input language, Ctrl+Space toggles an IME): the app is somewhere the mirror cannot see.
+            EndEditingSession();
         }
         Messenger.Send(new KeyActivatedMessage(" ", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -533,16 +640,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// Learns the pair (previous word -> first committed word) from what the user typed. Skipped
-    /// when the previous word is missing or ends a sentence, when either side is empty after
-    /// trimming punctuation, or when a deletion reached committed text since the previous word
-    /// was set (that state is cleared by the commit either way). The prediction context itself
-    /// is deliberately untouched.
+    /// when the previous word is missing or ends a sentence, or when either side is empty after
+    /// trimming punctuation. The previous word is recomputed from the surviving text on every
+    /// deletion, so it is never a word the user has deleted. The prediction context itself is
+    /// deliberately untouched.
     /// </summary>
     private void LearnPair(string? previousWord, string word)
     {
-        var stale = _previousWordStale;
-        _previousWordStale = false;
-        if (stale) return;
         if (previousWord is null || BigramModel.NormalizeWord(previousWord) is null) return;
         if (BigramModel.NormalizeWord(word) is null) return;
         if (EndsWithSentencePunctuation(previousWord)) return;
@@ -693,8 +797,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private bool IsAbbreviation(string candidate)
         => _orchestrator?.WordPredictor.Abbreviations.Contains(candidate) ?? false;
 
+    /// <summary>Tab moves the focus (or inserts a tab): the mirror no longer describes the caret.</summary>
     public void HandleTab()
     {
+        EndEditingSession();
         Messenger.Send(new KeyActivatedMessage("\t", ModifiersSnapshot));
         ClearOneShotModifiers();
     }
@@ -846,30 +952,46 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // LearnSequence learns the individual words plus their bigrams and phrase, which is what the
         // user actually typed; only the last word can serve as bigram context for the next one.
         var words = word.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length > 1)
+        // Picking the very word that Backspace re-opened, untouched, replaces it with itself: no new
+        // evidence, so no frequency bump and no pair (as for Space after an unmodified re-open).
+        var replacesItself = _reopenedUnmodified && string.Equals(word, CurrentInput, StringComparison.Ordinal);
+        if (!replacesItself)
         {
-            // Learn the selection's words without their boundary punctuation, like Space does.
-            LearnCommittedSequence(words);
-            // LearnSequence covers the pairs inside the selection; the joining pair is extra and
-            // stays on the RAW words, like every other pair.
-            LearnPair(_previousWord, words[0]);
-        }
-        else
-        {
-            LearnCommittedWord(word);
-            LearnPair(_previousWord, word);
+            if (words.Length > 1)
+            {
+                // Learn the selection's words without their boundary punctuation, like Space does.
+                LearnCommittedSequence(words);
+                // LearnSequence covers the pairs inside the selection; the joining pair is extra and
+                // stays on the RAW words, like every other pair.
+                LearnPair(_previousWord, words[0]);
+            }
+            else
+            {
+                LearnCommittedWord(word);
+                LearnPair(_previousWord, word);
+            }
         }
 
-        var deleteCount = CurrentInput.Length;
+        // One Backspace per grapheme: the app deletes a whole emoji with one press, so counting
+        // UTF-16 units would delete a character the keyboard never placed.
+        var deleteCount = new StringInfo(CurrentInput).LengthInTextElements;
         CurrentInput = "";
+        _reopenedUnmodified = false;
         _previousWord = words.Length > 0 ? words[^1] : word;
         AppendRecentText(word);
         Messenger.Send(new PredictionSelectedMessage(word, deleteCount));
         AutoReturnIfNeeded();
     }
 
+    /// <summary>
+    /// Named keys (arrows, Home/End, PageUp/PageDown, Delete, Escape, Insert, F1–F12) move the caret,
+    /// change the focus or edit the text behind the mirror, so they end the editing session.
+    /// PrintScreen copies the screen and changes no text, so it does not.
+    /// </summary>
     public void HandleSpecialKey(string keyName)
     {
+        if (!keyName.Equals("printscreen", StringComparison.OrdinalIgnoreCase))
+            EndEditingSession();
         Messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
         ClearOneShotModifiers();
     }
@@ -890,6 +1012,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             var modifiers = new HashSet<ModifierKey>(_activeModifiers);
             modifiers.UnionWith(chordModifiers);
 
+            // Paste, undo, redo, cut, select-all and anything else a layout author binds change the
+            // text or the selection behind the mirror. Copy changes nothing.
+            if (!IsCopyChord(modifiers, key))
+                EndEditingSession();
+
             if (key.Length == 1)
                 Messenger.Send(new KeyActivatedMessage(key, modifiers));
             else
@@ -904,11 +1031,69 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>
     /// Appends text to recent text buffer for capitalization context, maintaining ~100 char limit.
     /// </summary>
-    private void AppendRecentText(string text)
+    private void AppendRecentText(string text) => AppendRecent(text + " ");
+
+    /// <summary>
+    /// Appends text the app now holds to the committed mirror, keeping the last
+    /// <see cref="RecentTextLimit"/> characters. The cut never leaves half a grapheme or half a word at
+    /// the front: a half word would be re-opened by Backspace and a pick would then complete a prefix
+    /// the app does not show as a word.
+    /// </summary>
+    private void AppendRecent(string text)
     {
-        _recentText += text + " ";
-        if (_recentText.Length > 100)
-            _recentText = _recentText[^100..];
+        var full = _recentText + text;
+        if (full.Length <= RecentTextLimit)
+        {
+            _recentText = full;
+            return;
+        }
+
+        var cut = full.Length - RecentTextLimit;
+        var starts = StringInfo.ParseCombiningCharacters(full);
+        // The first grapheme boundary at or after the cut.
+        var keepFrom = starts.FirstOrDefault(i => i >= cut, full.Length);
+        // A cut inside a run of letters/digits leaves a partial word: drop the rest of that run.
+        if (keepFrom > 0 && keepFrom < full.Length
+            && char.IsLetterOrDigit(full[keepFrom - 1]) && char.IsLetterOrDigit(full[keepFrom]))
+        {
+            while (keepFrom < full.Length && char.IsLetterOrDigit(full[keepFrom])) keepFrom++;
+        }
+        _recentText = full[keepFrom..];
+    }
+
+    /// <summary>One grapheme off the end: what an app's Backspace deletes.</summary>
+    private static string TrimLastGrapheme(string text)
+    {
+        if (text.Length == 0) return text;
+        var starts = StringInfo.ParseCombiningCharacters(text);
+        return text[..starts[^1]];
+    }
+
+    /// <summary>Where the trailing run of letters/digits begins (text.Length when there is none).</summary>
+    private static int TrailingWordStart(string text)
+    {
+        var start = text.Length;
+        while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
+        return start;
+    }
+
+    /// <summary>
+    /// The word before the caret: the last run of letters/digits in the committed text, with the
+    /// punctuation attached after it ("Ende." — the sentence-end guard needs it), or null. Deletion
+    /// and typing do NOT always agree: typing "well-known" and a Space records the whole token
+    /// "well-known", while this reads the run before the open word as "well-" (the run ends at the
+    /// hyphen). Both normalise to the same bigram word; only the sentence-end punctuation matters.
+    /// </summary>
+    private static string? ComputePreviousWord(string recentText)
+    {
+        var end = recentText.Length;
+        while (end > 0 && !char.IsLetterOrDigit(recentText[end - 1])) end--;
+        if (end == 0) return null;
+        var start = end;
+        while (start > 0 && char.IsLetterOrDigit(recentText[start - 1])) start--;
+        var tail = end;
+        while (tail < recentText.Length && !char.IsWhiteSpace(recentText[tail])) tail++;
+        return recentText[start..tail];
     }
 
     protected override void OnDispose()

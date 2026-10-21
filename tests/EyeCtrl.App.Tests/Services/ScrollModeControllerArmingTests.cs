@@ -49,7 +49,7 @@ public class ScrollModeControllerArmingTests
         using (controller)
         {
             ScrollModeControllerThreadingTests.EnterScrollMode(im);
-            var rest = new PhysicalPoint(Anchor.X - 100, Anchor.Y + 50);   // 112 px off: inside the 125-px circle
+            var rest = new PhysicalPoint(Anchor.X - 100, Anchor.Y + 50);   // 112 px off: inside the 175-px circle
 
             Send(messenger, rest, 0, 150);                                 // the arming fixation, off the cross
             Send(messenger, Anchor, 180, 180);                             // gaze on the cross: now AWAY from the rest point
@@ -68,7 +68,7 @@ public class ScrollModeControllerArmingTests
     [StaFact]
     public void G7_ThePerSecondLine_CarriesNearest_WhileUnarmed()
     {
-        // The closest any sample came to the anchor: 175 px — outside the 125-px circle, so it never
+        // The closest any sample came to the anchor: 225 px — outside the 175-px circle, so it never
         // arms, and the line says how close the gaze got. Mutant M10: nearest never updated → -1.
         var sink = new CapturingSink();
         var previous = Log.Logger;
@@ -84,7 +84,7 @@ public class ScrollModeControllerArmingTests
                 ScrollModeControllerThreadingTests.EnterScrollMode(im);
 
                 Send(messenger, new PhysicalPoint(Anchor.X + 300, Anchor.Y), 0, 90);
-                Send(messenger, new PhysicalPoint(Anchor.X + 175, Anchor.Y), 120, 400);
+                Send(messenger, new PhysicalPoint(Anchor.X + 225, Anchor.Y), 120, 400);
                 Send(messenger, new PhysicalPoint(Anchor.X + 260, Anchor.Y), 430, 500);
 
                 Check.That(controller.Worker).IsNotNull();
@@ -95,7 +95,7 @@ public class ScrollModeControllerArmingTests
                     && m.Contains("cursor=(433,566)", StringComparison.Ordinal));
                 Check.WithCustomMessage($"saw: {string.Join(" | ", sink.Messages)}").That(line).IsNotNull();
                 Check.WithCustomMessage(line!).That(line!.Contains("armed=False", StringComparison.Ordinal)).IsTrue();
-                Check.WithCustomMessage(line).That(line.Contains(" nearest=175 ", StringComparison.Ordinal)).IsTrue();
+                Check.WithCustomMessage(line).That(line.Contains(" nearest=225 ", StringComparison.Ordinal)).IsTrue();
             }
         }
         finally
@@ -108,7 +108,7 @@ public class ScrollModeControllerArmingTests
     public void G7_TheArmedLine_CarriesTheOffsetAndNearest_AndTheEntryLineTheStartZone()
     {
         // The owner's tracker sat 150 px left, 60 px below the cross: the line must say so, with the
-        // right sign (rest point - anchor), and the nearest approach (162 px). 125 DIP at scale 2.
+        // right sign (rest point - anchor), and the nearest approach (162 px). 175 DIP at scale 2.
         // Mutant M11: the offset sign flipped → offset=(150,-60); M10 → nearest=-1px.
         var sink = new CapturingSink();
         var previous = Log.Logger;
@@ -136,7 +136,7 @@ public class ScrollModeControllerArmingTests
                     m.Contains("Scroll mode: ", StringComparison.Ordinal)
                     && m.Contains("cursor=(777,888)", StringComparison.Ordinal));
                 Check.WithCustomMessage($"saw: {string.Join(" | ", sink.Messages)}").That(entry).IsNotNull();
-                Check.WithCustomMessage(entry!).That(entry!.Contains("startZone=250px", StringComparison.Ordinal)).IsTrue();
+                Check.WithCustomMessage(entry!).That(entry!.Contains("startZone=350px", StringComparison.Ordinal)).IsTrue();
             }
         }
         finally

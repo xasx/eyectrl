@@ -28,16 +28,16 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
         Math.Max(ScrollEngine.DeadZoneRadiusPixels, _dwellSettings.FixationRadiusPixels);
 
     /// <summary>The start circle's radius in DIP (scroll arming fix, D1): looking anywhere inside
-    /// it for <see cref="StartHoldMs"/> starts scrolling. 250 DIP across — roughly the menu's
+    /// it for <see cref="StartHoldMs"/> starts scrolling. 350 DIP across — a good deal wider than the menu's
     /// central circle — so this tracker's typical error no longer decides whether it starts.</summary>
-    public const double StartRadiusDip = 125;
+    public const double StartRadiusDip = 175;
 
     /// <summary>How long, in ms of sample time, the gaze must stay inside the start circle to arm
     /// (D3): a short fixation rather than one sample, so a passing glance does not start it.</summary>
     public const int StartHoldMs = 150;
 
     /// <summary>The start circle's radius in PHYSICAL px: <see cref="StartRadiusDip"/> × the live
-    /// scale (250 px at 200 %), never below the dead zone. Arming uses this; the dead zone itself
+    /// scale (350 px at 200 %), never below the dead zone. Arming uses this; the dead zone itself
     /// (<see cref="DeadZoneRadiusPx"/>) is unchanged.</summary>
     public double StartRadiusPx => Math.Max(DeadZoneRadiusPx, StartRadiusDip * DpiHelper.ScaleX);
 

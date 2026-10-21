@@ -58,6 +58,12 @@ public class NoteWindow : OverlayWindow
     private double _textSize = NoteSettings.DefaultTextSizeDip;
 
     private string _chipText = string.Empty;
+    // The chip's own text size and text-column width (T6 fixup-06 G1): the chip reads at the
+    // NOTE's body size, and the manager owns the measured column both of them share. They are
+    // pushed, not derived here, so the drawn text and the card the manager placed can never
+    // disagree about the size the chip was composed at.
+    private double _chipTextSize = NoteSettings.DefaultTextSizeDip;
+    private double _chipColumnWidth = 0;
     // The note's body text (fixup-01 B1): UpdateContent rebuilds the text block plainly empty,
     // and the re-place paths (T6, the probe raise, Move's tails) never re-push SetText — the
     // window alone keeps the last body text across a redraw.
@@ -131,6 +137,14 @@ public class NoteWindow : OverlayWindow
 
     internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
     internal double ButtonRadiusForTest => ButtonRadius;
+
+    /// <summary>Test accessor (T6 fixup-06 G1): the chip's drawn text block - its font size and
+    /// its column are what the owner could not read, so they are read, not assumed.</summary>
+    internal TextBlock? ChipTextForTest => _chipTextBlock;
+
+    /// <summary>Test accessor (T6 fixup-06 G1): the text size the chip was composed at - the
+    /// captured one, which a later text-size change does not move.</summary>
+    internal double ChipTextSizeForTest => _chipTextSize;
 
     /// <summary>Test accessor (T6 fixup-02): the drawn cell fill of a hit-cell row, the element
     /// the caretaker input is wired to beside the disc and label — or null when the row never
@@ -340,23 +354,30 @@ public class NoteWindow : OverlayWindow
 
         if (_state == NoteState.PendingUndo)
         {
-            // The chip (P4 D3, styling final): the Undo cell plus the chip text at the body size,
-            // in the shrunk-in-place window.
+            // The chip (P4 D3, styling final; T6 fixup-06 G1): the Undo cell plus the chip text
+            // at the NOTE's own text size - 12 DIP was unreadable on the owner's screen - in the
+            // shrunk-in-place window. The column width is the manager's MEASURED one (the
+            // narrowest that holds every chip text in two lines), so the text never leaves it.
             _chipTextBlock = new TextBlock
             {
-                Width = NoteLayout.ChipTextWidthDip,
-                MaxWidth = NoteLayout.ChipTextWidthDip,
-                Margin = new Thickness(10, 10, 0, 0),
-                FontSize = Tokens.FontSizeBody,
+                Width = _chipColumnWidth,
+                MaxWidth = _chipColumnWidth,
+                Margin = new Thickness(NoteLayout.ChipTextMarginDip, NoteLayout.ChipTextMarginDip, 0, 0),
+                FontSize = NoteLayout.ChipTextFontDip(_chipTextSize),
+                FontFamily = Tokens.FontStandard,
                 Foreground = Tokens.BrushTextPrimary,
                 TextWrapping = TextWrapping.Wrap,
+                // The body's 1.25x leading: the card's height is derived from the lines this
+                // produces, so the two must agree.
+                LineHeight = NoteLayout.TextLineHeightDip(_chipTextSize),
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
                 Text = _chipText
             };
             _contentBorder.Child = _chipTextBlock;
             // B1: beside the column here too.
             var chipCard = _placement is { } cp ? NoteLayout.RectLocal(cp)
                 : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
-            _contentBorder.Width = NoteLayout.ChipTextWidthDip + ButtonPadding;
+            _contentBorder.Width = _chipColumnWidth + ButtonPadding;
             Canvas.SetLeft(_contentBorder, _side == NoteSide.Left
                 ? chipCard.Left + LayoutConstants.NoteColumnWidthDip
                 : chipCard.Left);
@@ -455,19 +476,26 @@ public class NoteWindow : OverlayWindow
 
     /// <summary>Measures the wrapped text height in DIP the auto-height derives from (P4 D2):
     /// the same style the card body draws, measured at the text column width.</summary>
-    internal double MeasureTextHeightDip(string text)
+    internal double MeasureTextHeightDip(string text) => MeasureTextHeightDip(text, _textSize);
+
+    /// <summary>Measures the wrapped text height in DIP at an EXPLICIT text size (T6 fixup-06
+    /// G1): the chip's captured size, which the window's own current size may no longer be —
+    /// a pending chip keeps the size it was composed at, so the full card it is measured
+    /// against has to be measured at that size too.</summary>
+    internal double MeasureTextHeightDip(string text, double textSize)
     {
+        double width = NoteLayout.TextColumnWidthDip(textSize);
         var block = new TextBlock
         {
-            FontSize = _textSize,
+            FontSize = textSize,
             FontFamily = Tokens.FontStandard,
             TextWrapping = TextWrapping.Wrap,
-            LineHeight = NoteLayout.TextLineHeightDip(_textSize),
+            LineHeight = NoteLayout.TextLineHeightDip(textSize),
             LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
             Text = text,
-            Width = NoteLayout.TextColumnWidthDip(_textSize)
+            Width = width
         };
-        block.Measure(new Size(NoteLayout.TextColumnWidthDip(_textSize), double.PositiveInfinity));
+        block.Measure(new Size(width, double.PositiveInfinity));
         return block.DesiredSize.Height;
     }
 
@@ -530,11 +558,18 @@ public class NoteWindow : OverlayWindow
 
     /// <summary>Sets the Undo chip text (P2 D5) and re-renders when the chip is showing. The
     /// text comes from the manager through the localization table, kind-dependent.</summary>
-    public void SetChipText(string text)
+    /// <param name="text">The chip's line.</param>
+    /// <param name="textSizeDip">The chip's font size - the note's body text size (T6 fixup-06
+    /// G1). The manager CAPTURES it with the chip, so a later text-size change does not resize
+    /// a chip the owner is already reaching for.</param>
+    /// <param name="columnWidthDip">The measured text column the chip's text is drawn in.</param>
+    public void SetChipText(string text, double textSizeDip, double columnWidthDip)
     {
         _chipText = text;
-        if (_state == NoteState.PendingUndo && _chipTextBlock != null)
-            _chipTextBlock.Text = text;
+        _chipTextSize = textSizeDip;
+        _chipColumnWidth = columnWidthDip;
+        if (_state == NoteState.PendingUndo)
+            Dispatcher.Invoke(UpdateContent);
     }
 
     public void SetState(NoteState state)

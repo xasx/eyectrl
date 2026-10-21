@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// D11 (T08) + sticky notes P1 D3/D7: the pinned note's glyph-only discs — a drawn label would
@@ -80,7 +81,7 @@ public class NoteWindowNameTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new NoteWindow("p2-chip");
         window.SetState(NoteState.PendingUndo);
-        window.SetChipText("Note removed · Undo");
+        window.SetChipText("Note removed · Undo", NoteSettings.DefaultTextSizeDip, 140);
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
 
         var texts = TextBlocks((Canvas)window.Content).ToList();

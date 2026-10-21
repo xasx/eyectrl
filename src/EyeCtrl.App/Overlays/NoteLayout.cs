@@ -296,9 +296,178 @@ internal static class NoteLayout
     // == the chip (P4 D3's PendingUndo row): the shrunk-in-place window renders a single Undo
     // cell plus the chip text. ==
 
-    /// <summary>The chip text column's width in DIP: the "Changes discarded - Undo" strings wrap
-    /// to two lines in it at the body size.</summary>
-    public const double ChipTextWidthDip = 140.0;
+    /// <summary>The chip text's font size in DIP (T6 fixup-06 G1): the NOTE's body text size.
+    /// 12 DIP - <c>Tokens.FontSizeBody</c> - was the size P4 removed from the note body (P4 D2);
+    /// the chip kept it, and on the owner's 2.0 display the "Note removed - Undo" line was
+    /// unreadable from arm's length. The chip is the ONLY affordance the caretaker has in the
+    /// PendingUndo state, so it reads at the note's own size.</summary>
+    public static double ChipTextFontDip(double textSizeDip) => textSizeDip;
+
+    /// <summary>The chip text block's margin in DIP (T6 fixup-06 G1): the inset the drawn chip
+    /// text keeps inside the card. The card's height is derived from it, so the margin is a
+    /// shared constant and not a literal in the window.</summary>
+    public const double ChipTextMarginDip = 10.0;
+
+    /// <summary>The chip card's minimum height in DIP: one hit-cell row between the paddings -
+    /// the Undo cell must fit whatever the text needs.</summary>
+    public static double ChipCellRowHeightDip =>
+        (2 * LayoutConstants.NoteButtonPadding) + LayoutConstants.NoteCellDip;
+
+    /// <summary>
+    /// The chip text column's width in DIP (T6 fixup-06 G1): MEASURED, never guessed.
+    /// <para>
+    /// The column is the narrowest width at which EVERY one of <paramref name="texts"/> wraps
+    /// into at most two lines at the chip's font size, measured with the real typeface - and
+    /// never narrower than the widest single WORD among them, because a word never breaks and
+    /// an over-narrow column would let it overflow instead of wrap. The chip's two texts are
+    /// kind-dependent ("Note removed - Undo" and "Changes discarded - Undo", plus their German),
+    /// so the width is the MAX over all of them: the column that fits the longest is the one
+    /// that fits every one.
+    /// </para>
+    /// <para>
+    /// The old 140 DIP was a guess that only held at 12 DIP. At the note's own size the same
+    /// 140 DIP forced three lines, and the third line fell out of the card.
+    /// </para>
+    /// </summary>
+    /// <param name="textSizeDip">The chip's font size - the note's body text size.</param>
+    /// <param name="texts">Every chip text the column must hold, in every shipped language.</param>
+    public static double ChipTextWidthDip(double textSizeDip, IReadOnlyList<string> texts) =>
+        MeasureChip(textSizeDip, texts).Width;
+
+    /// <summary>
+    /// The chip text's drawn height in DIP (T6 fixup-06 G1): the lines the texts actually take
+    /// at the measured column width, at the note's 1.25x leading. The card grows to hold it.
+    /// </summary>
+    /// <param name="textSizeDip">The chip's font size - the note's body text size.</param>
+    /// <param name="texts">Every chip text the column must hold, in every shipped language.</param>
+    public static double ChipTextHeightDip(double textSizeDip, IReadOnlyList<string> texts) =>
+        MeasureChip(textSizeDip, texts).Height;
+
+    /// <summary>
+    /// The chip card's size in DIP (T6 fixup-06 G1): the text column plus the Undo column
+    /// across, and the taller of one hit-cell row and the text's own height plus its margin
+    /// down. The card grows with the note's text size, so the chip is size-DEPENDENT (R12's
+    /// old "size-independent" no longer holds - see <c>NoteManager</c>'s captured chip size).
+    /// </summary>
+    /// <param name="textSizeDip">The chip's font size - the note's body text size.</param>
+    /// <param name="texts">Every chip text the column must hold, in every shipped language.</param>
+    public static Size ChipCardSize(double textSizeDip, IReadOnlyList<string> texts)
+    {
+        var metrics = MeasureChip(textSizeDip, texts);
+        return new Size(
+            metrics.Width + LayoutConstants.NoteColumnWidthDip,
+            Math.Max(ChipCellRowHeightDip, metrics.Height + ChipTextMarginDip));
+    }
+
+    /// <summary>The measured chip metrics: the text column's width and the text's drawn height.</summary>
+    private readonly record struct ChipMetrics(double Width, double Height);
+
+    /// <summary>The measured chip column widths per (text, font size), memoized: the
+    /// FormattedText walk and the binary search are not free, and every chip re-derivation
+    /// reads them.</summary>
+    private static readonly Dictionary<(string Text, double FontSize), double> _chipWidthCache = new();
+
+    private static ChipMetrics MeasureChip(double textSizeDip, IReadOnlyList<string> texts)
+    {
+        double fontSize = ChipTextFontDip(textSizeDip);
+        double width = 0;
+        foreach (var text in texts)
+        {
+            if (string.IsNullOrEmpty(text)) continue;
+            width = Math.Max(width, MeasuredColumnWidthDip(text, fontSize));
+        }
+
+        double height = 0;
+        foreach (var text in texts)
+        {
+            if (string.IsNullOrEmpty(text)) continue;
+            height = Math.Max(height, WrappedLineCount(text, fontSize, width) * TextLineHeightDip(textSizeDip));
+        }
+
+        // WHOLE DIPs (T6 fixup-05's rule, the same reason the tag's height is rounded up): a
+        // fractional chip width puts the window's edge on a fractional pixel phase, and WPF
+        // snaps the window's bounds to whole device pixels - so the drawn chip and the placement
+        // the dwell targets were registered from would differ. The ceiling keeps the text
+        // inside the column and the geometry on the pixel grid.
+        return new ChipMetrics(Math.Ceiling(width), Math.Ceiling(height));
+    }
+
+    /// <summary>
+    /// The narrowest column width in DIP at which <paramref name="text"/> wraps into at most
+    /// two lines at <paramref name="fontSize"/> - and never narrower than its widest word.
+    /// Measured with the real typeface, not estimated from a character count.
+    /// </summary>
+    private static double MeasuredColumnWidthDip(string text, double fontSize)
+    {
+        lock (_chipWidthCache)
+        {
+            if (_chipWidthCache.TryGetValue((text, fontSize), out double cached))
+                return cached;
+        }
+
+        double measured = MeasureColumnWidthDip(text, fontSize);
+        lock (_chipWidthCache)
+        {
+            _chipWidthCache[(text, fontSize)] = measured;
+        }
+        return measured;
+    }
+
+    /// <summary>
+    /// The narrowest column width in DIP at which <paramref name="text"/> wraps into at most
+    /// two lines at <paramref name="fontSize"/> - and never narrower than its widest word.
+    /// Measured with the real typeface, not estimated from a character count.
+    /// </summary>
+    private static double MeasureColumnWidthDip(string text, double fontSize)
+    {
+        double natural = NaturalTextWidthDip(text, fontSize);
+        if (natural <= 0) return 1;
+
+        // The widest single word: a word never breaks, so a column narrower than the word lets
+        // it overflow instead of wrap, and the chip's text would leave its column.
+        double widestWord = 0;
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            widestWord = Math.Max(widestWord, NaturalTextWidthDip(word, fontSize));
+
+        // Binary search on the narrowest width that still fits two lines: the line count never
+        // grows with the width, so the predicate is monotone.
+        double lo = 1, hi = natural;
+        for (int i = 0; i < 40; i++)
+        {
+            double mid = (lo + hi) / 2;
+            if (mid <= lo || mid >= hi) break;
+            if (WrappedLineCount(text, fontSize, mid) <= 2) hi = mid; else lo = mid;
+        }
+        return Math.Max(hi, widestWord);
+    }
+
+    /// <summary>The text's natural (unwrapped) width in DIP at <paramref name="fontSize"/>.</summary>
+    private static double NaturalTextWidthDip(string text, double fontSize)
+    {
+        var formatted = new FormattedText(
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(Tokens.FontStandard.Source), fontSize,
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+        return formatted.WidthIncludingTrailingWhitespace;
+    }
+
+    /// <summary>How many lines <paramref name="text"/> wraps into at
+    /// <paramref name="maxWidth"/> DIP and <paramref name="fontSize"/> DIP.</summary>
+    private static int WrappedLineCount(string text, double fontSize, double maxWidth)
+    {
+        if (maxWidth <= 0) return int.MaxValue;
+        var oneLine = new FormattedText(
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(Tokens.FontStandard.Source), fontSize,
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+        if (oneLine.Height <= 0) return 1;
+        var wrapped = new FormattedText(
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(Tokens.FontStandard.Source), fontSize,
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0)
+        { MaxTextWidth = maxWidth };
+        return (int)Math.Round(wrapped.Height / oneLine.Height);
+    }
 
     // == the capacity notice (P4 D4): one fixed-size, click-through, target-free window. ==
 
@@ -307,11 +476,6 @@ internal static class NoteLayout
     public const double NoticeCardWidthDip = 320.0;
 
     public const double NoticeCardHeightDip = 110.0;
-    /// <summary>The chip card size (P4 D3's state table): at least one cell wide (it is the
-    /// cell plus the text column) and one cell row tall.</summary>
-    public static Size ChipCardSize() => new(
-        ChipTextWidthDip + LayoutConstants.NoteColumnWidthDip,
-        (2 * LayoutConstants.NoteButtonPadding) + LayoutConstants.NoteCellDip);
     /// <summary>Where the card rect sits inside the window, per side: the tail zone occupies the
     /// strip between the window edge and the card on the anchor's side.</summary>
     public static (double X, double Y) CardOrigin(NoteSide side) => side switch
@@ -356,6 +520,7 @@ internal static class NoteLayout
         var anchorDip = new Point(anchor.X / scale, anchor.Y / scale);
         var inset = Inset(workAreaDip, Constants.EdgeMarginDip);
 
+        // Pass 1: a side that fits clear of every avoid rect wins outright.
         foreach (var side in Candidates(preferred, exclude))
         {
             var window = WindowFor(anchorDip, side, cardDip);
@@ -374,6 +539,7 @@ internal static class NoteLayout
         clamped = ClampInto(clamped, inset);
         return Build(preferred, clamped, cardDip, anchorDip, clamped: true);
     }
+
 
     /// <summary>The tail triangle in window-relative points (tip first), or null when the tail is
     /// hidden. The base sits on the card edge facing the anchor, half-width
@@ -565,5 +731,6 @@ internal static class NoteLayout
         public const double TipGapDip = 6.0;
         public const double TailHalfWidthDip = 18.0;
         public const double EdgeMarginDip = (LayoutConstants.NoteCellDip / 2) + 24.0;
+
     }
 }

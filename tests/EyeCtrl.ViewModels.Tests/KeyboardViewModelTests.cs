@@ -433,21 +433,28 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void HandleBackspace_WithCtrl_DoesNotUpdateCurrentInput()
+    public void HandleBackspace_WithCtrl_IsSentPlain_SoTheMirrorStillFollows()
     {
+        // Ctrl+Backspace would delete a whole word in the app while the mirror trimmed one
+        // character: the keystroke is exempt from modifier composition instead.
         var vm = CreateViewModel();
         vm.CurrentInput = "hel";
         vm.ToggleModifier(ModifierKey.Ctrl);
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
+        KeyActivatedMessage? sent = null;
+        _messenger.Register<KeyActivatedMessage>(_messenger, (_, msg) => sent = msg);
 
         vm.HandleBackspace();
 
-        Check.That(vm.CurrentInput).IsEqualTo("hel");
+        Check.That(vm.CurrentInput).IsEqualTo("he");
+        Check.That(sent!.Modifiers).IsNull();
     }
 
     [Fact]
-    public void HandleEnter_WithAlt_DoesNotClearCurrentInput()
+    public void HandleEnter_WithAlt_EndsTheSession()
     {
+        // Flipped on purpose (R1-d fixup 01, D2): this used to pin that Alt+Enter keeps the mirror.
+        // Ctrl+Enter sends the message in Teams/Outlook and Alt+Enter opens properties; either way the
+        // text under the caret is no longer the mirror's, and a later pick would delete foreign text.
         var vm = CreateViewModel();
         vm.CurrentInput = "hello";
         vm.ToggleModifier(ModifierKey.Alt);
@@ -455,7 +462,7 @@ public class KeyboardViewModelTests
 
         vm.HandleEnter();
 
-        Check.That(vm.CurrentInput).IsEqualTo("hello");
+        Check.That(vm.CurrentInput).IsEqualTo("");
     }
 
     // --- Prediction tests ---
@@ -564,7 +571,7 @@ public class KeyboardViewModelTests
     }
 
     [Fact]
-    public void HandleDeleteWord_ComposesWithActiveOneShotModifiers_ThenClearsThem()
+    public void HandleDeleteWord_IgnoresOtherArmedModifiers_ThenClearsThem()
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.Alt);
@@ -573,8 +580,9 @@ public class KeyboardViewModelTests
 
         vm.HandleDeleteWord();
 
+        // Ctrl+Alt+Backspace is not "delete a word": the key is sent as exactly Ctrl+Backspace.
         Check.That(sentMsg!.Modifiers!).Contains(ModifierKey.Ctrl);
-        Check.That(sentMsg.Modifiers).Contains(ModifierKey.Alt);
+        Check.That(sentMsg.Modifiers!.Count).IsEqualTo(1);
         Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
@@ -589,7 +597,11 @@ public class KeyboardViewModelTests
         vm.CurrentInput = "well-known";
         vm.HandleDeleteWord();
 
+        // Flipped back (R1-d fixup 02, R2-1): the open token keeps its "well-", as before the re-open
+        // work; the committed text always ends in a separator, so the app's Ctrl+Backspace stopped
+        // inside the token.
         Check.That(vm.CurrentInput).IsEqualTo("well-");
+        Check.That(vm.RecentText).IsEqualTo("");
     }
 
     [Fact]

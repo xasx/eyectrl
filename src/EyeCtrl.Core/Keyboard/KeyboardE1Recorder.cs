@@ -25,9 +25,10 @@ using Microsoft.Extensions.Logging;
 /// per-key saccade, restart count or likelihood: each of those either IS the key's position or
 /// leaks it (the tracker's bias field turns a pixel offset into a column; box sizes differ by one
 /// pixel per column at fractional display scales; a saccade class or a likelihood bit narrows the
-/// word). What remains is timing, the dock edge, which outer quarter of the box the gaze rested
-/// in (<c>edgeq</c>, the one class the edge-crowding rule needs), whether a word was open, and —
-/// on a separate keyed line — the hold-on time. The things a correction needs about the SLIPPED
+/// word). What remains is timing, the dock edge, whether a word was open, and — on a separate keyed
+/// line — the hold-on time. Which outer quarter of the box the gaze rested in is NOT on the line
+/// either (a per-letter class plus the tracker's bias field would let a reader narrow the word): it
+/// is only COUNTED, per dock edge, in one <c>KB-E1 edgeq</c> tally line (see <see cref="FlushEdgeTally"/>). The things a correction needs about the SLIPPED
 /// key are logged only when it is corrected (<see cref="RecordCorrection"/>, <see cref="RecordSlip"/>).
 /// Only non-text keys (Space, Backspace, Enter, modifiers, sub-layout switches, shortcuts) keep
 /// their position and id, because they do not spell anything. The recorder enforces all of this
@@ -180,12 +181,13 @@ public sealed class KeyboardE1Recorder
 
         if (IsIdentityFree(k.Class))
         {
+            CountEdgeQuarter(k.Edge, k.EdgeQuarter, abandon: false);
             Emit(
                 "KB-E1 key seq={Seq} ts={TsUs} cls={Class} sub={Sub} edge={Edge} winx={WinX} winy={WinY} " +
-                "winw={WinW} winh={WinH} movems={SinceMoveMs} edgeq={EdgeQ} sincekey={SinceKeyMs} " +
+                "winw={WinW} winh={WinH} movems={SinceMoveMs} sincekey={SinceKeyMs} " +
                 "dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs}",
                 seq, k.TimestampUs, k.Class, k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth,
-                k.WindowHeight, k.SinceWindowMoveMs, k.EdgeQuarter, sinceKey, k.EffectiveDwellMs,
+                k.WindowHeight, k.SinceWindowMoveMs, sinceKey, k.EffectiveDwellMs,
                 k.PenaltyApplied, k.Typing, k.BackspaceClass);
             return seq;
         }
@@ -228,9 +230,10 @@ public sealed class KeyboardE1Recorder
         if (Muted() || !Enabled) return;
         if (IsIdentityFree(a.Class))
         {
+            CountEdgeQuarter(a.Edge, a.EdgeQuarter, abandon: true);
             Emit(
-                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} edgeq={EdgeQ} sub={Sub} edge={Edge}",
-                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.EdgeQuarter, a.SubLayout, a.Edge);
+                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} sub={Sub} edge={Edge}",
+                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.SubLayout, a.Edge);
             return;
         }
         Emit(
@@ -306,6 +309,7 @@ public sealed class KeyboardE1Recorder
     /// <summary>An edge-bar button (<c>flip</c>/<c>close</c>); a Flip also feeds mode-undo.</summary>
     public void RecordEdge(string button, string edgeAfter, string edgeBefore)
     {
+        FlushEdgeTally();   // the tally so far belongs to the edge being left
         if (Enabled)
             Emit("KB-E1 edge button={Button} edge={Edge}", button, edgeAfter);
         if (button == "flip" && !Muted())
@@ -355,8 +359,60 @@ public sealed class KeyboardE1Recorder
         _shownAtMs = long.MinValue;
         _lastMode = null;
         _pickAwaitingUndo = false;
+        FlushEdgeTally();   // right BEFORE the hidden line, so a tally never spans two shows
         if (!Enabled) return;
         Emit("KB-E1 hidden cause={Cause} visiblems={VisibleMs}", cause, visibleMs);
+    }
+
+    // ---- the per-dock-edge tally (replaces a per-letter edge-quarter class) -------------------------
+
+    private static readonly string[] Quarters = ["-", "N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    private readonly int[] _tallyFires = new int[9];
+    private readonly int[] _tallyAborts = new int[9];
+    private string _tallyEdge = "-";
+
+    /// <summary>
+    /// Counts one TEXT key's accepted dwell (or, with <paramref name="abandon"/>, an abandoned one) in the
+    /// outer quarter of its box the gaze rested in. Muted keys never get here (callers return first).
+    /// A dwell on another dock edge than the tally's flushes the tally first.
+    /// </summary>
+    private void CountEdgeQuarter(string edge, string quarter, bool abandon)
+    {
+        if (!Enabled) return;
+        if (!string.Equals(edge, _tallyEdge, StringComparison.Ordinal))
+        {
+            FlushEdgeTally();
+            _tallyEdge = edge;
+        }
+        var index = Array.IndexOf(Quarters, quarter);
+        (abandon ? _tallyAborts : _tallyFires)[index < 0 ? 0 : index]++;
+    }
+
+    /// <summary>
+    /// Writes the dock edge's tally and starts a new one; writes nothing when it is empty. Called right
+    /// before the <c>hidden</c> line and, for the edge being left, right before an edge-button line
+    /// (a Flip). The line carries counts only:
+    /// <c>KB-E1 edgeq edge=top fires=F c=.. n=.. ne=.. e=.. se=.. s=.. sw=.. w=.. nw=.. aborts=A ac=.. an=.. …</c>
+    /// — <c>fires</c> is the number of accepted text-key dwells on that edge and <c>c</c>…<c>nw</c> split
+    /// them by outer quarter (<c>c</c> = the inner half, i.e. no outer quarter); <c>aborts</c> and
+    /// <c>ac</c>…<c>anw</c> do the same for text-class abandonments (below the activation).
+    /// </summary>
+    public void FlushEdgeTally()
+    {
+        var fires = _tallyFires.Sum();
+        var aborts = _tallyAborts.Sum();
+        if (fires + aborts > 0 && Enabled)
+        {
+            var f = _tallyFires;
+            var a = _tallyAborts;
+            Emit(
+                "KB-E1 edgeq edge={Edge} fires={Fires} c={C} n={N} ne={NE} e={E} se={SE} s={S} sw={SW} w={W} nw={NW} " +
+                "aborts={Aborts} ac={AC} an={AN} ane={ANE} ae={AE} ase={ASE} as={AS} asw={ASW} aw={AW} anw={ANW}",
+                _tallyEdge, fires, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8],
+                aborts, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
+        }
+        Array.Clear(_tallyFires);
+        Array.Clear(_tallyAborts);
     }
 
     /// <summary>The mirror check's verdict: an outcome and lengths, never a string.</summary>

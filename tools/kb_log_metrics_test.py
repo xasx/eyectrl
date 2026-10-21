@@ -39,8 +39,11 @@ The fixture, in event order (times are the log clock, ms after 10:00:00):
     L10 near a move (500 ms) likely hold-on 300, L11 unlikely hold-on 120 then BS in word
     (a counted slip), L12 likely hold-on 600; mirror suppressed; hide by edge-close.
 
-  Text-key lines (letters) carry NO r/c/act/box size/pixel offset/saccade/restarts/likelihood, only an
-  ``edgeq`` class (top letters: - E E - NE - E - S; bottom: - W -). The slipped letters' arrival and
+  Text-key lines (letters) carry NO r/c/act/box size/pixel offset/saccade/restarts/likelihood and no
+  edge-quarter class: one ``edgeq`` TALLY line per dock edge is written right before each ``hidden``
+  line (top: 9 dwells, - E E - NE - E - S -> c=4 ne=1 e=3 s=1, plus 1 abandonment in the inner half;
+  bottom: - W - -> c=2 w=1). ``synthetic-day-legacy.log`` is the same day in the older per-line form
+  (``edgeq=`` on every text line, no tally); both must read the same. The slipped letters' arrival and
   likelihood facts ride on ``corr`` lines keyed to the in-word Backspace (L3: likely 0; L5: nocont; L6:
   start) and the bottom's L11 (likely 0). Non-text keys (Backspace, Space, switchSub, Shift) keep r/c/act.
   Four 'slip' repair lines follow the replacement keys:
@@ -261,8 +264,14 @@ class Repairs(unittest.TestCase):
         self.assertEqual(fixture_metrics("bottom")["repairs"]["n"], 1)
 
 
+LEGACY_FIXTURE = FIXTURE.with_name("synthetic-day-legacy.log")
+
+
 class EdgeCrowding(unittest.TestCase):
-    """Rule 2b: >= 30 % of accepted text-key dwells in the outer quarter of the box on one side."""
+    """Rule 2b: >= 30 % of accepted text-key dwells in the outer quarter of the box on one side.
+
+    These tests feed the OLDER per-line ``edgeq`` form (kept readable); ``EdgeCrowdingTally`` below does
+    the same for the tally line."""
 
     @staticmethod
     def _keys(quarters: list[str], dock: str = "top") -> list[str]:
@@ -365,7 +374,7 @@ class Privacy(unittest.TestCase):
                 seen += 1
                 for banned in self.TEXT_BANNED:
                     self.assertNotIn(banned, line)
-                self.assertRegex(line, r" edgeq=(N|NE|E|SE|S|SW|W|NW|-) ")
+                self.assertNotIn("edgeq", line)       # the per-letter class is gone (a tally counts it)
         self.assertEqual(seen, 12)
 
     def test_non_text_lines_keep_their_position_and_id(self) -> None:
@@ -387,7 +396,7 @@ class Privacy(unittest.TestCase):
         abandons = [e for e in events if e["event"] == "abandon"]
         self.assertEqual(len(abandons), 2)
         self.assertNotIn("r", abandons[0])
-        self.assertEqual(abandons[0]["edgeq"], "-")
+        self.assertNotIn("edgeq", abandons[0])
         self.assertEqual(abandons[1]["r"], 3)
 
     def test_the_letter_box_comes_on_shown_and_layout_lines_only(self) -> None:
@@ -490,6 +499,110 @@ class CommandLine(unittest.TestCase):
     def test_a_missing_file_exits_2(self) -> None:
         proc = run_cli(str(REPO_ROOT / "does-not-exist.log"))
         self.assertEqual(proc.returncode, 2)
+
+
+class EdgeCrowdingTally(unittest.TestCase):
+    """Rule 2b from the per-dock-edge ``edgeq`` tally line, and its equivalence with the older form."""
+
+    NAMES = ["c", "n", "ne", "e", "se", "s", "sw", "w", "nw"]
+
+    @classmethod
+    def _tally(cls, dock: str, fires: dict[str, int], aborts: dict[str, int] | None = None, second: int = 0) -> str:
+        f = [fires.get(n, 0) for n in cls.NAMES]
+        a = [(aborts or {}).get(n, 0) for n in cls.NAMES]
+        body = " ".join(f"{n}={v}" for n, v in zip(cls.NAMES, f))
+        abody = " ".join(f"a{n}={v}" for n, v in zip(cls.NAMES, a))
+        return (f"2026-10-19 10:00:{second:02d}.000 [INF] [X] KB-E1 edgeq edge={dock} fires={sum(f)} {body} "
+                f"aborts={sum(a)} {abody}")
+
+    @staticmethod
+    def _crowding(lines: list[str], min_dwells: int = 10) -> dict:
+        return kb.metrics(kb.parse(lines), min_edge_dwells=min_dwells)["edge_crowding"]
+
+    def test_a_tally_line_is_parsed_and_counted_per_dock_edge(self) -> None:
+        got = self._crowding([self._tally("top", {"c": 7, "e": 3})])
+        self.assertEqual(got["top"]["n"], 10)
+        self.assertEqual(got["top"]["outer"], 3)
+        self.assertEqual(got["top"]["sides"]["E"]["n"], 3)
+        self.assertTrue(got["top"]["meets_rule2b"])         # 3 of 10 on one side
+
+    def test_exactly_30_percent_meets_and_one_below_does_not(self) -> None:
+        self.assertTrue(self._crowding([self._tally("top", {"c": 7, "w": 3})])["top"]["meets_rule2b"])
+        self.assertFalse(self._crowding([self._tally("top", {"c": 8, "w": 2})])["top"]["meets_rule2b"])
+
+    def test_a_diagonal_counts_for_both_sides_it_touches(self) -> None:
+        got = self._crowding([self._tally("top", {"c": 7, "ne": 3})])["top"]
+        self.assertEqual((got["sides"]["N"]["n"], got["sides"]["E"]["n"]), (3, 3))
+        self.assertEqual(got["outer"], 3)
+
+    def test_tallies_of_one_edge_add_up_and_edges_stay_apart(self) -> None:
+        lines = [self._tally("top", {"c": 6, "e": 1}, second=1), self._tally("bottom", {"c": 10, "w": 5}, second=2),
+                 self._tally("top", {"c": 2, "e": 1}, second=3)]
+        got = self._crowding(lines)
+        self.assertEqual(got["top"]["n"], 10)
+        self.assertEqual(got["top"]["sides"]["E"]["n"], 2)
+        self.assertFalse(got["top"]["meets_rule2b"])        # 2 of 10
+        self.assertEqual(got["bottom"]["n"], 15)
+        self.assertTrue(got["bottom"]["meets_rule2b"])      # 5 of 15 = 1/3
+
+    def test_abandonments_are_not_counted_as_accepted_dwells(self) -> None:
+        got = self._crowding([self._tally("top", {"c": 10}, aborts={"e": 9})])["top"]
+        self.assertEqual(got["n"], 10)
+        self.assertFalse(got["meets_rule2b"])
+
+    def test_the_minimum_number_of_dwells_is_enforced(self) -> None:
+        line = self._tally("top", {"c": 34, "e": 15})
+        self.assertFalse(self._crowding([line], min_dwells=50)["top"]["meets_rule2b"])
+        self.assertTrue(self._crowding([line], min_dwells=49)["top"]["meets_rule2b"])
+
+    def test_an_empty_tally_adds_no_edge(self) -> None:
+        self.assertEqual(self._crowding([self._tally("top", {})]), {})
+
+    def test_a_damaged_tally_line_is_skipped(self) -> None:
+        line = self._tally("top", {"c": 7, "e": 3}).replace(" nw=0", "")
+        self.assertEqual(self._crowding([line]), {})
+        self.assertEqual(self._crowding(["2026-10-19 10:00:00.000 [INF] [X] KB-E1 edgeq edge=top fires=x"]), {})
+
+    def test_a_tally_is_attributed_to_the_edge_it_counted_not_the_edge_in_force(self) -> None:
+        lines = [
+            "2026-10-19 10:00:00.000 [INF] [X] KB-E1 shown proc=a.exe edge=bottom via=ring boxw=1 boxh=1",
+            self._tally("top", {"c": 7, "e": 3}, second=1),
+        ]
+        self.assertEqual(list(self._crowding(lines)), ["top"])
+
+    def test_mixed_old_and_new_lines_are_summed(self) -> None:
+        old = EdgeCrowding._keys(["E"] * 3 + ["-"] * 2, dock="top")
+        new = [self._tally("top", {"c": 3, "e": 2}, second=30)]
+        got = self._crowding(old + new)["top"]
+        self.assertEqual(got["n"], 10)
+        self.assertEqual(got["sides"]["E"]["n"], 5)
+
+    def test_the_tally_and_the_older_per_line_form_give_the_same_verdict(self) -> None:
+        for quarters in (["E"] * 3 + ["-"] * 7, ["E"] * 2 + ["-"] * 8, ["NE"] * 4 + ["SW"] * 2 + ["-"] * 14,
+                         ["-"] * 12, ["N", "S", "E", "W"] * 3 + ["-"] * 8):
+            counts = {name: sum(1 for q in quarters if (q if q != "-" else "c").lower() == name) for name in self.NAMES}
+            old = self._crowding(EdgeCrowding._keys(quarters))
+            new = self._crowding([self._tally("top", counts)])
+            self.assertEqual(new, old, quarters)
+
+    def test_the_fixture_gives_the_same_rule_2b_in_both_forms(self) -> None:
+        new = kb.metrics(kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines()), min_edge_dwells=2)
+        old = kb.metrics(kb.parse(LEGACY_FIXTURE.read_text(encoding="utf-8").splitlines()), min_edge_dwells=2)
+        self.assertEqual(new["edge_crowding"], old["edge_crowding"])
+        self.assertEqual(new["edge_crowding"]["top"]["n"], 9)
+        self.assertEqual(new["edge_crowding"]["top"]["sides"]["E"]["n"], 4)
+        self.assertEqual(new["edge_crowding"]["bottom"]["sides"]["W"]["n"], 1)
+
+    def test_the_whole_report_is_the_same_in_both_forms_apart_from_the_edgeq_lines(self) -> None:
+        new = kb.metrics(kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines()))
+        old = kb.metrics(kb.parse(LEGACY_FIXTURE.read_text(encoding="utf-8").splitlines()))
+        self.assertEqual({k: v for k, v in new.items() if k != "events"}, {k: v for k, v in old.items() if k != "events"})
+
+    def test_the_fixture_tally_lines_count_only(self) -> None:
+        tallies = [l for l in FIXTURE.read_text(encoding="utf-8").splitlines() if "KB-E1 edgeq " in l]
+        self.assertEqual(len(tallies), 2)
+        for line in tallies:
+            self.assertNotRegex(line, r" (r|act|boxw|boxh|dx|dy|mdx|mdy|saccade|restarts)=")
 
 
 if __name__ == "__main__":

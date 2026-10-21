@@ -148,6 +148,15 @@ public class KeyboardE1LoggingTests
             Hold(Positions[keyId], CooldownMs + 60);
         }
 
+        /// <summary>Ends the show (which writes the edge tally) and returns the NEW tally's fields, or null.</summary>
+        public Dictionary<string, string>? Tally()
+        {
+            var before = Log.Of("edgeq").Length;
+            Vm.E1.RecordHidden("test");
+            var lines = Log.Of("edgeq");
+            return lines.Length == before ? null : Fields(lines[^1]);
+        }
+
         public void Dispose() => Vm.Dispose();
     }
 
@@ -173,7 +182,10 @@ public class KeyboardE1LoggingTests
         var f = Fields(key[0]);
         Check.That(f["cls"]).IsEqualTo("letter");
         Check.That(f["sub"]).IsEqualTo("letters");
-        Check.That(f["edgeq"]).IsEqualTo("-");              // 5 % of the box off centre: the inner half
+        Check.That(f.ContainsKey("edgeq")).IsFalse();       // no per-letter edge class: only the tally counts it
+        var tally = rig.Tally()!;
+        Check.That(tally["fires"]).IsEqualTo("1");
+        Check.That(tally["c"]).IsEqualTo("1");              // 5 % of the box off centre: the inner half
         Check.That(f["dwell"]).IsEqualTo("450");
         Check.That(f["penalty"]).IsEqualTo("False");
         Check.That(f["typing"]).IsEqualTo("False");
@@ -204,7 +216,11 @@ public class KeyboardE1LoggingTests
         Check.That(f["winx"]).IsEqualTo("500");
         Check.That(f["winw"]).IsEqualTo("2800");
         Check.That(f["movems"]).IsEqualTo("7000");
-        Check.That(f["edgeq"]).IsEqualTo("W");
+        Check.That(f.ContainsKey("edgeq")).IsFalse();
+        var tally = rig.Tally()!;
+        Check.That(tally["edge"]).IsEqualTo("top");
+        Check.That(tally["w"]).IsEqualTo("1");              // the mean offset fell in the west outer quarter
+        Check.That(tally["fires"]).IsEqualTo("1");
     }
 
     [Fact]
@@ -475,7 +491,11 @@ public class KeyboardE1LoggingTests
         // The class is the MEAN over the abandoned dwell (where the gaze rested on the key). The sample that
         // ended it already sits on the NEXT key, 220 px right: using it would hand over the direction from
         // one key to the next.
-        Check.That(f["edgeq"]).IsEqualTo("E");
+        Check.That(f.ContainsKey("edgeq")).IsFalse();
+        var tally = rig.Tally()!;
+        Check.That(tally["aborts"]).IsEqualTo("1");
+        Check.That(tally["ae"]).IsEqualTo("1");             // the class is only COUNTED, per dock edge
+        Check.That(tally["fires"]).IsEqualTo("0");
         Check.That(int.Parse(f["pct"])).IsStrictlyGreaterThan(29);
     }
 
@@ -1062,6 +1082,36 @@ public class KeyboardE1LoggingTests
         Check.That(second).HasSize(2);
         Check.That(second[1]).Contains("mirrorlen=1");
         Check.That(second[1]).Not.Contains("res=suppressed");
+    }
+
+    [Fact]
+    public void KeysTypedInAPasswordField_NeverEnterTheEdgeTally()
+    {
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.Type("key_0_1", dx: 80);
+        rig.Type("key_0_2", dx: 80);
+        rig.Sensitive.IsSensitiveActive = false;
+
+        Check.WithCustomMessage("a tally that saw only password keys writes nothing").That(rig.Tally()).IsNull();
+    }
+
+    [Fact]
+    public void TheTally_CountsEveryTextFire_AndAHideResetsIt()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0", dx: 80);                        // east outer quarter
+        rig.Type("key_0_1", dx: 80);
+        rig.Type("key_0_2");                                // centre
+        var first = rig.Tally()!;
+        Check.That(first["fires"]).IsEqualTo("3");
+        Check.That(first["e"]).IsEqualTo("2");
+        Check.That(first["c"]).IsEqualTo("1");
+
+        rig.Type("key_0_0", dx: -80);
+        var second = rig.Tally()!;                          // a second show: a fresh tally, not 4
+        Check.That(second["fires"]).IsEqualTo("1");
+        Check.That(second["w"]).IsEqualTo("1");
     }
 
     [Fact]

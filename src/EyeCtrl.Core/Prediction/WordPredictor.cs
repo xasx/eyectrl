@@ -507,6 +507,40 @@ public class WordPredictor
     internal bool KnowsWord(string word) => _words.ContainsKey(word);
 
     /// <summary>
+    /// The <paramref name="k"/> letters that most often continue <paramref name="prefix"/> in the
+    /// merged dictionary (base plus learned words), by summed word frequency, ties broken by
+    /// letter so the answer is deterministic; most likely first. Pure: it reads the dictionary
+    /// and changes nothing. An EMPTY result for a non-empty prefix means no known word continues
+    /// it. The word end is not a letter, and a prefix that is itself a whole word adds nothing.
+    /// E1 logs "was the activated letter in this set" as a shadow bit; release 3's weighted dwell
+    /// is meant to read the same function.
+    /// </summary>
+    /// <param name="prefix">The typed word so far (case-insensitive); empty for a word start.</param>
+    /// <param name="k">How many letters to return (non-positive returns none).</param>
+    public IReadOnlyList<char> LikelyNextLetters(string prefix, int k = 5)
+    {
+        if (k <= 0) return [];
+
+        var weights = new Dictionary<char, long>();
+        foreach (var (word, frequency) in _words)
+        {
+            if (word.Length <= prefix.Length
+                || !word.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var next = char.ToLowerInvariant(word[prefix.Length]);
+            if (!char.IsLetter(next)) continue;
+            weights[next] = weights.GetValueOrDefault(next) + Math.Max(1, frequency);
+        }
+
+        return weights
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key)
+            .Take(k)
+            .Select(kv => kv.Key)
+            .ToList();
+    }
+
+    /// <summary>
     /// Applies positive frequency deltas (word → additional uses). The inverse of the snapshot
     /// diff: each entry adds to whatever the new stack already knows, so a word learned N times
     /// during the build window ends up N higher, never lower, and never duplicated.

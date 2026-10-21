@@ -1147,16 +1147,18 @@ public class KeyboardCoordinatorTests
         Check.WithCustomMessage("The toolbar toggle no longer manages the keyboard's claim.")
             .That(source.Contains(
                 "Register<KeyboardCoordinator,KeyboardToggledMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
-                + "SetKeyboardVisible(!_modal.KeyboardVisible,manageSuppression:true)));")).IsTrue();
+                + "SetKeyboardVisible(!_modal.KeyboardVisible,manageSuppression:true,source:\"toolbar-toggle\")));")).IsTrue();
         Check.WithCustomMessage("The ring/edge-bar show no longer takes the keyboard's claim.")
             .That(source.Contains(
                 "Register<KeyboardCoordinator,KeyboardShowRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
-                + "{if(ShouldShow(_modal.KeyboardVisible))SetKeyboardVisible(true,manageSuppression:true);}));")).IsTrue();
+                + "{if(ShouldShow(_modal.KeyboardVisible))SetKeyboardVisible(true,manageSuppression:true,source:\"ring\");}));")).IsTrue();
         Check.WithCustomMessage("The edge-bar Close no longer releases the keyboard's claim — "
                 + "fixation would stay off until restart.")
             .That(source.Contains(
                 "Register<KeyboardCoordinator,KeyboardHideRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
-                + "SetKeyboardVisible(false,manageSuppression:true)));")).IsTrue();
+                + "{varedge=context.Settings.Keyboard.ScreenEdge.ToLowerInvariant();"
+                + "context.KeyboardVM?.E1.RecordEdge(\"close\",edge,edge);"
+                + "SetKeyboardVisible(false,manageSuppression:true,source:\"edge-close\");}));")).IsTrue();
     }
 
     // ---- C13 (sub-pixel build plan): the probe's keyboard seam ------------------------------
@@ -1288,11 +1290,11 @@ public class KeyboardCoordinatorTests
                 + "longer hides through SetKeyboardVisible(false, manageSuppression:false).")
             .That(source.Contains(
                 "internalboolHideForProbe(){boolwasVisible=_modal.KeyboardVisible;if(wasVisible)"
-                + "SetKeyboardVisible(false,manageSuppression:false);returnwasVisible;}")).IsTrue();
+                + "SetKeyboardVisible(false,manageSuppression:false,source:\"probe\");returnwasVisible;}")).IsTrue();
         Check.WithCustomMessage("RestoreAfterProbe(false) is no longer a no-op, or the re-show no "
                 + "longer goes through SetKeyboardVisible(true, manageSuppression:false).")
             .That(source.Contains(
                 "internalvoidRestoreAfterProbe(boolwasVisible){if(!wasVisible)return;"
-                + "SetKeyboardVisible(true,manageSuppression:false);}")).IsTrue();
+                + "SetKeyboardVisible(true,manageSuppression:false,source:\"probe\");}")).IsTrue();
     }
 }

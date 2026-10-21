@@ -63,6 +63,11 @@ public class PredictionOrchestrator : IDisposable
             var trieCompletions = _sentenceIndex.GetCompletions(prefix, maxCount);
             foreach (var (completion, frequency) in trieCompletions)
             {
+                // Keep only completions whose words are all in the dictionary. The trie was
+                // learned from sentences and carries names the predictor cannot judge ("ist tom
+                // taub?"). Filter only - do not fetch more to refill.
+                if (!CompletionWordsAreKnown(completion)) continue;
+
                 allResults.Add(new PredictionResult(
                     $"{typedPrefix} {completion}",
                     Math.Log(Math.Max(1, frequency)) * 3.0,
@@ -127,6 +132,33 @@ public class PredictionOrchestrator : IDisposable
     }
 
     /// <summary>
+    /// True when every word of a trie completion is known to the dictionary. Tokens are split on
+    /// whitespace, boundary punctuation is trimmed (inner apostrophes kept), tokens that become
+    /// empty are ignored, and digits make a token unknown.
+    /// </summary>
+    private bool CompletionWordsAreKnown(string completion)
+    {
+        foreach (var token in completion.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var word = TrimTokenBoundaries(token);
+            if (word.Length == 0) continue;
+            if (word.Any(char.IsDigit)) return false;
+            if (!_wordPredictor.KnowsWord(word.ToLowerInvariant())) return false;
+        }
+
+        return true;
+    }
+
+    private static string TrimTokenBoundaries(string token)
+    {
+        var start = 0;
+        while (start < token.Length && !char.IsLetterOrDigit(token[start])) start++;
+        var end = token.Length;
+        while (end > start && !char.IsLetterOrDigit(token[end - 1])) end--;
+        return token[start..end];
+    }
+
+    /// <summary>
     /// Every suggestion whose first word starts with the typed prefix comes before every
     /// suggestion that doesn't, then the existing score order within each group. This is the
     /// property the user sees: a frequent near-miss may never outrank a candidate that respects
@@ -156,6 +188,14 @@ public class PredictionOrchestrator : IDisposable
     public void LearnWord(string word)
     {
         _wordPredictor.LearnWord(word);
+    }
+
+    /// <summary>Delegates to the underlying <see cref="WordPredictor"/> to learn one typed pair.</summary>
+    /// <param name="previousWord">The word before the committed one.</param>
+    /// <param name="word">The first committed word.</param>
+    public void LearnPair(string previousWord, string word)
+    {
+        _wordPredictor.LearnPair(previousWord, word);
     }
 
     /// <summary>Delegates to the underlying <see cref="WordPredictor"/> to learn a sequence of words.</summary>

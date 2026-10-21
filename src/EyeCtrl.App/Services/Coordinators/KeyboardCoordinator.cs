@@ -66,7 +66,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
         // Keyboard toggle
         messenger.Register<KeyboardCoordinator, KeyboardToggledMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_modal.KeyboardVisible, manageSuppression: true)));
+            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_modal.KeyboardVisible, manageSuppression: true, source: "toolbar-toggle")));
 
         // Ring / edge-bar show: idempotent (never hides), with the toolbar toggle's
         // suppression semantics — a show that leaves free-look active would let the next
@@ -75,19 +75,24 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             context.Dispatcher.BeginInvoke(() =>
             {
                 if (ShouldShow(_modal.KeyboardVisible))
-                    SetKeyboardVisible(true, manageSuppression: true);
+                    SetKeyboardVisible(true, manageSuppression: true, source: "ring");
             }));
 
         // Edge-bar Close: the keyboard's own escape — hides AND releases suppression so the
         // ring comes back (spec ledger #13).
         messenger.Register<KeyboardCoordinator, KeyboardHideRequestedMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: true)));
+            context.Dispatcher.BeginInvoke(() =>
+            {
+                var edge = context.Settings.Keyboard.ScreenEdge.ToLowerInvariant();
+                context.KeyboardVM?.E1.RecordEdge("close", edge, edge);
+                SetKeyboardVisible(false, manageSuppression: true, source: "edge-close");
+            }));
 
         // ShowKeyboardRequestMessage -> show keyboard for text input
         messenger.Register<KeyboardCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
         {
             if (context?.OverlayManager.Keyboard == null) return;
-            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(true, manageSuppression: false));
+            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(true, manageSuppression: false, source: "request"));
             Log.Debug("Keyboard shown for text input (target handle: {Handle})", msg.TargetHandle);
         });
 
@@ -95,7 +100,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         messenger.Register<KeyboardCoordinator, HideKeyboardRequestMessage>(this, (_, _) =>
         {
             if (context?.OverlayManager.Keyboard == null) return;
-            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: false));
+            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: false, source: "request"));
             Log.Debug("Keyboard hidden");
         });
 
@@ -363,12 +368,20 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     // claim while the keyboard is up); false for the text-field auto-show/hide request path, which
     // takes no claim (typing there shouldn't pause fixation for the rest of the app). Each owner
     // releases only its own claim, so this release cannot clear another owner's hold.
-    private void SetKeyboardVisible(bool visible, bool manageSuppression)
+    //
+    // source: why this call happened, for E1's shown/hidden lines — one of toolbar-toggle,
+    // ring, edge-close, request or probe. A closed set; never a title or a text.
+    private void SetKeyboardVisible(bool visible, bool manageSuppression, string source)
     {
         if (Context is null) return;
 
+        var wasVisible = _modal.KeyboardVisible;
         ApplyModalKeyboardState(visible);
         Log.Information("Keyboard {State}", visible ? "shown" : "hidden");
+
+        // E1's shown/hidden line, before the window changes (the hide's mirror snapshot must precede it).
+        RecordVisibilityE1(Context.KeyboardVM, visible, wasVisible,
+            Context.Settings.Keyboard.ScreenEdge.ToLowerInvariant(), source);
 
         if (visible)
         {
@@ -398,6 +411,26 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     }
 
     /// <summary>
+    /// E1's shown/hidden lines, extracted so the decision is headless-testable (the caller touches
+    /// the real window). Logs REAL transitions only — a repeated show or hide request is not an
+    /// event. A show logs the foreground PROCESS name (never a title); a hide first starts the
+    /// mirror check (which snapshots on this thread and never waits) and then logs its cause.
+    /// </summary>
+    internal static void RecordVisibilityE1(KeyboardViewModel? keyboard, bool visible, bool wasVisible,
+        string edge, string source)
+    {
+        if (keyboard is null || visible == wasVisible) return;
+        if (visible)
+        {
+            var (boxW, boxH) = keyboard.LetterBoxPx();
+            keyboard.E1.RecordShown(keyboard.ForegroundProcessName(), edge, source, boxW, boxH);
+            return;
+        }
+        keyboard.BeginMirrorCheck("hide");
+        keyboard.E1.RecordHidden(source);
+    }
+
+    /// <summary>
     /// The probe's keyboard seam (build plan C13): hide a keyboard that is visible without touching
     /// its suppression claim. <c>manageSuppression:false</c> is the point — the toolbar-toggle claim
     /// is held while the keyboard is up, and the probe must leave it exactly as it was so the
@@ -409,7 +442,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     {
         bool wasVisible = _modal.KeyboardVisible;
         if (wasVisible)
-            SetKeyboardVisible(false, manageSuppression: false);
+            SetKeyboardVisible(false, manageSuppression: false, source: "probe");
         return wasVisible;
     }
 
@@ -424,7 +457,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     {
         if (!wasVisible)
             return;
-        SetKeyboardVisible(true, manageSuppression: false);
+        SetKeyboardVisible(true, manageSuppression: false, source: "probe");
     }
 
     /// <summary>
@@ -451,7 +484,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private void HandleKeyboardEdgeToggled()
     {
         if (Context is null) return;
+        var edgeBefore = Context.Settings.Keyboard.ScreenEdge.ToLowerInvariant();
         var (flipped, snapshot) = ApplyKeyboardEdge(Context.Settings, Context.SettingsService, _modelRegistry);
+        Context.KeyboardVM?.E1.RecordEdge("flip", flipped.ToLowerInvariant(), edgeBefore);
         Context.OverlayManager.Keyboard.SetScreenEdge(flipped);
         // Verdict-preserving assignment (plan review C4, non-swap site): the fresh capture's
         // settings terms moved, but its ledger verdict term must not jump ahead of the running

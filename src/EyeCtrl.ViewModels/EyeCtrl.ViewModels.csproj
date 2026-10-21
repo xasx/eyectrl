@@ -9,6 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.App" />
     <InternalsVisibleTo Include="EyeCtrl.ViewModels.Tests" />
+    <InternalsVisibleTo Include="EyeCtrl.App.Tests" />
   </ItemGroup>
 
   <ItemGroup>

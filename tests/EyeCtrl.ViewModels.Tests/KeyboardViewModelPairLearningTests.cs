@@ -358,6 +358,7 @@ public class KeyboardViewModelPairLearningTests
 
     [Theory]
     [InlineData("max@web.de.", "max@web.de")]
+    [InlineData("web.de.", "web.de")]
     [InlineData("v1.2.", "v1.2")]
     [InlineData("www.example.de.", "www.example.de")]
     [InlineData("3.5.", "3.5")]
@@ -435,19 +436,42 @@ public class KeyboardViewModelPairLearningTests
         finally { Directory.Delete(dir, true); }
     }
 
-    [Fact]
-    public void AddWord_KeepsADeliberatePeriodAfterALettersWord()
+    [Theory]
+    [InlineData("Ende.", "ende")]
+    [InlineData("usw.", "usw.")]
+    [InlineData("z.B.", "z.b.")]
+    [InlineData("Bsp.", "bsp")]
+    [InlineData("v1.2.", "v1.2")]
+    public void AddWord_LearnsTheSameFormAsSpace(string raw, string expectedKey)
     {
-        var (vm, orchestrator) = Create();
-        using (vm)
+        var dir = NewTempDir();
+        try
         {
-            vm.CurrentInput = "Bsp.";
-            vm.HandleAddWord();
+            var (addVm, addOrchestrator) = CreateWithAbbreviations(dir);
+            using (addVm)
+            {
+                addVm.CurrentInput = raw;
+                addVm.HandleAddWord();
 
-            var words = orchestrator.WordPredictor.WordFrequencies;
-            Check.That(words.ContainsKey("bsp.")).IsTrue();
-            Check.That(words.ContainsKey("bsp")).IsFalse();
+                Check.WithCustomMessage(
+                        "Add Word learned a form Space would not learn - the owner vetoed the "
+                        + "deliberate period")
+                    .That(addOrchestrator.WordPredictor.WordFrequencies.ContainsKey(expectedKey))
+                    .IsTrue();
+            }
+
+            var (spaceVm, spaceOrchestrator) = CreateWithAbbreviations(dir);
+            using (spaceVm)
+            {
+                Type(spaceVm, raw);
+                spaceVm.HandleSpace();
+
+                Check.WithCustomMessage("Space did not learn the expected form - fixture mismatch")
+                    .That(spaceOrchestrator.WordPredictor.WordFrequencies.ContainsKey(expectedKey))
+                    .IsTrue();
+            }
         }
+        finally { Directory.Delete(dir, true); }
     }
 
     [Fact]

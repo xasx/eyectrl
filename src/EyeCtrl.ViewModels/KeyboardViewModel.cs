@@ -211,6 +211,26 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // Whether a password-like field has focus: E1 then logs nothing per key (see KeyboardE1Recorder).
     private bool SensitiveNow() => _sensitiveContext?.IsSensitiveActive == true;
 
+    // What SensitiveNow() returned the last time an input reached the view-model. The detector has no
+    // change event, so the transition sensitive -> not sensitive is only ever SEEN at the next input.
+    private bool _wasSensitive;
+
+    /// <summary>
+    /// Runs first in every handler that can learn from or build on <see cref="CurrentInput"/>. A
+    /// password is typed with a sensitive field focused and the user then leaves it by GAZE (a
+    /// dwell-click on "Log in"): no Tab, Enter or named key reaches the keyboard, so the editing
+    /// session never ended and the next Space would learn the password into the persisted user
+    /// dictionary. When the context was sensitive at the previous input and is not now, the session
+    /// ends HERE, before the new input is handled, so none of it builds on the password's characters.
+    /// </summary>
+    private void EndSessionOnLeavingASensitiveField()
+    {
+        var sensitive = SensitiveNow();
+        if (_wasSensitive && !sensitive)
+            EndEditingSession();
+        _wasSensitive = sensitive;
+    }
+
     /// <summary>
     /// The foreground PROCESS name (never a title) for the "keyboard shown" line, or <c>unknown</c>.
     /// </summary>
@@ -893,6 +913,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void ActivateKey(string output, string? shiftOutput)
     {
+        EndSessionOnLeavingASensitiveField();
         var actualOutput = IsShifted && !string.IsNullOrEmpty(shiftOutput)
             ? shiftOutput
             : output;
@@ -932,6 +953,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleBackspace()
     {
+        EndSessionOnLeavingASensitiveField();
         if (CurrentInput.Length > 0)
         {
             CurrentInput = TrimLastGrapheme(CurrentInput);
@@ -961,6 +983,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleDeleteWord()
     {
+        EndSessionOnLeavingASensitiveField();
         if (CurrentInput.Any(char.IsLetterOrDigit))
         {
             CurrentInput = TrimLastWord(CurrentInput);
@@ -1025,6 +1048,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleAddWord()
     {
+        EndSessionOnLeavingASensitiveField();
         if (CurrentInput.Length == 0) return;
         // An explicit one-word teach keeps a deliberate trailing period ("Bsp." -> "bsp.").
         LearnCommittedWord(CurrentInput, keepDeliberatePeriod: true);
@@ -1052,6 +1076,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleEnter()
     {
+        EndSessionOnLeavingASensitiveField();
         EndEditingSession();
         Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -1059,6 +1084,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void HandleSpace()
     {
+        EndSessionOnLeavingASensitiveField();
         if (!HasSystemModifiers)
         {
             if (CurrentInput.Length > 0)
@@ -1105,6 +1131,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private void LearnPair(string? previousWord, string word)
     {
+        if (SensitiveNow()) return;   // never learn from a password field
         if (previousWord is null || BigramModel.NormalizeWord(previousWord) is null) return;
         if (BigramModel.NormalizeWord(word) is null) return;
         if (EndsWithSentencePunctuation(previousWord)) return;
@@ -1162,6 +1189,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private string? LearnCommittedWord(string rawWord, bool keepDeliberatePeriod = false)
     {
+        if (SensitiveNow()) return null;   // never learn from a password field
         if (TrimLearnedWord(rawWord, keepDeliberatePeriod) is not { } word) return null;
         _orchestrator?.LearnWord(word);
         return word;
@@ -1173,6 +1201,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private void LearnCommittedSequence(IReadOnlyList<string> rawWords)
     {
+        if (SensitiveNow()) return;   // never learn from a password field
         var learnedWords = new List<string>(rawWords.Count);
         foreach (var rawWord in rawWords)
             if (TrimLearnedWord(rawWord) is { } word)
@@ -1258,6 +1287,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>Tab moves the focus (or inserts a tab): the mirror no longer describes the caret.</summary>
     public void HandleTab()
     {
+        EndSessionOnLeavingASensitiveField();
         EndEditingSession();
         Messenger.Send(new KeyActivatedMessage("\t", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -1399,6 +1429,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public List<PredictionResult> GetSuggestionsWithContext()
     {
+        EndSessionOnLeavingASensitiveField();
         if (_orchestrator == null) return new List<PredictionResult>();
 
         // Pass full text context for smart capitalization if enabled
@@ -1410,6 +1441,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void HandlePredictionSelected(string word)
     {
+        EndSessionOnLeavingASensitiveField();
         // Sentence completions and phrases arrive as multi-word text. LearnWord stores its argument
         // verbatim as one dictionary key, so learning that would put a whole sentence — punctuation
         // included — into the persisted user dictionary and then suggest it back as a single word.
@@ -1454,6 +1486,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleSpecialKey(string keyName)
     {
+        EndSessionOnLeavingASensitiveField();
         if (!keyName.Equals("printscreen", StringComparison.OrdinalIgnoreCase))
             EndEditingSession();
         Messenger.Send(new SpecialKeyMessage(keyName, ModifiersSnapshot));
@@ -1471,6 +1504,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void HandleShortcut(string chord)
     {
+        EndSessionOnLeavingASensitiveField();
         if (KeyboardShortcut.TryParse(chord, out var chordModifiers, out var key))
         {
             var modifiers = new HashSet<ModifierKey>(_activeModifiers);

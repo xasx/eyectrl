@@ -62,7 +62,7 @@ public class ActionMenuWindowDimRenderTests
             CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false));
         vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl));
 
-        var window = new ActionMenuWindow { DataContext = vm };
+        var window = Fixtures.InvisibleTestWindow.Prepare(new ActionMenuWindow { DataContext = vm });
         try
         {
             window.Show(

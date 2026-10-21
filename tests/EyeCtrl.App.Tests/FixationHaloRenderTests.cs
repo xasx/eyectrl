@@ -35,7 +35,7 @@ public class FixationHaloRenderTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var window = new ActivationButtonWindow();
+        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
         try
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
@@ -79,7 +79,7 @@ public class FixationHaloRenderTests
         // (subtract StrokeThickness/2) → 71.5 DIP at progress 1, red.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var window = new ActivationButtonWindow();
+        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
         try
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
@@ -135,7 +135,7 @@ public class FixationHaloRenderTests
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
         var b = new PhysicalPoint(x, y);
 
-        var window = new ActivationButtonWindow();
+        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
         try
         {
             window.ShowAt(b, HitPx);
@@ -158,7 +158,7 @@ public class FixationHaloRenderTests
         // The halo sits over the offered button, so it must never become a mouse target over whatever
         // is underneath it — the same contract the cursor ring has.
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = new ActivationButtonWindow();
+        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
         try
         {
             Check.That(window.IsClickThrough).IsTrue();
@@ -179,7 +179,7 @@ public class FixationHaloRenderTests
         // the presence/absence of a held animation rather than an animated frame.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var window = new ActivationButtonWindow();
+        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
         try
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);

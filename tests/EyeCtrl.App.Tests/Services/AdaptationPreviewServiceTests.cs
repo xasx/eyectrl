@@ -975,8 +975,7 @@ public class AdaptationPreviewServiceTests
         // F6: the owner controls the PC only by eye-tracking, so a plain `dotnet test` must not
         // put a visible keyboard on screen. This test needs the real Show() layout; a fully
         // transparent, non-activating window lays out identically and shows nothing.
-        keyboard.Opacity = 0;
-        keyboard.ShowActivated = false;
+        InvisibleTestWindow.Prepare(keyboard);
 
         var invSettings = new EyeCtrlSettings();
         using var inventory = new GazeConsumerInventory(
@@ -1083,8 +1082,7 @@ public class AdaptationPreviewServiceTests
         // needed), and the growth can still enter a panel that sits below it.
         keyboard.SetScreenEdge("top");
         // F6: invisible, non-activating show (the layout and bounds are unchanged).
-        keyboard.Opacity = 0;
-        keyboard.ShowActivated = false;
+        InvisibleTestWindow.Prepare(keyboard);
         keyboard.Show();
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
 

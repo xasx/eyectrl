@@ -121,7 +121,7 @@ public class ScrollOverlayWindowTests
     [InlineData(2.0)]
     public void G8_TheStartCircle_ShowsWhileUnarmedOnly(double scale)
     {
-        // C4: a faint circle of 350 DIP across (2 x 175, fixup 02) around the cross, centred on the anchor,
+        // C4: a faint circle of 450 DIP across (2 x 225, fixup 03) around the cross, centred on the anchor,
         // drawn only until scrolling has started. Window constructed, never shown. Mutants: M12 the
         // circle never shown → the unarmed assertions red; M13 shown after arming → the armed
         // assertion red.
@@ -137,7 +137,7 @@ public class ScrollOverlayWindowTests
             window.Place(vm);
             window.UpdateFeedback(0, 0, 0);
 
-            const double expected = 350.0;   // the literal: 175 DIP radius, at any scale
+            const double expected = 450.0;   // the literal: 225 DIP radius, at any scale
             double anchorX = DpiHelper.PhysicalToLogicalX(anchor.X);
             double anchorY = DpiHelper.PhysicalToLogicalY(anchor.Y);
             foreach (var ring in new[] { window.StartCircle, window.StartCircleHalo })

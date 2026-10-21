@@ -386,7 +386,15 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (visible)
         {
             Context.OverlayManager.Keyboard.Show();
-            ApplyInitialToolbarOccupancy();
+            // R2-4: refresh the occupancy state BEFORE the show placement, without placing.
+            // Toolbar visibility changes reach the keyboard through BeginInvoke, so a hide still
+            // queued at show time leaves a stale "occupied". Placing with it would yield the
+            // whole session, and the fresh 0 that follows can never un-yield while open.
+            ApplyInitialToolbarOccupancy(place: false);
+            // F2: the explicit show placement. It is the session's one un-yield (docked position
+            // plus the refreshed toolbar yield); it must run after Show() so the window has its
+            // real size. The window no longer infers a show from IsVisibleChanged.
+            Context.OverlayManager.Keyboard.PlaceForShow();
             ShowKeyboardEdgeBar();
             if (manageSuppression)
                 ApplyKeyboardSuppression(visible: true);
@@ -518,9 +526,18 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // guard above (its Log.Debug the only trace). Same invisible guarantee as
         // OverlayMessageCoordinator.cs:119-121.
         bar.ShowButtons(
-            KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs),
+            KeyboardEdgeButtons.Definitions(KeyboardEdgeButtonDwellMs(Context.Settings.Dwell)),
             ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
     }
+
+    /// <summary>
+    /// The keyboard edge-bar pair's dwell: the same setting the action-menu pair reads on the
+    /// shared bar (<c>Dwell.ActionMenuDwellMs</c>). Close and Flip used to ride the 450 ms
+    /// keyboard KEY dwell, which made the keyboard's escape and its worst-region move cheaper
+    /// than every other edge-bar button. The 600 ms floor lives in
+    /// <see cref="KeyboardEdgeButtons.Definitions"/> so every caller gets it.
+    /// </summary>
+    internal static int KeyboardEdgeButtonDwellMs(DwellSettings dwell) => dwell.ActionMenuDwellMs;
 
     private void HideKeyboardEdgeBar()
     {
@@ -678,7 +695,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         Context.Dispatcher.BeginInvoke(() => ApplyToolbarOccupancy(toolbarVisible));
     }
 
-    private void ApplyToolbarOccupancy(bool toolbarVisible)
+    private void ApplyToolbarOccupancy(bool toolbarVisible, bool place = true)
     {
         if (Context is null) return;
         var toolbar = Context.OverlayManager.Toolbar;
@@ -686,7 +703,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             toolbarVisible, toolbar.IsVisible,
             Context.Settings.Toolbar.IsDocked, Context.Settings.Toolbar.DockedEdge,
             toolbar.ExtentDip);
-        Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
+        if (place)
+            Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
+        else
+            Context.OverlayManager.Keyboard.SetToolbarOccupancyState(occupied, edge, extent);
     }
 
     /// <summary>
@@ -703,10 +723,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             ? (true, isDocked ? dockedEdge : "none", extentDip)
             : (false, "none", 0);
 
-    private void ApplyInitialToolbarOccupancy()
+    private void ApplyInitialToolbarOccupancy(bool place = true)
     {
         if (Context is null) return;
-        ApplyToolbarOccupancy(Context.OverlayManager.Toolbar.IsVisible);
+        ApplyToolbarOccupancy(Context.OverlayManager.Toolbar.IsVisible, place);
     }
 
     protected override void OnDispose()

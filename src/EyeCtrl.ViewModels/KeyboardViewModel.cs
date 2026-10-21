@@ -1000,6 +1000,56 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // (≈ half a key width; a resting-on-centre gaze yields d1≈0, d2≈pitch). Fewer than
         // two positioned old centres means no suppression — otherwise d2 stays
         // double.MaxValue and the radius becomes effectively infinite (plan-r2).
+        ArmDwellSuppression();
+
+        ActiveSubLayoutId = subLayoutId;
+        if (!_inAutoReturn)
+            E1.RecordMode("sublayout", fromSubLayout, subLayoutId);
+
+        // D15 … and M7: RebuildKeys (synchronous, on the assignment above) draws static
+        // labels and — since impl-review r2 N1 — repaints modifier state itself at its end,
+        // so this raise is REDUNDANT on every rebuild path and kept as backup for any future
+        // rebuild path that forgets to (defense in depth, mirroring the notes on the
+        // ResetInteractionState/SetLayout raises). It must still run AFTER the swap so any
+        // repaint it causes lands on the NEW grid (plan review H1).
+        if (_layout.SubLayouts[subLayoutId].AutoReturn)
+            ClearSystemOneShotModifiers();
+        OnPropertyChanged(nameof(ActiveModifiers));
+    }
+
+    /// <summary>
+    /// Arms the D13 spatial suppression at the gaze's last in-grid position: while the gaze stays
+    /// within about half a key of it, nothing dwells. Used by a sub-layout swap (manual or
+    /// auto-return), which must re-anchor against the OLD grid; a window move uses the
+    /// non-destructive <see cref="ArmDwellSuppressionForMove"/>.
+    ///
+    /// <para>
+    /// The anchor is only set when the last gaze sample was on the key area (a prediction pick
+    /// happens on the bar and must suppress nothing — plan review H3). The radius is half the
+    /// distance to the second-nearest centre of the OLD grid (≈ half a key width; a
+    /// resting-on-centre gaze yields d1≈0, d2≈pitch). Fewer than two positioned centres means
+    /// no suppression — otherwise d2 stays double.MaxValue and the radius becomes effectively
+    /// infinite (plan-r2).
+    /// </para>
+    /// </summary>
+    public void ArmDwellSuppression() => ArmDwellSuppressionCore(clearWhenUnavailable: true);
+
+    /// <summary>
+    /// The arm for a WINDOW move (R2-1). It is deliberately NON-destructive: the move that
+    /// follows a sub-layout swap runs during RebuildKeys, after ClearKeyState has emptied the
+    /// key-position dictionary but while the swap's anchor is live. Re-arming there would take
+    /// the "no centres" path and NULL the swap's anchor, letting a resting gaze type the key
+    /// that landed under it (measured: qwertz letters→Fn types space). So: a live anchor is
+    /// kept; a fresh one is computed only when none is live and the old centres are known; and
+    /// an unavailable computation leaves the anchor alone instead of clearing it.
+    /// </summary>
+    public void ArmDwellSuppressionForMove() => ArmDwellSuppressionCore(clearWhenUnavailable: false);
+
+    private void ArmDwellSuppressionCore(bool clearWhenUnavailable)
+    {
+        if (!clearWhenUnavailable && _swapSuppressedAnchor is not null)
+            return;   // a live swap/yield arm wins; the rebuild's move must not disturb it
+
         if (_lastGazeInsideWindowPoint is { } anchor
             && _lastKeyScreenPositions is { } positions
             && positions.Count >= 2)
@@ -1022,25 +1072,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
             _swapSuppressedAnchor = anchor;
             _swapSuppressedClearRadiusSquared = 0.25 * d2;
+            return;
         }
-        else
-        {
+
+        if (clearWhenUnavailable)
             _swapSuppressedAnchor = null;
-        }
-
-        ActiveSubLayoutId = subLayoutId;
-        if (!_inAutoReturn)
-            E1.RecordMode("sublayout", fromSubLayout, subLayoutId);
-
-        // D15 … and M7: RebuildKeys (synchronous, on the assignment above) draws static
-        // labels and — since impl-review r2 N1 — repaints modifier state itself at its end,
-        // so this raise is REDUNDANT on every rebuild path and kept as backup for any future
-        // rebuild path that forgets to (defense in depth, mirroring the notes on the
-        // ResetInteractionState/SetLayout raises). It must still run AFTER the swap so any
-        // repaint it causes lands on the NEW grid (plan review H1).
-        if (_layout.SubLayouts[subLayoutId].AutoReturn)
-            ClearSystemOneShotModifiers();
-        OnPropertyChanged(nameof(ActiveModifiers));
     }
 
     /// <summary>

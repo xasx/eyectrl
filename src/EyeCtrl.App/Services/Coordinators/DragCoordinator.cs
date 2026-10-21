@@ -23,8 +23,13 @@ using Serilog;
 /// outlives this process, so a drag left un-released does not end when the app does — the successor
 /// starts in <c>FreeLook</c>, where the gaze engine moves the cursor, and the user's gaze becomes a
 /// continuous drag they cannot stop. Worse, the instinctive response to a stuck drag is tray Exit or
-/// Settings → Restart, which is exactly the path that cements it. Four paths therefore release:
-/// drop, cancel, a setup failure between the press and the cancel button existing, and dispose.
+/// Settings → Restart, which is exactly the path that cements it. Five paths therefore release:
+/// drop, cancel, the fatal-exit last-gasp release, dispose, and a failure of the post-press trail
+/// start. (F3 runs the drag's setup — overlay, anchor, cancel button — before the press, so a
+/// failure there sends no press at all. The one step after the press, the message that starts the
+/// trail view model, is guarded by its own catch: it drives the VM and its overlay updates, which
+/// is exactly the kind of code the old post-press window contained, so a throw in it releases
+/// before aborting rather than escaping with the button held.)
 /// </para>
 /// <para>
 /// The drag-entry methods are <see langword="internal"/> so tests drive them directly, following
@@ -35,8 +40,30 @@ internal sealed class DragCoordinator : CoordinatorBase
 {
     private const double RightEdgeInsetLogical = 30;
 
-    private DragTrailOverlay? _dragTrailOverlay;
+    private IDragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
+
+    /// <summary>
+    /// Builds the trail overlay. The default is production's real window; tests replace it with a
+    /// recording fake so a drag can be driven without an HWND on the desktop (see
+    /// <see cref="IDragTrailOverlay"/>). A factory rather than an instance so the overlay is still
+    /// built per drag, exactly as before.
+    /// </summary>
+    internal Func<IDragTrailOverlay> CreateTrailOverlay { get; set; } = static () => new DragTrailOverlay();
+
+    /// <summary>
+    /// The exception that aborted the most recent drag's setup, or null if its setup completed (or
+    /// no drag has been attempted). Cleared at the start of every drag, so it always describes the
+    /// LAST attempt.
+    /// <para>
+    /// It exists because the setup catch used to report only to the process-global Serilog logger,
+    /// which a test process leaves unconfigured: when the intermittent CI failure aborted a drag
+    /// to FreeLook, the exception that caused it was unrecoverable from the test output. A test
+    /// that expects a drag to start asserts this is null FIRST, so the next flake names its cause
+    /// instead of failing with only the state it left behind.
+    /// </para>
+    /// </summary>
+    internal Exception? LastSetupFailure { get; private set; }
 
     /// <summary>
     /// True between issuing <c>MouseDown</c> and its matching <c>MouseUp</c>. This coordinator's own
@@ -123,6 +150,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     {
         if (Context is null) return;
 
+        LastSetupFailure = null;
         _dragGrabOrigin = grabOrigin;
 
         // F2 (clicking investigation §4, pre-existing): InteractionManager.OnActionSelected invokes
@@ -132,9 +160,9 @@ internal sealed class DragCoordinator : CoordinatorBase
         //   1. the menu VM goes false, the same property change the posted hide would deliver, so its
         //      coordinator listener hides the menu window and posts the backdrop's deferred hide;
         //      the later, queued hide sets an already-false property and raises nothing (idempotent);
-        //   2. the backdrop's pending hide is completed synchronously (F1) before the button goes
-        //      down. A listenerless context (focused coordinator tests) leaves nothing pending, so
-        //      the completion is a no-op there — as it is when no menu/backdrop was up at all.
+        //   2. the backdrop's pending hide is completed synchronously (F1) before anything else.
+        //      A listenerless context (focused coordinator tests) leaves nothing pending, so the
+        //      completion is a no-op there — as it is when no menu/backdrop was up at all.
         // The overlay manager is read through a NULLABLE local: the drag-release tests run a harness
         // with no OverlayManager on purpose (TestFakes.MakeDragContext — their teardown must throw
         // AFTER the release), and the press must still happen there. A `?.` on
@@ -146,43 +174,67 @@ internal sealed class DragCoordinator : CoordinatorBase
         var backdrop = overlays?.GlassBackdrop;
         backdrop?.CompleteHideNow();
 
-        Log.Information("Drag: MouseDown at ({X:F0}, {Y:F0}) [BackdropVisible={BackdropVisible}]",
-            grabOrigin.X, grabOrigin.Y, backdrop?.IsVisible ?? false);
-
-        Context.InputSimulator.MouseDown(grabOrigin);
-        Volatile.Write(ref _osButtonHeld, 1);
-
-        // Everything from here to the cancel button being on screen is the window in which the
-        // button is down and the user has no way to let go of it. A throw in it used to escape
-        // into the dispatcher, where the app's crash-to-die policy killed the process with the
-        // button still pressed \u2014 and the press survives the process. This is not a hypothetical
-        // range: ScreenGeometry.RightEdgeAnchor does DPI arithmetic that has thrown on small
-        // screens before, DragTrailOverlay is a WPF window whose construction can fail, and
-        // ShowButtons touches another overlay. Whatever fails, the button must come back up.
+        // F3 (owner D1, "a drag that can't get ready does nothing"): every step that can fail —
+        // building, configuring and showing the trail window, the right-edge anchor's DPI
+        // arithmetic, building the cancel button, and putting it on the bar — runs BEFORE the
+        // press. A failure here therefore never clicks at the grab point: the drag simply does not
+        // start, and no OS button state was changed. This replaced the old order, which pressed
+        // first and, on failure, released again at the grab origin — a click the user never asked
+        // for. The press is now the first thing that touches OS-global state, and only once the
+        // user's way out (the cancel button) is already on screen. Everything above the press is
+        // window-free after the F2 seam; the ONE step below it is guarded separately.
         try
         {
-            _dragTrailOverlay = new DragTrailOverlay();
+            _dragTrailOverlay = CreateTrailOverlay();
             _dragTrailOverlay.Configure(Context.Settings.Drag.TrailColor, Context.Settings.Drag.TrailOpacity);
             _dragTrailOverlay.Show();
 
             var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.DragButtonRadius);
             var cancelDef = CreateCancelButtonDefinition(Context.Settings.Dwell.DragRightEdgeButtonDwellMs);
             Context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
+        }
+        catch (Exception ex)
+        {
+            LastSetupFailure = ex;
+            Log.Error(ex, "Drag setup failed before the button was pressed; aborting the drag without a press.");
+            AbortDragAfterSetupFailure();
+            return;
+        }
 
+        Log.Information("Drag: MouseDown at ({X:F0}, {Y:F0}) [BackdropVisible={BackdropVisible}]",
+            grabOrigin.X, grabOrigin.Y, backdrop?.IsVisible ?? false);
+
+        Context.InputSimulator.MouseDown(grabOrigin);
+        Volatile.Write(ref _osButtonHeld, 1);
+
+        // The trail start is the ONE step that still runs AFTER the press, and it can throw: the
+        // Send fans out synchronously into DragTrailViewModel.Receive, whose property setters
+        // re-enter OnDragTrailVMPropertyChanged and call Update on the overlay — DPI arithmetic and
+        // a WPF window, the same failure kinds the old post-press window contained. Without this
+        // guard a throw here escaped OnDragStarted with the button still down (the stuck-button
+        // failure this class exists to prevent) and LastSetupFailure stayed null, so F1's
+        // diagnostic missed it too. The abort releases FIRST; after the press a press+release is
+        // unavoidable, but it must not be a press with no release.
+        try
+        {
             Context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Drag setup failed after the button was pressed; releasing it and aborting the drag.");
+            LastSetupFailure = ex;
+            Log.Error(ex, "Drag trail start failed after the button was pressed; releasing it and aborting the drag.");
             AbortDragAfterSetupFailure();
+            ResetDragTrailVmAfterFailedStart();
         }
     }
 
     /// <summary>
     /// Unwinds a drag that never became usable. Deliberately swallowing: this runs because
     /// something already failed, and letting the recovery throw would return the caller to the
-    /// crash path with the button state it was trying to fix. Release comes first \u2014 every later
-    /// step is cosmetic by comparison.
+    /// crash path with the button state it was trying to fix. Release comes first — every later
+    /// step is cosmetic by comparison, and it is a no-op only when the failure happened before the
+    /// press (the F3 setup). When the failure came from the post-press trail start, this release is
+    /// the whole point. That is why it stays first regardless of which caller got here.
     /// </summary>
     private void AbortDragAfterSetupFailure()
     {
@@ -198,6 +250,27 @@ internal sealed class DragCoordinator : CoordinatorBase
         // TogglePause deliberately blocked.
         try { Context?.InteractionManager.CompleteDrag(); }
         catch (Exception ex) { Log.Error(ex, "Failed to reset interaction state while aborting a drag."); }
+    }
+
+    /// <summary>
+    /// Puts the drag-trail view model back to idle after a start that threw part-way through.
+    /// <c>StartDragTrailMessage</c> fans out synchronously into <c>DragTrailViewModel.Receive</c>,
+    /// which sets its properties one at a time; this coordinator's own PropertyChanged handler calls
+    /// the overlay's <c>Update</c> on several of them. A throw part-way through therefore leaves the
+    /// VM half-initialised — possibly <c>IsDragActive</c> true with no dwell targets, because
+    /// <c>SetupDwellTargets</c> is the last statement. Cancelling it restores the idle state, so the
+    /// NEXT drag starts clean.
+    /// <para>
+    /// Delivered by calling the VM's own <c>Receive</c>, not through the messenger: the coordinator
+    /// is itself registered for <see cref="DragCancelMessage"/> as a DEFERRED teardown, and the drag
+    /// has already been fully unwound above — re-posting that teardown would only repeat the hide
+    /// and close on a later dispatcher turn, after the state has been reset.
+    /// </para>
+    /// </summary>
+    private void ResetDragTrailVmAfterFailedStart()
+    {
+        try { Context?.DragTrailVM.Receive(new DragCancelMessage()); }
+        catch (Exception ex) { Log.Error(ex, "Failed to reset the drag-trail view model after an aborted start."); }
     }
 
     /// <summary>

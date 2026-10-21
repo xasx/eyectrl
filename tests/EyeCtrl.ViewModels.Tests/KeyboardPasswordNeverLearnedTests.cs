@@ -300,4 +300,135 @@ public class KeyboardPasswordNeverLearnedTests
             .That(rig.Words.Keys.Any(k => k.Contains("eins") || k.Contains("zwei"))).IsFalse();
         Check.That(rig.Pairs().Any(p => p.Contains("zwei") || p.Contains("eins"))).IsFalse();
     }
+
+    // ---- fixup 01: ANY change of sensitivity ends the session; no re-open while sensitive ------------
+
+    [Fact]
+    public void EnteringAPasswordField_ThenBackspace_DoesNotReopenTheEarlierFieldsWord()
+    {
+        using var rig = new Rig();
+        rig.Type("hallo");
+        rig.Vm.HandleSpace();
+        rig.Type("welt");
+        rig.Vm.HandleSpace();                          // "hallo welt " in a normal field
+
+        rig.Sensitive.IsSensitiveActive = true;        // focus moves into a password field
+        rig.Vm.HandleBackspace();
+
+        Check.WithCustomMessage("'welt' must not be re-opened into the password field")
+            .That(rig.Vm.CurrentInput).IsEqualTo("");
+        Check.WithCustomMessage("nothing of the earlier field may be left in the mirror")
+            .That(rig.Mirror).IsEqualTo("");
+    }
+
+    [Fact]
+    public void EnteringAPasswordField_ThenALetter_StartsAFreshMirror()
+    {
+        using var rig = new Rig();
+        rig.Type("hallo");
+        rig.Vm.HandleSpace();
+        rig.Type("welt");                              // an OPEN word in the normal field
+
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.Type("x");
+
+        Check.That(rig.Mirror).IsEqualTo("x");
+    }
+
+    [Fact]
+    public void PasswordToPassword_BackspaceAndWordBackspace_NeverReopenAnything()
+    {
+        // Two password fields in a row show no change of sensitivity, so the guard cannot tell them
+        // apart: nothing the first one left in the mirror may come back in the second.
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.Type("geheim");
+        rig.Vm.HandleSpace();                          // "geheim " committed while sensitive
+
+        rig.Vm.HandleBackspace();
+        Check.WithCustomMessage("Backspace re-opened the first password").That(rig.Vm.CurrentInput).IsEqualTo("");
+        Check.That(rig.Mirror).IsEqualTo("");
+
+        rig.Type("zwei");
+        rig.Vm.HandleSpace();
+        rig.Type(",");
+        rig.Vm.HandleDeleteWord();                     // a token with no letter reaches the committed text
+        Check.WithCustomMessage("Word-Backspace left committed password text behind").That(rig.Mirror).IsEqualTo("");
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("");
+    }
+
+    // ---- fixup 01: the bar stays EMPTY and no model query is made while sensitive --------------------
+
+    private sealed class SpyLanguageModel : ILanguageModelPredictor
+    {
+        public List<(string Context, string? Prefix)> Queries { get; } = new();
+        public bool IsAvailable => true;
+        public void Predict(string context, string? prefix = null) => Queries.Add((context, prefix));
+        public IReadOnlyList<PredictionResult>? TryGetResults() => null;
+        public void Cancel() { }
+        public void Dispose() { }
+    }
+
+    private static (Rig Rig, SpyLanguageModel Lm) RigWithAModel(Dictionary<string, int>? words = null)
+    {
+        var rig = new Rig();
+        var lm = new SpyLanguageModel();
+        rig.Vm.SetOrchestrator(new PredictionOrchestrator(
+            new WordPredictor(new WordsProvider(words ?? new() { ["geheimnis"] = 50, ["gehen"] = 40 })),
+            lmPredictor: lm));
+        return (rig, lm);
+    }
+
+    private sealed class WordsProvider(Dictionary<string, int> words) : IDictionaryProvider
+    {
+        public Dictionary<string, int> Load() => new(words);
+        public void Save(Dictionary<string, int> w) { }
+    }
+
+    [Fact]
+    public void WhileSensitive_TheBarIsEmpty_AndNoDictionaryOrModelQueryUsesTheTypedText()
+    {
+        var (rig, lm) = RigWithAModel();
+        using (rig)
+        {
+            // Arrange: in a normal field "geh" produces completions (so the assertion below can fail).
+            rig.Type("geh");
+            Check.WithCustomMessage("arrange: a normal field must offer completions")
+                .That(rig.Vm.GetSuggestions()).Not.IsEmpty();
+            lm.Queries.Clear();
+            rig.Vm.HandleSpace();
+
+            rig.Sensitive.IsSensitiveActive = true;
+            rig.Type("geh");
+            var bar = rig.Vm.GetSuggestionsWithContext();
+
+            Check.WithCustomMessage("the bar in a password field: " + string.Join(",", bar.Select(r => r.Word))).That(bar).IsEmpty();
+            Check.WithCustomMessage("queries: " + string.Join(";", lm.Queries.Select(q => q.Context + "|" + q.Prefix)))
+                .That(lm.Queries).IsEmpty();
+        }
+    }
+
+    [Fact]
+    public void AfterLeavingThePasswordField_TheBarWorksAgain_WithoutAnythingFromThePassword()
+    {
+        var (rig, lm) = RigWithAModel();
+        using (rig)
+        {
+            rig.Sensitive.IsSensitiveActive = true;
+            rig.Type("geheim");
+            Check.That(rig.Vm.GetSuggestionsWithContext()).IsEmpty();
+
+            rig.Sensitive.IsSensitiveActive = false;
+            var afterLeaving = rig.Vm.GetSuggestionsWithContext();
+            Check.WithCustomMessage("the bar after leaving: " + string.Join(",", afterLeaving.Select(r => r.Word)))
+                .That(afterLeaving).IsEmpty();               // empty input, no context: the usual empty bar
+
+            rig.Type("geh");                                  // a fresh word in the next field
+            var bar = rig.Vm.GetSuggestions();
+            Check.That(bar).Contains("geheimnis");
+            Check.WithCustomMessage("queries: " + string.Join(";", lm.Queries.Select(q => q.Context + "|" + q.Prefix)))
+                .That(lm.Queries.Any(q => (q.Context + q.Prefix).Contains("geheim", StringComparison.OrdinalIgnoreCase)
+                    && !(q.Prefix ?? "").Equals("geh", StringComparison.OrdinalIgnoreCase))).IsFalse();
+        }
+    }
 }

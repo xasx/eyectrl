@@ -4,6 +4,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using EyeCtrl.App.Overlays;
 
 /// <summary>
 /// Makes a REAL window shown by a test invisible and non-activating, BEFORE its first
@@ -62,6 +63,25 @@ internal static class InvisibleTestWindow
         var handle = new WindowInteropHelper(window).EnsureHandle();
         var on = 1;
         _ = DwmSetWindowAttribute(handle, DwmaCloak, ref on, sizeof(int));
+        return window;
+    }
+
+    /// <summary>
+    /// For <c>GlassBackdropWindow</c>, which is NOT layered (<c>AllowsTransparency=False</c>, so Opacity does
+    /// not hide it) and cloaks itself around its own show: it keeps the product's full-screen sizing but is
+    /// positioned at -30000 through the existing <c>PositionForShow</c> seam, the way the backdrop tests already
+    /// show it, and it never takes the foreground. Use only where the test asserts nothing about an absolute
+    /// on-screen position. Returns the window.
+    /// </summary>
+    internal static GlassBackdropWindow PrepareOffScreen(GlassBackdropWindow window)
+    {
+        window.ShowActivated = false;
+        window.PositionForShow = w =>
+        {
+            OverlayPositioning.CoverPrimaryScreen(w);
+            w.Left = -30000;
+            w.Top = -30000;
+        };
         return window;
     }
 

@@ -913,7 +913,7 @@ public class KeyboardCoordinatorTests
         settings.Dwell.KeyboardKeyDwellMs = 450;
         settings.Dwell.ActionMenuDwellMs = 900;
         var messenger = new WeakReferenceMessenger();
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         var bar = new TestFakes.FakeEdgeButtonBar();
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
@@ -956,7 +956,7 @@ public class KeyboardCoordinatorTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboard.SetViewModel(vm);
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
@@ -1049,7 +1049,7 @@ public class KeyboardCoordinatorTests
     private static (KeyboardCoordinator Coordinator, GazeEngine Engine) NewInitializedWithEngine()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboard.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
         var engine = new GazeEngine(new SilentGazeProvider(), new TestFakes.FakeInputSimulator(), new EyeCtrlSettings());
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
@@ -1218,7 +1218,7 @@ public class KeyboardCoordinatorTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var engine = new GazeEngine(new SilentGazeProvider(), new TestFakes.FakeInputSimulator(),
             new EyeCtrlSettings());
-        var keyboardWindow = new KeyboardWindow();
+        var keyboardWindow = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboardWindow.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
         var messenger = new WeakReferenceMessenger();
         var modal = new ModalInteractionState();

@@ -896,7 +896,7 @@ public class AdaptationPreviewServiceTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var messenger = new WeakReferenceMessenger();
         var keyboardVm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboard.SetViewModel(keyboardVm);
 
         var collision = new AutoShowCollision(keyboardVm)

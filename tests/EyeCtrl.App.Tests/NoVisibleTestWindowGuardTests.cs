@@ -43,7 +43,8 @@ public class NoVisibleTestWindowGuardTests
     /// <summary>What counts as "invisible before the first show" or "opt-in only" inside a member.</summary>
     internal static readonly string[] Gates =
     [
-        "InvisibleTestWindow.Prepare", "InvisibleTestWindow.PrepareCloaked", "ToolbarTestHelpers.NewBoundToolbar",
+        "InvisibleTestWindow.Prepare", "InvisibleTestWindow.PrepareCloaked", "InvisibleTestWindow.PrepareOffScreen",
+        "ToolbarTestHelpers.NewBoundToolbar",
         "LiveCheck.Require", "BeginShowcaseCase", "SkipIfDisabled", "UiTestsEnabled",
         // ToolbarSlideTests' local helper: a docked toolbar built on ToolbarTestHelpers.NewBoundToolbar.
         "NewDockedToolbar(",
@@ -74,6 +75,15 @@ public class NoVisibleTestWindowGuardTests
 
     private static readonly Regex ShowCall = new(
         @"\.(" + string.Join("|", ShowingApis) + @")\s*(?:<[^>]*>)?\s*\(", RegexOptions.Compiled);
+
+    // Rule 2: production code under test shows windows through an overlay container (IOverlayManager and
+    // friends), so a REAL window put into one (the container is usually a Fake* that merely holds it) is shown
+    // by production, not by the test: it must be prepared too.
+    private static readonly Regex OverlayContainer = new(
+        @"\bnew\s+\w*(Overlays|OverlayManager)\w*\s*\(", RegexOptions.Compiled);
+
+    private static readonly Regex RealWindowConstruction = new(
+        @"\bnew\s+(?!Fake|Recording|Stub|Test)\w*Window\s*[({]", RegexOptions.Compiled);
 
     private static readonly Regex KeyboardVisibleTrue = new(@"SetKeyboardVisible\s*\(\s*true", RegexOptions.Compiled);
 
@@ -211,6 +221,36 @@ public class NoVisibleTestWindowGuardTests
     }
 
     [Fact]
+    public void ARealWindowHandedToAnOverlayContainer_NeedsTheHelperToo_EvenWithoutAShowCallInTheTest()
+    {
+        // The product code under test shows it: SetPauseIndicator(true) calls PauseIndicator.Show().
+        const string source = """
+            namespace T;
+            public class C
+            {
+                [StaFact]
+                public void HandsOver()
+                {
+                    var indicator = new PauseIndicatorWindow();
+                    var overlays = new FakeOverlayManager(toolbar, indicator);
+                    adapter.SetPauseIndicator(true);
+                }
+
+                [StaFact]
+                public void HandsOverPrepared()
+                {
+                    var indicator = InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
+                    var overlays = new FakeOverlayManager(toolbar, indicator);
+                    adapter.SetPauseIndicator(true);
+                }
+            }
+            """;
+        var found = FindViolations("T/C.cs", source);
+        Check.That(found).HasSize(1);
+        Check.That(found[0]).Contains("HandsOver").And.Contains("overlay container");
+    }
+
+    [Fact]
     public void ANestedHelperClassMember_IsScannedOnItsOwn()
     {
         const string source = """
@@ -243,10 +283,13 @@ public class NoVisibleTestWindowGuardTests
 
         foreach (var member in Members(stripped))
         {
-            if (!CallsShowingApi(member.Body)) continue;
+            var shows = CallsShowingApi(member.Body);
+            var handedToContainer = OverlayContainer.IsMatch(member.Body) && RealWindowConstruction.IsMatch(member.Body);
+            if (!shows && !handedToContainer) continue;
             if (Gates.Any(g => member.Body.Contains(g, StringComparison.Ordinal))) continue;
             if (AllowList.ContainsKey($"{relative}#{member.Name}")) continue;
-            violations.Add($"{relative}:{LineOf(stripped, member.Start)} {member.Name}");
+            violations.Add($"{relative}:{LineOf(stripped, member.Start)} {member.Name}"
+                           + (shows ? "" : " (a real window handed to an overlay container)"));
         }
         return violations;
     }

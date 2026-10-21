@@ -59,7 +59,7 @@ public class ToolbarVisibilityAdapterTests
         var vm = new ExposedDwellToolbarViewModel(settings, messenger);
 
         var toolbar = Fixtures.InvisibleTestWindow.Prepare(new ToolbarWindow());
-        var indicator = new PauseIndicatorWindow();
+        var indicator = Fixtures.InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
         var overlays = new FakeOverlayManager(toolbar, indicator);
         var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
 
@@ -135,7 +135,7 @@ public class ToolbarVisibilityAdapterTests
         var vm = new ExposedDwellToolbarViewModel(settings, messenger);
 
         var toolbar = Fixtures.InvisibleTestWindow.Prepare(new ToolbarWindow());
-        var indicator = new PauseIndicatorWindow();
+        var indicator = Fixtures.InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
         var overlays = new FakeOverlayManager(toolbar, indicator);
         var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
 
@@ -184,7 +184,7 @@ public class ToolbarVisibilityAdapterTests
         var vm = new ExposedDwellToolbarViewModel(settings, messenger);
 
         var toolbar = Fixtures.InvisibleTestWindow.Prepare(new ToolbarWindow());
-        var indicator = new PauseIndicatorWindow();
+        var indicator = Fixtures.InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
         var overlays = new FakeOverlayManager(toolbar, indicator);
         var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
 
@@ -230,7 +230,7 @@ public class ToolbarVisibilityAdapterTests
         var vm = new ExposedDwellToolbarViewModel(settings, messenger);
 
         var toolbar = Fixtures.InvisibleTestWindow.Prepare(new ToolbarWindow());
-        var indicator = new PauseIndicatorWindow();
+        var indicator = Fixtures.InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
         var overlays = new FakeOverlayManager(toolbar, indicator);
         var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
 
@@ -281,7 +281,7 @@ public class ToolbarVisibilityAdapterTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ExposedDwellToolbarViewModel(settings, messenger);
         var toolbar = Fixtures.InvisibleTestWindow.Prepare(new ToolbarWindow());
-        var indicator = new PauseIndicatorWindow();
+        var indicator = Fixtures.InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
         var overlays = new FakeOverlayManager(toolbar, indicator);
         var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
 
@@ -340,7 +340,7 @@ public class ToolbarVisibilityAdapterTests
         var vm = new ExposedDwellToolbarViewModel(settings, messenger);
         var modal = new ModalInteractionState { KeyboardVisible = true };
         var toolbar = Fixtures.InvisibleTestWindow.Prepare(new ToolbarWindow());
-        var indicator = new PauseIndicatorWindow();
+        var indicator = Fixtures.InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
         var overlays = new FakeOverlayManager(toolbar, indicator);
         var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
 

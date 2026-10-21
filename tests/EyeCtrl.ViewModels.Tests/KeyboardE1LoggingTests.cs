@@ -481,6 +481,9 @@ public class KeyboardE1LoggingTests
     {
         using var rig = new Rig();
         var c = rig.Positions["key_0_1"];
+        // One accepted dwell first: a tally is written only once it holds fires, and the abandonment's
+        // counters ride along with that edge's accumulator (an abandonment alone never writes a line).
+        rig.Type("key_0_2");
 
         rig.Hold(new PhysicalPoint(c.X + 80, c.Y), 240);                       // > 30 % of 450 ms, 40 % east
         rig.Hold(rig.Positions["key_0_2"], 30);                                // moves on: NearestChanged
@@ -497,7 +500,7 @@ public class KeyboardE1LoggingTests
         var tally = rig.Tally()!;
         Check.That(tally["aborts"]).IsEqualTo("1");
         Check.That(tally["ae"]).IsEqualTo("1");             // the class is only COUNTED, per dock edge
-        Check.That(tally["fires"]).IsEqualTo("0");
+        Check.That(tally["fires"]).IsEqualTo("1");
         Check.That(int.Parse(f["pct"])).IsStrictlyGreaterThan(29);
     }
 

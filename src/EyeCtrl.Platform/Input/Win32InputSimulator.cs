@@ -123,6 +123,15 @@ public class Win32InputSimulator : IInputSimulator
         }
     }
 
+    public void ScrollAt(PhysicalPoint point, int deltaX, int deltaY)
+    {
+        // One SendInput batch: the leading absolute move puts the wheel's hit-test on the point,
+        // so it lands there even though the OS cursor was left elsewhere (FreeLook / another
+        // gaze-mouse). No modifier compensation is needed — the batch is mouse-only.
+        var body = BuildModifiedWheelBody(point, deltaX, deltaY);
+        SendRaw((uint)body.Length, body);
+    }
+
     public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
     {
         if (modifiers is not { Count: > 0 }) { Scroll(point, deltaX, deltaY); return; }
@@ -334,7 +343,7 @@ public class Win32InputSimulator : IInputSimulator
         return new[] { CreateMouseInput(point, down), CreateMouseInput(point, up), CreateMouseInput(point, down), CreateMouseInput(point, up) };
     }
 
-    /// <summary>The wheel-event body of a modified scroll: a leading absolute MOVE (wheel events alone land at the current cursor, and ResetToFreeLook re-enables per-frame MoveCursor across a doubly-deferred dispatch), then the Y and/or X wheel legs with clamped deltas. INSTANCE method — same mapper reason.</summary>
+    /// <summary>The wheel-event body of a POINTED scroll — shared by the modified scroll and <see cref="ScrollAt"/>: a leading absolute MOVE (wheel events alone land at the current cursor, and ResetToFreeLook re-enables per-frame MoveCursor across a doubly-deferred dispatch), then the Y and/or X wheel legs with clamped deltas. INSTANCE method — same mapper reason.</summary>
     internal NativeMethods.INPUT[] BuildModifiedWheelBody(PhysicalPoint point, int deltaX, int deltaY)
     {
         var body = new List<NativeMethods.INPUT>
@@ -450,9 +459,18 @@ public class Win32InputSimulator : IInputSimulator
     private void SendInputs(params NativeMethods.INPUT[] inputs) =>
         SendRaw((uint)inputs.Length, inputs);
 
+    /// <summary>
+    /// The single place <c>SendInput</c> is called, exposed to tests so GA2/GB2 can record the
+    /// batch shape without injecting real input. Production leaves it null and calls
+    /// <see cref="NativeMethods.SendInput"/> directly.
+    /// </summary>
+    internal Func<uint, NativeMethods.INPUT[], int, int>? SendInputOverride { get; set; }
+
     private int SendRaw(uint count, NativeMethods.INPUT[] inputs)
     {
-        var sent = NativeMethods.SendInput(count, inputs, s_inputSize);
+        var sent = SendInputOverride is { } send
+            ? send(count, inputs, s_inputSize)
+            : (int)NativeMethods.SendInput(count, inputs, s_inputSize);
         if (sent == count) return (int)sent;
 
         // SendInput does not throw on a block: it returns 0 when the foreground process has

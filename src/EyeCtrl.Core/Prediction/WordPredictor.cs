@@ -133,7 +133,9 @@ public class WordPredictor
                 var key = word.ToLowerInvariant();
 
                 var displayWord = GetDisplayWord(word);
-                score = ApplyCaseTierBonus(score, displayWord, prefix);
+                // The base casing is display-only: the tier is computed from the stored key or
+                // the LEARNED casing, never from the base dictionary's capital.
+                score = ApplyCaseTierBonus(score, GetLearnedOrStored(key), prefix);
 
                 // Keep higher-scored version for display
                 if (!scored.ContainsKey(key) || scored[key].score < score)
@@ -187,7 +189,8 @@ public class WordPredictor
                         score *= BigramContextBoost;
 
                     var displayWord = GetDisplayWord(word);
-                    score = ApplyCaseTierBonus(score, displayWord, prefix);
+                    // The base casing is display-only; see the NextWord branch above.
+                    score = ApplyCaseTierBonus(score, GetLearnedOrStored(word), prefix);
 
                     // Only preserve an existing entry when it already has an equal or higher score
                     if (!scored.ContainsKey(word) || scored[word].score < score)
@@ -279,12 +282,44 @@ public class WordPredictor
         return results;
     }
 
-    /// <summary>Returns the user's learned casing for <paramref name="word"/> (Phase 7.3),
-    /// or the word unchanged when no preference is recorded.</summary>
-    private string GetDisplayWord(string word) =>
+    /// <summary>
+    /// The stored key, or the user's learned casing preference: the form the case tier is
+    /// computed from. The base dictionary's display casing is never used here.
+    /// </summary>
+    private string GetLearnedOrStored(string word) =>
         _casingPreferences.HasPreference(word)
             ? _casingPreferences.GetPreferredCasing(word) ?? word
             : word;
+
+    /// <summary>
+    /// The display form of a stored key: the user's learned casing preference, else the base
+    /// dictionary's display casing, else the word as stored. An ALL-LOWERCASE learned form (the
+    /// key itself) gives way to the base capital - "capitals win" - while any other learned
+    /// casing still wins. Display only: keys and the case tier stay key/learned based.
+    /// </summary>
+    internal string GetDisplayWord(string word)
+    {
+        var learned = _casingPreferences.HasPreference(word)
+            ? _casingPreferences.GetPreferredCasing(word) ?? word
+            : null;
+
+        if (_provider is FileDictionaryProvider fileProvider
+            && fileProvider.DisplayCasing.TryGetValue(word, out var display))
+        {
+            // "Capitals win": an all-lowercase learned form (the key itself) gives way to the
+            // base capital. LearnWord title-cases ALL-CAPS words that are not known acronyms
+            // ("DDR" -> "Ddr"), so that normalized form gives way too; any other learned
+            // casing still wins.
+            if (learned is null
+                || string.Equals(learned, word.ToLowerInvariant(), StringComparison.Ordinal)
+                || string.Equals(learned, CasingHelper.NormalizeAllCaps(display), StringComparison.Ordinal))
+            {
+                return display;
+            }
+        }
+
+        return learned ?? word;
+    }
 
     /// <summary>
     /// Phase 7.1 tiered case matching: candidates whose exact case matches the typed

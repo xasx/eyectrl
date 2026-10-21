@@ -7,10 +7,10 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
 {
     /// <summary>Whether manual selection mode is enabled by default.</summary>
     [ObservableProperty] private bool _enabled = false;
-    /// <summary>Radius of the zoom circle in physical pixels. Valid range: 50–500.</summary>
-    [ObservableProperty] private int _circleRadiusPixels = 150;
+    /// <summary>Radius of the zoom circle in DIP (multiplied by the display scale for capture). Valid range: 50–500.</summary>
+    [ObservableProperty] private int _circleRadiusPixels = 100;
     /// <summary>Magnification level within the zoom circle. Valid range: 1.5–5.0.</summary>
-    [ObservableProperty] private double _magnificationLevel = 2.0;
+    [ObservableProperty] private double _magnificationLevel = 4.0;
     /// <summary>Grace period in milliseconds after entering manual selection before dwell activates. Not range-guarded: neither OnManualSelectionGracePeriodMsChanging nor Validate restricts it, and the settings UI offers 0–2000.</summary>
     [ObservableProperty] private int _manualSelectionGracePeriodMs = 500;
 

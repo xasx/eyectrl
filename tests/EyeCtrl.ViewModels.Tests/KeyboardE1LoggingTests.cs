@@ -693,18 +693,63 @@ public class KeyboardE1LoggingTests
     public void ABackspaceIntoCommittedText_RightAfterAShortcutLetter_IsNotASlip()
     {
         // A letter pressed with Ctrl armed types nothing into the word, so the Backspace that follows
-        // it goes into COMMITTED text. That is editing, not a slip, even though it directly follows a letter.
+        // it goes into text that is not the open word. That is editing, not a slip, even though it directly
+        // follows a letter. The shortcut also ENDS the editing session (the mirror is no longer believed), so
+        // the Backspace is classed "none" (nothing known to be committed), not "word".
         using var rig = new Rig();
         rig.Type("key_0_0");
         rig.Type("space");                              // "h " is now committed
         rig.Vm.ToggleModifier(ModifierKey.Ctrl);
-        rig.Type("key_0_1");                            // Ctrl+letter: no CurrentInput
-        rig.Type("backspace");                          // bs=committed
+        rig.Type("key_0_1");                            // Ctrl+letter: no CurrentInput, session ended
+        rig.Type("backspace");                          // bs=none
         rig.Type("key_0_2");
 
         var backspace = rig.Log.Of("key").Select(Fields).Single(f => f["cls"] == "backspace");
-        Check.That(backspace["bs"]).IsEqualTo("committed");
+        Check.That(backspace["bs"]).IsEqualTo("none");
         Check.That(rig.Log.Of("slip")).IsEmpty();
+    }
+
+    [Fact]
+    public void AReopenedWord_AfterASpace_IsNeitherASlipNorACorrection()
+    {
+        // letter -> Space -> Backspace (re-opens the word: the Backspace removed the SPACE, no letter) ->
+        // letter. Nothing was taken back, so the next letter is a continuation, not a replacement.
+        using var rig = new Rig();
+        rig.Type("key_0_0");                            // "h"
+        rig.Type("space");
+        rig.Type("backspace");                          // re-open: CurrentInput is "h" again
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("h");
+        rig.Type("key_0_1");                            // "ha"
+
+        var keys = rig.Log.Of("key").Select(Fields).ToList();
+        Check.That(keys.Single(f => f["cls"] == "backspace")["bs"]).IsEqualTo("committed");   // nothing open at the press
+        Check.That(rig.Log.Of("corr")).IsEmpty();
+        Check.That(rig.Log.Of("slip")).IsEmpty();
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("ha");
+    }
+
+    [Fact]
+    public void ABackspaceInsideAReopenedWord_AfterASpace_IsNotACorrection_ButOneWithinTheWordStillIs()
+    {
+        // The Space ended the slip candidate, so a Backspace that then eats a letter of the re-opened word
+        // is not tied to the letter typed before the Space (it may be seconds old and is a different
+        // editing act). A letter slipped AND corrected inside one word is still counted.
+        using var rig = new Rig();
+        rig.Type("key_0_0");                            // "h"
+        rig.Type("space");
+        rig.Type("backspace");                          // re-open
+        rig.Type("backspace");                          // in-word: removes the "h"
+        rig.Type("key_0_1");
+        var keys = rig.Log.Of("key").Select(Fields).Where(f => f["cls"] == "backspace").ToList();
+        Check.That(keys[1]["bs"]).IsEqualTo("word");
+        Check.That(rig.Log.Of("corr")).IsEmpty();
+        Check.That(rig.Log.Of("slip")).IsEmpty();
+
+        rig.Type("key_0_2");                            // "x" ...
+        rig.Type("backspace");                          // ... taken back inside the word
+        rig.Type("key_0_0");
+        Check.That(rig.Log.Of("corr")).HasSize(1);
+        Check.That(rig.Log.Of("slip")).HasSize(1);
     }
 
     [Fact]

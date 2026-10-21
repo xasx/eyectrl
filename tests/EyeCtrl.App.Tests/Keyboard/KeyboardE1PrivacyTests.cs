@@ -229,7 +229,7 @@ public class KeyboardE1PrivacyTests
         var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger(),
             logger: log, contextProbe: new SpyProbe(), sensitiveContext: sensitive);
         var clock = new FakeClock();
-        vm.UseE1Recorder(new KeyboardE1Recorder(log, () => clock.Ms));
+        vm.UseE1Recorder(new KeyboardE1Recorder(log, () => clock.Ms, edgeTallyMinFires: 1));
         vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(
             new InMemoryDictProvider(words ?? SessionWords), "QWERTZ")));
 

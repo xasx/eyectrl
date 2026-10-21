@@ -25,7 +25,9 @@ the dock edge, ``typing`` (was a word open) and the dwell. It carries NO edge-qu
 quarter of the box the gaze rested in is only COUNTED per dock edge, in one ``edgeq`` tally line
 (``KB-E1 edgeq edge=top fires=F c=.. n=.. ne=.. e=.. se=.. s=.. sw=.. w=.. nw=.. aborts=A ac=.. an=.. ...``,
 written right before a ``hidden`` line and, for the edge being left, right before a Flip's ``edge``
-line; ``c`` = the inner half, the other keys the outer quarters; ``a*`` the same for abandonments).
+line, but only once the edge has accumulated 20 accepted dwells -- smaller counts are carried to that
+edge's next show, so one line may cover several shows (and a short leftover at shutdown is never
+written); ``c`` = the inner half, the other keys the outer quarters; ``a*`` the same for abandonments).
 It carries NO row/column/action id, NO box size (``boxw``/``boxh`` come once on ``shown`` and
 ``layout`` lines), NO pixel offset, and NO saccade, restart count or likelihood. Those arrival facts
 exist only for a CORRECTED letter: the in-word Backspace is followed by a keyed ``corr`` line

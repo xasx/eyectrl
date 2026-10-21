@@ -60,6 +60,15 @@ jobs:
       - name: Self-test the string-table validator
         run: python tools/strings_validate_test.py
 
+      # tools/kb_log_metrics.py turns the keyboard's per-key E1 log lines into the numbers the
+      # key-dwell decision (release 3) is read from: slip rate, the likely-bit share of slipped
+      # letters, hold-on by dwell class, pick-then-undo, chain-picks. A wrong slip rule or a
+      # mis-keyed hold-on would steer that decision with nothing red, so this stdlib-unittest
+      # suite runs the parser over a committed synthetic day log whose answers were worked out by
+      # hand (tests/fixtures/kb_log/synthetic-day.log), plus damaged-input cases.
+      - name: Self-test the keyboard log parser
+        run: python tools/kb_log_metrics_test.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

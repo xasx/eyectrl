@@ -16,6 +16,25 @@ public class BigramModel
     private const int MinFrequency = 2; // Filter out single occurrences to reduce noise
 
     /// <summary>
+    /// Normalizes a word for bigram keys: lowercase, leading/trailing punctuation trimmed, inner
+    /// apostrophes kept ("geht's", "don't"). Returns null when nothing word-like remains.
+    /// Learning, lookup, the rebuild delta carry and legacy loads all go through this, so a pair
+    /// learned from typing and one learned by <c>LearnSequence</c> land on the same key.
+    /// </summary>
+    public static string? NormalizeWord(string? word)
+    {
+        if (string.IsNullOrWhiteSpace(word)) return null;
+
+        var start = 0;
+        while (start < word.Length && !char.IsLetterOrDigit(word[start])) start++;
+        var end = word.Length;
+        while (end > start && !char.IsLetterOrDigit(word[end - 1])) end--;
+        if (end <= start) return null;
+
+        return word[start..end].ToLowerInvariant();
+    }
+
+    /// <summary>
     /// Learns a bigram (word pair) and increments its frequency.
     /// Phase 8: Updates timestamp to current time.
     /// </summary>
@@ -34,21 +53,23 @@ public class BigramModel
     /// <param name="timestamp">The timestamp to record for this entry.</param>
     internal void LearnWithTimestamp(string word1, string word2, DateTimeOffset timestamp)
     {
-        if (string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
+        var first = NormalizeWord(word1);
+        var second = NormalizeWord(word2);
+        if (first is null || second is null)
             return;
 
         // Update frequency
-        if (!_bigrams.ContainsKey(word1))
-            _bigrams[word1] = new Dictionary<string, int>();
+        if (!_bigrams.ContainsKey(first))
+            _bigrams[first] = new Dictionary<string, int>();
 
-        var followers = _bigrams[word1];
-        followers[word2] = followers.GetValueOrDefault(word2) + 1;
+        var followers = _bigrams[first];
+        followers[second] = followers.GetValueOrDefault(second) + 1;
 
         // Update timestamp
-        if (!_timestamps.ContainsKey(word1))
-            _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
+        if (!_timestamps.ContainsKey(first))
+            _timestamps[first] = new Dictionary<string, DateTimeOffset>();
 
-        _timestamps[word1][word2] = timestamp;
+        _timestamps[first][second] = timestamp;
     }
 
     /// <summary>
@@ -59,14 +80,16 @@ public class BigramModel
     /// </summary>
     internal void LearnEntry(string word1, string word2, int countDelta, DateTimeOffset timestamp)
     {
-        if (countDelta <= 0 || string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
+        var first = NormalizeWord(word1);
+        var second = NormalizeWord(word2);
+        if (countDelta <= 0 || first is null || second is null)
             return;
-        if (!_bigrams.ContainsKey(word1))
-            _bigrams[word1] = new Dictionary<string, int>();
-        _bigrams[word1][word2] = _bigrams[word1].GetValueOrDefault(word2) + countDelta;
-        if (!_timestamps.ContainsKey(word1))
-            _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
-        _timestamps[word1][word2] = timestamp;
+        if (!_bigrams.ContainsKey(first))
+            _bigrams[first] = new Dictionary<string, int>();
+        _bigrams[first][second] = _bigrams[first].GetValueOrDefault(second) + countDelta;
+        if (!_timestamps.ContainsKey(first))
+            _timestamps[first] = new Dictionary<string, DateTimeOffset>();
+        _timestamps[first][second] = timestamp;
     }
 
     /// <summary>
@@ -77,10 +100,11 @@ public class BigramModel
     /// <returns>List of (word, frequency) tuples, ordered by descending frequency.</returns>
     public List<(string word, int frequency)> GetNextWords(string? previousWord, int maxCount)
     {
-        if (string.IsNullOrEmpty(previousWord))
+        var key = NormalizeWord(previousWord);
+        if (key is null)
             return new List<(string, int)>();
 
-        if (!_bigrams.TryGetValue(previousWord, out var followers))
+        if (!_bigrams.TryGetValue(key, out var followers))
             return new List<(string, int)>();
 
         return followers
@@ -120,32 +144,47 @@ public class BigramModel
         _bigrams.Clear();
         foreach (var (word1, followers) in data)
         {
-            _bigrams[word1] = new Dictionary<string, int>(followers);
+            var first = NormalizeWord(word1);
+            if (first is null) continue;
+
+            if (!_bigrams.TryGetValue(first, out var mergedFollowers))
+            {
+                mergedFollowers = new Dictionary<string, int>();
+                _bigrams[first] = mergedFollowers;
+            }
+
+            foreach (var (word2, count) in followers)
+            {
+                var second = NormalizeWord(word2);
+                if (second is null || count <= 0) continue;
+                mergedFollowers[second] = mergedFollowers.GetValueOrDefault(second) + count;
+            }
         }
 
-        // Phase 8: Load timestamps if provided, otherwise default to now
+        // Phase 8: Load timestamps if provided, otherwise default to now. Legacy keys are
+        // normalised the same way; colliding entries keep the newest timestamp.
         _timestamps.Clear();
         if (timestamps != null && timestamps.Count > 0)
         {
-            // Load provided timestamps, pruning entries without corresponding bigrams
             foreach (var (word1, word2Timestamps) in timestamps)
             {
-                if (_bigrams.TryGetValue(word1, out var followers))
+                var first = NormalizeWord(word1);
+                if (first is null || !_bigrams.TryGetValue(first, out var followers)) continue;
+
+                var mergedTimestamps = _timestamps.TryGetValue(first, out var existingEntry)
+                    ? existingEntry
+                    : new Dictionary<string, DateTimeOffset>();
+
+                foreach (var (word2, timestamp) in word2Timestamps)
                 {
-                    var prunedTimestamps = new Dictionary<string, DateTimeOffset>();
-                    foreach (var (word2, timestamp) in word2Timestamps)
-                    {
-                        // Only keep timestamps for bigrams that actually exist
-                        if (followers.ContainsKey(word2))
-                        {
-                            prunedTimestamps[word2] = timestamp;
-                        }
-                    }
-                    if (prunedTimestamps.Count > 0)
-                    {
-                        _timestamps[word1] = prunedTimestamps;
-                    }
+                    var second = NormalizeWord(word2);
+                    if (second is null || !followers.ContainsKey(second)) continue;
+                    if (!mergedTimestamps.TryGetValue(second, out var existing) || timestamp > existing)
+                        mergedTimestamps[second] = timestamp;
                 }
+
+                if (mergedTimestamps.Count > 0)
+                    _timestamps[first] = mergedTimestamps;
             }
         }
 

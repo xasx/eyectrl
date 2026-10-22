@@ -22,7 +22,7 @@ public sealed class NoteNoticeWindow : OverlayWindow
     private static readonly TimeSpan HoldTime = TimeSpan.FromSeconds(3);
     private static readonly Duration FadeOut = new(TimeSpan.FromSeconds(1));
 
-    private readonly Border _banner;
+    private readonly Border _card;
     private DispatcherTimer? _hideTimer;
 
     public NoteNoticeWindow()
@@ -36,7 +36,7 @@ public sealed class NoteNoticeWindow : OverlayWindow
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.Manual;
 
-        _banner = new Border
+        _card = new Border
         {
             Width = NoteLayout.NoticeCardWidthDip,
             Height = NoteLayout.NoticeCardHeightDip,
@@ -55,7 +55,7 @@ public sealed class NoteNoticeWindow : OverlayWindow
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
-        Content = _banner;
+        Content = _card;
     }
 
     /// <summary>Shows (or re-shows) the notice at a DIP rect the manager placed clear of every
@@ -69,11 +69,11 @@ public sealed class NoteNoticeWindow : OverlayWindow
 
     public void ShowAt(Rect dipRect)
     {
-        _banner.BeginAnimation(UIElement.OpacityProperty, null);
-        _banner.Opacity = 1.0;
+        _card.BeginAnimation(UIElement.OpacityProperty, null);
+        _card.Opacity = 1.0;
         Left = dipRect.Left;
         Top = dipRect.Top;
-        // The placement window rect (card + tail zone) sizes the window; the banner is the card.
+        // The placement window rect (card + tail zone) sizes the window; _card draws it.
         Width = dipRect.Width;
         Height = dipRect.Height;
         if (ShowRealWindow)
@@ -113,7 +113,7 @@ public sealed class NoteNoticeWindow : OverlayWindow
         _hideTimer?.Stop();
         var fade = new DoubleAnimation(1.0, 0.0, FadeOut) { FillBehavior = FillBehavior.Stop };
         fade.Completed += (_, _) => { Hide(); _showingForTest = false; };
-        _banner.BeginAnimation(UIElement.OpacityProperty, fade);
+        _card.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
     /// <summary>The visible bounds in physical px while showing (P2 D3). The fade-out tail keeps

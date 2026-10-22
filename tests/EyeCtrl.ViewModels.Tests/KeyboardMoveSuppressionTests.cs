@@ -106,4 +106,59 @@ public class KeyboardMoveSuppressionTests
 
         Check.That(fired).ContainsExactly("key_0_0");
     }
+
+    // ---- O9: a move keeps a live swap anchor only while the gaze is still INSIDE its radius ------------
+
+    /// <summary>
+    /// A swap arms an anchor at the gaze (<see cref="KeyboardViewModel.ArmDwellSuppression"/>), the gaze then
+    /// travels during the key cooldown (which skips the clear check), and a window move calls
+    /// <see cref="KeyboardViewModel.ArmDwellSuppressionForMove"/> with the gaze at <paramref name="restX"/>.
+    /// The anchor's radius is 100 (half of d2 = 200). Just inside (99) and exactly on (100) the radius the
+    /// anchor is KEPT, so it ends as soon as the gaze leaves its radius; just outside (101) it is stale and the
+    /// move re-anchors at the resting gaze, which then dwells nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(199, true, 205)]    // 99 from the anchor: kept (the gaze then steps to 105 from it: dwells)
+    [InlineData(200, true, 206)]    // exactly on the radius: kept (the clear check is strictly greater)
+    [InlineData(201, false, 207)]   // 101 from the anchor: stale, re-anchored at the resting gaze
+    public void AMoveInsideTheCooldown_KeepsALiveSwapAnchorOnlyWhileTheGazeIsInsideItsRadius(
+        int restX, bool anchorKept, int stepX)
+    {
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.Configure(DwellMs, cooldownMs: 2_000);
+        var fired = RecordFires(vm);
+        var grid = new Dictionary<string, PhysicalPoint>
+        {
+            ["key_0_0"] = new(100, 100), ["key_0_1"] = new(300, 100),
+        };
+
+        // key_0_0 fires and starts the 2 s cooldown (until 2.4 s).
+        for (long t = 0; t <= 500_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(grid, new PhysicalPoint(100, 100), true, t);
+        Check.WithCustomMessage("arrange: the first key must fire to start the cooldown").That(fired).HasSize(1);
+
+        vm.ArmDwellSuppression();                                              // the swap's anchor, at (100,100)
+        vm.ProcessKeyGaze(grid, new PhysicalPoint(restX, 100), true, 600_000); // the gaze travels inside the cooldown
+        vm.ArmDwellSuppressionForMove();                                       // the window moves under it
+
+        if (anchorKept)
+        {
+            // The gaze steps just past the kept anchor's radius: the anchor clears and the key under the gaze
+            // dwells normally. A move that re-anchored at the resting gaze instead would protect the step.
+            for (long t = 2_500_000; t < 5_500_000 && fired.Count == 1; t += 50_000)
+                vm.ProcessKeyGaze(grid, new PhysicalPoint(stepX, 100), true, t);
+            Check.WithCustomMessage("the live anchor was dropped by the move: the gaze that left its radius was still held")
+                .That(fired).ContainsExactly("key_0_0", "key_0_1");
+        }
+        else
+        {
+            // The stale anchor was replaced: the resting gaze is protected where the move landed it.
+            for (long t = 2_500_000; t < 5_500_000; t += 50_000)
+            {
+                vm.ProcessKeyGaze(grid, new PhysicalPoint(restX, 100), true, t);
+                Check.WithCustomMessage("a stale anchor survived the move: a key fired under the resting gaze")
+                    .That(fired).HasSize(1);
+            }
+        }
+    }
 }

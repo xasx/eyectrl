@@ -15,7 +15,20 @@ using Xunit;
 /// takes their foreground and covers what they look at.
 ///
 /// <para>
-/// <b>The rule, per WINDOW.</b> In a test member, every real window the test constructs
+/// <b>Rule A, per CONSTRUCTION (the default).</b> Every real window a test constructs (<c>new XxxWindow(...)</c>, not a
+/// Fake/Recording/Stub double) must go through <c>InvisibleTestWindow.Prepare</c> / <c>PrepareCloaked</c> /
+/// <c>PrepareOffScreen</c> — wrapped around the construction, or applied to its name later in the member. It does not matter
+/// how the window is later shown, passed around, aliased, put in an array or tuple, cast, or reached through <c>?.</c> /
+/// <c>!.</c>: the construction itself is the unit. Exempt: a member behind an opt-in gate; an <see cref="AllowList"/> entry
+/// (a full exemption, with a reason); a file in <see cref="HeadlessConstruction"/> (a test that builds windows only to
+/// measure or inspect them: rule A is waived for the file, and the COARSE rule applies instead of rule B: such a file may not call
+/// ANY showing API, write ANY <c>Visibility = Visible</c> or build ANY real overlay container, whatever the receiver); a window built with a headless
+/// <c>present:</c> callback; and an <c>ActivationButtonWindow</c> whose <c>ShowAt</c> only positions and fades it.
+/// The RUNTIME check (<c>RuntimeWindowMonitor</c>) is the backstop for everything the waived files might do.
+/// </para>
+///
+/// <para>
+/// <b>Rule B, per WINDOW (every file that is not headless-listed; the headless files get the coarse rule above, a superset).</b> In a test member, every real window the test constructs
 /// (<c>new XxxWindow(...)</c>, not a Fake/Recording/Stub double) that is then SHOWN (a showing API called on it,
 /// <c>Visibility = Visible</c>, or the call inlined on the construction) or HANDED to an overlay container
 /// (<c>new ...Overlays(...)</c> / <c>new ...OverlayManager(...)</c> — the product code under test shows it)
@@ -75,11 +88,97 @@ public class NoVisibleTestWindowGuardTests
             "the GlassBackdropWindow runs OFF-SCREEN through the PositionForShow seam (-30000), asserted before every show",
         ["Services/ScrollModeControllerLoggingTests.cs"] =
             "ShowBackdrop is called on FakeGlassBackdropOverlay, not a real window",
+        ["RuntimeWindowGuardTests.cs"] =
+            "the probes of the runtime check show plain windows at -30000 (off every monitor) on purpose, to prove the check turns RED; nothing is visible",
         ["Localization/SettingsLiveCheckTests.cs#Open"] =
             "a helper reached only from tests that begin with LiveCheck.Require() (EYECTRL_LIVE_CHECK opt-in)",
         ["Diagnostics/SubPixel/ProbeRingOnScreenHarness.cs#RunWhenEnabled"] =
             "reached only after Run's EYECTRL_UI_TESTS gate returns; ProbeRingOnScreenGateTests pins that gate headless",
     };
+
+    private const string MeasureOnly =
+        "builds real windows only to measure, arrange, find elements in or read properties of (FindName, Measure, EnsureHandleAt, layout reads): " +
+        "it never shows one nor hands one to an overlay container (rule B finds none) and the runtime check would catch it if it did";
+
+    private const string KeyboardHost =
+        "the KeyboardWindow's content is lifted into an off-screen HwndSource (WS_POPUP at -30000, never WS_VISIBLE); the window itself is never shown";
+
+    private const string HandleOnlyProbe =
+        "an EnsureHandle-only probe (SubPixel / ProbeRing harnesses): the HWND is created for geometry or capture reads, the window is never shown";
+
+    private const string LiveCheckBuilder =
+        "a builder reached only from live-check tests, which start with LiveCheck.Require() (EYECTRL_LIVE_CHECK opt-in)";
+
+    /// <summary>
+    /// <c>file#member</c> → why a headless-listed member may write <c>Visibility = Visible</c> (the coarse rule bans it): each one makes INNER
+    /// ELEMENTS (panels, canvases, text blocks) of a window visible so the window can be MEASURED in its full state; the window itself is
+    /// never shown. A stale entry (the member stopped writing Visible) fails <see cref="EveryVisibleWriteWaiver_StillWritesVisible_AndNamesAReason"/>.
+    /// </summary>
+    internal static readonly Dictionary<string, string> HeadlessVisibleWriteWaivers = new()
+    {
+        ["Localization/Fit/AppFitMeasurers.cs#SummaryCard"] = InnerElementsOfAMeasuredWindow,
+        ["Localization/Fit/GeometryInvarianceTests.cs#CalibrationTarget"] = InnerElementsOfAMeasuredWindow,
+        ["Localization/Fit/GermanGateTests.cs#CalibrationFailureLayout"] = InnerElementsOfAMeasuredWindow,
+        ["Localization/Fit/GermanGateTests.cs#CalibrationButton"] = InnerElementsOfAMeasuredWindow,
+    };
+
+    private const string InnerElementsOfAMeasuredWindow =
+        "sets Visibility.Visible on INNER ELEMENTS (panels, canvases, text) so the window can be measured in its full state; the window itself is never shown";
+
+    /// <summary>
+    /// The two product APIs that put a window on screen ONLY through a headless <c>present:</c> callback, and the window type each belongs to.
+    /// In a headless file that names the type AND passes <c>present:</c>, calling the API on it shows nothing; the exemption covers only these two APIs.
+    /// </summary>
+    private static readonly Dictionary<string, string> PresentCallbackApis = new()
+    {
+        ["ShowButton"] = "LagMarkWindow",
+        ["ShowNotice"] = "RestartNoticeWindow",
+    };
+
+    private static Dictionary<string, string> Group(string reason, params string[] files) => files.ToDictionary(f => f, _ => reason);
+
+    /// <summary>
+    /// Rule A waivers: <c>file</c> → why the test may CONSTRUCT real windows without preparing them. Rule B (a show, a hand-off to
+    /// an overlay container) and the runtime check still apply to these files. A stale entry (the file no longer constructs
+    /// an unprepared window) fails <see cref="EveryHeadlessEntry_StillConstructsAnUnpreparedWindow_AndNamesAReason"/>.
+    /// </summary>
+    internal static readonly Dictionary<string, string> HeadlessConstruction = new[]
+    {
+        Group(MeasureOnly,
+            "CalibrationWindowVisualPinsTests.cs", "CornerRadiusClampTests.cs", "CursorRingRenderTests.cs", "Diagnostics/ProbeRingParityTests.cs",
+            "GlyphSizeCouplingTests.cs", "InvisibleTestWindowTests.cs", "OverlayFontTests.cs", "ToolbarButtonVisualTests.cs",
+            "ToolbarPausedTargetAlignmentTests.cs", "TestSupport/ArcLabelFit.cs",
+            "Localization/Fit/AppFitMeasurers.cs", "Localization/Fit/CaregiverAlertGrowthTests.cs", "Localization/Fit/GeometryInvarianceTests.cs",
+            "Localization/Fit/GermanGateTests.cs", "Localization/Fit/PreviewRowFit.cs", "Localization/Fit/PreviewRowFitTests.cs",
+            "Localization/Fit/TrackStatusWidthTests.cs", "Localization/Review/ReviewSheetTests.cs", "Localization/Review/T15SheetTests.cs",
+            "Localization/ShippedGermanStep3Tests.cs",
+            "Overlays/ActionMenuPreviewCaptureLogTests.cs", "Overlays/ActionMenuPreviewUnderFillTests.cs", "Overlays/AdaptationPreviewWindowTests.cs",
+            "Overlays/KeyboardWindowNoteFrameTests.cs", "Services/KeyboardProbeTests.cs", "Services/Review01ProbeTests.cs",
+            "Overlays/CrisisOverlayTextTests.cs", "Overlays/CursorRingQuantizationTests.cs", "Overlays/EdgeButtonBarCaptureTests.cs",
+            "Overlays/EdgeButtonFitTests.cs", "Overlays/EyeCareBannerCueTests.cs", "Overlays/EyeCareBannerGeometryTests.cs",
+            "Overlays/GlassBackdropHideButtonTests.cs", "Overlays/GlassBackdropMaterialPathTests.cs", "Overlays/GlassBackdropWindowTests.cs",
+            "Overlays/LagMarkChromeTests.cs", "Overlays/LagMarkWindowTests.cs", "Overlays/ManualSelectionCaptureBeforeShowTests.cs",
+            "Overlays/ManualSelectionCaptureFailureTests.cs", "Overlays/ManualSelectionCentreOnPointTests.cs",
+            "Overlays/ManualSelectionGazeIndicatorWindowTests.cs", "Overlays/ManualSelectionMagnifierLogTests.cs",
+            "Overlays/ManualSelectionRenderScaleTests.cs", "Overlays/ModesMenuFitTests.cs", "Overlays/NoteWindowNameTests.cs",
+            "Overlays/OverlayClientOriginTests.cs", "Overlays/OverlayStaticTextTests.cs", "Overlays/RestartNoticePlacementTests.cs",
+            "Overlays/RestartNoticeWindowTests.cs",
+            "Overlays/ScrollOverlayWindowTests.cs", "Overlays/ToolbarBandRenderedButtonsTests.cs", "Overlays/TrackStatusWindowWiringTests.cs",
+            "Services/MagnifierFitDpiTests.cs", "Services/MagnifierFitWiringTests.cs"),
+        Group(KeyboardHost,
+            "Keyboard/KeyboardBoxTargetingProbeTests.cs", "Keyboard/KeyboardCategoryGridExclusionTests.cs", "Keyboard/KeyboardE1BarAndGeometryTests.cs",
+            "Keyboard/KeyboardE1PrivacyTests.cs", "Keyboard/KeyboardEmojiDwellFeedbackTests.cs", "Keyboard/KeyboardGateProbeTests.cs",
+            "Keyboard/KeyboardNeverMovesTests.cs", "Keyboard/KeyboardPasswordBarTests.cs", "Keyboard/KeyboardPredictionBarStabilityTests.cs",
+            "Keyboard/KeyboardPredictionClickTests.cs", "Keyboard/KeyboardPredictionExclusionTests.cs", "Keyboard/KeyboardPredictionRearmLatchTests.cs",
+            "Keyboard/KeyboardSessionEndBarRefreshTests.cs", "Keyboard/KeyboardStaleSwapAnchorTests.cs",
+            "Keyboard/SymbolCaptionFitTests.cs", "Overlays/KeyboardPredictionBarRefreshTests.cs"),
+        Group(HandleOnlyProbe,
+            "Diagnostics/SubPixel/ProbeRingOnScreenGateTests.cs", "Diagnostics/SubPixel/SubPixelProbeC5ExitTests.cs",
+            "Diagnostics/SubPixel/SubPixelProbeContrastTests.cs", "Diagnostics/SubPixel/SubPixelProbeCornerLabelTests.cs",
+            "Diagnostics/SubPixel/SubPixelProbeLabelTests.cs", "Diagnostics/SubPixel/SubPixelProbeUsabilityTests.cs",
+            "Diagnostics/SubPixel/SubPixelProbeWindowTests.cs"),
+        Group(LiveCheckBuilder, "Localization/Step3LiveCheckTests.cs"),
+    }.SelectMany(d => d).ToDictionary(p => p.Key, p => p.Value);
 
     [Fact]
     public void NoTestShowsARealWindow_WithoutTheInvisibleHelper_AnOptInGate_OrAnAllowListEntry()
@@ -111,6 +210,88 @@ public class NoVisibleTestWindowGuardTests
             Check.WithCustomMessage($"AllowList entry '{key}' no longer shows a window: remove it.")
                 .That(members.Any(m => ShowingCall.IsMatch(m.Body))).IsTrue();
         }
+    }
+
+    [Fact]
+    public void EveryHeadlessEntry_StillConstructsAnUnpreparedWindow_AndNamesAReason()
+    {
+        var sources = TestSources().ToDictionary(t => t.Relative, t => StripCommentsAndStrings(t.Text));
+        foreach (var (file, reason) in HeadlessConstruction)
+        {
+            Check.WithCustomMessage($"HeadlessConstruction entry '{file}' needs a reason.").That(reason.Length).IsStrictlyGreaterThan(20);
+            var match = sources.Where(t => t.Key.EndsWith(file, StringComparison.Ordinal)).ToList();
+            Check.WithCustomMessage($"HeadlessConstruction entry '{file}' matches no test file (renamed or deleted?).").That(match.Count).IsEqualTo(1);
+            Check.WithCustomMessage($"HeadlessConstruction entry '{file}' no longer constructs an unprepared real window: remove it.")
+                .That(Members(match[0].Value).Any(m => MemberProblems(m.Body, ruleAWaived: false).Any(p => p.Contains("constructed without")))).IsTrue();
+        }
+    }
+
+    [Fact]
+    public void EveryVisibleWriteWaiver_StillWritesVisible_AndNamesAReason()
+    {
+        var sources = TestSources().ToDictionary(t => t.Relative, t => StripCommentsAndStrings(t.Text));
+        foreach (var (key, reason) in HeadlessVisibleWriteWaivers)
+        {
+            Check.WithCustomMessage($"waiver '{key}' needs a reason.").That(reason.Length).IsStrictlyGreaterThan(20);
+            var parts = key.Split('#');
+            Check.WithCustomMessage($"waiver '{key}' names a file that is not headless-listed: it needs no waiver.")
+                .That(HeadlessConstruction.Keys.Any(h => parts[0].EndsWith(h, StringComparison.Ordinal))).IsTrue();
+            var match = sources.Where(s => s.Key.EndsWith(parts[0], StringComparison.Ordinal)).ToList();
+            Check.WithCustomMessage($"waiver '{key}' matches no test file (stale?).").That(match.Count).IsEqualTo(1);
+            var members = Members(match[0].Value).Where(m => m.Name == parts[1]).ToList();
+            Check.WithCustomMessage($"waiver '{key}' matches no member (renamed?).").That(members.Count).IsStrictlyGreaterThan(0);
+            Check.WithCustomMessage($"waiver '{key}' no longer writes Visibility = Visible: remove it.")
+                .That(members.Any(m => AnyVisibleWrite.IsMatch(m.Body))).IsTrue();
+        }
+    }
+
+    [Fact]
+    public void TheShowButtonAndShowNoticeExemption_CoversOnlyAHeadlessFileThatPassesPresent_AndOnlyThoseTwoApis()
+    {
+        const string headless = "Overlays/LagMarkWindowTests.cs";
+        const string notice = "Overlays/RestartNoticeWindowTests.cs";
+        const string present = "private static LagMarkWindow Headless() =>\n        new(dwellMs: 25, messenger, keepClear, present: b => { });\n";
+        const string presentNotice = "private static RestartNoticeWindow HeadlessNotice() =>\n        new(dwellMs: 25, messenger, keepClear, present: c => { });\n";
+        static string File(string members) => "namespace T;\npublic class C\n{\n" + members + "\n}\n";
+        static string Test(string call) => "    public void M()\n    {\n        var b = Headless();\n        " + call + "\n    }\n";
+
+        // the shipped shape: present: + the type named in the file + ShowButton / ShowNotice => clean
+        Check.That(FindViolations(headless, File(present + Test("b.ShowButton();")))).IsEmpty();
+        Check.That(FindViolations(notice, File(presentNotice + Test("b.ShowNotice(\"t\", \"ok\", s);")))).IsEmpty();
+
+        // RED: a headless file with `present:` that also calls .Show() (or any other showing API) still fails
+        foreach (var other in new[] { "b.Show();", "b.ShowDialog();", "b.ShowAtRest();", "((Window)b).Show();" })
+            Check.WithCustomMessage(other).That(FindViolations(headless, File(present + Test(other)))).Not.IsEmpty();
+        Check.That(FindViolations(headless, File(present + Test("b.ShowButton();\n        b.Show();")))).Not.IsEmpty();
+
+        // RED: a headless file WITHOUT `present:` that calls ShowNotice (or ShowButton) still fails
+        Check.That(FindViolations(notice, File(Test("b.ShowNotice(\"t\", \"ok\", s);")))).Not.IsEmpty();
+        Check.That(FindViolations(headless, File(Test("b.ShowButton();")))).Not.IsEmpty();
+
+        // RED: a file that NAMES the window type but builds it without `present:` (a real window) gets no exemption
+        Check.That(FindViolations(notice, File("private static RestartNoticeWindow Real() => new(dwellMs: 25, messenger, keepClear);\n" + Test("b.ShowNotice(\"t\", \"ok\", s);"))))
+            .Not.IsEmpty();
+        Check.That(FindViolations(headless, File("private static LagMarkWindow Real() => new(dwellMs: 25, messenger, keepClear);\n" + Test("b.ShowButton();"))))
+            .Not.IsEmpty();
+
+        // RED: `present:` for ANOTHER window type does not exempt the API of this one
+        Check.That(FindViolations(headless, File(present + Test("b.ShowNotice(\"t\", \"ok\", s);")))).Not.IsEmpty();
+        Check.That(FindViolations(notice, File(presentNotice + Test("b.ShowButton();")))).Not.IsEmpty();
+    }
+
+    [Fact]
+    public void AVisibleWriteWaiver_CoversOnlyItsOwnMember_NotTheRestOfTheFile()
+    {
+        const string file = "Localization/Fit/GermanGateTests.cs";
+        const string write = "        window.CompletionCard.Visibility = System.Windows.Visibility.Visible;\n";
+        static string Source(string member) => "namespace T;\npublic class C\n{\n    public void " + member + "()\n    {\n" + write + "    }\n}\n";
+
+        Check.WithCustomMessage("the waived member").That(FindViolations(file, Source("CalibrationButton"))).IsEmpty();
+        Check.WithCustomMessage("another member of the same file").That(FindViolations(file, Source("SomeOtherMember"))).HasSize(1);
+        Check.WithCustomMessage("the waived member's name in ANOTHER headless file").That(FindViolations("Overlays/ModesMenuFitTests.cs", Source("CalibrationButton"))).HasSize(1);
+        // a waiver is for the Visible write only: the same member calling a showing API is still a violation
+        Check.That(FindViolations(file, "namespace T;\npublic class C\n{\n    public void CalibrationButton()\n    {\n" + write + "        window.Show();\n    }\n}\n"))
+            .HasSize(1);
     }
 
     // ---- the scanner's own pins (synthetic sources; nothing is shown) --------------------------------------
@@ -275,7 +456,7 @@ public class NoVisibleTestWindowGuardTests
         const string quoting = """
                 public void Quotes()
                 {
-                    var w = new ToolbarWindow();
+                    var w = new ActivationButtonWindow();
                     // w.Show();
                     var s = "w.Show();";
                     var v = @"w.Show()";
@@ -292,6 +473,135 @@ public class NoVisibleTestWindowGuardTests
             "namespace T;\npublic class C\n{\n public void X()\n {\n var w = new GlassBackdropWindow();\n w.Show();\n }\n}\n")).IsEmpty();
         Check.That(FindViolations("Localization/SettingsLiveCheckTests.cs",
             "namespace T;\npublic class C\n{\n public void Open()\n {\n var w = new SettingsWindow();\n w.Show();\n }\n}\n")).IsEmpty();
+    }
+
+    [Fact]
+    public void EveryReview02Shape_IsAViolation_BecauseTheConstructionItselfIsUnprepared()
+    {
+        // test-windows-invisible review 02 (R2-1, R2-2): shapes that defeat "follow the window by its name". Under rule A
+        // the construction is the unit, so none of them gets past: each member builds a window without preparing it.
+        var shapes = new Dictionary<string, string>
+        {
+            ["alias"] = "var w = new ToolbarWindow();\n var w2 = w;\n w2.Show();",
+            ["array"] = "var ws = new[] { new ToolbarWindow() };\n ws[0].Show();",
+            ["list"] = "var ws = new List<Window> { new ToolbarWindow() };\n ws[0].Show();",
+            ["tuple"] = "var (a, b) = (new ToolbarWindow(), 1);\n a.Show();",
+            ["ternary"] = "var w = flag ? new ToolbarWindow() : null;\n w.Show();",
+            ["null-conditional"] = "var w = new ToolbarWindow();\n w?.Show();",
+            ["null-forgiving"] = "var w = new ToolbarWindow();\n w!.Show();",
+            ["cast"] = "var w = new ToolbarWindow();\n ((Window)w).Show();",
+            ["passed to a sibling method"] = "var w = new ToolbarWindow();\n Open(w);",
+            ["container not named *Overlays"] = "var w = new ToolbarWindow();\n var h = new Harness(w);",
+            ["qualified Visibility.Visible"] = "var w = new ToolbarWindow();\n w.Visibility = System.Windows.Visibility.Visible;",
+            ["SetCurrentValue"] = "var w = new ToolbarWindow();\n w.SetCurrentValue(Window.VisibilityProperty, System.Windows.Visibility.Visible);",
+            ["unnamed expression"] = "Open(new ToolbarWindow());",
+            ["present: seam then a plain Show()"] = "var w = new LagMarkWindow(dwellMs: 1, messenger, keepClear: null, present: b => { });\n w.Show();",
+        };
+        foreach (var (name, body) in shapes)
+            Check.WithCustomMessage($"shape '{name}' got past the guard").That(Scan($"    public void S()\n    {{\n {body}\n    }}")).Not.IsEmpty();
+
+        // the same members with the construction prepared are clean (the shapes themselves are not the problem)
+        foreach (var (name, body) in shapes.Where(s => s.Value.Contains("new ToolbarWindow()")))
+            Check.WithCustomMessage($"prepared shape '{name}' must be accepted")
+                .That(Scan($"    public void S()\n    {{\n {body.Replace("new ToolbarWindow()", "InvisibleTestWindow.Prepare(new ToolbarWindow())")}\n    }}"))
+                .IsEmpty();
+    }
+
+    [Fact]
+    public void EveryWayOfMakingAConstructedWindowVisible_IsAShow_EvenWhereRuleAIsWaived()
+    {
+        // In a headless-listed file rule A is waived, so the coarse rule stands between a test and a shown window: each of these must still be seen.
+        const string template = "namespace T;\npublic class C\n{\n    public void M()\n    {\n        var w = new ModesMenuWindow();\n        STATEMENT\n    }\n}\n";
+        foreach (var statement in new[]
+                 {
+                     "w.Show();", "w.ShowDialog();", "Action a = w.Show;", "w.Visibility = Visibility.Visible;",
+                     "w.Visibility = System.Windows.Visibility.Visible;",
+                     "w.SetCurrentValue(Window.VisibilityProperty, Visibility.Visible);",
+                     "w.SetCurrentValue(System.Windows.UIElement.VisibilityProperty, System.Windows.Visibility.Visible);",
+                     "w.SetValue(UIElement.VisibilityProperty, System.Windows.Visibility.Visible);",
+                 })
+            Check.WithCustomMessage(statement)
+                .That(FindViolations("Overlays/ModesMenuFitTests.cs", template.Replace("STATEMENT", statement))).HasSize(1);
+        Check.That(FindViolations("Overlays/ModesMenuFitTests.cs", template.Replace("STATEMENT", "w.Measure(s);"))).IsEmpty();
+    }
+
+    [Fact]
+    public void InAHeadlessListedFile_AnyShow_AnyVisibleWrite_AndAnyOverlayContainer_IsAViolation_WhateverTheReceiver()
+    {
+        // L3 (#258 review 01): the headless files never show a window, so the coarse rule bans the showing calls by NAME of the API only,
+        // not by the window it is called on. Every review-02 shape that defeats "follow the window by its name" must be seen here, even
+        // where no window is constructed in the member at all (a helper's return value, a field, a parameter, a list element).
+        const string headless = "Overlays/ModesMenuFitTests.cs";
+        const string template = "namespace T;\npublic class C\n{\n    public void M()\n    {\n        STATEMENT\n    }\n}\n";
+        var shapes = new Dictionary<string, string>
+        {
+            ["plain"] = "var w = new ModesMenuWindow();\n w.Show();",
+            ["alias"] = "var w = new ModesMenuWindow();\n var w2 = w;\n w2.Show();",
+            ["array"] = "var ws = new[] { new ModesMenuWindow() };\n ws[0].Show();",
+            ["tuple"] = "var (a, b) = (new ModesMenuWindow(), 1);\n a.ShowDialog();",
+            ["ternary"] = "var w = flag ? new ModesMenuWindow() : null;\n w.Show();",
+            ["null-conditional"] = "var w = new ModesMenuWindow();\n w?.Show();",
+            ["null-forgiving"] = "var w = new ModesMenuWindow();\n w!.ShowAtRest();",
+            ["cast"] = "var w = new ModesMenuWindow();\n ((Window)w).Show();",
+            ["helper's return value"] = "Open().Show();",
+            ["field"] = "_window.ShowThenSlideIn();",
+            ["method group"] = "Action a = w.Show;",
+            ["product method on a parameter"] = "overlay.ShowButton();",
+            ["Visible on any receiver"] = "Get().Visibility = Visibility.Visible;",
+            ["qualified Visible"] = "x.y.Visibility = System.Windows.Visibility.Visible;",
+            ["SetCurrentValue on any receiver"] = "Get().SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible);",
+            ["SetValue qualified"] = "ws[0].SetValue(System.Windows.UIElement.VisibilityProperty, System.Windows.Visibility.Visible);",
+            ["real overlay container"] = "var o = new ToolbarOverlays(settings, w);",
+            ["real overlay manager"] = "var m = new OverlayManager(services);",
+            ["container with a brace initialiser"] = "var o = new ToolbarOverlays { Toolbar = w };",
+        };
+        foreach (var (name, body) in shapes)
+            Check.WithCustomMessage($"shape '{name}' got past the coarse rule of a headless-only file")
+                .That(FindViolations(headless, template.Replace("STATEMENT", body))).Not.IsEmpty();
+
+        // the same shapes in a file that is NOT headless-listed are judged by rules A and B as before (the coarse rule is only for the listed files)
+        Check.That(FindViolations("Overlays/NotListedTests.cs", template.Replace("STATEMENT", "Get().Show();"))).IsEmpty();
+
+        // what a headless file legitimately does stays clean: measure, arrange, find elements, read geometry, fakes and recordings
+        foreach (var fine in new[]
+                 {
+                     "var w = new ModesMenuWindow();\n w.Measure(s);\n w.Arrange(r);\n w.UpdateLayout();",
+                     "var h = new WindowInteropHelper(w).EnsureHandle();",
+                     "var fake = new FakeOverlays(toolbar);\n var n = fake.Count;",
+                     "var m = new FakeOverlayManager(w);",
+                     "border.Visibility = Visibility.Collapsed;",
+                     "var shown = w.IsVisible;\n var title = w.Title;",
+                 })
+            Check.WithCustomMessage(fine).That(FindViolations(headless, template.Replace("STATEMENT", fine))).IsEmpty();
+    }
+
+    [Fact]
+    public void ARealOverlayContainerBuiltInANonHeadlessFile_IsStillJudgedByRuleB_NotTheCoarseRule()
+    {
+        // outside the headless list nothing changed: a container is a violation only when it is handed an unprepared real window
+        Check.That(Scan("    public void S()\n    {\n        var o = new ToolbarOverlays(settings);\n    }")).IsEmpty();
+        Check.That(Scan("    public void S()\n    {\n        var w = InvisibleTestWindow.Prepare(new ToolbarWindow());\n        var o = new ToolbarOverlays(w);\n    }")).IsEmpty();
+    }
+
+    [Fact]
+    public void ReasonGroups_MatchWhatTheFilesDo_RestartNoticePlacementIsMeasureOnly()
+    {
+        // L4 (#258 review 01): its RestartNoticeWindow cards are only positioned and measured, so the MeasureOnly reason is the honest one
+        var reason = HeadlessConstruction.Single(p => p.Key.EndsWith("Overlays/RestartNoticePlacementTests.cs", StringComparison.Ordinal)).Value;
+        Check.That(reason).Contains("only to measure");
+        Check.That(reason).Not.Contains("HwndSource");
+    }
+
+    [Fact]
+    public void AMemberThatOnlyConstructsAnUnpreparedWindow_IsAViolation_UnlessTheFileIsHeadlessListed()
+    {
+        const string body = "    public void M()\n    {\n        var w = new ToolbarWindow();\n        w.Measure(s);\n    }";
+        Check.That(Scan(body)).HasSize(1);
+        Check.That(Scan(body).Single()).Contains("constructed without");
+        Check.That(FindViolations("Overlays/ModesMenuFitTests.cs", "namespace T;\npublic class C\n{\n" + body + "\n}\n")).IsEmpty();
+        // the waiver is for construction only: a show in a headless-listed file is still a violation (the coarse rule)
+        Check.That(FindViolations("Overlays/ModesMenuFitTests.cs",
+            "namespace T;\npublic class C\n{\n    public void M()\n    {\n        var w = new ModesMenuWindow();\n        w.Show();\n    }\n}\n")).HasSize(1);
     }
 
     [Fact]
@@ -319,8 +629,15 @@ public class NoVisibleTestWindowGuardTests
     // not a showing API on THAT window type; its Show() still is.
     private static readonly string ApiAlternationWithoutShowAt = string.Join("|", ShowingApis.Where(a => a != "ShowAt"));
 
-    private static string ApisFor(string windowType) =>
-        windowType == "ActivationButtonWindow" ? ApiAlternationWithoutShowAt : ApiAlternation;
+    // A window built with a headless `present:` callback (LagMarkWindow, RestartNoticeWindow) is put on screen ONLY through
+    // that callback; ShowButton / ShowNotice go through it. Every other showing API on it (a plain Show()) is a real show.
+    private static readonly string ApiAlternationWithoutPresentApis =
+        string.Join("|", ShowingApis.Where(a => a is not ("ShowButton" or "ShowNotice")));
+
+    private static string ApisFor(string windowType, bool presentSeam = false) =>
+        presentSeam ? ApiAlternationWithoutPresentApis
+        : windowType == "ActivationButtonWindow" ? ApiAlternationWithoutShowAt
+        : ApiAlternation;
 
     private static readonly Regex ShowingCall = new(
         @"\.\s*(?:" + ApiAlternation + @")\b|(?<![\w.])ShowWindow\s*\(", RegexOptions.Compiled);
@@ -343,24 +660,82 @@ public class NoVisibleTestWindowGuardTests
         if (AllowList.Keys.Any(key => !key.Contains('#') && relative.EndsWith(key, StringComparison.Ordinal)))
             return violations;
         var stripped = StripCommentsAndStrings(text);
+        var ruleAWaived = HeadlessConstruction.Keys.Any(key => relative.EndsWith(key, StringComparison.Ordinal));
+        IReadOnlySet<string> presentExempt = ruleAWaived ? PresentExemptApis(stripped) : NoPresentExemption;
 
         foreach (var member in Members(stripped))
         {
             if (AllowList.ContainsKey($"{relative}#{member.Name}")) continue;
             if (OptInGateRegexes.Any(g => g.IsMatch(member.Body))) continue;
-            foreach (var problem in MemberProblems(member.Body))
+            var visibleWriteWaived = HeadlessVisibleWriteWaivers.ContainsKey($"{relative}#{member.Name}");
+            foreach (var problem in MemberProblems(member.Body, ruleAWaived, presentExempt, visibleWriteWaived))
                 violations.Add($"{relative}:{LineOf(stripped, member.Start)} {member.Name}: {problem}");
         }
         return violations;
     }
 
-    private sealed record WindowUse(string Type, string? Name, bool Prepared, bool OffScreen, bool InlineShown);
+    private sealed record WindowUse(string Type, string? Name, bool Prepared, bool OffScreen, bool InlineShown, bool PresentSeam);
 
-    private static IEnumerable<string> MemberProblems(string body)
+    // The coarse rule bans any `.Show` / `.ShowDialog` / … (a call or a method group) on whatever expression: `ws[0]`, `(Window)w`, `w?`, `Open(x)`, `Get().`
+
+    private static readonly Regex PresentSeamArgument = new(@"\bpresent\s*:", RegexOptions.Compiled);
+
+    /// <summary>The APIs of <see cref="PresentCallbackApis"/> that this file may call: it passes <c>present:</c> and names the window type they belong to.</summary>
+    private static HashSet<string> PresentExemptApis(string strippedFile)
+    {
+        var exempt = new HashSet<string>();
+        if (!PresentSeamArgument.IsMatch(strippedFile)) return exempt;
+        foreach (var (api, type) in PresentCallbackApis)
+            if (Regex.IsMatch(strippedFile, @"\b" + type + @"\b")) exempt.Add(api);
+        return exempt;
+    }
+
+    /// <summary>Any write that makes something Visible: `x.Visibility = Visibility.Visible`, `SetCurrentValue/SetValue(VisibilityProperty, …Visible)`, qualified or not.</summary>
+    private static readonly Regex AnyVisibleWrite = new(
+        @"\bVisibility\s*=\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b" +
+        @"|\bSet(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b",
+        RegexOptions.Compiled);
+
+    /// <summary>Any real overlay container built in the member (a Fake/Recording/Stub/Test double is not): production code under test would show what it is handed.</summary>
+    private static readonly Regex AnyOverlayContainer = new(
+        @"\bnew\s+(?!Fake|Recording|Stub|Test)\w*(?:Overlays|OverlayManager)\w*\s*[({]", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The COARSE rule for a <see cref="HeadlessConstruction"/> file, where rule A is waived: such a file by definition never shows a window, so
+    /// it may not call ANY showing API, write ANY <c>Visibility = Visible</c>, or build ANY real overlay container — whatever the receiver
+    /// expression. That closes the shapes the name heuristic of rule B can miss (alias, array, tuple, ternary, cast, <c>?.</c>, <c>!.</c>, a
+    /// helper's return value). A file that genuinely needs one leaves the headless list and prepares its windows.
+    /// </summary>
+    private static IEnumerable<string> HeadlessFileProblems(string body, IReadOnlySet<string> presentExempt, bool visibleWriteWaived)
+    {
+        // A headless file that itself builds a `present:` window of a type (LagMarkWindow / RestartNoticeWindow with a measuring callback) calls
+        // that type's ShowButton / ShowNotice: those go through the callback and put nothing on screen. Every other showing API still counts.
+        var apis = ShowingApis.Where(a => !presentExempt.Contains(a));
+        var show = Regex.Match(body, @"\.\s*(?:" + string.Join("|", apis) + @")\b");
+        if (show.Success)
+            yield return $"a headless-only file calls a showing API ({show.Value.Trim()}): a file that shows a window leaves HeadlessConstruction and prepares it";
+        if (!visibleWriteWaived && AnyVisibleWrite.IsMatch(body))
+            yield return "a headless-only file makes something Visible (Visibility = Visible): a file that shows a window leaves HeadlessConstruction and prepares it";
+        var container = AnyOverlayContainer.Match(body);
+        if (container.Success)
+            yield return $"a headless-only file builds an overlay container ({container.Value.Trim()}): production shows what it is handed; " +
+                         "a file that does this leaves HeadlessConstruction and prepares its windows";
+    }
+
+    private static readonly IReadOnlySet<string> NoPresentExemption = new HashSet<string>();
+
+    private static IEnumerable<string> MemberProblems(string body, bool ruleAWaived, IReadOnlySet<string>? presentExempt = null, bool visibleWriteWaived = false)
     {
         // A bare P/Invoke ShowWindow(...) call (the extern declaration itself is not a call).
         if (BareShowWindow.IsMatch(body) && !Regex.IsMatch(body, @"\bextern\b"))
             yield return "a bare ShowWindow(...) call shows a window the guard cannot name";
+
+        if (ruleAWaived)
+        {
+            // Rule A is waived for the file; the coarse rule replaces the per-window rule B (it is a superset of it).
+            foreach (var problem in HeadlessFileProblems(body, presentExempt ?? NoPresentExemption, visibleWriteWaived)) yield return problem;
+            yield break;
+        }
 
         foreach (var use in WindowsConstructedIn(body))
         {
@@ -376,12 +751,27 @@ public class NoVisibleTestWindowGuardTests
                 yield return $"{use.Type} is constructed and shown inline without InvisibleTestWindow.Prepare";
                 continue;
             }
-            if (use.Name is null) continue;
+
+            // RULE A, per CONSTRUCTION: every real window a test builds is prepared (wrapped, or prepared by name later), unless it is
+            // exempt: a headless `present:` window (it never shows itself), or an ActivationButtonWindow (its ShowAt only positions and
+            // fades it; its Show() is still caught by rule B below). A member behind an opt-in gate or an AllowList entry never gets here.
+            // This does not depend on following the window to wherever it is shown (alias, array, tuple, ternary, ?., !., a cast ...).
+            var exempt = use.PresentSeam || use.Type == "ActivationButtonWindow";
+            var needsPreparation = !prepared && !offScreen && !exempt;
+            if (use.Name is null)
+            {
+                if (needsPreparation)
+                    yield return $"{use.Type} is constructed without InvisibleTestWindow.Prepare / PrepareCloaked / PrepareOffScreen " +
+                                 "(prepare it, or list the test file as headless-only with a reason)";
+                continue;
+            }
 
             var name = Regex.Escape(use.Name);
-            var shownBy = Regex.Matches(body, $@"(?<![\w.]){name}\s*\.\s*(?<api>{ApisFor(use.Type)})\b")
+            var shownBy = Regex.Matches(body, $@"(?<![\w.]){name}\s*\.\s*(?<api>{ApisFor(use.Type, use.PresentSeam)})\b")
                 .Select(m => m.Groups["api"].Value).ToList();
-            var madeVisible = Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Visibility\s*=\s*Visibility\s*\.\s*Visible\b");
+            // `w.Visibility = Visibility.Visible` (also fully qualified), `w.SetCurrentValue(VisibilityProperty, ...Visible)`, `w.SetValue(...)`
+            var madeVisible = Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Visibility\s*=\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b")
+                || Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Set(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b");
             var handed = OverlayContainerArgs.Matches(body)
                 .Any(m => Regex.IsMatch(m.Groups["args"].Value, $@"(?<![\w.]){name}\b"));
 
@@ -397,6 +787,9 @@ public class NoVisibleTestWindowGuardTests
                 yield return $"{use.Type} '{use.Name}' is shown ({(shownBy.Count > 0 ? shownBy[0] : "Visibility = Visible")}) without InvisibleTestWindow.Prepare";
             else if (handed)
                 yield return $"{use.Type} '{use.Name}' is handed to an overlay container (production shows it) without InvisibleTestWindow.Prepare";
+            else if (needsPreparation)
+                yield return $"{use.Type} '{use.Name}' is constructed without InvisibleTestWindow.Prepare / PrepareCloaked / PrepareOffScreen " +
+                             "(prepare it, or list the test file as headless-only with a reason)";
         }
     }
 
@@ -408,9 +801,8 @@ public class NoVisibleTestWindowGuardTests
             foreach (Match m in RealConstruction.Matches(statement))
             {
                 // LagMarkWindow / RestartNoticeWindow put themselves on screen ONLY through their `present:` callback;
-                // a test that passes one (it measures and arranges, nothing more) never shows the window.
-                if (Regex.IsMatch(statement[m.Index..], @"^new\s+\w+\s*\((?:[^()]|\([^()]*\))*\bpresent\s*:"))
-                    continue;
+                // a test that passes one (it measures and arranges, nothing more) does not show it through ShowButton/ShowNotice.
+                var presentSeam = Regex.IsMatch(statement[m.Index..], @"^new\s+\w+\s*\((?:[^()]|\([^()]*\))*\bpresent\s*:");
                 var before = statement[..m.Index];
                 var wrapped = Regex.Match(before, @"InvisibleTestWindow\s*\.\s*(?<helper>Prepare\w*)\s*\(\s*$");
                 var prepared = wrapped.Success;
@@ -422,8 +814,8 @@ public class NoVisibleTestWindowGuardTests
 
                 // `new Window(...).Show()` inline
                 var inlineShown = Regex.IsMatch(statement[m.Index..],
-                    $@"^new\s+\w+\s*(?:\([^()]*\))?\s*(?:\{{[^{{}}]*\}})?\s*(?:\))?\s*\.\s*(?:{ApisFor(m.Groups["type"].Value)})\b");
-                yield return new WindowUse(m.Groups["type"].Value, name, prepared, offScreen, inlineShown);
+                    $@"^new\s+\w+\s*(?:\([^()]*\))?\s*(?:\{{[^{{}}]*\}})?\s*(?:\))?\s*\.\s*(?:{ApisFor(m.Groups["type"].Value, presentSeam)})\b");
+                yield return new WindowUse(m.Groups["type"].Value, name, prepared, offScreen, inlineShown, presentSeam);
             }
         }
     }

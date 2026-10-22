@@ -1404,8 +1404,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     private void ArmDwellSuppressionCore(bool clearWhenUnavailable)
     {
-        if (!clearWhenUnavailable && _swapSuppressedAnchor is not null)
-            return;   // a live swap/yield arm wins; the rebuild's move must not disturb it
+        // A live swap/yield arm wins; the rebuild's move must not disturb it. "Live" means the gaze is
+        // still inside the anchor's radius: the anchor is only cleared by an in-grid sample outside it, and
+        // the key cooldown and an off-grid gaze skip that check, so an anchor can outlive the gaze that
+        // made it. Keeping such a STALE anchor would leave the new resting point without any.
+        if (!clearWhenUnavailable
+            && _swapSuppressedAnchor is { } live
+            && (_lastGazeInsideWindowPoint is not { } gaze
+                || gaze.DistanceSquaredTo(live) <= _swapSuppressedClearRadiusSquared))
+            return;
 
         if (_lastGazeInsideWindowPoint is { } anchor
             && _lastKeyScreenPositions is { } positions

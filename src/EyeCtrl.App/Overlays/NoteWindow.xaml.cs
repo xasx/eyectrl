@@ -52,6 +52,33 @@ public class NoteWindow : OverlayWindow
         Loaded += OnLoaded;
     }
 
+    // The show seam (T6 fixup-08 R4, moved down by sync 4): set when the manager skipped the HWND show.
+    private bool _displayedWithoutHwnd;
+
+    /// <summary>
+    /// Shows the window the way production does, or - with <paramref name="realHwnd"/> false -
+    /// performs what <see cref="Window.Show"/> builds for the rest of the app (the drawn tree,
+    /// which the Loaded handler would have built) without ever putting a window on the screen.
+    /// The headless tests run on the OWNER's machine, where a topmost note window is exactly what
+    /// must not appear; the placement, the bounds, the target registrations and
+    /// <see cref="IsDisplayed"/> behave as if the window had been shown.
+    /// </summary>
+    public void ShowForDisplay(bool realHwnd)
+    {
+        if (realHwnd)
+        {
+            Show();
+            return;
+        }
+
+        _displayedWithoutHwnd = true;
+        Draw(); // the Loaded handler's half: a shown window draws itself
+    }
+
+    /// <summary>Whether the window counts as on screen: the real HWND's IsVisible in production,
+    /// or the seam's own flag when the window was never handed to the OS.</summary>
+    public bool IsDisplayed => _displayedWithoutHwnd || IsVisible;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Draw();

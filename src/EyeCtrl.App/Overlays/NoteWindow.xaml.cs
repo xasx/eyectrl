@@ -27,7 +27,6 @@ public class NoteWindow : OverlayWindow
     private readonly Dictionary<string, TextBlock> _buttonLabels = new();
     private readonly Dictionary<string, (Path Arc, double StartAngle)> _arcs = new();
     private TextBlock? _textBlock;
-    private TextBox? _textBox;
     private Border? _contentBorder;
     private NoteState _state;
 
@@ -50,6 +49,33 @@ public class NoteWindow : OverlayWindow
         Content = _canvas;
         Loaded += OnLoaded;
     }
+
+    // The show seam (T6 fixup-08 R4, moved down by sync 4): set when the manager skipped the HWND show.
+    private bool _displayedWithoutHwnd;
+
+    /// <summary>
+    /// Shows the window the way production does, or - with <paramref name="realHwnd"/> false -
+    /// performs what <see cref="Window.Show"/> builds for the rest of the app (the drawn tree,
+    /// which the Loaded handler would have built) without ever putting a window on the screen.
+    /// The headless tests run on the OWNER's machine, where a topmost note window is exactly what
+    /// must not appear; the placement, the bounds, the target registrations and
+    /// <see cref="IsDisplayed"/> behave as if the window had been shown.
+    /// </summary>
+    public void ShowForDisplay(bool realHwnd)
+    {
+        if (realHwnd)
+        {
+            Show();
+            return;
+        }
+
+        _displayedWithoutHwnd = true;
+        Draw(); // the Loaded handler's half: a shown window draws itself
+    }
+
+    /// <summary>Whether the window counts as on screen: the real HWND's IsVisible in production,
+    /// or the seam's own flag when the window was never handed to the OS.</summary>
+    public bool IsDisplayed => _displayedWithoutHwnd || IsVisible;
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -109,75 +135,58 @@ public class NoteWindow : OverlayWindow
         UpdateButtonVisibility();
     }
 
+    /// <summary>
+    /// P1 D3: the editor is NOT a TextBox. Edit shows the same display TextBlock followed by a
+    /// static end marker (a thin accent bar) — the caret is always at the end in v1, so a blinking
+    /// caret would promise a text navigation that does not exist. The note window is
+    /// WS_EX_NOACTIVATE for life (the base class sets it once in OnSourceInitialized): typing
+    /// reaches the note through the manager's <c>Apply</c>, never through OS focus, and a bare
+    /// <c>Activate()</c> — whose foreground-lock failure sent eye-typed text into other windows —
+    /// no longer exists on any path.
+    /// </summary>
     public void UpdateContent()
     {
         if (_contentBorder == null) return;
         _contentBorder.Child = null;
 
+        // Each state keeps its previous text colour: Display's amber body and Edit's primary
+        // editor text are today's look, and restyling them is T5's scope, not this ticket's.
+        _textBlock = new TextBlock
+        {
+            Width = TextAreaWidth - 20,
+            MaxWidth = TextAreaWidth - 20,
+            Margin = new Thickness(10, 10, 0, 0),
+            FontSize = Tokens.FontSizeBody,
+            Foreground = _state == NoteState.Edit ? Tokens.BrushTextPrimary : Tokens.BrushAccentWarning,
+            TextWrapping = TextWrapping.Wrap
+        };
+
+        var stack = new StackPanel();
+        stack.Children.Add(_textBlock);
         if (_state == NoteState.Edit)
         {
-            _textBlock = null;
-            _textBox = new TextBox
+            // The static end marker (P1 D3): where a caret would blink in a real editor, a thin
+            // bar states plainly that typed text lands after everything shown.
+            var endMarker = new Rectangle
             {
-                Width = TextAreaWidth - 20, Height = Height - TitleBarHeight - 20,
-                Margin = new Thickness(10, 10, 0, 0),
-                Background = Tokens.BrushSurfaceKey,
-                Foreground = Tokens.BrushTextPrimary,
-                BorderBrush = Tokens.BrushAccent,
-                BorderThickness = new Thickness(1),
-                FontSize = Tokens.FontSizeBody,
-                AcceptsReturn = true,
-                TextWrapping = TextWrapping.Wrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                Width = ButtonRadius / 3,
+                Height = ButtonRadius / 3,
+                Fill = Tokens.BrushAccent,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(10, 2, 0, 0)
             };
-            _contentBorder.Child = _textBox;
+            stack.Children.Add(endMarker);
         }
-        else
-        {
-            _textBox = null;
-            _textBlock = new TextBlock
-            {
-                Width = TextAreaWidth - 20,
-                MaxWidth = TextAreaWidth - 20,
-                Margin = new Thickness(10, 10, 0, 0),
-                FontSize = Tokens.FontSizeBody,
-                Foreground = Tokens.BrushAccentWarning,
-                TextWrapping = TextWrapping.Wrap
-            };
-            _contentBorder.Child = _textBlock;
-        }
+
+        _contentBorder.Child = stack;
     }
 
     public void SetText(string text)
     {
         if (_textBlock != null) _textBlock.Text = text;
-        if (_textBox != null) _textBox.Text = text;
     }
 
-    public string GetText()
-    {
-        if (_textBox != null) return _textBox.Text;
-        return _textBlock?.Text ?? "";
-    }
-
-    /// <summary>
-    /// Activates the window and moves keyboard focus into the editor TextBox so that both
-    /// physical-keyboard input and eye-keyboard <c>SendInput</c> text land in the note.
-    /// Must be called after the window has been shown and made focusable.
-    /// </summary>
-    public void FocusEditor()
-    {
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            Activate();
-            if (_textBox != null)
-            {
-                _textBox.Focus();
-                Keyboard.Focus(_textBox);
-                _textBox.CaretIndex = _textBox.Text?.Length ?? 0;
-            }
-        }), System.Windows.Threading.DispatcherPriority.Input);
-    }
+    public string GetText() => _textBlock?.Text ?? "";
 
     public void SetState(NoteState state)
     {
@@ -188,17 +197,20 @@ public class NoteWindow : OverlayWindow
             UpdateBorder();
             UpdateButtonVisibility();
             Opacity = state == NoteState.Move ? 0.85 : 1.0;
-
-            if (state == NoteState.Edit)
-            {
-                SetOverlayInteraction(clickThrough: false, focusable: true);
-                _textBox?.Focus();
-            }
-            else
-            {
-                SetOverlayInteraction(clickThrough: false, focusable: false);
-            }
+            // No SetOverlayInteraction call on any path (P1 D3): the base class already pinned
+            // click-through:false + focusable:false in OnSourceInitialized, and the window stays
+            // WS_EX_NOACTIVATE for life.
         });
+    }
+
+    /// <summary>
+    /// The ⌨ Show-keyboard control (slot 1) registers only while the keyboard is hidden (P1 D7);
+    /// the manager calls this on entry into Edit and on every keyboard-probe change so the drawn
+    /// buttons can never disagree with the registered dwell targets.
+    /// </summary>
+    public void SetKeyboardControlVisible(bool visible)
+    {
+        Dispatcher.Invoke(() => SetButtonVisible("keyboard", visible));
     }
 
     private void UpdateBorder() => Dispatcher.Invoke(() =>
@@ -232,76 +244,117 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        // Move glyph takes MarkerMove so it matches the Move state border and stays visible on
-        // the button disc, without colliding with the Accent reserved for Edit/dwell-in-progress.
+        // BOTH sets are drawn once, over the same three slots (P1 D7, fixup B1), so Done and
+        // (in P2) Discard stay one slot apart and the dwell-target math (NoteLayout.ButtonCenter)
+        // never changes:
+        //   Display: 0 ✕ close, 1 ✎ edit, 2 ↕ move
+        //   Edit:    0 ✓ Done (AccentSuccess), 1 ⌨ Show keyboard (Accent, keyboard-hidden only), 2 empty
+        // Every note is created in Edit before Show(), so a canvas that drew only the current
+        // state's set could never gain the Display controls later — SetState(Display) would
+        // unhide buttons that do not exist while their dwell targets go live. UpdateButtonVisibility
+        // picks the visible set per state; the hidden twin of each slot is Collapsed.
         // The fourth field is the button's UIA name: the disc is an Ellipse (no automation peer),
         // and the glyph label would otherwise announce as its own symbol, so the name goes on the
         // peer-bearing TextBlock (D11).
-        var symbols = new[]
-        {
+        _displayButtons =
+        [
             ("close", "✕", Tokens.AccentDanger, StringTable.Current.T("overlays.note.close")),
             ("edit",  "✎", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.edit")),
             ("move",  "↕", Tokens.MarkerMove, StringTable.Current.T("overlays.note.move")),
-        };
+        ];
+        _editButtons =
+        [
+            ("done",     "✓", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.done")),
+            ("keyboard", "⌨", Tokens.Accent, StringTable.Current.T("overlays.note.showKeyboard")),
+            ("none",     "",  Tokens.AccentDanger, string.Empty),
+        ];
 
-        for (int i = 0; i < 3; i++)
+        foreach (var symbols in new[] { _displayButtons, _editButtons })
         {
-            var (suffix, symbol, color, accessibleName) = symbols[i];
-            // Window-relative logical center, shared with NoteManager's dwell-target placement.
-            var (cx, cy) = NoteLayout.ButtonCenter(i);
-
-            var ellipse = new Ellipse
+            for (int i = 0; i < symbols.Length; i++)
             {
-                Width = ButtonDiameter, Height = ButtonDiameter,
-                Fill = Tokens.BrushSurfaceMedium,
-                Stroke = new SolidColorBrush(color),
-                StrokeThickness = 1
-            };
-            Canvas.SetLeft(ellipse, cx - ButtonRadius);
-            Canvas.SetTop(ellipse, cy - ButtonRadius);
-            _canvas.Children.Add(ellipse);
-            _buttons[$"{_noteId}:{suffix}"] = ellipse;
+                var (suffix, symbol, color, accessibleName) = symbols[i];
+                // Window-relative logical center, shared with NoteManager's dwell-target placement.
+                var (cx, cy) = NoteLayout.ButtonCenter(i);
 
-            var label = new TextBlock
-            {
-                Text = symbol,
-                // Sized from the 60px button disc that bounds it (ButtonDiameter above).
-                FontSize = ButtonDiameter * ContainerRatio.Small,
-                Foreground = new SolidColorBrush(color),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Canvas.SetLeft(label, cx - 8);
-            Canvas.SetTop(label, cy - 10);
-            System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
-            _canvas.Children.Add(label);
-            _buttonLabels[$"{_noteId}:{suffix}"] = label;
+                var ellipse = new Ellipse
+                {
+                    Width = ButtonDiameter, Height = ButtonDiameter,
+                    Fill = Tokens.BrushSurfaceMedium,
+                    Stroke = new SolidColorBrush(color),
+                    StrokeThickness = 1
+                };
+                Canvas.SetLeft(ellipse, cx - ButtonRadius);
+                Canvas.SetTop(ellipse, cy - ButtonRadius);
+                _canvas.Children.Add(ellipse);
+                _buttons[$"{_noteId}:{suffix}"] = ellipse;
 
-            var arcPath = new Path
-            {
-                Stroke = Tokens.BrushAccent,
-                StrokeThickness = 3, Visibility = Visibility.Hidden
-            };
-            Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
-            _canvas.Children.Add(arcPath);
-            _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
+                var label = new TextBlock
+                {
+                    Text = symbol,
+                    // Sized from the 60px button disc that bounds it (ButtonDiameter above).
+                    FontSize = ButtonDiameter * ContainerRatio.Small,
+                    Foreground = new SolidColorBrush(color),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Canvas.SetLeft(label, cx - 8);
+                Canvas.SetTop(label, cy - 10);
+                if (accessibleName.Length > 0)
+                    System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
+                _canvas.Children.Add(label);
+                _buttonLabels[$"{_noteId}:{suffix}"] = label;
+
+                var arcPath = new Path
+                {
+                    Stroke = Tokens.BrushAccent,
+                    StrokeThickness = 3, Visibility = Visibility.Hidden
+                };
+                Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
+                _canvas.Children.Add(arcPath);
+                _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
+            }
         }
     }
+
+    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _displayButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _editButtons = [];
 
     /// <summary>
     /// Shows or hides the control buttons to match the current state so the visible buttons stay
     /// in sync with the dwell targets registered by <c>NoteManager</c>:
-    /// Display = close+edit+move, Edit = close only, Move = none (placement target only).
+    /// Display = close+edit+move; Edit = Done always, ⌨ only while the keyboard is hidden (the
+    /// manager drives that half through <see cref="SetKeyboardControlVisible"/>); Move = none.
     /// </summary>
     private void UpdateButtonVisibility()
     {
+        // Both sets EXIST on the canvas now (fixup B1), so every branch must set every key
+        // explicitly — a fresh Ellipse's default Visibility is Visible, and an untouched twin
+        // would render on top of the active set.
+        if (_state == NoteState.Edit)
+        {
+            SetButtonVisible("done", true);
+            SetButtonVisible("keyboard", _keyboardControlVisible);
+            SetButtonVisible("close", false);
+            SetButtonVisible("edit", false);
+            SetButtonVisible("move", false);
+            SetButtonVisible("none", false);
+            return;
+        }
+
+        SetButtonVisible("done", false);
+        SetButtonVisible("keyboard", false);
         SetButtonVisible("close", _state != NoteState.Move);
         SetButtonVisible("edit", _state == NoteState.Display);
         SetButtonVisible("move", _state == NoteState.Display);
+        SetButtonVisible("none", false);
     }
+
+    private bool _keyboardControlVisible;
 
     private void SetButtonVisible(string suffix, bool visible)
     {
+        if (suffix == "keyboard") _keyboardControlVisible = visible;
         var key = $"{_noteId}:{suffix}";
         var vis = visible ? Visibility.Visible : Visibility.Collapsed;
         if (_buttons.TryGetValue(key, out var ellipse)) ellipse.Visibility = vis;

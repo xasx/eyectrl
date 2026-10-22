@@ -153,6 +153,7 @@ public class NoVisibleTestWindowGuardTests
             "Localization/Fit/TrackStatusWidthTests.cs", "Localization/Review/ReviewSheetTests.cs", "Localization/Review/T15SheetTests.cs",
             "Localization/ShippedGermanStep3Tests.cs",
             "Overlays/ActionMenuPreviewCaptureLogTests.cs", "Overlays/ActionMenuPreviewUnderFillTests.cs", "Overlays/AdaptationPreviewWindowTests.cs",
+            "Overlays/KeyboardWindowNoteFrameTests.cs", "Services/KeyboardProbeTests.cs", "Services/Review01ProbeTests.cs",
             "Overlays/CrisisOverlayTextTests.cs", "Overlays/CursorRingQuantizationTests.cs", "Overlays/EdgeButtonBarCaptureTests.cs",
             "Overlays/EdgeButtonFitTests.cs", "Overlays/EyeCareBannerCueTests.cs", "Overlays/EyeCareBannerGeometryTests.cs",
             "Overlays/GlassBackdropHideButtonTests.cs", "Overlays/GlassBackdropMaterialPathTests.cs", "Overlays/GlassBackdropWindowTests.cs",

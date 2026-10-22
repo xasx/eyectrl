@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using EyeCtrl.App.Services;
 using EyeCtrl.Tests.TestSupport;
 
 // Resets DpiHelper's process-global scale after every test in this assembly. It is not optional:
@@ -27,3 +29,22 @@ using EyeCtrl.Tests.TestSupport;
 // code opened, which the static scan (NoVisibleTestWindowGuardTests) cannot see. See RuntimeWindowMonitor; presence is
 // pinned by RuntimeWindowGuardTests.TheCheck_IsInstalledOnThisAssembly.
 [assembly: EyeCtrl.App.Tests.Fixtures.RuntimeVisibleWindowCheck]
+
+/// <summary>
+/// Sync 4 (the note-window seam, moved down from T6): this assembly runs on the OWNER's machine,
+/// so no note test may put a note window on the screen. The note manager's show seam is switched
+/// off ONCE here - before any test runs - so every manager this assembly builds skips only the
+/// HWND show while its drawn tree, placement, target registrations and "displayed" state behave
+/// as if the window had been shown (see <c>NoteManager.RealNoteWindows</c> and
+/// <c>NoteWindow.ShowForDisplay</c>).
+/// <para>
+/// A test that genuinely needs a real note HWND switches the seam back on for its own scope and
+/// must sit behind <c>AppFixture.SkipIfDisabled()</c>, so it never runs on the owner's default
+/// run. The obligation is pinned by <c>NoteWindowShowSeamTests</c>.
+/// </para>
+/// </summary>
+internal static class HeadlessNoteWindowDefaults
+{
+    [ModuleInitializer]
+    internal static void Initialize() => NoteManager.RealNoteWindows = false;
+}

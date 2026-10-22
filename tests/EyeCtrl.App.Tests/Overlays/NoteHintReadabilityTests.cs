@@ -57,6 +57,7 @@ public class NoteHintReadabilityTests
         var column = NoteLayout.ChipTextWidthDip(textSize, texts);
 
         var window = new NoteWindow("g1-chip-font");
+        InvisibleTestWindow.Prepare(window);
         window.SetState(NoteState.PendingUndo);
         window.SetChipText(texts[0], textSize, column);
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
@@ -177,6 +178,7 @@ public class NoteHintReadabilityTests
         var card = NoteLayout.ChipCardSize(textSize, texts);
 
         var window = new NoteWindow("g1f-chip");
+        InvisibleTestWindow.Prepare(window);
         window.SetTextSize(textSize);
         window.SetState(NoteState.PendingUndo);
         window.SetChipText(texts[0], textSize, column);
@@ -269,6 +271,7 @@ public class NoteHintReadabilityTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new NotePlaceHereWindow(textSize);
+        InvisibleTestWindow.Prepare(window);
         var label = ((Border)window.Content).Child as TextBlock;
 
         Check.WithCustomMessage("the Place-here window must carry a label").That(label).IsNotNull();
@@ -290,8 +293,11 @@ public class NoteHintReadabilityTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var small = new NotePlaceHereWindow(18);
+        InvisibleTestWindow.Prepare(small);
         var mid = new NotePlaceHereWindow(28);
+        InvisibleTestWindow.Prepare(mid);
         var large = new NotePlaceHereWindow(48);
+        InvisibleTestWindow.Prepare(large);
 
         // The English label is short enough to sit on the 150 DIP floor at the two smaller
         // sizes, so only the largest must grow past it - the floor is the ticket's "never

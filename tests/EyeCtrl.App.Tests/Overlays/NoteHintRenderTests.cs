@@ -125,6 +125,7 @@ public class NoteHintRenderTests
 
         var card = placement.Card;
         var window = new NoteWindow($"hint-render-{kind}");
+        InvisibleTestWindow.Prepare(window);
         window.SetTextSize(28);
         window.SetState(NoteState.PendingUndo);
         window.SetChipText(ChipText(kind), 28, NoteLayout.ChipTextWidthDip(28, ChipTexts()));
@@ -199,6 +200,7 @@ public class NoteHintRenderTests
     private static RenderTargetBitmap RenderPlaceHere()
     {
         var window = new NotePlaceHereWindow(28);
+        InvisibleTestWindow.Prepare(window);
         var content = (FrameworkElement)window.Content;
         content.Measure(new Size(window.SizeDip.Width, window.SizeDip.Height));
         content.Arrange(new Rect(0, 0, window.SizeDip.Width, window.SizeDip.Height));

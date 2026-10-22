@@ -129,6 +129,7 @@ public class NoteBadgeContrastTests
         try
         {
             var window = new NoteWindow("badge-contrast");
+            InvisibleTestWindow.Prepare(window);
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(NoteState.Display);
             var card = new Size(

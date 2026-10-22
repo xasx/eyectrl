@@ -111,6 +111,7 @@ public class NoteBadgeRenderTests
         try
         {
             var window = new NoteWindow($"badge-render-{badgeNumber?.ToString() ?? "lone"}");
+            InvisibleTestWindow.Prepare(window);
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(NoteState.Display);
             window.SetTextSize(textSize);

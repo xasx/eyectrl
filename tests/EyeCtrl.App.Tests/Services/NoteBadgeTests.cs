@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.App.Tests.TestSupport;
@@ -114,6 +115,7 @@ public class NoteBadgeTests
         string id, string text, double textSize, PhysicalPoint anchor, NoteSide side)
     {
         var window = new NoteWindow(id);
+        InvisibleTestWindow.Prepare(window);
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
         window.SetState(NoteState.Display);
         window.SetTextSize(textSize);

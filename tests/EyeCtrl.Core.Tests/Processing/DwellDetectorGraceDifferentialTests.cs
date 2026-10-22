@@ -145,6 +145,50 @@ public class DwellDetectorGraceDifferentialTests
         Check.That(checkedSteps).IsEqualTo(300 * 800);
     }
 
+    /// <summary>
+    /// A1: restating grace 0 on a live detector mid-cooldown must change nothing — the setter may not
+    /// clear the activation cooldown or touch any other state a grace-0 detector owns. The random
+    /// streams above hit that window too rarely to pin it, so it is driven deterministically.
+    /// </summary>
+    [Fact]
+    public void P1b_SetPauseGraceZero_DuringACooldown_ChangesNothing()
+    {
+        var oldD = new Rv4cOldDwellDetector(400, DwellContext.Other, null);
+        var newD = new DwellDetector(400, DwellContext.Other, null);
+        long now = 0;
+        var logOld = new List<string>();
+        var logNew = new List<string>();
+        oldD.TargetProgress += (id, p) => logOld.Add($"P {id} {p:R} @{now}");
+        newD.TargetProgress += (id, p) => logNew.Add($"P {id} {p:R} @{now}");
+        oldD.TargetActivated += id => logOld.Add($"A {id} @{now}");
+        newD.TargetActivated += id => logNew.Add($"A {id} @{now}");
+        oldD.AddTarget(new DwellTarget("a", new PhysicalPoint(100, 100), 40, 200));
+        newD.AddTarget(new DwellTarget("a", new PhysicalPoint(100, 100), 40, 200));
+
+        var on = new PhysicalPoint(100, 100);
+        for (long t = 0; t <= 300; t += 30)
+        {
+            now = t;
+            oldD.Update(on, t * Ms);
+            newD.Update(on, t * Ms);
+        }
+
+        newD.SetPauseGrace(0);   // inside the 400 ms cooldown that the activation started
+
+        for (long t = 330; t <= 900; t += 30)
+        {
+            now = t;
+            oldD.Update(on, t * Ms);
+            newD.Update(on, t * Ms);
+        }
+
+        Check.That(logOld).Not.IsEmpty();
+                Check.That(string.Join("\n", logNew)).IsEqualTo(string.Join("\n", logOld));
+    }
+
+    // Mutation (A1-d1): SetPauseGrace clears the activation cooldown -> the dwell re-accumulates inside
+    //   the cooldown and the two logs diverge.
+
     // Mutation (O8): the grace pre-pass is taken at grace 0 -> the differential's GetProgress log
     //   diverges, and the existing DwellDetectorTests go red too.
 

@@ -66,6 +66,9 @@ public class ScrollModeController : IDisposable
     private bool _disposed;
     private long _enteredAtMs;
 
+    /// <summary>The live worker, so a test can drive its ticks deterministically (G5).</summary>
+    internal ScrollWorker? Worker => _scrollWorker;
+
     public bool IsActive => _scrollModeActive;
 
     public ScrollModeController(EventCoordinationContext context)
@@ -172,7 +175,8 @@ public class ScrollModeController : IDisposable
         _scrollWorker.Start(
             anchor,
             isArmed: () => _scrollOverlayVm?.IsArmed ?? false,
-            cursorReader: _cursorReader);
+            cursorReader: _cursorReader,
+            nearestPx: () => _scrollOverlayVm?.NearestPx ?? -1);
 
         _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
         _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
@@ -188,8 +192,8 @@ public class ScrollModeController : IDisposable
         string cursorText = DescribeCursor(cursor);
         return string.Format(
             CultureInfo.InvariantCulture,
-            "Scroll mode: anchor=({0:F0},{1:F0}) deadZone={2:F0}px stopZone={3:F0}px {4} [BackdropVisible={5}]",
-            anchor.X, anchor.Y, vm.DeadZoneRadiusPx, vm.StopZoneRadiusPx, cursorText, backdropVisible);
+            "Scroll mode: anchor=({0:F0},{1:F0}) deadZone={2:F0}px stopZone={3:F0}px startZone={4:F0}px {5} [BackdropVisible={6}]",
+            anchor.X, anchor.Y, vm.DeadZoneRadiusPx, vm.StopZoneRadiusPx, vm.StartRadiusPx, cursorText, backdropVisible);
     }
 
     /// <summary>Renders the cursor fields tolerantly: the reader can fail (an injected harness, a

@@ -54,6 +54,18 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
         AnchorCrosshairHaloV.X1 = AnchorCrosshairV.X1; AnchorCrosshairHaloV.Y1 = AnchorCrosshairV.Y1;
         AnchorCrosshairHaloV.X2 = AnchorCrosshairV.X2; AnchorCrosshairHaloV.Y2 = AnchorCrosshairV.Y2;
 
+        // C4: the start circle, centred on the anchor. Its diameter is the VM's physical start
+        // radius converted back to DIP (2 × StartRadiusDip at any scale, unless the dead zone is wider).
+        double startDiameter = 2 * DpiHelper.PhysicalToLogicalX(vm.StartRadiusPx);
+        foreach (var ring in new[] { StartCircleHalo, StartCircle })
+        {
+            ring.Width = startDiameter;
+            ring.Height = startDiameter;
+            Canvas.SetLeft(ring, anchorLogX - startDiameter / 2);
+            Canvas.SetTop(ring, anchorLogY - startDiameter / 2);
+        }
+        SetStartCircleVisible(!vm.IsArmed);
+
         Canvas.SetLeft(CursorCircle, anchorLogX - 40);
         Canvas.SetTop(CursorCircle, anchorLogY - 40);
         Canvas.SetLeft(AnchorDot, anchorLogX - 4);
@@ -62,6 +74,13 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
         Canvas.SetTop(VelocityRing, anchorLogY - 40);
         Canvas.SetLeft(VelocityRingHalo, anchorLogX - 40);
         Canvas.SetTop(VelocityRingHalo, anchorLogY - 40);
+    }
+
+    private void SetStartCircleVisible(bool visible)
+    {
+        var visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        StartCircleHalo.Visibility = visibility;
+        StartCircle.Visibility = visibility;
     }
 
     public void UpdateFeedback(double dotOffsetX, double dotOffsetY, double velMagnitude)
@@ -84,6 +103,8 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
         AnchorCrosshairHaloV.Visibility = haloVisibility;
         AnchorCrosshairHaloH.StrokeThickness = crosshairThickness + 2;
         AnchorCrosshairHaloV.StrokeThickness = crosshairThickness + 2;
+        // C4: the start circle is the same cue — drawn only until scrolling has started.
+        SetStartCircleVisible(!armed);
 
         double anchorX = Canvas.GetLeft(CursorCircle) + 40;
         double anchorY = Canvas.GetTop(CursorCircle) + 40;

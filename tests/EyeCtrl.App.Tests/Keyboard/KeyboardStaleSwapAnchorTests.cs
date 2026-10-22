@@ -154,6 +154,9 @@ public class KeyboardStaleSwapAnchorTests
 
         rig.W.UpdateGaze(p, ts); ts += 20_000;      // the queued sample, before any layout
         var distinct = new HashSet<PhysicalPoint>(Centres(rig.W).Values).Count;
+        Check.WithCustomMessage("the backlogged order did not happen: the early sample should have repopulated the "
+                + "centres from containers that are not arranged yet (one collapsed point)")
+            .That(distinct).IsEqualTo(1);
         var after = rig.Measure();
         rig.W.Place(WorkArea, after.Width, after.Height, KeyboardMove.Keep);
         for (long t = ts; t < ts + 2_000_000; t += 20_000)

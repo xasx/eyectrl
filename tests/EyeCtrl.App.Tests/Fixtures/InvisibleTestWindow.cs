@@ -27,12 +27,15 @@ using EyeCtrl.App.Overlays;
 ///
 /// <para>
 /// <see cref="PrepareCloaked{T}"/> is for a window whose product code DOES write its own Opacity
-/// (<c>ActivationButtonWindow</c> fades in on <c>ShowAt</c>; its halo tests never actually call <c>Show()</c>, so the
-/// cloak there is belt and braces): it is cloaked through DWM
+/// (<c>ActivationButtonWindow</c> fades in on <c>ShowAt</c>; no test needs this today: its halo tests never call
+/// <c>Show()</c> and must NOT create the handle early, see below): it is cloaked through DWM
 /// (<c>DWMWA_CLOAK</c>), which hides a window from composition whatever its Opacity does and keeps
 /// its position, size and visuals — the same mechanism the product's <c>GlassBackdropWindow</c> uses
 /// to hide a first frame. It creates the window handle early (<c>EnsureHandle</c>), so use it only
-/// where no test step depends on the handle not existing yet.
+/// where no test step depends on the handle not existing yet. THAT HAS BITTEN: a window that already has an HWND
+/// stores <c>Left</c>/<c>Top</c> through the real monitor's DPI (whole device pixels), so a test that fakes the scale
+/// with <c>DpiHelper.Initialize</c> and reads <c>Left</c>/<c>Top</c> back (FixationHaloRenderTests'
+/// "drawn centre = B") is off by one pixel on a machine whose real DPI differs (CI at 1.0).
 /// </para>
 /// </summary>
 internal static class InvisibleTestWindow

@@ -212,6 +212,26 @@ public class NoVisibleTestWindowGuardTests
     }
 
     [Fact]
+    public void ShowAtOnAnActivationButtonWindow_IsNotAShow_ButItsShowIs()
+    {
+        const string body = """
+                public void H()
+                {
+                    var window = new ActivationButtonWindow();
+                    window.ShowAt(b, hit);
+                    window.CALL;
+                }
+            """;
+        Check.That(Scan(body.Replace("CALL", "UpdateDwellProgress(0)"))).IsEmpty();
+        Check.That(Scan(body.Replace("CALL", "Show()"))).HasSize(1);
+        Check.That(Scan(body.Replace("CALL", "ShowAtRest()"))).HasSize(1);
+        // another window type's ShowAt is still a show (DwellFeedbackOverlay.ShowAt calls Show())
+        Check.That(Scan(body.Replace("ActivationButtonWindow", "DwellFeedbackWindow").Replace("CALL", "UpdateDwellProgress(0)"))).HasSize(1);
+        Check.That(Scan("    public void Inline() => new ActivationButtonWindow().ShowAt(b, hit);")).IsEmpty();
+        Check.That(Scan("    public void Inline() => new ActivationButtonWindow().Show();")).HasSize(1);
+    }
+
+    [Fact]
     public void AMethodGroupOfAShowingApi_IsAShow()
     {
         Check.That(Scan("    public void G()\n    {\n        var w = new ToolbarWindow();\n        Action a = w.Show;\n        a();\n    }")).HasSize(1);
@@ -294,6 +314,14 @@ public class NoVisibleTestWindowGuardTests
 
     private static readonly string ApiAlternation = string.Join("|", ShowingApis);
 
+    // ActivationButtonWindow.ShowAt only positions the window and starts its fade-in; the product calls Show() afterwards
+    // (OverlayVmBindingCoordinator). A test that calls ShowAt alone never shows it (FixationHaloRenderTests), so ShowAt is
+    // not a showing API on THAT window type; its Show() still is.
+    private static readonly string ApiAlternationWithoutShowAt = string.Join("|", ShowingApis.Where(a => a != "ShowAt"));
+
+    private static string ApisFor(string windowType) =>
+        windowType == "ActivationButtonWindow" ? ApiAlternationWithoutShowAt : ApiAlternation;
+
     private static readonly Regex ShowingCall = new(
         @"\.\s*(?:" + ApiAlternation + @")\b|(?<![\w.])ShowWindow\s*\(", RegexOptions.Compiled);
 
@@ -351,7 +379,7 @@ public class NoVisibleTestWindowGuardTests
             if (use.Name is null) continue;
 
             var name = Regex.Escape(use.Name);
-            var shownBy = Regex.Matches(body, $@"(?<![\w.]){name}\s*\.\s*(?<api>{ApiAlternation})\b")
+            var shownBy = Regex.Matches(body, $@"(?<![\w.]){name}\s*\.\s*(?<api>{ApisFor(use.Type)})\b")
                 .Select(m => m.Groups["api"].Value).ToList();
             var madeVisible = Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Visibility\s*=\s*Visibility\s*\.\s*Visible\b");
             var handed = OverlayContainerArgs.Matches(body)
@@ -394,7 +422,7 @@ public class NoVisibleTestWindowGuardTests
 
                 // `new Window(...).Show()` inline
                 var inlineShown = Regex.IsMatch(statement[m.Index..],
-                    $@"^new\s+\w+\s*(?:\([^()]*\))?\s*(?:\{{[^{{}}]*\}})?\s*(?:\))?\s*\.\s*(?:{ApiAlternation})\b");
+                    $@"^new\s+\w+\s*(?:\([^()]*\))?\s*(?:\{{[^{{}}]*\}})?\s*(?:\))?\s*\.\s*(?:{ApisFor(m.Groups["type"].Value)})\b");
                 yield return new WindowUse(m.Groups["type"].Value, name, prepared, offScreen, inlineShown);
             }
         }

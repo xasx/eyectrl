@@ -24,10 +24,15 @@ using Xunit;
 /// any edge or corner goes red.
 /// </para>
 /// </summary>
-// NOTE (test-windows-invisible review 01, R-4): none of these tests ever SHOWS the window — ActivationButtonWindow.ShowAt only
-// positions it and starts the fade (production calls ShowAt and then Show(); these call ShowAt only). The windows are still
-// cloaked (InvisibleTestWindow.PrepareCloaked) as belt and braces: it only adds an HWND, and it keeps the no-visible-window
-// guard's rule (a showing API on a real window needs the helper) satisfied should a test here ever Show().
+// NOTE (test-windows-invisible): none of these tests ever SHOWS the window — ActivationButtonWindow.ShowAt only positions it
+// and starts the fade (production calls ShowAt and then Show(); these call ShowAt only), so there is nothing to make invisible
+// and NO InvisibleTestWindow helper is used. In particular NOT PrepareCloaked: it creates the window's HWND before ShowAt, and a
+// window that already has an HWND stores Left/Top through the REAL monitor's DPI (SetWindowPos in whole device pixels, read back
+// through WM_WINDOWPOSCHANGED), while these tests fake the scale with DpiHelper.Initialize(2.0, 2.0). On a machine whose real
+// DPI differs (CI at 1.0) the read-back is off by one device pixel at the half-DIP positions ("B=(1920,0): the drawn centre is
+// (1921,-1)"). Without an HWND, Left/Top are plain stored doubles and the arithmetic is exact at any real DPI.
+// NoVisibleTestWindowGuardTests knows that ShowAt on an ActivationButtonWindow is not a show (but a Show() on it still is), and
+// InvisibleTestWindowTests pins that this file creates no early handle.
 [Collection("WpfApplication")]
 public class FixationHaloRenderTests
 {
@@ -39,7 +44,7 @@ public class FixationHaloRenderTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
+        var window = new ActivationButtonWindow();
         try
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
@@ -83,7 +88,7 @@ public class FixationHaloRenderTests
         // (subtract StrokeThickness/2) → 71.5 DIP at progress 1, red.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
+        var window = new ActivationButtonWindow();
         try
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
@@ -139,7 +144,7 @@ public class FixationHaloRenderTests
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
         var b = new PhysicalPoint(x, y);
 
-        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
+        var window = new ActivationButtonWindow();
         try
         {
             window.ShowAt(b, HitPx);
@@ -162,7 +167,7 @@ public class FixationHaloRenderTests
         // The halo sits over the offered button, so it must never become a mouse target over whatever
         // is underneath it — the same contract the cursor ring has.
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
+        var window = new ActivationButtonWindow();
         try
         {
             Check.That(window.IsClickThrough).IsTrue();
@@ -183,7 +188,7 @@ public class FixationHaloRenderTests
         // the presence/absence of a held animation rather than an animated frame.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var window = InvisibleTestWindow.PrepareCloaked(new ActivationButtonWindow());
+        var window = new ActivationButtonWindow();
         try
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);

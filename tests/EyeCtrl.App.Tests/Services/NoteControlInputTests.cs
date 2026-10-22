@@ -337,6 +337,13 @@ public class NoteControlInputTests
     [StaFact]
     public void Touch_OnTheGlyphLabel_EntersEditExactlyOnce()
     {
+        // T6 fixup-08 R4: this test's discriminating assertion is a VISUAL hit test on the drawn
+        // tree, and an unrendered tree (the manager's seam keeps the window off the owner's
+        // screen) resolves that hit to the glyph label even though the label is not hit-testable.
+        // It needs the window actually shown, so it belongs behind the UI gate - never on the
+        // owner's default run.
+        Fixtures.AppFixture.SkipIfDisabled();
+
         var (manager, counter) = MakeManager(out _);
         manager.NoticeWindowShowsForTest = false;
         DpiHelper.Initialize(2.0, 2.0);

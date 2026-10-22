@@ -195,7 +195,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// Diagnostics/testing hook: true when every active note window is currently shown.
     /// Guards against regressions where a note is created but never displayed.
     /// </summary>
-    public bool AllWindowsVisible => _windows.All(w => w.IsVisible);
+    public bool AllWindowsVisible => _windows.All(w => w.IsDisplayed);
 
     /// <summary>
     /// The live note dwell-target rects, physical px (the D17 inventory's sixth source, review F1):
@@ -636,7 +636,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         window.Left = _placements[data.Id].Window.Left;
         window.Top = _placements[data.Id].Window.Top;
         window.SetKeyboardControlVisible(KeyboardHidden);
-        window.Show();
+        window.ShowForDisplay(RealNoteWindows);
         window.SetText(data.Draft);
 
         RegisterSoleEditorTargets(data.Id);
@@ -1338,6 +1338,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// on the owner machine set this false BEFORE the first ShowCapacityNotice.</summary>
     internal bool NoticeWindowShowsForTest { get; set; } = true;
 
+    /// <summary>Test seam (T6 fixup-08 R4): whether the manager puts REAL note and Place-here
+    /// windows on the screen. True in production; the App test assembly switches it off ONCE in
+    /// its module initializer, because a headless test runs on the OWNER machine and a topmost
+    /// note window is exactly what must not appear there. With it off each window still builds
+    /// its drawn tree, applies its placement, registers its targets and counts as displayed
+    /// (<see cref="NoteWindow.IsDisplayed"/>) - only the HWND show is skipped.</summary>
+    internal static bool RealNoteWindows = true;
+
     /// <summary>Test seam: the notice window instance, once created (null before the first
     /// at-capacity pin).</summary>
     internal NoteNoticeWindow? NoticeWindowForTest => _noticeWindow;
@@ -1779,7 +1787,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _placeWindowRect = new Rect(x, y, w, h);
         _placeWindow.Left = x;
         _placeWindow.Top = y;
-        _placeWindow.Show();
+        _placeWindow.ShowForDisplay(RealNoteWindows);
         RegisterPlaceTarget(moving.Id);
         _placeCentroid = centroidPhysical;
         _placeShown = true;

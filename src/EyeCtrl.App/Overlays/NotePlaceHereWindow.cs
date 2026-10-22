@@ -37,6 +37,31 @@ public class NotePlaceHereWindow : OverlayWindow
     /// old 150x44 DIP box (T6 fixup-06 G1).</summary>
     public Size SizeDip { get; private set; }
 
+    // T6 fixup-08 R4: set when the manager's show seam skipped the HWND show.
+    private bool _displayedWithoutHwnd;
+
+    /// <summary>
+    /// Shows the window the way production does, or - with <paramref name="realHwnd"/> false -
+    /// only records that it counts as on screen, without an HWND (T6 fixup-08 R4). The Place-here
+    /// window builds its content in the constructor and draws nothing on Loaded, so there is no
+    /// drawn half to replay; the manager's rect, the settle margin and the dwell target are all
+    /// its own and behave as before.
+    /// </summary>
+    public void ShowForDisplay(bool realHwnd)
+    {
+        if (realHwnd)
+        {
+            Show();
+            return;
+        }
+
+        _displayedWithoutHwnd = true;
+    }
+
+    /// <summary>Whether the window counts as on screen: the real HWND's IsVisible in production,
+    /// or the seam's own flag when it was never handed to the OS (R4).</summary>
+    public bool IsDisplayed => _displayedWithoutHwnd || IsVisible;
+
     /// <summary>Builds the window for a note text size (T6 fixup-06 G1).</summary>
     /// <param name="textSizeDip">The note's body text size — the label's font size.</param>
     public NotePlaceHereWindow(double textSizeDip)

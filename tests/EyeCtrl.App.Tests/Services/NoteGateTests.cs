@@ -673,6 +673,10 @@ public class NoteGateTests
         using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null,
             hitTester: new NoteHitTester());
 
+        // This one needs REAL HWNDs: the gate test drives WindowFromPoint. The App test assembly
+        // switches RealNoteWindows off, so switch it back on for this test only.
+        var wasReal = NoteManager.RealNoteWindows;
+        NoteManager.RealNoteWindows = true;
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
@@ -698,7 +702,7 @@ public class NoteGateTests
             Check.WithCustomMessage("the topmost window's ✕ takes the dwell")
                 .That(manager.ActiveNotes.Select(n => n.Id)).Not.Contains(topId);
         }
-        finally { DpiHelper.Initialize(1.0, 1.0); }
+        finally { NoteManager.RealNoteWindows = wasReal; DpiHelper.Initialize(1.0, 1.0); }
     }
 
     // ── helpers ──

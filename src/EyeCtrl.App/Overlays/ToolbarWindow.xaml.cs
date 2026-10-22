@@ -544,6 +544,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
                 _band.SetSelectionMode(SelectionModeIcons.ToMode(btn.IconKey));
 
             _band.UpdateProgress(id, btn.DwellProgress);
+            _band.SetPaused(id, btn.IsDwellPaused);
             // IsHighlighted is a third property with the same "unchanged value repairs nothing"
             // gap this block's leading comment already names for icon/mode-tint — a rebuild while
             // gaze is still on a button (the toolbar keeps feeding gaze while the settings window
@@ -564,6 +565,10 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
             {
                 _band.UpdateProgress(id, btn.DwellProgress);
             }
+            else if (e.PropertyName == nameof(ToolbarButtonViewModel.IsDwellPaused))
+            {
+                _band.SetPaused(id, btn.IsDwellPaused);
+            }
             else if (e.PropertyName == nameof(ToolbarButtonViewModel.IsHighlighted))
             {
                 _band.SetAcquired(id, btn.IsHighlighted);
@@ -579,6 +584,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
                 if (id == ToolbarBand.SelectionModeId)
                     _band.SetSelectionMode(SelectionModeIcons.ToMode(btn.IconKey));
                 _band.UpdateProgress(id, btn.DwellProgress);
+                _band.SetPaused(id, btn.IsDwellPaused);
             }
         };
 

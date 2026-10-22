@@ -41,7 +41,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
 
     public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink, dwellRegistry, settings.Dwell)
     {
     }
 
@@ -144,6 +144,13 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         var state = Buttons.FirstOrDefault(s => s.Id == targetId);
         if (state is not null)
             state.DwellProgress = progress;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        var state = Buttons.FirstOrDefault(s => s.Id == targetId);
+        if (state is not null)
+            state.IsDwellPaused = paused;
     }
 
     /// <summary>

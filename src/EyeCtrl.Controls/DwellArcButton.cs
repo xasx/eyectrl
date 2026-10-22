@@ -429,6 +429,14 @@ public class DwellArcButton
         UpdateArc(HaloArc, _center, _arcRadius, progress);
     }
 
+    /// <summary>
+    /// Shows or clears the "held, not reset" look: the progress arc dims (see
+    /// <see cref="DwellPausedCue"/>) while the dwell is paused. Display-only — the arc's value,
+    /// thickness, brush and visibility are untouched, so this is safe to call at any moment and
+    /// in any order with <see cref="UpdateProgress"/>.
+    /// </summary>
+    public void SetPaused(bool paused) => ProgressPath.Opacity = DwellPausedCue.OpacityFor(paused);
+
     public static void UpdateArc(ArcSegment arc, Point center, double arcRadius, double progress)
     {
         var clamped = Math.Clamp(progress, 0, 1);

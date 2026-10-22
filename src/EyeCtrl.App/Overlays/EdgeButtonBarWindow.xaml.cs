@@ -112,6 +112,7 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
                     : DwellArcButton.IconSize.Standard,
                 accessibleName: definition?.AccessibleName ?? definition?.Label);
             btn.UpdateProgress(state.DwellProgress);
+            btn.SetPaused(state.IsDwellPaused);
             btn.AddTo(ButtonCanvas);
             _buttons[state.Id] = btn;
 
@@ -120,6 +121,9 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
                 if (e.PropertyName == nameof(EdgeButtonState.DwellProgress)
                     && _buttons.TryGetValue(state.Id, out var b))
                     b.UpdateProgress(state.DwellProgress);
+                else if (e.PropertyName == nameof(EdgeButtonState.IsDwellPaused)
+                    && _buttons.TryGetValue(state.Id, out var heldButton))
+                    heldButton.SetPaused(state.IsDwellPaused);
             };
             state.PropertyChanged += handler;
             _progressSubs.Add((state, handler));

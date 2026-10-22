@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
@@ -17,17 +18,34 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     [ObservableProperty] private bool _isVisible;
 
     private readonly IDwellDetectorRegistry? _dwellRegistry;
+    private readonly DwellSettings? _pauseGraceSettings;
 
     protected DwellDetector DwellDetector { get; }
 
+    /// <summary>Test seam (InternalsVisibleTo): the detector this surface feeds, so a test can read
+    /// the grace it actually carries.</summary>
+    internal DwellDetector DetectorForTest => DwellDetector;
+
+    /// <param name="pauseGraceSettings">
+    /// The dwell settings whose <see cref="DwellSettings.DwellPauseGraceMs"/> this surface follows
+    /// (forgiving dwell): the detector starts with its current value and every later change reaches
+    /// the live detector without a restart. <c>null</c> (the default) keeps the grace at 0 —
+    /// reset-on-leave, exactly the behaviour before the setting existed — which is what a surface
+    /// that has not opted in (the scroll overlay) must keep.
+    /// </param>
     protected DwellOverlayViewModelBase(IMessenger messenger, int dwellCooldownMs,
         DwellContext context = DwellContext.Other, IStruggleTelemetrySink? sink = null,
-        IDwellDetectorRegistry? dwellRegistry = null)
+        IDwellDetectorRegistry? dwellRegistry = null, DwellSettings? pauseGraceSettings = null)
         : base(messenger)
     {
-        DwellDetector = new DwellDetector(dwellCooldownMs, context, sink);
+        DwellDetector = new DwellDetector(dwellCooldownMs, context, sink,
+            pauseGraceSettings?.DwellPauseGraceMs ?? 0);
         DwellDetector.TargetActivated += OnDetectorTargetActivated;
         DwellDetector.TargetProgress += OnTargetProgress;
+        DwellDetector.TargetPauseChanged += OnTargetPauseChanged;
+        _pauseGraceSettings = pauseGraceSettings;
+        if (_pauseGraceSettings is not null)
+            _pauseGraceSettings.PropertyChanged += OnPauseGraceSettingChanged;
         _dwellRegistry = dwellRegistry;
         _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
             DwellDetector, context,
@@ -36,6 +54,20 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
 
     protected abstract void OnTargetActivated(string targetId);
     protected abstract void OnTargetProgress(string targetId, double progress);
+
+    /// <summary>
+    /// A target's dwell was held (<paramref name="paused"/> true — the gaze left it mid-dwell and its
+    /// progress is kept for up to the pause grace) or released (false — resumed, expired or reset).
+    /// Display only: a surface that shows a dimmed "paused, not reset" cue overrides this; the
+    /// default ignores it. Nothing here may influence the hold itself.
+    /// </summary>
+    protected virtual void OnTargetPauseChanged(string targetId, bool paused) { }
+
+    private void OnPauseGraceSettingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is null or "" or nameof(DwellSettings.DwellPauseGraceMs))
+            DwellDetector.SetPauseGrace(_pauseGraceSettings!.DwellPauseGraceMs);
+    }
 
     /// <summary>
     /// Whether an activation on this surface publishes <see cref="Messages.DwellActivationMessage"/>
@@ -111,6 +143,9 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     {
         DwellDetector.TargetActivated -= OnDetectorTargetActivated;
         DwellDetector.TargetProgress -= OnTargetProgress;
+        DwellDetector.TargetPauseChanged -= OnTargetPauseChanged;
+        if (_pauseGraceSettings is not null)
+            _pauseGraceSettings.PropertyChanged -= OnPauseGraceSettingChanged;
         _dwellRegistry?.Unregister(this);
     }
 }

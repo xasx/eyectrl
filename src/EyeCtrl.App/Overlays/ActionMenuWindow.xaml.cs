@@ -217,6 +217,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
                 {
                     if (e.PropertyName == nameof(ActionMenuItemViewModel.DwellProgress))
                         UpdateItemProgress(capturedId, capturedItem.DwellProgress);
+                    else if (e.PropertyName == nameof(ActionMenuItemViewModel.IsDwellPaused)
+                        && _buttonVisuals.TryGetValue(capturedId, out var heldButton))
+                        heldButton.SetPaused(capturedItem.IsDwellPaused);
                 };
                 itemVm.PropertyChanged += handler;
                 _itemProgressSubs.Add((capturedItem, handler));

@@ -62,6 +62,10 @@ public class DwellDetectorGraceDifferentialTests
             var logNew = new List<string>();
             oldD.TargetProgress += (id, p) => logOld.Add($"P {id} {p:R}");
             newD.TargetProgress += (id, p) => logNew.Add($"P {id} {p:R}");
+            // A1: the paused signal and the live setter are display/config additions; at grace 0
+            // the signal must never fire and the setter must be a pure no-op.
+            var pauseEvents = new List<string>();
+            newD.TargetPauseChanged += (id, paused) => pauseEvents.Add($"{id} {paused}");
             oldD.TargetActivated += id => logOld.Add($"A {id}");
             newD.TargetActivated += id => logNew.Add($"A {id}");
             foreach (var t in NewTargets(dwell)) oldD.AddTarget(t);
@@ -104,6 +108,10 @@ public class DwellDetectorGraceDifferentialTests
                     int ms = rng.Next(0, 500);
                     oldD.SetEffectiveDwellTime(b => b + ms); newD.SetEffectiveDwellTime(b => b + ms);
                 }
+                else if (op == 6)
+                {
+                    newD.SetPauseGrace(0);   // restating grace 0 must change nothing
+                }
 
                 if (rng.Next(10) == 0)
                 {
@@ -128,6 +136,8 @@ public class DwellDetectorGraceDifferentialTests
 
             Check.WithCustomMessage($"seed {seed}: event logs differ")
                 .That(string.Join("\n", logNew)).IsEqualTo(string.Join("\n", logOld));
+            Check.WithCustomMessage($"seed {seed}: a grace-0 detector raised TargetPauseChanged")
+                .That(pauseEvents).IsEmpty();
             Check.WithCustomMessage($"seed {seed}: telemetry differs")
                 .That(string.Join("\n", sinkNew.Log)).IsEqualTo(string.Join("\n", sinkOld.Log));
         }

@@ -169,6 +169,9 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
                 if (e.PropertyName == nameof(ModesMenuButtonViewModel.DwellProgress)
                     && _buttons.TryGetValue(vmButton.Id, out var arc))
                     arc.UpdateProgress(vmButton.DwellProgress);
+                else if (e.PropertyName == nameof(ModesMenuButtonViewModel.IsDwellPaused)
+                    && _buttons.TryGetValue(vmButton.Id, out var heldArc))
+                    heldArc.SetPaused(vmButton.IsDwellPaused);
             });
             vmButton.PropertyChanged += handler;
             _progressSubs.Add((vmButton, handler));

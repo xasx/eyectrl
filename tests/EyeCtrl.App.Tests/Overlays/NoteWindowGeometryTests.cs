@@ -2,7 +2,6 @@ namespace EyeCtrl.App.Tests.Overlays;
 
 using EyeCtrl.App.Tests.TestSupport;
 
-using System;
 using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;

@@ -303,10 +303,24 @@ internal static class NoteLayout
     /// PendingUndo state, so it reads at the note's own size.</summary>
     public static double ChipTextFontDip(double textSizeDip) => textSizeDip;
 
-    /// <summary>The chip text block's margin in DIP (T6 fixup-06 G1): the inset the drawn chip
+    /// <summary>The chip text's margin in DIP (T6 fixup-06 G1): the inset the drawn chip
     /// text keeps inside the card. The card's height is derived from it, so the margin is a
     /// shared constant and not a literal in the window.</summary>
     public const double ChipTextMarginDip = 10.0;
+
+    /// <summary>
+    /// The chip's line with a NO-BREAK space before the middot (T6 fixup-07, the reviewer's
+    /// recommendation): a wrapped line that starts with "·" reads like a bullet, so the dot
+    /// stays on the line it belongs to.
+    /// <para>
+    /// Applied in CODE, to BOTH the drawn chip text and the texts the column is measured from,
+    /// so the two can never disagree. The strings themselves are untouched: editing
+    /// <c>strings*.json</c> would re-hash every German entry and pull in the l10n team. The
+    /// measurement splits words on ' ' only, so the no-break space keeps "verworfen" and the middot one word.
+    /// </para>
+    /// </summary>
+    public static string NoBreakBeforeDot(string text) =>
+        text.Replace(" · ", "\u00A0· ");
 
     /// <summary>The chip card's minimum height in DIP: one hit-cell row between the paddings -
     /// the Undo cell must fit whatever the text needs.</summary>
@@ -514,9 +528,10 @@ internal static class NoteLayout
     /// <param name="avoidDip">Rects the window must not intersect, in DIP (Edit: keyboard + edge bar).</param>
     /// <param name="scale">The DPI scale that converts the physical anchor into DIP.</param>
     /// <param name="exclude">A side never to choose, or null.</param>
-    /// <param name="allowDisplaced">Whether the displaced candidates may be used. The EDIT
-    /// state alone opts in: the Move state's "Other side" excludes a side and must offer one
-    /// that exists, and Display, Move and the chips never want a displaced window.</param>
+    /// <param name="allowDisplaced">Whether the Edit rules apply: the displaced candidates may
+    /// be used, AND the 24 DIP clearance holds in pass 1 too. The EDIT state alone opts in: the
+    /// Move state's "Other side" excludes a side and must offer one that exists, and Display,
+    /// Move and the chips never want a displaced window.</param>
     /// <returns>The placement, or null only when <paramref name="exclude"/> removed the only
     /// fitting side.</returns>
     public static NotePlacement? Place(
@@ -536,6 +551,7 @@ internal static class NoteLayout
         foreach (var side in Candidates(preferred, exclude))
         {
             var window = WindowFor(anchorDip, side, cardDip);
+            // Display, Move and the chips: exactly the placements they always had.
             if (!FitsInside(window, inset))
                 continue;
             if (IntersectsAny(window, avoidDip))
@@ -589,6 +605,11 @@ internal static class NoteLayout
     /// window hits, the same window shifted just outside it - below, above, right or left - by
     /// the clearance gap, then clamped into the inset work area. A shift that does not clear
     /// every rect is rejected by the caller.
+    /// <para>
+    /// T6 fixup-07 F2: the shift is computed on the DRAWN window - the one grown upward by the
+    /// number tag's strip - so the tag comes with it and the clearance holds for the tag and the
+    /// card alike. The "below" shift therefore starts the raw window the tag's growth lower.
+    /// </para>
     /// </summary>
     private static IEnumerable<Rect> DisplacedCandidates(Rect window, IReadOnlyList<Rect> avoid, Rect inset)
     {

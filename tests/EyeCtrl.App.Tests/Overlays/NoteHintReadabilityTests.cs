@@ -33,8 +33,13 @@ using Xunit;
 /// text-size change while a chip is pending must not resize the card under a resting gaze
 /// (R12) nor re-wrap a line the owner has already read.
 /// </para>
+/// <para>
+/// T6 fixup-07: the class lives in the exclusive "StringTable Tests (App)" collection, because
+/// it activates the German table - the table is process-global, and the German is reset in a
+/// finally so it cannot leak into the rest of the run.
+/// </para>
 /// </summary>
-[Collection("WpfApplication")]
+[Collection("StringTable Tests (App)")]
 public class NoteHintReadabilityTests
 {
     /// <summary>The note text sizes the setting allows (18-48), and the three a test reads.</summary>
@@ -68,8 +73,17 @@ public class NoteHintReadabilityTests
     public void EveryChipString_FitsInTwoLines_InEnglishAndGerman(double textSize)
     {
         var english = ChipTexts();
+        IReadOnlyList<string> german;
         StringTable.Activate(GermanDraft.Table);
-        var german = ChipTexts();
+        try
+        {
+            german = ChipTexts();
+        }
+        finally
+        {
+            // The string table is process-global: the German must not outlive this test.
+            StringTable.ResetToEmbeddedEnglish();
+        }
 
         Check.WithCustomMessage("the German table must really carry the chip's German")
             .That(german).IsNotEqualTo(english);
@@ -116,6 +130,101 @@ public class NoteHintReadabilityTests
         Check.WithCustomMessage("the chip must grow with the note's text size")
             .That(mid.Width).IsStrictlyGreaterThan(small.Width);
         Check.That(large.Width).IsStrictlyGreaterThan(mid.Width);
+    }
+
+    [StaFact]
+    public void ATextSizeChangeAndALaterRePlace_LeaveTheChipAtItsCapturedSize()
+    {
+        // T6 fixup-07 (G1d): the chip's size is CAPTURED when the chip is created, so neither a
+        // text-size change nor a later re-place (the T6 work-area change) may resize it. Without
+        // the capture the re-place would derive the chip's card at the NEW text size - a bigger
+        // card under a resting gaze.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = ChipNote(manager);
+            var before = manager.PlacementForTest(id)!;
+            var undoBefore = NoteTestBench.CellCentre(manager, id, 0);
+
+            settings.TextSizeDip = 40;
+            manager.OnWorkAreaChangedForTest(); // the T6 re-place
+
+            var after = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage("the chip card must keep its captured size")
+                .That((after.Card.Width, after.Card.Height))
+                .IsEqualTo((before.Card.Width, before.Card.Height));
+            Check.WithCustomMessage("the Undo cell must keep its centre")
+                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(undoBefore);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaTheory]
+    [MemberData(nameof(TextSizes))]
+    public void TheChipCard_HoldsItsDrawnText(double textSize)
+    {
+        // T6 fixup-07 (G1f): two lines at 48 DIP need about 130 DIP against a one-row card, so
+        // the card must GROW to hold the text it draws - in every language.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var texts = ChipTexts();
+        var column = NoteLayout.ChipTextWidthDip(textSize, texts);
+        var card = NoteLayout.ChipCardSize(textSize, texts);
+
+        var window = new NoteWindow("g1f-chip");
+        window.SetTextSize(textSize);
+        window.SetState(NoteState.PendingUndo);
+        window.SetChipText(texts[0], textSize, column);
+        window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+        var block = window.ChipTextForTest;
+        Check.That(block).IsNotNull();
+        block!.Measure(new Size(column, double.PositiveInfinity));
+        Check.WithCustomMessage("the chip text must be measured")
+            .That(block.DesiredSize.Height).IsStrictlyGreaterThan(0);
+        Check.WithCustomMessage("the chip card must hold the drawn text and its margin")
+            .That(block.DesiredSize.Height).IsLessOrEqualThan(card.Height);
+        Check.WithCustomMessage("the chip card must hold the drawn text's width")
+            .That(block.DesiredSize.Width).IsLessOrEqualThan(card.Width);
+    }
+
+    [StaFact]
+    public void TheDiscardedGermanChip_KeepsItsDotOnTheFirstLine()
+    {
+        // T6 fixup-07: the no-break space before the middot, applied in code to both the drawn
+        // text and the texts the column is measured from - the strings themselves are untouched.
+        // With the no-break space the dot can never start a wrapped line (it would read like a
+        // bullet), so the discarded line reads "Änderungen verworfen ·" / "Rückgängig".
+        Check.WithCustomMessage("the helper must bind the dot to the word before it")
+            .That(NoteLayout.NoBreakBeforeDot("Änderungen verworfen · Rückgängig"))
+            .Contains("\u00A0·");
+
+        // And the DRAWN chip text carries it - the manager applies the helper to the text it
+        // hands the window.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        StringTable.Activate(GermanDraft.Table);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var id = ChipNote(manager);
+            var drawn = manager.WindowForTest(id)!.ChipTextForTest!.Text;
+            Check.WithCustomMessage("the drawn chip text must carry the no-break space")
+                .That(drawn).Contains("\u00A0·");
+            Check.WithCustomMessage("the dot must not start a line")
+                .That(drawn).DoesNotContain(" ·");
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+            DpiHelper.Initialize(1.0, 1.0);
+        }
     }
 
     [StaFact]
@@ -220,6 +329,128 @@ public class NoteHintReadabilityTests
                 DpiHelper.LogicalToPhysicalY(rect.Y + (rect.Height / 2)));
             Check.WithCustomMessage("the place dwell target must sit on the window's centre")
                 .That(manager.LiveTargetRects().Any(r => r.Contains(centre))).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void ThePlaceHereDwellTarget_SitsOnTheRealWindow_EvenWhenTheLabelOutgrowsTheOldBox()
+    {
+        // T6 fixup-07 (G1e): the :place target is registered on the REAL window's rect, not on
+        // the old 150x44 constant - so it must sit on the window's centre at a size where the
+        // label outgrows that constant (the German label at 28 DIP is 200 DIP wide).
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        StringTable.Activate(GermanDraft.Table);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            present = HoldGaze(manager, new PhysicalPoint(800, 1800), present, 1200);
+
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            var rect = manager.PlaceWindowRectForTest;
+            var window = manager.PlaceWindowForTest;
+            Check.That(window).IsNotNull();
+            Check.WithCustomMessage("the German label must outgrow the old 150 DIP box")
+                .That(rect.Width).IsStrictlyGreaterThan(LayoutConstants.NotePlaceHereWidthDip);
+            Check.WithCustomMessage("the placement rect must BE the real window's size")
+                .That((rect.Width, rect.Height)).IsEqualTo((window!.Width, window.Height));
+
+            var centre = new PhysicalPoint(
+                DpiHelper.LogicalToPhysicalX(rect.X + (rect.Width / 2)),
+                DpiHelper.LogicalToPhysicalY(rect.Y + (rect.Height / 2)));
+            // The target's own CENTRE, not "a rect that happens to cover the centre": the
+            // target is a disc of 28 DIP, and a target built from the old 150x44 constant would
+            // sit 25 DIP off the window's centre and still cover it.
+            var target = manager.LiveTargetRects()
+                .Select(r => new PhysicalPoint(r.X + (r.Width / 2), r.Y + (r.Height / 2)))
+                .FirstOrDefault(p => p == centre);
+            Check.WithCustomMessage("the place dwell target must sit exactly on the window's centre")
+                .That(target).IsEqualTo(centre);
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [StaFact]
+    public void ATextSizeChange_WhileThePlaceHereIsShown_ResizesItAndMovesTheDwellTarget()
+    {
+        // T6 fixup-07 (G1g): a T8 change while the window is SHOWN re-composes it and
+        // re-registers the dwell target at the new rect.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            present = HoldGaze(manager, new PhysicalPoint(800, 1800), present, 1200);
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            var before = manager.PlaceWindowRectForTest;
+
+            settings.TextSizeDip = 48;
+
+            var after = manager.PlaceWindowRectForTest;
+            Check.WithCustomMessage("the shown Place-here window must grow with the text size")
+                .That(after.Width).IsStrictlyGreaterThan(before.Width);
+            Check.WithCustomMessage("the window's own size must follow the rect")
+                .That(manager.PlaceWindowForTest!.Width).IsEqualTo(after.Width);
+
+            var centre = new PhysicalPoint(
+                DpiHelper.LogicalToPhysicalX(after.X + (after.Width / 2)),
+                DpiHelper.LogicalToPhysicalY(after.Y + (after.Height / 2)));
+            Check.WithCustomMessage("the dwell target must follow the new rect")
+                .That(manager.LiveTargetRects().Any(r => r.Contains(centre))).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void ATextSizeChange_WhileThePlaceHereIsHidden_IsPickedUpAtTheNextShow()
+    {
+        // T6 fixup-07 (F3): the window is created once and only hidden afterwards, so it can
+        // carry a stale size from a change made while it was hidden. The next show must use the
+        // CURRENT text size.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            present = HoldGaze(manager, new PhysicalPoint(800, 1800), present, 1200);
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            var first = manager.PlaceWindowRectForTest;
+
+            // Cancel the move: the Place-here window is hidden, and stays hidden.
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present);
+            Check.That(manager.PlaceShownForTest).IsFalse();
+
+            settings.TextSizeDip = 48;
+
+            // The next Move shows it again: the size must be the NEW one.
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present);
+            present = HoldGaze(manager, new PhysicalPoint(800, 1800), present, 1200);
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            var second = manager.PlaceWindowRectForTest;
+
+            Check.WithCustomMessage("the next show must use the current text size")
+                .That(second.Width).IsStrictlyGreaterThan(first.Width);
+            Check.WithCustomMessage("the window's own size must follow")
+                .That(manager.PlaceWindowForTest!.Width).IsEqualTo(second.Width);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

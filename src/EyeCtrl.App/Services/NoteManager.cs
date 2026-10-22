@@ -984,11 +984,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     }
 
     /// <summary>The chip's text, kind-dependent, through the localization table (P2 D5's
-    /// "Note removed · Undo" / "Changes discarded · Undo" and their German strings).</summary>
-    private static string ChipText(PendingUndoKind kind) => StringTable.Current.T(
-        kind == PendingUndoKind.Removed
-            ? "overlays.note.chip.removed"
-            : "overlays.note.chip.discarded");
+    /// "Note removed · Undo" / "Changes discarded · Undo" and their German strings). The
+    /// no-break space before the middot is applied HERE, in code (T6 fixup-07): the strings
+    /// themselves are never edited.</summary>
+    private static string ChipText(PendingUndoKind kind) => NoteLayout.NoBreakBeforeDot(
+        StringTable.Current.T(
+            kind == PendingUndoKind.Removed
+                ? "overlays.note.chip.removed"
+                : "overlays.note.chip.discarded"));
 
     /// <summary>
     /// Every chip text the column must hold, in EVERY shipped language (T6 fixup-06 G1): the
@@ -996,6 +999,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// language switch can never leave a chip's text outside its column. The German resolves
     /// only where the shipped table carries it and the overlays surface is German-approved;
     /// otherwise it falls back to the English text, which is the text that will be drawn.
+    /// <para>
+    /// The same no-break space the DRAWN text gets is applied here (T6 fixup-07), so the texts
+    /// the column is measured from are the texts that are drawn.
+    /// </para>
     /// </summary>
     private static IReadOnlyList<string> ChipTextCandidates()
     {
@@ -1003,6 +1010,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var texts = new List<string>(4);
         void Add(string text)
         {
+            text = NoteLayout.NoBreakBeforeDot(text);
             if (!texts.Contains(text)) texts.Add(text);
         }
 
@@ -1750,9 +1758,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private void ShowPlaceHere(NoteData moving, PhysicalPoint centroidPhysical)
     {
         var work = WorkAreaDip();
-        // T6 fixup-06 G1: the window's REAL size - the measured label at the note's text size -
-        // replaces the old 150x44 constant, which no longer describes the window.
+        // T6 fixup-07 F3: the window is created once and only hidden afterwards, so it can carry
+        // a stale size from a text-size change made while it was hidden. Re-apply the current
+        // size before its size is read - the call is idempotent.
         _placeWindow ??= new NotePlaceHereWindow(_noteSettings.TextSizeDip);
+        _placeWindow.SetTextSize(_noteSettings.TextSizeDip);
         var size = _placeWindow.SizeDip;
         double w = size.Width, h = size.Height;
         var centroidDip = ToDipPoint(centroidPhysical);

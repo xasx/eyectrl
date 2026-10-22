@@ -37,7 +37,7 @@ public class EyeCareHooksTests
 
         // Construct the exercise window and verify summary card text blocks are populated.
         // This is a UI smoke test — it needs a display (STA thread + WPF dispatcher).
-        var window = new EyeCareExerciseWindow();
+        var window = InvisibleTestWindow.Prepare(new EyeCareExerciseWindow());
         window.Show();
 
         var outcome = new EyeCareExerciseOutcome("Smooth Pursuit", 92, 4.3, null, 45, "Smooth tracking!");
@@ -72,8 +72,8 @@ public class EyeCareHooksTests
         WpfApplicationGate.EnsureApplicationWithTokens();
 
         var messenger = new WeakReferenceMessenger();
-        var banner = new EyeCareBannerWindow();
-        var exerciseWindow = new EyeCareExerciseWindow();
+        var banner = InvisibleTestWindow.Prepare(new EyeCareBannerWindow());
+        var exerciseWindow = InvisibleTestWindow.Prepare(new EyeCareExerciseWindow());
         var hooks = new EyeCareHooks(
             messenger,
             System.Windows.Threading.Dispatcher.CurrentDispatcher,

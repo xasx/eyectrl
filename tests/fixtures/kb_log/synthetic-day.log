@@ -1,0 +1,86 @@
+2026-10-19 10:00:00.000 [INF] [EyeCtrl.App.Services.Coordinators.KeyboardCoordinator] Keyboard shown
+2026-10-19 10:00:00.010 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=zzz this line is damaged and must be skipped
+2026-10-19 10:00:00.020 [INF] [] Gaze provider started
+2026-10-19 10:00:00.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=210 boxh=210
+2026-10-19 10:00:00.101 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 layout sub=letters boxw=210 boxh=210
+2026-10-19 10:00:01.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=1 ts=1000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=900 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:01.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=1 ms=600 capped=true
+2026-10-19 10:00:02.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=2 ts=2000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=1900 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:02.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=2 ms=600 capped=true
+2026-10-19 10:00:03.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=3 ts=3000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=2900 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:03.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=3 ms=300 capped=false
+2026-10-19 10:00:03.800 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=4 ts=3800000 r=2 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=word
+2026-10-19 10:00:03.801 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 corr seq=4 saccade=mid restarts=0 likely=false start=false nocont=false
+2026-10-19 10:00:04.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=4 ms=100 capped=false
+2026-10-19 10:00:05.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=5 ts=5000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:05.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 slip adj=true dir=E dist=1 ms=800 reg=top saccade=mid restarts=0 likely=false start=false nocont=false
+2026-10-19 10:00:05.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=5 ms=200 capped=false
+2026-10-19 10:00:06.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=6 ts=6000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:06.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=7 ts=6500000 r=2 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=word
+2026-10-19 10:00:06.501 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 corr seq=7 saccade=short restarts=1 likely=false start=false nocont=true
+2026-10-19 10:00:06.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=6 ms=150 capped=false
+2026-10-19 10:00:07.200 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=7 ms=100 capped=false
+2026-10-19 10:00:08.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=8 ts=8000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=450 penalty=false typing=false bs=-
+2026-10-19 10:00:08.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 slip adj=true dir=E dist=1 ms=500 reg=top saccade=short restarts=1 likely=false start=false nocont=true
+2026-10-19 10:00:08.400 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=9 ts=8400000 r=2 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=word
+2026-10-19 10:00:08.401 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 corr seq=9 saccade=long restarts=0 likely=false start=true nocont=false
+2026-10-19 10:00:08.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=8 ms=100 capped=false
+2026-10-19 10:00:09.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=9 ms=100 capped=false
+2026-10-19 10:00:10.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=10 ts=10000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:10.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 slip adj=false dir=- dist=2 ms=400 reg=mid saccade=long restarts=0 likely=false start=true nocont=false
+2026-10-19 10:00:10.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=10 ms=600 capped=true
+2026-10-19 10:00:10.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 abandon ts=10700000 cls=letter pct=60 why=NearestChanged sub=letters edge=top
+2026-10-19 10:00:10.800 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 abandon ts=10800000 r=3 c=1 cls=shift act=modifier:shift pct=40 why=GazeLeft mdx=-1 mdy=3 sub=letters edge=top
+2026-10-19 10:00:13.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=11 ts=13500000 r=2 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=word
+2026-10-19 10:00:14.200 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=11 ms=100 capped=false
+2026-10-19 10:00:15.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=12 ts=15000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=850 penalty=true typing=true bs=-
+2026-10-19 10:00:15.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=13 ts=15500000 r=2 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=false bs=committed
+2026-10-19 10:00:15.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=12 ms=100 capped=false
+2026-10-19 10:00:16.200 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=13 ms=100 capped=false
+2026-10-19 10:00:17.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=14 ts=17000000 r=3 c=2 cls=space act=space boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:17.050 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 space seq=14 empty=true
+2026-10-19 10:00:17.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=14 ms=100 capped=false
+2026-10-19 10:00:18.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=15 ts=18000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:18.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=15 ms=450 capped=false
+2026-10-19 10:00:19.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=16 ts=19000000 r=3 c=2 cls=space act=space boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:19.050 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 space seq=16 empty=false
+2026-10-19 10:00:19.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=16 ms=100 capped=false
+2026-10-19 10:00:20.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=17 ts=20000000 r=3 c=0 cls=switchsub act=switchSub:numbers boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:20.050 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mode kind=sublayout from=letters to=numbers
+2026-10-19 10:00:20.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=17 ms=400 capped=false
+2026-10-19 10:00:22.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=18 ts=22500000 r=3 c=0 cls=switchsub act=switchSub:letters boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:22.550 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mode kind=sublayout from=numbers to=letters
+2026-10-19 10:00:22.551 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 modeundo kind=sublayout ms=2500
+2026-10-19 10:00:23.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=19 ts=23000000 r=3 c=1 cls=shift act=modifier:shift boxw=210 boxh=210 sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:23.050 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mode kind=shift from=off to=on
+2026-10-19 10:00:23.200 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=18 ms=100 capped=false
+2026-10-19 10:00:23.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=19 ms=300 capped=false
+2026-10-19 10:00:24.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pick slot=0 src=dict prefixlen=2 inslen=6 sincekey=500 sincepick=-1 renderms=700 visited=0
+2026-10-19 10:00:25.200 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pickundo ms=1200 by=backspace
+2026-10-19 10:00:25.300 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pick slot=0 src=pair prefixlen=0 inslen=5 sincekey=1500 sincepick=600 renderms=40 visited=0
+2026-10-19 10:00:26.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mirror at=enter res=match mirrorlen=12 ctllen=12 common=12
+2026-10-19 10:00:26.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mirror at=enter res=mismatch mirrorlen=12 ctllen=12 common=4
+2026-10-19 10:00:31.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pick slot=3 src=lm prefixlen=4 inslen=8 sincekey=2000 sincepick=5000 renderms=900 visited=2
+2026-10-19 10:00:31.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pick slot=1 src=dict prefixlen=1 inslen=7 sincekey=300 sincepick=400 renderms=500 visited=1
+2026-10-19 10:00:40.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mirror at=hide res=unsupported mirrorlen=3 ctllen=0 common=0
+2026-10-19 10:00:40.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 edgeq edge=top fires=9 c=4 n=0 ne=1 e=3 se=0 s=1 sw=0 w=0 nw=0 aborts=1 ac=1 an=0 ane=0 ae=0 ase=0 as=0 asw=0 aw=0 anw=0
+2026-10-19 10:00:40.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 hidden cause=toolbar-toggle visiblems=39900
+2026-10-19 10:00:45.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 sensitive
+2026-10-19 10:00:50.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 shown proc=chrome.exe edge=top via=request boxw=210 boxh=210
+2026-10-19 10:00:50.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 edge button=flip edge=bottom
+2026-10-19 10:00:50.300 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pick slot=2 src=sentence prefixlen=3 inslen=20 sincekey=-1 sincepick=19000 renderms=300 visited=0
+2026-10-19 10:00:50.400 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 layout sub=letters boxw=210 boxh=210
+2026-10-19 10:00:50.600 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=20 ts=50600000 cls=letter sub=letters edge=bottom winx=500 winy=0 winw=2800 winh=1000 movems=500 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:51.300 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=20 ms=300 capped=false
+2026-10-19 10:00:52.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=21 ts=52000000 cls=letter sub=letters edge=bottom winx=500 winy=0 winw=2800 winh=1000 movems=1900 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:52.500 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=22 ts=52500000 r=2 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=bottom winx=500 winy=0 winw=2800 winh=1000 movems=-1 dx=3 dy=-4 mdx=2 mdy=-3 restarts=0 saccade=mid sincekey=1000 dwell=450 penalty=false typing=true bs=word
+2026-10-19 10:00:52.501 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 corr seq=22 saccade=mid restarts=0 likely=false start=false nocont=false
+2026-10-19 10:00:52.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=21 ms=120 capped=false
+2026-10-19 10:00:53.200 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=22 ms=100 capped=false
+2026-10-19 10:00:54.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=23 ts=54000000 cls=letter sub=letters edge=bottom winx=500 winy=0 winw=2800 winh=1000 movems=-1 sincekey=1000 dwell=450 penalty=false typing=true bs=-
+2026-10-19 10:00:54.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 slip adj=true dir=W dist=1 ms=500 reg=bot saccade=mid restarts=0 likely=false start=false nocont=false
+2026-10-19 10:00:54.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=23 ms=600 capped=true
+2026-10-19 10:00:55.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 mirror at=hide res=suppressed mirrorlen=0 ctllen=0 common=0
+2026-10-19 10:00:55.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 edgeq edge=bottom fires=3 c=2 n=0 ne=0 e=0 se=0 s=0 sw=0 w=1 nw=0 aborts=0 ac=0 an=0 ane=0 ae=0 ase=0 as=0 asw=0 aw=0 anw=0
+2026-10-19 10:00:55.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 hidden cause=edge-close visiblems=5000
+2026-10-19 10:00:55.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=99 half a line, cut off by a crash: dx=

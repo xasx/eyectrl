@@ -46,7 +46,8 @@ internal static class ToolbarTestHelpers
         int dwellTimeMs = 700, bool includeReset = false)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = new ToolbarWindow();
+        // The helper-built toolbar may be Show()n by the test (slides, visibility): invisible first.
+        var window = InvisibleTestWindow.Prepare(new ToolbarWindow());
         window.Initialize(ButtonSize, dwellTimeMs, includeReset);
         var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         window.DataContext = vm;

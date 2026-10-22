@@ -130,6 +130,10 @@
     "text": "So übernehmen",
     "src": "750e17ad"
   },
+  "calibration.window.cancelDwell": {
+    "text": "✕ Abbrechen",
+    "src": "f913e623"
+  },
   "calibration.window.cancelHint": {
     "text": "Mit Esc abbrechen",
     "src": "31338ae1"

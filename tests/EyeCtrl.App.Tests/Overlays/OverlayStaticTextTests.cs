@@ -27,6 +27,7 @@ public class OverlayStaticTextTests
         Check.That(Content(window, "AcceptButton")).IsEqualTo("Accept anyway");
         Check.That(Text(window, "CompletionHint")).IsEqualTo("Auto-dismissing in 3s...");
         Check.That(Text(window, "CancelHint")).IsEqualTo("Press Esc to cancel");
+        Check.That(Text(window, "CancelDwellLabel")).IsEqualTo("✕ Cancel");
     }
 
     [StaFact]

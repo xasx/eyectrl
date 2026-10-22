@@ -9,14 +9,38 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 
 public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 {
+    /// <summary>
+    /// The dwell id of the gaze Cancel target. <c>nameof</c> rather than a quoted id: this window's
+    /// target id is not UI text, and the literal ratchet rightly treats a string in
+    /// <c>new DwellTarget(...)</c> as a text sink.
+    /// </summary>
+    internal const string CancelTargetId = nameof(CancelDwellButton);
+
+    /// <summary>
+    /// Floor for the Cancel target's dwell. Longer than every standard surface on purpose: a glance
+    /// between two calibration targets passes through this part of the screen, and that must never
+    /// end the session.
+    /// </summary>
+    internal const int MinimumCancelDwellMs = 1000;
+
+    private readonly DwellDetector _cancelDwell;
+    private readonly DwellOutlineOverlay _cancelOutline;
+    private readonly DwellSettings _dwellSettings;
+    private readonly IMessenger _messenger;
     private CalibrationViewModel? _viewModel;
     private Storyboard? _pulseAnimation;
     private DispatcherTimer? _autoDismissTimer;
@@ -45,9 +69,26 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     /// </summary>
     private int _slideGeneration;
 
-    public CalibrationWindow()
+    /// <summary>Creates the window. It is constructed at startup but only shown when a session
+    /// starts, so nothing here puts anything on screen.</summary>
+    /// <param name="dwellSettings">The live dwell settings, read per session for the Cancel
+    /// target's <c>max(1000 ms, toolbar dwell)</c>. Null uses the defaults (toolbar 700 ms, so the
+    /// 1000 ms floor).</param>
+    /// <param name="messenger">The bus the dwell-completion cue is published on; null is the app
+    /// messenger.</param>
+    public CalibrationWindow(DwellSettings? dwellSettings = null, IMessenger? messenger = null)
     {
+        _dwellSettings = dwellSettings ?? new DwellSettings();
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
         InitializeComponent();
+
+        // RestartNoticeWindow's pattern: this window has its own detector and no shared registrar.
+        var cancelLabel = CancelDwellLabel;
+        CancelDwellButton.Child = null;
+        _cancelOutline = DwellOutlineOverlay.Attach(CancelDwellButton, cancelLabel);
+        _cancelDwell = new DwellDetector(cooldownMs: 0);
+        _cancelDwell.TargetActivated += OnCancelDwellActivated;
+        _cancelDwell.TargetProgress += (_, progress) => _cancelOutline.SetProgress(progress);
 
         // Retry discards the current (poor) result and starts a fresh session.
         RetryButton.Click += (_, _) =>
@@ -74,15 +115,130 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
     public void SetViewModel(CalibrationViewModel viewModel)
     {
+        if (_viewModel is not null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.GazeSampleReceived -= OnCalibrationGaze;
+        }
+
         _viewModel = viewModel;
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        // The Cancel dwell is fed from the session's OWN gaze path (CalibrationViewModel.OnRawGaze),
+        // not from a second provider subscription: one gaze stream per session, so the sample the
+        // collector sees and the sample the dwell sees can never disagree.
+        viewModel.GazeSampleReceived += OnCalibrationGaze;
         // Round 3, R1: TargetColor is set ONCE in the view model's constructor, without
         // a change notification — so the handler below never fired for the persisted
         // value and the dot kept the XAML's theme accent forever (on main, the saved
         // colour has never been shown). Apply it at attach; later changes still ride
         // the handler.
         ApplyTargetDotColor();
+    }
+
+    /// <summary>The Cancel target's dwell time for the current settings: <c>max(1000 ms, toolbar dwell)</c>.</summary>
+    internal int CancelDwellMs => Math.Max(MinimumCancelDwellMs, _dwellSettings.ToolbarButtonDwellMs);
+
+    /// <summary>The Cancel target's detector — the test seam for the registered target and its geometry.</summary>
+    internal DwellDetector CancelDwellDetector => _cancelDwell;
+
+    /// <summary>The Cancel target's dwell outline — the test seam for visible progress.</summary>
+    internal DwellOutlineOverlay CancelDwellOutline => _cancelOutline;
+
+    /// <summary>
+    /// Feeds one raw sample to the Cancel detector. Public-to-the-assembly so a headless test can
+    /// time a dwell without a provider, exactly as <c>RestartNoticeWindow.OnGaze</c> does.
+    /// </summary>
+    /// <param name="gaze">Gaze position in physical screen pixels.</param>
+    /// <param name="timestampMicroseconds">Sample timestamp in microseconds.</param>
+    internal void OnGaze(PhysicalPoint gaze, long timestampMicroseconds)
+    {
+        if (_viewModel?.State != CalibrationState.Collecting) return;
+        _cancelDwell.Update(gaze, timestampMicroseconds);
+    }
+
+    /// <summary>
+    /// Puts the Cancel target where this state needs it, or takes it away. Its geometry comes from
+    /// the view model — the same values the collection gate excludes — and the drawn disc is
+    /// centred on the registered hit circle, so the target the user sees is the target gaze is
+    /// evaluated against.
+    /// </summary>
+    /// <param name="state">The calibration state being drawn. The target exists only in
+    /// <see cref="CalibrationState.Collecting"/>: Training hides the target canvas (the fit is
+    /// running) and every other state has no session to cancel.</param>
+    internal void SyncCancelTarget(CalibrationState state)
+    {
+        if (state != CalibrationState.Collecting || _viewModel is null)
+        {
+            ClearCancelTarget();
+            return;
+        }
+
+        var centre = _viewModel.CancelTargetCenter;
+        var radiusPx = _viewModel.CancelTargetRadiusPixels;
+        var dwellMs = CancelDwellMs;
+
+        var registered = FindCancelTarget();
+        if (registered is null
+            || registered.Center != centre
+            || Math.Abs(registered.Radius - radiusPx) > 1e-6
+            || registered.DwellTimeMicroseconds != dwellMs * MathConstants.MicrosecondsPerMillisecond)
+        {
+            _cancelDwell.ClearTargets();
+            _cancelDwell.AddTarget(new DwellTarget(CancelTargetId, centre, radiusPx, dwellMs));
+            _cancelOutline.SetProgress(0);
+        }
+
+        var logical = centre.ToLogical();
+        Canvas.SetLeft(CancelDwellButton, logical.X - CalibrationCancelPlacement.HitRadiusDip);
+        Canvas.SetTop(CancelDwellButton, logical.Y - CalibrationCancelPlacement.HitRadiusDip);
+        CancelDwellButton.Visibility = Visibility.Visible;
+    }
+
+    private DwellTarget? FindCancelTarget()
+    {
+        foreach (var target in _cancelDwell.Targets)
+        {
+            if (target.Id == CancelTargetId) return target;
+        }
+
+        return null;
+    }
+
+    private void ClearCancelTarget()
+    {
+        _cancelDwell.ClearTargets();
+        _cancelOutline.SetProgress(0);
+        CancelDwellButton.Visibility = Visibility.Collapsed;
+    }
+
+    // Post-effect publish, like every dwell surface: the session ends first, then the cue confirms.
+    private void OnCancelDwellActivated(string id)
+    {
+        if (id != CancelTargetId) return;
+        ClearCancelTarget();
+        _viewModel?.Cancel();
+        _messenger.Send(new DwellActivationMessage());
+    }
+
+    /// <summary>
+    /// The view model's per-sample gaze event, which arrives on the tracker thread. The detector is
+    /// single-threaded by contract, so the sample is marshalled to this window's dispatcher; a test
+    /// (or a same-thread provider) feeds it straight through.
+    /// </summary>
+    private void OnCalibrationGaze(GazePoint gaze)
+    {
+        var point = new PhysicalPoint(gaze.X, gaze.Y);
+        if (Dispatcher.CheckAccess())
+        {
+            OnGaze(point, gaze.TimestampMicroseconds);
+            return;
+        }
+
+        if (Dispatcher.HasShutdownStarted) return;
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Input,
+            new Action(() => OnGaze(point, gaze.TimestampMicroseconds)));
     }
 
     /// <summary>
@@ -404,6 +560,11 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         StopAutoDismiss();
 
+        // The gaze Cancel target exists only while there is a session to abandon. Re-synced on
+        // every state change, and idempotent: a repeated Collecting notification keeps the dwell
+        // state it already has.
+        SyncCancelTarget(state);
+
         // Hoisted here so both progress-bearing states read the same values through
         // ProgressTextFor; the states that draw no progress line ignore them. These are the view
         // model's raw reads — the 0-based index included — so the display arithmetic stays in the
@@ -530,6 +691,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
     public void DismissCalibration()
     {
+        ClearCancelTarget();
         Backdrop.Visibility = Visibility.Collapsed;
         TargetCanvas.Visibility = Visibility.Collapsed;
         ProgressCard.Visibility = Visibility.Collapsed;

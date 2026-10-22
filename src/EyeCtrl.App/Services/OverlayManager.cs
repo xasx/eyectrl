@@ -136,7 +136,7 @@ public class OverlayManager : IOverlayManager
         _keyboard.DataContext = viewModels.Keyboard;
         _keyboard.SetViewModel(viewModels.Keyboard);
 
-        _calibration = new CalibrationWindow();
+        _calibration = new CalibrationWindow(settings.Dwell);
         _calibration.SetViewModel(viewModels.Calibration);
 
         // Set DataContext for TargetHighlight

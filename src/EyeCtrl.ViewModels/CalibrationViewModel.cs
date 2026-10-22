@@ -6,6 +6,7 @@ using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
@@ -176,6 +177,40 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     [ObservableProperty] private IReadOnlyList<PhysicalPoint> _targetPositions = Array.Empty<PhysicalPoint>();
 
     /// <summary>
+    /// The centre of this session's gaze Cancel target, in physical screen pixels. Computed once
+    /// when the session starts, from the same published target list the collector gates on, so the
+    /// point the overlay draws is the point this view model excludes from collection.
+    /// </summary>
+    /// <remarks>
+    /// The overlay owns the drawing and the dwell detection; this view model owns the geometry
+    /// because it is the only object that has BOTH inputs — the session's target layout and the
+    /// display size — and because collection has to know where the Cancel area is in order to skip
+    /// samples that land in it.
+    /// </remarks>
+    public PhysicalPoint CancelTargetCenter { get; private set; }
+
+    /// <summary>
+    /// The Cancel target's hit radius in physical pixels, for the current session. The overlay
+    /// converts it to DIP for the drawn disc; the DwellDetector is registered with exactly this
+    /// radius, so the drawn target and the enforced one cannot drift apart.
+    /// </summary>
+    public double CancelTargetRadiusPixels { get; private set; }
+
+    /// <summary>
+    /// Raised for every VALID raw gaze sample while a target is being collected, on the thread the
+    /// provider raises it on. The calibration window's own Cancel dwell detector is the consumer.
+    /// </summary>
+    /// <remarks>
+    /// Fed from <see cref="OnRawGaze"/> rather than a second <c>GazePointReceived</c> subscription:
+    /// there is already exactly one gaze subscription for calibration, and a second one would double
+    /// every per-sample side effect (ground truth, collection) and could disagree about which
+    /// samples a session is seeing. Invalid (tracking-lost) samples are deliberately not raised: the
+    /// detector treats their absence as a gap, which is the same rule every other dwell surface
+    /// follows.
+    /// </remarks>
+    public event Action<GazePoint>? GazeSampleReceived;
+
+    /// <summary>
     /// The typed failure that ended the last session, or null when none did. Kept typed so the words
     /// the overlay shows come from one renderer (<see cref="CalibrationFailureText"/>) and a test can
     /// assert the code and its arguments rather than the sentence.
@@ -281,6 +316,15 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // on them, and two independent calls to the position helper is exactly how a drawn target and
         // an enforced target come to differ.
         TargetPositions = _calibrationService.TargetPositions;
+
+        // The way out of the session, placed once, from the layout above: the point farthest from
+        // every target, one hit radius in from every edge. Radius in PHYSICAL pixels because that is
+        // the unit the dwell target and the gaze samples use; the scale is read per session, so a
+        // display-scaling change is picked up by the next calibration.
+        CancelTargetRadiusPixels =
+            Math.Max(DpiHelper.ScaleX, DpiHelper.ScaleY) * CalibrationCancelPlacement.HitRadiusDip;
+        CancelTargetCenter = CalibrationCancelPlacement.GetPosition(
+            TargetPositions, _screenSize, CancelTargetRadiusPixels);
         if (SidecarEnabled)
             _groundTruth?.BeginSession(
                 _providerType, _screenSize, _settings.SettleWindowMs,
@@ -488,7 +532,30 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
                 _timeProvider.GetElapsedTime(_targetShownAtTimestamp).TotalMilliseconds / MeasureOnlyTargetBudgetMs, 0, 1);
 
         if (!gaze.IsValid) return;
-        _calibrationService.AddRawSample(new PhysicalPoint(gaze.X, gaze.Y));
+
+        // The overlay's Cancel dwell sees every valid sample the session sees, including those
+        // inside its own hit area — that is how the dwell is timed at all. Raised before the
+        // collection gate below, and guarded: a subscriber fault must not escape into the tracker's
+        // callback (the Tobii provider treats any throw there as a device fault and reconnects).
+        try
+        {
+            GazeSampleReceived?.Invoke(gaze);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "The calibration cancel dwell feed threw; the session continues");
+        }
+
+        var raw = new PhysicalPoint(gaze.X, gaze.Y);
+
+        // The Cancel target does not distort collection: a sample inside its hit area is not given
+        // to the target's collector. On every shipped layout the point sits far outside the band
+        // anyway (the placement keeps a radius-plus-gap from every target), but the exclusion is
+        // stated rather than inferred — a small display can put the two circles close enough to
+        // overlap, and there the sample belonged to the way out, not to the measurement.
+        if (IsInsideCancelTarget(raw)) return;
+
+        _calibrationService.AddRawSample(raw);
 
         // Feedback, published per sample. Progress counts IN-BAND samples, so it stalls while the user
         // is off target and resumes where it left off rather than restarting — a user who cannot hold
@@ -533,6 +600,18 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         var dx = gaze.X - target.X;
         var dy = gaze.Y - target.Y;
         return Math.Sqrt((dx * dx) + (dy * dy));
+    }
+
+    /// <summary>
+    /// Whether a sample lies in the session's Cancel hit circle — the same circle the overlay's
+    /// dwell detector evaluates, through the same values it registers.
+    /// </summary>
+    private bool IsInsideCancelTarget(PhysicalPoint point)
+    {
+        if (CancelTargetRadiusPixels <= 0) return false;
+        var dx = point.X - CancelTargetCenter.X;
+        var dy = point.Y - CancelTargetCenter.Y;
+        return (dx * dx) + (dy * dy) <= CancelTargetRadiusPixels * CancelTargetRadiusPixels;
     }
 
     private void PostToSyncContext(Action action)

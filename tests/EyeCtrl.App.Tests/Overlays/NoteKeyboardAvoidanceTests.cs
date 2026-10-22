@@ -388,7 +388,40 @@ public class NoteKeyboardAvoidanceTests
             .That(GapFrom(tagRect, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
     }
 
+    // ── R1 (T6 fixup-08): the side's own clamped window competes ──
+
+    [Fact]
+    public void ABottomEdgeAnchor_KeepsTheCardNearItsAnchor()
+    {
+        // Review-07 R1: with the displaced pass offered to every failing side, a side that failed
+        // only the SCREEN EDGE lost to a displaced candidate - an Edit note near the bottom edge
+        // was pulled 186 DIP up, just under the keyboard. Each side's own clamped window now
+        // competes, so the card stays by its anchor (about 93 DIP, as fixup-06 had it).
+        double size = 28;
+        var placement = NoteLayout.Place(
+            Phys(820, 1140), NoteSide.Right, CardAt(size), WorkArea, new[] { KeyboardTop, EdgeBarTop }, Scale,
+            exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(size))!;
+        var drawn = NoteLayout.WithTagClearance(placement, size);
+
+        double distance = DistanceFromPointToRect(new Point(820, 1140), drawn.Card);
+        Check.WithCustomMessage($"the card must stay by its anchor (fixup-07 pulled it 186 DIP): {distance}")
+            .That(distance).IsLessOrEqualThan(93);
+    }
+
     // ── helpers ──
+
+    /// <summary>The note card at a text size, at the control column's floor (no text measured).</summary>
+    private static Size CardAt(double textSize) => new(
+        NoteLayout.CardWidthDip(textSize),
+        NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+
+    /// <summary>The distance from a point to a rect: zero inside it.</summary>
+    private static double DistanceFromPointToRect(Point point, Rect rect)
+    {
+        double dx = Math.Max(rect.Left - point.X, 0) + Math.Max(point.X - rect.Right, 0);
+        double dy = Math.Max(rect.Top - point.Y, 0) + Math.Max(point.Y - rect.Bottom, 0);
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
 
     /// <summary>The clearance between a window and a rect: zero when they touch or overlap.</summary>
     private static double GapFrom(Rect window, Rect rect)

@@ -596,7 +596,14 @@ internal static class NoteLayout
                 // The side does not clear the keyboard by the gap - it either reaches into it or
                 // comes within a key's reach of it. Either way it is offered the windows that
                 // step clear of EVERY avoid rect.
-                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset, topGrowthDip))
+                // T6 fixup-08 R1: the side's OWN window, clamped into the inset, competes in the
+                // same closest-wins race. Without it a side that fails only the screen edge (far
+                // from the keyboard) lost to any displaced candidate, so an Edit note near the
+                // bottom edge jumped up toward the keyboard instead of staying by its anchor. It
+                // is accepted only when it clears every avoid rect by the gap, like any other
+                // candidate (a side that genuinely reaches the keyboard is still displaced).
+                var ownClamped = Ungrow(ClampInto(GrownUpward(window, topGrowthDip), inset), topGrowthDip);
+                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset, topGrowthDip).Prepend(ownClamped))
                 {
                     var candidate = GrownUpward(displaced, topGrowthDip);
                     if (!FitsInside(candidate, inset))

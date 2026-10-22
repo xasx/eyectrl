@@ -250,9 +250,9 @@ public class NoVisibleTestWindowGuardTests
         const string headless = "Overlays/LagMarkWindowTests.cs";
         const string notice = "Overlays/RestartNoticeWindowTests.cs";
         const string present = "private static LagMarkWindow Headless() =>\n        new(dwellMs: 25, messenger, keepClear, present: b => { });\n";
-        const string presentNotice = "private static RestartNoticeWindow HeadlessNotice() =>\n        new(dwellMs: 25, messenger, keepClear, present: c => { });\n";
+        const string presentNotice = "private static RestartNoticeWindow Headless() =>\n        new(dwellMs: 25, messenger, keepClear, present: c => { });\n";
         static string File(string members) => "namespace T;\npublic class C\n{\n" + members + "\n}\n";
-        static string Test(string call) => "    public void M()\n    {\n        var b = Headless();\n        " + call + "\n    }\n";
+        static string Test(string call, string helper = "Headless") => "    public void M()\n    {\n        var b = " + helper + "();\n        " + call + "\n    }\n";
 
         // the shipped shape: present: + the type named in the file + ShowButton / ShowNotice => clean
         Check.That(FindViolations(headless, File(present + Test("b.ShowButton();")))).IsEmpty();
@@ -268,9 +268,9 @@ public class NoVisibleTestWindowGuardTests
         Check.That(FindViolations(headless, File(Test("b.ShowButton();")))).Not.IsEmpty();
 
         // RED: a file that NAMES the window type but builds it without `present:` (a real window) gets no exemption
-        Check.That(FindViolations(notice, File("private static RestartNoticeWindow Real() => new(dwellMs: 25, messenger, keepClear);\n" + Test("b.ShowNotice(\"t\", \"ok\", s);"))))
+        Check.That(FindViolations(notice, File("private static RestartNoticeWindow Real() => new(dwellMs: 25, messenger, keepClear);\n" + Test("b.ShowNotice(\"t\", \"ok\", s);", "Real"))))
             .Not.IsEmpty();
-        Check.That(FindViolations(headless, File("private static LagMarkWindow Real() => new(dwellMs: 25, messenger, keepClear);\n" + Test("b.ShowButton();"))))
+        Check.That(FindViolations(headless, File("private static LagMarkWindow Real() => new(dwellMs: 25, messenger, keepClear);\n" + Test("b.ShowButton();", "Real"))))
             .Not.IsEmpty();
 
         // RED: `present:` for ANOTHER window type does not exempt the API of this one
@@ -603,6 +603,177 @@ public class NoVisibleTestWindowGuardTests
             "namespace T;\npublic class C\n{\n    public void M()\n    {\n        var w = new ModesMenuWindow();\n        w.Show();\n    }\n}\n")).HasSize(1);
     }
 
+    // ---- the #259 review gaps T1-T4 (synthetic sources; nothing is shown) ------------------------------------
+
+    private const string LagMarkHeadless = "Overlays/LagMarkWindowTests.cs";
+    private const string RestartHeadless = "Overlays/RestartNoticeWindowTests.cs";
+
+    private static string HeadlessFile(string members) => "namespace T;\npublic class C\n{\n" + members + "\n}\n";
+
+    private static string TestMember(string body) => "    public void M()\n    {\n" + body + "\n    }\n";
+
+    private const string ExpressionHelper =
+        "    private static LagMarkWindow HeadlessButton(IMessenger? messenger = null, Func<IReadOnlyList<Rect>>? keepClear = null) =>\n" +
+        "        new(dwellMs: 25, messenger, keepClear, present: button => { button.Measure(s); });\n";
+
+    private const string BlockHelper =
+        "    private static LagMarkWindow BlockButton()\n    {\n        return new LagMarkWindow(dwellMs: 25, present: b => { });\n    }\n";
+
+    [Fact]
+    public void ThePresentExemption_IsPerReceiver_NotPerFile()
+    {
+        // T1 (#259 review): ShowButton / ShowNotice are exempt only on a receiver built through a present: construction (a variable assigned from
+        // such a `new`, or from a same-file helper whose body passes present:). A real window of the same type in the same file is a real show.
+        foreach (var clean in new[]
+                 {
+                     "var button = HeadlessButton();\n button.ShowButton();",
+                     "var button = HeadlessButton(messenger, () => chrome);\n button.ShowButton();",
+                     "var button = BlockButton();\n button.ShowButton();",
+                     "var b = new LagMarkWindow(dwellMs: 25, null, null, present: x => { });\n b.ShowButton();",
+                 })
+            Check.WithCustomMessage(clean).That(FindViolations(LagMarkHeadless, HeadlessFile(ExpressionHelper + BlockHelper + TestMember(clean)))).IsEmpty();
+
+        foreach (var (name, body) in new Dictionary<string, string>
+                 {
+                     ["a real window beside the present helper"] = "var real = new LagMarkWindow(dwellMs: 700);\n real.ShowButton();",
+                     ["a real window, a present one also exists"] = "var button = HeadlessButton();\n var real = new LagMarkWindow(dwellMs: 700);\n button.ShowButton();\n real.ShowButton();",
+                     ["an inline helper call"] = "HeadlessButton().ShowButton();",
+                     ["an unassigned name (a parameter or a field)"] = "button.ShowButton();",
+                     ["a variable reassigned to a real window"] = "var button = HeadlessButton();\n button = new LagMarkWindow(dwellMs: 700);\n button.ShowButton();",
+                     ["a member access receiver"] = "var holder = HeadlessButton();\n holder.Inner.ShowButton();",
+                     ["a cast receiver"] = "var button = HeadlessButton();\n ((LagMarkWindow)button).ShowButton();",
+                     ["a null-conditional receiver"] = "var button = HeadlessButton();\n button?.ShowButton();",
+                     ["a helper that does NOT pass present:"] = "var button = RealButton();\n button.ShowButton();",
+                     ["Show() on a present receiver"] = "var button = HeadlessButton();\n button.Show();",
+                     ["ShowNotice on a LagMark receiver"] = "var button = HeadlessButton();\n button.ShowNotice(\"t\", \"ok\", s);",
+                 })
+            Check.WithCustomMessage(name).That(FindViolations(LagMarkHeadless, HeadlessFile(
+                ExpressionHelper + "    private static LagMarkWindow RealButton() => new(dwellMs: 700);\n" + TestMember(body)))).Not.IsEmpty();
+
+        // the same for the notice
+        const string noticeHelper = "    private static RestartNoticeWindow HeadlessNotice(IMessenger m) =>\n        new(dwellMs: 25, m, null, present: c => { });\n";
+        Check.That(FindViolations(RestartHeadless, HeadlessFile(noticeHelper + TestMember("var card = HeadlessNotice(m);\n card.ShowNotice(\"t\", \"ok\", s);")))).IsEmpty();
+        Check.That(FindViolations(RestartHeadless, HeadlessFile(noticeHelper + TestMember("var real = new RestartNoticeWindow();\n real.ShowNotice(\"t\", \"ok\", s);")))).Not.IsEmpty();
+    }
+
+    [Fact]
+    public void AConditionalVisibleWrite_IsAVisibleWrite_InAHeadlessFile_AndForANamedWindow()
+    {
+        // T2: `x.Visibility = c ? Visibility.Visible : Collapsed` (and ?? and a switch expression) makes something Visible.
+        const string headless = "Overlays/ModesMenuFitTests.cs";
+        foreach (var statement in new[]
+                 {
+                     "w.Visibility = c ? Visibility.Visible : Visibility.Collapsed;",
+                     "w.Visibility = c ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;",
+                     "w.Visibility = a ?? Visibility.Visible;",
+                     "w.Visibility = k switch { 1 => Visibility.Visible, _ => Visibility.Collapsed };",
+                     "w.Visibility = shown.Flag || other ? Visibility.Visible : Visibility.Hidden;",
+                     "w.SetValue(UIElement.VisibilityProperty, c ? Visibility.Visible : Visibility.Collapsed);",
+                     "w.SetCurrentValue(Window.VisibilityProperty, a ?? Visibility.Visible);",
+                     "w.Visibility = (Visibility)0;",
+                     "w.Visibility = (System.Windows.Visibility)0;",
+                     "w.Visibility = (Visibility)(0);",
+                     "w.Visibility = default(Visibility);",
+                     "w.Visibility = c ? (Visibility)0 : Visibility.Collapsed;",
+                 })
+        {
+            Check.WithCustomMessage("headless: " + statement)
+                .That(FindViolations(headless, HeadlessFile(TestMember("var w = Get();\n " + statement)))).Not.IsEmpty();
+        }
+        foreach (var statement in new[]
+                 {
+                     "w.Visibility = c ? Visibility.Visible : Visibility.Collapsed;", "w.Visibility = a ?? Visibility.Visible;",
+                     "w.Visibility = k switch { 1 => Visibility.Visible, _ => Visibility.Collapsed };", "w.Visibility = (Visibility)0;",
+                     "w.SetValue(UIElement.VisibilityProperty, c ? Visibility.Visible : Visibility.Collapsed);", "w.Visibility = default(Visibility);",
+                 })
+            Check.WithCustomMessage("named, not prepared: " + statement)
+                .That(Scan(TestMember("var w = new ToolbarWindow();\n " + statement))).Not.IsEmpty();
+
+        // The named-window rule (B) on its own: a window prepared with PrepareOffScreen is covered only for ShowBackdrop, so a conditional write
+        // to its visibility is the ONLY thing that can flag it (rule A is satisfied by the preparation).
+        foreach (var statement in new[]
+                 {
+                     "w.Visibility = c ? Visibility.Visible : Visibility.Collapsed;", "w.Visibility = a ?? Visibility.Visible;",
+                     "w.Visibility = k switch { 1 => Visibility.Visible, _ => Visibility.Collapsed };", "w.Visibility = (Visibility)0;",
+                     "w.SetValue(UIElement.VisibilityProperty, c ? Visibility.Visible : Visibility.Collapsed);",
+                     "w.SetCurrentValue(Window.VisibilityProperty, a ?? Visibility.Visible);", "w.Visibility = default(Visibility);",
+                 })
+            Check.WithCustomMessage("PrepareOffScreen window: " + statement)
+                .That(Scan(TestMember("var w = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());\n " + statement))).Not.IsEmpty();
+        Check.That(Scan(TestMember("var w = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());\n w.Visibility = Visibility.Collapsed;"))).IsEmpty();
+
+        // what is NOT a Visible write stays clean
+        foreach (var fine in new[]
+                 {
+                     "w.Visibility = Visibility.Collapsed;", "w.Visibility = c ? Visibility.Collapsed : Visibility.Hidden;",
+                     "var v = w.Visibility == Visibility.Visible;", "if (w.Visibility != Visibility.Visible) { }", "w.Visibility = (Visibility)1;",
+                 })
+            Check.WithCustomMessage(fine).That(FindViolations(headless, HeadlessFile(TestMember("var w = Get();\n " + fine)))).IsEmpty();
+    }
+
+    [Fact]
+    public void AVisibleWriteWaiver_ExcusesOnlyInnerElementReceivers_NeverTheWindowItself()
+    {
+        // T3: the waived member of GermanGateTests writes inner elements; the same member writing the window's own visibility is still a violation.
+        const string file = "Localization/Fit/GermanGateTests.cs";
+        static List<string> InMember(string statement) => FindViolations(file, HeadlessFile(
+            "    public void CalibrationButton()\n    {\n        var window = new CalibrationWindow();\n        " + statement + "\n    }\n"));
+
+        foreach (var inner in new[]
+                 {
+                     "window.CompletionCard.Visibility = System.Windows.Visibility.Visible;",
+                     "window.RetryPanel.Visibility = c ? Visibility.Visible : Visibility.Collapsed;",
+                     "window.Backdrop.Child.Visibility = Visibility.Visible;",
+                     "window.Backdrop.SetValue(UIElement.VisibilityProperty, Visibility.Visible);",
+                     "this.CompletionCard.Visibility = Visibility.Visible;",
+                 })
+            Check.WithCustomMessage("inner element: " + inner).That(InMember(inner)).IsEmpty();
+
+        foreach (var own in new[]
+                 {
+                     "window.Visibility = Visibility.Visible;",
+                     "window.Visibility = c ? Visibility.Visible : Visibility.Collapsed;",
+                     "Visibility = Visibility.Visible;",
+                     "this.Visibility = Visibility.Visible;",
+                     "window.SetValue(UIElement.VisibilityProperty, Visibility.Visible);",
+                     "window.SetCurrentValue(Window.VisibilityProperty, Visibility.Visible);",
+                     "SetValue(UIElement.VisibilityProperty, Visibility.Visible);",
+                     "((Window)window).Visibility = Visibility.Visible;",
+                     "Get().Visibility = Visibility.Visible;",
+                     "windows[0].Visibility = Visibility.Visible;",
+                     "window.Visibility = (Visibility)0;",
+                 })
+            Check.WithCustomMessage("the window itself: " + own).That(InMember(own)).Not.IsEmpty();
+
+        // a mix: the inner write is excused, the window's own write is not
+        Check.That(InMember("window.CompletionCard.Visibility = Visibility.Visible;\n        window.Visibility = Visibility.Visible;")).HasSize(1);
+    }
+
+    [Fact]
+    public void AnHwndSourceWithWsVisible_IsAViolation_ByNameOrByValue()
+    {
+        // T4: WS_VISIBLE (0x10000000) in an HwndSource's WindowStyle paints it at once. The probes use WS_POPUP only (0x80000000).
+        foreach (var style in new[]
+                 {
+                     "WsPopup | WsVisible", "WS_POPUP | WS_VISIBLE", "unchecked((int)0x90000000)", "0x10000000", "unchecked((int)0x80000000) | 0x10000000",
+                     "268435456", "0x94000000", "NativeMethods.WS_VISIBLE", "unchecked((int)(0x80000000 | 0x10000000))",
+                 })
+            foreach (var file in new[] { "Keyboard/KeyboardGateProbeTests.cs", "Overlays/NotListedTests.cs" })
+                Check.WithCustomMessage($"{file}: {style}").That(FindViolations(file, HeadlessFile(TestMember(
+                    "var source = new HwndSource(new HwndSourceParameters(\"p\") { WindowStyle = " + style + ", Width = 1, Height = 1 });")))).Not.IsEmpty();
+
+        // the form with a separate assignment, and an int constant carrying the bit
+        Check.That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(TestMember(
+            "var p = new HwndSourceParameters(\"p\");\n p.WindowStyle = unchecked((int)0x90000000);")))).Not.IsEmpty();
+        Check.That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile("    private const int Style = unchecked((int)0x90000000);\n"))).Not.IsEmpty();
+
+        // the shipped shape stays clean: WS_POPUP only, and the WPF WindowStyle enum
+        Check.That(FindViolations("Keyboard/KeyboardGateProbeTests.cs", HeadlessFile(TestMember(
+            "var source = new HwndSource(new HwndSourceParameters(\"p\") { WindowStyle = WsPopup, PositionX = -30000, PositionY = -30000, Width = 1, Height = 1 });")
+            + "    private const int WsPopup = unchecked((int)0x80000000);\n"))).IsEmpty();
+        Check.That(Scan(TestMember("var w = InvisibleTestWindow.Prepare(new ToolbarWindow());\n w.WindowStyle = WindowStyle.None;"))).IsEmpty();
+    }
+
     [Fact]
     public void ANestedHelperClassMember_IsScannedOnItsOwn()
     {
@@ -660,14 +831,14 @@ public class NoVisibleTestWindowGuardTests
             return violations;
         var stripped = StripCommentsAndStrings(text);
         var ruleAWaived = HeadlessConstruction.Keys.Any(key => relative.EndsWith(key, StringComparison.Ordinal));
-        IReadOnlySet<string> presentExempt = ruleAWaived ? PresentExemptApis(stripped) : NoPresentExemption;
+        var presentSeams = ruleAWaived ? FindPresentSeams(stripped) : NoPresentSeams;
 
         foreach (var member in Members(stripped))
         {
             if (AllowList.ContainsKey($"{relative}#{member.Name}")) continue;
             if (OptInGateRegexes.Any(g => g.IsMatch(member.Body))) continue;
             var visibleWriteWaived = HeadlessVisibleWriteWaivers.ContainsKey($"{relative}#{member.Name}");
-            foreach (var problem in MemberProblems(member.Body, ruleAWaived, presentExempt, visibleWriteWaived))
+            foreach (var problem in MemberProblems(member.Body, ruleAWaived, presentSeams, visibleWriteWaived))
                 violations.Add($"{relative}:{LineOf(stripped, member.Start)} {member.Name}: {problem}");
         }
         return violations;
@@ -679,21 +850,100 @@ public class NoVisibleTestWindowGuardTests
 
     private static readonly Regex PresentSeamArgument = new(@"\bpresent\s*:", RegexOptions.Compiled);
 
-    /// <summary>The APIs of <see cref="PresentCallbackApis"/> that this file may call: it passes <c>present:</c> and names the window type they belong to.</summary>
-    private static HashSet<string> PresentExemptApis(string strippedFile)
+    /// <summary>
+    /// What a headless file builds through a <c>present:</c> callback: the same-file HELPERS whose body passes <c>present:</c> to a <c>new</c>
+    /// (expression- or block-bodied), and the window TYPES of <see cref="PresentCallbackApis"/> the file names while passing <c>present:</c>.
+    /// </summary>
+    private sealed record PresentSeams(HashSet<string> Helpers, HashSet<string> Types);
+
+    private static readonly PresentSeams NoPresentSeams = new(new HashSet<string>(), new HashSet<string>());
+
+    private static readonly Regex[] PresentHelperDeclarations =
+    [
+        new(@"(?<name>[A-Za-z_]\w*)\s*\([^;{}]*?\)\s*=>\s*new\b[^;]*?\bpresent\s*:", RegexOptions.Compiled),
+        new(@"(?<name>[A-Za-z_]\w*)\s*\([^;{}]*?\)\s*\{\s*(?:return\s+)?new\b[^;]*?\bpresent\s*:", RegexOptions.Compiled),
+    ];
+
+    private static PresentSeams FindPresentSeams(string strippedFile)
     {
-        var exempt = new HashSet<string>();
-        if (!PresentSeamArgument.IsMatch(strippedFile)) return exempt;
-        foreach (var (api, type) in PresentCallbackApis)
-            if (Regex.IsMatch(strippedFile, @"\b" + type + @"\b")) exempt.Add(api);
-        return exempt;
+        var helpers = new HashSet<string>();
+        var types = new HashSet<string>();
+        if (!PresentSeamArgument.IsMatch(strippedFile)) return NoPresentSeams;
+        foreach (var declaration in PresentHelperDeclarations)
+            foreach (Match m in declaration.Matches(strippedFile))
+                helpers.Add(m.Groups["name"].Value);
+        foreach (var type in PresentCallbackApis.Values)
+            if (Regex.IsMatch(strippedFile, @"\b" + type + @"\b")) types.Add(type);
+        return new PresentSeams(helpers, types);
     }
 
-    /// <summary>Any write that makes something Visible: `x.Visibility = Visibility.Visible`, `SetCurrentValue/SetValue(VisibilityProperty, …Visible)`, qualified or not.</summary>
+    /// <summary>The variables a member assigns from a <c>present:</c> construction (<c>x = new T(…, present: …)</c>) or from a present-building helper (<c>x = Helper(…)</c>).</summary>
+    private static HashSet<string> PresentReceivers(string body, PresentSeams seams)
+    {
+        var from = seams.Helpers.Count == 0
+            ? @"new\b[^;]*?\bpresent\s*:"
+            : @"(?:new\b[^;]*?\bpresent\s*:|(?:" + string.Join("|", seams.Helpers.Select(Regex.Escape)) + @")\s*\()";
+        // EVERY assignment to the variable must be a present: one: a variable that is also assigned a real window is not exempt.
+        var receivers = new HashSet<string>();
+        var others = new HashSet<string>();
+        foreach (Match m in Regex.Matches(body, @"(?<![\w.])(?<v>[A-Za-z_]\w*)\s*=(?![=>])\s*(?<rhs>[^;]*)"))
+            (Regex.IsMatch(m.Groups["rhs"].Value, @"^" + from) ? receivers : others).Add(m.Groups["v"].Value);
+        receivers.ExceptWith(others);
+        return receivers;
+    }
+
+    /// <summary>
+    /// A token that MAKES something Visible on the right-hand side of a Visibility write: <c>Visibility.Visible</c> (qualified or not) anywhere in the
+    /// expression (a ternary, <c>??</c>, a switch expression), a numeric cast <c>(Visibility)0</c>, or <c>default(Visibility)</c> (both are Visible, value 0).
+    /// </summary>
+    internal const string VisibleToken =
+        @"(?:\bVisibility\s*\.\s*Visible\b|\(\s*(?:[\w.]*\.)?Visibility\s*\)\s*\(?\s*0\b|\bdefault\s*\(\s*(?:[\w.]*\.)?Visibility\s*\))";
+
+    /// <summary>
+    /// Any write that makes something Visible, with the text right before it as <c>pre</c> (the receiver chain with its trailing dot):
+    /// <c>x.Visibility = …Visible…</c> and <c>SetCurrentValue/SetValue(VisibilityProperty, …Visible…)</c>.
+    /// </summary>
     private static readonly Regex AnyVisibleWrite = new(
-        @"\bVisibility\s*=\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b" +
-        @"|\bSet(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b",
+        @"(?<pre>[^\s;{}(),=]*)\bVisibility\s*=(?!=)[^;]*?" + VisibleToken +
+        @"|(?<pre>[^\s;{}(),=]*)\bSet(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,[^;]*?" + VisibleToken,
         RegexOptions.Compiled);
+
+    /// <summary>A receiver chain of INNER ELEMENTS: at least two simple identifiers (<c>window.CompletionCard.</c>), never the window variable alone, <c>this.</c> or nothing.</summary>
+    private static readonly Regex InnerElementReceiver = new(@"^\w+(?:\.\w+)+\.$", RegexOptions.Compiled);
+
+    /// <summary>Spellings that put WS_VISIBLE into an HwndSource: the name, or a numeric literal with the 0x10000000 bit in a WindowStyle assignment / an int constant.</summary>
+    private static readonly Regex WsVisibleName = new(@"\b(?:WS_VISIBLE|Ws_?Visible)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex WindowStyleAssignment = new(@"\bWindowStyle\s*=(?!=)\s*(?<rhs>[^;,}]*)", RegexOptions.Compiled);
+
+    private static readonly Regex IntConstant = new(@"\b(?:const|static\s+readonly)\s+(?:u?int)\s+\w+\s*=\s*(?<rhs>[^;]*)", RegexOptions.Compiled);
+
+    private static readonly Regex IntegerLiteral = new(@"\b(?:0[xX](?<hex>[0-9A-Fa-f]+)|(?<dec>\d+))[uUlL]*\b", RegexOptions.Compiled);
+
+    private const long WsVisibleBit = 0x10000000;
+
+    private static bool CarriesWsVisible(string expression)
+    {
+        foreach (Match m in IntegerLiteral.Matches(expression))
+        {
+            var ok = m.Groups["hex"].Success
+                ? long.TryParse(m.Groups["hex"].Value, System.Globalization.NumberStyles.HexNumber, null, out var h) ? (h & WsVisibleBit) != 0 : false
+                : long.TryParse(m.Groups["dec"].Value, out var d) && (d & WsVisibleBit) != 0;
+            if (ok) return true;
+        }
+        return WsVisibleName.IsMatch(expression);
+    }
+
+    /// <summary>T4: an HwndSource made WS_VISIBLE would paint at once. By name or by value, in a WindowStyle assignment or an int constant.</summary>
+    private static IEnumerable<string> WsVisibleProblems(string body)
+    {
+        foreach (Match m in WindowStyleAssignment.Matches(body))
+            if (CarriesWsVisible(m.Groups["rhs"].Value))
+                yield return "a WindowStyle that includes WS_VISIBLE (0x10000000) makes an HwndSource visible: use WS_POPUP only, parked off-screen";
+        foreach (Match m in IntConstant.Matches(body))
+            if (CarriesWsVisible(m.Groups["rhs"].Value))
+                yield return "an int constant carrying WS_VISIBLE (0x10000000): an HwndSource built with it is visible";
+    }
 
     /// <summary>Any real overlay container built in the member (a Fake/Recording/Stub/Test double is not): production code under test would show what it is handed.</summary>
     private static readonly Regex AnyOverlayContainer = new(
@@ -705,34 +955,51 @@ public class NoVisibleTestWindowGuardTests
     /// expression. That closes the shapes the name heuristic of rule B can miss (alias, array, tuple, ternary, cast, <c>?.</c>, <c>!.</c>, a
     /// helper's return value). A file that genuinely needs one leaves the headless list and prepares its windows.
     /// </summary>
-    private static IEnumerable<string> HeadlessFileProblems(string body, IReadOnlySet<string> presentExempt, bool visibleWriteWaived)
+    private static IEnumerable<string> HeadlessFileProblems(string body, PresentSeams seams, bool visibleWriteWaived)
     {
-        // A headless file that itself builds a `present:` window of a type (LagMarkWindow / RestartNoticeWindow with a measuring callback) calls
-        // that type's ShowButton / ShowNotice: those go through the callback and put nothing on screen. Every other showing API still counts.
-        var apis = ShowingApis.Where(a => !presentExempt.Contains(a));
-        var show = Regex.Match(body, @"\.\s*(?:" + string.Join("|", apis) + @")\b");
-        if (show.Success)
-            yield return $"a headless-only file calls a showing API ({show.Value.Trim()}): a file that shows a window leaves HeadlessConstruction and prepares it";
-        if (!visibleWriteWaived && AnyVisibleWrite.IsMatch(body))
+        // A headless file that builds a `present:` window of a type (LagMarkWindow / RestartNoticeWindow with a measuring callback) may call that
+        // type's ShowButton / ShowNotice ON A RECEIVER that was built through a present: construction (a variable assigned from such a `new`, or
+        // from a same-file helper whose body passes present:). Those go through the callback and put nothing on screen. A real window of the same
+        // type, a parameter, a field or an inline expression gets no exemption, and every other showing API still counts.
+        var presentReceivers = seams.Types.Count == 0 ? new HashSet<string>() : PresentReceivers(body, seams);
+        foreach (Match m in AnyShowingApi.Matches(body))
+        {
+            var api = m.Groups["api"].Value;
+            var receiver = Regex.Match(body[..m.Index], @"(?<![\w.\])!?])(?<recv>[A-Za-z_]\w*)\s*$");
+            var exempt = PresentCallbackApis.TryGetValue(api, out var type) && seams.Types.Contains(type)
+                && receiver.Success && presentReceivers.Contains(receiver.Groups["recv"].Value);
+            if (exempt) continue;
+            yield return $"a headless-only file calls a showing API (.{api}): a file that shows a window leaves HeadlessConstruction and prepares it";
+            break;
+        }
+        // A Visible write counts whatever its shape (a ternary, `??`, a switch, a numeric cast, default(Visibility)). A waived member excuses only
+        // INNER ELEMENTS (a receiver chain of two or more identifiers): never the window itself, `this`, a bare `Visibility = …` or SetValue on the window.
+        foreach (Match m in AnyVisibleWrite.Matches(body))
+        {
+            if (visibleWriteWaived && InnerElementReceiver.IsMatch(m.Groups["pre"].Value)) continue;
             yield return "a headless-only file makes something Visible (Visibility = Visible): a file that shows a window leaves HeadlessConstruction and prepares it";
+            break;
+        }
         var container = AnyOverlayContainer.Match(body);
         if (container.Success)
             yield return $"a headless-only file builds an overlay container ({container.Value.Trim()}): production shows what it is handed; " +
                          "a file that does this leaves HeadlessConstruction and prepares its windows";
     }
 
-    private static readonly IReadOnlySet<string> NoPresentExemption = new HashSet<string>();
+    private static readonly Regex AnyShowingApi = new(@"\.\s*(?<api>" + ApiAlternation + @")\b", RegexOptions.Compiled);
 
-    private static IEnumerable<string> MemberProblems(string body, bool ruleAWaived, IReadOnlySet<string>? presentExempt = null, bool visibleWriteWaived = false)
+    private static IEnumerable<string> MemberProblems(string body, bool ruleAWaived, PresentSeams? presentSeams = null, bool visibleWriteWaived = false)
     {
         // A bare P/Invoke ShowWindow(...) call (the extern declaration itself is not a call).
         if (BareShowWindow.IsMatch(body) && !Regex.IsMatch(body, @"\bextern\b"))
             yield return "a bare ShowWindow(...) call shows a window the guard cannot name";
 
+        foreach (var problem in WsVisibleProblems(body)) yield return problem;
+
         if (ruleAWaived)
         {
             // Rule A is waived for the file; the coarse rule replaces the per-window rule B (it is a superset of it).
-            foreach (var problem in HeadlessFileProblems(body, presentExempt ?? NoPresentExemption, visibleWriteWaived)) yield return problem;
+            foreach (var problem in HeadlessFileProblems(body, presentSeams ?? NoPresentSeams, visibleWriteWaived)) yield return problem;
             yield break;
         }
 
@@ -769,8 +1036,8 @@ public class NoVisibleTestWindowGuardTests
             var shownBy = Regex.Matches(body, $@"(?<![\w.]){name}\s*\.\s*(?<api>{ApisFor(use.Type, use.PresentSeam)})\b")
                 .Select(m => m.Groups["api"].Value).ToList();
             // `w.Visibility = Visibility.Visible` (also fully qualified), `w.SetCurrentValue(VisibilityProperty, ...Visible)`, `w.SetValue(...)`
-            var madeVisible = Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Visibility\s*=\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b")
-                || Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Set(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,\s*(?:[\w.]*\.)?Visibility\s*\.\s*Visible\b");
+            var madeVisible = Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Visibility\s*=(?!=)[^;]*?{VisibleToken}")
+                || Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Set(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,[^;]*?{VisibleToken}");
             var handed = OverlayContainerArgs.Matches(body)
                 .Any(m => Regex.IsMatch(m.Groups["args"].Value, $@"(?<![\w.]){name}\b"));
 

@@ -499,6 +499,149 @@ public class NoteKeyboardAvoidanceTests
             .That(SignedClearance(drawn.Window, keyboard)).IsGreaterOrEqualThan(0);
     }
 
+    // ── T6 fixup-11: the tail never runs through its own card ──
+
+    [Fact]
+    public void NoTailEverRunsThroughItsOwnCard()
+    {
+        // Review-10 (ii): a clamped tail must exist only when the anchor lies beyond the card's
+        // tail edge, or it is drawn from that edge back THROUGH the card, pointing away from the
+        // anchor. Swept over the reviewer's grid (Display, and Edit with no keyboard / the top
+        // keyboard / the bottom keyboard), and where the OLD rule drew an honest tail the new
+        // tail must be byte-identical.
+        var sizes = new[] { 18.0, 28.0, 48.0 };
+        var sides = new[] { NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above };
+        var avoidSets = new[] { Array.Empty<Rect>(), new[] { KeyboardTop }, new[] { KeyboardBottom } };
+        int tails = 0, changedDisplay = 0, changedEdit = 0;
+        var failures = new List<string>();
+
+        for (double x = 0; x <= 1920; x += 40)
+        {
+            for (double y = 0; y <= 1152; y += 20)
+            {
+                foreach (var size in sizes)
+                {
+                    var cardSize = new Size(
+                        NoteLayout.CardWidthDip(size),
+                        NoteLayout.CardHeightDip(size, 0, WorkArea.Height));
+                    for (int variant = 0; variant < avoidSets.Length + 1; variant++)
+                    {
+                        bool edit = variant > 0;
+                        var avoid = variant == 0 ? Array.Empty<Rect>() : avoidSets[variant - 1];
+                        var raw = NoteLayout.Place(Phys(x, y), NoteSide.Right, cardSize, WorkArea, avoid, Scale,
+                            exclude: null, allowDisplaced: edit,
+                            topGrowthDip: edit ? NoteLayout.TagProtrusionDip(size) : 0.0)!;
+                        var drawn = NoteLayout.WithTagClearance(raw, size);
+
+                        var triangle = NoteLayout.TailTriangle(drawn);
+                        if (triangle is null)
+                            continue;
+                        tails++;
+                        var tip = new Point(drawn.Window.X + triangle[0].X, drawn.Window.Y + triangle[0].Y);
+                        if (!TipPointsOutOfTheCard(drawn, tip))
+                        {
+                            failures.Add($"({x}, {y}) {size} DIP {(edit ? "Edit" : "Display")}: tip {tip} vs card {drawn.Card} side {drawn.Side}");
+                            continue;
+                        }
+
+                        // Byte-identity: the pre-fix code produced one of two tail formulas
+                        // (the clamped nearest-point and the clean anchor-offset). Where the new
+                        // tail still equals one of them, nothing moved; where it is gone or
+                        // different, the old tail was the wedge this fix removes.
+                        var anchorPoint = new Point(x, y);
+                        var oldCandidates = OldTailCandidates(drawn, anchorPoint);
+                        if (drawn.TailTip is { } now && oldCandidates.Any(o => o is { } p && p == now))
+                            continue;
+                        if (edit) changedEdit++; else changedDisplay++;
+                    }
+                }
+            }
+        }
+
+        Check.WithCustomMessage("the sweep must have drawn tails")
+            .That(tails).IsStrictlyGreaterThan(0);
+        Check.WithCustomMessage(
+                $"{failures.Count} of {tails} tails do not point out of the card (changed Display {changedDisplay}, Edit {changedEdit}):`n  " + string.Join("`n  ", failures.Take(10)))
+            .That(failures).IsEmpty();
+    }
+
+    [Fact]
+    public void TheBottomEdgeAnchor_At28_KeepsItsTailOutOfTheCard()
+    {
+        // The defect's own case: the Below and Above own-clamps tie at the same rect, and the
+        // anchor (820, 1140) ends up beneath the card. Either no tail, or one whose tip leaves
+        // the card on its own side, pointing at the anchor - never a wedge across the card.
+        var keyboard = new Rect(251, 0, 1418, 575);
+        var card = new Size(NoteLayout.CardWidthDip(28), 480);
+        var raw = NoteLayout.Place(Phys(820, 1140), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
+            exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(28))!;
+        var drawn = NoteLayout.WithTagClearance(raw, 28);
+
+        if (drawn.TailTip is { } tip)
+            Check.WithCustomMessage($"a visible tail must point OUT of the card on its own side (tip {tip}, card {drawn.Card}, side {drawn.Side})")
+                .That(TipPointsOutOfTheCard(drawn, tip)).IsTrue();
+        else
+            Check.That(drawn.TailTip).IsNull(); // no tail is the honest answer here
+    }
+
+    /// <summary>Whether a tail tip leaves the card on its side's tail edge (screen coordinates).</summary>
+    private static bool TipPointsOutOfTheCard(NotePlacement placement, Point tip)
+    {
+        var card = placement.Card;
+        return placement.Side switch
+        {
+            NoteSide.Below => tip.Y <= card.Top + 0.5,
+            NoteSide.Above => tip.Y >= card.Bottom - 0.5,
+            NoteSide.Right => tip.X <= card.Left + 0.5,
+            _ => tip.X >= card.Right - 0.5,
+        };
+    }
+
+    /// <summary>
+    /// The two tail tips the PRE-fixup-11 code could have produced for this placement: the
+    /// clamped branch (the nearest window point toward the anchor, clamped along the card's
+    /// edge) and the clean branch (the anchor offset by the 6 DIP tip gap). Either match means
+    /// the tail did not move.
+    /// </summary>
+    private static Point?[] OldTailCandidates(NotePlacement placement, Point anchor)
+    {
+        var card = placement.Card;
+        var window = placement.Window;
+        double lo = 18 + 4;
+        Point?[] result = [null, null];
+
+        // The clamped rule: no tail only when the anchor is inside the card.
+        if (!card.Contains(anchor))
+        {
+            double nx = Math.Clamp(anchor.X, window.Left + 6, Math.Max(window.Left + 6, window.Right - 6));
+            double ny = Math.Clamp(anchor.Y, window.Top + 6, Math.Max(window.Top + 6, window.Bottom - 6));
+            result[0] = placement.Side switch
+            {
+                NoteSide.Right or NoteSide.Left => new Point(
+                    nx, Math.Clamp(ny, card.Top + lo, Math.Max(card.Top + lo, card.Bottom - lo))),
+                _ => new Point(
+                    Math.Clamp(nx, card.Left + lo, Math.Max(card.Left + lo, card.Right - lo)), ny),
+            };
+        }
+
+        // The clean rule: the anchor offset by the tip gap, clamped along the edge.
+        Point raw = placement.Side switch
+        {
+            NoteSide.Right => new Point(anchor.X + 6, anchor.Y),
+            NoteSide.Left => new Point(anchor.X - 6, anchor.Y),
+            NoteSide.Below => new Point(anchor.X, anchor.Y + 6),
+            _ => new Point(anchor.X, anchor.Y - 6),
+        };
+        result[1] = placement.Side switch
+        {
+            NoteSide.Right or NoteSide.Left => new Point(
+                raw.X, Math.Clamp(raw.Y, card.Top + lo, Math.Max(card.Top + lo, card.Bottom - lo))),
+            _ => new Point(
+                Math.Clamp(raw.X, card.Left + lo, Math.Max(card.Left + lo, card.Right - lo)), raw.Y),
+        };
+        return result;
+    }
+
     // ── helpers ──
 
     /// <summary>The number tag's rect in SCREEN coordinates (NoteLayout returns it window-relative).</summary>

@@ -634,6 +634,8 @@ internal static class NoteLayout
             NotePlacement? least = null;
             double bestClearance = double.MinValue;
             double bestDistance = double.MaxValue;
+            Rect bestRect = default;
+            bool bestTailFaces = false;
             foreach (var side in Candidates(preferred, exclude))
             {
                 var window = WindowFor(anchorDip, side, cardDip);
@@ -644,12 +646,26 @@ internal static class NoteLayout
                     if (!FitsInside(drawn, inset))
                         continue;
                     double clearance = ClearanceFrom(drawn, avoidDip);
+                    bool tailFaces = AnchorBeyondTailEdge(side, CardFor(side, candidate, cardDip), anchorDip);
                     double distance = DistanceToRect(anchorDip, candidate);
-                    if (least is not null
+                    if (least is not null && clearance == bestClearance && candidate == bestRect
+                        && tailFaces != bestTailFaces)
+                    {
+                        // The same window offered by two sides: keep the one whose tail can
+                        // honestly point at the anchor (T6 fixup-11). Distinct rects are still
+                        // decided by the closest-to-anchor rule below.
+                        if (!tailFaces)
+                            continue;
+                    }
+                    else if (least is not null
                         && (clearance < bestClearance || (clearance == bestClearance && distance >= bestDistance)))
+                    {
                         continue;
+                    }
                     bestClearance = clearance;
                     bestDistance = distance;
+                    bestRect = candidate;
+                    bestTailFaces = tailFaces;
                     least = Build(side, candidate, cardDip, anchorDip, clamped: true);
                 }
             }
@@ -879,6 +895,11 @@ internal static class NoteLayout
         {
             if (card.Contains(anchorDip))
                 return null; // the anchor ended up under the card: no tail
+            // T6 fixup-11: the tail exists only when the anchor lies beyond the card's TAIL edge
+            // for this side. Otherwise the triangle would be drawn from that edge back THROUGH
+            // the card, pointing away from the anchor - a wedge across the note's own face.
+            if (!AnchorBeyondTailEdge(side, card, anchorDip))
+                return null;
             double nx = Clamp(anchorDip.X, window.Left + Constants.TipGapDip, Math.Max(window.Left + Constants.TipGapDip, window.Right - Constants.TipGapDip));
             double ny = Clamp(anchorDip.Y, window.Top + Constants.TipGapDip, Math.Max(window.Top + Constants.TipGapDip, window.Bottom - Constants.TipGapDip));
             return ClampTipAlongEdge(side, card, new Point(nx, ny));
@@ -896,6 +917,24 @@ internal static class NoteLayout
                 new Point(anchorDip.X, anchorDip.Y - Constants.TipGapDip)),
         };
     }
+
+    /// <summary>
+    /// Whether the anchor lies beyond the CARD's tail edge for this side - the half-plane the
+    /// tail points into (T6 fixup-11). A clamped placement uses it to keep the tail from running
+    /// through its own card; the least-overlap tie-break uses it to prefer, between identical
+    /// windows, the side whose tail can honestly point at the anchor.
+    /// </summary>
+    private static bool AnchorBeyondTailEdge(NoteSide side, Rect card, Point anchor) => side switch
+    {
+        // Card below the anchor: the tail sits on the card's TOP edge and points up.
+        NoteSide.Below => anchor.Y <= card.Top,
+        // Card above the anchor: the tail sits on the card's BOTTOM edge and points down.
+        NoteSide.Above => anchor.Y >= card.Bottom,
+        // Card right of the anchor: the tail sits on the card's LEFT edge and points left.
+        NoteSide.Right => anchor.X <= card.Left,
+        // Card left of the anchor: the tail sits on the card's RIGHT edge and points right.
+        _ => anchor.X >= card.Right,
+    };
 
     /// <summary>Clamps the tip's along-edge coordinate into the card inset by the base half-width
     /// plus a 4 DIP margin, so the triangle's base is always fully inside the card.</summary>

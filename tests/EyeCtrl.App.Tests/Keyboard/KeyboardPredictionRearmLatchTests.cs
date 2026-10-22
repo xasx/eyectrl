@@ -61,16 +61,18 @@ public class KeyboardPredictionRearmLatchTests
         public void Dispose() { Source.Dispose(); Window.Close(); }
     }
 
-    private static KeyboardLayout ShippedQwerty() =>
+    private static KeyboardLayout ShippedQwerty() => ShippedLayout("qwerty.json");
+
+    private static KeyboardLayout ShippedLayout(string file) =>
         KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json"));
+            "src", "EyeCtrl.App", "Resources", "Layouts", file));
 
     private static DwellDetector PredictionDetector(KeyboardWindow w) =>
         (DwellDetector)typeof(KeyboardWindow)
             .GetField("_predictionDwellDetector", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
 
-    private static Probe Open(Dictionary<string, int> words)
+    private static Probe Open(Dictionary<string, int> words, string layoutFile = "qwerty.json")
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var messenger = new WeakReferenceMessenger();
@@ -83,7 +85,7 @@ public class KeyboardPredictionRearmLatchTests
 
         var w = new KeyboardWindow();
         w.SetViewModel(vm);
-        w.LoadLayout(ShippedQwerty(), 1.0,
+        w.LoadLayout(ShippedLayout(layoutFile), 1.0,
             keyDwellMs: KeyDwellMs, predictionDwellMs: PredictionDwellMs, cooldownMs: CooldownMs);
 
         var content = (FrameworkElement)w.Content;
@@ -395,6 +397,92 @@ public class KeyboardPredictionRearmLatchTests
             Feed(probe, reloadedSlot, 933_000, 2_000_000);
 
             Check.WithCustomMessage("a layout reload left the slot latched across the session")
+                .That(picks).HasSize(2);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- S1: a pick from an auto-return sub-layout (accents) latches the slot's real rect ----------
+
+    /// <summary>The rect <see cref="PredictionBarRearmLatch"/> remembered for a latched slot, or null.</summary>
+    private static PhysicalRect? RememberedRect(Probe probe, string slotId)
+    {
+        var latch = typeof(KeyboardWindow)
+            .GetField("_predictionRearm", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(probe.Window)!;
+        var slots = (System.Collections.IDictionary)latch.GetType()
+            .GetField("_slots", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(latch)!;
+        var state = slots[slotId]!;
+        return (PhysicalRect?)state.GetType().GetField("RememberedRect")!.GetValue(state);
+    }
+
+    /// <summary>The keyboard on its accents sub-layout with "hel" typed: the bar offers help/hello/helmet.</summary>
+    private static Probe OpenOnAccents(Dictionary<string, int> words)
+    {
+        var probe = Open(words, "qwertz.json");
+        probe.Vm.SwitchSubLayout("accents");
+        Check.WithCustomMessage("arrange: the keyboard must be on the accents sub-layout")
+            .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+        probe.Vm.CurrentInput = "hel";
+        probe.Window.UpdatePredictions();
+        probe.Content.UpdateLayout();
+        return probe;
+    }
+
+    [StaFact]
+    public void APickFromTheAccentsSubLayout_LatchesTheSlotsRealRect_NotNull()
+    {
+        // HandlePredictionSelected ends in AutoReturnIfNeeded: the swap back to the letters rebuilds the keys
+        // and clears the prediction targets. The rect lookup that follows it found nothing, so the latch
+        // remembered NO geometry. The lookup must run BEFORE the selection.
+        var probe = OpenOnAccents(new Dictionary<string, int> { ["hello"] = 300, ["helmet"] = 200, ["help"] = 100 });
+        try
+        {
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_2");
+            var expectedRect = probe.PredictionDetector.Targets.First(t => t.Id == "pred_2").Bounds;
+
+            probe.Window.OnPredictionDwelled("pred_2");
+
+            Check.WithCustomMessage("the pick did not leave the accents sub-layout - the fixture is wrong")
+                .That(probe.Vm.ActiveSubLayoutId).IsNotEqualTo("accents");
+            var remembered = RememberedRect(probe, "pred_2");
+            Check.WithCustomMessage("a pick from the accents sub-layout latched the slot with a NULL rect")
+                .That(remembered).IsNotNull();
+            Check.That(remembered!.Value.Contains(slot)).IsTrue();
+            Check.That(remembered).IsEqualTo(expectedRect);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void PickedSlotFromTheAccents_WithAnEmptyAfterPickBar_ReArmsAfterLeavingOntoTheKeys()
+    {
+        // The P2 shape (an absent slot after a real leave onto the keys re-arms), picked from the accents
+        // sub-layout: with a null remembered rect absence counts as "still inside" for ever, so the slot
+        // stayed dead.
+        var probe = OpenOnAccents(new Dictionary<string, int> { ["hello"] = 300, ["helmet"] = 200, ["help"] = 100 });
+        try
+        {
+            var picks = CollectPicks(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_2");
+            var keys = KeyPoint(probe.Window);
+
+            Feed(probe, slot, 100_000, 800_000);                                // picks "help" from the accents
+            Check.WithCustomMessage("the first pick did not happen - the fixture is wrong").That(picks).HasSize(1);
+            Check.WithCustomMessage("the after-pick bar was not empty - the fixture is wrong")
+                .That(probe.Vm.GetSuggestionsWithContext()).IsEmpty();
+
+            Feed(probe, keys, 833_000, 1_400_000);                              // >= 120 ms on the keys, slot absent
+            probe.Vm.SwitchSubLayout("accents");
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            PlaceTargets(probe);
+            Feed(probe, slot, 1_433_000, 2_500_000);
+
+            Check.WithCustomMessage(
+                    "the slot stayed latched after a real leave onto the keys: a pick from the accents left it dead")
                 .That(picks).HasSize(2);
         }
         finally { probe.Dispose(); }

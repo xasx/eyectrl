@@ -21,3 +21,9 @@ using EyeCtrl.Tests.TestSupport;
 // "StringTable Tests (App)" exclusive collection.
 [assembly: StringTableRestore]
 [assembly: StringTableObserver]
+
+// The RUNTIME half of the no-visible-window guard: fails the test after which any window of this process became really
+// visible (visible, not cloaked, on a monitor, not prepared by InvisibleTestWindow) — including windows that PRODUCTION
+// code opened, which the static scan (NoVisibleTestWindowGuardTests) cannot see. See RuntimeWindowMonitor; presence is
+// pinned by RuntimeWindowGuardTests.TheCheck_IsInstalledOnThisAssembly.
+[assembly: EyeCtrl.App.Tests.Fixtures.RuntimeVisibleWindowCheck]

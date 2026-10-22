@@ -587,6 +587,8 @@ internal static class NoteLayout
         {
             NotePlacement? best = null;
             double bestDistance = double.MaxValue;
+            Rect bestRect = default;
+            bool bestTailFaces = false;
             foreach (var side in Candidates(preferred, exclude))
             {
                 var window = WindowFor(anchorDip, side, cardDip);
@@ -611,9 +613,23 @@ internal static class NoteLayout
                     if (!ClearsEvery(candidate, avoidDip))
                         continue;
                     double distance = DistanceToRect(anchorDip, displaced);
-                    if (best is not null && distance >= bestDistance)
+                    bool tailFaces = AnchorBeyondTailEdge(side, CardFor(side, displaced, cardDip), anchorDip);
+                    if (best is not null && displaced == bestRect && tailFaces != bestTailFaces)
+                    {
+                        // The same window offered by two sides: the one whose tail can honestly
+                        // point at the anchor wins (T6 fixup-12), even though the rects tie. This
+                        // is where real cards are decided - the least-overlap block is only
+                        // reached when nothing clears at all.
+                        if (!tailFaces)
+                            continue;
+                    }
+                    else if (best is not null && distance >= bestDistance)
+                    {
                         continue; // a tie keeps the earlier side
+                    }
                     bestDistance = distance;
+                    bestRect = displaced;
+                    bestTailFaces = tailFaces;
                     best = Build(side, displaced, cardDip, anchorDip, clamped: true);
                 }
             }

@@ -512,7 +512,8 @@ public class NoteKeyboardAvoidanceTests
         var sizes = new[] { 18.0, 28.0, 48.0 };
         var sides = new[] { NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above };
         var avoidSets = new[] { Array.Empty<Rect>(), new[] { KeyboardTop }, new[] { KeyboardBottom } };
-        int tails = 0, changedDisplay = 0, changedEdit = 0;
+        int tails = 0, keptDisplay = 0, keptEdit = 0, removedDisplay = 0, removedEdit = 0;
+        int addedDisplay = 0, addedEdit = 0, movedDisplay = 0, movedEdit = 0;
         var failures = new List<string>();
 
         for (double x = 0; x <= 1920; x += 40)
@@ -524,35 +525,48 @@ public class NoteKeyboardAvoidanceTests
                     var cardSize = new Size(
                         NoteLayout.CardWidthDip(size),
                         NoteLayout.CardHeightDip(size, 0, WorkArea.Height));
+                    foreach (var preferred in sides)
                     for (int variant = 0; variant < avoidSets.Length + 1; variant++)
                     {
                         bool edit = variant > 0;
                         var avoid = variant == 0 ? Array.Empty<Rect>() : avoidSets[variant - 1];
-                        var raw = NoteLayout.Place(Phys(x, y), NoteSide.Right, cardSize, WorkArea, avoid, Scale,
+                        var raw = NoteLayout.Place(Phys(x, y), preferred, cardSize, WorkArea, avoid, Scale,
                             exclude: null, allowDisplaced: edit,
                             topGrowthDip: edit ? NoteLayout.TagProtrusionDip(size) : 0.0)!;
                         var drawn = NoteLayout.WithTagClearance(raw, size);
 
                         var triangle = NoteLayout.TailTriangle(drawn);
+                        var anchorPoint = new Point(x, y);
+                        var oldCandidates = OldTailCandidates(drawn, anchorPoint);
+                        bool oldHad = oldCandidates.Any(o => o is not null);
                         if (triangle is null)
+                        {
+                            // T6 fixup-12: a REMOVED tail counts too - counting only the drawn
+                            // ones hid exactly what this fix does.
+                            if (oldHad) { if (edit) removedEdit++; else removedDisplay++; }
                             continue;
+                        }
                         tails++;
                         var tip = new Point(drawn.Window.X + triangle[0].X, drawn.Window.Y + triangle[0].Y);
                         if (!TipPointsOutOfTheCard(drawn, tip))
                         {
-                            failures.Add($"({x}, {y}) {size} DIP {(edit ? "Edit" : "Display")}: tip {tip} vs card {drawn.Card} side {drawn.Side}");
+                            failures.Add($"({x}, {y}) {size} DIP {(edit ? "Edit" : "Display")} {preferred}: tip {tip} vs card {drawn.Card} side {drawn.Side}");
                             continue;
                         }
 
-                        // Byte-identity: the pre-fix code produced one of two tail formulas
-                        // (the clamped nearest-point and the clean anchor-offset). Where the new
-                        // tail still equals one of them, nothing moved; where it is gone or
-                        // different, the old tail was the wedge this fix removes.
-                        var anchorPoint = new Point(x, y);
-                        var oldCandidates = OldTailCandidates(drawn, anchorPoint);
+                        // Honest tail census against the pre-fix formulas: kept / added / moved.
                         if (drawn.TailTip is { } now && oldCandidates.Any(o => o is { } p && p == now))
-                            continue;
-                        if (edit) changedEdit++; else changedDisplay++;
+                        {
+                            if (edit) keptEdit++; else keptDisplay++;
+                        }
+                        else if (!oldHad)
+                        {
+                            if (edit) addedEdit++; else addedDisplay++;
+                        }
+                        else
+                        {
+                            if (edit) movedEdit++; else movedDisplay++;
+                        }
                     }
                 }
             }
@@ -561,27 +575,36 @@ public class NoteKeyboardAvoidanceTests
         Check.WithCustomMessage("the sweep must have drawn tails")
             .That(tails).IsStrictlyGreaterThan(0);
         Check.WithCustomMessage(
-                $"{failures.Count} of {tails} tails do not point out of the card (changed Display {changedDisplay}, Edit {changedEdit}):`n  " + string.Join("`n  ", failures.Take(10)))
+                $"{failures.Count} of {tails} tails do not point out of the card. "
+                + $"Display: kept {keptDisplay}, removed {removedDisplay}, added {addedDisplay}, moved {movedDisplay}. "
+                + $"Edit: kept {keptEdit}, removed {removedEdit}, added {addedEdit}, moved {movedEdit}.")
+            .That(tails).IsStrictlyGreaterThan(0);
+        Check.WithCustomMessage(
+                $"{failures.Count} tails do not point out of the card:\n  " + string.Join("\n  ", failures.Take(10)))
             .That(failures).IsEmpty();
     }
 
     [Fact]
     public void TheBottomEdgeAnchor_At28_KeepsItsTailOutOfTheCard()
     {
-        // The defect's own case: the Below and Above own-clamps tie at the same rect, and the
-        // anchor (820, 1140) ends up beneath the card. Either no tail, or one whose tip leaves
-        // the card on its own side, pointing at the anchor - never a wedge across the card.
+        // The defect's own case at a REACHABLE height (review-11 item 2): card h340 at 28, the
+        // real bottom-edge Edit note. Its Below and Above own-clamps are the SAME window, and
+        // pass 2's identical-window tie-break now prefers the side whose tail can honestly point
+        // at the anchor: Above, tail pointing down at the anchor.
         var keyboard = new Rect(251, 0, 1418, 575);
-        var card = new Size(NoteLayout.CardWidthDip(28), 480);
+        var card = new Size(NoteLayout.CardWidthDip(28), 340);
         var raw = NoteLayout.Place(Phys(820, 1140), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
             exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(28))!;
         var drawn = NoteLayout.WithTagClearance(raw, 28);
 
-        if (drawn.TailTip is { } tip)
-            Check.WithCustomMessage($"a visible tail must point OUT of the card on its own side (tip {tip}, card {drawn.Card}, side {drawn.Side})")
-                .That(TipPointsOutOfTheCard(drawn, tip)).IsTrue();
-        else
-            Check.That(drawn.TailTip).IsNull(); // no tail is the honest answer here
+        Check.WithCustomMessage($"the anchor's own side must win the identical-window tie (got {drawn.Side})")
+            .That(drawn.Side).IsEqualTo(NoteSide.Above);
+        Check.WithCustomMessage("the tail must exist").That(drawn.TailTip).IsNotNull();
+        var tip = drawn.TailTip!.Value;
+        Check.WithCustomMessage($"the tail must point DOWN at the anchor (tip {tip}, card {drawn.Card})")
+            .That(tip.Y).IsGreaterOrEqualThan(drawn.Card.Bottom - 0.5);
+        Check.WithCustomMessage("and sit on the anchor's own x")
+            .That(tip.X).IsCloseTo(820, 1e-6);
     }
 
     /// <summary>Whether a tail tip leaves the card on its side's tail edge (screen coordinates).</summary>

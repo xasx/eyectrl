@@ -94,6 +94,9 @@ public class RingArmLogTests
         Check.That(RingArmLog.PinLine(atOffer: false, new PhysicalPoint(1234.6, 998.4), 0))
             .IsEqualTo("Ring pin (settle) at=(1235,998) dist=0");
 
+        Check.That(RingArmLog.IgnoredPinLine(atOffer: false, new PhysicalPoint(1234.6, 998.4)))
+            .IsEqualTo("Ring pin (settle) at=(1235,998) ignored=near-offer");
+
         Check.That(RingArmLog.ReleaseLine(RingReleaseCause.RunEnd, 123.6))
             .IsEqualTo("Ring release (run-end) dist=124");
         Check.That(RingArmLog.ReleaseLine(RingReleaseCause.OfferClosed, 7.2))
@@ -142,6 +145,50 @@ public class RingArmLogTests
         Check.That(log).HasSize(2);
         Check.That(log[0]).IsEqualTo("Ring pin (settle) at=(1000,1000) dist=0");
         Check.That(log[1].StartsWith("Ring release (run-end) dist=", StringComparison.Ordinal)).IsTrue();
+    }
+
+    [Fact]
+    public void TheLog_WritesTheIgnoredNearOfferLine_OnlyForTheNearMissRefusal()
+    {
+        // GL1: a near-miss settle the ring ignores (D) logs `Ring pin (settle) at=(x,y)
+        // ignored=near-offer`. Every other refusal stays silent: a pin on P's side of the zone applies
+        // and logs the normal line; a pin refused only because no fixation is up writes nothing.
+        // Mutant ML1: drop the reason from the VM's event -> no line.
+        var log = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger)
+        {
+            RingHoldPolicy = RingHoldPolicy.HybridFreeze,
+        };
+        var im = new InteractionManager();
+        using var sink = new RingArmLog(im, vm, log.Add);
+        im.PinRing += p => messenger.Send(new PinRingMessage(p));
+        im.StateChanged += s => messenger.Send(new StateChangedMessage(s));
+
+        var offerPoint = new PhysicalPoint(300, 300);
+        var button = new PhysicalPoint(600, 600);
+        messenger.Send(new GazeCursorMovedMessage(offerPoint, 30_000));
+        messenger.Send(new ShowActivationButtonMessage(button, 150, offerPoint, 80));
+
+        // No fixation up: a near-miss pin is refused by the state rule, not by D: silent.
+        var nearMiss = new PhysicalPoint(800, 600);                // 200 px from B, 583 from P
+        messenger.Send(new PinRingMessage(nearMiss));
+        Check.That(log).IsEmpty();
+
+        im.OnFixationStarted(nearMiss);                            // the state reaches the VM: Fixation
+        im.OnFixationSettled(nearMiss);                            // Core's settle pin: D ignores it
+
+        Check.That(log).ContainsExactly("Ring pin (settle) at=(800,600) ignored=near-offer");
+
+        // A settle on P's side of the zone (225 px from B, 199 px from P) applies as before.
+        im.OnFixationEnded();
+        log.Clear();
+        var swallowed = new PhysicalPoint(441, 441);
+        im.OnFixationStarted(swallowed);
+        im.OnFixationSettled(swallowed);
+
+        Check.That(log).HasSize(1);
+        Check.That(log[0].StartsWith("Ring pin (settle) at=(441,441) dist=", StringComparison.Ordinal)).IsTrue();
     }
 
     [Fact]

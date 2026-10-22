@@ -80,6 +80,13 @@ internal sealed class RingArmLog : IDisposable
             "Ring pin ({0}) at=({1:0},{2:0}) dist={3:0}",
             atOffer ? "offer" : "settle", target.X, target.Y, dist);
 
+    /// <summary>A settle pin the ring refused because it is a near miss of the live offer (no
+    /// distance: nothing moved). The same coordinates as <see cref="PinLine"/>.</summary>
+    internal static string IgnoredPinLine(bool atOffer, PhysicalPoint target) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "Ring pin ({0}) at=({1:0},{2:0}) ignored=near-offer",
+            atOffer ? "offer" : "settle", target.X, target.Y);
+
     /// <summary>A release, from the drawn ring to the gaze it snaps to.</summary>
     internal static string ReleaseLine(RingReleaseCause cause, double dist) =>
         string.Format(CultureInfo.InvariantCulture,
@@ -123,6 +130,8 @@ internal sealed class RingArmLog : IDisposable
         _lastPinAtOffer = _pinOrigins.TryDequeue(out var origin) && origin;
         if (e.Applied)
             _info(PinLine(_lastPinAtOffer, e.Target, e.Dist));
+        else if (e.IgnoredNearOffer)
+            _info(IgnoredPinLine(_lastPinAtOffer, e.Target));
     }
 
     private void OnReleaseProcessed(RingReleaseProcessedEvent e)

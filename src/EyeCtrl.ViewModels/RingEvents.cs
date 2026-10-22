@@ -72,9 +72,12 @@ public enum RingReleaseCause
 /// <summary>
 /// One processed <c>PinRingMessage</c>, applied or refused — the look build's event log uses the
 /// applied ones (with <see cref="Dist"/>) and maps the pair's Core-side origin from its own
-/// subscription. <see cref="Dist"/> is unused when not applied.
+/// subscription. <see cref="Dist"/> is unused when not applied. <see cref="IgnoredNearOffer"/> is set
+/// only when the pin was refused because it is a near-miss settle of a live offer (the VM's refusal D),
+/// not for a hold-suppressed or non-fixation refusal.
 /// </summary>
-public readonly record struct RingPinProcessedEvent(PhysicalPoint Target, double Dist, bool Applied);
+public readonly record struct RingPinProcessedEvent(PhysicalPoint Target, double Dist, bool Applied,
+    bool IgnoredNearOffer = false);
 
 /// <summary>
 /// One processed <c>ReleaseRingMessage</c>. In the shipped hold the release happens at the message

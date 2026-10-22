@@ -56,6 +56,13 @@ public class CursorCircleViewModelHybridTests
         public void Release() => Messenger.Send(new ReleaseRingMessage());
         public void Offer(PhysicalPoint button, double hitRadiusPx) =>
             Messenger.Send(new ShowActivationButtonMessage(button, hitRadiusPx));
+        /// <summary>An offer as the adapter publishes it: B, the hit radius, P and the engine's effective R.</summary>
+        public void OfferAt(PhysicalPoint button, double hitRadiusPx, PhysicalPoint offerPoint,
+            double? fixationRadiusPx = R) =>
+            Messenger.Send(new ShowActivationButtonMessage(button, hitRadiusPx, offerPoint, fixationRadiusPx));
+
+        /// <summary>Lets <paramref name="micros"/> of sample time pass with no sample (the next frame lands later).</summary>
+        public void Gap(long micros) => _us += micros;
         public void OfferCloses() => Messenger.Send(new HideActivationButtonMessage());
         public void ExternalDwell(bool active) => Messenger.Send(new ExternalDwellActiveMessage(active));
 
@@ -269,18 +276,19 @@ public class CursorCircleViewModelHybridTests
     [Fact]
     public void Hybrid_SettlePin_InsideALiveOffersZone_IsIgnored()
     {
-        // GD1: a settle 200 px from B (inside hit 150 + R 80) while the offer lives: no pin, no
-        // glide; the ring keeps following. Mutant MD1: the zone check removed.
+        // GD1: a near-miss settle 200 px from B (inside hit 150 + R 80, nearer B than P) while the
+        // offer lives: no pin, no glide; the ring keeps following. Mutant MD1: the zone check removed.
         var rig = new Rig();
         var b = new PhysicalPoint(600, 600);
         rig.Frame(new PhysicalPoint(300, 300));
-        rig.Offer(b, hitRadiusPx: 150);
+        rig.OfferAt(b, hitRadiusPx: 150, new PhysicalPoint(300, 300));
         rig.State(InteractionState.Fixation);
 
-        rig.Pin(new PhysicalPoint(800, 600));                     // 200 px from B
+        rig.Pin(new PhysicalPoint(800, 600));                     // 200 px from B, 583 from P: a near miss
 
         Check.That(rig.Pins).HasSize(1);
         Check.That(rig.Pins[0].Applied).IsFalse();
+        Check.That(rig.Pins[0].IgnoredNearOffer).IsTrue();
         Check.That(rig.Vm.IsPinned).IsFalse();
         Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(300, 300));
 
@@ -298,7 +306,7 @@ public class CursorCircleViewModelHybridTests
         var rig = new Rig();
         var b = new PhysicalPoint(600, 600);
         rig.Frame(new PhysicalPoint(300, 300));
-        rig.Offer(b, hitRadiusPx: 150);
+        rig.OfferAt(b, hitRadiusPx: 150, new PhysicalPoint(300, 300));
         rig.State(InteractionState.Fixation);
 
         rig.Pin(new PhysicalPoint(900, 600));                     // 300 px from B
@@ -324,7 +332,7 @@ public class CursorCircleViewModelHybridTests
         var rig = new Rig(RingHoldPolicy.None);
         var b = new PhysicalPoint(600, 600);
         rig.Frame(new PhysicalPoint(300, 300));
-        rig.Offer(b, hitRadiusPx: 150);
+        rig.OfferAt(b, hitRadiusPx: 150, new PhysicalPoint(300, 300));
         rig.State(InteractionState.Fixation);
 
         rig.Pin(new PhysicalPoint(800, 600));                     // 200 px from B
@@ -525,6 +533,134 @@ public class CursorCircleViewModelHybridTests
         Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
         Check.That(rig.Vm.IsPinned).IsFalse();
         Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(2000, 1500));
+    }
+
+    [Fact]
+    public void Hybrid_SettlePin_OnPsSideOfTheZone_PinsAndGlidesAsToday()
+    {
+        // GD4: a settle inside the no-move zone but nearer P than B is the engine's "swallowed" one (the
+        // owner looking back at the target): the ring pins and glides as before. B=(600,600),
+        // P=(300,300) (424 px apart); the point 225 px from B toward P is 199 px from P. Mutant MD4:
+        // drop the nearer-B condition (ignore every in-zone settle).
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        var p = new PhysicalPoint(300, 300);
+        rig.Frame(p);
+        rig.OfferAt(b, hitRadiusPx: 150, p);
+        rig.State(InteractionState.Fixation);
+        var swallowed = new PhysicalPoint(600 - 225 / Math.Sqrt(2), 600 - 225 / Math.Sqrt(2));
+        Check.That(swallowed.DistanceTo(b)).IsCloseTo(225.0, 1e-9);                  // arrangement: in the zone (230)
+        Check.That(swallowed.DistanceTo(p)).IsStrictlyLessThan(swallowed.DistanceTo(b));   // ...and nearer P
+
+        rig.Pin(swallowed);
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+        Check.That(rig.Pins[^1].IgnoredNearOffer).IsFalse();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+    }
+
+    [Fact]
+    public void Hybrid_SettlePin_WithoutTheOffersPoint_IsNeverIgnored()
+    {
+        // A sender that does not carry P cannot tell a near miss from a swallowed settle: D stays off
+        // (today's pin), rather than guessing.
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(new PhysicalPoint(800, 600));                     // would be a near miss
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+    }
+
+    [Fact]
+    public void Hybrid_ZoneRadius_ComesFromTheOffersMessage_ForTheSlipAndForTheNearMissPin()
+    {
+        // GZ1: the engine's effective R (adaptation) rides the show message; the VM's settings say 80
+        // (zone 230) but the offer says R 40 (zone 190) or R 160 (zone 310). Both A's slip tolerance and
+        // D's near-miss ignore use the message's radius. Mutant MZ1: use the settings value.
+        var b = new PhysicalPoint(600, 600);
+        var p = new PhysicalPoint(300, 300);
+
+        // A, R 40 (zone 190): a slip 210 px from B is beyond the zone, so the unproven hold ends at once.
+        var narrow = new Rig();
+        narrow.Frame(p);
+        narrow.OfferAt(b, hitRadiusPx: 150, p, fixationRadiusPx: 40);
+        narrow.Frame(new PhysicalPoint(600, 600));                // freeze: 1 in-hit sample
+        narrow.Frame(new PhysicalPoint(810, 600));                // 210 px: beyond 190 (inside the settings' 230)
+        Check.That(narrow.HoldEnds).HasSize(1);
+        Check.That(narrow.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.Unproven);
+
+        // A, R 160 (zone 310): a slip 260 px from B is tolerated (the settings' 230 would end it).
+        var wide = new Rig();
+        wide.Frame(p);
+        wide.OfferAt(b, hitRadiusPx: 150, p, fixationRadiusPx: 160);
+        wide.Frame(new PhysicalPoint(600, 600));
+        wide.Frame(new PhysicalPoint(860, 600));                  // 260 px
+        Check.That(wide.HoldEnds).IsEmpty();
+        Check.That(wide.Vm.IsPinned).IsTrue();
+
+        // D, R 160: a near-miss settle 260 px from B (nearer B than P) is ignored; with R 40 it is
+        // outside the zone and pins.
+        var wideD = new Rig();
+        wideD.Frame(p);
+        wideD.OfferAt(b, hitRadiusPx: 150, p, fixationRadiusPx: 160);
+        wideD.State(InteractionState.Fixation);
+        wideD.Pin(new PhysicalPoint(860, 600));
+        Check.That(wideD.Pins[^1].Applied).IsFalse();
+
+        var narrowD = new Rig();
+        narrowD.Frame(p);
+        narrowD.OfferAt(b, hitRadiusPx: 150, p, fixationRadiusPx: 40);
+        narrowD.State(InteractionState.Fixation);
+        narrowD.Pin(new PhysicalPoint(790, 600));                 // 190 px: inside the settings' zone, on the zone edge of 190
+        Check.That(narrowD.Pins[^1].Applied).IsFalse();           // exactly at 190: still in
+        narrowD.Pin(new PhysicalPoint(800, 600));                 // 200 px: beyond 190 (inside the settings' 230)
+        Check.That(narrowD.Pins[^1].Applied).IsTrue();
+    }
+
+    [Fact]
+    public void Hybrid_UnprovenSlip_ExactlyAtTheZoneRadius_IsStillTolerated()
+    {
+        // F5: ">" means beyond: a sample at exactly hit 150 + R 80 = 230 px keeps the hold; one a pixel
+        // further ends it. Mutant MX2: ">" -> ">=".
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.Frame(new PhysicalPoint(600, 600));                   // freeze: 1 in-hit sample
+
+        rig.Frame(new PhysicalPoint(830, 600));                   // exactly 230 px
+
+        Check.That(rig.HoldEnds).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        rig.Frame(new PhysicalPoint(831, 600));                   // 231 px
+
+        Check.That(rig.HoldEnds).HasSize(1);
+        Check.That(rig.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.Unproven);
+    }
+
+    [Fact]
+    public void Hybrid_Grace_ExactlyFiveHundredMs_Ends_AndOneMicrosecondLessDoesNot()
+    {
+        // F5: the grace is ">= 500 ms outside the hit area". The first outside sample is at t0; a sample
+        // at exactly t0 + 500 ms ends the hold, one at t0 + 499.999 ms does not. Mutant MX3: ">=" -> ">".
+        foreach (var (gapUs, ends) in new[] { (469_999L, false), (470_000L, true) })
+        {
+            var rig = new Rig();
+            var b = new PhysicalPoint(600, 600);
+            rig.Frame(new PhysicalPoint(300, 300));
+            rig.Offer(b, hitRadiusPx: 150);
+            rig.Frame(new PhysicalPoint(600, 600));               // freeze
+            rig.Frame(new PhysicalPoint(790, 600));               // t0: the first sample outside
+            rig.Gap(gapUs);                                       // the next frame lands at t0 + gap + 30 ms
+            rig.Frame(new PhysicalPoint(790, 600));
+
+            Check.WithCustomMessage($"gap {gapUs} us").That(rig.HoldEnds.Count).IsEqualTo(ends ? 1 : 0);
+        }
     }
 
     [Fact]

@@ -52,6 +52,9 @@ public class RingArmLookOracleTests
         yield return ("plain chain (visible swallowed settle)", ScriptedSamples(withButtonVisit: false));
         yield return ("dwell chain (fire, 2.33 s hide, reappear)", ScriptedSamples(withButtonVisit: true));
         yield return ("freeze chain (a following ring reaches the button)", ScriptedFromElsewhere());
+        yield return ("slip chain, return (unproven slip inside the zone, back in the hit area)", ScriptedSlips(SlipKind.Return));
+        yield return ("slip chain, grace (unproven slip inside the zone for 660 ms)", ScriptedSlips(SlipKind.Grace));
+        yield return ("slip chain, fly-through (unproven exit beyond the zone)", ScriptedSlips(SlipKind.FlyThrough));
     }
 
     [Fact]
@@ -222,7 +225,7 @@ public class RingArmLookOracleTests
         im.ReleaseRing += () => { onRelease?.Invoke(); messenger?.Send(new ReleaseRingMessage()); };
         im.StateChanged += s => messenger?.Send(new StateChangedMessage(s));
         im.ActivationOfferShown += o =>
-            messenger?.Send(new ShowActivationButtonMessage(o.Button, o.HitRadiusPx));
+            messenger?.Send(new ShowActivationButtonMessage(o.Button, o.HitRadiusPx, o.Point, engine.EffectiveFixationRadiusPixels));
         im.ActivationOfferClosed += () => messenger?.Send(new HideActivationButtonMessage());
         ActivationOffer? pendingFire = null;
         im.ActivationOfferFired += (o, _) => pendingFire = o;

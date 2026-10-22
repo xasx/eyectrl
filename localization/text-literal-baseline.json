@@ -412,6 +412,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring pin ({0}) at=({1:0},{2:0}) ignored=near-offer\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring release ({0}) dist={1:0}\"",
       "Count": 1
     },
@@ -448,7 +453,7 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"offer\"",
-      "Count": 1
+      "Count": 2
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -463,7 +468,7 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"settle\"",
-      "Count": 1
+      "Count": 2
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",

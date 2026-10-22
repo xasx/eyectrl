@@ -280,8 +280,11 @@ public class GazeEngineAdapter : IDisposable
         _logger.LogInformation(
             "Offer shown #{Id} P=({Px:F0},{Py:F0}) B=({Bx:F0},{By:F0})",
             offer.Id, offer.Point.X, offer.Point.Y, offer.Button.X, offer.Button.Y);
+        // P and the engine's effective R ride along for the ring: its near-miss rule and no-move zone
+        // are the engine's, so they are read here (the gaze thread), not from the baseline setting.
+        double fixationRadiusPx = _gazeEngine.EffectiveFixationRadiusPixels;
         _dispatcher.BeginInvoke(() => _messenger.Send(
-            new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx)));
+            new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx, offer.Point, fixationRadiusPx)));
     }
 
     private void OnActivationOfferClosed()

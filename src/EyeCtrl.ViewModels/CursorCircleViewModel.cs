@@ -96,6 +96,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private bool _offerLive;
     private PhysicalPoint _offerCenter;
     private double _offerHitRadiusPx;
+    // The offer's P and the engine's effective fixation radius R, both from the show message; null when
+    // the sender did not carry them (then D never fires, and the zone falls back to the baseline setting).
+    private PhysicalPoint? _offerPoint;
+    private double? _offerFixationRadiusPx;
     private long _lastFrameUs;
     // The last point actually drawn, across BOTH channels (Position and the glide's MoveTo): the
     // freeze stops the ring here, before the current sample's follow applies.
@@ -170,7 +174,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// <para>
     /// Under <see cref="RingHoldPolicy.HybridFreeze"/> a pin while holding or approaching is ignored:
     /// "while holding, settles and run ends are ignored, so there is no re-pin and no snap". It is
-    /// likewise ignored while an offer is live and the point lies inside its no-move zone.
+    /// likewise ignored while an offer is live and the point is a near miss: inside its no-move zone
+    /// and nearer B than P.
     /// </para>
     /// </summary>
     public void Receive(PinRingMessage message)
@@ -179,16 +184,23 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // release/exit that arrives before this message (F4's race) refuses the pin outright.
         bool holdSuppressed = RingHoldPolicy == RingHoldPolicy.HybridFreeze
             && (_holding || _approachUntilUs is not null);
-        // A settle inside a live offer's no-move zone (a near miss or swallowed settle next to the
-        // button) must not glide the ring toward it; the ring keeps following or holding.
+        // A NEAR-MISS settle (inside a live offer's no-move zone AND strictly nearer B than P: the
+        // engine's own NearMiss rule, ActivationOfferEngine.cs:452) must not glide the ring toward it;
+        // the ring keeps following or holding. A settle on P's side of the zone is the engine's
+        // "swallowed" pending re-offer (the owner looking back at the target): it pins as before.
         bool nearOffer = RingHoldPolicy == RingHoldPolicy.HybridFreeze
             && _offerLive
-            && message.Position.DistanceTo(_offerCenter)
-                <= _offerHitRadiusPx + _settings.Dwell.FixationRadiusPixels;
+            && _offerPoint is { } offerPoint
+            && message.Position.DistanceTo(_offerCenter) <= NoMoveZonePx
+            && message.Position.DistanceTo(_offerCenter) < message.Position.DistanceTo(offerPoint);
         if (holdSuppressed || nearOffer || _lastState != InteractionState.Fixation)
         {
             // Refused, but still one record: the look's log pairs every Core pin with its message.
-            RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, 0, Applied: false));
+            // D is named as the reason only where it is what decided: a hold or a non-fixation state
+            // would have refused the pin anyway.
+            bool decidedByNearOffer = nearOffer && !holdSuppressed && _lastState == InteractionState.Fixation;
+            RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, 0, Applied: false,
+                IgnoredNearOffer: decidedByNearOffer));
             return;
         }
 
@@ -266,7 +278,15 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         _offerLive = true;
         _offerCenter = message.ButtonCenter;
         _offerHitRadiusPx = message.HitRadiusPx;
+        _offerPoint = message.OfferPoint;
+        _offerFixationRadiusPx = message.FixationRadiusPx;
     }
+
+    /// <summary>The live offer's no-move zone around B, in physical px: the hit radius plus the
+    /// engine's effective fixation radius R from the show message (the engine's own zone,
+    /// ActivationOfferEngine.cs:450), or the baseline setting where the message did not carry it.</summary>
+    private double NoMoveZonePx =>
+        _offerHitRadiusPx + (_offerFixationRadiusPx ?? _settings.Dwell.FixationRadiusPixels);
 
     /// <summary>The live offer went: a hold ends with its release (the <c>offer-closed</c> hold end),
     /// and an approach in flight is cleared and released.</summary>
@@ -296,7 +316,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         var gaze = message.Position;
         long ts = message.Frame.TimestampMicroseconds;
         _lastFrameUs = ts;
-        double noMoveZonePx = _offerHitRadiusPx + _settings.Dwell.FixationRadiusPixels;
+        double noMoveZonePx = NoMoveZonePx;
 
         if (_pendingRunEndRelease)
         {

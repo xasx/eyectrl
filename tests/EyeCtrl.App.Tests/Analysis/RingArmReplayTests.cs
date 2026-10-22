@@ -354,9 +354,12 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         model.Release();
                         break;
                     case Kind.Settled when spec.Pinning is Pinning.RunOnly or Pinning.Hybrid:
-                        // The hybrid ignores a settle inside a live offer's no-move zone (near miss).
+                        // The hybrid ignores a NEAR-MISS settle of a live offer: inside its no-move zone and
+                        // strictly nearer B than P (the engine's NearMiss rule). A swallowed settle (nearer
+                        // P) pins as before.
                         bool nearOffer = hybrid && offer is { } so
-                            && e.Point.DistanceTo(so.Button) <= so.HitRadiusPx + radiusPx;
+                            && e.Point.DistanceTo(so.Button) <= so.HitRadiusPx + radiusPx
+                            && e.Point.DistanceTo(so.Button) < e.Point.DistanceTo(so.Point);
                         if (!holding && approachUntilUs is null && !nearOffer) model.Pin(e.Point);
                         break;
                     case Kind.State:
@@ -705,6 +708,52 @@ public class RingArmReplayTests(ITestOutputHelper output)
         return samples;
     }
 
+    internal enum SlipKind { Return, Grace, FlyThrough }
+
+    /// <summary>The slip chains: the freeze chain's offer (P = (2400, 800), B ≈ (2181, 1019)), then a brief
+    /// look at the button (2 samples in the hit area, so the hold is still unproven) and a slip out of the
+    /// hit area: <see cref="SlipKind.Return"/> 190 px from B (inside the 230-px no-move zone) for 180 ms,
+    /// back to B and out again; <see cref="SlipKind.Grace"/> 190 px from B for 660 ms, past the grace;
+    /// <see cref="SlipKind.FlyThrough"/> 260 px from B, beyond the zone. The edge-tolerant hold (A) decides
+    /// each differently. Deterministic (seeded).</summary>
+    internal static List<GazePoint> ScriptedSlips(SlipKind kind)
+    {
+        var samples = new List<GazePoint>();
+        long us = 1_000_000;
+        var rng = new Random(13);
+        void At(double x, double y, int count)
+        {
+            for (int i = 0; i < count; i++, us += 30_000)
+                samples.Add(new GazePoint(x + rng.NextDouble() * 4 - 2, y + rng.NextDouble() * 4 - 2, us, true));
+        }
+        void Hold(double x, double y, int ms) => At(x, y, ms / 30);
+
+        // Perpendicular to the P-B line, so the slip point is much nearer B than P (a near miss).
+        const double bx = 2181, by = 1019, step = 0.7071067811865476;
+        (double X, double Y) Slip(double d) => (bx + d * step, by + d * step);
+
+        Hold(2400, 800, 1200);
+        Hold(1700, 1500, 240);
+        At(bx, by, 2);
+        switch (kind)
+        {
+            case SlipKind.Return:
+                At(Slip(190).X, Slip(190).Y, 6);
+                At(bx, by, 4);
+                At(Slip(190).X, Slip(190).Y, 5);
+                break;
+            case SlipKind.Grace:
+                At(Slip(190).X, Slip(190).Y, 22);
+                break;
+            default:
+                At(Slip(260).X, Slip(260).Y, 6);
+                break;
+        }
+
+        Hold(1000, 1700, 900);
+        return samples;
+    }
+
     [Fact]
     public void Hybrid_FreezesAFollowingRing_WhenTheGazeReachesTheButtonFromElsewhere()
     {
@@ -774,7 +823,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
     /// publish), and a <see cref="ReleaseRingMessage"/> on every exit from Fixation, before its
     /// <see cref="StateChangedMessage"/>. Nothing from the offer lifecycle pins or releases.</item>
     /// </list>
-    /// Every arm also gets the offer's <see cref="ShowActivationButtonMessage"/> (B, hit radius) and
+    /// Every arm also gets the offer's <see cref="ShowActivationButtonMessage"/> (B, hit radius, P, R) and
     /// <see cref="HideActivationButtonMessage"/>, the <see cref="StateChangedMessage"/>s and the
     /// <see cref="GazeCursorMovedMessage"/> per sample. <paramref name="afterSample"/> runs once each
     /// sample's messages are delivered. The hybrid's hold is NOT synthesized here: it is the VM's job.
@@ -808,7 +857,8 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         messenger.Send(new StateChangedMessage(e.State));
                         break;
                     case Kind.OfferShown:
-                        messenger.Send(new ShowActivationButtonMessage(e.Offer!.Button, e.Offer.HitRadiusPx));
+                        messenger.Send(new ShowActivationButtonMessage(
+                            e.Offer!.Button, e.Offer.HitRadiusPx, e.Offer.Point, trace.Config.RadiusPx));
                         break;
                     case Kind.OfferClosed:
                         messenger.Send(new HideActivationButtonMessage());

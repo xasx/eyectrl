@@ -56,6 +56,11 @@ public class GazeEngineAdapterOfferTests
             .That(captured!.HitRadiusPx).IsEqualTo(LayoutConstants.ActivationButtonHitRadiusPx);
         Check.WithCustomMessage("B is placed clear of the hold, not on the fixation point")
             .That(captured.ButtonCenter.DistanceTo(P)).IsStrictlyGreaterThan(LayoutConstants.ActivationButtonHitRadiusPx + 90);
+        Check.WithCustomMessage("the message carries the offer's P for the ring's near-miss rule")
+            .That(captured.OfferPoint).IsNotNull();
+        Check.That(captured.OfferPoint!.Value.DistanceTo(P)).IsStrictlyLessThan(1.0);
+        Check.WithCustomMessage("the message carries the engine's effective fixation radius for the ring's no-move zone")
+            .That(captured.FixationRadiusPx).IsEqualTo(engine.EffectiveFixationRadiusPixels);
     }
 
     [StaFact]

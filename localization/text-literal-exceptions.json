@@ -1248,6 +1248,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring pin ({0}) at=({1:0},{2:0}) ignored=near-offer\"",
+      "Category": "log",
+      "Reason": "The Ring pin line's format for a near-miss settle the ring ignored -- a log-only line; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring release ({0}) dist={1:0}\"",
       "Category": "log",
       "Reason": "The Ring release line's format -- a log-only line the look's readout parses; never shown."

@@ -25,9 +25,12 @@ using Microsoft.Extensions.Logging;
 /// per-key saccade, restart count or likelihood: each of those either IS the key's position or
 /// leaks it (the tracker's bias field turns a pixel offset into a column; box sizes differ by one
 /// pixel per column at fractional display scales; a saccade class or a likelihood bit narrows the
-/// word). What remains is timing, the dock edge, which outer quarter of the box the gaze rested
-/// in (<c>edgeq</c>, the one class the edge-crowding rule needs), whether a word was open, and —
-/// on a separate keyed line — the hold-on time. The things a correction needs about the SLIPPED
+/// word). What remains is timing, the dock edge, whether a word was open, and — on a separate keyed
+/// line — the hold-on time. Which outer quarter of the box the gaze rested in is NOT on the line
+/// either (a per-letter class plus the tracker's bias field would let a reader narrow the word): it
+/// is only COUNTED, per dock edge, in one <c>KB-E1 edgeq</c> tally line (see <see cref="FlushEdgeTally"/>), and
+/// that line is written only once the edge has <see cref="EdgeTallyMinFires"/> dwells; smaller counts are
+/// carried to the edge's next show. The things a correction needs about the SLIPPED
 /// key are logged only when it is corrected (<see cref="RecordCorrection"/>, <see cref="RecordSlip"/>).
 /// Only non-text keys (Space, Backspace, Enter, modifiers, sub-layout switches, shortcuts) keep
 /// their position and id, because they do not spell anything. The recorder enforces all of this
@@ -62,6 +65,15 @@ public sealed class KeyboardE1Recorder
     /// <summary>A mode change reversed this soon counts as undone.</summary>
     public const int ModeUndoWindowMs = 5000;
 
+    /// <summary>
+    /// A dock edge's tally line is written only once its accumulated counts reach this many accepted
+    /// text-key dwells. A tally from a one-word show still narrows that word a little (a modelled
+    /// reader guesses the top word 10-15 % of the time against 7.9 % from the word's length alone);
+    /// below the minimum the counts are CARRIED to that edge's next show instead, in memory only, and
+    /// a leftover that never reaches it is dropped at shutdown, never written.
+    /// </summary>
+    public const int EdgeTallyMinFires = 20;
+
     private readonly ILogger? _logger;
     private readonly Func<long> _clockMs;
 
@@ -78,11 +90,15 @@ public sealed class KeyboardE1Recorder
     /// <param name="logger">The logger the lines go to; null makes every call a no-op.</param>
     /// <param name="clockMs">A monotonic millisecond clock; injected so tests are deterministic.</param>
     /// <param name="isSensitive">Whether a password-like field has focus; null means never.</param>
-    public KeyboardE1Recorder(ILogger? logger, Func<long>? clockMs = null, Func<bool>? isSensitive = null)
+    /// <param name="edgeTallyMinFires">The accepted text dwells an edge's tally needs before it is written
+    /// (<see cref="EdgeTallyMinFires"/>; tests pass a smaller number to exercise the line format).</param>
+    public KeyboardE1Recorder(ILogger? logger, Func<long>? clockMs = null, Func<bool>? isSensitive = null,
+        int edgeTallyMinFires = EdgeTallyMinFires)
     {
         _logger = logger;
         _clockMs = clockMs ?? MonotonicMs;
         IsSensitive = isSensitive;
+        _tallyMinFires = Math.Max(1, edgeTallyMinFires);
     }
 
     /// <summary>A recorder that records nothing.</summary>
@@ -180,12 +196,13 @@ public sealed class KeyboardE1Recorder
 
         if (IsIdentityFree(k.Class))
         {
+            CountEdgeQuarter(k.Edge, k.EdgeQuarter, abandon: false);
             Emit(
                 "KB-E1 key seq={Seq} ts={TsUs} cls={Class} sub={Sub} edge={Edge} winx={WinX} winy={WinY} " +
-                "winw={WinW} winh={WinH} movems={SinceMoveMs} edgeq={EdgeQ} sincekey={SinceKeyMs} " +
+                "winw={WinW} winh={WinH} movems={SinceMoveMs} sincekey={SinceKeyMs} " +
                 "dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs}",
                 seq, k.TimestampUs, k.Class, k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth,
-                k.WindowHeight, k.SinceWindowMoveMs, k.EdgeQuarter, sinceKey, k.EffectiveDwellMs,
+                k.WindowHeight, k.SinceWindowMoveMs, sinceKey, k.EffectiveDwellMs,
                 k.PenaltyApplied, k.Typing, k.BackspaceClass);
             return seq;
         }
@@ -228,9 +245,10 @@ public sealed class KeyboardE1Recorder
         if (Muted() || !Enabled) return;
         if (IsIdentityFree(a.Class))
         {
+            CountEdgeQuarter(a.Edge, a.EdgeQuarter, abandon: true);
             Emit(
-                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} edgeq={EdgeQ} sub={Sub} edge={Edge}",
-                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.EdgeQuarter, a.SubLayout, a.Edge);
+                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} sub={Sub} edge={Edge}",
+                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.SubLayout, a.Edge);
             return;
         }
         Emit(
@@ -306,6 +324,7 @@ public sealed class KeyboardE1Recorder
     /// <summary>An edge-bar button (<c>flip</c>/<c>close</c>); a Flip also feeds mode-undo.</summary>
     public void RecordEdge(string button, string edgeAfter, string edgeBefore)
     {
+        FlushEdgeTally();   // the tally so far belongs to the edge being left
         if (Enabled)
             Emit("KB-E1 edge button={Button} edge={Edge}", button, edgeAfter);
         if (button == "flip" && !Muted())
@@ -355,8 +374,102 @@ public sealed class KeyboardE1Recorder
         _shownAtMs = long.MinValue;
         _lastMode = null;
         _pickAwaitingUndo = false;
+        FlushEdgeTally();   // right BEFORE the hidden line, so a tally never spans two shows
         if (!Enabled) return;
         Emit("KB-E1 hidden cause={Cause} visiblems={VisibleMs}", cause, visibleMs);
+    }
+
+    // ---- the per-dock-edge tally (replaces a per-letter edge-quarter class) -------------------------
+
+    private static readonly string[] Quarters = ["-", "N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+    /// <summary>One dock edge's counters; they live across shows (in memory only) until written.</summary>
+    private sealed class EdgeTally
+    {
+        public readonly int[] Fires = new int[9];
+        public readonly int[] Aborts = new int[9];
+
+        public void Clear()
+        {
+            Array.Clear(Fires);
+            Array.Clear(Aborts);
+        }
+    }
+
+    private readonly Dictionary<string, EdgeTally> _tallies = new(StringComparer.Ordinal);
+    private readonly int _tallyMinFires;
+
+    /// <summary>The minimum this recorder applies (read-only; the production wiring test pins that the real view-model's is the default).</summary>
+    internal int EdgeTallyMinFiresInUse => _tallyMinFires;
+    private string _tallyEdge = "-";
+
+    /// <summary>
+    /// Counts one TEXT key's accepted dwell (or, with <paramref name="abandon"/>, an abandoned one) in the
+    /// outer quarter of its box the gaze rested in. Muted keys never get here (callers return first).
+    /// A dwell on another dock edge than the last one flushes the last edge's tally first (written only if
+    /// it has reached the minimum, otherwise carried).
+    /// </summary>
+    private void CountEdgeQuarter(string edge, string quarter, bool abandon)
+    {
+        if (!Enabled) return;
+        if (!string.Equals(edge, _tallyEdge, StringComparison.Ordinal))
+        {
+            FlushEdgeTally();
+            _tallyEdge = edge;
+        }
+        if (!_tallies.TryGetValue(edge, out var tally))
+            _tallies[edge] = tally = new EdgeTally();
+        var index = Array.IndexOf(Quarters, quarter);
+        (abandon ? tally.Aborts : tally.Fires)[index < 0 ? 0 : index]++;
+    }
+
+    /// <summary>
+    /// Writes the current dock edge's tally IF it has reached <see cref="EdgeTallyMinFires"/> accepted text
+    /// dwells, and then resets it; below the minimum the counts are carried over to that edge's next show
+    /// (the abandon counters ride along). Called right before the <c>hidden</c> line and, for the edge being
+    /// left, right before an edge-button line (a Flip), and when a dwell lands on another edge. The line
+    /// carries counts only:
+    /// <c>KB-E1 edgeq edge=top fires=F c=.. n=.. ne=.. e=.. se=.. s=.. sw=.. w=.. nw=.. aborts=A ac=.. an=.. …</c>
+    /// — <c>fires</c> is the number of accepted text-key dwells on that edge and <c>c</c>…<c>nw</c> split
+    /// them by outer quarter (<c>c</c> = the inner half, i.e. no outer quarter); <c>aborts</c> and
+    /// <c>ac</c>…<c>anw</c> do the same for text-class abandonments (below the activation).
+    /// </summary>
+    public void FlushEdgeTally() => FlushOne(_tallyEdge, final: false);
+
+    /// <summary>
+    /// The app is shutting down: writes every edge's tally that has reached the minimum, and DROPS the
+    /// rest. A leftover below <see cref="EdgeTallyMinFires"/> is never written (a short last show would
+    /// otherwise be the one tally that narrows a word). Idempotent: the accumulators are empty afterwards.
+    /// </summary>
+    public void FlushEdgeTalliesOnShutdown()
+    {
+        foreach (var edge in _tallies.Keys.OrderBy(e => e, StringComparer.Ordinal).ToList())
+            FlushOne(edge, final: true);
+    }
+
+    private void FlushOne(string edge, bool final)
+    {
+        if (!_tallies.TryGetValue(edge, out var tally)) return;
+        var fires = tally.Fires.Sum();
+        if (fires >= _tallyMinFires)
+        {
+            if (Enabled)
+            {
+                var f = tally.Fires;
+                var a = tally.Aborts;
+                Emit(
+                    "KB-E1 edgeq edge={Edge} fires={Fires} c={C} n={N} ne={NE} e={E} se={SE} s={S} sw={SW} w={W} nw={NW} " +
+                    "aborts={Aborts} ac={AC} an={AN} ane={ANE} ae={AE} ase={ASE} as={AS} asw={ASW} aw={AW} anw={ANW}",
+                    edge, fires, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8],
+                    tally.Aborts.Sum(), a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
+            }
+            tally.Clear();
+        }
+        else if (final)
+        {
+            tally.Clear();   // shutdown drops a leftover below the minimum, never writes it
+        }
+        // else: carried to this edge's next show
     }
 
     /// <summary>The mirror check's verdict: an outcome and lengths, never a string.</summary>

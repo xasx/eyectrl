@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Windows.Threading;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Services;
 using EyeCtrl.ViewModels;
@@ -50,5 +51,27 @@ public class KeyboardE1WiringTests
             .That(Field(vm.E1, "_logger")).IsNotNull();
         Check.That(Field(vm.E1, "_logger")!.GetType().FullName)
             .Contains("KeyboardViewModel");   // the category lines are attributed to
+    }
+
+    [Fact]
+    public void TheProductionKeyboardViewModel_RecordsTheEdgeTallyAtTheRealTwentyDwellMinimum()
+    {
+        // Every view-model and app test swaps the recorder through UseE1Recorder (often with a minimum of
+        // one, to pin line formats on a few dwells), so nothing else would notice the production view-model
+        // being built with a smaller minimum: a one-word show's tally would be written again, and the leak
+        // the minimum closes would be back while every other test stays green.
+        var appData = TestAppDataDir.Create("kb-e1-tally-min");
+        using var provider = AppBootstrapper.BuildServiceProvider(
+            new EyeCtrlSettings(),
+            settingsFilePath: Path.Combine(appData, "settings.json"),
+            dispatcher: Dispatcher.CurrentDispatcher,
+            isTestMode: true,
+            appDataDir: appData);
+
+        var vm = provider.GetRequiredService<KeyboardViewModel>();
+
+        Check.That(KeyboardE1Recorder.EdgeTallyMinFires).IsEqualTo(20);
+        Check.WithCustomMessage("The keyboard's recorder must apply the real edge-tally minimum.")
+            .That(vm.E1.EdgeTallyMinFiresInUse).IsEqualTo(KeyboardE1Recorder.EdgeTallyMinFires);
     }
 }

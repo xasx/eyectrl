@@ -1142,9 +1142,11 @@ public partial class KeyboardWindow : OverlayWindow
             && index >= 0 && index < _renderedPredictions.Count)
         {
             RecordPickE1(index);
-            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
-            // The target still exists here (UpdatePredictions clears it), so capture its LIVE rect
-            // for the samples where the re-rendered bar has no target for this slot.
+            // Capture the slot's LIVE rect BEFORE the selection: HandlePredictionSelected can end in
+            // AutoReturnIfNeeded (a pick from the accents sub-layout), whose swap rebuilds the keys and
+            // clears every prediction target, so a lookup after it finds nothing and the latch would
+            // remember no geometry at all (a slot that is then absent counts as "still inside" for ever).
+            // The rect is what lets a real leave onto the keys re-arm the slot while its target is absent.
             PhysicalRect? latchedRect = null;
             foreach (var target in _predictionDwellDetector.Targets)
             {
@@ -1152,6 +1154,7 @@ public partial class KeyboardWindow : OverlayWindow
                 latchedRect = target.Bounds;
                 break;
             }
+            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
             _predictionRearm.Latch(targetId, latchedRect);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a

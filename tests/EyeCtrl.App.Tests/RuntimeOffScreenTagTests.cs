@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests;
 
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using EyeCtrl.App.Overlays;
@@ -14,7 +15,8 @@ using Xunit;
 /// <c>PositionForShow</c> seam; a plain <c>Show()</c> lands it on a monitor. So the runtime check must NOT take its word for it: the window carries a
 /// DISTINCT tag, and is judged by its rectangle (off every monitor = fine, on a monitor = an offence). Every window here is shown at -30000 (off
 /// every monitor), and a lenient monitor (<c>requireOnMonitor: false</c>) judges it as if it were on one, the way <c>RuntimeWindowGuardTests</c>
-/// proves the rest of the check: nothing is ever visible to anyone, and nothing is ever placed on a monitor.
+/// proves the rest of the check: nothing is ever visible to anyone. The one probe of the strict judge's monitor lookup uses an HWND at (100,100)
+/// that is never shown (it only has a handle) and is DWM-cloaked as well.
 /// </summary>
 [Collection("WpfApplication")]
 public class RuntimeOffScreenTagTests
@@ -93,6 +95,38 @@ public class RuntimeOffScreenTagTests
             Check.That(Saw(lenient, window)).IsFalse();
         }
         finally { window?.Close(); }
+    }
+
+    private const int DwmaCloak = 13;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [StaFact]
+    public void TheStrictJudge_FindsTheMonitor_AndAnOffScreenTagThereOffends_NeverShown()
+    {
+        // #261 review 01 (F1): the REAL judge path, MonitorFromRect on the strict monitor, reporting "on a monitor". The window only gets an
+        // HWND: it is NEVER shown (no WS_VISIBLE, nothing painted, no SHOW event for the hook) and it is DWM-cloaked as well. `Visible` is
+        // supplied the way HandleShow supplies it from the SHOW event; the cloak is lifted the same way, on the facts only.
+        foreach (var (label, offScreen) in new[] { ("offscreen", (bool?)true), ("trusted", (bool?)false), ("untagged", (bool?)null) })
+        {
+            var window = new Window { Left = 100, Top = 100, Width = 50, Height = 50, ShowInTaskbar = false, ShowActivated = false, WindowStyle = WindowStyle.None };
+            try
+            {
+                var handle = new WindowInteropHelper(window).EnsureHandle();
+                var on = 1;
+                _ = DwmSetWindowAttribute(handle, DwmaCloak, ref on, sizeof(int));
+                if (offScreen is bool off) RuntimeWindowMonitor.MarkPrepared(window, offScreen: off);
+
+                var facts = RuntimeWindowMonitor.Read(handle, requireOnMonitor: true);
+
+                Check.WithCustomMessage($"{label}: the probe window must never be visible").That(facts.Visible).IsFalse();
+                Check.WithCustomMessage($"{label}: the strict judge must find the monitor under (100,100)").That(facts.OnMonitor).IsTrue();
+                Check.WithCustomMessage($"{label}: only the trusted tag excuses a window that is on a monitor")
+                    .That(RuntimeWindowMonitor.IsReallyVisible(facts with { Visible = true, Cloaked = false })).IsEqualTo(label != "trusted");
+            }
+            finally { window.Close(); }
+        }
     }
 
     [StaFact]

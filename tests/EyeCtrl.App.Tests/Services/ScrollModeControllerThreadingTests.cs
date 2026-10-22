@@ -39,10 +39,10 @@ public class ScrollModeControllerThreadingTests
     internal static (ScrollModeController Controller, InteractionManager Im, RecordingScrollOverlay Window,
         System.Windows.Threading.Dispatcher Dispatcher) NewScrollWorld(
         TestFakes.FakeInputSimulator input, Func<PhysicalPoint?>? cursorReader = null,
-        IGlassBackdropOverlay? glassBackdrop = null)
+        IGlassBackdropOverlay? glassBackdrop = null, IMessenger? messenger = null)
     {
         var settings = new EyeCtrlSettings();
-        var messenger = new WeakReferenceMessenger();
+        messenger ??= new WeakReferenceMessenger();
         var im = new InteractionManager();
         var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
         var ctx = TestFakes.MakeContext(input) with

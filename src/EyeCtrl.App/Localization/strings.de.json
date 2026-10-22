@@ -1850,6 +1850,10 @@
     "text": "↻ Mit Supervisor neu starten",
     "src": "65276443"
   },
+  "settings.general.safety.label": {
+    "text": "Sicherheitsfragen wiederholen",
+    "src": "1dda5f16"
+  },
   "settings.general.supervision.description": {
     "text": "Reagiert EyeCtrl nicht mehr oder stürzt ab, startet es automatisch neu; fällt es immer wieder aus, öffnet sich stattdessen TD Control.",
     "src": "6ba60a86"
@@ -2432,6 +2436,46 @@
   "settings.ring.scrollUp": {
     "text": "Nach oben",
     "src": "92ff458a"
+  },
+  "settings.safety.boot.message": {
+    "text": "EyeCtrl beim Anmelden starten?\nStartet beim Anmelden auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
+    "src": "f309d310"
+  },
+  "settings.safety.crash.message": {
+    "text": "EyeCtrl nach einem Absturz automatisch neu starten?",
+    "src": "2b1bcedd"
+  },
+  "settings.safety.cue.message": {
+    "text": "Einen Ton abspielen, wenn das Verweilen einen Klick auslöst?",
+    "src": "729cb63d"
+  },
+  "settings.safety.mode.all": {
+    "text": "✓ Alle",
+    "src": "f38207ed"
+  },
+  "settings.safety.mode.basic": {
+    "text": "✓ Einfach",
+    "src": "152e1ead"
+  },
+  "settings.safety.mode.message": {
+    "text": "Einstellungsansicht: Einfach oder Alle?",
+    "src": "0ed6ebb1"
+  },
+  "settings.safety.next": {
+    "text": "✓ Weiter",
+    "src": "b03fe1cd"
+  },
+  "settings.safety.ok": {
+    "text": "✓ OK",
+    "src": "707b3797"
+  },
+  "settings.safety.step.message": {
+    "text": "Sicherheitseinrichtung: Frage {0} von {1}",
+    "src": "acd9a8e4"
+  },
+  "settings.safety.track.message": {
+    "text": "Status der Blickverfolgung anzeigen?",
+    "src": "9310d5b4"
   },
   "settings.selection.center_dot.description": {
     "text": "Durchmesser des Punkts in der Mitte des Blickrings; gilt nach einem Neustart.",

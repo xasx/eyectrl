@@ -1078,6 +1078,12 @@
           "Modal": null
         },
         {
+          "Id": "g_safety",
+          "Label": "Run Safety Setup Again",
+          "Description": null,
+          "Modal": null
+        },
+        {
           "Id": "g_restart",
           "Label": "↻ Restart Now",
           "Description": null,

@@ -65,6 +65,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         messenger.Register<SettingsUiCoordinator, SettingsRequestedMessage>(this, (_, m) =>
             context.Dispatcher.BeginInvoke(() => ShowSettingsWindow(m.Target)));
 
+        // Startup safety setup: open the window if it is not open, then start the chain on it.
+        messenger.Register<SettingsUiCoordinator, SafetySetupRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(ShowSafetySetup));
+
         // CloseSettings -> close settings window
         messenger.Register<SettingsUiCoordinator, CloseSettingsMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(() =>
@@ -182,6 +186,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             target: target,
             openWindow: OpenSettingsWindow,
             navigate: () => _settingsWindow?.NavigateToLanguageRow());
+    }
+
+    /// <summary>Opens settings when it is not open, then starts the safety chain on the window.</summary>
+    private void ShowSafetySetup()
+    {
+        if (Context is null) return;
+
+        if (_settingsWindow is null)
+            OpenSettingsWindow();
+        _settingsWindow?.StartSafetySetup();
     }
 
     /// <summary>Constructs and shows a fresh settings window. Never navigates; the caller does.</summary>

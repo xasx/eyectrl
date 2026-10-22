@@ -335,6 +335,14 @@ public partial class App : Application
 
             gazeEngine.Start();
 
+            // One-time safety setup, answered by gaze: opens Settings on the first-run chain while
+            // it has never been answered to the end. Skipped on a Supervisor recovery relaunch
+            // (--paused) and in --test-mode; the decision is SafetySetupStartup's. The coordinator
+            // handles the message on the dispatcher AFTER OnStartup returns, so the supervision
+            // toggle it needs is wired by then.
+            if (SafetySetupStartup.ShouldPrompt(settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode))
+                messenger.Send(new SafetySetupRequestedMessage());
+
             // ── Display / resolution / DPI change ──
             // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the
             // first notification arrives, and after gazeEngine.Start() because the provider is what

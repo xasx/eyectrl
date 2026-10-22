@@ -59,6 +59,7 @@ public class SingleSurfaceKeyTests
         // T04: the restart flow is language-recovery (D5) — its notices, its failure reasons,
         // and the failure frame the coordinator wraps around a raw exception message.
         ("src/EyeCtrl.App/Views/RestartNotices.cs", ["language-recovery"]),
+        ("src/EyeCtrl.App/Services/SafetySetupFlow.cs", ["settings"]),
         ("src/EyeCtrl.App/Services/SelfRestartStrategy.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Services/AppRestartCoordinator.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml", ["caregiver-alert"]),

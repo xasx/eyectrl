@@ -324,6 +324,7 @@ public partial class SettingsWindow : OverlayWindow
 
     /// <summary>The tray item's deep link, queued while a modal is up (T04's open-modal case).</summary>
     private readonly SettingsDeepLinkQueue _languageRowDeepLink = new();
+    private SafetySetupFlow? _safetySetup;
 
     // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
     // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
@@ -615,6 +616,9 @@ public partial class SettingsWindow : OverlayWindow
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
             _supervisionRefresher.Stop();
+            // An abandoned safety chain must not outlive the window: its pending crash-recovery
+            // result would otherwise try to raise a modal on a disposed view model.
+            _safetySetup?.Abandon();
             // The restart notices above registered this window on the (app-lifetime) messenger,
             // which holds it weakly but until it is collected: a closed window would still receive
             // RestartInProgressMessage and show a modal nobody can see, on a window that is gone.
@@ -633,7 +637,10 @@ public partial class SettingsWindow : OverlayWindow
             _settings, _viewModel, _registryService, _modelManagementService,
             _calibrationService, _messenger, _restartCoordinator, _supervisionToggle, _dictionaryService,
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
-            () => System.Windows.Clipboard.GetText() ?? "");
+            () => System.Windows.Clipboard.GetText() ?? "")
+        {
+            RunSafetySetup = StartSafetySetup,
+        };
         _cursorSource = new CursorPageSource(_ctx);
         _dwellSource = new DwellPageSource(_ctx);
         _selectionSource = new SelectionPageSource(_ctx);
@@ -1134,6 +1141,25 @@ public partial class SettingsWindow : OverlayWindow
         RaiseToTop();
         if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
             ShowLanguageRow();
+    }
+
+    /// <summary>
+    /// Starts the one-time safety setup chain on this window: at startup (the coordinator, while
+    /// <c>SafetySetupDone</c> is false) and from the General page's "Run safety setup again" row. A
+    /// modal already up is never replaced — the request is dropped, and a first-run chain asks
+    /// again at the next start because its flag is still false.
+    /// </summary>
+    internal void StartSafetySetup()
+    {
+        if (_viewModel.IsModalVisible) return;
+
+        RaiseToTop();
+        _safetySetup?.Abandon();
+        _safetySetup = new SafetySetupFlow(
+            _settings, _supervisionToggle,
+            (message, choices) => _viewModel.ShowModal(message, choices),
+            ApplyAndSave, SwitchSettingsUiMode);
+        _safetySetup.Start();
     }
 
     /// <summary>

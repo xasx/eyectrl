@@ -3340,6 +3340,13 @@
     "fit": "modal460",
     "args": []
   },
+  "settings.general.safety.label": {
+    "text": "Run Safety Setup Again",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
   "settings.general.supervision.description": {
     "text": "If EyeCtrl stops responding or crashes, it restarts automatically; if it keeps failing, TD Control opens instead.",
     "who": "user",
@@ -4427,6 +4434,79 @@
     "fit": "A105",
     "args": [],
     "mirrors": "overlays.ring.scrollUp"
+  },
+  "settings.safety.boot.message": {
+    "text": "Start EyeCtrl when you sign in?\nIf another gaze pointer also starts at sign-in, you will see two.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.safety.crash.message": {
+    "text": "Bring EyeCtrl back automatically after a crash?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.safety.cue.message": {
+    "text": "Play a sound when a dwell clicks?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.safety.mode.all": {
+    "text": "✓ All",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.mode.basic": {
+    "text": "✓ Basic",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.mode.message": {
+    "text": "Settings view: Basic or All?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.safety.next": {
+    "text": "✓ Next",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.ok": {
+    "text": "✓ OK",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.step.message": {
+    "text": "Safety setup: question {0} of {1}",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.track.message": {
+    "text": "Show eye-tracking status?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
   },
   "settings.selection.center_dot.description": {
     "text": "Diameter of the dot at the center of the gaze ring; applies after a restart.",

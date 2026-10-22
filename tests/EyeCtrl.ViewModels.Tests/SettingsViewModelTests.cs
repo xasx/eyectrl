@@ -172,6 +172,21 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public void ResetAllSettings_KeepsSafetySetupDone()
+    {
+        // The one-time safety questions are not a preference to reset: a bulk reset must not make
+        // the next start ask them all again (the General row asks on demand).
+        var settings = new EyeCtrlSettings();
+        settings.General.SafetySetupDone = true;
+        settings.Cursor.CircleSize = 400;
+
+        new SettingsViewModel(settings).ResetAllSettings();
+
+        Check.That(settings.General.SafetySetupDone).IsTrue();
+        Check.That(settings.Cursor.CircleSize).IsEqualTo(new EyeCtrlSettings().Cursor.CircleSize);
+    }
+
+    [Fact]
     public void ResetAllSettings_LeavesTheSupervisorOwnedSectionUntouched()
     {
         // F4 pin: reset-all must not disarm the live crash policy while disk and the Supervisor

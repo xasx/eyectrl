@@ -81,11 +81,14 @@ public class KeyboardE1PrivacyTests
     private static readonly Dictionary<string, string[]> AllowedNames = new()
     {
         // The names of a TEXT key's line. A non-text key (Space, Backspace, Enter, modifiers, switches,
-        // shortcuts) instead carries NonTextKeyNames and not EdgeQ. See NamesAllowedFor.
-        ["key"] = ["Seq", "TsUs", "Class", "Sub", "Edge", "WinX", "WinY", "WinW", "WinH", "SinceMoveMs", "EdgeQ",
+        // shortcuts) instead carries NonTextKeyNames. See NamesAllowedFor. No edge-quarter class on any
+        // text line: the quarter is only COUNTED, per dock edge, on the "edgeq" tally line.
+        ["key"] = ["Seq", "TsUs", "Class", "Sub", "Edge", "WinX", "WinY", "WinW", "WinH", "SinceMoveMs",
                    "SinceKeyMs", "DwellMs", "Penalty", "Typing", "Bs"],
+        ["edgeq"] = ["Edge", "Fires", "C", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
+                     "Aborts", "AC", "AN", "ANE", "AE", "ASE", "AS", "ASW", "AW", "ANW"],
         ["holdon"] = ["Seq", "Ms", "Capped"],
-        ["abandon"] = ["TsUs", "Class", "Pct", "Why", "EdgeQ", "Sub", "Edge"],
+        ["abandon"] = ["TsUs", "Class", "Pct", "Why", "Sub", "Edge"],
         ["slip"] = ["Adj", "Dir", "Dist", "Ms", "Reg", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
         ["corr"] = ["Seq", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
         ["pick"] = ["Slot", "Source", "PrefixLen", "InsLen", "SinceKeyMs", "SincePickMs", "RenderMs", "Visited"],
@@ -111,7 +114,6 @@ public class KeyboardE1PrivacyTests
         ["Class"] = ["letter", "digit", "symbol", "space", "backspace", "deleteword", "enter", "shift", "caps", "mode",
                      "switchsub", "emoji", "other"],
         ["Saccade"] = ["short", "mid", "long", "-"],
-        ["EdgeQ"] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "-"],
         ["Dir"] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "-"],
         ["Reg"] = ["top", "mid", "bot", "-"],
         ["Act"] = ["space", "backspace", "deleteWord", "enter", "shift", "modifier:shift", "toggle:capslock",
@@ -140,8 +142,7 @@ public class KeyboardE1PrivacyTests
     {
         var names = AllowedNames[line.Event];
         if (line.Event is "key" or "abandon" && !TextKeyClasses.Contains((string)line.Props["Class"]!))
-            return names.Where(n => n != "EdgeQ")
-                .Concat(line.Event == "key" ? NonTextKeyNames : NonTextAbandonNames).ToArray();
+            return names.Concat(line.Event == "key" ? NonTextKeyNames : NonTextAbandonNames).ToArray();
         return names;
     }
 
@@ -228,7 +229,7 @@ public class KeyboardE1PrivacyTests
         var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger(),
             logger: log, contextProbe: new SpyProbe(), sensitiveContext: sensitive);
         var clock = new FakeClock();
-        vm.UseE1Recorder(new KeyboardE1Recorder(log, () => clock.Ms));
+        vm.UseE1Recorder(new KeyboardE1Recorder(log, () => clock.Ms, edgeTallyMinFires: 1));
         vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(
             new InMemoryDictProvider(words ?? SessionWords), "QWERTZ")));
 
@@ -381,7 +382,7 @@ public class KeyboardE1PrivacyTests
         foreach (var expected in new[]
                  {
                      "key", "holdon", "abandon", "pick", "space", "mode", "modeundo", "edge", "shown", "hidden",
-                     "mirror", "pickundo", "slip", "corr", "layout",
+                     "mirror", "pickundo", "slip", "corr", "layout", "edgeq",
                  })
         {
             Check.WithCustomMessage($"The typing session produced no '{expected}' line ({lines.Count} E1 lines in all).")
@@ -485,14 +486,41 @@ public class KeyboardE1PrivacyTests
             foreach (var banned in TextKeyBannedNames)
                 Check.WithCustomMessage($"A text key's line names '{banned}' (identity, or a fingerprint of it): {line.Message}")
                     .That(line.Props.ContainsKey(banned)).IsFalse();
-        foreach (var line in textLines.Where(l => l.Event == "key"))
-            Check.That(line.Props.ContainsKey("EdgeQ")).IsTrue();
+        foreach (var line in textLines)
+        {
+            Check.WithCustomMessage("A text line carries an edge-quarter class: " + line.Message)
+                .That(line.Props.ContainsKey("EdgeQ")).IsFalse();
+            Check.That(line.Message).Not.Contains(" edgeq=");
+        }
 
         Check.That(nonTextLines.Count).IsStrictlyGreaterThan(2);
         foreach (var line in nonTextLines.Where(l => l.Event == "key"))
             foreach (var kept in IdentityNames)
                 Check.WithCustomMessage($"A non-text key's line lost '{kept}': {line.Message}")
                     .That(line.Props.ContainsKey(kept)).IsTrue();
+    }
+
+    [StaFact]
+    public void TheEdgeTally_CountsExactlyTheSessionsTextDwellsAndAbandonments_AndNothingElse()
+    {
+        var lines = CaptureSession();
+        var tallies = lines.Where(l => l.Event == "edgeq").ToList();
+        Check.WithCustomMessage("The session wrote no edge tally").That(tallies.Count).IsStrictlyGreaterThan(0);
+
+        var textKeys = lines.Count(l => l.Event == "key" && TextKeyClasses.Contains((string)l.Props["Class"]!));
+        var textAbandons = lines.Count(l => l.Event == "abandon" && TextKeyClasses.Contains((string)l.Props["Class"]!));
+        Check.That(tallies.Sum(l => (int)l.Props["Fires"]!)).IsEqualTo(textKeys);
+        Check.That(tallies.Sum(l => (int)l.Props["Aborts"]!)).IsEqualTo(textAbandons);
+        foreach (var line in tallies)
+        {
+            var fires = new[] { "C", "N", "NE", "E", "SE", "S", "SW", "W", "NW" }.Sum(n => (int)line.Props[n]!);
+            var aborts = new[] { "AC", "AN", "ANE", "AE", "ASE", "AS", "ASW", "AW", "ANW" }.Sum(n => (int)line.Props[n]!);
+            Check.That(fires).IsEqualTo((int)line.Props["Fires"]!);
+            Check.That(aborts).IsEqualTo((int)line.Props["Aborts"]!);
+        }
+        // Written before the hide, and before the flip's edge line: never after the line that ends a show.
+        var order = lines.Select(l => l.Event).ToList();
+        Check.That(order.LastIndexOf("edgeq")).IsStrictlyLessThan(order.LastIndexOf("hidden"));
     }
 
     [StaFact]
@@ -830,7 +858,7 @@ public class KeyboardE1PrivacyTests
         var renderedBackspace = Render(formatter, sink.Events[1]);
         Check.That(rendered).IsEqualTo(
             "KB-E1 key seq=1 ts=1234567 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 " +
-            "movems=7000 edgeq=NE sincekey=-1 dwell=450 penalty=false typing=true bs=-");
+            "movems=7000 sincekey=-1 dwell=450 penalty=false typing=true bs=-");
         // The same line for a NON-text key keeps its position and id.
         Check.That(renderedBackspace).IsEqualTo(
             "KB-E1 key seq=2 ts=1300000 r=3 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top " +

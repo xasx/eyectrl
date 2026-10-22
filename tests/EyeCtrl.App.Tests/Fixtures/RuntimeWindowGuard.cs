@@ -67,6 +67,9 @@ internal sealed class RuntimeWindowMonitor
     /// <summary>The window property that marks a window prepared by <see cref="InvisibleTestWindow"/>.</summary>
     internal const string PreparedProperty = "EyeCtrl.InvisibleTestWindow";
 
+    private static readonly IntPtr TrustedTag = (IntPtr)1;
+    private static readonly IntPtr OffScreenTag = (IntPtr)2;
+
     private const uint EventObjectShow = 0x8002;
     private const uint WinEventOutOfContext = 0;
     private const uint WmApp = 0x8000;
@@ -288,7 +291,8 @@ internal sealed class RuntimeWindowMonitor
         var sized = haveRect && rect.Right > rect.Left && rect.Bottom > rect.Top;
         var onMonitor = sized && (!requireOnMonitor || MonitorFromRect(ref rect, MonitorDefaultToNull) != IntPtr.Zero);
         byte? alpha = GetLayeredWindowAttributes(hwnd, out _, out var a, out var flags) && (flags & LwaAlpha) != 0 ? a : null;
-        var prepared = GetProp(hwnd, PreparedProperty) != IntPtr.Zero;
+        // Only the TRUSTED tag excuses a window. A PrepareOffScreen window carries a different value: it is judged by its rectangle (off every monitor).
+        var prepared = GetProp(hwnd, PreparedProperty) == TrustedTag;
         return new WindowFacts(hwnd, visible, cloaked, onMonitor, alpha, prepared, "");
     }
 
@@ -318,12 +322,12 @@ internal sealed class RuntimeWindowMonitor
     }
 
     /// <summary>Tags a window as deliberately invisible; the tag goes on as soon as the window has a handle and is removed when it closes.</summary>
-    internal static void MarkPrepared(Window window)
+    internal static void MarkPrepared(Window window, bool offScreen = false)
     {
         void Tag()
         {
             var handle = new WindowInteropHelper(window).Handle;
-            if (handle != IntPtr.Zero) SetProp(handle, PreparedProperty, (IntPtr)1);
+            if (handle != IntPtr.Zero) SetProp(handle, PreparedProperty, offScreen ? OffScreenTag : TrustedTag);
         }
         Tag();
         window.SourceInitialized += (_, _) => Tag();

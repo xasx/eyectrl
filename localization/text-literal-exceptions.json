@@ -1355,6 +1355,36 @@
       "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"keyboard probe\"",
+      "Category": "log",
+      "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"lag mark\"",
+      "Category": "log",
+      "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"drift notice\"",
+      "Category": "log",
+      "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"caregiver alert\"",
+      "Category": "log",
+      "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"track status\"",
+      "Category": "log",
+      "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
       "Literal": "\"cursor=(?,?)\"",
       "Category": "log",
@@ -1368,3 +1398,4 @@
     }
   ]
 }
+

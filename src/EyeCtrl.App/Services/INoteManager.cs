@@ -30,11 +30,19 @@ public interface INoteManager : INoteTextInput
     void OnGazeMoved(PhysicalPoint gazePoint, long timestamp);
 
     /// <summary>
-    /// Suspends note dwell while the predicate returns true (sub-pixel build plan C15). Note
-    /// targets are gaze-only surfaces under no window, and dwell ignores z-order — so while the
-    /// probe owns the screen (its opaque window covers the notes) a note's close/edit/move targets
-    /// would otherwise stay live underneath it. Wired once from EventCoordinator to
-    /// <c>() =&gt; _modal.ProbeOpen</c>.
+    /// The gate's pause poll (P2 D1 row 2): read per sample, alongside the sample's own
+    /// <c>IsPaused</c> flag. Polled rather than subscribed — pause is entered and left only by
+    /// <c>TogglePause</c> on the UI thread, so a polled read is simpler and just as correct.
+    /// Wired once from EventCoordinator.
+    /// </summary>
+    void SetPausePoll(Func<bool> poll);
+
+    /// <summary>
+    /// Suspends note dwell while the predicate returns true (sub-pixel build plan C15, generalised
+    /// by P2 D1). Note targets are gaze-only surfaces under no window, and dwell ignores z-order —
+    /// so while a suspender is up (modal surfaces, the interaction modes, the modes menu) a note's
+    /// controls would otherwise stay live underneath it. Wired once from EventCoordinator, before
+    /// the activation-offer coordinator exists — the lambda must read it null-safely.
     /// </summary>
     void SetSuspendPredicate(Func<bool> predicate);
 
@@ -44,4 +52,25 @@ public interface INoteManager : INoteTextInput
     /// Show-keyboard control, the keyboard-gate on note dwell, and the foreign-hide detection.
     /// </summary>
     void SetKeyboardProbe(IKeyboardProbe probe);
+
+    /// <summary>
+    /// The occluder sources (P2 D3), read per sample — no shared gaze-surface provider, no cache
+    /// to invalidate. The keyboard and its edge bar reach the gate through <see cref="SetKeyboardProbe"/>'s
+    /// rects; this setter takes the App-owned surfaces that neither suspend nor carry a probe: the
+    /// lag mark (empty before its bridge is attached), the drift notice's and caregiver alert's
+    /// visible bounds (<c>null</c> while not showing), and the track-status card's (fixup 01 M1 —
+    /// opaque, click-through, up for as long as TrackStatusSettings.Enabled).
+    /// </summary>
+    void SetOccluderSources(
+        Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
+        Func<PhysicalRect?>? driftNoticeBounds = null,
+        Func<PhysicalRect?>? caregiverAlertBounds = null,
+        Func<PhysicalRect?>? trackStatusBounds = null);
+
+    /// <summary>
+    /// The note chrome rects (P2 D7): every note's card body plus its control-cell rects, in
+    /// physical pixels — no tail, no window chrome beyond the card. The activation-offer
+    /// coordinator publishes these as chrome zones, so no offer is placed over a note.
+    /// </summary>
+    IReadOnlyList<PhysicalRect> ChromeRects();
 }

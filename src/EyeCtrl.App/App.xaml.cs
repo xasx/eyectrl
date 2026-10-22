@@ -276,6 +276,12 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>());
             _eventCoordinator.Initialize(coordinationContext);
 
+            // The note gate's occluder sources (P2 D3) — the four production delegates live in
+            // NoteOccluderWiring.Wire, so the real wiring is executable from a container test
+            // (T2 fixup 02, review-02 B1: the inlined version resolved a service the container
+            // does not register, and every gaze sample threw while a note existed).
+            NoteOccluderWiring.Wire(noteManager, _serviceProvider, coordinationContext);
+
             // Hand the toolbar lifecycle coordinator to the preview suspension bridge (Task 10, P8):
             // the preview service suspends auto-hide through it while its panel is up, but the
             // coordinator is EventCoordinator-owned and never in DI, while the preview service must

@@ -110,13 +110,52 @@ public class InvisibleTestWindowTests
     private static readonly string[] OpacityPreparedWindows =
         OpacityPreparedWindowTypes.Select(t => $"Overlays/{t}.xaml.cs").ToArray();
 
+    // `Opacity = ...` with no receiver (the window's own), `this.Opacity`, or an animation / SetValue of `OpacityProperty` on the
+    // window itself (also with a qualified property name). Elements inside the window (`Banner.Opacity`, `x.Opacity`) have a receiver.
+    internal static readonly Regex OwnOpacityWrite = new(
+        @"(?<![\w.])(this\.)?Opacity\s*=(?!=)" +
+        @"|(?<![\w.])(this\.)?(?:BeginAnimation|SetCurrentValue|SetValue)\s*\(\s*(?:[\w.]*\.)?OpacityProperty");
+
+    private const string WindowWords =
+        "toolbar|keyboard|edgeBar|edgeButtonBar|banner|exercise|actionMenu|pauseIndicator|indicator|taskSwitcher|switcher";
+
+    // `x.Keyboard.Opacity = 1` / `Context.OverlayManager.Keyboard.Opacity = 1` (any case after a dot), or a bare lower-case variable
+    // `keyboard.Opacity = 1` / `_toolbar.Opacity = 1` (a bare capitalised name is an XAML element inside its own window, e.g. Banner.Opacity);
+    // the write is `.Opacity =`, or BeginAnimation / SetCurrentValue / SetValue of an `OpacityProperty` (qualified or not).
+    internal static readonly Regex OutsideOpacityWrite = new(
+        @"(?:\.(?i:" + WindowWords + @")\w*|(?<![\w.])_?(?:" + WindowWords + @")\w*)" +
+        @"\.(?:Opacity\s*=(?!=)|(?:BeginAnimation|SetCurrentValue|SetValue)\s*\(\s*(?:[\w.]*\.)?OpacityProperty)");
+
+    [Fact]
+    public void TheOpacityWriteRegexes_MatchEveryShapeOfAWrite_AndNotAnElementsOwnOpacity()
+    {
+        foreach (var code in new[]
+                 {
+                     "Context.OverlayManager.Keyboard.Opacity = 1;",
+                     "Context.OverlayManager.Keyboard.BeginAnimation(System.Windows.UIElement.OpacityProperty, fade);",
+                     "keyboard.BeginAnimation(UIElement.OpacityProperty, null);",
+                     "_toolbar.SetCurrentValue(System.Windows.Window.OpacityProperty, 1.0);",
+                     "toolbarWindow.SetValue(UIElement.OpacityProperty, 1.0);",
+                     "overlays.Toolbar.Opacity = 0.5;",
+                 })
+            Check.WithCustomMessage(code).That(OutsideOpacityWrite.IsMatch(code)).IsTrue();
+        foreach (var code in new[]
+                 {
+                     "Opacity = 1;", "this.Opacity = 1;", "BeginAnimation(OpacityProperty, fade);", "this.BeginAnimation(UIElement.OpacityProperty, fade);",
+                     "SetCurrentValue(System.Windows.UIElement.OpacityProperty, 1.0);", "SetValue(OpacityProperty, 1.0);",
+                 })
+            Check.WithCustomMessage(code).That(OwnOpacityWrite.IsMatch(code)).IsTrue();
+        // an element's own opacity, or a comparison, is not a window write
+        foreach (var code in new[] { "Banner.Opacity = 1;", "x.Opacity = 1;", "if (keyboard.Opacity == 1) { }", "var o = keyboard.Opacity;" })
+            Check.WithCustomMessage(code).That(OutsideOpacityWrite.IsMatch(code)).IsFalse();
+        Check.That(OwnOpacityWrite.IsMatch("Banner.Opacity = 1;")).IsFalse();
+        Check.That(OwnOpacityWrite.IsMatch("if (Opacity == 1) { }")).IsFalse();
+    }
+
     [Fact]
     public void TheWindowsPreparedByOpacity_NeverWriteOrAnimateTheirOwnOpacity()
     {
-        // `Opacity = ...` with no receiver (the window's own), `this.Opacity`, or an animation of
-        // `OpacityProperty` on the window itself. Elements inside the window (`Banner.Opacity`, `x.Opacity`)
-        // have a receiver and are not the window's.
-        var ownWrite = new Regex(@"(?<![\w.])(this\.)?Opacity\s*=(?!=)|(?<![\w.])(this\.)?BeginAnimation\s*\(\s*(Window\.|UIElement\.)?OpacityProperty");
+        var ownWrite = OwnOpacityWrite;
         foreach (var file in OpacityPreparedWindows)
         {
             var code = NoVisibleTestWindowGuardTests.StripCommentsAndStrings(Product(file));
@@ -129,13 +168,7 @@ public class InvisibleTestWindowTests
     public void NoProductFile_WritesOrAnimatesTheOpacityOfAPreparedWindowTypeFromTheOutside()
     {
         var root = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App");
-        const string windowWords = "toolbar|keyboard|edgeBar|edgeButtonBar|banner|exercise|actionMenu|pauseIndicator|indicator|taskSwitcher|switcher";
-        const string write = @"\.(Opacity\s*=(?!=)|BeginAnimation\s*\(\s*(Window\.|UIElement\.)?OpacityProperty)";
-        // `x.Keyboard.Opacity = 1` / `Context.OverlayManager.Keyboard.Opacity = 1` (any case after a dot),
-        // or a bare lower-case variable `keyboard.Opacity = 1` / `_toolbar.Opacity = 1`
-        // (a bare capitalised name is an XAML element inside its own window, e.g. Banner.Opacity).
-        var outside = new Regex(
-            @"(?:\.(?i:" + windowWords + @")\w*|(?<![\w.])_?(?:" + windowWords + @")\w*)" + write);
+        var outside = OutsideOpacityWrite;
         var hits = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
             .Where(f => outside.IsMatch(NoVisibleTestWindowGuardTests.StripCommentsAndStrings(File.ReadAllText(f))))

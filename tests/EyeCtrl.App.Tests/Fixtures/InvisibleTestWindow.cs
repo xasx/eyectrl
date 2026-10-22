@@ -54,6 +54,7 @@ internal static class InvisibleTestWindow
     {
         window.Opacity = 0;
         window.ShowActivated = false;
+        RuntimeWindowMonitor.MarkPrepared(window);
         return window;
     }
 
@@ -67,6 +68,7 @@ internal static class InvisibleTestWindow
         var handle = new WindowInteropHelper(window).EnsureHandle();
         var on = 1;
         _ = DwmSetWindowAttribute(handle, DwmaCloak, ref on, sizeof(int));
+        RuntimeWindowMonitor.MarkPrepared(window);
         return window;
     }
 
@@ -88,6 +90,7 @@ internal static class InvisibleTestWindow
             w.Left = -30000;
             w.Top = -30000;
         };
+        RuntimeWindowMonitor.MarkPrepared(window);
         return window;
     }
 

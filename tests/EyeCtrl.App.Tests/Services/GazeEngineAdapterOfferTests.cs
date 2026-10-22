@@ -64,6 +64,40 @@ public class GazeEngineAdapterOfferTests
     }
 
     [StaFact]
+    public void ShowMessage_CarriesTheOfferEnginesOwnZoneRadius_NotTheSettingNorTheDetectorsRadius()
+    {
+        // GR1: the ring's no-move zone must be the engine's (ActivationOfferEngine.cs:450), so the
+        // message carries the offer engine's FixationRadiusPx. 123 differs from the setting (90) and
+        // from the detector's effective radius (90). Mutants MAD1 (fill from the setting) and MAD1e
+        // (fill from the detector's effective R) -> the message says 90, not 123.
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        settings.Dwell.FixationRadiusPixels = 90;
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var messenger = new WeakReferenceMessenger();
+        ShowActivationButtonMessage? captured = null;
+        messenger.Register<ShowActivationButtonMessage>(this, (_, message) => captured = message);
+
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, messenger, Dispatcher.CurrentDispatcher,
+            NullLogger<GazeEngineAdapter>.Instance, new StubControlFinder());
+
+        // The first sample applies the geometry rebuild: the offer engine exists from here on.
+        provider.Raise(new GazePoint(P.X, P.Y, 33_000, true));
+        engine.InteractionManager.ActivationOffers!.FixationRadiusPx = 123;
+        engine.InteractionManager.OnFixationStarted(P);
+        engine.InteractionManager.OnFixationSettled(P);
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+        Check.That(captured).IsNotNull();
+        Check.WithCustomMessage("the show message carries the offer engine's zone radius")
+            .That(captured!.FixationRadiusPx).IsEqualTo(123.0);
+    }
+
+    [StaFact]
     public void RestingNeverActivates_ThroughTheAdapterAndTheVm()
     {
         var settings = new EyeCtrlSettings();

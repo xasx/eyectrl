@@ -192,6 +192,40 @@ public class RingArmLogTests
     }
 
     [Fact]
+    public void TheLog_AHoldBeatsTheNearOfferReason_NoIgnoredLineDuringAHold()
+    {
+        // R3: a near-miss settle pin that arrives while the ring is holding is refused by the hold, not
+        // by D, so the log stays silent and the ring stays held. Mutant ML2: drop `!holdSuppressed`
+        // from the VM's reason -> the ignored=near-offer line appears.
+        var log = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger)
+        {
+            RingHoldPolicy = RingHoldPolicy.HybridFreeze,
+        };
+        var im = new InteractionManager();
+        using var sink = new RingArmLog(im, vm, log.Add);
+        im.PinRing += p => messenger.Send(new PinRingMessage(p));
+        im.StateChanged += s => messenger.Send(new StateChangedMessage(s));
+
+        var offerPoint = new PhysicalPoint(300, 300);
+        var button = new PhysicalPoint(600, 600);
+        messenger.Send(new GazeCursorMovedMessage(offerPoint, 30_000));
+        messenger.Send(new ShowActivationButtonMessage(button, 150, offerPoint, 80));
+        messenger.Send(new GazeCursorMovedMessage(button, 60_000));   // into the hit area: the freeze starts
+        Check.That(vm.IsPinned).IsTrue();
+        log.Clear();                                                   // the hold-start line is not under test
+
+        var nearMiss = new PhysicalPoint(800, 600);                    // 200 px from B, 583 from P
+        im.OnFixationStarted(nearMiss);                                // the state reaches the VM: Fixation
+        im.OnFixationSettled(nearMiss);                                // Core's settle pin: the hold refuses it
+
+        Check.WithCustomMessage("logged: " + string.Join(" | ", log))
+            .That(log.Any(line => line.Contains("ignored=", StringComparison.Ordinal))).IsFalse();
+        Check.That(vm.IsPinned).IsTrue();                              // still held, where it froze
+    }
+
+    [Fact]
     public void TheLog_ReportsAnOfferPin_FromTheWiredEngine()
     {
         // The origin is Core's truth (RingPinnedAtOffer), snapshotted where the event is raised: with

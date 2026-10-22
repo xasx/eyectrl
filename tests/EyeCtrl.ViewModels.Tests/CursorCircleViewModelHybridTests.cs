@@ -169,24 +169,168 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Hybrid_UnprovenExit_ReleasesOnTheFirstSampleOutside()
+    public void Hybrid_UnprovenExit_BeyondTheZone_ReleasesOnTheFirstSampleOutside()
     {
-        // Before the hold has proven itself (< 3 in-hit samples), the first sample outside releases,
-        // so a pass-through does not freeze the ring for half a second. Mutant: apply the grace
-        // regardless of the count → no end on the first outside sample.
+        // Before the hold has proven itself (< 3 in-hit samples), the first sample BEYOND the no-move
+        // zone (hit 150 + R 80 = 230 px) releases, so a fly-through does not freeze the ring for half
+        // a second (GA2). Mutant: apply the grace regardless of the count / swallow exits beyond the
+        // zone → no end on the first outside sample. (Was 200 px from B before the edge-tolerant
+        // hold: a slip inside the zone no longer ends an unproven hold, see GA1/GA3.)
         var rig = new Rig();
         var b = new PhysicalPoint(600, 600);
         rig.Frame(new PhysicalPoint(300, 300));
         rig.Offer(b, hitRadiusPx: 150);
         rig.Frame(new PhysicalPoint(600, 600));                   // freeze: 1 in-hit sample
 
-        rig.Frame(new PhysicalPoint(800, 600));                   // outside, on the very next sample
+        rig.Frame(new PhysicalPoint(860, 600));                   // 260 px from B: beyond the zone
 
         Check.That(rig.HoldEnds).HasSize(1);
         Check.That(rig.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.Unproven);
         Check.That(rig.Releases[^1].Cause).IsEqualTo(RingReleaseCause.HoldEnd);
         Check.That(rig.Vm.IsPinned).IsFalse();
-        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(800, 600));   // snapped to the gaze
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(860, 600));   // snapped to the gaze
+    }
+
+    [Fact]
+    public void Hybrid_UnprovenSlip_InsideTheZone_KeepsTheHold()
+    {
+        // GA1: one in-hit sample, then a sample 190 px from B (outside the 150-px hit area, inside
+        // the 230-px zone): the ring stays frozen, the hold stays on, nothing is released. Coming
+        // back into the hit area keeps holding. Mutant MA1: the unproven exit ignores the zone.
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.Frame(new PhysicalPoint(600, 600));                   // freeze: 1 in-hit sample
+
+        rig.Frame(new PhysicalPoint(790, 600));                   // 190 px from B: a slip
+
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(300, 300));
+        Check.That(rig.Vm.IsPinned).IsTrue();
+        Check.That(rig.HoldEnds).IsEmpty();
+        Check.That(rig.Releases).IsEmpty();
+
+        rig.Frame(new PhysicalPoint(620, 600), steps: 3);         // back in the hit area
+
+        Check.That(rig.HoldEnds).IsEmpty();
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(300, 300));
+    }
+
+    [Fact]
+    public void Hybrid_UnprovenSlip_InsideTheZone_EndsAfterTheGrace()
+    {
+        // GA3: an unproven hold whose gaze stays outside the hit area (inside the zone) is let go
+        // after the grace, as Unproven; just under it, still holding. The first outside sample is at
+        // t0, the 17th (480 ms later) is still within it, the 18th (510 ms) is not. Mutant MA3: no
+        // grace for unproven slips (the ring stays stuck).
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.Frame(new PhysicalPoint(600, 600));                   // freeze: 1 in-hit sample
+
+        rig.Frame(new PhysicalPoint(790, 600), steps: 17);        // t0 .. t0 + 480 ms
+
+        Check.That(rig.HoldEnds).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        rig.Frame(new PhysicalPoint(790, 600));                   // t0 + 510 ms
+
+        Check.That(rig.HoldEnds).HasSize(1);
+        Check.That(rig.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.Unproven);
+        Check.That(rig.Releases[^1].Cause).IsEqualTo(RingReleaseCause.HoldEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(790, 600));
+    }
+
+    [Fact]
+    public void Hybrid_OfferClose_DuringAnUnprovenSlip_EndsTheHoldAndReleases()
+    {
+        // GA5: the offer closes while an unproven hold slips inside the zone: OfferClosed, released.
+        // Mutant MA4: offer-closed skipped while slipping.
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.Frame(new PhysicalPoint(600, 600));                   // freeze: 1 in-hit sample
+        rig.Frame(new PhysicalPoint(790, 600), steps: 2);         // slipping, inside the zone
+        Check.That(rig.HoldEnds).IsEmpty();
+
+        rig.OfferCloses();
+
+        Check.That(rig.HoldEnds).HasSize(1);
+        Check.That(rig.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.OfferClosed);
+        Check.That(rig.Releases[^1].Cause).IsEqualTo(RingReleaseCause.HoldEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(790, 600));
+    }
+
+    [Fact]
+    public void Hybrid_SettlePin_InsideALiveOffersZone_IsIgnored()
+    {
+        // GD1: a settle 200 px from B (inside hit 150 + R 80) while the offer lives: no pin, no
+        // glide; the ring keeps following. Mutant MD1: the zone check removed.
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(new PhysicalPoint(800, 600));                     // 200 px from B
+
+        Check.That(rig.Pins).HasSize(1);
+        Check.That(rig.Pins[0].Applied).IsFalse();
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(300, 300));
+
+        rig.Frame(new PhysicalPoint(320, 310));                   // no glide: the next sample is followed
+
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(320, 310));
+    }
+
+    [Fact]
+    public void Hybrid_SettlePin_OutsideTheZoneOrWithoutAnOffer_GlidesAsToday()
+    {
+        // GD2: a pin 300 px from B (the offer's own settle at P is 310 px away) and a pin with no
+        // live offer are unchanged. Mutant MD2: every pin ignored while an offer lives.
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(new PhysicalPoint(900, 600));                     // 300 px from B
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        var rig2 = new Rig();
+        rig2.Frame(new PhysicalPoint(300, 300));
+        rig2.State(InteractionState.Fixation);
+
+        rig2.Pin(new PhysicalPoint(800, 600));                    // the same point, but no offer
+
+        Check.That(rig2.Pins[^1].Applied).IsTrue();
+        Check.That(rig2.Vm.IsPinned).IsTrue();
+    }
+
+    [Fact]
+    public void None_SettlePin_InsideAnOffersZone_StillGlides()
+    {
+        // GD3: policy None keeps today's behaviour bit for bit. Mutant MD3: D applied regardless of
+        // the policy.
+        var rig = new Rig(RingHoldPolicy.None);
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(new PhysicalPoint(800, 600));                     // 200 px from B
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+        Check.That(rig.Vm.IsPinned).IsTrue();
     }
 
     [Fact]

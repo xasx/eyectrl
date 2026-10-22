@@ -169,7 +169,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// the pin; the first frame after the pin starts the clock.
     /// <para>
     /// Under <see cref="RingHoldPolicy.HybridFreeze"/> a pin while holding or approaching is ignored:
-    /// "while holding, settles and run ends are ignored, so there is no re-pin and no snap".
+    /// "while holding, settles and run ends are ignored, so there is no re-pin and no snap". It is
+    /// likewise ignored while an offer is live and the point lies inside its no-move zone.
     /// </para>
     /// </summary>
     public void Receive(PinRingMessage message)
@@ -178,7 +179,13 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // release/exit that arrives before this message (F4's race) refuses the pin outright.
         bool holdSuppressed = RingHoldPolicy == RingHoldPolicy.HybridFreeze
             && (_holding || _approachUntilUs is not null);
-        if (holdSuppressed || _lastState != InteractionState.Fixation)
+        // A settle inside a live offer's no-move zone (a near miss or swallowed settle next to the
+        // button) must not glide the ring toward it; the ring keeps following or holding.
+        bool nearOffer = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+            && _offerLive
+            && message.Position.DistanceTo(_offerCenter)
+                <= _offerHitRadiusPx + _settings.Dwell.FixationRadiusPixels;
+        if (holdSuppressed || nearOffer || _lastState != InteractionState.Fixation)
         {
             // Refused, but still one record: the look's log pairs every Core pin with its message.
             RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, 0, Applied: false));
@@ -331,10 +338,14 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
                 else
                 {
                     _outsideSinceUs ??= ts;
-                    if (_inHitCount < HybridFreezeProvenSamples)
+                    bool proven = _inHitCount >= HybridFreezeProvenSamples;
+                    if (!proven && d > noMoveZonePx)
+                        // A fly-through leaving the no-move zone lets go at once; a slip that stays
+                        // inside it is tolerated like a proven hold's excursion (the button's own
+                        // dwell only pauses there).
                         EndHold(RingHoldEndReason.Unproven, release: true);
                     else if (ts - _outsideSinceUs.Value >= HybridFreezeGraceMs * 1000L)
-                        EndHold(RingHoldEndReason.Left, release: true);
+                        EndHold(proven ? RingHoldEndReason.Left : RingHoldEndReason.Unproven, release: true);
                 }
             }
             else if (_approachUntilUs is null && d <= _offerHitRadiusPx)

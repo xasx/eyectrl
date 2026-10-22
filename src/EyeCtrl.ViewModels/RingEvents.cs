@@ -19,7 +19,7 @@ public enum RingHoldPolicy
     /// <summary>The look's hybrid — the launch default since the owner's look picked it (2026-10-16):
     /// within a live offer's hit area the ring stops where it is drawn
     /// (or keeps the pin it was on) and holds, ignoring settles and run ends; it releases on the
-    /// grace expiry once proven, on the first sample outside before that, on the offer's close, and
+    /// grace expiry (an unproven hold also on leaving the no-move zone), on the offer's close, and
     /// on a hiding state. See the constants on <see cref="CursorCircleViewModel"/>.</summary>
     HybridFreeze,
 }
@@ -43,7 +43,7 @@ public enum RingHoldEndReason
     /// <summary>The gaze sat outside the hit area for the grace, having proven itself first.</summary>
     Left,
 
-    /// <summary>The gaze left the hit area before the hold had proven itself (&lt; 3 samples).</summary>
+    /// <summary>An unproven hold (&lt; 3 in-hit samples) that left the no-move zone at once, or sat outside the hit area for the grace.</summary>
     Unproven,
 
     /// <summary>The live offer closed.</summary>

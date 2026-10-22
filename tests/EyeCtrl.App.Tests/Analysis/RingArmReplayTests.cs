@@ -354,7 +354,10 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         model.Release();
                         break;
                     case Kind.Settled when spec.Pinning is Pinning.RunOnly or Pinning.Hybrid:
-                        if (!holding && approachUntilUs is null) model.Pin(e.Point);
+                        // The hybrid ignores a settle inside a live offer's no-move zone (near miss).
+                        bool nearOffer = hybrid && offer is { } so
+                            && e.Point.DistanceTo(so.Button) <= so.HitRadiusPx + radiusPx;
+                        if (!holding && approachUntilUs is null && !nearOffer) model.Pin(e.Point);
                         break;
                     case Kind.State:
                         if (spec.Pinning is Pinning.RunOnly or Pinning.Hybrid
@@ -424,7 +427,10 @@ public class RingArmReplayTests(ITestOutputHelper output)
                                 {
                                     outsideSinceUs ??= row.Us;
                                     bool proven = holdInHitSamples * 30 >= spec.ProvenMs;
-                                    if (!proven || row.Us - outsideSinceUs.Value >= spec.GraceMs * 1000L)
+                                    // Edge-tolerant hold: an unproven hold ends at once only when the gaze
+                                    // leaves the no-move zone; inside it, the grace applies as when proven.
+                                    if ((!proven && d > o.HitRadiusPx + radiusPx)
+                                        || row.Us - outsideSinceUs.Value >= spec.GraceMs * 1000L)
                                         EndHold(row.Us, release: true);
                                 }
                             }

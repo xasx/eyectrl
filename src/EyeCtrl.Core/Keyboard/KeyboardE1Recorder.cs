@@ -398,6 +398,9 @@ public sealed class KeyboardE1Recorder
 
     private readonly Dictionary<string, EdgeTally> _tallies = new(StringComparer.Ordinal);
     private readonly int _tallyMinFires;
+
+    /// <summary>The minimum this recorder applies (read-only; the production wiring test pins that the real view-model's is the default).</summary>
+    internal int EdgeTallyMinFiresInUse => _tallyMinFires;
     private string _tallyEdge = "-";
 
     /// <summary>

@@ -24,6 +24,15 @@ using Xunit;
 /// any edge or corner goes red.
 /// </para>
 /// </summary>
+// NOTE (test-windows-invisible): none of these tests ever SHOWS the window — ActivationButtonWindow.ShowAt only positions it
+// and starts the fade (production calls ShowAt and then Show(); these call ShowAt only), so there is nothing to make invisible
+// and NO InvisibleTestWindow helper is used. In particular NOT PrepareCloaked: it creates the window's HWND before ShowAt, and a
+// window that already has an HWND stores Left/Top through the REAL monitor's DPI (SetWindowPos in whole device pixels, read back
+// through WM_WINDOWPOSCHANGED), while these tests fake the scale with DpiHelper.Initialize(2.0, 2.0). On a machine whose real
+// DPI differs (CI at 1.0) the read-back is off by one device pixel at the half-DIP positions ("B=(1920,0): the drawn centre is
+// (1921,-1)"). Without an HWND, Left/Top are plain stored doubles and the arithmetic is exact at any real DPI.
+// NoVisibleTestWindowGuardTests knows that ShowAt on an ActivationButtonWindow is not a show (but a Show() on it still is), and
+// InvisibleTestWindowTests pins that this file creates no early handle.
 [Collection("WpfApplication")]
 public class FixationHaloRenderTests
 {

@@ -844,8 +844,7 @@ public class KeyboardCoordinatorTests
         var keyboard = new KeyboardWindow();
         keyboard.SetViewModel(new KeyboardViewModel(settings, messenger));
         // F6: invisible, non-activating show.
-        keyboard.Opacity = 0;
-        keyboard.ShowActivated = false;
+        InvisibleTestWindow.Prepare(keyboard);
         // Stale state: the last transition said a toolbar occupied the keyboard's edge.
         keyboard.SetToolbarOccupancyState(true, "bottom", 132);
 
@@ -914,7 +913,7 @@ public class KeyboardCoordinatorTests
         settings.Dwell.KeyboardKeyDwellMs = 450;
         settings.Dwell.ActionMenuDwellMs = 900;
         var messenger = new WeakReferenceMessenger();
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         var bar = new TestFakes.FakeEdgeButtonBar();
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
@@ -957,7 +956,7 @@ public class KeyboardCoordinatorTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboard.SetViewModel(vm);
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
@@ -1050,7 +1049,7 @@ public class KeyboardCoordinatorTests
     private static (KeyboardCoordinator Coordinator, GazeEngine Engine) NewInitializedWithEngine()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboard.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
         var engine = new GazeEngine(new SilentGazeProvider(), new TestFakes.FakeInputSimulator(), new EyeCtrlSettings());
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
@@ -1219,7 +1218,7 @@ public class KeyboardCoordinatorTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var engine = new GazeEngine(new SilentGazeProvider(), new TestFakes.FakeInputSimulator(),
             new EyeCtrlSettings());
-        var keyboardWindow = new KeyboardWindow();
+        var keyboardWindow = InvisibleTestWindow.Prepare(new KeyboardWindow());
         keyboardWindow.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
         var messenger = new WeakReferenceMessenger();
         var modal = new ModalInteractionState();
@@ -1273,9 +1272,10 @@ public class KeyboardCoordinatorTests
     public void ProbeKeyboardSeam_ReShowBranch_IsWiredAtTheSource()
     {
         // C13's re-show branch cannot run in CI: SetKeyboardVisible(true, …) calls the real
-        // KeyboardWindow.Show(), and this suite keeps Show()-calling tests Category=UI, which CI
-        // excludes (KeyboardGateProbeTests documents that boundary and uses an HwndSource for the
-        // same reason). The branch is pinned at the source instead — the same remedy
+        // KeyboardWindow.Show(). A test that shows a real window must make it invisible and
+        // non-activating first (InvisibleTestWindow.Prepare, in Fixtures/; NoVisibleTestWindowGuard-
+        // Tests fails any test that does not), and KeyboardGateProbeTests uses an HwndSource for the
+        // same reason. This branch is pinned at the source instead — the same remedy
         // SetKeyboardVisible_RoutesTheToolbarPathThroughTheClaim uses for the other un-showable
         // window work. Mutations: manageSuppression:true on either seam (the claim would be
         // taken/released behind the probe's back — exactly review 05 F2), dropping the re-show, or

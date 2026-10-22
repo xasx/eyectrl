@@ -575,6 +575,7 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (_viewModel == null) return;
 
+        RefreshBarOnSensitivityChange();
         UpdateKeyScreenPositions();
 
         // One predicate, three surfaces. The prediction bar's hit areas are circles of each cell's
@@ -917,6 +918,31 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionTargetsInitialized = true;
     }
 
+    // True once the bar was emptied because a password field has focus: the first sample after the
+    // focus leaves rebuilds it, so the normal bar comes back without waiting for a key.
+    private bool _barEmptiedForSensitiveContext;
+
+    /// <summary>
+    /// The detector has no change event, so the window watches the cached verdict on every gaze sample.
+    /// A list rendered BEFORE a password field took focus must not stay on screen (and offer a pick
+    /// into the password field), and the bar returns on the first sample after the focus leaves.
+    /// </summary>
+    private void RefreshBarOnSensitivityChange()
+    {
+        if (_viewModel is null) return;
+        if (_viewModel.IsSensitiveContext)
+        {
+            _barEmptiedForSensitiveContext = true;
+            if (_renderedPredictions.Count > 0)
+                UpdatePredictions();          // renders nothing while sensitive
+        }
+        else if (_barEmptiedForSensitiveContext)
+        {
+            _barEmptiedForSensitiveContext = false;
+            UpdatePredictions();              // the guard ends the session, so the context holds nothing typed there
+        }
+    }
+
     public void UpdatePredictions()
     {
         var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? 5, 1, 5);
@@ -1126,6 +1152,15 @@ public partial class KeyboardWindow : OverlayWindow
     internal void OnPredictionDwelled(string targetId)
     {
         if (_viewModel == null || !targetId.StartsWith("pred_")) return;
+
+        // A stale list from before a password field took focus: a pick on it must do nothing, and the
+        // bar is emptied. Then the sensitivity guard, BEFORE E1's pick line reads CurrentInput.
+        if (_viewModel.IsSensitiveContext)
+        {
+            UpdatePredictions();
+            return;
+        }
+        _viewModel.EndSessionOnSensitivityChange();
 
         // Index the RENDERED list — see _renderedPredictions for why a re-fetch here is both a
         // wrong-word hazard and an LM-starvation bug.

@@ -141,7 +141,7 @@ public class GazeConsumerInventoryTests
         // shown, so TryGetChromeBounds is false. The rule (the ticket-8 keyboard rule): visible
         // alone is NOT enough; an unsourced window contributes nothing rather than a phantom rect.
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var keyboard = new KeyboardWindow();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
         try
         {
             keyboard.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
@@ -177,8 +177,7 @@ public class GazeConsumerInventoryTests
             // F6: the owner controls the PC only by eye-tracking. This test needs the real
             // Show() layout, so make the window fully transparent and non-activating: it lays
             // out identically (the chrome rect is what is under test) and shows nothing.
-            keyboard.Opacity = 0;
-            keyboard.ShowActivated = false;
+            InvisibleTestWindow.Prepare(keyboard);
             keyboard.Show();
             Pump();
             kit.KeyboardVm.IsVisible = true;

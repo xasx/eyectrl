@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using NFluent;
@@ -42,5 +44,19 @@ public class NoteWindowShowSeamTests
             .That(window.IsDisplayed).IsTrue();
         Check.WithCustomMessage("and the manager's own answer agrees")
             .That(manager.AllWindowsVisible).IsTrue();
+    }
+
+    [StaFact]
+    public void ThePlaceHereWindow_AlsoHonoursTheSeam()
+    {
+        // ShowPlaceHere goes through the same seam (one line in the manager); the window's own half
+        // is pinned here: it counts as displayed while its HWND stays hidden.
+        var place = new NotePlaceHereWindow();
+        InvisibleTestWindow.Prepare(place);
+        place.ShowForDisplay(realHwnd: false);
+        Check.WithCustomMessage("the Place-here window must never reach the screen")
+            .That(place.IsVisible).IsFalse();
+        Check.WithCustomMessage("but it still counts as displayed")
+            .That(place.IsDisplayed).IsTrue();
     }
 }

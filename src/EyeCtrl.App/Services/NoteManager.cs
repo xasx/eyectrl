@@ -1469,7 +1469,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _placeWindow ??= new NotePlaceHereWindow();
         _placeWindow.Left = x;
         _placeWindow.Top = y;
-        _placeWindow.Show();
+        _placeWindow.ShowForDisplay(RealNoteWindows);
         RegisterPlaceTarget(moving.Id);
         _placeCentroid = centroidPhysical;
         _placeShown = true;

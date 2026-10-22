@@ -568,6 +568,11 @@ internal static class TestFakes
         public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
         public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
+        /// <summary>The point each bare <see cref="Scroll(PhysicalPoint, int, int)"/> was sent to,
+        /// parallel to <see cref="BareScrolls"/> (the scroll-arming gate: the wheel lands on the
+        /// anchor, never on the rest point).</summary>
+        public List<PhysicalPoint> BareScrollPoints { get; } = new();
+
         /// <summary>Pointed one-shot scrolls: the point is recorded so a dispatcher mutant passing
         /// the wrong point (the M3 lesson) cannot survive.</summary>
         public List<(PhysicalPoint Point, int Dx, int Dy)> PointedScrolls { get; } = new();
@@ -612,7 +617,12 @@ internal static class TestFakes
 
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { RecordInjection(); BareScrolls.Add((deltaX, deltaY)); }
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
+        {
+            RecordInjection();
+            BareScrolls.Add((deltaX, deltaY));
+            BareScrollPoints.Add(point);
+        }
 
         public void ScrollAt(PhysicalPoint point, int deltaX, int deltaY)
         {

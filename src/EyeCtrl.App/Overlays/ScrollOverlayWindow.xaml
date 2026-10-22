@@ -15,6 +15,13 @@
              code-behind; the Grid wrapper exists only so the escape hint below can use ordinary
              corner alignment, which a bare Canvas ignores. -->
         <Canvas x:Name="OverlayCanvas">
+            <!-- Scroll arming fix (C4): the start circle — looking anywhere inside it for a moment
+                 starts scrolling. Faint, with the BrushStrokeHalo under-stroke (declared first, so it
+                 paints underneath); shown only while unarmed. -->
+            <Ellipse x:Name="StartCircleHalo" Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="4"
+                     Opacity="0.5" Visibility="Collapsed" IsHitTestVisible="False"/>
+            <Ellipse x:Name="StartCircle" Stroke="{StaticResource BrushTextPrimary}" StrokeThickness="2"
+                     Opacity="0.5" Visibility="Collapsed" IsHitTestVisible="False"/>
             <!-- Fixup 02: the arming cue's halo under-strokes. Declared BEFORE their lines so they
                  paint underneath; shown only while unarmed (a dark under-stroke keeps the cue
                  visible on white pages at ~1.3:1 otherwise). -->

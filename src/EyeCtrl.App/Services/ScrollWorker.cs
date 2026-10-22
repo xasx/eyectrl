@@ -25,6 +25,9 @@ public class ScrollWorker : IDisposable
     // F-S5 (scroll start fix): the per-second diagnosis — notches sent, where the OS cursor is,
     // and whether the joystick has armed. The callbacks stay null-tolerant for bare harnesses.
     private Func<bool>? _isArmed;
+    // Scroll arming fix (C5): the closest the gaze came to the anchor while unarmed; -1 until the
+    // first gated sample.
+    private Func<double>? _nearestPx;
     private Func<PhysicalPoint?>? _cursorReader;
     private long _wheelsUp;
     private long _wheelsDown;
@@ -61,7 +64,8 @@ public class ScrollWorker : IDisposable
     public void Start(
         PhysicalPoint anchor,
         Func<bool>? isArmed = null,
-        Func<PhysicalPoint?>? cursorReader = null)
+        Func<PhysicalPoint?>? cursorReader = null,
+        Func<double>? nearestPx = null)
     {
         lock (_lock)
         {
@@ -73,6 +77,7 @@ public class ScrollWorker : IDisposable
             _remainderX = 0;
             _remainderY = 0;
             _isArmed = isArmed;
+            _nearestPx = nearestPx;
             _cursorReader = cursorReader;
             _wheelsUp = 0;
             _wheelsDown = 0;
@@ -154,19 +159,20 @@ public class ScrollWorker : IDisposable
     private string Describe(long elapsedMs)
     {
         bool armed = _isArmed?.Invoke() ?? false;
+        double nearest = _nearestPx?.Invoke() ?? -1;
         if (_cursorReader?.Invoke() is { } cursor)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=({3:F0},{4:F0}) cursorToAnchor={5:F0}px armed={6} elapsedMs={7}",
+                "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=({3:F0},{4:F0}) cursorToAnchor={5:F0}px armed={6} nearest={7:F0} elapsedMs={8}",
                 _wheelsUp, _wheelsDown, _wheelsHorizontal, cursor.X, cursor.Y,
-                cursor.DistanceTo(_anchor), armed, elapsedMs);
+                cursor.DistanceTo(_anchor), armed, nearest, elapsedMs);
         }
 
         return string.Format(
             CultureInfo.InvariantCulture,
-            "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=(?,?) cursorToAnchor=?px armed={3} elapsedMs={4}",
-            _wheelsUp, _wheelsDown, _wheelsHorizontal, armed, elapsedMs);
+            "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=(?,?) cursorToAnchor=?px armed={3} nearest={4:F0} elapsedMs={5}",
+            _wheelsUp, _wheelsDown, _wheelsHorizontal, armed, nearest, elapsedMs);
     }
 
     public void Dispose()

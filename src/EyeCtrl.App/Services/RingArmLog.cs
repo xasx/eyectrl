@@ -123,6 +123,7 @@ internal sealed class RingArmLog : IDisposable
             RingGoEndReason.Left => "left",
             RingGoEndReason.Timeout => "timeout",
             RingGoEndReason.OfferClosed => "offer-closed",
+            RingGoEndReason.Settled => "settled",
             _ => "hidden",
         }, ms, OffText(off));
 

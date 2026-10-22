@@ -104,6 +104,7 @@ public class RingArmLogTests
         Check.That(RingArmLog.GoEndLine(RingGoEndReason.Timeout, 510, 5)).IsEqualTo("Ring go end (timeout) ms=510 off=5");
         Check.That(RingArmLog.GoEndLine(RingGoEndReason.OfferClosed, 30, 0)).IsEqualTo("Ring go end (offer-closed) ms=30 off=0");
         Check.That(RingArmLog.GoEndLine(RingGoEndReason.Hidden, 30, null)).IsEqualTo("Ring go end (hidden) ms=30 off=na");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Settled, 480, 7)).IsEqualTo("Ring go end (settled) ms=480 off=7");
 
         Check.That(RingArmLog.ReleaseLine(RingReleaseCause.RunEnd, 123.6))
             .IsEqualTo("Ring release (run-end) dist=124");
@@ -240,7 +241,7 @@ public class RingArmLogTests
         // distance to the P-B segment), and one end line per reason with the time since the start.
         // P = (1000,1000), B = (1400,1000), hit 150, R 80, frames 30 ms. Mutant M10: the go-end reasons
         // swapped (left <-> timeout) -> the timeout and left lines read wrongly.
-        List<string> Go(Action<Action<PhysicalPoint>, Action<InteractionState>, Action> script)
+        List<string> Go(Action<Action<PhysicalPoint>, Action<InteractionState>, Action, Action<PhysicalPoint>> script)
         {
             var log = new List<string>();
             var messenger = new WeakReferenceMessenger();
@@ -261,41 +262,50 @@ public class RingArmLogTests
             messenger.Send(new ReleaseRingMessage());
             messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
             log.Clear();
-            script(Frame, s => messenger.Send(new StateChangedMessage(s)), () => messenger.Send(new HideActivationButtonMessage()));
+            script(Frame, s => messenger.Send(new StateChangedMessage(s)), () => messenger.Send(new HideActivationButtonMessage()),
+                at => messenger.Send(new PinRingMessage(at)));
             return log.Where(l => l.StartsWith("Ring go ", StringComparison.Ordinal)).ToList();
         }
 
-        Check.That(Go((frame, _, _) =>
+        Check.That(Go((frame, _, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             for (int i = 0; i < 17; i++) frame(new PhysicalPoint(1100, 1000));
         })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (timeout) ms=510 off=0");
 
-        Check.That(Go((frame, _, _) =>
+        Check.That(Go((frame, _, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             frame(new PhysicalPoint(1100, 1100));
         })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (left) ms=30 off=100");
 
-        Check.That(Go((frame, _, _) =>
+        Check.That(Go((frame, _, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             frame(new PhysicalPoint(1300, 1000));
         })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (hit) ms=30 off=0");
 
-        Check.That(Go((frame, _, hide) =>
+        Check.That(Go((frame, _, hide, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             frame(new PhysicalPoint(1100, 1000));
             hide();
         })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (offer-closed) ms=30 off=0");
 
-        Check.That(Go((frame, state, _) =>
+        Check.That(Go((frame, state, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             frame(new PhysicalPoint(1100, 1000));
             state(InteractionState.Paused);
         })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (hidden) ms=30 off=0");
+
+        Check.That(Go((frame, state, _, settle) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(1100, 1000));
+            state(InteractionState.Fixation);
+            settle(new PhysicalPoint(1100, 1000));
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (settled) ms=30 off=0");
     }
 
     [Fact]

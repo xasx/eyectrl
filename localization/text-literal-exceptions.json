@@ -1344,6 +1344,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"settled\"",
+      "Category": "log",
+      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"state\"",
       "Category": "log",
       "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."

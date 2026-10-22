@@ -183,16 +183,22 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// from the ring's current position — the point it was following a moment ago — and ends exactly on
     /// the pin; the first frame after the pin starts the clock.
     /// <para>
-    /// Under <see cref="RingHoldPolicy.HybridFreeze"/> a pin while holding or approaching is ignored:
-    /// "while holding, settles and run ends are ignored, so there is no re-pin and no snap". It is
-    /// likewise ignored while an offer is live and the point is a near miss: inside its no-move zone
-    /// and nearer B than P.
+    /// Under <see cref="RingHoldPolicy.HybridFreeze"/> a pin while holding is ignored: "while holding,
+    /// settles and run ends are ignored, so there is no re-pin and no snap". It is likewise ignored
+    /// while an offer is live and the point is a near miss: inside its no-move zone and nearer B than P.
+    /// A settle during the going-for-it keep ENDS the keep (the eye has stopped: it is no longer going
+    /// for the button, and the detector's settle can come no earlier than the keep's time limit) and is
+    /// then processed as without a keep: it pins, or a near miss is refused and the ring follows.
     /// </para>
     /// </summary>
     public void Receive(PinRingMessage message)
     {
         // Only a fixation may pin. The check is against the last state the machine REPORTED, so a
         // release/exit that arrives before this message (F4's race) refuses the pin outright.
+        bool endsKeep = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+            && !_holding && _approachUntilUs is not null && _lastState == InteractionState.Fixation;
+        if (endsKeep)
+            GoEnd(RingGoEndReason.Settled, _latestGaze, _lastFrameUs);
         bool holdSuppressed = RingHoldPolicy == RingHoldPolicy.HybridFreeze
             && (_holding || _approachUntilUs is not null);
         // A NEAR-MISS settle (inside a live offer's no-move zone AND strictly nearer B than P: the
@@ -212,6 +218,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
             bool decidedByNearOffer = nearOffer && !holdSuppressed && _lastState == InteractionState.Fixation;
             RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, 0, Applied: false,
                 IgnoredNearOffer: decidedByNearOffer));
+            // The keep ended on this settle and the pin was refused (a near miss): the owed run-end
+            // release happens now, so the ring follows rather than staying pinned at P with no keep.
+            if (endsKeep)
+                ReleaseNowWithLog(RingReleaseCause.RunEnd);
             return;
         }
 

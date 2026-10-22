@@ -57,6 +57,8 @@ public class RingArmLookOracleTests
         yield return ("slip chain, fly-through (unproven exit beyond the zone)", ScriptedSlips(SlipKind.FlyThrough));
         foreach (var (name, samples) in GoingForItChains.All())
             yield return ($"go chain: {name}", samples);
+        yield return ("go chain: a corridor stop, then the eye goes for the replacement offer's button",
+            GoingForItChains.StopNearP(new PhysicalPoint(2100, 1250)));
     }
 
     [Fact]
@@ -72,6 +74,123 @@ public class RingArmLookOracleTests
                     .That(CountDifferences(vm, Play(trace, spec))).IsEqualTo(0);
             }
         }
+    }
+
+    // ── Outcomes through the real engine + VM (the oracle alone cannot tell a shared design flaw) ──
+
+    private sealed record WiredRun(
+        List<(int Sample, string Event)> Log, List<ShowActivationButtonMessage> Offers, PhysicalPoint[] Position, bool[] Pinned)
+    {
+        public IEnumerable<string> Events => Log.Select(l => l.Event);
+
+        public int FirstSample(string ev, int skipBefore = 0) =>
+            Log.Where(l => l.Sample >= skipBefore && l.Event == ev).Select(l => l.Sample).DefaultIfEmpty(-1).First();
+    }
+
+    /// <summary>Plays <paramref name="samples"/> through the real engine (RunOnly) and the real hybrid VM,
+    /// wired as in production, and records the ring's events with the sample they happened on.</summary>
+    private static WiredRun RunWired(IReadOnlyList<GazePoint> samples)
+    {
+        var messenger = new StrongReferenceMessenger();
+        var vm = VmFor(RingHoldPolicy.HybridFreeze, SessionEnd.RadiusPx)(messenger);
+        PhysicalPoint drawn = default;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(CursorCircleViewModel.Position)) drawn = vm.Position;
+            else if (e.PropertyName == nameof(CursorCircleViewModel.MoveTo)) drawn = vm.MoveTo.Target;
+        };
+
+        int current = 0;
+        var log = new List<(int, string)>();
+        var offers = new List<ShowActivationButtonMessage>();
+        messenger.Register<ShowActivationButtonMessage>(offers, (_, m) =>
+        {
+            offers.Add(m);
+            log.Add((current, "offer"));
+        });
+        vm.RingGoStarted += _ => log.Add((current, "go start"));
+        vm.RingGoEnded += e => log.Add((current, $"go end {e.Reason}"));
+        vm.RingHoldStarted += e => log.Add((current, $"hold start {e.Kind}"));
+        vm.RingHoldEnded += e => log.Add((current, $"hold end {e.Reason}"));
+        vm.RingReleased += e => log.Add((current, $"release {e.Cause}"));
+        vm.RingPinProcessed += e => log.Add((current, e.Applied ? "pin" : e.IgnoredNearOffer ? "pin near-miss" : "pin refused"));
+
+        var position = new PhysicalPoint[samples.Count];
+        var pinned = new bool[samples.Count];
+        Walk(samples, SessionEnd, RingPinPolicy.RunOnly, messenger: messenger, afterSample: i =>
+        {
+            position[i] = drawn;
+            pinned[i] = vm.IsPinned;
+            current = i + 1;
+        });
+        return new WiredRun(log, offers, position, pinned);
+    }
+
+    [Fact]
+    public void Outcome_AfterACorridorStop_TheReplacementOfferIsPinned_AndItsOwnApproachGetsAKeep()
+    {
+        // Review-01 F1: the settle that ends a corridor stop arrives on the keep's time-limit frame. It must
+        // end the keep (go end settled) and pin, so the replacement offer comes up with a PINNED ring and the
+        // next go-for-it toward the new button gets a keep of its own. Mutant MF1 (the pin refused during the
+        // keep) and MF1a (accepted, but the keep not ended: the replacement's Hide then ends it offer-closed
+        // and releases the new pin) both break this.
+        var first = RunWired(GoingForItChains.StopNearP(null));
+
+        Check.WithCustomMessage("the corridor stop's settle replaces the offer: " + string.Join(" | ", first.Events))
+            .That(first.Offers.Count).IsGreaterOrEqualThan(2);
+        Check.That(first.Events).Contains("go end Settled");
+        Check.That(first.Events).Not.Contains("go end OfferClosed");
+        int replaced = first.Log.Where(l => l.Event == "offer").Skip(1).First().Sample;
+        Check.WithCustomMessage($"the replacement offer is up at sample {replaced}: the ring must be pinned there")
+            .That(first.Pinned[replaced]).IsTrue();
+        var newPoint = first.Offers[1].OfferPoint!.Value;
+        Check.WithCustomMessage("the ring glides to the new P and rests there while the stop lasts")
+            .That(Enumerable.Range(replaced, 14).Any(i => first.Pinned[i] && first.Position[i].DistanceTo(newPoint) < 1.0)).IsTrue();
+
+        // The eye now goes for the NEW button: the second offer's approach gets its keep.
+        var second = RunWired(GoingForItChains.StopNearP(first.Offers[1].ButtonCenter));
+        var events = second.Events.ToList();
+        int secondOffer = events.IndexOf("offer", events.IndexOf("offer") + 1);
+        Check.WithCustomMessage("the second approach: " + string.Join(" | ", events))
+            .That(secondOffer).IsGreaterOrEqualThan(0);
+        var afterSecond = events.Skip(secondOffer + 1).ToList();
+        Check.That(afterSecond).Contains("go start");
+        int goStart = afterSecond.IndexOf("go start");
+        Check.That(afterSecond.Skip(goStart).Take(3)).ContainsExactly("go start", "go end Hit", "hold start Approach");
+    }
+
+    [Fact]
+    public void Outcome_DriftEndedRun_GoingForTheButton_KeepsTheRingStillAtP_UntilTheHold()
+    {
+        // F3: the run ends through fixation drift, 66 px from P (outside B's zone, inside the corridor): the
+        // keep starts, the hit entry hands it to the hold, and the ring never moves in between.
+        var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.ToButton));
+        var events = run.Events.ToList();
+        int start = events.IndexOf("go start");
+        Check.WithCustomMessage(string.Join(" | ", events)).That(start).IsGreaterOrEqualThan(0);
+        Check.That(events.Skip(start).Take(3)).ContainsExactly("go start", "go end Hit", "hold start Approach");
+
+        int startSample = run.Log.First(l => l.Event == "go start").Sample;
+        int holdSample = run.Log.First(l => l.Event == "hold start Approach").Sample;
+        for (int i = startSample; i <= holdSample; i++)
+        {
+            Check.WithCustomMessage($"sample {i}: the ring stays pinned and still while the eye goes for the button")
+                .That(run.Pinned[i]).IsTrue();
+            Check.That(run.Position[i]).IsEqualTo(run.Position[startSample]);
+        }
+    }
+
+    [Fact]
+    public void Outcome_DriftEndedRun_LookingAway_FollowsAtOnce_WithNoKeep()
+    {
+        // F3, the other way: the same drift-ended run, then the eye looks 500 px to the side: no keep, the
+        // ring is released on the first frame after the run end and follows.
+        var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.Away));
+        var events = run.Events.ToList();
+        Check.WithCustomMessage(string.Join(" | ", events)).That(events).Not.Contains("go start");
+        Check.That(events).Contains("release RunEnd");
+        int released = run.FirstSample("release RunEnd");
+        Check.That(run.Pinned[released]).IsFalse();
     }
 
     [Fact]

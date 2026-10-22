@@ -379,7 +379,16 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         bool nearOffer = hybrid && offer is { } so
                             && e.Point.DistanceTo(so.Button) <= so.HitRadiusPx + radiusPx
                             && e.Point.DistanceTo(so.Button) < e.Point.DistanceTo(so.Point);
-                        if (!holding && approachUntilUs is null && !nearOffer) model.Pin(e.Point);
+                        // A settle during the going-for-it keep ENDS the keep (the eye has stopped) and is then
+                        // processed as without a keep: it pins, or a near miss is refused and the ring follows.
+                        bool endsKeep = hybrid && !holding && approachUntilUs is not null
+                            && previousState == InteractionState.Fixation;
+                        if (endsKeep) approachUntilUs = null;
+                        if (!holding && approachUntilUs is null)
+                        {
+                            if (!nearOffer) model.Pin(e.Point);
+                            else if (endsKeep) model.Release();
+                        }
                         break;
                     case Kind.State:
                         if (spec.Pinning is Pinning.RunOnly or Pinning.Hybrid

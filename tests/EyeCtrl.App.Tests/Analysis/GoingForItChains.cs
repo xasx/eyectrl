@@ -19,7 +19,7 @@ internal static class GoingForItChains
     private static readonly PhysicalRect Screen = new(0, 0, 3840, 2400);
     private static readonly PhysicalRect ToolbarRect = new(914, 0, 2012, 280);
 
-    private sealed class Chain(int seed)
+    internal sealed class Chain(int seed)
     {
         private readonly Random _rng = new(seed);
         private long _us = 1_000_000;
@@ -55,9 +55,63 @@ internal static class GoingForItChains
         }
     }
 
-    private static PhysicalPoint ButtonFor(PhysicalPoint p) =>
+    internal static PhysicalPoint ButtonFor(PhysicalPoint p) =>
         ActivationButtonPlacement.Place(p, SessionEnd.RingSizeDip, LayoutConstants.ActivationButtonOffset, 2.0,
             LayoutConstants.ActivationButtonHitRadiusPx, SessionEnd.RadiusPx, Screen, [ToolbarRect]).ButtonCenter;
+
+    /// <summary>How a drift-based run ends: the eye goes for the button, or looks elsewhere.</summary>
+    internal enum DriftKind { ToButton, Away }
+
+    private static (PhysicalPoint P, PhysicalPoint B, Func<double, double, (double X, double Y)> Pt) Geometry()
+    {
+        var p = new PhysicalPoint(2400, 800);
+        var b = ButtonFor(p);
+        double d = p.DistanceTo(b);
+        (double X, double Y) u = ((b.X - p.X) / d, (b.Y - p.Y) / d);
+        (double X, double Y) n = (-u.Y, u.X);
+        return (p, b, (along, lateral) => (p.X + (u.X * along) + (n.X * lateral), p.Y + (u.Y * along) + (n.Y * lateral)));
+    }
+
+    /// <summary>
+    /// The run ends through fixation DRIFT, not a tracker gap (the sitting's mechanism): the eye holds at P,
+    /// drifts 68 px behind and to the side and rests there (the running centroid follows), then leaves. The
+    /// engine ends the run when the eye is ~66 px from P (251 px from B: outside B's no-move zone, 26 px off
+    /// the P-B axis: inside the corridor). <see cref="DriftKind.ToButton"/> then goes for the button in 14
+    /// samples; <see cref="DriftKind.Away"/> looks 500 px to the side.
+    /// </summary>
+    internal static List<GazePoint> Drift(DriftKind kind)
+    {
+        var (p, b, pt) = Geometry();
+        var w = pt(-55, 40);
+        var chain = new Chain(5).Hold(p.X, p.Y, 900).Move(w.X, w.Y, 14).Hold(w.X, w.Y, 600);
+        if (kind == DriftKind.ToButton)
+            chain.Move(b.X, b.Y, 14).Hold(b.X, b.Y, 800);
+        else
+        {
+            var away = pt(0, 500);
+            chain.Move(away.X, away.Y, 5).Hold(away.X, away.Y, 1200);
+        }
+
+        return chain.Hold(1000, 1700, 1500).Samples;
+    }
+
+    /// <summary>
+    /// The run ends near P (a 700 ms sample-clock gap), the eye resumes 40 px from P, stops 60 px past P for
+    /// 900 ms in the corridor (the detector settles there, 500 ms after the new run's anchor, so the settle
+    /// reaches the ring on the keep's time-limit frame), and replaces the offer. With
+    /// <paramref name="thenToward"/> the eye then goes for that new button.
+    /// </summary>
+    internal static List<GazePoint> StopNearP(PhysicalPoint? thenToward)
+    {
+        var (p, _, pt) = Geometry();
+        var near = pt(40, 0);
+        var early = pt(60, 20);
+        var chain = new Chain(51).Hold(p.X, p.Y, 1200).Skip(700).Hold(near.X, near.Y, 60)
+            .Move(early.X, early.Y, 2).Hold(early.X, early.Y, 900);
+        if (thenToward is { } to)
+            chain.Move(to.X, to.Y, 14).Hold(to.X, to.Y, 800);
+        return chain.Hold(1000, 1700, 1500).Samples;
+    }
 
     internal static List<(string Name, List<GazePoint> Samples)> All()
     {
@@ -125,6 +179,9 @@ internal static class GoingForItChains
         Add("away: run ends 40 px from P, swerves 130 px off the axis", Gapped(46).Hold(near.X, near.Y, 60).Move(swerve.X, swerve.Y, 4).Hold(swerve.X, swerve.Y, 1200));
         var sideFar = Pt(40, 100);
         Add("away: run ends 100 px off the axis (outside the corridor)", Gapped(47).Hold(sideFar.X, sideFar.Y, 600));
+        list.Add(("drift: the run ends 66 px from P, then to B", Drift(DriftKind.ToButton)));
+        list.Add(("drift: the run ends 66 px from P, then away", Drift(DriftKind.Away)));
+        list.Add(("a corridor stop near P: the settle replaces the offer", StopNearP(null)));
         return list;
     }
 }

@@ -106,8 +106,7 @@ public class CursorCircleViewModelHybridTests
         Check.That(rig.Vm.Position).IsEqualTo(P);                 // still at the pin
 
         rig.State(InteractionState.Fixation);                     // the next run forms under the approach
-        rig.Pin(new PhysicalPoint(900, 900));                     // a settle during the approach is ignored
-        Check.That(rig.Pins[^1].Applied).IsFalse();
+        // (a settle during the keep ends it and pins: pinned by Go_G9 below)
 
         rig.Frame(new PhysicalPoint(1300, 1000));                 // 100 px from B: into the hit area
 
@@ -857,20 +856,67 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Go_G9_ASwallowedSettle_DuringTheKeep_IsRefused_TheRingStaysAtP()
+    public void Go_G9_ASettleDuringTheKeep_EndsIt_AndPinsAsWithoutAKeep()
     {
-        // G9: a settle inside the corridor while the keep runs (nearer P than B: the engine's
-        // "swallowed" one) is refused by the keep; the ring stays pinned at P.
+        // G9 (fixup 01, review F1): the detector's settle needs >= 500 ms, so it reaches the ring on the
+        // keep's time-limit frame, while the keep is still active. It ENDS the keep (reason settled; the
+        // eye has stopped) and is then processed as without a keep: it pins and glides, so the next
+        // offer's keep can start from a pinned ring. Mutant MF1: the pin is still refused during the
+        // keep. Mutant MF1a: the pin is accepted but the keep is not ended. Mutant MF1b: the go-end
+        // reason is not `settled`.
         var rig = GoRig();
-        rig.Frame(new PhysicalPoint(1100, 1000));                 // the keep begins
-        rig.State(InteractionState.Fixation);                     // a new run forms under the keep
+        rig.Frame(new PhysicalPoint(1100, 1000), steps: 17);      // t0 .. t0 + 480 ms: the keep runs
+        rig.State(InteractionState.Fixation);                     // the new run, anchored at the breakout
 
-        rig.Pin(new PhysicalPoint(1100, 1000));
+        var settle = new PhysicalPoint(1100, 1000);               // 300 px from B: outside the zone
+        rig.Pin(settle);
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Settled);
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        rig.Frame(settle, steps: 12);                             // the glide lands on the settle
+        Check.That(rig.Vm.IsPinned).IsTrue();
+        Check.That(rig.Vm.Position).IsEqualTo(settle);
+        Check.That(rig.GoEnds).HasSize(1);                        // the keep did not end a second time
+    }
+
+    [Fact]
+    public void Go_G9b_ANearMissSettleDuringTheKeep_EndsIt_ThenIsRefused_AndTheRingFollows()
+    {
+        // The settle that ends the keep is a near miss of the live offer (D refuses it): the keep ends
+        // as settled and the owed run-end release happens, so the ring follows the gaze instead of
+        // staying pinned at P with no keep. Mutant MF1c: no release after the refused pin.
+        var rig = GoRig();
+        var gaze = new PhysicalPoint(1400, 1190);                 // 190 px from B, near miss
+        rig.Frame(gaze, steps: 17);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(gaze);
 
         Check.That(rig.Pins[^1].Applied).IsFalse();
+        Check.That(rig.Pins[^1].IgnoredNearOffer).IsTrue();
+        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Settled);
+        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(gaze);
+    }
+
+    [Fact]
+    public void Go_G9c_APinWithNoFixationUp_DoesNotEndTheKeep()
+    {
+        // A pin refused for the state alone (no Fixation reported) is not a settle of a new run: the
+        // keep goes on.
+        var rig = GoRig();
+        rig.Frame(new PhysicalPoint(1100, 1000), steps: 3);
+
+        rig.Pin(new PhysicalPoint(1100, 1000));                   // the machine is in FreeLook
+
+        Check.That(rig.Pins[^1].Applied).IsFalse();
+        Check.That(rig.GoEnds).IsEmpty();
         Check.That(rig.Vm.IsPinned).IsTrue();
         Check.That(rig.Vm.Position).IsEqualTo(P);
-        Check.That(rig.Releases).IsEmpty();
     }
 
     [Fact]

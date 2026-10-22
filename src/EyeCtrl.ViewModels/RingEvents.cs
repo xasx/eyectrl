@@ -110,6 +110,10 @@ public enum RingGoEndReason
 
     /// <summary>A hiding state (or the external dwell) took the ring away.</summary>
     Hidden,
+
+    /// <summary>The eye stopped and the detector settled (a settle pin reached the ring during the keep):
+    /// the pin is then processed as without a keep.</summary>
+    Settled,
 }
 
 /// <summary>A going-for-it keep began. <see cref="Dist"/> is the drawn ring to the gaze; <see cref="Off"/>

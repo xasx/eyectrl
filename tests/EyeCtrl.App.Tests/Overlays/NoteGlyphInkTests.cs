@@ -41,6 +41,7 @@ public class NoteGlyphInkTests
             foreach (var state in new[] { NoteState.Display, NoteState.Edit, NoteState.Move, NoteState.PendingUndo })
             {
                 var window = new NoteWindow("ink");
+                InvisibleTestWindow.Prepare(window);
                 window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
                 window.SetState(state);
                 if (state == NoteState.Move) window.SetOtherSideAvailable(true);

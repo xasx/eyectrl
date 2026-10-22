@@ -213,6 +213,7 @@ public class NoteTailContrastTests
         try
         {
             var window = new NoteWindow("tail-contrast");
+            InvisibleTestWindow.Prepare(window);
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(drawnIn);
             var card = new Size(

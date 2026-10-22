@@ -82,6 +82,7 @@ public class NoteReadingRenderTests
         try
         {
             var window = new NoteWindow("render-note");
+            InvisibleTestWindow.Prepare(window);
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(NoteState.Display);
             window.SetTextSize(size);

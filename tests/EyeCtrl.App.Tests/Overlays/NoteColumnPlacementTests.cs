@@ -73,6 +73,7 @@ public class NoteColumnPlacementTests
         try
         {
             var window = new NoteWindow("probe-note");
+            InvisibleTestWindow.Prepare(window);
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(state);
             window.SetTextSize(size);
@@ -128,6 +129,7 @@ public class NoteColumnPlacementTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new NoteWindow("glyph-pin");
+        InvisibleTestWindow.Prepare(window);
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
         window.SetState(NoteState.Display);
 

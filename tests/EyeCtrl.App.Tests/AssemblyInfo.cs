@@ -24,6 +24,12 @@ using EyeCtrl.Tests.TestSupport;
 [assembly: StringTableRestore]
 [assembly: StringTableObserver]
 
+// The RUNTIME half of the no-visible-window guard: fails the test after which any window of this process became really
+// visible (visible, not cloaked, on a monitor, not prepared by InvisibleTestWindow) — including windows that PRODUCTION
+// code opened, which the static scan (NoVisibleTestWindowGuardTests) cannot see. See RuntimeWindowMonitor; presence is
+// pinned by RuntimeWindowGuardTests.TheCheck_IsInstalledOnThisAssembly.
+[assembly: EyeCtrl.App.Tests.Fixtures.RuntimeVisibleWindowCheck]
+
 /// <summary>
 /// T6 fixup-08 R4: this assembly runs on the OWNER's machine, so no note test may put a note or
 /// Place-here window on the screen. The note manager's show seam is switched off ONCE here - before

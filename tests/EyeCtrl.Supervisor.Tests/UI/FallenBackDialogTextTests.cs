@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Supervisor.Supervision;
 using EyeCtrl.Supervisor.UI;
 using NFluent;
 using Xunit;
@@ -59,6 +60,38 @@ public class FallenBackDialogTextTests
                 Check.That(TextsUnder(buttons[1])).Contains("Dismiss (keep fallback)");
                 Check.That(((SolidColorBrush)buttons[1].Background).Color)
                     .IsEqualTo(Color.FromRgb(80, 40, 40));
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+    }
+
+    /// <summary>A3: the auto-retry countdown line appears only when the session's one countdown is
+    /// armed, and its text names the countdown the <see cref="FallenBackAutoRetry"/> enforces.</summary>
+    [Fact]
+    public void TheDialog_ShowsTheAutoRetryCountdown_WhenTheCountdownIsArmed()
+    {
+        RunSta(() =>
+        {
+            var dialog = new FallenBackDialog(StringTable.EmbeddedEnglish);
+            try
+            {
+                // Unarmed (a second FallenBack, or a countdown already fired or cancelled): no line.
+                Check.That(dialog.CountdownText.Visibility).IsEqualTo(Visibility.Collapsed);
+
+                dialog.ShowAutoRetryCountdown();
+                Check.That(dialog.CountdownText.Visibility).IsEqualTo(Visibility.Visible);
+                Check.That(dialog.CountdownText.Text).IsEqualTo("Trying again in 60 s…");
+                Check.That(dialog.CountdownText.Text).Contains(
+                    ((int)FallenBackAutoRetry.Delay.TotalSeconds).ToString(
+                        System.Globalization.CultureInfo.InvariantCulture));
+
+                // The line goes away when the countdown does: a dialog left open after a failed
+                // launch must not claim a retry is still coming.
+                dialog.ClearAutoRetryCountdown();
+                Check.That(dialog.CountdownText.Visibility).IsEqualTo(Visibility.Collapsed);
             }
             finally
             {

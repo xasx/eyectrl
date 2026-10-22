@@ -192,6 +192,10 @@ public class ShippedGermanSupervisorTests : IDisposable
                 Check.That(buttons).HasSize(2);
                 Check.That(TextsUnder(buttons[0])).Contains("EyeCtrl erneut starten (einmal)");
                 Check.That(TextsUnder(buttons[1])).Contains("Schließen (Ersatzprogramm behalten)");
+
+                // A3: the auto-retry countdown line — the German carries no ellipsis (T10 copy rules).
+                dialog.ShowAutoRetryCountdown();
+                Check.That(dialog.CountdownText.Text).IsEqualTo("Erneuter Versuch in 60 s");
             }
             finally
             {

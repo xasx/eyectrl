@@ -2753,6 +2753,10 @@
     "text": "Ein Ersatzprogramm zur Blicksteuerung läuft jetzt. Damit (oder mit der Maus) eine der Möglichkeiten unten wählen.",
     "src": "b2e1dba4"
   },
+  "supervisor.fallback.countdown": {
+    "text": "Erneuter Versuch in 60 s",
+    "src": "8e7b7d72"
+  },
   "supervisor.fallback.dismiss": {
     "text": "Schließen (Ersatzprogramm behalten)",
     "src": "c58df1bd"

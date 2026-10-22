@@ -44,6 +44,22 @@ public partial class FallenBackDialog : Window
         BuildButtons();
     }
 
+    /// <summary>Shows the auto-retry countdown line ("Trying again in 60 s…") — A3's safety net for
+    /// a user who cannot click Retry. Called when the session's one countdown is armed for this
+    /// episode; the text comes from the dialog's own table.</summary>
+    internal void ShowAutoRetryCountdown()
+    {
+        CountdownText.Text = Strings.T("supervisor.fallback.countdown");
+        CountdownText.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Hides the countdown line once the countdown has fired or been cancelled, so a
+    /// dialog left open (a failed launch) never claims a retry is still pending.</summary>
+    internal void ClearAutoRetryCountdown()
+    {
+        CountdownText.Visibility = Visibility.Collapsed;
+    }
+
     private void BuildButtons()
     {
         // Large hit areas + large font: this is shown when the app is broken; the user may

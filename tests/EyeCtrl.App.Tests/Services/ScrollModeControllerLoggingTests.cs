@@ -193,8 +193,12 @@ public class ScrollModeControllerLoggingTests
 
             for (int i = 0; i < 63; i++) worker.Tick();
 
-            int wheelsDown = input.BareScrolls.Sum(s => s.Dy < 0 ? -s.Dy : 0);
-            int wheelsUp = input.BareScrolls.Sum(s => s.Dy > 0 ? s.Dy : 0);
+            // Part B: this cursor is 100 px from the anchor, so every tick hops and the wheels ride
+            // in RestoreScrolls. Both paths are wheels the simulator received.
+            int wheelsDown = input.BareScrolls.Sum(s => s.Dy < 0 ? -s.Dy : 0)
+                + input.RestoreScrolls.Sum(s => s.Dy < 0 ? -s.Dy : 0);
+            int wheelsUp = input.BareScrolls.Sum(s => s.Dy > 0 ? s.Dy : 0)
+                + input.RestoreScrolls.Sum(s => s.Dy > 0 ? s.Dy : 0);
             Check.WithCustomMessage("the premise: the fake received downward wheels")
                 .That(wheelsDown).IsStrictlyGreaterThan(0);
 
@@ -207,6 +211,40 @@ public class ScrollModeControllerLoggingTests
             Check.WithCustomMessage(line)
                 .That(line.Contains($"wheelsUp={wheelsUp}", StringComparison.Ordinal)).IsTrue();
             Check.That(wheelsUp).IsEqualTo(0);
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [StaFact]
+    public void ThePerSecondLine_CountsTheRestoredHops()
+    {
+        // GB4 (scroll-at-P, Part B): the live look reads restored= to see how often the external
+        // gaze mouse pulled the cursor away. MB7 (counter never incremented) must fail here.
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            var input = new TestFakes.FakeInputSimulator();
+            using var worker = new ScrollWorker(input);
+            worker.Start(
+                new PhysicalPoint(1000, 1000),
+                isArmed: () => true,
+                cursorReader: () => new PhysicalPoint(1100, 1000)); // 100 px away: every wheel hops
+            worker.UpdateTargetVelocity(0, -600);
+
+            for (int i = 0; i < 63; i++) worker.Tick();
+
+            var line = sink.Messages.FirstOrDefault(m =>
+                m.Contains("Scroll: ", StringComparison.Ordinal)
+                && m.Contains("cursor=(1100,1000)", StringComparison.Ordinal));
+            Check.WithCustomMessage($"saw: {string.Join(" | ", sink.Messages)}").That(line).IsNotNull();
+            Check.WithCustomMessage("the premise: the ticks produced hops").That(input.RestoreScrolls).Not.IsEmpty();
+            Check.WithCustomMessage(line!)
+                .That(line!.Contains($"restored={input.RestoreScrolls.Count}", StringComparison.Ordinal)).IsTrue();
         }
         finally
         {

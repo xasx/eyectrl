@@ -1225,7 +1225,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var size = new Size(NoteLayout.NoticeCardWidthDip, NoteLayout.NoticeCardHeightDip);
         var noticePlacement = NoteLayout.Place(pinPoint, NoteSide.Right, size, WorkAreaDip(), avoid, DpiHelper.ScaleX)!;
         _noticeWindow ??= new NoteNoticeWindow { ShowRealWindow = NoticeWindowShowsForTest };
-        _noticeWindow.ShowAt(noticePlacement.Window);
+        _noticeWindow.ShowAt(noticePlacement.Window, NoticeWindowShowsForTest && RealNoteWindows);
     }
 
     /// <summary>Test seam: whether the notice puts a REAL window on the screen. Headless tests

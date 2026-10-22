@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Services;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using NFluent;
@@ -58,5 +59,34 @@ public class NoteWindowShowSeamTests
             .That(place.IsVisible).IsFalse();
         Check.WithCustomMessage("but it still counts as displayed")
             .That(place.IsDisplayed).IsTrue();
+    }
+
+    [StaFact]
+    public void TheCapacityNotice_NeverPaintsWhenTheSeamIsOff_EvenWithoutItsOwnOptOut()
+    {
+        // The notice follows the manager's show seam too, so a test that keeps its own opt-out ON
+        // still puts nothing on the owner's screen - while its visible-bounds answer keeps working.
+        Check.WithCustomMessage("this assembly must run the note manager headless")
+            .That(NoteManager.RealNoteWindows).IsFalse();
+
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+        Check.WithCustomMessage("this test deliberately keeps the notice's own opt-out ON")
+            .That(manager.NoticeWindowShowsForTest).IsTrue();
+
+        EyeCtrl.Core.Services.DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.ShowCapacityNotice(new PhysicalPoint(1600, 1000));
+
+            var notice = manager.NoticeWindowForTest;
+            Check.That(notice).IsNotNull();
+            Check.WithCustomMessage("the capacity notice must never reach the screen")
+                .That(notice!.IsVisible).IsFalse();
+            Check.WithCustomMessage("but its visible-bounds answer still works")
+                .That(notice.TryGetVisibleBounds(out _)).IsTrue();
+        }
+        finally { EyeCtrl.Core.Services.DpiHelper.Initialize(1.0, 1.0); }
     }
 }

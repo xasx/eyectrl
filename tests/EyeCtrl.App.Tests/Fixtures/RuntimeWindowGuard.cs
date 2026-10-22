@@ -455,42 +455,64 @@ public sealed class RuntimeVisibleWindowCheckAttribute : BeforeAfterTestAttribut
             "the test is fixed (or renamed) — DELETE its entry from RuntimeVisibleWindowCheckAttribute.KnownVisibleWindowOffenders.");
     }
 
-    private const string NoteManagerReason = "NoteManager (production) opens real NoteWindows; to be fixed by the sticky-notes fix";
+    /// <summary>
+    /// The SHIPPED waiver list. It is EMPTY: the sticky-notes seam stopped <c>NoteManager</c> from showing real
+    /// <c>NoteWindow</c>s, so #258's 21 entries were deleted. One entry per TEST, never per class, and a new offender
+    /// must be listed deliberately. An entry that stops offending FAILS its own test (see
+    /// <see cref="JudgeKnownOffender"/>), so the list can only shrink; a test that is not listed and opens a visible window
+    /// fails as usual. <c>RuntimeWindowGuardTests.TheKnownOffenders_StillExist</c> pins the shipped list empty and fails when
+    /// an entry names a test that is gone. The listed tests run in exclusive (non-parallel) collections, so a window is
+    /// never blamed on the wrong test.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string> KnownVisibleWindowOffenders => Volatile.Read(ref _knownVisibleWindowOffenders);
+
+    private static IReadOnlyDictionary<string, string> _knownVisibleWindowOffenders =
+        new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>
-    /// ⚠ THESE TESTS STILL PAINT REAL WINDOWS ON THE SCREEN. They are listed only so that <c>main</c> stays green while the
-    /// sticky-notes fix (which stops <c>NoteManager</c> from showing real <c>NoteWindow</c>s in them) is outstanding: the runtime
-    /// check found them on its first full run. Agents EXCLUDE them from local runs until this list is empty
-    /// (<c>FullyQualifiedName!~NoteManagerTests&amp;FullyQualifiedName!~NoteOverThePanel_ThroughTheRealInventory</c>).
-    /// One entry per TEST, never per class. An entry that stops offending FAILS its own test (see
-    /// <see cref="JudgeKnownOffender"/>), so the list can only shrink; a test that is not listed and opens a visible window
-    /// fails as usual. <c>RuntimeWindowGuardTests.TheKnownOffenders_StillExist</c> fails when an entry names a test that is gone.
-    /// The listed tests run in exclusive (non-parallel) collections, so a window is never blamed on the wrong test.
+    /// Lists <paramref name="testName"/> as an offender for the lifetime of the returned scope, then removes it again, so
+    /// the listed-offender branches stay tested now that the shipped list is empty. Copy-on-write: every test's
+    /// <see cref="After"/> hook reads the list while other collections may run in parallel, and a dictionary mutated in
+    /// place would race with those reads. The name must be a dedicated synthetic method, never the registering test
+    /// itself (a listed test that painted nothing is judged stale), and the scope is disposed before that test's own
+    /// After hook runs.
     /// </summary>
-    internal static readonly IReadOnlyDictionary<string, string> KnownVisibleWindowOffenders = new Dictionary<string, string>
+    internal static IDisposable RegisterForTest(string testName, string reason)
     {
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CloseButtonDwell_AtVisiblePosition_RemovesNote"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CloseButtonDwell_PublishesDwellActivation"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_AddsToActiveNotes"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_DefaultsToEditState"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_DoesNotAdd_WhenAtCapacity"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_ShowsWindow"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.FinishEdit_SavesText"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.FinishMove_UpdatesPosition"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.HeldSamples_DoNotDwellCloseANote"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.IsAtCapacity_ReturnsTrue_WhenMaxReached"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.LiveTargetRects_DisplayState_IsAllThreeButtonSquares"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.LiveTargetRects_EditState_IsTheCloseButtonSquare_DrainsOnRemove"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.LiveTargetRects_MoveState_IsThePlacementSquareAroundTheNote"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.MoveOneNote_KeepsOtherNotesControls"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.NoteLifecycle_PublishesNoteTargetsChanged_AtEveryStructuralMutation"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.OnGazeMoved_UpdatesLastGazePoint_ForPlaceTarget"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.RemoveNote_RemovesFromActiveNotes"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.StartEdit_ChangesState"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.StartEdit_DoesNotTriggerEditTwice"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.StartMove_ChangesState"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.AdaptationPreviewServiceTests.NoteOverThePanel_ThroughTheRealInventory_HidesKeepLast_ThenBlocksShow_Drains"] = NoteManagerReason,
-    };
+        UpdateOffenders(list =>
+        {
+            var next = new Dictionary<string, string>(list, StringComparer.Ordinal) { [testName] = reason };
+            return next;
+        });
+        return new Registration(testName);
+    }
+
+    private static void UpdateOffenders(Func<IReadOnlyDictionary<string, string>, Dictionary<string, string>> change)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _knownVisibleWindowOffenders);
+            var next = change(current);
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _knownVisibleWindowOffenders, next, current), current)) return;
+        }
+    }
+
+    private sealed class Registration : IDisposable
+    {
+        private readonly string _testName;
+
+        internal Registration(string testName) => _testName = testName;
+
+        public void Dispose()
+        {
+            UpdateOffenders(list =>
+            {
+                var next = new Dictionary<string, string>(list, StringComparer.Ordinal);
+                next.Remove(_testName);
+                return next;
+            });
+        }
+    }
 
     /// <summary>Throws when <paramref name="monitor"/> saw a window become really visible since its last report.</summary>
     internal static void Verify(RuntimeWindowMonitor monitor, string testName)

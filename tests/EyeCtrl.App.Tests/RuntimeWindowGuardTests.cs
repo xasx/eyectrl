@@ -24,6 +24,20 @@ public class RuntimeWindowGuardTests
 {
     private const int DwmaCloak = 13;
 
+    private const string SyntheticEntry = "EyeCtrl.App.Tests.RuntimeWindowGuardTests.SyntheticListedOffender";
+
+    /// <summary>
+    /// A listed test that is never run: registering it for the lifetime of one test exercises the listed-offender
+    /// branches while the SHIPPED list stays empty.
+    /// </summary>
+    public static void SyntheticListedOffender()
+    {
+    }
+
+    private static IDisposable ListedForThisTest()
+        => RuntimeVisibleWindowCheckAttribute.RegisterForTest(
+            SyntheticEntry, "registered for the lifetime of one test only: a stand-in listed offender, never the registering test");
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
@@ -76,9 +90,10 @@ public class RuntimeWindowGuardTests
     public void TheKnownOffenders_StillExist_SoTheWaiverListCannotRot()
     {
         var assembly = typeof(RuntimeWindowGuardTests).Assembly;
-        Check.WithCustomMessage("one entry per test: 20 NoteManagerTests members + the AdaptationPreview note test")
-            .That(RuntimeVisibleWindowCheckAttribute.KnownVisibleWindowOffenders.Count).IsEqualTo(21);
-        foreach (var (entry, reason) in RuntimeVisibleWindowCheckAttribute.KnownVisibleWindowOffenders)
+        var offenders = RuntimeVisibleWindowCheckAttribute.KnownVisibleWindowOffenders;
+        Check.WithCustomMessage("the SHIPPED waiver list is empty: the note tests that used to paint are fixed, so a new offender must be listed deliberately")
+            .That(offenders).IsEmpty();
+        foreach (var (entry, reason) in offenders)
         {
             Check.WithCustomMessage($"entry '{entry}' needs a reason").That(reason.Length).IsStrictlyGreaterThan(20);
             var cut = entry.LastIndexOf('.');
@@ -142,8 +157,9 @@ public class RuntimeWindowGuardTests
         var lenient = StartedMonitor(requireOnMonitor: false);
         var attribute = new RuntimeVisibleWindowCheckAttribute(lenient);
         var unlisted = typeof(RuntimeWindowGuardTests).GetMethod(nameof(TheCheck_IsInstalledOnThisAssembly))!;
-        // a method that is listed in KnownVisibleWindowOffenders (only its MethodInfo is used; the test is not run)
-        var listed = typeof(RuntimeWindowGuardTests).Assembly.GetType("EyeCtrl.App.Tests.Services.NoteManagerTests")!.GetMethod("CreateNote_ShowsWindow")!;
+        // a method this test lists itself for its lifetime (only its MethodInfo is used; the test is not run)
+        var listed = typeof(RuntimeWindowGuardTests).GetMethod(nameof(SyntheticListedOffender))!;
+        using var registration = ListedForThisTest();
         Window? window = null;
         try
         {
@@ -173,7 +189,8 @@ public class RuntimeWindowGuardTests
         // whether the test OPENED an unprepared visible window, wherever it landed; the strict (real) monitor must agree.
         var strict = StartedMonitor(requireOnMonitor: true);
         var attribute = new RuntimeVisibleWindowCheckAttribute(strict);
-        var listed = typeof(RuntimeWindowGuardTests).Assembly.GetType("EyeCtrl.App.Tests.Services.NoteManagerTests")!.GetMethod("CreateNote_ShowsWindow")!;
+        var listed = typeof(RuntimeWindowGuardTests).GetMethod(nameof(SyntheticListedOffender))!;
+        using var registration = ListedForThisTest();
         Window? window = null;
         try
         {

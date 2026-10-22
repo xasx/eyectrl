@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
+using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Input;
@@ -48,6 +50,25 @@ internal sealed class QuickActionDispatcher : CoordinatorBase
     internal void ExecuteQuickAction(QuickAction action, IntPtr? windowActionHwnd)
     {
         if (Context is null) return;
+
+        // The note-editing routing seam (P1 D1): while a note is in Edit, canned text is appended
+        // to the note, and keyboard shortcuts and media keys are swallowed — every one of them is
+        // SendInput-shaped and must not reach the OS during Edit. Launch and window actions stay
+        // unchanged: they inject no text, so they cannot land in the wrong window.
+        if (Context.NoteManager is { IsEditing: true })
+        {
+            switch (action.Type)
+            {
+                case QuickActionType.CannedText:
+                    Context.NoteManager.Apply(NoteInputMapper.FromCannedText(action.Payload));
+                    return;
+                case QuickActionType.KeyboardShortcut:
+                case QuickActionType.MediaControl:
+                    Log.Debug("Note editing: quick action {Type} swallowed", action.Type);
+                    return;
+            }
+        }
+
         try
         {
             switch (action.Type)

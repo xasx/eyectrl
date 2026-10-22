@@ -60,13 +60,10 @@ public class NotePlaceTriggerTests
             var keyboard = new Rect(800, 370, 330, 260);
             Check.WithCustomMessage("the editing card must leave the covered right side")
                 .That(moved.Card.IntersectsWith(keyboard)).IsFalse();
-            // T6 fixup-07 F2: in Edit the 24 DIP clearance holds in BOTH passes, measured on the
-            // window that is drawn - so the card, its cells and the number tag all keep it.
-            Check.WithCustomMessage("the card must keep the clearance gap from the keyboard")
-                .That(GapFrom(moved.Card, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
-            Check.WithCustomMessage("the number tag must keep the clearance gap too")
-                .That(GapFrom(TagRect(moved, NoteSettings.DefaultTextSizeDip), keyboard))
-                .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            // T6 fixup-07 F2, review-07 nit: the DRAWN window holds the card, the tail zone and
+            // the tag strip, so one gap on it is stronger than the card and tag separately.
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the keyboard")
+                .That(GapFrom(moved.Window, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
             Check.That(moved.Window.IntersectsWith(editing.Window)).IsFalse();
             Check.WithCustomMessage("the moved card stays inside the work-area inset")
                 .That(moved.Window.Top >= NoteLayout.Constants.EdgeMarginDip && moved.Window.Top + moved.Window.Height <= 1200 - NoteLayout.Constants.EdgeMarginDip).IsTrue();
@@ -106,11 +103,9 @@ public class NotePlaceTriggerTests
             var keyboard = new Rect(806, 378, 350, 290);
             Check.WithCustomMessage("the editing card must leave the keyboard")
                 .That(after.Card.IntersectsWith(keyboard)).IsFalse();
-            Check.WithCustomMessage("the card must keep the clearance gap from the keyboard")
-                .That(GapFrom(after.Card, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
-            Check.WithCustomMessage("the number tag must keep the clearance gap too")
-                .That(GapFrom(TagRect(after, NoteSettings.DefaultTextSizeDip), keyboard))
-                .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            // review-07 nit: one gap on the DRAWN window (card + tail zone + tag strip).
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the keyboard")
+                .That(GapFrom(after.Window, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
             Check.That(after.Window.IntersectsWith(before.Window)).IsFalse();
         }
         finally
@@ -152,10 +147,11 @@ public class NotePlaceTriggerTests
             var rightColumn = new Rect(1200, 778, 500, 250);
             Check.WithCustomMessage("the note must find a free spot clear of both columns")
                 .That(after.Card.IntersectsWith(leftColumn) || after.Card.IntersectsWith(rightColumn)).IsFalse();
-            Check.WithCustomMessage("the card must keep the clearance gap from the left column")
-                .That(GapFrom(after.Card, leftColumn)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
-            Check.WithCustomMessage("the card must keep the clearance gap from the right column")
-                .That(GapFrom(after.Card, rightColumn)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            // review-07 nit: one gap on the DRAWN window (card + tail zone + tag strip).
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the left column")
+                .That(GapFrom(after.Window, leftColumn)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the right column")
+                .That(GapFrom(after.Window, rightColumn)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
             Check.WithCustomMessage("the Above side sits inside the work-area inset")
                 .That(after.Window.Left >= NoteLayout.Constants.EdgeMarginDip && after.Window.Right <= 1920 - NoteLayout.Constants.EdgeMarginDip).IsTrue();
         }

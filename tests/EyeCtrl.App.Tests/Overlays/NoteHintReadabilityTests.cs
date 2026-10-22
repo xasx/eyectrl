@@ -13,6 +13,7 @@ using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
@@ -455,6 +456,45 @@ public class NoteHintReadabilityTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    [StaTheory]
+    [MemberData(nameof(TextSizes))]
+    public void TheManagersPushedColumn_HoldsTheDrawnDiscardedChipText(double textSize)
+    {
+        // R3 (review-07): the column the manager PUSHES comes from the texts it MEASURES, so
+        // those must carry the same no-break space the drawn text does. Without it the German
+        // "Änderungen verworfen · Rückgängig" needs ~290 DIP against a pushed 285 at 28 and
+        // wraps into a third row, out of the card.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings { TextSizeDip = (int)textSize };
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            foreach (var language in new[] { UiLanguage.English, UiLanguage.German })
+            {
+                StringTable.Activate(language == UiLanguage.German
+                    ? GermanDraft.Table
+                    : StringTable.EmbeddedEnglish);
+
+                var id = DiscardedChip(manager);
+                var block = manager.WindowForTest(id)!.ChipTextForTest!;
+                int lines = LineCount(block.Text, textSize, block.Width);
+                Check.WithCustomMessage(
+                        $"[{language}] the pushed {block.Width} DIP column must hold '{block.Text}' "
+                        + $"in at most two lines at {textSize} DIP (got {lines})")
+                    .That(lines).IsLessOrEqualThan(2);
+                manager.RemoveNote(id);
+            }
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     // ── helpers ──
 
     /// <summary>The chip's two texts in the current table's language.</summary>
@@ -530,5 +570,16 @@ public class NoteHintReadabilityTests
         for (var t = present + 240_000; t <= present + ms * 1000; t += 33_000)
             manager.OnGazeMoved(point, t);
         return present + ms * 1000 + 33_000;
+    }
+    /// <summary>A DISCARDED chip: the longest of the two chip lines ("Anderungen verworfen" /
+    /// "Changes discarded"), which is the one the measured column must hold.</summary>
+    private static string DiscardedChip(NoteManager manager)
+    {
+        manager.CreateNoteAt(new PhysicalPoint(1600, 1000));
+        var id = manager.ActiveNotes[^1].Id;
+        manager.Apply(new NoteAppend("draft text"));
+        manager.FinishEdit(id, commit: false);
+        Check.That(manager.ActiveNotes.First(n => n.Id == id).State).IsEqualTo(NoteState.PendingUndo);
+        return id;
     }
 }

@@ -408,7 +408,48 @@ public class NoteKeyboardAvoidanceTests
             .That(distance).IsLessOrEqualThan(93);
     }
 
+    // ── R2 (T6 fixup-08): the manager's tag growth at the Edit call site ──
+
+    [StaFact]
+    public void InEdit_At48_TheTagGrowthKeepsTheNumberTagOffTheKeyboard()
+    {
+        // Review-07 R2: the manager's Edit call site passes the tag's protrusion (26 DIP at 48)
+        // as the placement's growth. An Above placement whose RAW window clears the keyboard by
+        // 30 would put the number tag 4 DIP from it - only the growth decides, because the tag
+        // straddles the card's top edge and reaches ABOVE the raw window.
+        var keyboard = new Rect(251, 0, 1418, 575);
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings { TextSizeDip = 48 };
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: settings);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The Above side's raw window top lands 30 DIP under the keyboard (605 = 575 + 30).
+            manager.CreateNoteAt(Phys(960, 981));
+            var id = manager.ActiveNotes[0].Id;
+            probe.RectsProvider = () => new[] { ToPhysical(keyboard) };
+            probe.RaiseChanged();
+
+            var placement = manager.PlacementForTest(id)!;
+            var tag = TagRect(placement, 48);
+            Check.WithCustomMessage($"the number tag {tag} must keep the clearance from the keyboard")
+                .That(GapFrom(tag, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     // ── helpers ──
+
+    /// <summary>The number tag's rect in SCREEN coordinates (NoteLayout returns it window-relative).</summary>
+    private static Rect TagRect(NotePlacement placement, double textSizeDip)
+    {
+        var tag = NoteLayout.TagRect(placement, textSizeDip);
+        return new Rect(placement.Window.X + tag.X, placement.Window.Y + tag.Y, tag.Width, tag.Height);
+    }
 
     /// <summary>The note card at a text size, at the control column's floor (no text measured).</summary>
     private static Size CardAt(double textSize) => new(

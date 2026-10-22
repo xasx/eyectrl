@@ -100,10 +100,13 @@ public class NoteHintRenderTests
 
         Write(RenderPlaceHere(), Path.Combine(RenderDirectory, "note-place-here-de-28dip.png"));
 
-        // The reviewer's real Edit note under the owner's top keyboard, at 28 and 48 DIP.
+        // A SCHEMATIC of the owner's screen at 28 and 48 DIP: the keyboard band, the anchor and
+        // the note's CARD rect - NOT the drawn NoteWindow (no tag, no tail, no text). The genuine
+        // renders of the real window live in C:\t\note-hints-test\final\; renamed *-schematic-* so
+        // no one mistakes these for a picture of the note.
         foreach (var textSize in new[] { 28.0, 48.0 })
         {
-            Write(RenderOwnerScreen(textSize), Path.Combine(RenderDirectory, $"note-edit-under-top-keyboard-{(int)textSize}dip.png"));
+            Write(RenderOwnerScreen(textSize), Path.Combine(RenderDirectory, $"note-edit-under-top-keyboard-schematic-{(int)textSize}dip.png"));
         }
     }
 

@@ -135,8 +135,11 @@ public class NoteKeyboardAvoidanceTests
         var old = Place(960, 300, avoid, allowDisplaced: false);
 
         double clearance = SignedClearance(placement.Window, avoid[0]);
-        Check.WithCustomMessage($"the least-overlap placement ({clearance}) must not be worse than the old clamp ({SignedClearance(old.Window, avoid[0])})")
-            .That(clearance).IsGreaterOrEqualThan(SignedClearance(old.Window, avoid[0]));
+        // Strictly greater (review-10): the old clamp is itself one of the candidates, so a
+        // greater-or-equal was a tautology. Every candidate maximises the clearance, so at least
+        // one of them must beat the preferred clamp in this degenerate case.
+        Check.WithCustomMessage($"the least-overlap placement ({clearance}) must beat the old clamp ({SignedClearance(old.Window, avoid[0])})")
+            .That(clearance).IsStrictlyGreaterThan(SignedClearance(old.Window, avoid[0]));
         Check.WithCustomMessage("and it stays inside the inset work area")
             .That(placement.Window.Left >= Inset.Left && placement.Window.Top >= Inset.Top
                 && placement.Window.Right <= Inset.Right && placement.Window.Bottom <= Inset.Bottom)
@@ -473,6 +476,27 @@ public class NoteKeyboardAvoidanceTests
                 .That(GapFrom(tag, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [Fact]
+    public void TheLeastOverlapTie_GoesToTheCandidateClosestToTheAnchor()
+    {
+        // Review-10: at (300, 700), 28 DIP, h480 two candidates tie at 18 DIP of clearance - the
+        // anchor's own Left side and the Right one about 272 DIP away. The closest-to-anchor
+        // tie-break keeps the note on its side; "ties go to the farthest" would jump it Right.
+        var keyboard = new Rect(251, 0, 1418, 575);
+        var card = new Size(NoteLayout.CardWidthDip(28), 480);
+        var placement = NoteLayout.Place(
+            Phys(300, 700), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
+            exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(28))!;
+        var drawn = NoteLayout.WithTagClearance(placement, 28);
+
+        Check.WithCustomMessage($"the card must stay on the anchor's side (got {placement.Side} at {drawn.Window})")
+            .That(placement.Side).IsEqualTo(NoteSide.Left);
+        Check.WithCustomMessage("the drawn window must cover the anchor's x (300)")
+            .That(drawn.Window.Left <= 300 && drawn.Window.Right >= 300).IsTrue();
+        Check.WithCustomMessage("and keep the clearance")
+            .That(SignedClearance(drawn.Window, keyboard)).IsGreaterOrEqualThan(0);
     }
 
     // ── helpers ──

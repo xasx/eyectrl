@@ -1,9 +1,11 @@
 namespace EyeCtrl.App.Tests;
 
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Interop;
 using EyeCtrl.App.Tests.Fixtures;
@@ -325,6 +327,162 @@ public class RuntimeWindowGuardTests
                 window = SimulatedProduction.OpenWindowOffScreen();
                 lenient.Flush();
                 Check.WithCustomMessage($"round {i}: the show event had not been handled after Flush").That(Saw(lenient, window)).IsTrue();
+            }
+            finally { window?.Close(); }
+        }
+    }
+
+    // ---- L1 (#258 review 01): no cross-thread WM_GETTEXT, and only an offender is described ---------------------------------
+
+    [Fact]
+    public void TheMonitor_ReadsTitlesWithInternalGetWindowText_NeverWithTheMessageSendingGetWindowText()
+    {
+        // GetWindowText on a window of ANOTHER thread of this process sends WM_GETTEXT and waits for that thread; InternalGetWindowText sends nothing.
+        var raw = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName, "tests", "EyeCtrl.App.Tests", "Fixtures", "RuntimeWindowGuard.cs"));
+        var code = NoVisibleTestWindowGuardTests.StripCommentsAndStrings(raw);
+        Check.WithCustomMessage("the runtime check calls GetWindowText / GetWindowTextLength (cross-thread WM_GETTEXT): use InternalGetWindowText")
+            .That(Regex.IsMatch(code, @"(?<![\w])GetWindowText\w*")).IsFalse();
+        Check.WithCustomMessage("an EntryPoint that renames the import back to GetWindowText")
+            .That(Regex.IsMatch(raw, "EntryPoint\\s*=\\s*\"[^\"]*GetWindowText")).IsFalse();
+        Check.WithCustomMessage("the title must be read with InternalGetWindowText")
+            .That(Regex.IsMatch(code, @"\bInternalGetWindowText\s*\(")).IsTrue();
+    }
+
+    [StaFact]
+    public void OnlyAnOffendingWindow_IsDescribed_NotAPreparedOneNorAnOffMonitorOne()
+    {
+        // a monitor of its own, never pumped by anything else: it sees only the windows this test shows (all at -30000)
+        var lenient = StartedMonitor(requireOnMonitor: false);
+        var strict = StartedMonitor(requireOnMonitor: true);
+        Window? prepared = null, offScreenForStrict = null, offender = null;
+        try
+        {
+            prepared = SimulatedProduction.OpenWindowOffScreen(w => { w.AllowsTransparency = true; w.Background = System.Windows.Media.Brushes.Transparent; InvisibleTestWindow.Prepare(w); });
+            offScreenForStrict = SimulatedProduction.OpenWindowOffScreen();
+            lenient.Flush();
+            strict.Flush();
+            // the lenient monitor saw a prepared and an unprepared window show: only the unprepared one is an offender, so only it was described
+            Check.That(Saw(lenient, prepared)).IsFalse();
+            Check.That(Saw(lenient, offScreenForStrict)).IsTrue();
+            Check.WithCustomMessage("a prepared window must not be described: one description per recorded offence")
+                .That(lenient.DescriptionsBuilt).IsEqualTo(lenient.Peek().Count);
+            Check.WithCustomMessage("a window off every monitor must not be described by the strict monitor")
+                .That(strict.DescriptionsBuilt).IsEqualTo(0);
+            Check.That(strict.Peek()).IsEmpty();
+
+            var before = lenient.DescriptionsBuilt;
+            offender = SimulatedProduction.OpenWindowOffScreen();
+            lenient.Flush();
+            Check.WithCustomMessage("every recorded offence carries exactly one description").That(lenient.DescriptionsBuilt).IsEqualTo(lenient.Peek().Count);
+            Check.That(lenient.DescriptionsBuilt).IsStrictlyGreaterThan(before);
+            Check.That(lenient.Peek().First(o => o.Handle == new WindowInteropHelper(offender).Handle).Description).Contains("simulated production window");
+        }
+        finally { prepared?.Close(); offScreenForStrict?.Close(); offender?.Close(); }
+    }
+
+    // ---- L2 (#258 review 01): a show that was hidden again before the hook read it is still a flash ---------------------------
+
+    private static Window HiddenAfterAShow(Action<Window>? configure = null)
+    {
+        var window = new Window
+        {
+            Width = 120, Height = 80, Left = -30000, Top = -30000, ShowInTaskbar = false, ShowActivated = false,
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, Title = "flash window",
+        };
+        configure?.Invoke(window);
+        window.Show();
+        window.Hide();
+        return window;
+    }
+
+    [StaFact]
+    public void AShowThatIsHiddenAgainBeforeTheEventIsRead_IsStillAnOffence()
+    {
+        // The hook callback runs after the show; here the event is handled by hand AFTER the Hide, which is exactly what a sub-millisecond
+        // Show -> Hide does to the real hook. Everything is at -30000 (a lenient monitor judges it as if it were on a monitor).
+        var late = new RuntimeWindowMonitor(requireOnMonitor: false);
+        Window? window = null;
+        try
+        {
+            window = HiddenAfterAShow();
+            var handle = new WindowInteropHelper(window).Handle;
+            Check.WithCustomMessage("the probe window must really be hidden when the event is read").That(RuntimeWindowMonitor.Read(handle, false).Visible).IsFalse();
+
+            late.HandleShow(handle);
+
+            Check.WithCustomMessage("a Show -> Hide flash got away").That(Saw(late, window)).IsTrue();
+        }
+        finally { window?.Close(); }
+    }
+
+    [StaFact]
+    public void AHiddenAgainShow_IsNotAnOffence_WhenTheWindowIsPrepared_Cloaked_OffEveryMonitor_OrGone()
+    {
+        Window? prepared = null, cloaked = null, offMonitor = null, gone = null;
+        try
+        {
+            // prepared by the helper: tagged before it shows
+            prepared = HiddenAfterAShow(w => { w.AllowsTransparency = true; w.Background = System.Windows.Media.Brushes.Transparent; InvisibleTestWindow.Prepare(w); });
+            var lenient = new RuntimeWindowMonitor(requireOnMonitor: false);
+            lenient.HandleShow(new WindowInteropHelper(prepared).Handle);
+            Check.WithCustomMessage("a prepared window").That(Saw(lenient, prepared)).IsFalse();
+
+            // cloaked before it shows (PrepareCloaked does exactly this)
+            cloaked = HiddenAfterAShow(w =>
+            {
+                var handle = new WindowInteropHelper(w).EnsureHandle();
+                var on = 1;
+                DwmSetWindowAttribute(handle, DwmaCloak, ref on, sizeof(int));
+            });
+            var cloakedHandle = new WindowInteropHelper(cloaked).Handle;
+            if (RuntimeWindowMonitor.Read(cloakedHandle, false).Cloaked)
+            {
+                lenient.HandleShow(cloakedHandle);
+                Check.WithCustomMessage("a cloaked window").That(Saw(lenient, cloaked)).IsFalse();
+            }
+
+            // off every monitor, judged by the real (strict) monitor
+            offMonitor = HiddenAfterAShow();
+            var strict = new RuntimeWindowMonitor(requireOnMonitor: true);
+            strict.HandleShow(new WindowInteropHelper(offMonitor).Handle);
+            Check.WithCustomMessage("a window off every monitor").That(Saw(strict, offMonitor)).IsFalse();
+
+            // closed again before the event was read: no rectangle, no window, no offence
+            gone = HiddenAfterAShow();
+            var goneHandle = new WindowInteropHelper(gone).Handle;
+            gone.Close();
+            lenient.HandleShow(goneHandle);
+            Check.WithCustomMessage("a window that no longer exists").That(lenient.Peek().Any(o => o.Handle == goneHandle)).IsFalse();
+        }
+        finally { prepared?.Close(); cloaked?.Close(); offMonitor?.Close(); gone?.Close(); }
+    }
+
+    [StaFact]
+    public void ADeadHandle_HasNoRectangle_SoItIsNeverOnAMonitor_EvenForALenientMonitor()
+    {
+        // HandleShow stops at a window that no longer exists (GetAncestor), and Read must say the same on its own: no rectangle, no monitor.
+        var window = HiddenAfterAShow();
+        var handle = new WindowInteropHelper(window).Handle;
+        window.Close();
+
+        var facts = RuntimeWindowMonitor.Read(handle, requireOnMonitor: false);
+
+        Check.That(facts.OnMonitor).IsFalse();
+        Check.That(RuntimeWindowMonitor.IsReallyVisible(facts with { Visible = true })).IsFalse();
+    }
+
+    [StaFact]
+    public void TheHook_SeesEveryShowHideFlash_NotOnlyTheOnesThatWereStillVisibleWhenItReadThem()
+    {
+        var lenient = StartedMonitor(requireOnMonitor: false);
+        for (var i = 0; i < 30; i++)
+        {
+            Window? window = null;
+            try
+            {
+                window = HiddenAfterAShow();
+                lenient.Flush();
+                Check.WithCustomMessage($"round {i}: a Show -> Hide flash was missed").That(Saw(lenient, window)).IsTrue();
             }
             finally { window?.Close(); }
         }

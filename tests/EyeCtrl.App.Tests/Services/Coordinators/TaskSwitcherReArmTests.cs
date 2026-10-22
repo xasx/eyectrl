@@ -103,7 +103,7 @@ public class TaskSwitcherReArmTests
             Toolbar.Show();
             Toolbar.SetMode(isDocked: true, edge: "Top");
 
-            _switcherWindow = new TaskSwitcherWindow();
+            _switcherWindow = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
             _switcherVm = new TaskSwitcherViewModel(windowManager: null!, settings, messenger);
 
             // Visible before Initialize: the coordinator subscribes inside Initialize, so this

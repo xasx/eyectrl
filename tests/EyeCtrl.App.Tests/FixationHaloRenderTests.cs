@@ -24,6 +24,10 @@ using Xunit;
 /// any edge or corner goes red.
 /// </para>
 /// </summary>
+// NOTE (test-windows-invisible review 01, R-4): none of these tests ever SHOWS the window — ActivationButtonWindow.ShowAt only
+// positions it and starts the fade (production calls ShowAt and then Show(); these call ShowAt only). The windows are still
+// cloaked (InvisibleTestWindow.PrepareCloaked) as belt and braces: it only adds an HWND, and it keeps the no-visible-window
+// guard's rule (a showing API on a real window needs the helper) satisfied should a test here ever Show().
 [Collection("WpfApplication")]
 public class FixationHaloRenderTests
 {

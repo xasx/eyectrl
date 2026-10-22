@@ -51,6 +51,7 @@ public class InvisibleTestWindowTests
                  {
                      new ToolbarWindow(), new EdgeButtonBarWindow(), new EyeCareBannerWindow(),
                      new EyeCareExerciseWindow(), new ActionMenuWindow(), new KeyboardWindow(),
+                     new PauseIndicatorWindow(), new ManualSelectionGazeIndicatorWindow(), new TaskSwitcherWindow(),
                  })
         {
             try { AssertPrepared(window); }
@@ -99,11 +100,15 @@ public class InvisibleTestWindowTests
 
     // ---- the assumption Opacity = 0 rests on: product code never raises the window's own Opacity ----------
 
-    private static readonly string[] OpacityPreparedWindows =
+    /// <summary>Every window type the tests prepare with <c>Opacity = 0</c> (<see cref="InvisibleTestWindow.Prepare{T}"/>).</summary>
+    private static readonly string[] OpacityPreparedWindowTypes =
     [
-        "Overlays/ToolbarWindow.xaml.cs", "Overlays/EdgeButtonBarWindow.xaml.cs", "Overlays/EyeCareBannerWindow.xaml.cs",
-        "Overlays/EyeCareExerciseWindow.xaml.cs", "Overlays/ActionMenuWindow.xaml.cs", "Overlays/KeyboardWindow.xaml.cs",
+        "ToolbarWindow", "EdgeButtonBarWindow", "EyeCareBannerWindow", "EyeCareExerciseWindow", "ActionMenuWindow",
+        "KeyboardWindow", "PauseIndicatorWindow", "ManualSelectionGazeIndicatorWindow", "TaskSwitcherWindow",
     ];
+
+    private static readonly string[] OpacityPreparedWindows =
+        OpacityPreparedWindowTypes.Select(t => $"Overlays/{t}.xaml.cs").ToArray();
 
     [Fact]
     public void TheWindowsPreparedByOpacity_NeverWriteOrAnimateTheirOwnOpacity()
@@ -124,8 +129,13 @@ public class InvisibleTestWindowTests
     public void NoProductFile_WritesOrAnimatesTheOpacityOfAPreparedWindowTypeFromTheOutside()
     {
         var root = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App");
+        const string windowWords = "toolbar|keyboard|edgeBar|edgeButtonBar|banner|exercise|actionMenu|pauseIndicator|indicator|taskSwitcher|switcher";
+        const string write = @"\.(Opacity\s*=(?!=)|BeginAnimation\s*\(\s*(Window\.|UIElement\.)?OpacityProperty)";
+        // `x.Keyboard.Opacity = 1` / `Context.OverlayManager.Keyboard.Opacity = 1` (any case after a dot),
+        // or a bare lower-case variable `keyboard.Opacity = 1` / `_toolbar.Opacity = 1`
+        // (a bare capitalised name is an XAML element inside its own window, e.g. Banner.Opacity).
         var outside = new Regex(
-            @"\b_?(toolbar|keyboard|edgeBar|edgeButtonBar|banner|exercise|actionMenu)\w*\.(Opacity\s*=(?!=)|BeginAnimation\s*\(\s*(Window\.|UIElement\.)?OpacityProperty)");
+            @"(?:\.(?i:" + windowWords + @")\w*|(?<![\w.])_?(?:" + windowWords + @")\w*)" + write);
         var hits = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
             .Where(f => outside.IsMatch(NoVisibleTestWindowGuardTests.StripCommentsAndStrings(File.ReadAllText(f))))
@@ -138,9 +148,44 @@ public class InvisibleTestWindowTests
     [Fact]
     public void TheWindowsPreparedByOpacity_AreDeclaredLayeredInXaml()
     {
-        foreach (var name in new[] { "ToolbarWindow", "EdgeButtonBarWindow", "EyeCareBannerWindow", "EyeCareExerciseWindow", "ActionMenuWindow" })
+        foreach (var name in OpacityPreparedWindowTypes)
             Check.WithCustomMessage($"{name}.xaml must keep AllowsTransparency=\"True\"")
                 .That(Product($"Overlays/{name}.xaml")).Contains("AllowsTransparency=\"True\"");
+    }
+
+    [Fact]
+    public void TheWindowsPreparedByOpacity_HaveNoWindowOpacityAnimationSetterOrTriggerInXaml()
+    {
+        // The C# pins cannot see XAML: a Loaded storyboard, a style Setter or a trigger could raise the window's
+        // Opacity after the show. The root element's own attributes, any <Setter Property="Opacity"> and any
+        // animation whose TargetProperty names Opacity are rejected (element-level Opacity="0.9" attributes are fine).
+        foreach (var name in OpacityPreparedWindowTypes)
+        {
+            var xaml = Regex.Replace(Product($"Overlays/{name}.xaml"), @"<!--.*?-->", "", RegexOptions.Singleline);
+            var root = Regex.Match(xaml, @"<(?![?!/])[^>]*>", RegexOptions.Singleline).Value;
+            Check.WithCustomMessage($"{name}.xaml: the root element sets Opacity").That(Regex.IsMatch(root, @"\sOpacity\s*=")).IsFalse();
+            Check.WithCustomMessage($"{name}.xaml: a Setter targets Opacity").That(Regex.IsMatch(xaml, @"Property\s*=\s*""Opacity""")).IsFalse();
+            Check.WithCustomMessage($"{name}.xaml: an animation targets Opacity")
+                .That(Regex.IsMatch(xaml, @"TargetProperty\s*=\s*""[^""]*Opacity")).IsFalse();
+        }
+    }
+
+    [StaFact]
+    public void PrepareOffScreen_PositionsTheBackdropFarOffEveryMonitor_WhenItsSeamRuns()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            InvisibleTestWindow.PrepareOffScreen(window);
+
+            Check.That(window.ShowActivated).IsFalse();
+            window.PositionForShow(window);    // what ShowBackdrop runs before its show; nothing is shown here
+            Check.WithCustomMessage("the backdrop must be positioned off every monitor").That(window.Left).IsStrictlyLessThan(-10000.0);
+            Check.That(window.Top).IsStrictlyLessThan(-10000.0);
+            Check.That(window.IsVisible).IsFalse();
+        }
+        finally { window.Close(); }
     }
 
     [Fact]

@@ -27,7 +27,8 @@ using EyeCtrl.App.Overlays;
 ///
 /// <para>
 /// <see cref="PrepareCloaked{T}"/> is for a window whose product code DOES write its own Opacity
-/// (<c>ActivationButtonWindow</c> fades in on <c>ShowAt</c>): it is cloaked through DWM
+/// (<c>ActivationButtonWindow</c> fades in on <c>ShowAt</c>; its halo tests never actually call <c>Show()</c>, so the
+/// cloak there is belt and braces): it is cloaked through DWM
 /// (<c>DWMWA_CLOAK</c>), which hides a window from composition whatever its Opacity does and keeps
 /// its position, size and visuals — the same mechanism the product's <c>GlassBackdropWindow</c> uses
 /// to hide a first frame. It creates the window handle early (<c>EnsureHandle</c>), so use it only
@@ -70,8 +71,10 @@ internal static class InvisibleTestWindow
     /// For <c>GlassBackdropWindow</c>, which is NOT layered (<c>AllowsTransparency=False</c>, so Opacity does
     /// not hide it) and cloaks itself around its own show: it keeps the product's full-screen sizing but is
     /// positioned at -30000 through the existing <c>PositionForShow</c> seam, the way the backdrop tests already
-    /// show it, and it never takes the foreground. Use only where the test asserts nothing about an absolute
-    /// on-screen position. Returns the window.
+    /// show it, and it never takes the foreground. It holds only for <c>ShowBackdrop</c> (which calls
+    /// <c>PositionForShow</c> first); the window's plain <c>Show()</c> uncloaks and re-covers the screen without the
+    /// seam, so <c>NoVisibleTestWindowGuardTests</c> rejects a <c>PrepareOffScreen</c> window that is shown any other
+    /// way. Use only where the test asserts nothing about an absolute on-screen position. Returns the window.
     /// </summary>
     internal static GlassBackdropWindow PrepareOffScreen(GlassBackdropWindow window)
     {

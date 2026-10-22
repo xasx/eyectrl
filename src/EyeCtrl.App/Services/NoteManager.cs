@@ -55,7 +55,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// Diagnostics/testing hook: true when every active note window is currently shown.
     /// Guards against regressions where a note is created but never displayed.
     /// </summary>
-    public bool AllWindowsVisible => _windows.All(w => w.IsVisible);
+    public bool AllWindowsVisible => _windows.All(w => w.IsDisplayed);
 
     /// <summary>
     /// The live note dwell-target rects, physical px (the D17 inventory's sixth source, review F1):
@@ -87,6 +87,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         }
         return rects;
     }
+
+    /// <summary>Test seam (the note-window show seam, moved down by sync 4): whether the manager
+    /// puts REAL note windows on the screen. True in production; the App test assembly switches
+    /// it off ONCE in its module initializer, because a headless test runs on the OWNER machine
+    /// and a topmost note window is exactly what must not appear there. With it off each window
+    /// still builds its drawn tree, applies its placement, registers its targets and counts as
+    /// displayed (<see cref="NoteWindow.IsDisplayed"/>) - only the HWND show is skipped.</summary>
+    internal static bool RealNoteWindows = true;
 
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null)
@@ -163,7 +171,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         // control's drawn visibility is seeded before Show so the first render matches the
         // registered targets.
         window.SetKeyboardControlVisible(KeyboardHidden);
-        window.Show();
+        window.ShowForDisplay(RealNoteWindows);
         window.SetText(data.Draft);
 
         RegisterSoleEditorTargets(data.Id);

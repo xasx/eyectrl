@@ -425,8 +425,6 @@ public sealed class RuntimeVisibleWindowCheckAttribute : BeforeAfterTestAttribut
             "the test is fixed (or renamed) — DELETE its entry from RuntimeVisibleWindowCheckAttribute.KnownVisibleWindowOffenders.");
     }
 
-    private const string NoteManagerReason = "NoteManager (production) opens real NoteWindows; to be fixed by the sticky-notes fix";
-
     /// <summary>
     /// ⚠ THESE TESTS STILL PAINT REAL WINDOWS ON THE SCREEN. They are listed only so that <c>main</c> stays green while the
     /// sticky-notes fix (which stops <c>NoteManager</c> from showing real <c>NoteWindow</c>s in them) is outstanding: the runtime
@@ -439,27 +437,6 @@ public sealed class RuntimeVisibleWindowCheckAttribute : BeforeAfterTestAttribut
     /// </summary>
     internal static readonly IReadOnlyDictionary<string, string> KnownVisibleWindowOffenders = new Dictionary<string, string>
     {
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CloseButtonDwell_AtVisiblePosition_RemovesNote"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CloseButtonDwell_PublishesDwellActivation"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_AddsToActiveNotes"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_DefaultsToEditState"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_DoesNotAdd_WhenAtCapacity"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.CreateNote_ShowsWindow"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.FinishEdit_SavesText"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.FinishMove_UpdatesPosition"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.HeldSamples_DoNotDwellCloseANote"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.IsAtCapacity_ReturnsTrue_WhenMaxReached"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.LiveTargetRects_DisplayState_IsAllThreeButtonSquares"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.LiveTargetRects_EditState_IsTheCloseButtonSquare_DrainsOnRemove"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.LiveTargetRects_MoveState_IsThePlacementSquareAroundTheNote"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.MoveOneNote_KeepsOtherNotesControls"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.NoteLifecycle_PublishesNoteTargetsChanged_AtEveryStructuralMutation"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.OnGazeMoved_UpdatesLastGazePoint_ForPlaceTarget"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.RemoveNote_RemovesFromActiveNotes"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.StartEdit_ChangesState"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.StartEdit_DoesNotTriggerEditTwice"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.NoteManagerTests.StartMove_ChangesState"] = NoteManagerReason,
-        ["EyeCtrl.App.Tests.Services.AdaptationPreviewServiceTests.NoteOverThePanel_ThroughTheRealInventory_HidesKeepLast_ThenBlocksShow_Drains"] = NoteManagerReason,
     };
 
     /// <summary>Throws when <paramref name="monitor"/> saw a window become really visible since its last report.</summary>

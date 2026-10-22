@@ -69,32 +69,83 @@ public class BigramModelTests
     }
 
     [Fact]
-    public void GetNextWords_IsCaseSensitive()
+    public void GetNextWords_IsCaseAndPunctuationInsensitive()
     {
-        // Arrange
+        // Arrange: typed and LearnSequence-style keys are normalized to one lowercase key.
         var model = new BigramModel();
-        // Learn each case variant multiple times to exceed MinFrequency threshold
-        model.Learn("Hello", "World");
         model.Learn("Hello", "World");
         model.Learn("HELLO", "WORLD");
-        model.Learn("HELLO", "WORLD");
+        model.Learn("Hello,", "World!");
 
         // Act
         var nextWords1 = model.GetNextWords("Hello", 10);
         var nextWords2 = model.GetNextWords("HELLO", 10);
         var nextWords3 = model.GetNextWords("hello", 10);
 
-        // Assert - Case-sensitive: "Hello" and "HELLO" are distinct keys
+        // Assert - one merged key, trailing punctuation trimmed
         Check.That(nextWords1).HasSize(1);
-        Check.That(nextWords1[0].word).IsEqualTo("World");
-        Check.That(nextWords1[0].frequency).IsEqualTo(2);
-
+        Check.That(nextWords1[0].word).IsEqualTo("world");
+        Check.That(nextWords1[0].frequency).IsEqualTo(3);
         Check.That(nextWords2).HasSize(1);
-        Check.That(nextWords2[0].word).IsEqualTo("WORLD");
-        Check.That(nextWords2[0].frequency).IsEqualTo(2);
+        Check.That(nextWords2[0].word).IsEqualTo("world");
+        Check.That(nextWords2[0].frequency).IsEqualTo(3);
+        Check.That(nextWords3).HasSize(1);
+        Check.That(nextWords3[0].word).IsEqualTo("world");
+        Check.That(nextWords3[0].frequency).IsEqualTo(3);
+    }
 
-        // "hello" doesn't exist, should return empty
-        Check.That(nextWords3).IsEmpty();
+    [Fact]
+    public void Learn_KeepsInnerApostrophes()
+    {
+        var model = new BigramModel();
+        model.Learn("don't", "worry");
+        model.Learn("Don't,", "worry");
+
+        var nextWords = model.GetNextWords("don't", 10);
+        Check.That(nextWords).HasSize(1);
+        Check.That(nextWords[0].word).IsEqualTo("worry");
+        Check.That(nextWords[0].frequency).IsEqualTo(2);
+        Check.That(model.GetNextWords("DON'T!", 10)).HasSize(1);
+    }
+
+    [Fact]
+    public void LoadFromDictionary_MixedCaseLegacyKeys_MergeWithoutThrowing()
+    {
+        var model = new BigramModel();
+        model.LoadFromDictionary(
+            new Dictionary<string, Dictionary<string, int>>
+            {
+                ["Hello"] = new() { ["World"] = 2 },
+                ["hello"] = new() { ["world"] = 3 },
+                ["HELLO,"] = new() { ["WORLD!"] = 1 },
+                [","] = new() { ["ignored"] = 5 },
+            },
+            new Dictionary<string, Dictionary<string, DateTimeOffset>>
+            {
+                ["Hello"] = new() { ["World"] = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+                ["hello"] = new() { ["world"] = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero) },
+            });
+
+        var merged = model.GetNextWords("hello", 10);
+        Check.That(merged).HasSize(1);
+        Check.That(merged[0].word).IsEqualTo("world");
+        Check.That(merged[0].frequency).IsEqualTo(6);
+        Check.That(model.GetAllBigrams().ContainsKey(",")).IsFalse();
+        Check.That(model.GetAllTimestamps()["hello"]["world"])
+            .IsEqualTo(new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void LearnEntry_NormalizesSoTheRebuildDeltaLandsOnTheTypedKey()
+    {
+        var model = new BigramModel();
+        model.LearnEntry("Ich", "Möchte", 2, DateTimeOffset.UtcNow);
+        model.Learn("ich", "möchte");
+
+        var next = model.GetNextWords("ICH", 10);
+        Check.That(next).HasSize(1);
+        Check.That(next[0].word).IsEqualTo("möchte");
+        Check.That(next[0].frequency).IsEqualTo(3);
     }
 
     [Fact]

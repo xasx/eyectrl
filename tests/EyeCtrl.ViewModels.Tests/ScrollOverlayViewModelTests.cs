@@ -170,13 +170,15 @@ public class ScrollOverlayViewModelTests
     }
 
     [Theory]
-    [InlineData(2.0, 240.0, 260.0)]
-    [InlineData(1.0, 120.0, 130.0)]
+    [InlineData(2.0, 440.0, 460.0)]
+    [InlineData(1.0, 220.0, 230.0)]
     public void G2_TheStartRadius_IsTheScaledStartRadiusDip(double scale, double inside, double outside)
     {
-        // The owner runs 2.0: 125 DIP = 250 px. Mutants: M2 the radius back to the dead zone (80 px)
-        // → the 240/120-px runs stay unarmed; M3 StartRadiusDip unscaled → at 2.0 the 240-px run
-        // stays unarmed (a 125-px circle).
+        // The owner runs 2.0: 225 DIP = 450 px (fixup 03: 450 DIP across), and the pair hugs the
+        // edge: 440 arms, 460 never does. Mutants: M2 the radius back to the dead zone (80 px) → the
+        // inside runs stay unarmed; M3 StartRadiusDip unscaled → at 2.0 the 440-px run stays unarmed
+        // (a 225-px circle); fixup-03 M-a the old 175 DIP (350 px) → 440 stays unarmed; M-b 250 DIP
+        // (500 px) → 460 arms.
         DpiHelper.Initialize(scale, scale);
         try
         {
@@ -285,12 +287,45 @@ public class ScrollOverlayViewModelTests
         }
     }
 
+    [Fact]
+    public void G4_NearestPx_FreezesOnceArmed()
+    {
+        // The diagnostic reports how close the gaze came BEFORE scrolling started; the armed line and
+        // every later per-second line must keep that value. Mutant R4: keep updating nearest after
+        // arming → the sample on the anchor drags it to 0, red.
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var vm = NewVm80();
+            var anchor = new PhysicalPoint(1000, 800);
+            vm.EnterScrollMode(anchor, new PhysicalPoint(3000, 400));
+            var centre = new PhysicalPoint(anchor.X - 150, anchor.Y + 60);
+
+            long t = Arm(vm, centre);
+            Check.That(vm.IsArmed).IsTrue();
+            double frozen = vm.NearestPx;
+            Check.WithCustomMessage("the premise: nearest is the arming fixation's distance, ~162 px")
+                .That(frozen).IsCloseTo(centre.DistanceTo(anchor), 1e-9);
+
+            vm.Receive(new GazeCursorMovedMessage(anchor, t));
+            Check.WithCustomMessage("a sample ON the anchor after arming must not move nearest")
+                .That(vm.NearestPx).IsEqualTo(frozen);
+
+            vm.Receive(new GazeCursorMovedMessage(anchor, t + StepUs));
+            Check.That(vm.NearestPx).IsEqualTo(frozen);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     [Theory]
     [InlineData(1.0)]
     [InlineData(2.0)]
     public void G6_TheDeadZone_IsUnchanged_AndNeverExceedsTheStartCircle(double scale)
     {
-        // Mutant M9: the dead zone set to the start radius → 125/250 instead of 80, red.
+        // Mutant M9: the dead zone set to the start radius → 225/450 instead of 80, red.
         DpiHelper.Initialize(scale, scale);
         try
         {
@@ -298,6 +333,10 @@ public class ScrollOverlayViewModelTests
             Check.That(vm.DeadZoneRadiusPx).IsCloseTo(80.0, 1e-9);
             Check.That(vm.DeadZoneRadiusPx <= vm.StartRadiusPx).IsTrue();
             Check.That(vm.StartRadiusPx).IsCloseTo(ScrollOverlayViewModel.StartRadiusDip * scale, 1e-9);
+            // The literal, not the constant read back: 225 DIP is what the owner chose (fixup 03), so
+            // 175, 250 or an unscaled radius all fail here.
+            Check.WithCustomMessage($"scale {scale}: the start circle is 225 DIP in radius")
+                .That(vm.StartRadiusPx).IsCloseTo(225.0 * scale, 1e-9);
 
             var settings = new EyeCtrlSettings();
             settings.Dwell.FixationRadiusPixels = 10;

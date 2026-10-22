@@ -119,9 +119,9 @@ public class EdgeButtonBarZOrderTests
             NullLogger<GazeEngineAdapter>.Instance, new StubControlFinder());
 
         var barVm = new EdgeButtonBarViewModel(settings, messenger);
-        var barWindow = new EdgeButtonBarWindow { DataContext = barVm };
-        var backdrop = new GlassBackdropWindow();
-        var indicator = new ManualSelectionGazeIndicatorWindow();
+        var barWindow = InvisibleTestWindow.Prepare(new EdgeButtonBarWindow { DataContext = barVm });
+        var backdrop = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());
+        var indicator = InvisibleTestWindow.Prepare(new ManualSelectionGazeIndicatorWindow());
         indicator.Configure(
             settings.ManualSelection.GazeIndicatorOuterDiameter,
             settings.ManualSelection.GazeIndicatorCenterDotDiameter,

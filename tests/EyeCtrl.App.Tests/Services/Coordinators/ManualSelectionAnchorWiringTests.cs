@@ -40,7 +40,7 @@ public class ManualSelectionAnchorWiringTests
         DpiHelper.Initialize(1.0, 1.0);
         try
         {
-            var indicator = new ManualSelectionGazeIndicatorWindow();
+            var indicator = InvisibleTestWindow.Prepare(new ManualSelectionGazeIndicatorWindow());
             indicator.Configure(outerDiameter: 60, centerDotDiameter: 10,
                 strokeThickness: 2, opacity: 0.7, holdRadiusLogical: 72);
 

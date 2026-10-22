@@ -53,4 +53,28 @@ public class NotePlaceHereWindow : OverlayWindow
         };
         Content = _border;
     }
+
+    // The show seam (T6 fixup-08 R4, moved down by sync 4): set when the manager skipped the HWND show.
+    private bool _displayedWithoutHwnd;
+
+    /// <summary>
+    /// Shows the window the way production does, or - with <paramref name="realHwnd"/> false - only
+    /// records that it counts as on screen, without an HWND. The Place-here window builds its
+    /// content in the constructor and draws nothing on Loaded, so there is no drawn half to replay;
+    /// the manager's rect, the settle margin and the dwell target are all its own, as before.
+    /// </summary>
+    public void ShowForDisplay(bool realHwnd)
+    {
+        if (realHwnd)
+        {
+            Show();
+            return;
+        }
+
+        _displayedWithoutHwnd = true;
+    }
+
+    /// <summary>Whether the window counts as on screen: the real HWND's IsVisible in production,
+    /// or the seam's own flag when it was never handed to the OS.</summary>
+    public bool IsDisplayed => _displayedWithoutHwnd || IsVisible;
 }

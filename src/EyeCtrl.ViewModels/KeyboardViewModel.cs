@@ -1605,6 +1605,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     protected override void OnDispose()
     {
+        // E1: the keyboard may still be up when the app exits; write the edge tallies that have reached
+        // the minimum (idempotent: the app's earlier shutdown hook already did, while logging was alive).
+        E1.FlushEdgeTalliesOnShutdown();
         if (_effectiveSettings is not null) _effectiveSettings.Changed -= _onEffectiveSettingsChanged;
         _orchestrator?.Dispose();
     }

@@ -731,6 +731,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
     protected override void OnDispose()
     {
+        // E1 shutdown flush (EventCoordinator.Dispose runs early in App.OnExit, while the log is still
+        // open): a long session with the keyboard still up has its edge tallies written, those with at
+        // least EdgeTallyMinFires dwells only; a smaller leftover is dropped, never written.
+        Context?.KeyboardVM?.E1.FlushEdgeTalliesOnShutdown();
         _predictionFactory.Dispose();
         if (Context is not null)
         {

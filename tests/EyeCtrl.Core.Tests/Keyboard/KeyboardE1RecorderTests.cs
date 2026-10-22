@@ -37,7 +37,8 @@ public class KeyboardE1RecorderTests
     {
         var log = new Capture();
         var clock = new Clock();
-        return (new KeyboardE1Recorder(log, clock.Now), log, clock);
+        // A minimum of ONE dwell: these tests pin the line formats; the 20-dwell minimum has its own tests.
+        return (new KeyboardE1Recorder(log, clock.Now, edgeTallyMinFires: 1), log, clock);
     }
 
     private static KeyE1 Key(string cls, string action = "-") => new(
@@ -523,7 +524,7 @@ public class KeyboardE1RecorderTests
     {
         var sensitive = false;
         var log = new Capture();
-        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+        var recorder = new KeyboardE1Recorder(log, () => 0, edgeTallyMinFires: 1) { IsSensitive = () => sensitive };
         sensitive = true;
         recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE" });
         recorder.RecordKey(Key(KeyE1.Letter) with { EdgeQuarter = "NE" });
@@ -736,5 +737,185 @@ public class KeyboardE1RecorderTests
 
         Check.That(sources.Distinct().Count()).IsEqualTo(sources.Count);
         Check.That(sources).Not.Contains("other");
+    }
+
+    // ---- the 20-dwell minimum, the per-edge carry-over and the shutdown flush ----------------------
+
+    /// <summary>A recorder with the REAL minimum (<see cref="KeyboardE1Recorder.EdgeTallyMinFires"/>).</summary>
+    private static (KeyboardE1Recorder Recorder, Capture Log) NewReal()
+    {
+        var log = new Capture();
+        return (new KeyboardE1Recorder(log, new Clock().Now), log);
+    }
+
+    private static void Fire(KeyboardE1Recorder recorder, int count, string quarter, string edge = "top")
+    {
+        for (var i = 0; i < count; i++)
+            recorder.RecordKey(Key(KeyE1.Letter) with { Edge = edge, EdgeQuarter = quarter });
+    }
+
+    private static string[] EdgeqLines(Capture log) =>
+        log.Lines.Where(l => l.StartsWith("KB-E1 edgeq ", StringComparison.Ordinal)).ToArray();
+
+    [Fact]
+    public void TheMinimumIsTwentyAcceptedTextDwells()
+    {
+        Check.That(KeyboardE1Recorder.EdgeTallyMinFires).IsEqualTo(20);
+    }
+
+    [Fact]
+    public void NineteenDwellsAndAHide_WriteNoTally_TheTwentiethWritesOneLineWithTheSummedQuarters()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 10, "E");
+        Fire(recorder, 9, "W");
+
+        recorder.RecordHidden("a");
+        Check.WithCustomMessage("19 dwells are below the minimum").That(EdgeqLines(log)).IsEmpty();
+
+        Fire(recorder, 1, "NE");
+        recorder.RecordHidden("b");
+
+        var lines = EdgeqLines(log);
+        Check.That(lines).HasSize(1);
+        Check.That(lines[0]).StartsWith("KB-E1 edgeq edge=top fires=20 c=0 n=0 ne=1 e=10 se=0 s=0 sw=0 w=9 nw=0 ");
+    }
+
+    [Fact]
+    public void AWrittenTally_StartsFresh_SoTheNextShowCountsFromZero()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 20, "E");
+        recorder.RecordHidden("a");
+        Check.That(EdgeqLines(log)).HasSize(1);
+
+        Fire(recorder, 19, "E");
+        recorder.RecordHidden("b");
+        Check.WithCustomMessage("the first 20 were written and cleared; 19 more are below the minimum")
+            .That(EdgeqLines(log)).HasSize(1);
+    }
+
+    [Fact]
+    public void TheAbandonCountersRideAlongWithTheirEdge_AndDoNotCountTowardTheMinimum()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 10, "E");
+        for (var i = 0; i < 15; i++) recorder.RecordAbandon(Abandon(KeyE1.Letter, "W"));
+        recorder.RecordHidden("a");
+        Check.WithCustomMessage("10 dwells + 15 abandonments is still below 20 dwells").That(EdgeqLines(log)).IsEmpty();
+
+        Fire(recorder, 10, "E");
+        recorder.RecordHidden("b");
+
+        var lines = EdgeqLines(log);
+        Check.That(lines).HasSize(1);
+        Check.That(lines[0]).Contains(" fires=20 ").And.Contains(" aborts=15 ").And.Contains(" aw=15 ");
+    }
+
+    [Fact]
+    public void TheCarryOver_IsPerEdge_NotOneAccumulatorForAllEdges()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 15, "E", "top");
+        recorder.RecordEdge("flip", "bottom", "top");
+        Fire(recorder, 15, "S", "bottom");
+        recorder.RecordEdge("flip", "top", "bottom");
+        Fire(recorder, 5, "E", "top");
+        recorder.RecordHidden("x");
+
+        var lines = EdgeqLines(log);
+        Check.WithCustomMessage("one top line (15 + 5), and no bottom line (15 is below the minimum)").That(lines).HasSize(1);
+        Check.That(lines[0]).StartsWith("KB-E1 edgeq edge=top fires=20 c=0 n=0 ne=0 e=20 ");
+    }
+
+    [Fact]
+    public void ADwellOnAnotherEdge_CarriesTheLeftEdgesSmallTally_AndWritesALargeOne()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 7, "E", "top");
+        Fire(recorder, 1, "S", "bottom");                       // moving to another edge: 7 is carried
+        Check.That(EdgeqLines(log)).IsEmpty();
+
+        Fire(recorder, 30, "W", "bottom");
+        Fire(recorder, 1, "E", "top");                          // moving back: bottom has 31 and is written
+        var lines = EdgeqLines(log);
+        Check.That(lines).HasSize(1);
+        Check.That(lines[0]).StartsWith("KB-E1 edgeq edge=bottom fires=31 ");
+    }
+
+    [Fact]
+    public void AtShutdown_OnlyTheEdgesAtOrAboveTheMinimumAreWritten_TheRestIsDropped()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 7, "S", "bottom");                       // bottom first, so top is the CURRENT edge at shutdown
+        Fire(recorder, 25, "E", "top");
+        Check.That(EdgeqLines(log)).IsEmpty();
+
+        recorder.FlushEdgeTalliesOnShutdown();
+
+        var lines = EdgeqLines(log);
+        Check.WithCustomMessage("top has 25, bottom 7: one line only").That(lines).HasSize(1);
+        Check.That(lines[0]).StartsWith("KB-E1 edgeq edge=top fires=25 ");
+
+        // The leftover was DROPPED, not kept: nothing more is ever written for it.
+        Fire(recorder, 13, "S", "bottom");                       // 7 dropped + 13 = 13, still below 20
+        recorder.RecordHidden("later");
+        recorder.FlushEdgeTalliesOnShutdown();
+        Check.That(EdgeqLines(log)).HasSize(1);
+    }
+
+    [Fact]
+    public void TheShutdownFlush_IsIdempotent()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 25, "E", "top");
+
+        recorder.FlushEdgeTalliesOnShutdown();
+        recorder.FlushEdgeTalliesOnShutdown();
+
+        Check.That(EdgeqLines(log)).HasSize(1);
+    }
+
+    [Fact]
+    public void AShutdownWithOnlySmallTallies_WritesNothingAtAll()
+    {
+        var (recorder, log) = NewReal();
+        Fire(recorder, 19, "E", "top");
+        Fire(recorder, 3, "W", "bottom");
+
+        recorder.FlushEdgeTalliesOnShutdown();
+
+        Check.That(EdgeqLines(log)).IsEmpty();
+    }
+
+    [Fact]
+    public void MutedKeys_NeverCountTowardTheMinimum_AndAMutedOnlyTallyNeverWrites()
+    {
+        var sensitive = false;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        sensitive = true;
+        Fire(recorder, 40, "E");                                  // a long password session
+        sensitive = false;
+        recorder.RecordHidden("a");
+        recorder.FlushEdgeTalliesOnShutdown();
+        Check.WithCustomMessage("a muted-only accumulator never writes").That(EdgeqLines(log)).IsEmpty();
+
+        Fire(recorder, 19, "E");
+        sensitive = true;
+        Fire(recorder, 10, "E");                                  // muted: not added to the 19
+        sensitive = false;
+        recorder.RecordHidden("b");
+        Check.WithCustomMessage("19 + 10 muted is still 19").That(EdgeqLines(log)).IsEmpty();
+    }
+
+    [Fact]
+    public void WhenLoggingIsOff_NothingIsCountedOrWritten()
+    {
+        var recorder = new KeyboardE1Recorder(null);
+        Fire(recorder, 30, "E");
+        recorder.FlushEdgeTalliesOnShutdown();
+        recorder.RecordHidden("x");                              // must not throw
     }
 }

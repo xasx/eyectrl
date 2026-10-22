@@ -532,6 +532,11 @@ internal static class NoteLayout
     /// be used, AND the 24 DIP clearance holds in pass 1 too. The EDIT state alone opts in: the
     /// Move state's "Other side" excludes a side and must offer one that exists, and Display,
     /// Move and the chips never want a displaced window.</param>
+    /// <param name="topGrowthDip">How much the window grows UPWARD when the number tag is
+    /// drawn on it (the tag's protrusion, <see cref="TagProtrusionDip(double)"/>). The Edit
+    /// rules are measured on the window that is actually DRAWN - the grown one - so the tag
+    /// never comes within a key's reach of the keyboard, let alone overlaps it. Zero
+    /// everywhere else, which keeps those placements byte-identical.</param>
     /// <returns>The placement, or null only when <paramref name="exclude"/> removed the only
     /// fitting side.</returns>
     public static NotePlacement? Place(
@@ -542,7 +547,8 @@ internal static class NoteLayout
         IReadOnlyList<Rect> avoidDip,
         double scale,
         NoteSide? exclude = null,
-        bool allowDisplaced = false)
+        bool allowDisplaced = false,
+        double topGrowthDip = 0.0)
     {
         var anchorDip = new Point(anchor.X / scale, anchor.Y / scale);
         var inset = Inset(workAreaDip, Constants.EdgeMarginDip);
@@ -551,6 +557,18 @@ internal static class NoteLayout
         foreach (var side in Candidates(preferred, exclude))
         {
             var window = WindowFor(anchorDip, side, cardDip);
+            if (allowDisplaced)
+            {
+                // Edit: the clearance holds on the window that is DRAWN - the one grown upward
+                // by the number tag's strip - and it is the GAP, not mere non-intersection.
+                var drawn = GrownUpward(window, topGrowthDip);
+                if (!FitsInside(drawn, inset))
+                    continue;
+                if (!ClearsEvery(drawn, avoidDip))
+                    continue;
+                return Build(side, window, cardDip, anchorDip, clamped: false);
+            }
+
             // Display, Move and the chips: exactly the placements they always had.
             if (!FitsInside(window, inset))
                 continue;
@@ -572,13 +590,18 @@ internal static class NoteLayout
             foreach (var side in Candidates(preferred, exclude))
             {
                 var window = WindowFor(anchorDip, side, cardDip);
-                if (!IntersectsAny(window, avoidDip))
+                var drawn = GrownUpward(window, topGrowthDip);
+                if (FitsInside(drawn, inset) && ClearsEvery(drawn, avoidDip))
                     continue; // pass 1 would have taken it
-                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset))
+                // The side does not clear the keyboard by the gap - it either reaches into it or
+                // comes within a key's reach of it. Either way it is offered the windows that
+                // step clear of EVERY avoid rect.
+                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset, topGrowthDip))
                 {
-                    if (!FitsInside(displaced, inset))
+                    var candidate = GrownUpward(displaced, topGrowthDip);
+                    if (!FitsInside(candidate, inset))
                         continue;
-                    if (!ClearsEvery(displaced, avoidDip))
+                    if (!ClearsEvery(candidate, avoidDip))
                         continue;
                     double distance = DistanceToRect(anchorDip, displaced);
                     if (best is not null && distance >= bestDistance)
@@ -600,6 +623,16 @@ internal static class NoteLayout
         return Build(preferred, clamped, cardDip, anchorDip, clamped: true);
     }
 
+    /// <summary>The window as it is DRAWN: grown upward by the number tag's strip, the card
+    /// where it always was and only the top edge lifted (T6 fixup-07 F2).</summary>
+    private static Rect GrownUpward(Rect window, double growth) =>
+        growth <= 0 ? window : new Rect(window.Left, window.Top - growth, window.Width, window.Height + growth);
+
+    /// <summary>The drawn window's raw counterpart: the top edge back down, the height back
+    /// (the growth only lifts the top, so the bottom never moves).</summary>
+    private static Rect Ungrow(Rect drawn, double growth) =>
+        growth <= 0 ? drawn : new Rect(drawn.Left, drawn.Top + growth, drawn.Width, drawn.Height - growth);
+
     /// <summary>
     /// The windows that step clear of the avoid rects (T6 fixup-06 G2): for every rect the
     /// window hits, the same window shifted just outside it - below, above, right or left - by
@@ -611,21 +644,24 @@ internal static class NoteLayout
     /// card alike. The "below" shift therefore starts the raw window the tag's growth lower.
     /// </para>
     /// </summary>
-    private static IEnumerable<Rect> DisplacedCandidates(Rect window, IReadOnlyList<Rect> avoid, Rect inset)
+    private static IEnumerable<Rect> DisplacedCandidates(Rect window, IReadOnlyList<Rect> avoid, Rect inset, double growth)
     {
         double gap = Constants.AvoidGapDip;
         foreach (var rect in avoid)
         {
-            if (!window.IntersectsWith(rect))
-                continue;
-            // Below the rect.
-            yield return ClampInto(new Rect(window.Left, rect.Bottom + gap, window.Width, window.Height), inset);
-            // Above the rect.
-            yield return ClampInto(new Rect(window.Left, rect.Top - gap - window.Height, window.Width, window.Height), inset);
+            // Below the rect: the drawn window's top sits the gap below it, so the raw window's
+            // top sits the gap AND the tag's growth lower.
+            yield return Ungrow(ClampInto(
+                GrownUpward(new Rect(window.Left, rect.Bottom + gap + growth, window.Width, window.Height), growth), inset), growth);
+            // Above the rect: the drawn window's BOTTOM clears it (the bottom never moves).
+            yield return Ungrow(ClampInto(
+                GrownUpward(new Rect(window.Left, rect.Top - gap - window.Height, window.Width, window.Height), growth), inset), growth);
             // Right of the rect.
-            yield return ClampInto(new Rect(rect.Right + gap, window.Top, window.Width, window.Height), inset);
+            yield return Ungrow(ClampInto(
+                GrownUpward(new Rect(rect.Right + gap, window.Top, window.Width, window.Height), growth), inset), growth);
             // Left of the rect.
-            yield return ClampInto(new Rect(rect.Left - gap - window.Width, window.Top, window.Width, window.Height), inset);
+            yield return Ungrow(ClampInto(
+                GrownUpward(new Rect(rect.Left - gap - window.Width, window.Top, window.Width, window.Height), growth), inset), growth);
         }
     }
 

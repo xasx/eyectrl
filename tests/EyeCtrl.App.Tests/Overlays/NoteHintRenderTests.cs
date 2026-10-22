@@ -219,7 +219,8 @@ public class NoteHintRenderTests
             NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
         var placement = NoteLayout.Place(
             new PhysicalPoint(960 * 2, 300 * 2), NoteSide.Right, card, WorkArea,
-            new[] { Keyboard, EdgeBar }, 2.0, exclude: null, allowDisplaced: true)!;
+            new[] { Keyboard, EdgeBar }, 2.0, exclude: null, allowDisplaced: true,
+            topGrowthDip: NoteLayout.TagProtrusionDip(textSize))!;
         var grown = NoteLayout.WithTagClearance(placement, textSize);
 
         var visual = new DrawingVisual();

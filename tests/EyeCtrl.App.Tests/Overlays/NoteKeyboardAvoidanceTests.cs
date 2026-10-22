@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Overlays;
 
+using System.Globalization;
 using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -314,6 +315,77 @@ public class NoteKeyboardAvoidanceTests
                 .That(manager.JudgedOtherSideForTest).IsEqualTo(expected);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── the review's owner-geometry sweep (T6 fixup-07 F2) ──
+
+    /// <summary>The sweep: the keyboard on the top and the bottom edge, the anchor swept across
+    /// the screen, all four preferred sides and the three text sizes.</summary>
+    public static TheoryData<string> OwnerGeometrySweep()
+    {
+        var data = new TheoryData<string>();
+        double[] anchorsX = [100, 300, 960, 1600, 1820];
+        double[] anchorsY = [300, 520, 746, 1000];
+        var sides = new[] { NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above };
+        var sizes = new[] { 18.0, 28.0, 48.0 };
+        foreach (var edge in new[] { "top", "bottom" })
+            foreach (var x in anchorsX)
+                foreach (var y in anchorsY)
+                    foreach (var side in sides)
+                        foreach (var size in sizes)
+                            data.Add($"{edge}|{x}|{y}|{side}|{size}");
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerGeometrySweep))]
+    public void InEdit_TheCardItsCellsAndItsTag_KeepTheClearanceFromTheKeyboard(string sweep)
+    {
+        // T6 fixup-07 F2: in Edit the 24 DIP clearance holds in BOTH placement passes, measured
+        // on the window that is DRAWN - the one the number tag grows upward. So the card, every
+        // hit cell and the tag itself all stay a key's reach away from the keyboard.
+        var parts = sweep.Split('|');
+        bool bottom = parts[0] == "bottom";
+        double x = double.Parse(parts[1], CultureInfo.InvariantCulture);
+        double y = double.Parse(parts[2], CultureInfo.InvariantCulture);
+        var side = Enum.Parse<NoteSide>(parts[3]);
+        double textSize = double.Parse(parts[4], CultureInfo.InvariantCulture);
+
+        var keyboard = bottom
+            ? new Rect(251, 1152 - 575, 1418, 575)
+            : new Rect(251, 0, 1418, 575);
+        var card = new Size(
+            NoteLayout.CardWidthDip(textSize),
+            NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+
+        var placement = NoteLayout.Place(
+            Phys(x, y), side, card, WorkArea, new[] { keyboard }, Scale,
+            exclude: null, allowDisplaced: true,
+            topGrowthDip: NoteLayout.TagProtrusionDip(textSize));
+        Check.That(placement).IsNotNull();
+
+        // The DRAWN placement: the manager grows the window by the tag's protrusion.
+        var drawn = NoteLayout.WithTagClearance(placement!, textSize);
+
+        Check.WithCustomMessage($"the card of {sweep} must keep the clearance from the keyboard")
+            .That(GapFrom(drawn.Card, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+
+        for (int slot = 0; slot < 4; slot++)
+        {
+            var (cx, cy) = NoteLayout.ButtonCenter(drawn, slot);
+            var cell = new Rect(
+                drawn.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
+                drawn.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
+                LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+            Check.WithCustomMessage($"cell {slot} of {sweep} must keep the clearance from the keyboard")
+                .That(GapFrom(cell, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+
+        var tag = NoteLayout.TagRect(drawn, textSize);
+        var tagRect = new Rect(
+            drawn.Window.X + tag.X, drawn.Window.Y + tag.Y, tag.Width, tag.Height);
+        Check.WithCustomMessage($"the number tag of {sweep} must keep the clearance from the keyboard")
+            .That(GapFrom(tagRect, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
     }
 
     // ── helpers ──

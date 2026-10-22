@@ -421,7 +421,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // T6 fixup-06 G2: the displaced candidates are the EDIT state's alone. A note whose
             // anchor lies under the keyboard steps clear of it instead of landing on it; Display,
             // Move and the chips keep the placement they always had.
-            allowDisplaced: avoidKeyboard);
+            allowDisplaced: avoidKeyboard,
+            // T6 fixup-07 F2: the Edit rules are measured on the window that is DRAWN - the one
+            // the number tag grows upward - so the tag never comes within a key's reach of the
+            // keyboard, let alone overlaps it. Zero everywhere else, so those placements stay
+            // byte-identical.
+            topGrowthDip: avoidKeyboard ? NoteLayout.TagProtrusionDip(textSizeDip) : 0.0);
         return placement ?? throw new InvalidOperationException(
             "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
     }

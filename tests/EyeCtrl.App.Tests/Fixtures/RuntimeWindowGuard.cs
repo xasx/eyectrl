@@ -25,7 +25,8 @@ using Xunit.v3;
 /// <c>SetLayeredWindowAttributes</c>), else null. A WPF window with <c>AllowsTransparency=True</c> composes its
 /// Opacity per pixel and reports null.</param>
 /// <param name="Prepared">The window was prepared by <see cref="InvisibleTestWindow"/> (a tag on the HWND).</param>
-/// <param name="Description">Class name, title and rectangle, for the failure message.</param>
+/// <param name="Description">Empty when read from the OS: the class name, title and rectangle are built only for a window that OFFENDS
+/// (<c>RuntimeWindowMonitor.Describe</c>), for the failure message.</param>
 internal readonly record struct WindowFacts(
     IntPtr Handle, bool Visible, bool Cloaked, bool OnMonitor, byte? Alpha, bool Prepared, string Description);
 
@@ -150,13 +151,25 @@ internal sealed class RuntimeWindowMonitor
         if (eventType != EventObjectShow || idObject != 0 || idChild != 0 || hwnd == IntPtr.Zero) return;
         try
         {
-            if (GetAncestor(hwnd, GaRoot) != hwnd) return;
-            Consider(Read(hwnd, _requireOnMonitor), "shown");
+            HandleShow(hwnd);
         }
         catch (Exception)
         {
             // A hook callback must never throw into the message loop.
         }
+    }
+
+    /// <summary>
+    /// Handles one EVENT_OBJECT_SHOW. The SHOW event ITSELF counts: the callback runs some time after the show (out of context), so a
+    /// window that was shown and hidden again within a few hundred microseconds is no longer visible when it is read here. That flash is
+    /// still a flash on the owner's screen, so "visible" is taken from the event, and only the facts that do not change with a hide are
+    /// read: not tagged by <see cref="InvisibleTestWindow"/>, not cloaked, a rectangle that meets a monitor (and a window that no longer
+    /// exists has no rectangle, so it never offends). The cheap reads come first; the description is built only for an offender.
+    /// </summary>
+    internal void HandleShow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || GetAncestor(hwnd, GaRoot) != hwnd) return;
+        Consider(Read(hwnd, _requireOnMonitor) with { Visible = true }, "shown");
     }
 
     private void Consider(WindowFacts facts, string how)
@@ -167,8 +180,9 @@ internal sealed class RuntimeWindowMonitor
             lock (_gate)
                 if (_openedSeen.Add(facts.Handle)) _opened.Add(facts.Handle);   // once per window: a window left open is not "opened" again by the next test
         if (!IsReallyVisible(facts)) return;
+        var description = Describe(facts.Handle);   // only an OFFENDER is described
         lock (_gate)
-            _offences.Add(new VisibleWindowOffence(facts.Handle, facts.Description, how, DateTime.UtcNow));
+            _offences.Add(new VisibleWindowOffence(facts.Handle, description, how, DateTime.UtcNow));
     }
 
     /// <summary>
@@ -275,15 +289,27 @@ internal sealed class RuntimeWindowMonitor
         var onMonitor = sized && (!requireOnMonitor || MonitorFromRect(ref rect, MonitorDefaultToNull) != IntPtr.Zero);
         byte? alpha = GetLayeredWindowAttributes(hwnd, out _, out var a, out var flags) && (flags & LwaAlpha) != 0 ? a : null;
         var prepared = GetProp(hwnd, PreparedProperty) != IntPtr.Zero;
-        return new WindowFacts(hwnd, visible, cloaked, onMonitor, alpha, prepared, Describe(hwnd, rect, haveRect));
+        return new WindowFacts(hwnd, visible, cloaked, onMonitor, alpha, prepared, "");
     }
 
-    private static string Describe(IntPtr hwnd, RECT rect, bool haveRect)
+    /// <summary>How many windows have been described (only offenders are; a prepared, cloaked or off-screen window never costs a string).</summary>
+    internal int DescriptionsBuilt => Volatile.Read(ref _descriptionsBuilt);
+
+    private int _descriptionsBuilt;
+
+    /// <summary>
+    /// Class, title and rectangle of an OFFENDING window, for the failure message. The title comes from <c>InternalGetWindowText</c>, which
+    /// reads the window's stored text and sends NO message: <c>GetWindowText</c> on a window of another thread of this process sends
+    /// <c>WM_GETTEXT</c> and WAITS for that thread, which can hang the test run if that thread is blocked without pumping.
+    /// </summary>
+    private string Describe(IntPtr hwnd)
     {
+        Interlocked.Increment(ref _descriptionsBuilt);
+        var haveRect = GetWindowRect(hwnd, out var rect);
         var cls = new StringBuilder(128);
         GetClassName(hwnd, cls, cls.Capacity);
         var title = new StringBuilder(128);
-        GetWindowText(hwnd, title, title.Capacity);
+        InternalGetWindowText(hwnd, title, title.Capacity);
         var wpf = "";
         try { wpf = HwndSource.FromHwnd(hwnd)?.RootVisual?.GetType().Name is { } n ? $" wpf={n}" : ""; }
         catch (Exception) { /* another thread's dispatcher object: class and title are enough */ }
@@ -368,7 +394,7 @@ internal sealed class RuntimeWindowMonitor
     private static extern int GetClassName(IntPtr hwnd, StringBuilder text, int max);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
+    private static extern int InternalGetWindowText(IntPtr hwnd, StringBuilder text, int max);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool SetProp(IntPtr hwnd, string name, IntPtr value);

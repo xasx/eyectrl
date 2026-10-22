@@ -576,9 +576,18 @@ internal static class TestFakes
         public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
         public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
+        /// <summary>The point each bare <see cref="Scroll(PhysicalPoint, int, int)"/> was sent to,
+        /// parallel to <see cref="BareScrolls"/> (the scroll-arming gate: the wheel lands on the
+        /// anchor, never on the rest point).</summary>
+        public List<PhysicalPoint> BareScrollPoints { get; } = new();
+
         /// <summary>Pointed one-shot scrolls: the point is recorded so a dispatcher mutant passing
         /// the wrong point (the M3 lesson) cannot survive.</summary>
         public List<(PhysicalPoint Point, int Dx, int Dy)> PointedScrolls { get; } = new();
+
+        /// <summary>Scroll mode's anchor→wheel→restore hops, with both points, so GB3 can pin the
+        /// threshold and that the restore target was read fresh this tick.</summary>
+        public List<(PhysicalPoint At, PhysicalPoint Restore, int Dx, int Dy)> RestoreScrolls { get; } = new();
 
         /// <summary>Every <see cref="MoveCursor"/> target, so a gate can assert the worker never
         /// parks or hops the pointer.</summary>
@@ -620,12 +629,23 @@ internal static class TestFakes
 
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { RecordInjection(); BareScrolls.Add((deltaX, deltaY)); }
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
+        {
+            RecordInjection();
+            BareScrolls.Add((deltaX, deltaY));
+            BareScrollPoints.Add(point);
+        }
 
         public void ScrollAt(PhysicalPoint point, int deltaX, int deltaY)
         {
             RecordInjection();
             PointedScrolls.Add((point, deltaX, deltaY));
+        }
+
+        public void ScrollAtAndRestore(PhysicalPoint at, PhysicalPoint restore, int deltaX, int deltaY)
+        {
+            RecordInjection();
+            RestoreScrolls.Add((at, restore, deltaX, deltaY));
         }
 
         // The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a

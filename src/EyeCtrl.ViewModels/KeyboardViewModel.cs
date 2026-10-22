@@ -939,7 +939,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>D15: entering an auto-return sub-layout clears armed one-shot SYSTEM modifiers.
     /// Accents carries no modifier keys, so an armed modifier would be invisible there — and a
     /// stray Win plus an accent is a system shortcut on the OS layout (Win+é = Win+2 on French
-    /// Windows). Shift and Caps Lock survive: accents carry their own capitals (D11).</summary>
+    /// Windows). Shift and Caps Lock survive: accents carry their own capitals (D11).
+    /// <para>
+    /// Every caller (T6 fixup-09): this file's sub-layout switch (<see cref="SwitchSubLayout"/>,
+    /// D15), and the note hand-over's <c>Receive(NoteEditingChangedMessage)</c> (P1 D6, fixup m5 —
+    /// it clears one-shot AND latched modifiers so a stuck Ctrl/Alt/Win cannot swallow note keys).
+    /// Keep this list in step when a caller appears.
+    /// </para></summary>
     private void ClearSystemModifiers()
     {
         _activeModifiers.Remove(ModifierKey.Ctrl);

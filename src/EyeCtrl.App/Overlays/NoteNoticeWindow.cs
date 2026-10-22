@@ -67,7 +67,10 @@ public sealed class NoteNoticeWindow : OverlayWindow
 
     private bool _showingForTest;
 
-    public void ShowAt(Rect dipRect)
+    /// <param name="realHwnd">Whether the manager's show seam allows a REAL window (T6 fixup-09):
+    /// a headless test run passes false, so the notice never paints even if a test forgot its own
+    /// <see cref="ShowRealWindow"/> opt-out.</param>
+    public void ShowAt(Rect dipRect, bool realHwnd = true)
     {
         _card.BeginAnimation(UIElement.OpacityProperty, null);
         _card.Opacity = 1.0;
@@ -76,7 +79,7 @@ public sealed class NoteNoticeWindow : OverlayWindow
         // The placement window rect (card + tail zone) sizes the window; _card draws it.
         Width = dipRect.Width;
         Height = dipRect.Height;
-        if (ShowRealWindow)
+        if (ShowRealWindow && realHwnd)
         {
             if (!IsVisible)
                 base.Show();
@@ -121,7 +124,9 @@ public sealed class NoteNoticeWindow : OverlayWindow
     public bool TryGetVisibleBounds(out PhysicalRect bounds)
     {
         bounds = default;
-        if (ShowRealWindow ? !IsVisible : !_showingForTest)
+        // A hidden window is not displayed: the seam's own flag wins only while the HWND is
+        // also not visible (T6 fixup-09).
+        if (!IsVisible && !_showingForTest)
             return false;
         bounds = new PhysicalRect(
             DpiHelper.LogicalToPhysicalX(Left),

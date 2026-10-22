@@ -28,6 +28,43 @@ using Xunit;
 public class NoteWindowShowSeamTests
 {
     [StaFact]
+    public void TheCapacityNotice_NeverPaintsWhenTheSeamIsOff_EvenWithoutItsOwnOptOut()
+    {
+        // T6 fixup-09: the notice follows the manager's show seam too, so a future test that
+        // forgets its per-instance opt-out (NoticeWindowShowsForTest stays true here) still puts
+        // nothing on the owner's screen - while its visible-bounds answer keeps working.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+        Check.WithCustomMessage("this test deliberately keeps the notice's own opt-out ON")
+            .That(manager.NoticeWindowShowsForTest).IsTrue();
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            manager.ShowCapacityNotice(new PhysicalPoint(1600, 1000));
+
+            var notice = manager.NoticeWindowForTest;
+            Check.That(notice).IsNotNull();
+            Check.WithCustomMessage("the capacity notice must never reach the screen")
+                .That(notice!.IsVisible).IsFalse();
+            Check.WithCustomMessage("but its visible-bounds answer still works")
+                .That(notice.TryGetVisibleBounds(out _)).IsTrue();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void TheDefaultRun_KeepsTheNoteShowSeamOff()
+    {
+        // T6 fixup-09: the two UI-gated tests that need a real HWND switch RealNoteWindows on for
+        // their own scope and restore it in a finally. A DEFAULT run must never inherit that, and
+        // this pin is window-free - it talks to no manager and shows nothing.
+        Check.WithCustomMessage("the default run must keep the note show seam off")
+            .That(NoteManager.RealNoteWindows).IsFalse();
+    }
+
+    [StaFact]
     public void AHeadlessManager_ShowsItsNoteWindow_WithoutPuttingItOnTheScreen()
     {
         Check.WithCustomMessage("this assembly must run the note manager headless")
@@ -57,8 +94,9 @@ public class NoteWindowShowSeamTests
             Check.WithCustomMessage("the window carries its placement")
                 .That((window.Width, window.Height))
                 .IsEqualTo((placement.Window.Width, placement.Window.Height));
-            Check.WithCustomMessage("the seam replays the drawn tree")
-                .That(window.CellFillForTest(0)).IsNotNull();
+            // No "the seam replays the drawn tree" assert here (T6 fixup-09): ApplyPlacement
+            // already drew, so the Loaded replay is belt-and-braces and a mutant that drops it
+            // stays green - the assert was vacuous (review-08).
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -95,6 +133,13 @@ public class NoteWindowShowSeamTests
             Check.WithCustomMessage("and its rect is the one the manager placed")
                 .That((place.Width, place.Height))
                 .IsEqualTo((manager.PlaceWindowRectForTest.Width, manager.PlaceWindowRectForTest.Height));
+
+            // T6 fixup-09: hiding it clears the seam's displayed state - a hidden window is not
+            // displayed until the next show.
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present); // Caution: Cancel
+            Check.That(manager.PlaceShownForTest).IsFalse();
+            Check.WithCustomMessage("a hidden Place-here window must not read as displayed")
+                .That(place.IsDisplayed).IsFalse();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

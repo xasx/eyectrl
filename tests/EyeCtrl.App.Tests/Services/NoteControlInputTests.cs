@@ -344,6 +344,26 @@ public class NoteControlInputTests
         // owner's default run.
         Fixtures.AppFixture.SkipIfDisabled();
 
+        // T6 fixup-09: the visual hit test below needs a RENDERED tree, so this test switches the
+        // manager's show seam back on for its own scope. The restore is in a finally and the
+        // class sits in the exclusive "DpiHelper Tests (App)" collection, so the process-global
+        // flag cannot leak - and the UI gate keeps the default run from showing anything.
+        NoteManager.RealNoteWindows = true;
+        try
+        {
+            KeyboardControlInputAsserts();
+        }
+        finally
+        {
+            // Process-global: ALWAYS restore it, even when an assertion above fails.
+            NoteManager.RealNoteWindows = false;
+        }
+    }
+
+    /// <summary>The body of <see cref="Touch_OnTheGlyphLabel_EntersEditExactlyOnce"/>, run with
+    /// the manager's show seam switched ON so the window is really rendered.</summary>
+    private void KeyboardControlInputAsserts()
+    {
         var (manager, counter) = MakeManager(out _);
         manager.NoticeWindowShowsForTest = false;
         DpiHelper.Initialize(2.0, 2.0);

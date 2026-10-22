@@ -62,6 +62,15 @@ public class NotePlaceHereWindow : OverlayWindow
     /// or the seam's own flag when it was never handed to the OS (R4).</summary>
     public bool IsDisplayed => _displayedWithoutHwnd || IsVisible;
 
+    /// <summary>Hides the window and clears the seam's displayed state (T6 fixup-09): the manager
+    /// hides Place-here between moves, and a hidden window must never read as displayed again
+    /// until the next show. <c>new</c> on purpose - the manager holds the concrete type.</summary>
+    public new void Hide()
+    {
+        _displayedWithoutHwnd = false;
+        base.Hide();
+    }
+
     /// <summary>Builds the window for a note text size (T6 fixup-06 G1).</summary>
     /// <param name="textSizeDip">The note's body text size — the label's font size.</param>
     public NotePlaceHereWindow(double textSizeDip)

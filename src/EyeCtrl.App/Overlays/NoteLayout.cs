@@ -624,10 +624,63 @@ internal static class NoteLayout
         if (exclude is not null)
             return null; // P3 D2: null only when exclude removed the only fitting side
 
+        // T6 fixup-09 Part B (owner-approved): nothing clears the keyboard by the gap - an Edit
+        // card taller than the clear room. Take the candidate that overlaps it LEAST (any side's
+        // own clamp, or a displaced window), so a tall note slides just over the keyboard's edge
+        // instead of landing deep inside it. Ties go to the candidate closest to the anchor, so
+        // the answer is deterministic. Display, Move and the chips never reach here.
+        if (allowDisplaced && avoidDip.Count > 0)
+        {
+            NotePlacement? least = null;
+            double bestClearance = double.MinValue;
+            double bestDistance = double.MaxValue;
+            foreach (var side in Candidates(preferred, exclude))
+            {
+                var window = WindowFor(anchorDip, side, cardDip);
+                var own = Ungrow(ClampInto(GrownUpward(window, topGrowthDip), inset), topGrowthDip);
+                foreach (var candidate in DisplacedCandidates(window, avoidDip, inset, topGrowthDip).Prepend(own))
+                {
+                    var drawn = GrownUpward(candidate, topGrowthDip);
+                    if (!FitsInside(drawn, inset))
+                        continue;
+                    double clearance = ClearanceFrom(drawn, avoidDip);
+                    double distance = DistanceToRect(anchorDip, candidate);
+                    if (least is not null
+                        && (clearance < bestClearance || (clearance == bestClearance && distance >= bestDistance)))
+                        continue;
+                    bestClearance = clearance;
+                    bestDistance = distance;
+                    least = Build(side, candidate, cardDip, anchorDip, clamped: true);
+                }
+            }
+            if (least is not null)
+                return least;
+        }
+
         // No fit at all: clamp the preferred side's window inside the inset work area (P3 D2.3).
         var clamped = WindowFor(anchorDip, preferred, cardDip);
         clamped = ClampInto(clamped, inset);
         return Build(preferred, clamped, cardDip, anchorDip, clamped: true);
+    }
+
+    /// <summary>
+    /// The worst signed clearance between a window and the avoid rects (T6 fixup-09 Part B): for
+    /// each rect, the largest separation on either axis - positive when the window clears it on
+    /// that axis, negative when it overlaps by that much - then the minimum over the rects. So a
+    /// positive answer is a real gap to EVERY rect, and the maximum over candidates is the least
+    /// overlap.
+    /// </summary>
+    private static double ClearanceFrom(Rect window, IReadOnlyList<Rect> avoid)
+    {
+        double worst = double.MaxValue;
+        foreach (var rect in avoid)
+        {
+            double separation = Math.Max(
+                Math.Max(window.Left - rect.Right, rect.Left - window.Right),
+                Math.Max(window.Top - rect.Bottom, rect.Top - window.Bottom));
+            worst = Math.Min(worst, separation);
+        }
+        return worst;
     }
 
     /// <summary>The window as it is DRAWN: grown upward by the number tag's strip, the card

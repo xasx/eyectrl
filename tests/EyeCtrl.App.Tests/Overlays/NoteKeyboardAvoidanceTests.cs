@@ -124,16 +124,49 @@ public class NoteKeyboardAvoidanceTests
     }
 
     [Fact]
-    public void NoRoomClearOfTheKeyboard_KeepsTheOldClampedPlacement()
+    public void NoRoomClearOfTheKeyboard_TakesTheLeastOverlap()
     {
-        // The avoid rects cover the whole work area: no displaced candidate can be accepted, so
-        // the old clamp fallback stands, unchanged.
+        // T6 fixup-09 Part B (owner-approved, review-08 section 6): the avoid rects cover the whole
+        // work area, so nothing clears it. The placement is now the candidate that overlaps LEAST,
+        // measured on the drawn window - never worse than the old preferred-side clamp, which is
+        // itself one of the candidates.
         var avoid = new[] { new Rect(0, 0, 1920, 1152) };
-        var displaced = Place(960, 300, avoid);
+        var placement = Place(960, 300, avoid);
         var old = Place(960, 300, avoid, allowDisplaced: false);
 
-        Check.WithCustomMessage("with no room the clamped placement must stand")
-            .That(displaced).IsEqualTo(old);
+        double clearance = SignedClearance(placement.Window, avoid[0]);
+        Check.WithCustomMessage($"the least-overlap placement ({clearance}) must not be worse than the old clamp ({SignedClearance(old.Window, avoid[0])})")
+            .That(clearance).IsGreaterOrEqualThan(SignedClearance(old.Window, avoid[0]));
+        Check.WithCustomMessage("and it stays inside the inset work area")
+            .That(placement.Window.Left >= Inset.Left && placement.Window.Top >= Inset.Top
+                && placement.Window.Right <= Inset.Right && placement.Window.Bottom <= Inset.Bottom)
+            .IsTrue();
+    }
+
+    // ── T6 fixup-09 Part B: a tall card goes where it overlaps the keyboard least ──
+
+    [Theory]
+    [InlineData(300.0, 700.0, 28.0)]
+    [InlineData(960.0, 760.0, 28.0)]
+    [InlineData(960.0, 760.0, 48.0)]
+    public void ATallEditCard_SlidesToTheLeastOverlap_InsteadOfLandingInsideTheKeyboard(
+        double x, double y, double textSize)
+    {
+        // The owner's geometry, a 480 DIP card: taller than the clear room under the top keyboard,
+        // so nothing fits. The drawn window must keep a non-negative clearance - it slides just
+        // over the keyboard's edge (the reviewer measured 18 DIP at (300, 700)) - instead of the
+        // old preferred-side clamp, which sat 70-130 DIP inside it.
+        var keyboard = new Rect(251, 0, 1418, 575);
+        var card = new Size(NoteLayout.CardWidthDip(textSize), 480);
+        var placement = NoteLayout.Place(
+            Phys(x, y), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
+            exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(textSize))!;
+        var drawn = NoteLayout.WithTagClearance(placement, textSize);
+
+        double clearance = SignedClearance(drawn.Window, keyboard);
+        Check.WithCustomMessage(
+                $"a tall card at ({x}, {y}) and {textSize} DIP must not overlap the keyboard (clearance {clearance})")
+            .That(clearance).IsGreaterOrEqualThan(0);
     }
 
     [StaFact]
@@ -455,6 +488,12 @@ public class NoteKeyboardAvoidanceTests
     private static Size CardAt(double textSize) => new(
         NoteLayout.CardWidthDip(textSize),
         NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+
+    /// <summary>The signed clearance between a window and a rect: positive when it clears on an
+    /// axis, negative when it overlaps by that much (the production helper's test mirror).</summary>
+    private static double SignedClearance(Rect window, Rect rect) => Math.Max(
+        Math.Max(window.Left - rect.Right, rect.Left - window.Right),
+        Math.Max(window.Top - rect.Bottom, rect.Top - window.Bottom));
 
     /// <summary>The distance from a point to a rect: zero inside it.</summary>
     private static double DistanceFromPointToRect(Point point, Rect rect)

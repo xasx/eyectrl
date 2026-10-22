@@ -6,10 +6,25 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using Serilog;
 
+/// <summary>
+/// Drives scroll mode's wheels on a 16-ms dispatcher timer. Part B (scroll-at-P) deliberately
+/// relaxes the scroll-start rule "no per-tick MOVE to the anchor": on a tick that sends a wheel,
+/// when the OS cursor is more than <see cref="RestoreThresholdPx"/> away from the anchor (an
+/// external gaze mouse moved it), the tick sends MOVE→anchor, the wheel, MOVE→back in ONE atomic
+/// batch through <see cref="IInputSimulator.ScrollAtAndRestore"/>. The net cursor position is
+/// unchanged — the restore leg uses an exact pixel encoding, not the shared rounding normaliser,
+/// so Windows' truncating decode returns the very pixel that was read. The hop exists only so the
+/// wheel is hit-tested at the anchor. Within the threshold the bare
+/// <see cref="IInputSimulator.Scroll"/> is sent, exactly as before.
+/// </summary>
 public class ScrollWorker : IDisposable
 {
     private const int TickIntervalMs = 16;
     private const int ReportIntervalMs = 1000;
+
+    /// <summary>Part B fast path: a cursor this close to the anchor keeps the bare wheel (no hop).
+    /// The proposal and the owner's decision use 8 physical pixels.</summary>
+    internal const double RestoreThresholdPx = 8;
     private readonly IInputSimulator _inputSimulator;
     private readonly DispatcherTimer _timer;
 
@@ -32,6 +47,7 @@ public class ScrollWorker : IDisposable
     private long _wheelsUp;
     private long _wheelsDown;
     private long _wheelsHorizontal;
+    private long _restored;
     private int _msSinceLog;
 
     // F5 (fixup 01): wall-clock ms since the previous line — the tick-gate is nominal, and the
@@ -82,6 +98,7 @@ public class ScrollWorker : IDisposable
             _wheelsUp = 0;
             _wheelsDown = 0;
             _wheelsHorizontal = 0;
+            _restored = 0;
             _msSinceLog = 0;
             _lastReportMs = 0;
             _clock.Restart();
@@ -132,7 +149,20 @@ public class ScrollWorker : IDisposable
 
             if (intDeltaX != 0 || intDeltaY != 0)
             {
-                _inputSimulator.Scroll(_anchor, intDeltaX, intDeltaY);
+                // B2: read the cursor ONCE on a tick that sends a wheel (the per-second line reads
+                // it separately). Away from the anchor — an external gaze mouse moved it — hop to
+                // the anchor and straight back in one atomic batch. A failed read (null) keeps the
+                // bare wheel: there is no safe position to restore to.
+                var cursor = _cursorReader?.Invoke();
+                if (cursor is { } current && current.DistanceTo(_anchor) > RestoreThresholdPx)
+                {
+                    _inputSimulator.ScrollAtAndRestore(_anchor, current, intDeltaX, intDeltaY);
+                    _restored++;
+                }
+                else
+                {
+                    _inputSimulator.Scroll(_anchor, intDeltaX, intDeltaY);
+                }
                 if (intDeltaY > 0)
                     _wheelsUp += intDeltaY;
                 else if (intDeltaY < 0)
@@ -164,15 +194,15 @@ public class ScrollWorker : IDisposable
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=({3:F0},{4:F0}) cursorToAnchor={5:F0}px armed={6} nearest={7:F0} elapsedMs={8}",
+                "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=({3:F0},{4:F0}) cursorToAnchor={5:F0}px armed={6} restored={7} nearest={8:F0} elapsedMs={9}",
                 _wheelsUp, _wheelsDown, _wheelsHorizontal, cursor.X, cursor.Y,
-                cursor.DistanceTo(_anchor), armed, nearest, elapsedMs);
+                cursor.DistanceTo(_anchor), armed, _restored, nearest, elapsedMs);
         }
 
         return string.Format(
             CultureInfo.InvariantCulture,
-            "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=(?,?) cursorToAnchor=?px armed={3} nearest={4:F0} elapsedMs={5}",
-            _wheelsUp, _wheelsDown, _wheelsHorizontal, armed, nearest, elapsedMs);
+            "Scroll: wheelsUp={0} wheelsDown={1} h={2} cursor=(?,?) cursorToAnchor=?px armed={3} restored={4} nearest={5:F0} elapsedMs={6}",
+            _wheelsUp, _wheelsDown, _wheelsHorizontal, armed, _restored, nearest, elapsedMs);
     }
 
     public void Dispose()

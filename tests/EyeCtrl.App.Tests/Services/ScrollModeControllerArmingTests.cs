@@ -56,12 +56,21 @@ public class ScrollModeControllerArmingTests
 
             var worker = controller.Worker;
             Check.That(worker).IsNotNull();
-            for (int i = 0; i < 400 && input.BareScrollPoints.Count == 0; i++) worker!.Tick();
+            // Part B (merged): when the OS cursor is farther than RestoreThresholdPx from the
+            // anchor, the wheel rides in a ScrollAtAndRestore hop instead of a bare Scroll. Both
+            // paths must target the anchor (never the rest point), so collect the target from
+            // whichever path the tick took.
+            for (int i = 0; i < 400
+                && input.BareScrollPoints.Count + input.RestoreScrolls.Count == 0; i++)
+                worker!.Tick();
 
+            var wheelTargets = input.BareScrollPoints
+                .Concat(input.RestoreScrolls.Select(r => r.At))
+                .ToList();
             Check.WithCustomMessage("the premise: the armed joystick produced wheels")
-                .That(input.BareScrollPoints).Not.IsEmpty();
-            Check.WithCustomMessage($"wheels landed at: {string.Join(" ", input.BareScrollPoints.Distinct())}")
-                .That(input.BareScrollPoints.All(p => p == Anchor)).IsTrue();
+                .That(wheelTargets).Not.IsEmpty();
+            Check.WithCustomMessage($"wheels landed at: {string.Join(" ", wheelTargets.Distinct())}")
+                .That(wheelTargets.All(p => p == Anchor)).IsTrue();
         }
     }
 

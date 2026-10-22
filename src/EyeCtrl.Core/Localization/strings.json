@@ -891,8 +891,29 @@
     "fit": "A68",
     "args": []
   },
+  "overlays.note.chip.discarded": {
+    "text": "Changes discarded · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.chip.removed": {
+    "text": "Note removed · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.close": {
     "text": "Close note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.discard": {
+    "text": "Discard changes",
     "who": "user",
     "where": "overlays",
     "fit": "row",
@@ -928,6 +949,13 @@
   },
   "overlays.note.title": {
     "text": "PINNED NOTE",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.undo": {
+    "text": "Undo",
     "who": "user",
     "where": "overlays",
     "fit": "row",

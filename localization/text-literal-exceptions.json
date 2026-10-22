@@ -5,6 +5,12 @@
   ],
   "Entries": [
     {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\":undo\"",
+      "Category": "id",
+      "Reason": "The Undo chip's dwell-target suffix (P2 D5): {noteId}:undo, split by the same convention as :done/:close; never shown."
+    },
+    {
       "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",
       "Literal": "\"X2\"",
       "Category": "data",

@@ -30,7 +30,7 @@ public enum RingHoldStartKind
     /// <summary>The deferred run-end release landed inside the hit area: the hold kept the existing pin.</summary>
     Keep,
 
-    /// <summary>The eye crossed into the hit area during the <c>HybridFreezeApproachMs</c> window.</summary>
+    /// <summary>The eye crossed into the hit area during the going-for-it window (<c>HybridFreezeApproachMs</c>).</summary>
     Approach,
 
     /// <summary>Any other entry of the eye into the hit area: the ring froze where it was drawn.</summary>
@@ -92,6 +92,32 @@ public readonly record struct RingReleaseEvent(RingReleaseCause Cause, double Di
 
 /// <summary>A hybrid hold started.</summary>
 public readonly record struct RingHoldStartEvent(RingHoldStartKind Kind);
+
+/// <summary>Why a going-for-it keep ended (the run-end pin at P kept while the gaze is on its way to B).</summary>
+public enum RingGoEndReason
+{
+    /// <summary>The gaze entered the hit area: the hold starts with the ring still at P.</summary>
+    Hit,
+
+    /// <summary>The gaze left the P-B corridor (and B's no-move zone): the ring follows on that frame.</summary>
+    Left,
+
+    /// <summary>The time limit T passed with the gaze still on its way: the ring follows.</summary>
+    Timeout,
+
+    /// <summary>The live offer closed during the keep.</summary>
+    OfferClosed,
+
+    /// <summary>A hiding state (or the external dwell) took the ring away.</summary>
+    Hidden,
+}
+
+/// <summary>A going-for-it keep began. <see cref="Dist"/> is the drawn ring to the gaze; <see cref="Off"/>
+/// is the gaze's distance to the segment P-B (null where the offer's P is unknown).</summary>
+public readonly record struct RingGoStartEvent(double Dist, double? Off);
+
+/// <summary>A going-for-it keep ended, <see cref="Ms"/> after it began (the message clock).</summary>
+public readonly record struct RingGoEndEvent(RingGoEndReason Reason, double Ms, double? Off);
 
 /// <summary>A hybrid hold ended, with how long it lasted (the message clock; end-of-run ends use the
 /// last delivered sample).</summary>

@@ -397,6 +397,16 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring go end ({0}) ms={1:0} off={2}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring go start dist={0:0} off={1}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
       "Count": 1
     },
@@ -433,6 +443,11 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"hidden\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"hit\"",
       "Count": 1
     },
     {
@@ -448,6 +463,11 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"left\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"na\"",
       "Count": 1
     },
     {
@@ -458,7 +478,7 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"offer-closed\"",
-      "Count": 2
+      "Count": 3
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -473,6 +493,11 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"state\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"timeout\"",
       "Count": 1
     },
     {

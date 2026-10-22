@@ -55,6 +55,8 @@ public class RingArmLookOracleTests
         yield return ("slip chain, return (unproven slip inside the zone, back in the hit area)", ScriptedSlips(SlipKind.Return));
         yield return ("slip chain, grace (unproven slip inside the zone for 660 ms)", ScriptedSlips(SlipKind.Grace));
         yield return ("slip chain, fly-through (unproven exit beyond the zone)", ScriptedSlips(SlipKind.FlyThrough));
+        foreach (var (name, samples) in GoingForItChains.All())
+            yield return ($"go chain: {name}", samples);
     }
 
     [Fact]

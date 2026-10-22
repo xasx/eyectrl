@@ -40,6 +40,8 @@ internal sealed class RingArmLog : IDisposable
         vm.RingReleased += OnReleased;
         vm.RingHoldStarted += OnHoldStarted;
         vm.RingHoldEnded += OnHoldEnded;
+        vm.RingGoStarted += OnGoStarted;
+        vm.RingGoEnded += OnGoEnded;
     }
 
     // ── The exact line formats ───────────────────────────────────────────────
@@ -51,7 +53,7 @@ internal sealed class RingArmLog : IDisposable
     {
         bool hybrid = launch.Arm == RingArm.Hybrid;
         return string.Format(CultureInfo.InvariantCulture,
-            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, approach={5} ms, glideOut=0) [source: {6}]",
+            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, go={5} ms corridor=R, glideOut=0) [source: {6}]",
             launch.Arm switch
             {
                 RingArm.Hybrid => "hybrid",
@@ -109,6 +111,24 @@ internal sealed class RingArmLog : IDisposable
             _ => "hidden",
         }, heldMs);
 
+    /// <summary>The going-for-it keep began: the ring-to-gaze distance and the gaze's distance to the
+    /// segment P-B (na where P is unknown).</summary>
+    internal static string GoStartLine(double dist, double? off) =>
+        string.Format(CultureInfo.InvariantCulture, "Ring go start dist={0:0} off={1}", dist, OffText(off));
+
+    internal static string GoEndLine(RingGoEndReason reason, double ms, double? off) =>
+        string.Format(CultureInfo.InvariantCulture, "Ring go end ({0}) ms={1:0} off={2}", reason switch
+        {
+            RingGoEndReason.Hit => "hit",
+            RingGoEndReason.Left => "left",
+            RingGoEndReason.Timeout => "timeout",
+            RingGoEndReason.OfferClosed => "offer-closed",
+            _ => "hidden",
+        }, ms, OffText(off));
+
+    private static string OffText(double? off) =>
+        off is { } value ? value.ToString("0", CultureInfo.InvariantCulture) : "na";
+
     private static string CauseName(RingReleaseCause cause) => cause switch
     {
         RingReleaseCause.RunEnd => "run-end",
@@ -148,6 +168,10 @@ internal sealed class RingArmLog : IDisposable
 
     private void OnHoldEnded(RingHoldEndEvent e) => _info(HoldEndLine(e.Reason, e.HeldMs));
 
+    private void OnGoStarted(RingGoStartEvent e) => _info(GoStartLine(e.Dist, e.Off));
+
+    private void OnGoEnded(RingGoEndEvent e) => _info(GoEndLine(e.Reason, e.Ms, e.Off));
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -158,5 +182,7 @@ internal sealed class RingArmLog : IDisposable
         _vm.RingReleased -= OnReleased;
         _vm.RingHoldStarted -= OnHoldStarted;
         _vm.RingHoldEnded -= OnHoldEnded;
+        _vm.RingGoStarted -= OnGoStarted;
+        _vm.RingGoEnded -= OnGoEnded;
     }
 }

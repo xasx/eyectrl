@@ -98,7 +98,9 @@ public class KeyboardE1LoggingTests
 
         public readonly FakeSensitive Sensitive = new();
 
-        public Rig(bool logging = true, Dictionary<string, int>? words = null)
+        /// <param name="tallyMinFires">The recorder's edge-tally minimum: 1 here so the older tests keep
+        /// pinning the tally's contents on a few dwells; the 20-dwell minimum has its own tests.</param>
+        public Rig(bool logging = true, Dictionary<string, int>? words = null, int tallyMinFires = 1)
         {
             Vm = new KeyboardViewModel(new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } },
                 new WeakReferenceMessenger(), sensitiveContext: Sensitive);
@@ -107,7 +109,7 @@ public class KeyboardE1LoggingTests
             Positions["far"] = new PhysicalPoint(2000, 100);
             BoxesByKey["far"] = new PhysicalRect(1900, 0, 200, 200);
             if (logging)
-                Vm.UseE1Recorder(new KeyboardE1Recorder(Log, () => Clock));
+                Vm.UseE1Recorder(new KeyboardE1Recorder(Log, () => Clock, edgeTallyMinFires: tallyMinFires));
             Vm.Configure(DwellMs, CooldownMs);
             Vm.SetLayout(Layout());
             if (words is not null)
@@ -148,6 +150,15 @@ public class KeyboardE1LoggingTests
             Hold(Positions[keyId], CooldownMs + 60);
         }
 
+        /// <summary>Ends the show (which writes the edge tally) and returns the NEW tally's fields, or null.</summary>
+        public Dictionary<string, string>? Tally()
+        {
+            var before = Log.Of("edgeq").Length;
+            Vm.E1.RecordHidden("test");
+            var lines = Log.Of("edgeq");
+            return lines.Length == before ? null : Fields(lines[^1]);
+        }
+
         public void Dispose() => Vm.Dispose();
     }
 
@@ -173,7 +184,10 @@ public class KeyboardE1LoggingTests
         var f = Fields(key[0]);
         Check.That(f["cls"]).IsEqualTo("letter");
         Check.That(f["sub"]).IsEqualTo("letters");
-        Check.That(f["edgeq"]).IsEqualTo("-");              // 5 % of the box off centre: the inner half
+        Check.That(f.ContainsKey("edgeq")).IsFalse();       // no per-letter edge class: only the tally counts it
+        var tally = rig.Tally()!;
+        Check.That(tally["fires"]).IsEqualTo("1");
+        Check.That(tally["c"]).IsEqualTo("1");              // 5 % of the box off centre: the inner half
         Check.That(f["dwell"]).IsEqualTo("450");
         Check.That(f["penalty"]).IsEqualTo("False");
         Check.That(f["typing"]).IsEqualTo("False");
@@ -204,7 +218,11 @@ public class KeyboardE1LoggingTests
         Check.That(f["winx"]).IsEqualTo("500");
         Check.That(f["winw"]).IsEqualTo("2800");
         Check.That(f["movems"]).IsEqualTo("7000");
-        Check.That(f["edgeq"]).IsEqualTo("W");
+        Check.That(f.ContainsKey("edgeq")).IsFalse();
+        var tally = rig.Tally()!;
+        Check.That(tally["edge"]).IsEqualTo("top");
+        Check.That(tally["w"]).IsEqualTo("1");              // the mean offset fell in the west outer quarter
+        Check.That(tally["fires"]).IsEqualTo("1");
     }
 
     [Fact]
@@ -463,6 +481,9 @@ public class KeyboardE1LoggingTests
     {
         using var rig = new Rig();
         var c = rig.Positions["key_0_1"];
+        // One accepted dwell first: a tally is written only once it holds fires, and the abandonment's
+        // counters ride along with that edge's accumulator (an abandonment alone never writes a line).
+        rig.Type("key_0_2");
 
         rig.Hold(new PhysicalPoint(c.X + 80, c.Y), 240);                       // > 30 % of 450 ms, 40 % east
         rig.Hold(rig.Positions["key_0_2"], 30);                                // moves on: NearestChanged
@@ -475,7 +496,11 @@ public class KeyboardE1LoggingTests
         // The class is the MEAN over the abandoned dwell (where the gaze rested on the key). The sample that
         // ended it already sits on the NEXT key, 220 px right: using it would hand over the direction from
         // one key to the next.
-        Check.That(f["edgeq"]).IsEqualTo("E");
+        Check.That(f.ContainsKey("edgeq")).IsFalse();
+        var tally = rig.Tally()!;
+        Check.That(tally["aborts"]).IsEqualTo("1");
+        Check.That(tally["ae"]).IsEqualTo("1");             // the class is only COUNTED, per dock edge
+        Check.That(tally["fires"]).IsEqualTo("1");
         Check.That(int.Parse(f["pct"])).IsStrictlyGreaterThan(29);
     }
 
@@ -1065,6 +1090,36 @@ public class KeyboardE1LoggingTests
     }
 
     [Fact]
+    public void KeysTypedInAPasswordField_NeverEnterTheEdgeTally()
+    {
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.Type("key_0_1", dx: 80);
+        rig.Type("key_0_2", dx: 80);
+        rig.Sensitive.IsSensitiveActive = false;
+
+        Check.WithCustomMessage("a tally that saw only password keys writes nothing").That(rig.Tally()).IsNull();
+    }
+
+    [Fact]
+    public void TheTally_CountsEveryTextFire_AndAHideResetsIt()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0", dx: 80);                        // east outer quarter
+        rig.Type("key_0_1", dx: 80);
+        rig.Type("key_0_2");                                // centre
+        var first = rig.Tally()!;
+        Check.That(first["fires"]).IsEqualTo("3");
+        Check.That(first["e"]).IsEqualTo("2");
+        Check.That(first["c"]).IsEqualTo("1");
+
+        rig.Type("key_0_0", dx: -80);
+        var second = rig.Tally()!;                          // a second show: a fresh tally, not 4
+        Check.That(second["fires"]).IsEqualTo("1");
+        Check.That(second["w"]).IsEqualTo("1");
+    }
+
+    [Fact]
     public void AThrowingGeometryCallback_NeverReachesTheGazePathOnAnAbandonment()
     {
         using var rig = new Rig();
@@ -1114,5 +1169,57 @@ public class KeyboardE1LoggingTests
 
         Check.That(ok.ForegroundProcessName()).IsEqualTo("WINWORD.exe");
         Check.That(none.ForegroundProcessName()).IsEqualTo("unknown");
+    }
+
+    // ---- the 20-dwell minimum, end to end through the view-model's gaze path ------------------------
+
+    [Fact]
+    public void AFlipInTheMiddleOfAShow_CarriesEachEdgesTally_AndWritesOnlyTheEdgeThatReachesTwenty()
+    {
+        using var rig = new Rig(tallyMinFires: KeyboardE1Recorder.EdgeTallyMinFires);
+        var edge = "top";
+        rig.Vm.E1Geometry = () => new KeyboardE1Geometry(edge, 500, 0, 2800, 1000, 7000);
+
+        for (var i = 0; i < 15; i++) rig.Type("key_0_1", dx: 80);          // 15 fires in the east quarter, top dock
+        edge = "bottom";
+        rig.Vm.E1.RecordEdge("flip", "bottom", "top");                       // the Flip, as the coordinator logs it
+        for (var i = 0; i < 15; i++) rig.Type("key_0_1", dx: -80);         // 15 fires in the west quarter, bottom dock
+        edge = "top";
+        rig.Vm.E1.RecordEdge("flip", "top", "bottom");                       // and back
+        for (var i = 0; i < 5; i++) rig.Type("key_0_1", dx: 80);            // 5 more on top
+        Check.WithCustomMessage("nothing was written before the hide: top has 15, bottom 15")
+            .That(rig.Log.Of("edgeq")).IsEmpty();
+
+        rig.Vm.E1.RecordHidden("test");
+
+        var lines = rig.Log.Of("edgeq");
+        Check.WithCustomMessage("one top line (15 + 5), no bottom line (15 is below the minimum): " + string.Join(" | ", lines))
+            .That(lines).HasSize(1);
+        var tally = Fields(lines[0]);
+        Check.That(tally["edge"]).IsEqualTo("top");
+        Check.That(tally["fires"]).IsEqualTo("20");
+        Check.That(tally["e"]).IsEqualTo("20");
+        Check.That(tally["w"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void DisposingTheViewModelAtShutdown_WritesTheTalliesAtTheMinimum_AndDropsTheRest()
+    {
+        var rig = new Rig(tallyMinFires: KeyboardE1Recorder.EdgeTallyMinFires);
+        var edge = "bottom";
+        rig.Vm.E1Geometry = () => new KeyboardE1Geometry(edge, 500, 0, 2800, 1000, 7000);
+        for (var i = 0; i < 7; i++) rig.Type("key_0_1", dx: -80);          // bottom: 7, below the minimum
+        edge = "top";
+        for (var i = 0; i < 25; i++) rig.Type("key_0_1", dx: 80);          // top: 25, the keyboard is still up
+
+        rig.Vm.Dispose();                                                    // the app exits
+
+        var lines = rig.Log.Of("edgeq");
+        Check.WithCustomMessage("top has 25 and is written; bottom has 7 and is dropped: " + string.Join(" | ", lines))
+            .That(lines).HasSize(1);
+        Check.That(Fields(lines[0])["edge"]).IsEqualTo("top");
+        Check.That(Fields(lines[0])["fires"]).IsEqualTo("25");
+        rig.Dispose();                                                       // a second dispose writes nothing more
+        Check.That(rig.Log.Of("edgeq")).HasSize(1);
     }
 }

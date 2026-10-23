@@ -497,14 +497,11 @@ public class GazeRecorderTests : IDisposable
         Check.ThatCode(() => recorder.Dispose()).DoesNotThrow();
         sw.Stop();
 
-        // The writer is at the end of its fault path, so the join has nothing to wait for — but a loaded
-        // runner can still deschedule THIS thread between Start and Stop, and then the measurement says
-        // nothing about Dispose. Skip that case exactly as Dispose_ThatReturnsInsideItsBudget does; the
-        // fast path, when measured, must not have spent the budget.
-        if (sw.ElapsedMilliseconds >= 1_750)
-            Assert.Skip($"Dispose spent {sw.ElapsedMilliseconds} ms after the writer had self-disabled, so the fast path proves nothing here: the runner starved this thread, not the writer.");
-
-        Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(1_750L);   // no full-budget wait
+        // A HARD bound, deliberately not a skip: the writer has already returned, so Join is immediate,
+        // and only a >=2 s deschedule of THIS thread inside one call could trip it — unlike the 5 s waits
+        // on the BelowNormal writer that actually flaked. A Dispose that spent the budget here (e.g.
+        // sleeping before the join) must fail, not skip.
+        Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(2_000L);   // ShutdownBudgetMs: no full-budget wait
     }
 
     [Fact]

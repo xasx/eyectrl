@@ -42,9 +42,13 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
 
     public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
         => EdgeBarVm?.ShowButtons(definitions, edgeAnchor);
+    public void ShowButtons(
+        IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor, EdgeBarOwner owner)
+        => EdgeBarVm?.ShowButtons(definitions, edgeAnchor, owner);
     public void AddButton(EdgeButtonDefinition definition) => EdgeBarVm?.AddButton(definition);
     public void RemoveButton(string id) => EdgeBarVm?.RemoveButton(id);
     public new void Hide() => EdgeBarVm?.Hide();
+    public void Hide(EdgeBarOwner owner) => EdgeBarVm?.Hide(owner);
 
     /// <summary>
     /// Rebuild DwellArcButtons whenever the VM's button set changes. Seed centers are

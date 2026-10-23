@@ -76,6 +76,11 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 
     public PhysicalPoint Anchor => _anchor;
 
+    /// <summary>The stop button's centre in physical px — the centre of the engine's stop zone.
+    /// Test seam (InternalsVisibleTo): the App's entry wiring must place the drawn button and this
+    /// zone at the same spot.</summary>
+    internal PhysicalPoint StopButtonCenter => _stopButtonCenter;
+
     /// <summary>The joystick's neutral point: the anchor until the arming fixation, then that
     /// fixation's centroid (D2). Velocity and the dot feedback are measured from it.</summary>
     public PhysicalPoint RestPoint => _restPoint;
@@ -95,7 +100,7 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     public ScrollOverlayViewModel(
         IMessenger messenger, ScrollSettings scrollSettings, DwellSettings dwellSettings,
         Action<string>? log = null)
-        : base(messenger, dwellSettings.DwellCooldownMs)
+        : base(messenger, dwellSettings.DwellCooldownMs, pauseGraceSettings: dwellSettings)
     {
         _scrollSettings = scrollSettings;
         _dwellSettings = dwellSettings;

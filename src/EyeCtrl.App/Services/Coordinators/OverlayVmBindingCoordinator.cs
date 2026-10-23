@@ -306,7 +306,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
                 var dwell = Context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
                 Context.OverlayManager.EdgeButtonBar.ShowButtons(
-                    ManualSelectionEdgeButtons.Definitions(dwell), anchor);
+                    ManualSelectionEdgeButtons.Definitions(dwell), anchor, EdgeBarOwner.ManualSelection);
                 // ShowButtons now raises the bar to the top of the top-most band (see
                 // EdgeButtonBarWindow.SyncButtons for why it has to), which lands it over the gaze
                 // dot as well as over the backdrop it was hiding behind. The indicator window spans
@@ -326,7 +326,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             }
             else
             {
-                Context.OverlayManager.EdgeButtonBar.Hide();
+                Context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.ManualSelection);
             }
         }
     }

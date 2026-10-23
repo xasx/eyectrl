@@ -169,9 +169,17 @@ internal static class TestFakes
         {
             Calls.Add("ShowButtons");
             if (ShowButtonsFailure is not null) throw ShowButtonsFailure;
-            ShownButtonIds.Clear();
-            ShownButtonIds.AddRange(definitions.Select(d => d.Id));
             _vm.ShowButtons(definitions, edgeAnchor);
+            SyncIds();
+        }
+
+        public void ShowButtons(
+            IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor, EdgeBarOwner owner)
+        {
+            Calls.Add("ShowButtons");
+            if (ShowButtonsFailure is not null) throw ShowButtonsFailure;
+            _vm.ShowButtons(definitions, edgeAnchor, owner);
+            SyncIds();
         }
 
         /// <summary>
@@ -184,23 +192,35 @@ internal static class TestFakes
         public void AddButton(EdgeButtonDefinition definition)
         {
             Calls.Add("AddButton:" + definition.Id);
-            ShownButtonIds.Add(definition.Id);
             _vm.AddButton(definition);
+            SyncIds();
         }
 
         public void RemoveButton(string id)
         {
             Calls.Add("RemoveButton:" + id);
-            ShownButtonIds.Remove(id);
             _vm.RemoveButton(id);
+            SyncIds();
         }
 
-        public void Hide()
+        public void Hide(EdgeBarOwner owner)
         {
             Calls.Add("Hide");
             if (HideFailure is not null) throw HideFailure;
+            _vm.Hide(owner);
+            SyncIds();
+        }
+
+        /// <summary>
+        /// Reflects the real view model's visible set, not the calls this fake saw: ownership
+        /// restore repaints a displaced owner's saved set without any new ShowButtons call, and a
+        /// release by a displaced owner changes nothing. Deriving the ids keeps ShownButtonIds
+        /// truthful through both.
+        /// </summary>
+        private void SyncIds()
+        {
             ShownButtonIds.Clear();
-            _vm.Hide();
+            ShownButtonIds.AddRange(_vm.Buttons.Select(b => b.Id));
         }
 
         /// <summary>

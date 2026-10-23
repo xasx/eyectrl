@@ -26,7 +26,7 @@ public class SettingsSerializationTests
         original.Keyboard.NextWordPredictionEnabled = false;
         original.Keyboard.ShowPredictionConfidence = true;
         original.Keyboard.ShowPredictionTypes = true;
-        original.Keyboard.EmojiSuggestionsEnabled = true;
+        original.Keyboard.ClickSoundEnabled = false;
         original.Toolbar.Size = 120;
         original.Theme.Name = "Ember";
         original.General.StartPaused = true;
@@ -44,7 +44,7 @@ public class SettingsSerializationTests
         Check.That(deserialized.Keyboard.NextWordPredictionEnabled).IsFalse();
         Check.That(deserialized.Keyboard.ShowPredictionConfidence).IsTrue();
         Check.That(deserialized.Keyboard.ShowPredictionTypes).IsTrue();
-        Check.That(deserialized.Keyboard.EmojiSuggestionsEnabled).IsTrue();
+        Check.That(deserialized.Keyboard.ClickSoundEnabled).IsFalse();
         Check.That(deserialized.Toolbar.Size).IsEqualTo(120);
         Check.That(deserialized.Theme.Name).IsEqualTo("Ember");
         Check.That(deserialized.General.StartPaused).IsTrue();
@@ -178,7 +178,7 @@ public class SettingsSerializationTests
         Check.That(settings.NextWordPredictionEnabled).IsTrue();
         Check.That(settings.ShowPredictionConfidence).IsFalse();
         Check.That(settings.ShowPredictionTypes).IsFalse();
-        Check.That(settings.EmojiSuggestionsEnabled).IsFalse();
+        Check.That(settings.ClickSoundEnabled).IsTrue();
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class SettingsSerializationTests
             NextWordPredictionEnabled = false,
             ShowPredictionConfidence = true,
             ShowPredictionTypes = true,
-            EmojiSuggestionsEnabled = true
+            ClickSoundEnabled = false
         };
 
         var json = JsonSerializer.Serialize(original, JsonOptions);
@@ -198,7 +198,7 @@ public class SettingsSerializationTests
         Check.That(deserialized.NextWordPredictionEnabled).IsFalse();
         Check.That(deserialized.ShowPredictionConfidence).IsTrue();
         Check.That(deserialized.ShowPredictionTypes).IsTrue();
-        Check.That(deserialized.EmojiSuggestionsEnabled).IsTrue();
+        Check.That(deserialized.ClickSoundEnabled).IsFalse();
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public class SettingsSerializationTests
         Check.That(settings.Keyboard.NextWordPredictionEnabled).IsTrue();
         Check.That(settings.Keyboard.ShowPredictionConfidence).IsFalse();
         Check.That(settings.Keyboard.ShowPredictionTypes).IsFalse();
-        Check.That(settings.Keyboard.EmojiSuggestionsEnabled).IsFalse();
+        Check.That(settings.Keyboard.ClickSoundEnabled).IsTrue();
     }
 
     [Fact]

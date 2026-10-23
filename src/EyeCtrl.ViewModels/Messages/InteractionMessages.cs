@@ -20,7 +20,16 @@ using EyeCtrl.Core.Processing;
 /// The offer's hit radius in physical pixels (<c>LayoutConstants.ActivationButtonHitRadiusPx</c>).
 /// The halo's outer radius never exceeds it: no drawn feedback may lie outside the counted area.
 /// </param>
-public record ShowActivationButtonMessage(PhysicalPoint ButtonCenter, double HitRadiusPx);
+/// <param name="OfferPoint">
+/// P, the offer's settle point in physical pixels, or null where the sender has none. The ring's VM uses
+/// it to tell a near-miss settle (nearer B than P) from a swallowed one (nearer P), as the engine does.
+/// </param>
+/// <param name="FixationRadiusPx">
+/// The engine's effective fixation radius R in physical pixels (adaptation included), or null where the
+/// sender has none. The no-move zone around B is <see cref="HitRadiusPx"/> + R.
+/// </param>
+public record ShowActivationButtonMessage(PhysicalPoint ButtonCenter, double HitRadiusPx,
+    PhysicalPoint? OfferPoint = null, double? FixationRadiusPx = null);
 
 public record HideActivationButtonMessage;
 

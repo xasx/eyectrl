@@ -1236,6 +1236,18 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring go end ({0}) ms={1:0} off={2}\"",
+      "Category": "log",
+      "Reason": "The Ring go end line's format (the going-for-it keep) -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring go start dist={0:0} off={1}\"",
+      "Category": "log",
+      "Reason": "The Ring go start line's format (the going-for-it keep) -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
       "Category": "log",
       "Reason": "The Ring hold end line's format -- a log-only line the look's readout parses; never shown."
@@ -1251,6 +1263,12 @@
       "Literal": "\"Ring pin ({0}) at=({1:0},{2:0}) dist={3:0}\"",
       "Category": "log",
       "Reason": "The Ring pin line's format -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring pin ({0}) at=({1:0},{2:0}) ignored=near-offer\"",
+      "Category": "log",
+      "Reason": "The Ring pin line's format for a near-miss settle the ring ignored -- a log-only line; never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -1278,6 +1296,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"hit\"",
+      "Category": "log",
+      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"hold-end\"",
       "Category": "log",
       "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
@@ -1293,6 +1317,12 @@
       "Literal": "\"left\"",
       "Category": "log",
       "Reason": "A token of the Ring hold end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"na\"",
+      "Category": "log",
+      "Reason": "The Ring go lines' text for an unknown distance -- a log-only value, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -1320,9 +1350,21 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"settled\"",
+      "Category": "log",
+      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"state\"",
       "Category": "log",
       "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"timeout\"",
+      "Category": "log",
+      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",

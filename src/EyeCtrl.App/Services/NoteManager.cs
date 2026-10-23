@@ -233,6 +233,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>The production monotonic clock (P2 D5): uptime milliseconds.</summary>
     private static long DefaultClockMs() => Environment.TickCount64;
 
+    /// <summary>Test seam (the note-window show seam, moved down by sync 4): whether the manager
+    /// puts REAL note windows on the screen. True in production; the App test assembly switches
+    /// it off ONCE in its module initializer, because a headless test runs on the OWNER machine
+    /// and a topmost note window is exactly what must not appear there. With it off each window
+    /// still builds its drawn tree, applies its placement, registers its targets and counts as
+    /// displayed (<see cref="NoteWindow.IsDisplayed"/>) - only the HWND show is skipped.</summary>
+    internal static bool RealNoteWindows = true;
+
+    /// <summary>Test seam (the CI work-area fix, #227/#231/#234): the work area a manager uses when
+    /// the caller injects none. Null in production, where the constructor reads
+    /// <see cref="SystemParameters.WorkArea"/> as before; the App test assembly sets the OWNER's
+    /// 1920x1152 DIP once in its module initializer, so placement-dependent tests do not follow
+    /// the machine's screen (CI's is smaller and put a note on another side). An explicit
+    /// <c>workAreaDip</c> argument always wins. No writer in <c>src/</c>.</summary>
+    internal static Func<Rect>? DefaultWorkAreaDipForTests;
+
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null, INoteHitTester? hitTester = null,
         Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null,
@@ -255,7 +271,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _hitTester = hitTester ?? new NoteHitTester();
         // P3 D2.7: an absent argument IS the production worker area — SystemParameters.WorkArea
         // (the primary monitor's working rect in v1).
-        _workAreaDip = workAreaDip ?? (() => SystemParameters.WorkArea);
+        _workAreaDip = workAreaDip ?? DefaultWorkAreaDipForTests ?? (() => SystemParameters.WorkArea);
         // T8 (P3 D3): the text-size setting rides the constructor; a change re-places every
         // note through the same seam T6 uses. Unsubscribed in Dispose.
         _noteSettings = noteSettings ?? new NoteSettings();
@@ -1338,14 +1354,6 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// on the owner machine set this false BEFORE the first ShowCapacityNotice.</summary>
     internal bool NoticeWindowShowsForTest { get; set; } = true;
 
-    /// <summary>Test seam (T6 fixup-08 R4): whether the manager puts REAL note and Place-here
-    /// windows on the screen. True in production; the App test assembly switches it off ONCE in
-    /// its module initializer, because a headless test runs on the OWNER machine and a topmost
-    /// note window is exactly what must not appear there. With it off each window still builds
-    /// its drawn tree, applies its placement, registers its targets and counts as displayed
-    /// (<see cref="NoteWindow.IsDisplayed"/>) - only the HWND show is skipped.</summary>
-    internal static bool RealNoteWindows = true;
-
     /// <summary>Test seam: the notice window instance, once created (null before the first
     /// at-capacity pin).</summary>
     internal NoteNoticeWindow? NoticeWindowForTest => _noticeWindow;
@@ -2190,6 +2198,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The
     /// container-wired manager must report the production <see cref="NoteHitTester"/>.</summary>
     internal INoteHitTester HitTesterForTest => _hitTester;
+
+    /// <summary>Test seam (the CI work-area fix): the work area this manager derives every note
+    /// placement from - the injected provider, else the test default, else the real one.</summary>
+    internal Rect WorkAreaDipForTest => _workAreaDip();
 
     /// <summary>
     /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a

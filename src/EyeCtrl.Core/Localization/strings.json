@@ -4436,28 +4436,51 @@
     "mirrors": "overlays.ring.scrollUp"
   },
   "settings.safety.boot.message": {
-    "text": "Start EyeCtrl when you sign in?\nIf another gaze pointer also starts at sign-in, you will see two.",
+    "text": "Question {0} of {1}\nStart EyeCtrl when you sign in?\nIf another eye-control app also starts at sign-in, you will see two gaze points.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
-    "args": []
+    "args": [
+      "number",
+      "total"
+    ]
   },
   "settings.safety.crash.message": {
-    "text": "Bring EyeCtrl back automatically after a crash?",
+    "text": "Question {0} of {1}\nBring EyeCtrl back automatically after a crash?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.cue.message": {
+    "text": "Question {0} of {1}\nPlay a sound when a dwell clicks?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.intro.message": {
+    "text": "Safety setup: 5 short questions.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
     "args": []
   },
-  "settings.safety.cue.message": {
-    "text": "Play a sound when a dwell clicks?",
+  "settings.safety.later": {
+    "text": "Later",
     "who": "user",
     "where": "settings",
-    "fit": "prose",
+    "fit": "modal170",
     "args": []
   },
   "settings.safety.mode.all": {
-    "text": "✓ All",
+    "text": "✓ All settings",
     "who": "user",
     "where": "settings",
     "fit": "modal170",
@@ -4471,28 +4494,7 @@
     "args": []
   },
   "settings.safety.mode.message": {
-    "text": "Settings view: Basic or All?",
-    "who": "user",
-    "where": "settings",
-    "fit": "prose",
-    "args": []
-  },
-  "settings.safety.next": {
-    "text": "✓ Next",
-    "who": "user",
-    "where": "settings",
-    "fit": "modal170",
-    "args": []
-  },
-  "settings.safety.ok": {
-    "text": "✓ OK",
-    "who": "user",
-    "where": "settings",
-    "fit": "modal170",
-    "args": []
-  },
-  "settings.safety.step.message": {
-    "text": "Safety setup: question {0} of {1}",
+    "text": "Question {0} of {1}\nSettings view: Basic or All settings?",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -4501,12 +4503,29 @@
       "total"
     ]
   },
+  "settings.safety.ok": {
+    "text": "✓ OK",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.start": {
+    "text": "✓ Start",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
   "settings.safety.track.message": {
-    "text": "Show eye-tracking status?",
+    "text": "Question {0} of {1}\nShow Track Status?",
     "who": "user",
     "where": "settings",
     "fit": "prose",
-    "args": []
+    "args": [
+      "number",
+      "total"
+    ]
   },
   "settings.selection.center_dot.description": {
     "text": "Diameter of the dot at the center of the gaze ring; applies after a restart.",

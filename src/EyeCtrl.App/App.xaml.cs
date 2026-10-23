@@ -335,14 +335,6 @@ public partial class App : Application
 
             gazeEngine.Start();
 
-            // One-time safety setup, answered by gaze: opens Settings on the first-run chain while
-            // it has never been answered to the end. Skipped on a Supervisor recovery relaunch
-            // (--paused) and in --test-mode; the decision is SafetySetupStartup's. The coordinator
-            // handles the message on the dispatcher AFTER OnStartup returns, so the supervision
-            // toggle it needs is wired by then.
-            if (SafetySetupStartup.ShouldPrompt(settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode))
-                messenger.Send(new SafetySetupRequestedMessage());
-
             // ── Display / resolution / DPI change ──
             // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the
             // first notification arrives, and after gazeEngine.Start() because the provider is what
@@ -513,6 +505,15 @@ public partial class App : Application
             // ensure now — non-blocking, and through the toggle's latch so the row shows progress
             // and a concurrent retry dwell cannot start a second launch. No persist, no Run-key.
             supervisionToggle.RequestEnsure();
+
+            // One-time safety setup, answered by gaze: opens Settings on the first-run chain while
+            // it has never been answered to the end. Skipped on a Supervisor recovery relaunch
+            // (--paused) and in --test-mode; the decision and the send are SafetySetupStartup's.
+            // Sent only now, after the supervision toggle has been handed to the settings window's
+            // owner and the startup ensure is queued, so opening the window cannot depend on the
+            // dispatcher's BeginInvoke ordering (A2 review L2).
+            SafetySetupStartup.MaybeRequest(
+                settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode, messenger);
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();

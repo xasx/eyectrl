@@ -324,7 +324,7 @@ public partial class SettingsWindow : OverlayWindow
 
     /// <summary>The tray item's deep link, queued while a modal is up (T04's open-modal case).</summary>
     private readonly SettingsDeepLinkQueue _languageRowDeepLink = new();
-    private SafetySetupFlow? _safetySetup;
+    private readonly SafetySetupHost _safetySetup;
 
     // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
     // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
@@ -499,6 +499,12 @@ public partial class SettingsWindow : OverlayWindow
         // may have flipped while it was held.
         _pagerRearmGuard = new SettingsPagerRearmGuard(_viewModel, RearmPagerTarget);
 
+        // The safety setup chain's window side. The close is deferred: the chain ends from inside a
+        // modal choice's dispatch, and closing disposes the view model that dispatch is running on.
+        _safetySetup = new SafetySetupHost(
+            () => _viewModel.IsModalVisible, CreateSafetySetupFlow,
+            () => Dispatcher.BeginInvoke(new Action(Close)));
+
         // An accepted restart must also be visible. The handshake allows the replacement up
         // to 30s to announce itself; the dispatcher stays free, but silence for that long is
         // indistinguishable from a hang, and the in-flight guard drops a second dwell without
@@ -618,7 +624,7 @@ public partial class SettingsWindow : OverlayWindow
             _supervisionRefresher.Stop();
             // An abandoned safety chain must not outlive the window: its pending crash-recovery
             // result would otherwise try to raise a modal on a disposed view model.
-            _safetySetup?.Abandon();
+            _safetySetup.OnWindowClosed();
             // The restart notices above registered this window on the (app-lifetime) messenger,
             // which holds it weakly but until it is collected: a closed window would still receive
             // RestartInProgressMessage and show a modal nobody can see, on a window that is gone.
@@ -639,7 +645,8 @@ public partial class SettingsWindow : OverlayWindow
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
             () => System.Windows.Clipboard.GetText() ?? "")
         {
-            RunSafetySetup = StartSafetySetup,
+            // The row: the window stays open when the chain ends (the user opened it).
+            RunSafetySetup = () => StartSafetySetup(closeWhenDone: false),
         };
         _cursorSource = new CursorPageSource(_ctx);
         _dwellSource = new DwellPageSource(_ctx);
@@ -1149,18 +1156,20 @@ public partial class SettingsWindow : OverlayWindow
     /// modal already up is never replaced — the request is dropped, and a first-run chain asks
     /// again at the next start because its flag is still false.
     /// </summary>
-    internal void StartSafetySetup()
+    /// <param name="closeWhenDone">Close this window when the chain ends (its last answer, or
+    /// "Later") — true when the startup request opened the window for the chain.</param>
+    internal void StartSafetySetup(bool closeWhenDone)
     {
-        if (_viewModel.IsModalVisible) return;
-
-        RaiseToTop();
-        _safetySetup?.Abandon();
-        _safetySetup = new SafetySetupFlow(
-            _settings, _supervisionToggle,
-            (message, choices) => _viewModel.ShowModal(message, choices),
-            ApplyAndSave, SwitchSettingsUiMode);
-        _safetySetup.Start();
+        if (_safetySetup.Start(closeWhenDone))
+            RaiseToTop();
     }
+
+    /// <summary>The chain on this window: the live settings, the supervision switch, the modal, the
+    /// window's own apply+save and mode switch, and the end report the host turns into a close.</summary>
+    private SafetySetupFlow CreateSafetySetupFlow(Action<bool> onEnded) =>
+        new(_settings, _supervisionToggle,
+            (message, choices) => _viewModel.ShowModal(message, choices),
+            ApplyAndSave, SwitchSettingsUiMode, onEnded);
 
     /// <summary>
     /// Lands the whole window on the language row: content tab, sidebar highlight AND the sidebar

@@ -32,6 +32,18 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     private readonly DwellDetector _pagDwell;
     private readonly DwellDetector _modalDwell;
 
+    // Leave-before-arm latches, one per detector (A2 fixup-01 H1/M3). Every modal choice is held
+    // from registration until the gaze has been outside it; every other target is held from the
+    // moment a modal closes. See LeaveBeforeArmLatch.
+    private readonly LeaveBeforeArmLatch _tabLatch;
+    private readonly LeaveBeforeArmLatch _controlLatch;
+    private readonly LeaveBeforeArmLatch _pagLatch;
+    private readonly LeaveBeforeArmLatch _modalLatch;
+
+    // Set when a modal closes, cleared by the next non-modal gaze sample: targets the closing
+    // choice registers synchronously (a mode switch rebuilds the page) are held like the rest.
+    private bool _holdNewNonModalTargets;
+
     // Action dictionaries per category
     private readonly Dictionary<string, Action> _tabActions = new();
     private readonly Dictionary<string, Action> _controlActions = new();
@@ -85,6 +97,10 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
         _controlDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
         _pagDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
         _modalDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
+        _tabLatch = new LeaveBeforeArmLatch(_tabDwell);
+        _controlLatch = new LeaveBeforeArmLatch(_controlDwell);
+        _pagLatch = new LeaveBeforeArmLatch(_pagDwell);
+        _modalLatch = new LeaveBeforeArmLatch(_modalDwell);
 
         // Wire up unified event handlers. Each activation lambda dispatches first and publishes
         // DwellActivationMessage (the dwell-completion cue's trigger) ONLY when the dispatch
@@ -132,13 +148,19 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
         {
             // While the modal is open, only modal targets should receive dwell updates.
             // This prevents tabs or other underlying UI from activating through the overlay.
-            _modalDwell.Update(message.Position, message.TimestampMicroseconds);
+            // A choice registered under a resting gaze stays disarmed until the gaze leaves it.
+            _modalLatch.Update(message.Position);
+            _modalDwell.Update(message.Position, message.TimestampMicroseconds, _modalLatch.Filter);
         }
         else
         {
-            _tabDwell.Update(message.Position, message.TimestampMicroseconds);
-            _controlDwell.Update(message.Position, message.TimestampMicroseconds);
-            _pagDwell.Update(message.Position, message.TimestampMicroseconds);
+            _holdNewNonModalTargets = false;
+            _tabLatch.Update(message.Position);
+            _controlLatch.Update(message.Position);
+            _pagLatch.Update(message.Position);
+            _tabDwell.Update(message.Position, message.TimestampMicroseconds, _tabLatch.Filter);
+            _controlDwell.Update(message.Position, message.TimestampMicroseconds, _controlLatch.Filter);
+            _pagDwell.Update(message.Position, message.TimestampMicroseconds, _pagLatch.Filter);
         }
     }
 
@@ -155,6 +177,8 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     {
         GetActions(category)[id] = onActivated;
         GetDetector(category).AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0), radiusPhysical, dwellMs));
+        if (category == DwellCategory.Modal || _holdNewNonModalTargets)
+            GetLatch(category).Hold(id);
     }
 
     /// <inheritdoc/>
@@ -162,6 +186,7 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     {
         GetActions(category).Remove(id);
         GetDetector(category).RemoveTarget(id);
+        GetLatch(category).Forget(id);
         GetProgressDict(category).Remove(id);
         OnPropertyChanged(GetProgressPropertyName(category));
     }
@@ -170,6 +195,7 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     public void UpdatePosition(string id, DwellCategory category, PhysicalPoint center)
     {
         GetDetector(category).UpdateTargetCenter(id, center);
+        GetLatch(category).Positioned(id);
     }
 
     /// <inheritdoc/>
@@ -185,6 +211,7 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     public void ClearCategory(DwellCategory category)
     {
         GetDetector(category).ClearTargets();
+        GetLatch(category).Clear();
         GetActions(category).Clear();
         GetProgressDict(category).Clear();
         OnPropertyChanged(GetProgressPropertyName(category));
@@ -314,6 +341,15 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
         _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
     };
 
+    private LeaveBeforeArmLatch GetLatch(DwellCategory category) => category switch
+    {
+        DwellCategory.Tab => _tabLatch,
+        DwellCategory.Control => _controlLatch,
+        DwellCategory.Pagination => _pagLatch,
+        DwellCategory.Modal => _modalLatch,
+        _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+    };
+
     private Dictionary<string, Action> GetActions(DwellCategory category) => category switch
     {
         DwellCategory.Tab => _tabActions,
@@ -369,6 +405,7 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     {
         // Clear any existing modal state
         _modalDwell.ClearTargets();
+        _modalLatch.Clear();
         _modalActions.Clear();
         ModalProgress.Clear();
         OnPropertyChanged(nameof(ModalProgress));
@@ -393,13 +430,25 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     /// <summary>
     /// Hides the modal dialog and clears all modal state.
     /// </summary>
+    /// <remarks>
+    /// The gaze that just answered the modal is still resting where its button was, and the window's
+    /// targets underneath resume now. Every one of them — and any the closing choice registers
+    /// synchronously, e.g. a mode switch's rebuild — is held until the gaze has left it, so the
+    /// resting gaze cannot dwell a row it never looked for (A2 fixup-01 M3).
+    /// </remarks>
     public void HideModal()
     {
         IsModalVisible = false;
         ModalMessage = "";
         ModalChoices = [];
         _modalDwell.ClearTargets();
+        _modalLatch.Clear();
         _modalActions.Clear();
+
+        _tabLatch.HoldAll();
+        _controlLatch.HoldAll();
+        _pagLatch.HoldAll();
+        _holdNewNonModalTargets = true;
     }
 
     #endregion

@@ -1,11 +1,12 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Interfaces;
-using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The one-time safety setup chain, headless: the modal is a recording seam, so the chain is
@@ -18,6 +19,7 @@ public class SafetySetupFlowTests : IDisposable
     private readonly List<(string Message, IReadOnlyList<ModalChoice> Choices)> _cards = [];
     private readonly List<Action> _background = [];
     private readonly List<bool> _modeCalls = [];
+    private readonly List<bool> _ended = [];
     private readonly List<string> _tempFiles = [];
     private int _saves;
 
@@ -32,7 +34,7 @@ public class SafetySetupFlowTests : IDisposable
         }
     }
 
-    // ── startup decision ─────────────────────────────────────────────────────
+    // ── startup decision and request ─────────────────────────────────────────
 
     [Theory]
     [InlineData(false, false, false, true)]   // never answered, normal launch: ask
@@ -47,59 +49,185 @@ public class SafetySetupFlowTests : IDisposable
         bool done, bool paused, bool testMode, bool expected) =>
         Check.That(SafetySetupStartup.ShouldPrompt(done, paused, testMode)).IsEqualTo(expected);
 
+    [Theory]
+    [InlineData(false, false, false, 1)]
+    [InlineData(true, false, false, 0)]
+    [InlineData(false, true, false, 0)]
+    [InlineData(false, false, true, 0)]
+    public void MaybeRequest_SendsTheRequest_ExactlyWhenItShouldPrompt(
+        bool done, bool paused, bool testMode, int expectedSends)
+    {
+        var messenger = new WeakReferenceMessenger();
+        var received = new RequestProbe();
+        messenger.Register(received);
+
+        var sent = SafetySetupStartup.MaybeRequest(done, paused, testMode, messenger);
+
+        Check.That(received.Count).IsEqualTo(expectedSends);
+        Check.That(sent).IsEqualTo(expectedSends == 1);
+    }
+
+    // ── coordinator launch ───────────────────────────────────────────────────
+
+    [Fact]
+    public void Launch_WithNoWindow_OpensOne_ThenStartsAChainThatClosesIt()
+    {
+        var steps = new List<string>();
+
+        SafetySetupLaunch.Run(windowOpen: false,
+            openWindow: () => steps.Add("open"),
+            start: closeWhenDone => steps.Add($"start close={closeWhenDone}"));
+
+        Check.That(steps).ContainsExactly("open", "start close=True");
+    }
+
+    [Fact]
+    public void Launch_WithAWindowOpen_StartsOnIt_AndLeavesItOpen()
+    {
+        var steps = new List<string>();
+
+        SafetySetupLaunch.Run(windowOpen: true,
+            openWindow: () => steps.Add("open"),
+            start: closeWhenDone => steps.Add($"start close={closeWhenDone}"));
+
+        Check.That(steps).ContainsExactly("start close=False");
+    }
+
+    // ── the window's host ────────────────────────────────────────────────────
+
+    [Fact]
+    public void Host_NeverStartsOverAModalThatIsUp()
+    {
+        var created = 0;
+        var host = new SafetySetupHost(() => true, onEnded => { created++; return Flow(onEnded: onEnded); }, () => { });
+
+        Check.That(host.Start(closeWhenDone: true)).IsFalse();
+        Check.That(created).IsEqualTo(0);
+        Check.That(_cards).IsEmpty();
+    }
+
+    [Fact]
+    public void Host_StartedByTheStartupRequest_ClosesTheWindow_AfterTheLastAnswer()
+    {
+        var closes = 0;
+        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
+
+        host.Start(closeWhenDone: true);
+        AnswerAll("safety_no", "safety_basic");
+
+        Check.That(closes).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Host_StartedByTheStartupRequest_ClosesTheWindow_OnLater()
+    {
+        var closes = 0;
+        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
+
+        host.Start(closeWhenDone: true);
+        Pick("safety_later");
+
+        Check.That(closes).IsEqualTo(1);
+        Check.That(_settings.General.SafetySetupDone).IsFalse();
+    }
+
+    [Fact]
+    public void Host_StartedFromTheRow_LeavesTheWindowOpen()
+    {
+        var closes = 0;
+        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
+
+        host.Start(closeWhenDone: false);
+        AnswerAll("safety_no", "safety_basic");
+
+        Check.That(closes).IsEqualTo(0);
+        Check.That(_settings.General.SafetySetupDone).IsTrue();
+    }
+
+    [Fact]
+    public void Host_WindowClosed_AbandonsTheChain_SoAStaleCardCannotCloseOrEndIt()
+    {
+        var closes = 0;
+        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
+        host.Start(closeWhenDone: true);
+        var intro = Top;
+
+        host.OnWindowClosed();
+        intro.Choices.Single(c => c.Id == "safety_later").OnChosen!.Invoke();
+
+        Check.That(closes).IsEqualTo(0);
+        Check.That(_ended).IsEmpty();
+    }
+
+    [Fact]
+    public void Host_WindowClosed_DropsALateCrashRecoveryResult()
+    {
+        var supervision = FailingAsyncSupervision(_settings);
+        var host = new SafetySetupHost(() => false,
+            onEnded => Flow(supervision: supervision, onEnded: onEnded), () => { });
+        host.Start(closeWhenDone: true);
+        Pick("safety_start"); Pick("safety_yes");         // bring-up in flight
+        var shown = _cards.Count;
+
+        host.OnWindowClosed();
+        RunBackground();                                   // … fails after the window closed
+        Pick("safety_no");                                 // a stale Q2 card, never a failure card
+
+        Check.That(_cards.Skip(shown).Select(c => c.Message))
+            .Not.Contains("The Supervisor could not be started, so supervision is off.");
+    }
+
     // ── the chain ────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Start_ShowsTheFirstStepCard_WithASingleCentredChoice()
+    public void Start_ShowsTheIntro_WithStartAndLater()
     {
         var flow = Flow();
         flow.Start();
 
         Check.That(_cards).HasSize(1);
-        Check.That(_cards[0].Message).IsEqualTo("Safety setup: question 1 of 5");
-        Check.That(_cards[0].Choices).HasSize(1);
+        Check.That(Top.Message).IsEqualTo("Safety setup: 5 short questions.");
+        Check.That(Top.Choices.Select(c => c.Id)).ContainsExactly("safety_start", "safety_later");
+        Check.That(Top.Choices.Select(c => c.Label)).ContainsExactly("✓ Start", "Later");
     }
 
     [Fact]
-    public void TheChain_AsksTheFiveQuestionsInOrder_EachBehindAStepCard()
+    public void Later_EndsTheChain_AsksNothing_AndLeavesTheFlagFalse()
     {
         var flow = Flow();
         flow.Start();
-        var asked = new List<string>();
 
+        Pick("safety_later");
+
+        Check.That(_cards).HasSize(1);
+        Check.That(_ended).ContainsExactly(false);
+        Check.That(_settings.General.SafetySetupDone).IsFalse();
+        Check.That(_saves).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void TheChain_AsksTheFiveQuestionsInOrder_EachNumbered_AndNoCardBetweenThem()
+    {
+        var flow = Flow();
+        flow.Start();
+        Pick("safety_start");
+
+        var asked = new List<string>();
         for (var q = 0; q < SafetySetupFlow.QuestionCount; q++)
         {
-            Check.That(Top.Message).IsEqualTo($"Safety setup: question {q + 1} of 5");
-            Pick("safety_next");
             asked.Add(Top.Message);
-            Pick(Top.Choices[^1].Id);   // the last choice of each question: No / All
+            Check.That(Top.Choices).HasSize(2);
+            Pick(Top.Choices[^1].Id);   // the last choice of each question: No / All settings
         }
 
         Check.That(asked).ContainsExactly(
-            "Bring EyeCtrl back automatically after a crash?",
-            "Start EyeCtrl when you sign in?\nIf another gaze pointer also starts at sign-in, you will see two.",
-            "Play a sound when a dwell clicks?",
-            "Show eye-tracking status?",
-            "Settings view: Basic or All?");
-    }
-
-    [Fact]
-    public void EveryQuestion_IsDirectlyPrecededByASingleChoiceCard_SoAGazeStillOnTheLastAnswerCannotAnswerIt()
-    {
-        // Modal dwell targets arm on registration: a question shown straight after another
-        // would be answered by the gaze still resting on the previous answer's button. The step
-        // card (one centred button) between them is the guard; two-choice cards are never adjacent.
-        var flow = Flow();
-        flow.Start();
-        var sizes = new List<int>();
-
-        for (var card = 0; card < 2 * SafetySetupFlow.QuestionCount; card++)
-        {
-            sizes.Add(Top.Choices.Count);
-            Pick(Top.Choices[^1].Id);
-        }
-
-        Check.That(sizes).ContainsExactly(1, 2, 1, 2, 1, 2, 1, 2, 1, 2);
+            "Question 1 of 5\nBring EyeCtrl back automatically after a crash?",
+            "Question 2 of 5\nStart EyeCtrl when you sign in?\nIf another eye-control app also starts at sign-in, you will see two gaze points.",
+            "Question 3 of 5\nPlay a sound when a dwell clicks?",
+            "Question 4 of 5\nShow Track Status?",
+            "Question 5 of 5\nSettings view: Basic or All settings?");
+        Check.That(_cards).HasSize(1 + SafetySetupFlow.QuestionCount);
+        Check.That(_ended).ContainsExactly(true);
     }
 
     [Fact]
@@ -109,11 +237,10 @@ public class SafetySetupFlowTests : IDisposable
         Check.That(_settings.General.StartOnBoot).IsTrue();
 
         var again = new EyeCtrlSettings { General = { StartOnBoot = true } };
-        var flow = Flow(settings: again);
-        flow.Start();
-        Pick("safety_next"); Pick("safety_no");          // q1 No
-        Pick("safety_next");                              // q2 asked
-        Pick("safety_no");
+        Flow(settings: again).Start();
+        Pick("safety_start");
+        Pick("safety_no");                                // q1
+        Pick("safety_no");                                // q2
         Check.That(again.General.StartOnBoot).IsFalse();
     }
 
@@ -124,11 +251,9 @@ public class SafetySetupFlowTests : IDisposable
         Check.That(_settings.Dwell.CueEnabled).IsTrue();
 
         var again = new EyeCtrlSettings { Dwell = { CueEnabled = true } };
-        var flow = Flow(settings: again);
-        flow.Start();
-        Pick("safety_next"); Pick("safety_no");
-        Pick("safety_next"); Pick("safety_no");
-        Pick("safety_next"); Pick("safety_no");           // q3 No
+        Flow(settings: again).Start();
+        Pick("safety_start");
+        for (var i = 0; i < 3; i++) Pick("safety_no");
         Check.That(again.Dwell.CueEnabled).IsFalse();
     }
 
@@ -139,9 +264,9 @@ public class SafetySetupFlowTests : IDisposable
         Check.That(_settings.TrackStatus.Enabled).IsTrue();
 
         var again = new EyeCtrlSettings { TrackStatus = { Enabled = true } };
-        var flow = Flow(settings: again);
-        flow.Start();
-        for (var i = 0; i < 4; i++) { Pick("safety_next"); Pick("safety_no"); }
+        Flow(settings: again).Start();
+        Pick("safety_start");
+        for (var i = 0; i < 4; i++) Pick("safety_no");
         Check.That(again.TrackStatus.Enabled).IsFalse();
     }
 
@@ -150,44 +275,57 @@ public class SafetySetupFlowTests : IDisposable
     {
         var flow = Flow();
         flow.Start();
-        for (var i = 0; i < 4; i++) { Pick("safety_next"); Pick("safety_no"); }
-        Pick("safety_next");
+        Pick("safety_start");
+        for (var i = 0; i < 4; i++) Pick("safety_no");
         Check.That(Top.Choices.Select(c => c.Id)).ContainsExactly("safety_basic", "safety_all");
+        Check.That(Top.Choices.Select(c => c.Label)).ContainsExactly("✓ Basic", "✓ All settings");
         Pick("safety_basic");
         Check.That(_modeCalls).ContainsExactly(true);
 
-        _cards.Clear();
         flow.Start();
-        for (var i = 0; i < 4; i++) { Pick("safety_next"); Pick("safety_no"); }
-        Pick("safety_next"); Pick("safety_all");
+        Pick("safety_start");
+        for (var i = 0; i < 4; i++) Pick("safety_no");
+        Pick("safety_all");
         Check.That(_modeCalls).ContainsExactly(true, false);
     }
 
     [Fact]
-    public void Question1_Yes_RequestsCrashRecovery_NoLeavesItOff()
+    public void Question1_Yes_RequestsCrashRecovery()
     {
-        var supervision = WorkingSupervision(_settings);
-        var flow = Flow(supervision: supervision);
-        flow.Start();
-        Pick("safety_next"); Pick("safety_no");
-        Check.That(supervision.Enabled).IsFalse();
+        var (supervision, _) = WorkingSupervision(_settings);
+        Flow(supervision: supervision).Start();
+        Pick("safety_start");
+        Pick("safety_yes");
 
-        _cards.Clear();
-        flow.Start();
-        Pick("safety_next"); Pick("safety_yes");
         Check.That(supervision.Enabled).IsTrue();
         Check.That(_settings.Supervision.Enabled).IsTrue();
     }
 
     [Fact]
+    public void Question1_No_IsANoOp_EvenWhileCrashRecoveryIsOn()
+    {
+        // The coordinator's safety-first rule: a stray "No" on a re-run must never remove the
+        // safety net. Disabling stays in Settings → General.
+        _settings.Supervision.Enabled = true;
+        var (supervision, persisted) = WorkingSupervision(_settings);
+        Flow(supervision: supervision).Start();
+        Pick("safety_start");
+
+        Pick("safety_no");
+
+        Check.That(supervision.Enabled).IsTrue();
+        Check.That(_settings.Supervision.Enabled).IsTrue();
+        Check.That(persisted).IsEmpty();
+        Check.That(supervision.InFlight).IsFalse();
+    }
+
+    [Fact]
     public void EveryAnswer_IsAppliedAtOnce_AndSavedThroughTheWindowsPath()
     {
-        var flow = Flow();
-        flow.Start();
-        Pick("safety_next");
-        Pick("safety_no");               // q1: no save needed for a No / no-op
+        Flow().Start();
+        Pick("safety_start");
+        Pick("safety_no");               // q1: nothing to save for a No / no-op
         var before = _saves;
-        Pick("safety_next");
         Pick("safety_yes");              // q2
         Check.That(_saves).IsStrictlyGreaterThan(before);
         Check.That(_settings.General.StartOnBoot).IsTrue();
@@ -198,15 +336,14 @@ public class SafetySetupFlowTests : IDisposable
     [Fact]
     public void TheFlagIsSetAndSaved_OnlyWithTheLastAnswer()
     {
-        var flow = Flow();
-        flow.Start();
+        Flow().Start();
+        Pick("safety_start");
         for (var i = 0; i < 4; i++)
         {
-            Pick("safety_next"); Pick("safety_no");
+            Pick("safety_no");
             Check.That(_settings.General.SafetySetupDone).IsFalse();
         }
 
-        Pick("safety_next");
         var savesBefore = _saves;
         Pick("safety_basic");
 
@@ -217,30 +354,29 @@ public class SafetySetupFlowTests : IDisposable
     [Fact]
     public void AnAbandonedChain_KeepsTheEarlierAnswers_AndLeavesTheFlagFalse()
     {
-        var flow = Flow();
-        flow.Start();
-        Pick("safety_next"); Pick("safety_no");          // q1
-        Pick("safety_next"); Pick("safety_yes");         // q2 StartOnBoot
-        Pick("safety_next"); Pick("safety_yes");         // q3 CueEnabled
-        Pick("safety_next");                              // q4 shown …
-        // … and the window closes here: nothing more is picked.
+        Flow().Start();
+        Pick("safety_start");
+        Pick("safety_no");               // q1
+        Pick("safety_yes");              // q2 StartOnBoot
+        Pick("safety_yes");              // q3 CueEnabled
+        // q4 is on screen, and the window closes here: nothing more is picked.
 
         Check.That(_settings.General.StartOnBoot).IsTrue();
         Check.That(_settings.Dwell.CueEnabled).IsTrue();
         Check.That(_settings.TrackStatus.Enabled).IsFalse();
         Check.That(_settings.General.SafetySetupDone).IsFalse();
+        Check.That(_ended).IsEmpty();
     }
 
     [Fact]
     public void Start_RunsTheWholeChainAgain_WhateverTheFlagSays()
     {
         _settings.General.SafetySetupDone = true;
-        var flow = Flow();
 
-        flow.Start();
+        Flow().Start();
 
         Check.That(_cards).HasSize(1);
-        Check.That(_cards[0].Message).IsEqualTo("Safety setup: question 1 of 5");
+        Check.That(Top.Message).IsEqualTo("Safety setup: 5 short questions.");
     }
 
     // ── crash recovery that fails ────────────────────────────────────────────
@@ -254,18 +390,16 @@ public class SafetySetupFlowTests : IDisposable
             new SupervisorStartupEnsure(_settings, () => { }, () => false, () => false),
             persistEnabled: _ => { }, supervisorInstalled: () => false, isSupervisorConnected: () => false,
             reconcileRunKey: () => { }, runInBackground: w => w(), postToUi: w => w());
-        var flow = Flow(supervision: unavailable);
-        flow.Start();
-        Pick("safety_next");
+        Flow(supervision: unavailable).Start();
+        Pick("safety_start");
         Pick("safety_yes");
 
-        // The held failure comes before the next step card, with one acknowledgement.
         Check.That(Top.Message).IsEqualTo(
             "Automatic crash recovery is unavailable: the EyeCtrl Supervisor is not installed.");
         Check.That(Top.Choices.Select(c => c.Id)).ContainsExactly("safety_ok");
 
         Pick("safety_ok");
-        Check.That(Top.Message).IsEqualTo("Safety setup: question 2 of 5");
+        Check.That(Top.Message).StartsWith("Question 2 of 5");
         Check.That(_settings.Supervision.Enabled).IsFalse();
     }
 
@@ -273,11 +407,9 @@ public class SafetySetupFlowTests : IDisposable
     public void AnAsyncFailure_WaitsForTheNextBoundary_NeverReplacingAQuestionOnScreen()
     {
         var supervision = FailingAsyncSupervision(_settings);
-        var flow = Flow(supervision: supervision);
-        flow.Start();
-        Pick("safety_next");
-        Pick("safety_yes");                               // bring-up is now in flight
-        Pick("safety_next");                              // q2 is on screen …
+        Flow(supervision: supervision).Start();
+        Pick("safety_start");
+        Pick("safety_yes");                               // bring-up in flight; q2 on screen …
         var questionOnScreen = Top.Message;
         RunBackground();                                  // … when the bring-up fails and rolls back
 
@@ -286,45 +418,59 @@ public class SafetySetupFlowTests : IDisposable
 
         Check.That(Top.Message).IsEqualTo("The Supervisor could not be started, so supervision is off.");
         Pick("safety_ok");
-        Check.That(Top.Message).IsEqualTo("Safety setup: question 3 of 5");
+        Check.That(Top.Message).StartsWith("Question 3 of 5");
     }
 
     [Fact]
-    public void AnAsyncFailure_ThatArrivesAfterTheLastAnswer_IsShownAtOnce()
+    public void AFailureHeldAtTheLastAnswer_IsAcknowledged_BeforeTheChainEnds()
     {
         var supervision = FailingAsyncSupervision(_settings);
-        var flow = Flow(supervision: supervision);
-        flow.Start();
-        Pick("safety_next"); Pick("safety_yes");
-        for (var i = 0; i < 3; i++) { Pick("safety_next"); Pick("safety_no"); }
-        Pick("safety_next"); Pick("safety_all");
-        Check.That(_settings.General.SafetySetupDone).IsTrue();
+        Flow(supervision: supervision).Start();
+        Pick("safety_start");
+        Pick("safety_yes");
+        for (var i = 0; i < 3; i++) Pick("safety_no");
+        RunBackground();                                  // fails while q5 is on screen
+        Pick("safety_all");
+
+        Check.That(Top.Message).IsEqualTo("The Supervisor could not be started, so supervision is off.");
+        Check.That(_ended).IsEmpty();
+        Pick("safety_ok");
+        Check.That(_ended).ContainsExactly(true);
+    }
+
+    [Fact]
+    public void AnAsyncFailure_ThatArrivesAfterTheChainEnded_NeverReplacesAModal()
+    {
+        // L1: the chain no longer owns the modal — whatever is up (e.g. "Reset General?") stays.
+        var supervision = FailingAsyncSupervision(_settings);
+        Flow(supervision: supervision).Start();
+        Pick("safety_start");
+        Pick("safety_yes");
+        for (var i = 0; i < 3; i++) Pick("safety_no");
+        Pick("safety_all");
+        Check.That(_ended).ContainsExactly(true);
         var shown = _cards.Count;
 
         RunBackground();
 
-        Check.That(_cards).HasSize(shown + 1);
-        Check.That(Top.Message).IsEqualTo("The Supervisor could not be started, so supervision is off.");
+        Check.That(_cards).HasSize(shown);
     }
 
     [Fact]
     public void AnAbandonedChain_IgnoresALateCrashRecoveryResult()
     {
-        // The window closes after the last answer while crash recovery is still in flight: the
-        // late failure must not raise a modal on the closed window's (disposed) view model. Without
-        // Abandon this exact sequence shows it — AnAsyncFailure_ThatArrivesAfterTheLastAnswer.
         var supervision = FailingAsyncSupervision(_settings);
         var flow = Flow(supervision: supervision);
         flow.Start();
-        Pick("safety_next"); Pick("safety_yes");
-        for (var i = 0; i < 3; i++) { Pick("safety_next"); Pick("safety_no"); }
-        Pick("safety_next"); Pick("safety_all");
-        var shown = _cards.Count;
+        Pick("safety_start");
+        Pick("safety_yes");                               // q2 on screen, bring-up in flight
 
         flow.Abandon();
         RunBackground();
+        Pick("safety_no");                                // a stale q2 card is still answered …
 
-        Check.That(_cards).HasSize(shown);
+        // … but the dropped failure is never shown at that boundary.
+        Check.That(Top.Message).StartsWith("Question 3 of 5");
     }
 
     // ── harness ──────────────────────────────────────────────────────────────
@@ -332,20 +478,23 @@ public class SafetySetupFlowTests : IDisposable
     private (string Message, IReadOnlyList<ModalChoice> Choices) Top => _cards[^1];
 
     /// <summary>Picks a choice of the card on screen the way the dwell does.</summary>
-    private void Pick(string id)
-    {
-        var choice = Top.Choices.Single(c => c.Id == id);
-        choice.OnChosen!.Invoke();
-    }
+    private void Pick(string id) => Top.Choices.Single(c => c.Id == id).OnChosen!.Invoke();
 
-    /// <summary>Answers questions 1…n−1 No, then question n with <paramref name="id"/>.</summary>
+    /// <summary>Start, then questions 1…n−1 No, then question n with <paramref name="id"/>.</summary>
     private void AnswerThrough(int questionIndex, string id)
     {
-        var flow = Flow();
-        flow.Start();
-        for (var i = 0; i < questionIndex; i++) { Pick("safety_next"); Pick("safety_no"); }
-        Pick("safety_next");
+        Flow().Start();
+        Pick("safety_start");
+        for (var i = 0; i < questionIndex; i++) Pick("safety_no");
         Pick(id);
+    }
+
+    /// <summary>The card on screen is the intro: start, answer q1–q4 with <paramref name="yesNo"/>, q5 with <paramref name="mode"/>.</summary>
+    private void AnswerAll(string yesNo, string mode)
+    {
+        Pick("safety_start");
+        for (var i = 0; i < 4; i++) Pick(yesNo);
+        Pick(mode);
     }
 
     private void RunBackground()
@@ -355,27 +504,26 @@ public class SafetySetupFlowTests : IDisposable
         foreach (var w in work) w();
     }
 
-    private SafetySetupFlow Flow(EyeCtrlSettings? settings = null, SupervisionToggleService? supervision = null) =>
+    private SafetySetupFlow Flow(
+        EyeCtrlSettings? settings = null, SupervisionToggleService? supervision = null, Action<bool>? onEnded = null) =>
         new(settings ?? _settings, supervision,
             (message, choices) => _cards.Add((message, choices)),
             () => _saves++,
-            _modeCalls.Add);
+            _modeCalls.Add,
+            completed => { _ended.Add(completed); onEnded?.Invoke(completed); });
 
-    private SupervisionToggleService WorkingSupervision(EyeCtrlSettings settings)
+    /// <summary>A switch that turns on (reachable Supervisor) synchronously; the list records every
+    /// persist of supervision.enabled through the sanctioned path.</summary>
+    private (SupervisionToggleService Toggle, List<bool> Persisted) WorkingSupervision(EyeCtrlSettings settings)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"eyectrl_a2_{Guid.NewGuid()}.json");
-        _tempFiles.Add(path);
-        var (_, toggle, _) = SupervisionComposition.Create(
-            settings, path, new FakeStartupRegistrar(),
-            enablePublishing: () => { },
-            launchSupervisor: () => true,
-            tryReachSupervisor: () => true,
-            isSupervisorInstalled: () => true,
-            isLaunchRegistered: () => true,
-            isSupervisorConnected: () => true,
-            runInBackground: work => work(),
-            postToUi: work => work());
-        return toggle;
+        var persisted = new List<bool>();
+        var toggle = new SupervisionToggleService(
+            settings,
+            new SupervisorBringUp(settings, () => { }, () => true, persisted.Add, () => { }, () => true),
+            new SupervisorStartupEnsure(settings, () => { }, () => true, () => true),
+            persistEnabled: v => persisted.Add(v), supervisorInstalled: () => true, isSupervisorConnected: () => true,
+            reconcileRunKey: () => { }, runInBackground: w => w(), postToUi: w => w());
+        return (toggle, persisted);
     }
 
     /// <summary>A switch whose bring-up runs only when the test says so, and then fails (launch refused).</summary>
@@ -386,9 +534,10 @@ public class SafetySetupFlowTests : IDisposable
             persistEnabled: _ => { }, supervisorInstalled: () => true, isSupervisorConnected: () => false,
             reconcileRunKey: () => { }, runInBackground: _background.Add, postToUi: w => w());
 
-    private sealed class FakeStartupRegistrar : IStartupRegistrar
+    // internal: implements IRecipient<T> (the MVVM generator needs at least internal visibility).
+    internal sealed class RequestProbe : IRecipient<SafetySetupRequestedMessage>
     {
-        public bool IsRegistered => true;
-        public void SetStartOnBoot(bool enabled) { }
+        public int Count { get; private set; }
+        public void Receive(SafetySetupRequestedMessage message) => Count++;
     }
 }

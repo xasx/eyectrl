@@ -188,14 +188,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             navigate: () => _settingsWindow?.NavigateToLanguageRow());
     }
 
-    /// <summary>Opens settings when it is not open, then starts the safety chain on the window.</summary>
+    /// <summary>Opens settings when it is not open, then starts the safety chain on the window; a
+    /// window this opened closes again when the chain ends. The decision is SafetySetupLaunch's.</summary>
     private void ShowSafetySetup()
     {
         if (Context is null) return;
 
-        if (_settingsWindow is null)
-            OpenSettingsWindow();
-        _settingsWindow?.StartSafetySetup();
+        SafetySetupLaunch.Run(
+            windowOpen: _settingsWindow is not null,
+            openWindow: OpenSettingsWindow,
+            start: closeWhenDone => _settingsWindow?.StartSafetySetup(closeWhenDone));
     }
 
     /// <summary>Constructs and shows a fresh settings window. Never navigates; the caller does.</summary>

@@ -468,7 +468,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
-      "Literal": "\"safety_next\"",
+      "Literal": "\"safety_later\"",
       "Category": "id",
       "Reason": "A modal-choice dwell-target id."
     },
@@ -481,6 +481,12 @@
     {
       "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
       "Literal": "\"safety_ok\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_start\"",
       "Category": "id",
       "Reason": "A modal-choice dwell-target id."
     },

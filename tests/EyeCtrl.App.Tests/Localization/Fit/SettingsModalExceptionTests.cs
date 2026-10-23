@@ -64,7 +64,7 @@ public class SettingsModalExceptionTests
     {
         "language-recovery.prompt.message" => "language-recovery.prompt.restart|language-recovery.prompt.cancel",
         "language-recovery.restart.in_progress.message" => "language-recovery.restart.in_progress.hide",
-        "settings.safety.step.message" => "settings.safety.next",
+        "settings.safety.intro.message" => "settings.safety.start|settings.safety.later",
         "settings.safety.mode.message" => "settings.safety.mode.basic|settings.safety.mode.all",
         _ => "settings.modal.yes|settings.modal.no",
     };

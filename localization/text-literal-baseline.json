@@ -557,7 +557,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
-      "Literal": "\"safety_next\"",
+      "Literal": "\"safety_later\"",
       "Count": 1
     },
     {
@@ -568,6 +568,11 @@
     {
       "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
       "Literal": "\"safety_ok\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_start\"",
       "Count": 1
     },
     {

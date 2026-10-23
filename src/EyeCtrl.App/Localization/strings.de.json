@@ -1851,7 +1851,7 @@
     "src": "65276443"
   },
   "settings.general.safety.label": {
-    "text": "Sicherheitsfragen wiederholen",
+    "text": "Sicherheitseinrichtung wiederholen",
     "src": "1dda5f16"
   },
   "settings.general.supervision.description": {
@@ -2438,44 +2438,48 @@
     "src": "92ff458a"
   },
   "settings.safety.boot.message": {
-    "text": "EyeCtrl beim Anmelden starten?\nStartet beim Anmelden auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
-    "src": "f309d310"
+    "text": "Frage {0} von {1}\nEyeCtrl beim Anmelden starten?\nStartet beim Anmelden auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
+    "src": "596c9992"
   },
   "settings.safety.crash.message": {
-    "text": "EyeCtrl nach einem Absturz automatisch neu starten?",
-    "src": "2b1bcedd"
+    "text": "Frage {0} von {1}\nEyeCtrl nach einem Absturz automatisch neu starten?",
+    "src": "299915eb"
   },
   "settings.safety.cue.message": {
-    "text": "Einen Ton abspielen, wenn das Verweilen einen Klick auslöst?",
-    "src": "729cb63d"
+    "text": "Frage {0} von {1}\nEinen Ton abspielen, wenn das Verweilen einen Klick auslöst?",
+    "src": "34f3cb03"
+  },
+  "settings.safety.intro.message": {
+    "text": "Sicherheitseinrichtung: 5 kurze Fragen.",
+    "src": "27d22af4"
+  },
+  "settings.safety.later": {
+    "text": "Später",
+    "src": "94b426bb"
   },
   "settings.safety.mode.all": {
-    "text": "✓ Alle",
-    "src": "f38207ed"
+    "text": "✓ Alle Optionen",
+    "src": "a2a337da"
   },
   "settings.safety.mode.basic": {
     "text": "✓ Einfach",
     "src": "152e1ead"
   },
   "settings.safety.mode.message": {
-    "text": "Einstellungsansicht: Einfach oder Alle?",
-    "src": "0ed6ebb1"
-  },
-  "settings.safety.next": {
-    "text": "✓ Weiter",
-    "src": "b03fe1cd"
+    "text": "Frage {0} von {1}\nEinstellungsansicht: Einfach oder Alle Optionen?",
+    "src": "58f81377"
   },
   "settings.safety.ok": {
     "text": "✓ OK",
     "src": "707b3797"
   },
-  "settings.safety.step.message": {
-    "text": "Sicherheitseinrichtung: Frage {0} von {1}",
-    "src": "acd9a8e4"
+  "settings.safety.start": {
+    "text": "✓ Starten",
+    "src": "13ba19e4"
   },
   "settings.safety.track.message": {
-    "text": "Status der Blickverfolgung anzeigen?",
-    "src": "9310d5b4"
+    "text": "Frage {0} von {1}\nTrackstatus anzeigen?",
+    "src": "ea3a860c"
   },
   "settings.selection.center_dot.description": {
     "text": "Durchmesser des Punkts in der Mitte des Blickrings; gilt nach einem Neustart.",

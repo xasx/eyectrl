@@ -137,15 +137,23 @@ public class PredictionStackFactory : IDisposable
     /// ordered AFTER StackSwapped's handlers without a second dispatcher hop; the pool-side
     /// ends (fault, discard) must post through the marshal like everything else that leaves
     /// the thread pool.
+    /// <para>
+    /// The posted notification is LEVEL-TRIGGERED — it reads <see cref="BuildInFlight"/> at
+    /// DELIVERY time, not the false the ending build knows (review 01 F1): a newer build can
+    /// start between this CAS on the pool thread and the delivery, and a snapshot false would
+    /// arrive after the newer build's start and tell the window no build is in flight while
+    /// one is — the newer FIRST build would get no hint. The delivered value can only be a
+    /// redundant true (the window de-duplicates), never a lie.
+    /// </para>
     /// </summary>
     private void MarkBuildEnded(int generation, bool alreadyOnUiThread)
     {
         if (Interlocked.CompareExchange(ref _inFlightGeneration, 0, generation) != generation)
             return;
         if (alreadyOnUiThread)
-            BuildInFlightChanged?.Invoke(false);
+            BuildInFlightChanged?.Invoke(BuildInFlight);
         else if (_postToUi is not null)
-            _postToUi(() => BuildInFlightChanged?.Invoke(false));
+            _postToUi(() => BuildInFlightChanged?.Invoke(BuildInFlight));
     }
 
     /// <summary>Test override for predictor construction. Production: null — the real

@@ -255,13 +255,19 @@ public partial class KeyboardWindow : OverlayWindow
     /// <summary>
     /// The prediction stack's build-in-flight state, forwarded by KeyboardCoordinator from
     /// <see cref="PredictionStackFactory.BuildInFlightChanged"/>. A transition re-renders the
-    /// bar so the loading hint appears (and disappears) without waiting for a keystroke.
+    /// bar ONLY when the hint's visibility actually moves (review 01 F2): with a stack
+    /// already serving — every later rebuild — the hint can neither show nor hide, and a
+    /// re-render would clear the dwell targets, re-query the LM and reset E1's render clock
+    /// for nothing. The first build's start and its swap's end are the only transitions that
+    /// render.
     /// </summary>
     public void SetPredictionBuildInFlight(bool inFlight)
     {
         if (_predictionBuildInFlight == inFlight) return;
+        var hintShown = _predictionLoadingHint.Visibility == Visibility.Visible;
         _predictionBuildInFlight = inFlight;
-        UpdatePredictions();
+        if (hintShown != ShouldShowPredictionLoadingHint())
+            UpdatePredictions();
     }
 
     public void SetScreenEdge(string edge)
@@ -1012,6 +1018,19 @@ public partial class KeyboardWindow : OverlayWindow
         && (_settings?.Keyboard.ShowLMLoadingIndicator ?? true)
         && _viewModel.IsEmojiMode != true
         && _viewModel.IsSensitiveContext != true;
+
+    /// <summary>
+    /// Whether a stack swap should refresh the bar NOW (review 01 Q1, owner decision
+    /// 2026-10-24: later rebuilds stay silent, old suggestions keep working): only when the
+    /// bar shows NOTHING — the loading hint, or empty cells with no rendered suggestions
+    /// (the first open, before anything was typed). A later rebuild's swap with suggestions
+    /// on screen must NOT re-render: the words would swap asynchronously under a resting
+    /// gaze, and a prediction dwell in progress would be cleared; the next keystroke brings
+    /// the new stack's words.
+    /// </summary>
+    internal bool ShouldRefreshBarForSwap() =>
+        _predictionLoadingHint.Visibility == Visibility.Visible
+        || _renderedPredictions.Count == 0;
 
     public void UpdatePredictions()
     {

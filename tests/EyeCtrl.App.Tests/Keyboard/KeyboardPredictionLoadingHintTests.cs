@@ -108,6 +108,21 @@ public class KeyboardPredictionLoadingHintTests
 
         public void Gaze(long tUs) => Window.UpdateGaze(new PhysicalPoint(-5000, -5000), tUs);
 
+        /// <summary>
+        /// Re-measures the re-parented content and returns its size plus the first key row's
+        /// position relative to the content — the measured-geometry pair the F4 test compares
+        /// between the hint state and the bar state.
+        /// </summary>
+        public (double Width, double Height, double RowX, double RowY) MeasureContent()
+        {
+            Content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Content.Arrange(new Rect(Content.DesiredSize));
+            Content.UpdateLayout();
+            var firstRow = (FrameworkElement)Window.KeyRows.Children[0];
+            var pos = firstRow.TranslatePoint(new Point(0, 0), Content);
+            return (Content.DesiredSize.Width, Content.DesiredSize.Height, pos.X, pos.Y);
+        }
+
         public void Dispose() { _source.Dispose(); Window.Close(); }
     }
 
@@ -253,6 +268,75 @@ public class KeyboardPredictionLoadingHintTests
     }
 
     [StaFact]
+    public void WithAStackServing_TheBuildTransitions_ReRenderNothing()
+    {
+        // Review 01 F2: with a stack bound the hint can never show, so a later rebuild's
+        // start and end must NOT re-render — no ClearTargets, no LM query, no E1 render-clock
+        // reset. The rendered list's IDENTITY is the no-render proof: every render assigns a
+        // fresh list.
+        var p = Probe.Open(withOrchestrator: true);
+        try
+        {
+            p.Vm.CurrentInput = "hel";
+            p.Window.UpdatePredictions();
+            var rendered = p.Field("_renderedPredictions");
+            Check.WithCustomMessage("arrange: the bar must be serving suggestions")
+                .That(((IEnumerable<PredictionResult>)rendered).Any()).IsTrue();
+
+            p.Window.SetPredictionBuildInFlight(true);   // a later rebuild starts
+            Check.WithCustomMessage("a start with a stack serving re-rendered the bar")
+                .That(p.Field("_renderedPredictions")).IsSameReferenceAs(rendered);
+
+            p.Window.SetPredictionBuildInFlight(false);  // ... and ends
+            Check.WithCustomMessage("an end with a stack serving re-rendered the bar")
+                .That(p.Field("_renderedPredictions")).IsSameReferenceAs(rendered);
+
+            // Control (the gate is not a no-op): drop the stack — the FIRST-build shape —
+            // and the same start MUST render (the hint appears).
+            p.Vm.SetOrchestrator(null);
+            p.Window.SetPredictionBuildInFlight(false);  // back to the resting state first
+            p.Window.SetPredictionBuildInFlight(true);
+            Check.WithCustomMessage("control: the first build's start must still re-render")
+                .That(p.Field("_renderedPredictions")).Not.IsSameReferenceAs(rendered);
+            Check.That(p.Hint().Visibility).IsEqualTo(Visibility.Visible);
+        }
+        finally { p.Dispose(); }
+    }
+
+    [StaFact]
+    public void TheHintStateAndTheBarState_KeepIdenticalContentGeometry()
+    {
+        // Review 01 F4: MEASURED, not arithmetic — the window content's size and the first
+        // key row's position are identical with the hint up and with the (empty) bar up, so
+        // the hint→suggestions transition can never resize the window or move a key under a
+        // resting gaze, whatever the cells' margins become.
+        var p = Probe.Open();
+        try
+        {
+            Check.That(p.Hint().Visibility).IsEqualTo(Visibility.Visible);
+            var hint = p.MeasureContent();
+
+            p.Window.SetPredictionBuildInFlight(false); // the bar state: empty cells, no hint
+            Check.That(p.Hint().Visibility).IsEqualTo(Visibility.Collapsed);
+            var bar = p.MeasureContent();
+
+            Check.WithCustomMessage(
+                    $"content width differs between the states (hint {hint.Width:F2}, bar {bar.Width:F2})")
+                .That(bar.Width).IsCloseTo(hint.Width, 0.01);
+            Check.WithCustomMessage(
+                    $"content height differs between the states (hint {hint.Height:F2}, bar {bar.Height:F2})")
+                .That(bar.Height).IsCloseTo(hint.Height, 0.01);
+            Check.WithCustomMessage(
+                    $"the key rows moved horizontally (hint {hint.RowX:F2}, bar {bar.RowX:F2})")
+                .That(bar.RowX).IsCloseTo(hint.RowX, 0.01);
+            Check.WithCustomMessage(
+                    $"the key rows moved vertically (hint {hint.RowY:F2}, bar {bar.RowY:F2})")
+                .That(bar.RowY).IsCloseTo(hint.RowY, 0.01);
+        }
+        finally { p.Dispose(); }
+    }
+
+    [StaFact]
     public void TheGermanHintFitsTheBar_AtTheSmallestKeyboardWidth()
     {
         // The ticket's fit proof: no fit class exists for a prediction cell, so the German
@@ -277,13 +361,8 @@ public class KeyboardPredictionLoadingHintTests
                     $"the German hint ({textWidth:F1} DIP) must fit the smallest bar ({barWidth:F1} DIP) " +
                     "without trimming")
                 .That(textWidth).IsStrictlyLessThan(barWidth);
-
-            // And the hint keeps the cells' layout footprint: no window resize on the swap.
-            var keySize = (double)p.Field("_keySize");
-            var barFootprint = keySize + 12; // a cell: _keySize + 3+3 margin; the grid adds a 6-DIP bottom margin
-            Check.WithCustomMessage("the hint's layout footprint differs from the cells' — the swap would resize the window")
-                .That(p.Hint().Margin.Top + p.Hint().Height + p.Hint().Margin.Bottom)
-                .IsCloseTo(barFootprint, 0.01);
+            // The footprint itself is pinned MEASURED, against the bar state, in
+            // TheHintStateAndTheBarState_KeepIdenticalContentGeometry (review 01 F4).
         }
         finally
         {

@@ -284,11 +284,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
     /// <summary>
     /// The <see cref="PredictionStackFactory.StackSwapped"/> handler: re-binds the keyboard to
-    /// the swapped orchestrator, refreshes the prediction bar so the new stack's suggestions
-    /// appear WITHOUT a keystroke (the first swap especially: the bar was empty — hint or
-    /// placeholders — until this moment; the refresh is wanted whatever
-    /// <c>Keyboard.ShowLMLoadingIndicator</c> says, it is a fix in itself), then patches the
-    /// stored snapshot's verdict term (patch mechanics and rationale on
+    /// the swapped orchestrator, refreshes the prediction bar ONLY when it shows nothing
+    /// (review 01 Q1, owner decision — see KeyboardWindow.ShouldRefreshBarForSwap) so the
+    /// new stack's suggestions appear WITHOUT a keystroke on the first open, while a later
+    /// rebuild's swap leaves the serving words and any dwell in progress alone, then patches
+    /// the stored snapshot's verdict term (patch mechanics and rationale on
     /// <see cref="PatchSnapshotWithSwappedVerdict"/>; the event is raised on the UI thread
     /// after the winning swap). Deliberately NO Context null-guard — a swap must never be
     /// silently dropped, and the subscription only exists after Initialize set it. Extracted
@@ -299,8 +299,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     internal void OnStackSwapped(PredictionOrchestrator? orchestrator,
         (string ModelId, ModelVerificationOutcome Outcome)? verification)
     {
-        Context!.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
-        Context!.OverlayManager.Keyboard.UpdatePredictions();
+        var keyboard = Context!.OverlayManager.Keyboard;
+        keyboard.SetOrchestrator(orchestrator);
+        if (keyboard.ShouldRefreshBarForSwap())
+            keyboard.UpdatePredictions();
         PatchSnapshotWithSwappedVerdict(verification);
     }
 

@@ -310,10 +310,15 @@ public class SafetySetupFlowTests : IDisposable
     [Fact]
     public void AnAbandonedChain_IgnoresALateCrashRecoveryResult()
     {
+        // The window closes after the last answer while crash recovery is still in flight: the
+        // late failure must not raise a modal on the closed window's (disposed) view model. Without
+        // Abandon this exact sequence shows it — AnAsyncFailure_ThatArrivesAfterTheLastAnswer.
         var supervision = FailingAsyncSupervision(_settings);
         var flow = Flow(supervision: supervision);
         flow.Start();
         Pick("safety_next"); Pick("safety_yes");
+        for (var i = 0; i < 3; i++) { Pick("safety_next"); Pick("safety_no"); }
+        Pick("safety_next"); Pick("safety_all");
         var shown = _cards.Count;
 
         flow.Abandon();

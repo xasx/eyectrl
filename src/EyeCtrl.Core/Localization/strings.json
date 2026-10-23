@@ -4480,14 +4480,14 @@
     "args": []
   },
   "settings.safety.mode.all": {
-    "text": "✓ All settings",
+    "text": "All settings",
     "who": "user",
     "where": "settings",
     "fit": "modal170",
     "args": []
   },
   "settings.safety.mode.basic": {
-    "text": "✓ Basic",
+    "text": "Basic",
     "who": "user",
     "where": "settings",
     "fit": "modal170",

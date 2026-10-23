@@ -2458,12 +2458,12 @@
     "src": "94b426bb"
   },
   "settings.safety.mode.all": {
-    "text": "✓ Alle Optionen",
-    "src": "a2a337da"
+    "text": "Alle Optionen",
+    "src": "4ca9a15a"
   },
   "settings.safety.mode.basic": {
-    "text": "✓ Einfach",
-    "src": "152e1ead"
+    "text": "Einfach",
+    "src": "8bf2af6e"
   },
   "settings.safety.mode.message": {
     "text": "Frage {0} von {1}\nEinstellungsansicht: Einfach oder Alle Optionen?",

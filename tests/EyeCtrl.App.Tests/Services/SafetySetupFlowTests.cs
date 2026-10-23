@@ -278,7 +278,7 @@ public class SafetySetupFlowTests : IDisposable
         Pick("safety_start");
         for (var i = 0; i < 4; i++) Pick("safety_no");
         Check.That(Top.Choices.Select(c => c.Id)).ContainsExactly("safety_basic", "safety_all");
-        Check.That(Top.Choices.Select(c => c.Label)).ContainsExactly("✓ Basic", "✓ All settings");
+        Check.That(Top.Choices.Select(c => c.Label)).ContainsExactly("Basic", "All settings");
         Pick("safety_basic");
         Check.That(_modeCalls).ContainsExactly(true);
 

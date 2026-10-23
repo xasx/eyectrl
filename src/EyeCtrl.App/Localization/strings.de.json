@@ -2754,8 +2754,8 @@
     "src": "b2e1dba4"
   },
   "supervisor.fallback.countdown": {
-    "text": "Erneuter Versuch in 60 s",
-    "src": "8e7b7d72"
+    "text": "Erneuter Versuch in {0} s",
+    "src": "90341154"
   },
   "supervisor.fallback.dismiss": {
     "text": "Schließen (Ersatzprogramm behalten)",

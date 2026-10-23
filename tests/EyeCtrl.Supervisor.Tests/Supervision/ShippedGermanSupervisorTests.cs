@@ -196,6 +196,8 @@ public class ShippedGermanSupervisorTests : IDisposable
                 // A3: the auto-retry countdown line — the German carries no ellipsis (T10 copy rules).
                 dialog.ShowAutoRetryCountdown();
                 Check.That(dialog.CountdownText.Text).IsEqualTo("Erneuter Versuch in 60 s");
+                // The seconds are a format argument, not baked in (fixup-02 addendum).
+                Check.That(german.T("supervisor.fallback.countdown", 5)).IsEqualTo("Erneuter Versuch in 5 s");
             }
             finally
             {

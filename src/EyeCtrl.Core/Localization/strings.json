@@ -4994,11 +4994,13 @@
     "crisis": true
   },
   "supervisor.fallback.countdown": {
-    "text": "Trying again in 60 s…",
+    "text": "Trying again in {0} s…",
     "who": "user",
     "where": "supervisor",
     "fit": "C-fallback",
-    "args": [],
+    "args": [
+      "seconds"
+    ],
     "crisis": true
   },
   "supervisor.fallback.dismiss": {

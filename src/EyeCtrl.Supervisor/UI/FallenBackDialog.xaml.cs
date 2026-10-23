@@ -5,6 +5,7 @@ using System.Windows;
 using EyeCtrl.Controls;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Supervisor.Supervision;
 using Media = System.Windows.Media;
 
 /// <summary>
@@ -46,10 +47,12 @@ public partial class FallenBackDialog : Window
 
     /// <summary>Shows the auto-retry countdown line ("Trying again in 60 s…") — A3's safety net for
     /// a user who cannot click Retry. Called when the session's one countdown is armed for this
-    /// episode; the text comes from the dialog's own table.</summary>
+    /// episode; the text comes from the dialog's own table, with the countdown's SECONDS as the
+    /// format argument (fixup-02 addendum: the number is never baked into the string).</summary>
     internal void ShowAutoRetryCountdown()
     {
-        CountdownText.Text = Strings.T("supervisor.fallback.countdown");
+        CountdownText.Text = Strings.T(
+            "supervisor.fallback.countdown", (int)FallenBackAutoRetry.Delay.TotalSeconds);
         CountdownText.Visibility = Visibility.Visible;
     }
 

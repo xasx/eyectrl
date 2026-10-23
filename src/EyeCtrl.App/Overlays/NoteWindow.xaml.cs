@@ -13,6 +13,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Models;
+using EyeCtrl.App.Services.Notes;
 
 public class NoteWindow : OverlayWindow
 {
@@ -48,11 +49,21 @@ public class NoteWindow : OverlayWindow
     private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
     private NoteState _state;
+    // T6 fixup-01: the tag elements are tracked so DrawBadge can replace them without a full Draw.
+    private Border? _badgeTag;
+    private TextBlock? _badgeLabel;
+    private int? _badgeNumber;
     // The note body text size in DIP (P4 D1): pushed by the manager at creation and on every
     // T8 raise; every text measurement and drawn font derives from it.
     private double _textSize = NoteSettings.DefaultTextSizeDip;
 
     private string _chipText = string.Empty;
+    // The chip's own text size and text-column width (T6 fixup-06 G1): the chip reads at the
+    // NOTE's body size, and the manager owns the measured column both of them share. They are
+    // pushed, not derived here, so the drawn text and the card the manager placed can never
+    // disagree about the size the chip was composed at.
+    private double _chipTextSize = NoteSettings.DefaultTextSizeDip;
+    private double _chipColumnWidth = 0;
     // The note's body text (fixup-01 B1): UpdateContent rebuilds the text block plainly empty,
     // and the re-place paths (T6, the probe raise, Move's tails) never re-push SetText — the
     // window alone keeps the last body text across a redraw.
@@ -85,6 +96,7 @@ public class NoteWindow : OverlayWindow
 
         _canvas = new Canvas { ClipToBounds = false };
         Content = _canvas;
+        AttachStalePressGuards();
         Loaded += OnLoaded;
     }
 
@@ -95,9 +107,18 @@ public class NoteWindow : OverlayWindow
     /// drawn geometry and the window position can never disagree. Safe before Show(): Draw is
     /// idempotent and the Loaded handler re-runs it. Internal: <see cref="NotePlacement"/> is,
     /// and only the manager (same assembly) applies placements.
+    /// <para>
+    /// T6 fixup-01: the window rides <see cref="NoteLayout.WithTagClearance"/> on entry — every
+    /// applied placement carries the tag's top strip (idempotent), so a window applied from any
+    /// seam grows the same way and the tag never draws outside the window bounds. Fixup-04: the
+    /// strip follows THIS window's text size, the same size the manager grew the placement with
+    /// (it sets <see cref="SetTextSize"/> before every placement, and T8 re-sizes the strip with
+    /// the re-derivation).
+    /// </para>
     /// </summary>
     internal void ApplyPlacement(NotePlacement placement)
     {
+        placement = NoteLayout.WithTagClearance(placement, _textSize);
         _placement = placement;
         _side = placement.Side;
         Dispatcher.Invoke(() =>
@@ -110,23 +131,17 @@ public class NoteWindow : OverlayWindow
 
     /// <summary>Test accessor (P4 D1/T8): the text size the window currently renders at.</summary>
     internal double TextSizeForTest => _textSize;
-    /// <summary>Test accessor (fixup-01 G3): the drawn buttons, keyed per note id and set slot,
-    /// so the window-geometry pin can check the canvas against NoteLayout.ButtonCenter.</summary>
-    internal System.Collections.Generic.IReadOnlyDictionary<string, Ellipse> ButtonsForTest() => _buttons;
 
-    internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
-    internal double ButtonRadiusForTest => ButtonRadius;
-
-    // The show seam (T6 fixup-08 R4, moved down by sync 4): set when the manager skipped the HWND show.
+    // T6 fixup-08 R4: set when the manager's show seam skipped the HWND show.
     private bool _displayedWithoutHwnd;
 
     /// <summary>
     /// Shows the window the way production does, or - with <paramref name="realHwnd"/> false -
     /// performs what <see cref="Window.Show"/> builds for the rest of the app (the drawn tree,
-    /// which the Loaded handler would have built) without ever putting a window on the screen.
-    /// The headless tests run on the OWNER's machine, where a topmost note window is exactly what
-    /// must not appear; the placement, the bounds, the target registrations and
-    /// <see cref="IsDisplayed"/> behave as if the window had been shown.
+    /// which the Loaded handler would have built) without ever putting a window on the screen
+    /// (T6 fixup-08 R4). The headless tests run on the OWNER's machine, where a topmost note
+    /// window is exactly what must not appear; the placement, the bounds, the target
+    /// registrations and <see cref="IsDisplayed"/> behave as if the window had been shown.
     /// </summary>
     public void ShowForDisplay(bool realHwnd)
     {
@@ -141,8 +156,32 @@ public class NoteWindow : OverlayWindow
     }
 
     /// <summary>Whether the window counts as on screen: the real HWND's IsVisible in production,
-    /// or the seam's own flag when the window was never handed to the OS.</summary>
+    /// or the seam's own flag when the window was never handed to the OS (R4).</summary>
     public bool IsDisplayed => _displayedWithoutHwnd || IsVisible;
+    /// <summary>Test accessor (fixup-01 G3): the drawn buttons, keyed per note id and set slot,
+    /// so the window-geometry pin can check the canvas against NoteLayout.ButtonCenter.</summary>
+    internal System.Collections.Generic.IReadOnlyDictionary<string, Ellipse> ButtonsForTest() => _buttons;
+
+    internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
+    internal double ButtonRadiusForTest => ButtonRadius;
+
+    /// <summary>Test accessor (T6 fixup-06 G1): the chip's drawn text block - its font size and
+    /// its column are what the owner could not read, so they are read, not assumed.</summary>
+    internal TextBlock? ChipTextForTest => _chipTextBlock;
+
+    /// <summary>Test accessor (T6 fixup-06 G1): the text size the chip was composed at - the
+    /// captured one, which a later text-size change does not move.</summary>
+    internal double ChipTextSizeForTest => _chipTextSize;
+
+    /// <summary>Test accessor (T6 fixup-02): the drawn cell fill of a hit-cell row, the element
+    /// the caretaker input is wired to beside the disc and label — or null when the row never
+    /// got one.</summary>
+    internal Rectangle? CellFillForTest(int row) => _cellFills.TryGetValue(row, out var fill) ? fill : null;
+
+    /// <summary>Test accessor (T6 fixup-02): the drawn dwell arc of a control, for the
+    /// non-interactivity pins.</summary>
+    internal Path? ArcForTest(string suffix) =>
+        _arcs.TryGetValue($"{_noteId}:{suffix}", out var arc) ? arc.Arc : null;
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -152,6 +191,9 @@ public class NoteWindow : OverlayWindow
     private void Draw()
     {
         _canvas.Children.Clear();
+        // A redraw replaces every wired element: a pending press recorded against elements
+        // this Draw just destroyed must not survive it.
+        _pendingCaretakerPress = null;
         _buttons.Clear();
         _buttonLabels.Clear();
         _arcs.Clear();
@@ -203,7 +245,9 @@ public class NoteWindow : OverlayWindow
         // like the buttons; UpdateButtonVisibility picks the state rows.
         for (int row = 0; row < 4; row++)
         {
-            var (cx, cy) = NoteLayout.ButtonCenter(_side, row, CardWidthDip);
+            var (cx, cy) = _placement is { } wp
+                ? NoteLayout.ButtonCenter(wp, row)
+                : NoteLayout.ButtonCenter(_side, row, CardWidthDip);
             var fill = new Rectangle
             {
                 Width = CellDip, Height = CellDip,
@@ -226,6 +270,93 @@ public class NoteWindow : OverlayWindow
         DrawButtons();
         UpdateContent();
         UpdateButtonVisibility();
+        DrawBadge();
+    }
+
+    /// <summary>
+    /// T6 P5: the manager pushes this note's badge numeral — null hides. Called on every
+    /// membership or state change through the manager's <c>RefreshBadges</c>; every redraw path
+    /// re-derives the drawn badge through <see cref="DrawBadge"/>.
+    /// </summary>
+    public void SetBadge(int? number)
+    {
+        if (_badgeNumber == number) return;
+        _badgeNumber = number;
+        Dispatcher.Invoke(DrawBadge);
+    }
+
+    /// <summary>
+    /// Draws (or clears) the number tag — <see cref="NoteLayout.TagRect"/>: a small FILLED
+    /// rounded rectangle straddling the card's top edge at the text-side end, out of the button
+    /// column (T6 fixup-01, owner decision: the gap-row badge read as a fourth dwell button —
+    /// a decoy next to ✕). The tag is pure chrome: never registered as a dwell target, never
+    /// chrome of its own, carries no hit affordance. A PendingUndo chip NEVER draws one (T6:
+    /// chips show no badge and don't count), guarded here as well as in the manager's push.
+    /// </summary>
+    private void DrawBadge()
+    {
+        if (_badgeTag != null) { _canvas.Children.Remove(_badgeTag); _badgeTag = null; }
+        if (_badgeLabel != null) { _canvas.Children.Remove(_badgeLabel); _badgeLabel = null; }
+        if (_badgeNumber is not { } number || _state == NoteState.PendingUndo || _placement is not { } placement)
+            return;
+
+        // Position: straddling the card's TOP edge at the TEXT-side end (the column hugs the
+        // edge away from the tail), inset from the corner; on a Below placement the tail shares
+        // the top edge, so the tag slides toward the column to clear the polygon. The window
+        // grew upward by the protrusion when the badge pushed (WithTagClearance), so the top
+        // half has room; the card's screen rect never moved.
+        var rect = NoteLayout.TagRect(placement, _textSize);
+
+        // Fill TextSecondary, numeral SurfaceDark, and the rim SurfaceDark at 1 DIP (T6
+        // fixup-01 + owner addendum: a solid tag, no ring — the numeral's brush keys the body
+        // so it reads as one inked piece, not a control). Contrast is gated in max(fill, edge)
+        // form on the drawn brushes: the TEXT floor (numeral vs fill ≥ 4.5) holds everywhere;
+        // the fill clears the card it straddles (worst case 6.57:1, floor 3.0); the pair clears
+        // the pages of both lightnesses the protruding half can sit over (in Midnight/Ember/
+        // Daylight the fill fails only the too-bright page and the dark rim carries it, in
+        // Contrast the light fill and the black rim face each other's extremes) —
+        // NoteBadgeContrastTests gates the drawn brushes.
+        var tag = new Border
+        {
+            Width = rect.Width, Height = rect.Height,
+            Background = Tokens.BrushTextSecondary,
+            BorderBrush = Tokens.BrushSurfaceDark,
+            BorderThickness = new Thickness(1),
+            CornerRadius = Tokens.SmallCornerRadius,
+            // T6 fixup-02 B1: pure chrome, and a filled Border would otherwise be a
+            // hit-testable surface over the card's top edge — a click on the tag must fall
+            // through to whatever is under it, never stop here.
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(tag, rect.Left);
+        Canvas.SetTop(tag, rect.Top);
+        _canvas.Children.Add(tag);
+        _badgeTag = tag;
+
+        // The numeral centres on its INK (T5 fixup-03 G1's convention): digits like "1" carry
+        // asymmetric advance boxes, and box centring reads off-centre. The font is 0.75× the
+        // body text (T6 fixup-04, review-02 F1: the caretaker reads the numeral from ~0.8 m, so
+        // it belongs near the body size at every T8 step) — and the ink centring is Solo-style:
+        // the glyph is the tag's entire content (the same bucket the control discs read).
+        var label = new TextBlock
+        {
+            Text = number.ToString(CultureInfo.InvariantCulture),
+            FontFamily = Tokens.FontStandard,
+            FontSize = NoteLayout.TagNumeralFontDip(_textSize),
+            Foreground = Tokens.BrushSurfaceDark,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var formatted = new FormattedText(label.Text, CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+        Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+        double cx = rect.Left + (rect.Width / 2);
+        double cy = rect.Top + (rect.Height / 2);
+        Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
+        Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
+        _canvas.Children.Add(label);
+        _badgeLabel = label;
     }
 
 
@@ -250,23 +381,30 @@ public class NoteWindow : OverlayWindow
 
         if (_state == NoteState.PendingUndo)
         {
-            // The chip (P4 D3, styling final): the Undo cell plus the chip text at the body size,
-            // in the shrunk-in-place window.
+            // The chip (P4 D3, styling final; T6 fixup-06 G1): the Undo cell plus the chip text
+            // at the NOTE's own text size - 12 DIP was unreadable on the owner's screen - in the
+            // shrunk-in-place window. The column width is the manager's MEASURED one (the
+            // narrowest that holds every chip text in two lines), so the text never leaves it.
             _chipTextBlock = new TextBlock
             {
-                Width = NoteLayout.ChipTextWidthDip,
-                MaxWidth = NoteLayout.ChipTextWidthDip,
-                Margin = new Thickness(10, 10, 0, 0),
-                FontSize = Tokens.FontSizeBody,
+                Width = _chipColumnWidth,
+                MaxWidth = _chipColumnWidth,
+                Margin = new Thickness(NoteLayout.ChipTextMarginDip, NoteLayout.ChipTextMarginDip, 0, 0),
+                FontSize = NoteLayout.ChipTextFontDip(_chipTextSize),
+                FontFamily = Tokens.FontStandard,
                 Foreground = Tokens.BrushTextPrimary,
                 TextWrapping = TextWrapping.Wrap,
+                // The body's 1.25x leading: the card's height is derived from the lines this
+                // produces, so the two must agree.
+                LineHeight = NoteLayout.TextLineHeightDip(_chipTextSize),
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
                 Text = _chipText
             };
             _contentBorder.Child = _chipTextBlock;
             // B1: beside the column here too.
             var chipCard = _placement is { } cp ? NoteLayout.RectLocal(cp)
                 : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
-            _contentBorder.Width = NoteLayout.ChipTextWidthDip + ButtonPadding;
+            _contentBorder.Width = _chipColumnWidth + ButtonPadding;
             Canvas.SetLeft(_contentBorder, _side == NoteSide.Left
                 ? chipCard.Left + LayoutConstants.NoteColumnWidthDip
                 : chipCard.Left);
@@ -365,19 +503,26 @@ public class NoteWindow : OverlayWindow
 
     /// <summary>Measures the wrapped text height in DIP the auto-height derives from (P4 D2):
     /// the same style the card body draws, measured at the text column width.</summary>
-    internal double MeasureTextHeightDip(string text)
+    internal double MeasureTextHeightDip(string text) => MeasureTextHeightDip(text, _textSize);
+
+    /// <summary>Measures the wrapped text height in DIP at an EXPLICIT text size (T6 fixup-06
+    /// G1): the chip's captured size, which the window's own current size may no longer be —
+    /// a pending chip keeps the size it was composed at, so the full card it is measured
+    /// against has to be measured at that size too.</summary>
+    internal double MeasureTextHeightDip(string text, double textSize)
     {
+        double width = NoteLayout.TextColumnWidthDip(textSize);
         var block = new TextBlock
         {
-            FontSize = _textSize,
+            FontSize = textSize,
             FontFamily = Tokens.FontStandard,
             TextWrapping = TextWrapping.Wrap,
-            LineHeight = NoteLayout.TextLineHeightDip(_textSize),
+            LineHeight = NoteLayout.TextLineHeightDip(textSize),
             LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
             Text = text,
-            Width = NoteLayout.TextColumnWidthDip(_textSize)
+            Width = width
         };
-        block.Measure(new Size(NoteLayout.TextColumnWidthDip(_textSize), double.PositiveInfinity));
+        block.Measure(new Size(width, double.PositiveInfinity));
         return block.DesiredSize.Height;
     }
 
@@ -423,7 +568,16 @@ public class NoteWindow : OverlayWindow
     {
         _textSize = textSize;
         if (_contentBorder != null)
-            Dispatcher.Invoke(UpdateContent);
+            Dispatcher.Invoke(() =>
+            {
+                UpdateContent();
+                // T8: the tag is size-DEPENDENT now (fixup-04: the numeral at 0.75× the body
+                // size and the derived box around it), and DrawBadge redraws it from the
+                // current placement — ApplyPlacementToWindow skips identical rects, so Draw
+                // would not run and a placement-inflight read must not go stale. The window
+                // rect itself follows with the manager's re-derivation from the T8 trigger.
+                DrawBadge();
+            });
     }
 
 
@@ -431,11 +585,18 @@ public class NoteWindow : OverlayWindow
 
     /// <summary>Sets the Undo chip text (P2 D5) and re-renders when the chip is showing. The
     /// text comes from the manager through the localization table, kind-dependent.</summary>
-    public void SetChipText(string text)
+    /// <param name="text">The chip's line.</param>
+    /// <param name="textSizeDip">The chip's font size - the note's body text size (T6 fixup-06
+    /// G1). The manager CAPTURES it with the chip, so a later text-size change does not resize
+    /// a chip the owner is already reaching for.</param>
+    /// <param name="columnWidthDip">The measured text column the chip's text is drawn in.</param>
+    public void SetChipText(string text, double textSizeDip, double columnWidthDip)
     {
         _chipText = text;
-        if (_state == NoteState.PendingUndo && _chipTextBlock != null)
-            _chipTextBlock.Text = text;
+        _chipTextSize = textSizeDip;
+        _chipColumnWidth = columnWidthDip;
+        if (_state == NoteState.PendingUndo)
+            Dispatcher.Invoke(UpdateContent);
     }
 
     public void SetState(NoteState state)
@@ -539,8 +700,11 @@ public class NoteWindow : OverlayWindow
             {
                 // Window-relative logical centre, shared with NoteManager dwell-target
                 // placement - column side follows the placement side (P3 D2.6), the slot maps
-                // 1:1 to its hit-cell row (P4 D3).
-                var (cx, cy) = NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
+                // 1:1 to its hit-cell row (P4 D3); the read rides the tag's top clearance so
+                // a grown window draws the cells at the same screen positions.
+                var (cx, cy) = _placement is { } bp
+                    ? NoteLayout.ButtonCenter(bp, slot)
+                    : NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
 
                 var ellipse = new Ellipse
                 {
@@ -553,6 +717,12 @@ public class NoteWindow : OverlayWindow
                 Canvas.SetTop(ellipse, cy - ButtonRadius);
                 _canvas.Children.Add(ellipse);
                 _buttons[$"{_noteId}:{suffix}"] = ellipse;
+                // T6 fixup-02 B1/m1: the caretaker input is wired to the WHOLE control the way
+                // hit-testing and gaze see it — the disc, the glyph label and the 80×80 hit cell
+                // (the slot's Rectangle, Collapsed exactly when the slot is unused) all press
+                // and release the SAME suffix. The pending-press gate lives in the shared
+                // Record/Release helpers below.
+                AttachCaretakerInput(ellipse, suffix);
 
                 var label = new TextBlock
                 {
@@ -564,32 +734,45 @@ public class NoteWindow : OverlayWindow
                     // measures the same face the TextBlock renders.
                     FontFamily = Tokens.FontStandard,
                     FontSize = ButtonDiameter * ContainerRatio.Solo,
-                    Foreground = new SolidColorBrush(color),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                // T5 fixup-03 G1: centre the glyph on its INK, not on its box. A TextBlock box
-                // is advance width x line height (~43 DIP tall), so box centring sat every glyph
-                // 6-10 DIP low. BuildGeometry gives the ink bounds relative to the text origin,
-                // which for an auto-sized TextBlock is the box top-left. The brush is never
-                // painted - only the ink geometry is measured; the palette test rejects raw
-                // Brush literals in UI files, so it reads a Tokens brush.
-                var formatted = new FormattedText(symbol, CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
-                    Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
-                Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
-                Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
-                Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
-                if (accessibleName.Length > 0)
-                    System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
-                _canvas.Children.Add(label);
-                _buttonLabels[$"{_noteId}:{suffix}"] = label;
+                // T6 fixup-02 B1: the glyph box (32×43 DIP) covers the middle of every 56 DIP
+                // disc — hit-testable it swallows every input over the symbol and bubbles to the
+                // Canvas, never reaching any wired element. Non hit-testable, a finger at the
+                // glyph falls through to the disc. (RaiseEvent on the label still works — no
+                // hit-testing involved — so the wiring below covers the review's literal pin.)
+                IsHitTestVisible = false,
+                Foreground = new SolidColorBrush(color),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            // T5 fixup-03 G1: centre the glyph on its INK, not on its box. A TextBlock box
+            // is advance width x line height (~43 DIP tall), so box centring sat every glyph
+            // 6-10 DIP low. BuildGeometry gives the ink bounds relative to the text origin,
+            // which for an auto-sized TextBlock is the box top-left. The brush is never
+            // painted - only the ink geometry is measured; the palette test rejects raw
+            // Brush literals in UI files, so it reads a Tokens brush.
+            var formatted = new FormattedText(symbol, CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+                Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+            Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+            Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
+            Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
+            if (accessibleName.Length > 0)
+                System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
+            _canvas.Children.Add(label);
+            _buttonLabels[$"{_noteId}:{suffix}"] = label;
+            AttachCaretakerInput(label, suffix);
 
-                var arcPath = new Path
-                {
-                    Stroke = Tokens.BrushAccent,
-                    StrokeThickness = 3, Visibility = Visibility.Hidden
-                };
+            if (_cellFills.TryGetValue(slot, out var cell))
+                AttachCaretakerInput(cell, suffix);
+
+            var arcPath = new Path
+            {
+                Stroke = Tokens.BrushAccent,
+                StrokeThickness = 3, Visibility = Visibility.Hidden,
+                // T6 fixup-02 B1: the arc becomes Visible during a dwell — a stroke ring over
+                // the disc's rim must not swallow the input under it.
+                IsHitTestVisible = false
+            };
                 Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
                 _canvas.Children.Add(arcPath);
                 _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
@@ -699,6 +882,117 @@ public class NoteWindow : OverlayWindow
         if (_buttonLabels.TryGetValue(key, out var label)) label.Visibility = vis;
         if (!visible && _arcs.TryGetValue(key, out var arc)) arc.Arc.Visibility = Visibility.Hidden;
     }
+
+    /// <summary>
+    /// T6 P5: fires when the caretaker touches or clicks a note control, carrying the control's
+    /// suffix; the manager runs the SAME action the control's dwell runs, through the input
+    /// policy. The window itself decides nothing — the accept/ignore rule lives in
+    /// <see cref="NoteInputPolicy"/> and the registration/visibility inputs come from the
+    /// manager, which owns both.
+    /// </summary>
+    internal event Action<string, NoteInputKind, bool>? ControlInputActivated;
+
+    /// <summary>T6 fixup-02 m1: the pause state a mouse press must be made under. Only the
+    /// manager owns the pause seam (<see cref="NoteManager.SetPausePoll"/>), so it forwards the
+    /// same poll here at wiring — the window cannot read pause itself, and a mouse press made
+    /// while EyeCtrl runs never records (a caretaker clicks a note only while paused).</summary>
+    internal Func<bool>? PausePollForInput { get; set; }
+
+    /// <summary>T6 fixup-02 m1: the suffix of the control whose DOWN is still pending a
+    /// release. Press and release must land on the SAME control — a finger sliding onto a
+    /// control and lifting there acts through nothing without it. Draw() clears it.</summary>
+    private string? _pendingCaretakerPress;
+
+    /// <summary>
+    /// T6 fixup-03 (review-02 F2): a pending press never survives a release or a leave the
+    /// window can see. The bubbling Up clears — with <c>handledEventsToo</c>, so the mark a
+    /// control set on its own acted Up does not stop it — consume the press on every release
+    /// the routing passes THROUGH the window: TouchUp for touch, the core MouseUp for the
+    /// mouse. The core MouseUp is the one route for EVERY button's release on the same
+    /// bounding (review-03 n.1: live input also re-raises the direct MouseLeftButtonUp at
+    /// every element along the MouseUp route, so the window would see a left-button release
+    /// either way — but the core route covers Right/Middle/X buttons on one hook, and
+    /// handledEventsToo keeps a marked release from hiding the clear).
+    /// Routing order keeps a control's own release first: its handlers run at the element,
+    /// the window's after it — the control's ReleaseCaretaker consumes the press, so by the
+    /// time the window's Up-clear runs, a release over a wired control has nothing left to clear.
+    /// The Leave/capture clears catch a press dragged out of the note, whose lift will never
+    /// arrive as an Up anywhere in this tree. The canvas carries the Leave clears separately
+    /// because TouchLeave/MouseLeave route DIRECT: a drag that exits the note through the
+    /// canvas never reaches the window's own leave.
+    /// </summary>
+    private void AttachStalePressGuards()
+    {
+        AddHandler(UIElement.TouchUpEvent,
+            new EventHandler<TouchEventArgs>((_, _) => _pendingCaretakerPress = null), handledEventsToo: true);
+        AddHandler(Mouse.MouseUpEvent, new MouseButtonEventHandler((_, _) => _pendingCaretakerPress = null),
+            handledEventsToo: true);
+
+        TouchLeave += (_, _) => _pendingCaretakerPress = null;
+        MouseLeave += (_, _) => _pendingCaretakerPress = null;
+        LostTouchCapture += (_, _) => _pendingCaretakerPress = null;
+        _canvas.TouchLeave += (_, _) => _pendingCaretakerPress = null;
+        _canvas.MouseLeave += (_, _) => _pendingCaretakerPress = null;
+    }
+
+    private void AttachCaretakerInput(UIElement element, string suffix)
+    {
+        // Touch, and a paused non-stylus mouse press, record the pending control.
+        element.TouchDown += (_, _) => RecordCaretakerPress(suffix);
+        element.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.StylusDevice != null) return;
+            if ((PausePollForInput?.Invoke() ?? false) == false) return;
+            RecordCaretakerPress(suffix);
+        };
+
+        // Touch: marked handled so the platform cannot re-report it (a promoted mouse event is
+        // ignored downstream anyway — the promotion guard is the policy's business).
+        element.TouchUp += (_, e) =>
+        {
+            e.Handled = true;
+            ReleaseCaretaker(suffix, NoteInputKind.Touch, stylus: false);
+        };
+        element.MouseLeftButtonUp += (_, e) =>
+        {
+            // A touch promotion (StylusDevice != null) is REPORTED, not swallowed: the touch
+            // already acted at TouchUp, and the policy ignores the promoted click so the
+            // action cannot run a second time.
+            ReleaseCaretaker(suffix, NoteInputKind.Mouse, stylus: e.StylusDevice != null);
+        };
+    }
+
+    /// <summary>m1, press half: a DOWN records the control as pending — but only while the
+    /// control is DRAWN. The state rows share one cell Rectangle per slot, so every state's
+    /// controls have handlers on the same cell; without the drawn gate, the collapsed twins of
+    /// one slot would overwrite the drawn control's pending press.</summary>
+    private void RecordCaretakerPress(string suffix)
+    {
+        if (IsControlDrawn(suffix)) _pendingCaretakerPress = suffix;
+    }
+
+    /// <summary>m1, release half: the UP acts only when the pending press belongs to THIS
+    /// control, then clears — every Up (matched or not) consumes what is pending, so a stale
+    /// press can never act on a later release. The policy (NoteInputPolicy) stays the single
+    /// acceptance rule this feed runs into.</summary>
+    private void ReleaseCaretaker(string suffix, NoteInputKind kind, bool stylus)
+    {
+        var pressed = _pendingCaretakerPress;
+        _pendingCaretakerPress = null;
+        if (pressed != suffix) return;
+        ControlInputActivated?.Invoke(suffix, kind, stylus);
+    }
+
+    /// <summary>Whether the named control is currently DRAWN visible (its ellipse is not
+    /// Collapsed). One of the policy's two per-control inputs: a control the window has not
+    /// drawn never acts, however it is touched or clicked.</summary>
+    internal bool IsControlDrawn(string suffix) =>
+        _buttons.TryGetValue($"{_noteId}:{suffix}", out var ellipse)
+        && ellipse.Visibility == Visibility.Visible;
+
+    /// <summary>Test accessors (T6): the drawn tag elements, or nulls when none is drawn.</summary>
+    internal Border? BadgeTagForTest => _badgeTag;
+    internal TextBlock? BadgeLabelForTest => _badgeLabel;
 
     public void UpdateDwellProgress(string targetId, double progress)
     {

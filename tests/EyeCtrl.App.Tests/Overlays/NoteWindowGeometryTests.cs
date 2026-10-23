@@ -68,6 +68,9 @@ public class NoteWindowGeometryTests
         var placement = manager.PlacementForTest(id)!;
         var window = manager.WindowForTest(id)!;
 
+        // The window reports the placement's rect: Width/Height/Left/Top EXACTLY (fixup-05: the
+        // tag's height is a whole DIP again, so the 2× DPI transform has nothing to round and
+        // the half-DIP tolerance fixup-04 needed is gone — it hid exactly this drift).
         Check.WithCustomMessage("the window's width must come from the placement's window rect")
             .That(window.Width).IsEqualTo(placement.Window.Width);
         Check.WithCustomMessage("the window's height must come from the placement's window rect")
@@ -87,7 +90,7 @@ public class NoteWindowGeometryTests
             Check.WithCustomMessage($"the {suffix} button must exist on the real canvas")
                 .That(buttons.ContainsKey($"{id}:{suffix}")).IsTrue();
             var ellipse = buttons[$"{id}:{suffix}"];
-            var (centerX, centerY) = NoteLayout.ButtonCenter(placement.Side, index, placement.Card.Width);
+            var (centerX, centerY) = NoteLayout.ButtonCenter(placement, index);
             Check.WithCustomMessage($"the {suffix} button must sit on the side's column x")
                 .That(Canvas.GetLeft(ellipse)).IsCloseTo(centerX - ellipse.Width / 2, 1e-6);
             Check.WithCustomMessage($"the {suffix} button must sit on the column's y {index}")

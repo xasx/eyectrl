@@ -107,6 +107,15 @@ public class NoteChipTailTests
                     + $"{NoteLayout.Constants.TipGapDip:F0} DIP short of the anchor, not at the "
                     + $"translated position (measured {offAnchor:F1} DIP)")
                 .That(offAnchor).IsCloseTo(NoteLayout.Constants.TipGapDip, 1e-6);
+
+            // T5b review-03 R1: the placement's tip alone would stay green over a canvas that
+            // draws a stale extra polygon — pin the DRAWN shape count too.
+            var restoredWindow = manager.WindowForTest(id)!;
+            var restoredCanvas = (Canvas)restoredWindow.Content;
+            restoredCanvas.Measure(new Size(restoredWindow.Width, restoredWindow.Height));
+            restoredCanvas.Arrange(new Rect(new Point(0, 0), new Size(restoredWindow.Width, restoredWindow.Height)));
+            Check.WithCustomMessage($"{label}: the restored card's canvas must draw exactly one tail polygon")
+                .That(restoredCanvas.Children.OfType<Polygon>().Count()).IsEqualTo(1);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

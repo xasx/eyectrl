@@ -680,40 +680,50 @@ public class NoteGateTests
     {
         Fixtures.AppFixture.SkipIfDisabled();
 
-        var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null,
-            hitTester: new NoteHitTester(), workAreaDip: NoteTestBench.WorkAreaProvider);
-
-        // This one needs REAL HWNDs: the gate test drives WindowFromPoint. The App test assembly
-        // switches RealNoteWindows off, so switch it back on for this test only.
-        var wasReal = NoteManager.RealNoteWindows;
+        // T6 fixup-09: this test NEEDS a real HWND (WindowFromPoint must resolve the note
+        // windows), so it switches the manager's show seam back on for its own scope. The
+        // restore is in a finally and the class sits in the exclusive "DpiHelper Tests (App)"
+        // collection, so the process-global flag cannot leak to another test - and the UI gate
+        // keeps the default run from showing anything at all.
         NoteManager.RealNoteWindows = true;
-        DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            var anchorBottom = new PhysicalPoint(1600, 1000);
-            var anchorTop = new PhysicalPoint(1640, 1000);
-            var bottomId = TypeIntoNewSavedNote(manager, "bottom", anchorBottom);
-            var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
-            var bottomHandle = new WindowInteropHelper(manager.WindowForTest(bottomId)!).EnsureHandle();
-            var topHandle = new WindowInteropHelper(manager.WindowForTest(topId)!).EnsureHandle();
-            var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
+            var messenger = new WeakReferenceMessenger();
+            using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null,
+                hitTester: new NoteHitTester(), workAreaDip: NoteTestBench.WorkAreaProvider);
 
-            // The real hit test must resolve the gaze to one of the two note windows.
-            var root = new NoteHitTester().RootWindowAt(bottomClose);
-            Check.WithCustomMessage("WindowFromPoint must land on one of the two shown note windows")
-                .That(new[] { bottomHandle, topHandle }.Contains(root)).IsTrue();
+            DpiHelper.Initialize(2.0, 2.0);
+            try
+            {
+                var anchorBottom = new PhysicalPoint(1600, 1000);
+                var anchorTop = new PhysicalPoint(1640, 1000);
+                var bottomId = TypeIntoNewSavedNote(manager, "bottom", anchorBottom);
+                var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
+                var bottomHandle = new WindowInteropHelper(manager.WindowForTest(bottomId)!).EnsureHandle();
+                var topHandle = new WindowInteropHelper(manager.WindowForTest(topId)!).EnsureHandle();
+                var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
 
-            // The gaze rests on the bottom note's ✕, but the TOP window (shown last) is hit-testably
-            // on top: the bottom ✕ — strictly nearest — must be filtered, and the top one takes the
-            // dwell (P2 D5: into its chip).
-            ArmThenHold(manager, bottomClose, startUs: 0);
-            Check.WithCustomMessage("the bottom note's ✕ must never fire under the top window")
-                .That(manager.ActiveNotes.First(n => n.Id == bottomId).State).IsEqualTo(NoteState.Display);
-            Check.WithCustomMessage("the topmost window's ✕ takes the dwell")
-                .That(manager.ActiveNotes.First(n => n.Id == topId).State).IsEqualTo(NoteState.PendingUndo);
+                // The real hit test must resolve the gaze to one of the two note windows.
+                var root = new NoteHitTester().RootWindowAt(bottomClose);
+                Check.WithCustomMessage("WindowFromPoint must land on one of the two shown note windows")
+                    .That(new[] { bottomHandle, topHandle }.Contains(root)).IsTrue();
+
+                // The gaze rests on the bottom note's ✕, but the TOP window (shown last) is hit-testably
+                // on top: the bottom ✕ — strictly nearest — must be filtered, and the top one takes the
+                // dwell (P2 D5: into its chip).
+                ArmThenHold(manager, bottomClose, startUs: 0);
+                Check.WithCustomMessage("the bottom note's ✕ must never fire under the top window")
+                    .That(manager.ActiveNotes.First(n => n.Id == bottomId).State).IsEqualTo(NoteState.Display);
+                Check.WithCustomMessage("the topmost window's ✕ takes the dwell")
+                    .That(manager.ActiveNotes.First(n => n.Id == topId).State).IsEqualTo(NoteState.PendingUndo);
+            }
+            finally { DpiHelper.Initialize(1.0, 1.0); }
         }
-        finally { NoteManager.RealNoteWindows = wasReal; DpiHelper.Initialize(1.0, 1.0); }
+        finally
+        {
+            // The seam is process-global: ALWAYS restore it, even when an assertion above fails.
+            NoteManager.RealNoteWindows = false;
+        }
     }
 
     // ── helpers ──

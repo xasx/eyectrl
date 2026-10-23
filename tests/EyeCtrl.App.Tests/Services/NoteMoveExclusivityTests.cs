@@ -2,11 +2,13 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 
 [Collection("DpiHelper Tests (App)")]
 public class NoteMoveExclusivityTests
@@ -102,8 +104,10 @@ public class NoteMoveExclusivityTests
 
             Check.WithCustomMessage("the Other-side dwell applied its judged side")
                 .That(manager.PlacementForTest(id)!.Side).IsEqualTo(judged!.Side);
-            Check.WithCustomMessage("the Other-side dwell applied its judged window rect")
-                .That(manager.PlacementForTest(id)!.Window).IsEqualTo(judged!.Window);
+            Check.WithCustomMessage("the Other-side dwell applied its judged window rect — the "
+                    + "judged candidate plus the number tag's top strip (T6 fixup-01)")
+                .That(manager.PlacementForTest(id)!.Window)
+                .IsEqualTo(NoteLayout.WithTagClearance(judged!, NoteSettings.DefaultTextSizeDip).Window);
             Check.That(manager.ActiveNotes[0].Side).IsEqualTo(NoteSide.Above);
             Check.WithCustomMessage("the dwell ends the move")
                 .That(manager.IsMoving).IsFalse();

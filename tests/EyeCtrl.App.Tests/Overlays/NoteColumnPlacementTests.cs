@@ -107,7 +107,7 @@ public class NoteColumnPlacementTests
             Check.That(visible).IsStrictlyGreaterThan(0);
             foreach (var slot in NoteLayout.SlotsFor(state))
             {
-                var (cx, cy) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
+                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
                 var cell = new Rect(cx - 40, cy - 40, 80, 80);
                 Check.WithCustomMessage($"{side}/{state}/{size}: cell {slot} {cell} overlaps the text {textBounds}")
                     .That(cell.IntersectsWith(textBounds)).IsFalse();

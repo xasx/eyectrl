@@ -202,7 +202,7 @@ public class OverlayClientOriginTests
     private static Window Build(Type type, List<Action> cleanups)
     {
         if (type == typeof(NoteWindow)) return new NoteWindow("probe");
-        if (type == typeof(NotePlaceHereWindow)) return new NotePlaceHereWindow();
+        if (type == typeof(NotePlaceHereWindow)) return new NotePlaceHereWindow(NoteSettings.DefaultTextSizeDip);
         if (type == typeof(NoteNoticeWindow)) return new NoteNoticeWindow { ShowRealWindow = false };
         if (type == typeof(SettingsWindow)) return BuildSettingsWindow(cleanups);
         // The lag-mark button's dwell time is required, so it gets its own factory (T0(a)).

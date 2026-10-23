@@ -91,7 +91,12 @@ public class ContainerRatioCensusTests
             [
                 ("Solo", 1, "the note control discs' glyphs - a label-less gaze disc (T5 review-02 "
                     + "F2): the DwellArcButton convention for discs, about 32 DIP of the 56 DIP "
-                    + "disc. The P4 body text is the setting, not a ratio."),
+                    + "disc. The P4 body text is the setting, not a ratio. The T6 number badge's "
+                    + "numeral USED to read this bucket too (fixup-04): it was sized at a fixed "
+                    + "fraction of the constant tag height, but the tag now derives from the note's "
+                    + "text size, and a numeral fixed at 0.58 of a tag that grows with the body text "
+                    + "would outscale the text it sits beside at the larger sizes — so the numeral "
+                    + "is now text-scaled (TagNumeralScale) and reads no bucket."),
             ],
             ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs"] =
             [

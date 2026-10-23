@@ -67,8 +67,9 @@ public sealed class NoteNoticeWindow : OverlayWindow
 
     private bool _showingForTest;
 
-    /// <param name="realHwnd">Whether the manager's show seam allows a REAL window: a headless test run
-    /// passes false, so the notice never paints even if a test forgot its own <see cref="ShowRealWindow"/> opt-out.</param>
+    /// <param name="realHwnd">Whether the manager's show seam allows a REAL window (T6 fixup-09):
+    /// a headless test run passes false, so the notice never paints even if a test forgot its own
+    /// <see cref="ShowRealWindow"/> opt-out.</param>
     public void ShowAt(Rect dipRect, bool realHwnd = true)
     {
         _card.BeginAnimation(UIElement.OpacityProperty, null);
@@ -124,7 +125,7 @@ public sealed class NoteNoticeWindow : OverlayWindow
     {
         bounds = default;
         // A hidden window is not displayed: the seam's own flag wins only while the HWND is
-        // also not visible.
+        // also not visible (T6 fixup-09).
         if (!IsVisible && !_showingForTest)
             return false;
         bounds = new PhysicalRect(

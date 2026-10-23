@@ -62,4 +62,14 @@ public class NoteData
     /// <summary>What a <see cref="NoteState.PendingUndo"/> chip can reverse. Null in every other
     /// state; set exactly when the chip is entered (P2 D5).</summary>
     public PendingUndoKind? UndoKind { get; set; }
+
+    /// <summary>
+    /// The badge numeral (T6 P5): the LOWEST free positive integer at creation, kept for the
+    /// note's whole lifetime — through Edit, Display, Move and a PendingUndo chip (Undo restores
+    /// the same number) — and released only when the note is finally gone: chip expiry, a chip
+    /// yielded at capacity, or an empty new note discarded or Done. A chip still HOLDS its
+    /// number, so a note pinned while a chip is up never takes the chip's number. Never
+    /// serialized (v1 has no persistence); 0 only before the manager assigns it.
+    /// </summary>
+    public int Number { get; set; }
 }

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using EyeCtrl.App.Tests.TestSupport;
 
+using System;
 using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -9,6 +10,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
@@ -24,6 +26,12 @@ public class NotePlaceTriggerTests
     // height) and T8 (text size) cannot change the fixed T4 card size — they re-derive through
     // ApplyPlacementToNodeWindow's seam once T5's auto-height and setting land (documented at the
     // manager's Apply).
+    //
+    // T6 fixup-07 F2 changed what an Edit note does when a keyboard covers a side: the 24 DIP
+    // clearance now holds in BOTH placement passes (measured on the window that is drawn, tag
+    // strip included), so a side that only "fits" no longer wins. These tests therefore pin the
+    // CLEARANCE - the card, its cells and the number tag keep the gap - rather than the side the
+    // cycle happened to land on.
 
     [StaFact]
     public void KeyboardShow_WhileEditing_RePlaces_ClearOfTheKeyboard_Restores_AfterDone()
@@ -40,7 +48,7 @@ public class NotePlaceTriggerTests
             manager.Apply(new NoteAppend("hello"));      // a draft to save: Done takes the straight-back exit
             var editing = manager.PlacementForTest(id)!;
             Check.That(editing.Side).IsEqualTo(NoteSide.Right);
-            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 580, 340)); // tail zone + card, DIP (P4 card: 550 text+column+gap)
+            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 580, 340) with { Y = 330 - NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip), Height = 340 + NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip) }); // tail zone + card, DIP (P4 card: 550 text+column+gap), grown up by the number tag's protrusion
 
             // T1: the keyboard appears over the card's right-side window (the bench work area DIP
             // rect doubled to physical when the probe delivers it).
@@ -49,8 +57,13 @@ public class NotePlaceTriggerTests
             probe.RaiseChanged();
 
             var moved = manager.PlacementForTest(id)!;
-            Check.WithCustomMessage("the editing card must leave the covered right side").That(moved.Side).IsEqualTo(NoteSide.Left);
-            Check.That(moved.Window.IntersectsWith(new Rect(800, 370, 330, 260))).IsFalse();
+            var keyboard = new Rect(800, 370, 330, 260);
+            Check.WithCustomMessage("the editing card must leave the covered right side")
+                .That(moved.Card.IntersectsWith(keyboard)).IsFalse();
+            // T6 fixup-07 F2, review-07 nit: the DRAWN window holds the card, the tail zone and
+            // the tag strip, so one gap on it is stronger than the card and tag separately.
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the keyboard")
+                .That(GapFrom(moved.Window, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
             Check.That(moved.Window.IntersectsWith(editing.Window)).IsFalse();
             Check.WithCustomMessage("the moved card stays inside the work-area inset")
                 .That(moved.Window.Top >= NoteLayout.Constants.EdgeMarginDip && moved.Window.Top + moved.Window.Height <= 1200 - NoteLayout.Constants.EdgeMarginDip).IsTrue();
@@ -87,8 +100,12 @@ public class NotePlaceTriggerTests
             probe.RaiseChanged();
 
             var after = manager.PlacementForTest(id)!;
-            Check.That(after.Side).IsEqualTo(NoteSide.Left);
-            Check.That(after.Window.IntersectsWith(new Rect(806, 378, 350, 290))).IsFalse();
+            var keyboard = new Rect(806, 378, 350, 290);
+            Check.WithCustomMessage("the editing card must leave the keyboard")
+                .That(after.Card.IntersectsWith(keyboard)).IsFalse();
+            // review-07 nit: one gap on the DRAWN window (card + tail zone + tag strip).
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the keyboard")
+                .That(GapFrom(after.Window, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
             Check.That(after.Window.IntersectsWith(before.Window)).IsFalse();
         }
         finally
@@ -126,11 +143,17 @@ public class NotePlaceTriggerTests
             probe.RaiseChanged();
 
             var after = manager.PlacementForTest(id)!;
-            Check.That(after.Side).IsEqualTo(NoteSide.Above);
+            var leftColumn = new Rect(454, 778, 150, 250);
+            var rightColumn = new Rect(1200, 778, 500, 250);
+            Check.WithCustomMessage("the note must find a free spot clear of both columns")
+                .That(after.Card.IntersectsWith(leftColumn) || after.Card.IntersectsWith(rightColumn)).IsFalse();
+            // review-07 nit: one gap on the DRAWN window (card + tail zone + tag strip).
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the left column")
+                .That(GapFrom(after.Window, leftColumn)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            Check.WithCustomMessage("the drawn window must keep the clearance gap from the right column")
+                .That(GapFrom(after.Window, rightColumn)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
             Check.WithCustomMessage("the Above side sits inside the work-area inset")
                 .That(after.Window.Left >= NoteLayout.Constants.EdgeMarginDip && after.Window.Right <= 1920 - NoteLayout.Constants.EdgeMarginDip).IsTrue();
-            Check.That(after.Window.IntersectsWith(new Rect(454, 778, 150, 250))).IsFalse();
-            Check.That(after.Window.IntersectsWith(new Rect(1200, 778, 500, 250))).IsFalse();
         }
         finally
         {
@@ -249,5 +272,19 @@ public class NotePlaceTriggerTests
             .That(source.Contains("SystemParameters.StaticPropertyChanged+=OnSystemPropertyChanged;")).IsTrue();
         Check.WithCustomMessage("NoteManager.Dispose no longer unsubscribes SystemParameters.StaticPropertyChanged.")
             .That(source.Contains("SystemParameters.StaticPropertyChanged-=OnSystemPropertyChanged;")).IsTrue();
+    }
+    /// <summary>The number tag's rect in SCREEN coordinates (NoteLayout returns it window-relative).</summary>
+    private static Rect TagRect(NotePlacement placement, double textSizeDip)
+    {
+        var tag = NoteLayout.TagRect(placement, textSizeDip);
+        return new Rect(placement.Window.X + tag.X, placement.Window.Y + tag.Y, tag.Width, tag.Height);
+    }
+
+    /// <summary>The clearance between two rects: zero when they touch or overlap.</summary>
+    private static double GapFrom(Rect window, Rect rect)
+    {
+        double dx = Math.Max(rect.Left - window.Right, 0) + Math.Max(window.Left - rect.Right, 0);
+        double dy = Math.Max(rect.Top - window.Bottom, 0) + Math.Max(window.Top - rect.Bottom, 0);
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 }

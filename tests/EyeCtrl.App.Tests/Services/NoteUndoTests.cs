@@ -275,7 +275,8 @@ public class NoteUndoTests
                 .That(after.Card.Width).IsEqualTo(full.Card.Width);
             Check.That(after.Card.Height).IsEqualTo(full.Card.Height);
             var window = manager.WindowForTest(id)!;
-            Check.That((window.Width, window.Height)).IsEqualTo((after.Window.Width, after.Window.Height));
+            Check.WithCustomMessage("the real window must follow the chip placement")
+                .That((window.Width, window.Height)).IsEqualTo((after.Window.Width, after.Window.Height));
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

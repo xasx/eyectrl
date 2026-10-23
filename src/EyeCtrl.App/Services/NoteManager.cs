@@ -8,6 +8,7 @@ using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -104,6 +105,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private readonly Dictionary<string, IntPtr> _undoTargetWindows = new();
     // Per-chip accumulated reachable time, keyed by note id (insertion order is the chip's age).
     private readonly Dictionary<string, double> _chipReachedMs = new();
+    // The chip's CAPTURED geometry (T6 fixup-06 G1): the text size it was composed at and the
+    // measured column its text is drawn in. A pending Undo is a transient affordance the owner
+    // may already be reaching for, and the chip is size-DEPENDENT now (its text reads at the
+    // note's own size, so its card grows with it). Re-placing a chip on a later text-size
+    // change would move the Undo cell out from under a resting gaze (R12's invariant) and
+    // re-wrap a line the owner has already read, so the size is FROZEN with the chip instead.
+    // The chip lives 8 s of reachable time; Undo restores the full card at the CURRENT size.
+    private readonly Dictionary<string, ChipGeometry> _chipGeometry = new();
+
+    /// <summary>The chip's frozen geometry: the text size it was composed at and the measured
+    /// text column its text is drawn in (T6 fixup-06 G1).</summary>
+    private readonly record struct ChipGeometry(double TextSizeDip, double ColumnWidthDip);
     // The injected monotonic clock, in milliseconds. Production: Environment.TickCount64.
     private readonly Func<long> _clockMs;
     // The injected 100 ms UI timer; created lazily so tests and non-UI constructions never pay
@@ -302,14 +315,33 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>The full card size for <paramref name="note">: the card width is fixed by
     /// the layout for the current text-size setting; the height derives from the note's
     /// actual text (the edit draft while editing) clamped by this work area's height.</summary>
-    private Size CardSizeFor(NoteData note)
+    private Size CardSizeFor(NoteData note) => CardSizeFor(note, _noteSettings.TextSizeDip);
+
+    /// <summary>The full card size for <paramref name="note"/> at an EXPLICIT text size
+    /// (T6 fixup-06 G1): the chip's captured size, which the current setting may no longer be.</summary>
+    private Size CardSizeFor(NoteData note, double textSize)
     {
-        double size = _noteSettings.TextSizeDip;
         double workHeight = WorkAreaDip().Height;
         string text = note.State == NoteState.Edit ? note.Draft : note.Text;
-        double textHeight = Window(note.Id)?.MeasureTextHeightDip(text) ?? 0;
-        return new Size(NoteLayout.CardWidthDip(size), NoteLayout.CardHeightDip(size, textHeight, workHeight));
+        double textHeight = Window(note.Id)?.MeasureTextHeightDip(text, textSize) ?? 0;
+        return new Size(NoteLayout.CardWidthDip(textSize), NoteLayout.CardHeightDip(textSize, textHeight, workHeight));
     }
+
+    /// <summary>
+    /// The chip's geometry at a text size (T6 fixup-06 G1): the size itself and the MEASURED
+    /// column that holds every chip text in at most two lines.
+    /// </summary>
+    private static ChipGeometry ChipGeometryAt(double textSizeDip)
+    {
+        var texts = ChipTextCandidates();
+        return new ChipGeometry(textSizeDip, NoteLayout.ChipTextWidthDip(textSizeDip, texts));
+    }
+
+    /// <summary>The chip's captured geometry, or the current one when the note is not a chip.</summary>
+    private ChipGeometry ChipGeometryFor(NoteData note) =>
+        _chipGeometry.TryGetValue(note.Id, out var geometry)
+            ? geometry
+            : ChipGeometryAt(_noteSettings.TextSizeDip);
 
     /// <summary>The chip placement (P4 D3, the owner default "the note window shrunk in place"):
     /// the chip card re-placed from the anchor, then TRANSLATED so its window top-left equals the
@@ -327,8 +359,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// </para></summary>
     private NotePlacement ChipPlacementFor(NoteData note)
     {
-        var full = PlaceFor(note, avoidKeyboard: false);
-        var chip = NoteLayout.Place(note.Anchor, full.Side, NoteLayout.ChipCardSize(), WorkAreaDip(),
+        // T6 fixup-06 G1: the chip's size is its CAPTURED one (the text size it was composed
+        // at), so a later text-size change cannot resize the card under a resting gaze, and
+        // the full card it is measured against is measured at that same size.
+        var geometry = ChipGeometryFor(note);
+        var full = PlaceFor(note, avoidKeyboard: false, textSizeDip: geometry.TextSizeDip);
+        var chip = NoteLayout.Place(note.Anchor, full.Side,
+            NoteLayout.ChipCardSize(geometry.TextSizeDip, ChipTextCandidates()), WorkAreaDip(),
             new List<Rect>(), DpiHelper.ScaleX)!;
         // B1: the translation anchors the full card COLUMN edge (the card edge away from the
         // tail: the window right for Right/Below/Above, the window left for Left), so the Undo
@@ -387,11 +424,25 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// over the note's anchor and side, the card size, the injected work area and — only in the
     /// Edit state — the keyboard's avoid rects. Tests derive their expected geometry through the
     /// same closure via the stored placement (see <see cref="PlacementForTest"/>).</summary>
-    private NotePlacement PlaceFor(NoteData note, bool avoidKeyboard)
+    private NotePlacement PlaceFor(NoteData note, bool avoidKeyboard) =>
+        PlaceFor(note, avoidKeyboard, _noteSettings.TextSizeDip);
+
+    /// <summary>Derives the placement for a note at an EXPLICIT text size (T6 fixup-06 G1: the
+    /// chip's captured size).</summary>
+    private NotePlacement PlaceFor(NoteData note, bool avoidKeyboard, double textSizeDip)
     {
         var placement = NoteLayout.Place(
-            note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(), AvoidRectsDip(avoidKeyboard),
-            DpiHelper.ScaleX);
+            note.Anchor, note.Side, CardSizeFor(note, textSizeDip), WorkAreaDip(), AvoidRectsDip(avoidKeyboard),
+            DpiHelper.ScaleX, exclude: null,
+            // T6 fixup-06 G2: the displaced candidates are the EDIT state's alone. A note whose
+            // anchor lies under the keyboard steps clear of it instead of landing on it; Display,
+            // Move and the chips keep the placement they always had.
+            allowDisplaced: avoidKeyboard,
+            // T6 fixup-07 F2: the Edit rules are measured on the window that is DRAWN - the one
+            // the number tag grows upward - so the tag never comes within a key's reach of the
+            // keyboard, let alone overlaps it. Zero everywhere else, so those placements stay
+            // byte-identical.
+            topGrowthDip: avoidKeyboard ? NoteLayout.TagProtrusionDip(textSizeDip) : 0.0);
         return placement ?? throw new InvalidOperationException(
             "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
     }
@@ -403,9 +454,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// drawn-tree references stay valid, review-01's drawn⌁registered invariant holds).</summary>
     private void ApplyPlacementToWindow(NoteData note)
     {
-        var placement = note.State == NoteState.PendingUndo
+        var placement = NoteLayout.WithTagClearance(note.State == NoteState.PendingUndo
             ? ChipPlacementFor(note)
-            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit);
+            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit), _noteSettings.TextSizeDip);
 
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
@@ -450,18 +501,25 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>T8 (P3 D3): the note text-size setting changed. Every window re-renders at the
     /// new size first, then every note re-derives with it (the cards resize) and the
     /// registration is rebuilt, so every cell centre follows. Chips derive from the
-    /// size-independent chip card, so a chip shrunk in place does not move.</summary>
+    /// size-independent chip card, so a chip shrunk in place does not move.
+    /// <para>
+    /// T6 fixup-06 G1: the chip is NOT size-independent any more - its text reads at the note's
+    /// own size and its card grows with it. A pending chip keeps the size it was COMPOSED at
+    /// (see <see cref="_chipGeometry"/>): re-placing it here would move the Undo cell out from
+    /// under a resting gaze (R12) and re-wrap a line the owner has already read, and the chip
+    /// lives 8 s at most. Undo restores the full card at the current size.
+    /// </para></summary>
     private void OnNoteTextSizeChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (_disposed) return;
         if (e.PropertyName is not (nameof(NoteSettings.TextSizeDip) or "")) return;
         foreach (var window in _windows.ToList())
             window.SetTextSize(_noteSettings.TextSizeDip);
-        // R12: chips are size-independent - the chip card does not depend on the text size, so
-        // re-placing one through T8 can only move it wrongly. T6 and T1 re-place chips with
-        // their Undo-target re-registration (review-01 M3).
+        // R12: a chip keeps its captured size - it is not re-placed here (T6 fixup-06 G1).
         foreach (var note in _notes.Where(n => n.State != NoteState.PendingUndo).ToList())
             ApplyPlacementToWindow(note);
+        // The Place-here window reads at the note's size too (T6 fixup-06 G1).
+        RefreshPlaceWindow();
         ReRegisterAllTargets();
         RaiseTargetsChanged();
     }
@@ -568,11 +626,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             FinalizeOldestYieldableChip();
         }
 
-        var data = new NoteData { Anchor = point, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
+        var data = new NoteData { Anchor = point, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty, Number = LowestFreeNumber() };
         var window = new NoteWindow(data.Id);
+        window.ControlInputActivated +=
+            (suffix, kind, fromStylus) => RunControlInput(data.Id, suffix, kind, fromStylus); // T6 P5: caretaker touch/click
+        // T6 fixup-02 m1: the window's mouse press must be made while paused, and only the
+        // manager owns the pause poll — forwarded for the press half of the pending gate. The
+        // lambda re-reads `_pausePoll` at call time, so a later SetPausePoll still applies.
+        window.PausePollForInput = () => _pausePoll?.Invoke() ?? false;
         _notes.Add(data);
         _windows.Add(window);
-        _placements[data.Id] = NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!;
+        _placements[data.Id] = NoteLayout.WithTagClearance(
+            NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!,
+            _noteSettings.TextSizeDip);
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply
@@ -912,8 +978,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (kind == PendingUndoKind.Removed)
             note.Draft = note.Text; // the saved text is Undo's payload; Discarded* keep their draft
 
+        // T6 fixup-06 G1: the chip's size is CAPTURED here, before the first placement, so the
+        // chip is composed at the note's current text size and stays that way (see
+        // _chipGeometry). A text-size change while the chip is pending leaves it alone.
+        var geometry = ChipGeometryAt(_noteSettings.TextSizeDip);
+        _chipGeometry[note.Id] = geometry;
+
         // T1-T5's shared restore (P3 D3): out of Edit, the re-derivation drops the keyboard avoid
-        // and the chip returns to its anchor-based rect (the saved side) — every chip kind walks
+        // and the chip returns to its anchor-based rect (the saved side) - every chip kind walks
         // through here, so this one call covers Done-Removed, DiscardedNew and DiscardedExisting.
         ApplyPlacementToWindow(note);
 
@@ -921,7 +993,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (window != null)
         {
             window.SetState(NoteState.PendingUndo);
-            window.SetChipText(ChipText(kind));
+            window.SetChipText(ChipText(kind), geometry.TextSizeDip, geometry.ColumnWidthDip);
         }
         ReRegisterAllTargets();
         RegisterUndoTarget(note.Id);
@@ -933,11 +1005,43 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     }
 
     /// <summary>The chip's text, kind-dependent, through the localization table (P2 D5's
-    /// "Note removed · Undo" / "Changes discarded · Undo" and their German strings).</summary>
-    private static string ChipText(PendingUndoKind kind) => StringTable.Current.T(
-        kind == PendingUndoKind.Removed
-            ? "overlays.note.chip.removed"
-            : "overlays.note.chip.discarded");
+    /// "Note removed · Undo" / "Changes discarded · Undo" and their German strings). The
+    /// no-break space before the middot is applied HERE, in code (T6 fixup-07): the strings
+    /// themselves are never edited.</summary>
+    private static string ChipText(PendingUndoKind kind) => NoteLayout.NoBreakBeforeDot(
+        StringTable.Current.T(
+            kind == PendingUndoKind.Removed
+                ? "overlays.note.chip.removed"
+                : "overlays.note.chip.discarded"));
+
+    /// <summary>
+    /// Every chip text the column must hold, in EVERY shipped language (T6 fixup-06 G1): the
+    /// measured column is the max over them, so the longest one still fits in two lines and a
+    /// language switch can never leave a chip's text outside its column. The German resolves
+    /// only where the shipped table carries it and the overlays surface is German-approved;
+    /// otherwise it falls back to the English text, which is the text that will be drawn.
+    /// <para>
+    /// The same no-break space the DRAWN text gets is applied here (T6 fixup-07), so the texts
+    /// the column is measured from are the texts that are drawn.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<string> ChipTextCandidates()
+    {
+        var table = StringTable.Current;
+        var texts = new List<string>(4);
+        void Add(string text)
+        {
+            text = NoteLayout.NoBreakBeforeDot(text);
+            if (!texts.Contains(text)) texts.Add(text);
+        }
+
+        foreach (var language in new[] { UiLanguage.English, UiLanguage.German })
+        {
+            Add(table.T(language, "overlays.note.chip.removed"));
+            Add(table.T(language, "overlays.note.chip.discarded"));
+        }
+        return texts;
+    }
 
     /// <summary>Registers the chip's Undo dwell target in <see cref="_undoDetector"/> over the
     /// drawn ↺ disc (slot 0 of the chip render — the same NoteLayout math as every other
@@ -1048,6 +1152,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private void ConsumeChip(NoteData note)
     {
         _chipReachedMs.Remove(note.Id);
+        _chipGeometry.Remove(note.Id);
         _undoDetector.RemoveTarget($"{note.Id}:undo");
         _undoTargetWindows.Remove($"{note.Id}:undo");
         _targetsAwaitingGazeLeave.Remove($"{note.Id}:undo");
@@ -1396,7 +1501,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // raise re-derives through the Move re-registration below (OnKeyboardProbeChanged), so
         // Other side re-appears the moment T1 frees the room back.
         var other = NoteLayout.Place(note.Anchor, next, CardSizeFor(note), WorkAreaDip(),
-            AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side);
+            AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side,
+            // T6 fixup-06 G2: the Move state never displaces - the "Other side" offer must be a
+            // side that EXISTS beside the note, and a displaced window is neither (the Edit
+            // state is the only one that opts in).
+            allowDisplaced: false);
         _judgedOtherSideForMoving = other;
         bool otherFits = other is not null;
         Window(note.Id)?.SetOtherSideAvailable(otherFits);
@@ -1452,12 +1561,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             return;
         }
         note.Side = other.Side;
-        _placements[noteId] = other;
+        var grown = NoteLayout.WithTagClearance(other, _noteSettings.TextSizeDip);
+        _placements[noteId] = grown;
         if (Window(noteId) is { } window)
         {
-            window.ApplyPlacement(other);
-            window.Left = other.Window.Left;
-            window.Top = other.Window.Top;
+            window.ApplyPlacement(grown);
+            window.Left = grown.Window.Left;
+            window.Top = grown.Window.Top;
         }
         LeaveMove(note);
     }
@@ -1480,8 +1590,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
-        var placement = NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX)!;
+        var placement = NoteLayout.WithTagClearance(NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
+            new List<Rect>(), DpiHelper.ScaleX)!, _noteSettings.TextSizeDip);
         _placements[id] = placement;
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
@@ -1498,19 +1608,39 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// chrome zones (P2 D7). NOT called from the gaze-driven <c>:place</c> centre updates — see
     /// the message's doc for why that would be a per-sample walk.
     /// </summary>
-    private void RaiseTargetsChanged() => _messenger.Send(new NoteTargetsChangedMessage());
+    private void RaiseTargetsChanged()
+    {
+        // T6 P5: every membership or state change funnels through here (create, remove, chip
+        // entry, Undo, expiry), so the badges re-derive at the same point the targets do.
+        RefreshBadges();
+        _messenger.Send(new NoteTargetsChangedMessage());
+    }
 
     /// <inheritdoc />
     public IReadOnlyList<PhysicalRect> ChromeRects()
     {
         var rects = new List<PhysicalRect>(_notes.Count * 4 + 1);
+        // T6 fixup-01: the tag's straddled half rides ABOVE the card — outside every other
+        // chrome rect — so activation offers and keep-clears must see it. It follows the exact
+        // badge-visibility rule (RefreshBadges): shown on card notes only while TWO OR MORE
+        // notes are non-chips; a lone card note or a chip carries none.
+        bool badged = _notes.Count(n => n.State != NoteState.PendingUndo) >= 2;
         foreach (var note in _notes)
         {
             // P3 D2: the card is the drawn card (the placement's Card rect, tail zone excluded —
             // P2 D7 keeps the tail and the raw window rect out of the chrome zones), and the three
             // column cells follow the placement's side.
             if (_placements.TryGetValue(note.Id, out var placement))
+            {
                 rects.Add(DipRectToPhysical(placement.Card));
+                if (badged && note.State != NoteState.PendingUndo)
+                {
+                    var tagLocal = NoteLayout.TagRect(placement, _noteSettings.TextSizeDip);
+                    rects.Add(DipRectToPhysical(new Rect(
+                        placement.Window.X + tagLocal.X, placement.Window.Y + tagLocal.Y,
+                        tagLocal.Width, tagLocal.Height)));
+                }
+            }
 
             // The occupied cells only (P4 D3): the gap cell and the states other rows are
             // chrome for nobody.
@@ -1535,7 +1665,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         centre = default;
         if (!_placements.TryGetValue(noteId, out var placement))
             return false;
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
         centre = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
@@ -1649,14 +1779,20 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private void ShowPlaceHere(NoteData moving, PhysicalPoint centroidPhysical)
     {
         var work = WorkAreaDip();
-        double w = LayoutConstants.NotePlaceHereWidthDip, h = LayoutConstants.NotePlaceHereHeightDip;
-        var centroidDip = ToDipPoint(centroidPhysical);        double x = centroidDip.X + LayoutConstants.NotePlaceHereOffsetDip;
+        // T6 fixup-07 F3: the window is created once and only hidden afterwards, so it can carry
+        // a stale size from a text-size change made while it was hidden. Re-apply the current
+        // size before its size is read - the call is idempotent.
+        _placeWindow ??= new NotePlaceHereWindow(_noteSettings.TextSizeDip);
+        _placeWindow.SetTextSize(_noteSettings.TextSizeDip);
+        var size = _placeWindow.SizeDip;
+        double w = size.Width, h = size.Height;
+        var centroidDip = ToDipPoint(centroidPhysical);
+        double x = centroidDip.X + LayoutConstants.NotePlaceHereOffsetDip;
         double y = centroidDip.Y - h / 2;
         x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right - w));
         y = Math.Clamp(y, work.Top, Math.Max(work.Top, work.Bottom - h));
 
         _placeWindowRect = new Rect(x, y, w, h);
-        _placeWindow ??= new NotePlaceHereWindow();
         _placeWindow.Left = x;
         _placeWindow.Top = y;
         _placeWindow.ShowForDisplay(RealNoteWindows);
@@ -1667,6 +1803,26 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         LatchTargetsUnderTheGaze();
     }
 
+    /// <summary>
+    /// The Place-here window follows the note's text size (T6 fixup-06 G1): its label is
+    /// re-composed at the new size, the rect follows the REAL window size, and the dwell target
+    /// is re-registered over the new centre — a target left on the old centre would sit off
+    /// the label and never fire.
+    /// </summary>
+    private void RefreshPlaceWindow()
+    {
+        if (_placeWindow is null || !_placeShown || _movingNoteId is not { } movingId) return;
+        _placeWindow.SetTextSize(_noteSettings.TextSizeDip);
+        var size = _placeWindow.SizeDip;
+        var work = WorkAreaDip();
+        double x = Math.Clamp(_placeWindowRect.X, work.Left, Math.Max(work.Left, work.Right - size.Width));
+        double y = Math.Clamp(_placeWindowRect.Y, work.Top, Math.Max(work.Top, work.Bottom - size.Height));
+        _placeWindowRect = new Rect(x, y, size.Width, size.Height);
+        _placeWindow.Left = x;
+        _placeWindow.Top = y;
+        RegisterPlaceTarget(movingId);
+    }
+
     /// <summary>Registers (or re-registers) the {noteId}:place dwell target over the current
     /// Place-here window rect (P3 D4). The target lives in the main detector and its own-window
     /// mapping points at the Place-here window itself, NOT the moving note's card: the conjunct
@@ -1675,8 +1831,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// drop a live <c>:place</c>.</summary>
     private void RegisterPlaceTarget(string noteId)
     {
-        double pw = LayoutConstants.NotePlaceHereWidthDip / 2;
-        double ph = LayoutConstants.NotePlaceHereHeightDip / 2;
+        // T6 fixup-06 G1: the target sits at the REAL window's centre - the rect the window
+        // actually occupies, not the old constant-sized box.
+        double pw = _placeWindowRect.Width / 2;
+        double ph = _placeWindowRect.Height / 2;
         _dwellDetector.RemoveTarget($"{noteId}:place");
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:place", new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(_placeWindowRect.X + pw),
@@ -1963,6 +2121,39 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// truth in production (SystemParameters.WorkArea) and under test (the injected provider).</summary>
     public void Receive(DisplayGeometryChangedMessage message) => RePlaceEveryNote();
 
+    /// <summary>
+    /// T6 P5: the LOWEST free positive integer among the live notes' numbers. Computed BEFORE a
+    /// new note joins <see cref="_notes"/>, so its own number never collides. A chip still holds
+    /// its number (it stays in <c>_notes</c> until its final removal), so Undo restores the same
+    /// numeral and a note pinned over a chip never takes the chip's number — release happens
+    /// only when <see cref="RemoveNoteInternal"/> drops the note.
+    /// </summary>
+    private int LowestFreeNumber()
+    {
+        var used = new HashSet<int>(_notes.Select(n => n.Number));
+        for (int candidate = 1; ; candidate++)
+            if (!used.Contains(candidate))
+                return candidate;
+    }
+
+    /// <summary>
+    /// T6 P5: pushes every window's badge numeral. Badges show on the card notes only while
+    /// TWO OR MORE notes are NOT chips (Display, Edit or Move); chips never show one and never
+    /// count. Idempotent per window (<c>SetBadge</c> early-returns unchanged values) and cheap
+    /// (≤ MaxNotes windows), so riding <see cref="RaiseTargetsChanged"/> — the funnel every
+    /// membership and state change already walks — cannot hot-loop it.
+    /// </summary>
+    private void RefreshBadges()
+    {
+        if (_disposed) return;
+        bool visible = _notes.Count(n => n.State != NoteState.PendingUndo) >= 2;
+        foreach (var note in _notes)
+        {
+            int? number = visible && note.State != NoteState.PendingUndo ? note.Number : null;
+            Window(note.Id)?.SetBadge(number);
+        }
+    }
+
     /// <summary>T6's SystemParameters trigger (P3 D3): the DisplayGeometryChangedMessage does
     /// not fire on a taskbar resize or auto-hide; this does.</summary>
     private void OnSystemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -2020,7 +2211,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
-        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
         _notes.Add(data);
         RegisterDwellTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -2037,7 +2228,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         ExitEditing(commit: true, handOver: true);
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
-        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
         _notes.Add(data);
         RegisterSoleEditorTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -2057,7 +2248,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddMovingNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Move };
-        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
         _notes.Add(data);
         _movingNoteId = data.Id;
         _settleTracker.Reset();
@@ -2085,6 +2276,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal bool PlaceShownForTest => _placeShown;
     internal PhysicalPoint? PlaceCentroidForTest => _placeCentroid;
     internal Rect PlaceWindowRectForTest => _placeWindowRect;
+
+    /// <summary>Test accessor (T6 fixup-06 G1): the Place-here window itself, so a test can
+    /// check that the rect the dwell target was registered from IS the window's real size.</summary>
+    internal NotePlaceHereWindow? PlaceWindowForTest => _placeWindow;
 
     /// <summary>Test seam: the live window of a note, or null. The drawn-vs-registered ⌨ check
     /// (review 01 mutant A) needs the real window the manager drives on probe changes.</summary>
@@ -2227,7 +2422,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         if (!_placements.TryGetValue(noteId, out var placement))
             throw new InvalidOperationException($"No placement derived for note {noteId} - derive one before registering its targets");
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
         var center = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
@@ -2281,6 +2476,31 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var (noteId, _) = (parts[0], parts[1]);
         var window = _windows.FirstOrDefault(w => w.NoteId == noteId);
         window?.UpdateDwellProgress(targetId, progress);
+    }
+
+    /// <summary>T6 P5: a caretaker touch or click on a drawn control. The decision to act is the
+    /// pure <see cref="NoteInputPolicy"/>'s; its inputs are read HERE because the manager owns
+    /// them — the registration is the detector's truth (both detectors, so the chip's :undo
+    /// qualifies) and visibility is the drawn control's. Acting runs the SAME activation the
+    /// dwell path runs — <see cref="OnTargetActivated"/>, or <see cref="OnUndoActivated"/> for
+    /// the chip's control — plus the dwell's post-effect cue, so every Undo protection
+    /// (✕/Discard) and commit-first (✎) behaves exactly as it does by gaze.</summary>
+    internal void RunControlInput(string noteId, string suffix, NoteInputKind kind, bool fromStylus)
+    {
+        if (_disposed) return;
+        var targetId = $"{noteId}:{suffix}";
+        bool registered = FindTarget(targetId) is not null;
+        var window = Window(noteId);
+        bool visible = window?.IsControlDrawn(suffix) ?? false;
+        bool paused = _pausePoll?.Invoke() ?? false;
+        if (!NoteInputPolicy.Accepts(kind, paused, fromStylus, visible, registered))
+            return;
+
+        if (suffix == "undo")
+            OnUndoActivated(targetId);
+        else
+            OnTargetActivated(targetId);
+        _messenger.Send(new DwellActivationMessage());
     }
 
     public void Dispose()
@@ -2343,3 +2563,4 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _placeCentroid = null;
     }
 }
+

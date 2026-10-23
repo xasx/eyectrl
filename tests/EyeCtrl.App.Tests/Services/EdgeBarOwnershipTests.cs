@@ -262,6 +262,68 @@ public class EdgeBarOwnershipTests
              .ContainsExactly(KeyboardEdgeButtons.CloseId, KeyboardEdgeButtons.FlipId);
     }
 
+    [StaFact]
+    public void RepeatEnterFailureAfterTheClaim_ReleasesTheClaim()
+    {
+        // F6: the stop button is claimed before the rest of Enter runs. A throw after that claim
+        // (zone build, logging, ...) must not leave it on the shared bar — no state change would
+        // ever call Exit for a mode that never finished entering, so the dead stop would come back
+        // on the next owner's release.
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var bar = new TestFakes.FakeEdgeButtonBar
+        {
+            ShowButtonsFailureAfterClaim = new InvalidOperationException("the suppression zone build failed"),
+        };
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = TestFakes.MakeOverlayManager(edgeButtonBar: bar),
+            InteractionManager = new InteractionManager(),
+            Messenger = messenger,
+            Dispatcher = dispatcher,
+            Settings = settings,
+            ModesMenuVM = new ModesMenuViewModel(settings, messenger),
+        };
+        using var repeat = new RepeatModeController();
+        repeat.Initialize(context);
+
+        context.InteractionManager.EnterRepeatMode(InteractionAction.LeftClick);
+        try { Pump(dispatcher); } catch (InvalidOperationException) { /* the entering failure */ }
+
+        Check.WithCustomMessage(
+                $"bar holds [{string.Join(",", bar.ShownButtonIds)}] after calls "
+                + $"[{string.Join(",", bar.Calls)}]")
+             .That(bar.Calls).Contains("Hide");
+        Check.That(bar.EdgeBarVm!.CurrentOwner).IsNull();
+        Check.That(bar.EdgeBarVm.Buttons).IsEmpty();
+    }
+
+    [StaFact]
+    public void ScrollEnterFailureAfterTheClaim_ReleasesTheClaim()
+    {
+        // Same F6 guarantee on the scroll entry: its window/worker steps run after the claim.
+        var bar = new TestFakes.FakeEdgeButtonBar
+        {
+            ShowButtonsFailureAfterClaim = new InvalidOperationException("the scroll window refused to build"),
+        };
+        var (controller, im, _, _) =
+            ScrollModeControllerThreadingTests.NewScrollWorld(
+                new TestFakes.FakeInputSimulator(), edgeBar: bar);
+        using (controller)
+        {
+            try { ScrollModeControllerThreadingTests.EnterScrollMode(im); }
+            catch (InvalidOperationException) { /* the entering failure */ }
+
+            Check.WithCustomMessage(
+                    $"bar holds [{string.Join(",", bar.ShownButtonIds)}] after calls "
+                    + $"[{string.Join(",", bar.Calls)}]")
+                 .That(bar.Calls).Contains("Hide");
+            Check.That(bar.EdgeBarVm!.CurrentOwner).IsNull();
+            Check.That(bar.EdgeBarVm.Buttons).IsEmpty();
+        }
+    }
+
     private static void Pump(Dispatcher dispatcher) =>
         dispatcher.Invoke(() => { }, DispatcherPriority.Background);
 }

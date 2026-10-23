@@ -181,14 +181,27 @@ internal sealed class RepeatModeController : CoordinatorBase
         _stopRadiusPhysical = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
         var stopDef = CreateRepeatStopButtonDefinition(
             context.Settings.Repeat.StopButtonDwellMs, verticalOffset: stopOffset);
-        context.OverlayManager.EdgeButtonBar.ShowButtons(
-            new[] { stopDef }, edgeAnchor, EdgeBarOwner.Repeat);
 
-        ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
-        Serilog.Log.Information(
-            "Repeat mode entered: {Action}, dwell {DwellMs} ms",
-            context.InteractionManager.RepeatAction, context.Settings.Repeat.DwellMs);
-        _active = true;
+        try
+        {
+            context.OverlayManager.EdgeButtonBar.ShowButtons(
+                new[] { stopDef }, edgeAnchor, EdgeBarOwner.Repeat);
+            _active = true;   // from here an Exit exists for every later failure (F6)
+
+            ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
+            Serilog.Log.Information(
+                "Repeat mode entered: {Action}, dwell {DwellMs} ms",
+                context.InteractionManager.RepeatAction, context.Settings.Repeat.DwellMs);
+        }
+        catch
+        {
+            // A throw after the claim but before the mode is fully up must not leave the stop
+            // button's claim on the shared bar: no state change would run Exit for a mode that
+            // never finished entering, and a later owner's release would restore a dead exit.
+            try { context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Repeat); }
+            catch { /* the entering exception is the one that matters */ }
+            throw;
+        }
     }
 
     private void ApplySuppressionZones(params Core.Models.PhysicalRect[] zones)

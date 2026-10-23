@@ -71,6 +71,13 @@ public class ActionMenuModBarWiringTests
         h.PumpDispatcher();
 
         Check.That(h.ModBarCalls).Contains("Hide");
+        // The visible state, not just the call: a release that names the wrong owner records a
+        // "Hide" on this fake and leaves the real view model showing (M23).
+        Check.That(h.ModBar).IsNotNull();
+        Check.WithCustomMessage(
+                $"the mod bar still shows [{string.Join(",", h.ModBar!.ShownButtonIds)}]")
+             .That(h.ModBar.EdgeBarVm!.IsVisible).IsFalse();
+        Check.That(h.ModBar.EdgeBarVm.Buttons).IsEmpty();
         // The right bar's ownership release is a no-op on screen at this point: the menu is
         // displaced, so Hide(ActionMenu) only withdraws its saved claim and the drag's cancel —
         // the user's only way out — stays put.
@@ -201,6 +208,9 @@ public class ActionMenuModBarWiringTests
                 return _modBar.Calls;
             }
         }
+
+        /// <summary>The mod bar itself, so a test can assert its VISIBLE state (not just calls).</summary>
+        internal TestFakes.FakeEdgeButtonBar? ModBar => _modBar;
 
         internal IReadOnlyList<string> RightBarCalls => RightBar.Calls;
 

@@ -180,6 +180,7 @@ internal static class TestFakes
             if (ShowButtonsFailure is not null) throw ShowButtonsFailure;
             _vm.ShowButtons(definitions, edgeAnchor, owner);
             SyncIds();
+            if (ShowButtonsFailureAfterClaim is not null) throw ShowButtonsFailureAfterClaim;
         }
 
         /// <summary>
@@ -188,6 +189,14 @@ internal static class TestFakes
         /// reach the abort's overlay close: the factory-based failures leave nothing to close.
         /// </summary>
         public Exception? ShowButtonsFailure { get; set; }
+
+        /// <summary>
+        /// When set, <see cref="ShowButtons"/> claims on the real view model and THEN throws —
+        /// models a failure after the claim but before the caller's active flag (A4 fixup-01 F6).
+        /// The claim is genuinely on the stack when the exception leaves, so a caller that does
+        /// not release it in a catch leaves a stale owner behind.
+        /// </summary>
+        public Exception? ShowButtonsFailureAfterClaim { get; set; }
 
         public void AddButton(EdgeButtonDefinition definition)
         {

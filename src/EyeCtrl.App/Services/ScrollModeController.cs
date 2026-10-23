@@ -172,38 +172,52 @@ public class ScrollModeController : IDisposable
         var stopOffset = StopButtonVerticalOffsetPhysical;
         var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
         var stopDef = CreateScrollStopButtonDefinition(scrollStopDwell, stopOffset);
-        _context.OverlayManager.EdgeButtonBar.ShowButtons(
-            new[] { stopDef }, edgeAnchor, EdgeBarOwner.Scroll);
 
         // The button now sits in the upper out slot, so the scroll engine's stop zone must follow
         // it: the zone is where the button is drawn, and leaving it on the anchor would let the
         // page keep scrolling while the user dwells their way out.
         var stopButtonCenter = edgeAnchor + new PhysicalPoint(0, stopOffset);
 
-        _scrollOverlayVm = new ScrollOverlayViewModel(
-            _context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell,
-            line => Log.Information("{Scroll}", line));
-        _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
+        try
+        {
+            _context.OverlayManager.EdgeButtonBar.ShowButtons(
+                new[] { stopDef }, edgeAnchor, EdgeBarOwner.Scroll);
+            _scrollModeActive = true;   // from here an Exit exists for every later failure (F6)
 
-        // F-S5 (E5): the entry diagnosis — the anchor, the two thresholds, where the OS cursor was
-        // before the park (H-A's discriminator), and what the backdrop was at the injection point.
-        Log.Information(
-            "{ScrollModeLine}", DescribeEntry(anchor, _scrollOverlayVm, entryCursor, backdropVisible));
+            _scrollOverlayVm = new ScrollOverlayViewModel(
+                _context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell,
+                line => Log.Information("{Scroll}", line));
+            _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
 
-        _scrollOverlayWindow = _createOverlayWindow();
-        _scrollOverlayWindow.Show(_scrollOverlayVm);
+            // F-S5 (E5): the entry diagnosis — the anchor, the two thresholds, where the OS cursor
+            // was before the park (H-A's discriminator), and what the backdrop was at the injection
+            // point.
+            Log.Information(
+                "{ScrollModeLine}", DescribeEntry(anchor, _scrollOverlayVm, entryCursor, backdropVisible));
 
-        _scrollWorker = new ScrollWorker(_context.InputSimulator);
-        _scrollWorker.Start(
-            anchor,
-            isArmed: () => _scrollOverlayVm?.IsArmed ?? false,
-            cursorReader: _cursorReader,
-            nearestPx: () => _scrollOverlayVm?.NearestPx ?? -1);
+            _scrollOverlayWindow = _createOverlayWindow();
+            _scrollOverlayWindow.Show(_scrollOverlayVm);
 
-        _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
-        _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
+            _scrollWorker = new ScrollWorker(_context.InputSimulator);
+            _scrollWorker.Start(
+                anchor,
+                isArmed: () => _scrollOverlayVm?.IsArmed ?? false,
+                cursorReader: _cursorReader,
+                nearestPx: () => _scrollOverlayVm?.NearestPx ?? -1);
 
-        _scrollModeActive = true;
+            _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
+            _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
+        }
+        catch
+        {
+            // A throw after the claim must not leave the stop button's claim on the shared bar: no
+            // state change would run Exit for a mode that never finished entering, and a later
+            // owner's release would restore a dead exit. The early flag above keeps the regular
+            // Exit path (the next state change, or Dispose) able to tear down any half-built part.
+            try { _context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Scroll); }
+            catch { /* the entering exception is the one that matters */ }
+            throw;
+        }
     }
 
     /// <summary>The F-S5 entry line. Invariant: the session scripts parse it, and a German decimal

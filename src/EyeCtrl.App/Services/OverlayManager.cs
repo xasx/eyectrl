@@ -160,12 +160,11 @@ public class OverlayManager : IOverlayManager
                 if (viewModels.EdgeButtonBar.IsVisible)
                     _edgeButtonBarWindow.Show();
                 else
-                    // The cast is REQUIRED and must stay. EdgeButtonBarWindow declares
-                    // `public new void Hide()`, which clears the view model — the very change that
-                    // raised this notification. Calling it unqualified would hide nothing and
-                    // re-enter the view model instead of the window. Casting to Window reaches
-                    // Window.Hide, which is what "the VM went invisible" is supposed to do.
-                    ((System.Windows.Window)_edgeButtonBarWindow).Hide();
+                    // Window.Hide, NOT a view-model hide: the VM already went invisible and
+                    // raised this notification. The window deliberately has no hide of its own
+                    // any more — one that cleared the VM would erase the whole ownership claim
+                    // stack, which is how a displaced keyboard pair would be stranded.
+                    _edgeButtonBarWindow.Hide();
             }
         };
 

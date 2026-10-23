@@ -196,7 +196,7 @@ public class LagMarkChromeTests
                     logicalScreenWidth: 1920,
                     logicalWorkAreaTop: 0,
                     logicalWorkAreaHeight: 1152);
-                window.ShowButtons(KeyboardEdgeButtons.Definitions(450), anchor);
+                vm.ShowButtons(KeyboardEdgeButtons.Definitions(450), anchor);
                 window.SyncButtons();
 
                 Check.WithCustomMessage("the window laid nothing out, so the pin would be vacuous")

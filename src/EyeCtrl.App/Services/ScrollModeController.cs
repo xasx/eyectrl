@@ -210,10 +210,13 @@ public class ScrollModeController : IDisposable
         }
         catch
         {
-            // A throw after the claim must not leave the stop button's claim on the shared bar: no
-            // state change would run Exit for a mode that never finished entering, and a later
-            // owner's release would restore a dead exit. The early flag above keeps the regular
-            // Exit path (the next state change, or Dispose) able to tear down any half-built part.
+            // A failed entry must END the mode, not just drop its button: the process keeps
+            // running (supervision off logs and continues), and a mode left entered with an empty
+            // bar has no on-screen way out. ExitScrollMode is state-guarded and re-enters this
+            // controller's Exit on the same thread, tearing down anything already built; the
+            // explicit release covers a throw before the flag was set.
+            try { _context.InteractionManager.ExitScrollMode(); }
+            catch { /* the entering exception is the one that matters */ }
             try { _context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Scroll); }
             catch { /* the entering exception is the one that matters */ }
             throw;

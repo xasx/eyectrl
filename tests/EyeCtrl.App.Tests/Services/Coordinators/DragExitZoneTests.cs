@@ -71,6 +71,123 @@ public class DragExitZoneTests
         });
     }
 
+    [Fact]
+    public void AShorterReleaseDwell_StillLosesToCancel()
+    {
+        // R3: with the release target's dwell SHORTER than Cancel's (a legal settings pair), an
+        // unfiltered release target would fire on the Cancell rest at 400 ms and drop the item
+        // before Cancel's 600 ms. The exit-zone filter is what keeps Cancel the winner.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World(s => s.Dwell.DragReleaseButtonDwellMs = 400);
+            world.ShowCancel();
+            world.Drive(world.CancelCentre, jitter: 0);
+
+            Check.WithCustomMessage(
+                    $"release 400 beat Cancel 600 (drops={world.Drops}, cancels={world.Cancels}).")
+                 .That(world.Drops).IsEqualTo(0);
+            Check.That(world.Cancels).IsEqualTo(1);
+        });
+    }
+
+    [Fact]
+    public void EnteringAnExit_ResetsTheSettleProgress()
+    {
+        // P6: a settle that had already begun off the bar must not sit frozen behind the exit.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World();
+            var offBar = new PhysicalPoint(world.CancelCentre.X - 400, world.CancelCentre.Y);
+            world.DriveRange(offBar, 0, 300_000);
+            Check.That(world.Trail.SettleProgress).IsStrictlyGreaterThan(0);
+
+            world.DriveRange(world.CancelCentre, 330_000, 420_000);
+
+            Check.WithCustomMessage(
+                    $"the settle carried into the exit zone (progress {world.Trail.SettleProgress:0.###}).")
+                 .That(world.Trail.SettleProgress).IsEqualTo(0);
+        });
+    }
+
+    [Fact]
+    public void ASaccadeToANewSpot_NeedsTheFullReleaseDwellThere()
+    {
+        // PX2/R4: a held release dwell must not follow a saccade. The settle is pushed out of the
+        // window so the release target is the only drop path being measured.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World(s => s.Drag.SettleDwellMs = 2000);
+            var p = new PhysicalPoint(world.CancelCentre.X - 400, world.CancelCentre.Y);
+            var q = new PhysicalPoint(p.X - 500, p.Y);
+
+            world.DriveRange(p, 0, 450_000);          // 450 ms at P
+            world.DriveRange(q, 480_000, 990_000);    // 510 ms at Q — under the full dwell
+
+            Check.WithCustomMessage(
+                    $"carried release progress dropped the item at Q after only "
+                    + $"{990_000 - 480_000} ms (drops={world.Drops}).")
+                 .That(world.Drops).IsEqualTo(0);
+
+            world.DriveRange(q, 1_020_000, 1_200_000); // past the full dwell at Q
+
+            Check.That(world.Drops).IsEqualTo(1);
+            Check.That(world.DropPoint!.Value.X).IsCloseTo(q.X, 1.0);
+            Check.That(world.DropPoint!.Value.Y).IsCloseTo(q.Y, 1.0);
+        });
+    }
+
+    [Fact]
+    public void ABlinkAtTheSameSpot_ResumesTheReleaseDwell()
+    {
+        // The reset must NOT swallow A1's grace: a blink or a short gap at the same spot keeps
+        // the release progress.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World(s => s.Drag.SettleDwellMs = 2000);
+            var p = new PhysicalPoint(world.CancelCentre.X - 400, world.CancelCentre.Y);
+
+            world.DriveRange(p, 0, 450_000);
+            world.DriveGap(p, 480_000, 660_000);      // 200 ms blink, same spot
+            world.DriveRange(p, 690_000, 750_000);    // 60 ms after the blink
+
+            Check.WithCustomMessage(
+                    $"the blink lost the held progress (drops={world.Drops} after 60 ms).")
+                 .That(world.Drops).IsEqualTo(0);
+
+            world.DriveRange(p, 780_000, 1_000_000);  // ~310 ms after the blink
+
+            Check.WithCustomMessage(
+                    "the release dwell did not resume after the blink (a clean restart would need "
+                    + "600 ms from the return, i.e. past 1_290_000).")
+                 .That(world.Drops).IsEqualTo(1);
+        });
+    }
+
+    [Fact]
+    public void AVisitToAnExit_ResetsTheReleaseDwell()
+    {
+        // R4: looking at Cancel mid-rest is a clean break; the return to P needs a full dwell.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World(s => s.Drag.SettleDwellMs = 2000);
+            var p = new PhysicalPoint(world.CancelCentre.X - 400, world.CancelCentre.Y);
+
+            world.DriveRange(p, 0, 450_000);             // 450 ms at P
+            world.DriveRange(world.CancelCentre, 480_000, 570_000); // 90 ms on Cancel
+            world.DriveRange(p, 600_000, 900_000);       // 300 ms back at P
+
+            Check.WithCustomMessage(
+                    $"the Cancel visit let the release progress carry back (drops={world.Drops} "
+                    + "after 300 ms).")
+                 .That(world.Drops).IsEqualTo(0);
+
+            world.DriveRange(p, 930_000, 1_300_000);     // past the full dwell after the return
+
+            Check.That(world.Drops).IsEqualTo(1);
+            Check.That(world.DropPoint!.Value.X).IsCloseTo(p.X, 1.0);
+        });
+    }
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(3.0)]
@@ -108,9 +225,10 @@ public class DragExitZoneTests
     /// </summary>
     private sealed class World : IDisposable
     {
-        internal World()
+        internal World(Action<EyeCtrlSettings>? configure = null)
         {
             Settings = new EyeCtrlSettings();
+            configure?.Invoke(Settings);
             Messenger = new WeakReferenceMessenger();
             Trail = new DragTrailViewModel(Settings, Messenger);
             Bar = new EdgeButtonBarViewModel(Settings, Messenger);
@@ -130,7 +248,11 @@ public class DragExitZoneTests
                 new DragExitZone(BackCentre, ExitRadius),
             });
 
-            Messenger.Register<DragDropMessage>(this, (_, _) => Drops++);
+            Messenger.Register<DragDropMessage>(this, (_, m) =>
+            {
+                Drops++;
+                DropPoint = m.DropPoint;
+            });
             Messenger.Register<DragCancelMessage>(this, (_, _) => Cancels++);
             Messenger.Register<DragDismissManualSelectionMessage>(this, (_, _) => Dismisses++);
             Messenger.Send(new StartDragTrailMessage(new PhysicalPoint(100, 100)));
@@ -149,6 +271,7 @@ public class DragExitZoneTests
         internal int Drops { get; private set; }
         internal int Cancels { get; private set; }
         internal int Dismisses { get; private set; }
+        internal PhysicalPoint? DropPoint { get; private set; }
 
         internal void ShowCancel() =>
             Bar.ShowButtons(new[] { Cancel }, Anchor, EdgeBarOwner.Drag);
@@ -157,16 +280,27 @@ public class DragExitZoneTests
             Bar.ShowButtons(new[] { Back }, Anchor, EdgeBarOwner.Drag);
 
         /// <summary>Feeds 30 Hz samples to BOTH surfaces for 800 ms, with the given ± jitter.</summary>
-        internal void Drive(PhysicalPoint at, double jitter)
+        internal void Drive(PhysicalPoint at, double jitter) =>
+            DriveRange(at, 0, HoldEndUs, jitter);
+
+        /// <summary>Feeds 30 Hz valid samples in [fromUs, toUs].</summary>
+        internal void DriveRange(PhysicalPoint at, long fromUs, long toUs, double jitter = 0)
         {
             var n = 0;
-            for (long t = 0; t <= HoldEndUs; t += StepUs, n++)
+            for (long t = fromUs; t <= toUs; t += StepUs, n++)
             {
                 var dx = jitter == 0 ? 0 : (n % 2 == 0 ? jitter : -jitter);
                 var dy = jitter == 0 ? 0 : (n % 3 == 0 ? jitter : -jitter);
                 Messenger.Send(new GazeCursorMovedMessage(
                     new PhysicalPoint(at.X + dx, at.Y + dy), t));
             }
+        }
+
+        /// <summary>Feeds 30 Hz gap-held (blink) samples in [fromUs, toUs].</summary>
+        internal void DriveGap(PhysicalPoint at, long fromUs, long toUs)
+        {
+            for (long t = fromUs; t <= toUs; t += StepUs)
+                Messenger.Send(new GazeCursorMovedMessage(new GazeFrame(at, t, IsInGap: true)));
         }
 
         public void Dispose()

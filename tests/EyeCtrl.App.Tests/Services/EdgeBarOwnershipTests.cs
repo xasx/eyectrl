@@ -290,6 +290,7 @@ public class EdgeBarOwnershipTests
 
         context.InteractionManager.EnterRepeatMode(InteractionAction.LeftClick);
         try { Pump(dispatcher); } catch (InvalidOperationException) { /* the entering failure */ }
+        Pump(dispatcher);
 
         Check.WithCustomMessage(
                 $"bar holds [{string.Join(",", bar.ShownButtonIds)}] after calls "
@@ -297,6 +298,8 @@ public class EdgeBarOwnershipTests
              .That(bar.Calls).Contains("Hide");
         Check.That(bar.EdgeBarVm!.CurrentOwner).IsNull();
         Check.That(bar.EdgeBarVm.Buttons).IsEmpty();
+        // R2: the failed entry must END the mode, not leave the user in it with no out slot.
+        Check.That(context.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
     [StaFact]
@@ -319,6 +322,38 @@ public class EdgeBarOwnershipTests
                     $"bar holds [{string.Join(",", bar.ShownButtonIds)}] after calls "
                     + $"[{string.Join(",", bar.Calls)}]")
                  .That(bar.Calls).Contains("Hide");
+            Check.That(bar.EdgeBarVm!.CurrentOwner).IsNull();
+            Check.That(bar.EdgeBarVm.Buttons).IsEmpty();
+            // R2: a failed entry must END the mode, leaving the user in FreeLook.
+            Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+            Check.That(controller.IsActive).IsFalse();
+        }
+    }
+
+    [StaFact]
+    public void ScrollFailureAfterTheActiveFlag_EndsTheMode()
+    {
+        // R2: the ShowButtons cases throw BEFORE the active flag. This one throws after it — the
+        // scroll window cannot be built — so the early flag and the catch must leave FreeLook with
+        // an empty bar, not a live scroll mode whose stop button is gone.
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var (controller, im, _, _) =
+            ScrollModeControllerThreadingTests.NewScrollWorld(
+                new TestFakes.FakeInputSimulator(),
+                edgeBar: bar,
+                createOverlayWindow: static () =>
+                    throw new InvalidOperationException("the scroll window refused to build"));
+        using (controller)
+        {
+            Exception? thrown = null;
+            try { ScrollModeControllerThreadingTests.EnterScrollMode(im); }
+            catch (InvalidOperationException ex) { thrown = ex; }
+
+            Check.That(thrown).IsNotNull();
+            Check.WithCustomMessage(
+                    $"a failed scroll entry left the state at {im.CurrentState}")
+                 .That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+            Check.That(controller.IsActive).IsFalse();
             Check.That(bar.EdgeBarVm!.CurrentOwner).IsNull();
             Check.That(bar.EdgeBarVm.Buttons).IsEmpty();
         }

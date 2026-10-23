@@ -195,9 +195,12 @@ internal sealed class RepeatModeController : CoordinatorBase
         }
         catch
         {
-            // A throw after the claim but before the mode is fully up must not leave the stop
-            // button's claim on the shared bar: no state change would run Exit for a mode that
-            // never finished entering, and a later owner's release would restore a dead exit.
+            // A failed entry must END the mode, not just drop its button: the process keeps
+            // running (supervision off logs and continues), and a mode left entered with an empty
+            // bar has no on-screen way out. Exit first (state-guarded, so a throw here is safe),
+            // then release the claim; the early active flag keeps the regular Exit path available.
+            try { context.InteractionManager.ExitRepeatMode(); }
+            catch { /* the entering exception is the one that matters */ }
             try { context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Repeat); }
             catch { /* the entering exception is the one that matters */ }
             throw;

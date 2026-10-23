@@ -33,6 +33,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
     private IReadOnlyList<DragExitZone> _exitZones = Array.Empty<DragExitZone>();
+    private bool _inExitZone;
 
     [ObservableProperty] private bool _isDragActive;
     [ObservableProperty] private PhysicalPoint _grabOrigin;
@@ -70,6 +71,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         DragState = DragSubState.FreeDrag;
         SettleProgress = 0;
         ShowBack = false;
+        _inExitZone = false;
 
         UpdateReleaseButtonPosition(message.GrabOrigin);
         SetupDwellTargets();
@@ -110,6 +112,13 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // Cancel/Back dwell can fire — the owner's only exit would commit the drag instead.
         if (IsInExitZone(message.Position))
         {
+            if (!_inExitZone)
+            {
+                // PX2/R4: a look at an exit is a clean break — no release progress carries over.
+                _inExitZone = true;
+                DwellDetector.ResetAllState();
+            }
+
             _settleDetector.Reset();
             SettleProgress = 0;
             if (DragState == DragSubState.Settling)
@@ -120,6 +129,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         }
         else
         {
+            _inExitZone = false;
             DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
             if (DragState == DragSubState.FreeDrag || DragState == DragSubState.Settling)
@@ -178,6 +188,11 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             return;
 
         ReleaseButtonCenter = new PhysicalPoint(cursorPos.X - offset, cursorPos.Y - offset);
+        // PX2/R4: a release dwell belongs to the SPOT it started at. A1's pause grace may hold a
+        // blink or a gap at the same spot, but when the target re-centres onto a new spot the held
+        // progress must not follow it — a glance would otherwise drop the item there in a fraction
+        // of a dwell.
+        DwellDetector.ResetAllState();
     }
 
     private void SetupDwellTargets()

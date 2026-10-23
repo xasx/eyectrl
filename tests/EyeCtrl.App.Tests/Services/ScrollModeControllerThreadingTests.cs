@@ -40,7 +40,8 @@ public class ScrollModeControllerThreadingTests
         System.Windows.Threading.Dispatcher Dispatcher) NewScrollWorld(
         TestFakes.FakeInputSimulator input, Func<PhysicalPoint?>? cursorReader = null,
         IGlassBackdropOverlay? glassBackdrop = null, IMessenger? messenger = null,
-        TestFakes.FakeEdgeButtonBar? edgeBar = null)
+        TestFakes.FakeEdgeButtonBar? edgeBar = null,
+        Func<IScrollOverlaySurface>? createOverlayWindow = null)
     {
         var settings = new EyeCtrlSettings();
         messenger ??= new WeakReferenceMessenger();
@@ -61,7 +62,8 @@ public class ScrollModeControllerThreadingTests
             CursorVM = new CursorCircleViewModel(settings, messenger),
         };
         var window = new RecordingScrollOverlay();
-        var controller = new ScrollModeController(ctx, () => window, cursorReader);
+        var controller = new ScrollModeController(
+            ctx, createOverlayWindow ?? (() => window), cursorReader);
         return (controller, im, window, dispatcher);
     }
 

@@ -231,6 +231,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         Show();
     }
 
+    /// <summary>Test seam: the ring buttons the last <c>Show</c> painted, keyed by item id.</summary>
+    internal IReadOnlyDictionary<string, DwellArcButton> DrawnButtonsForTest => _buttonVisuals;
+
     private void UpdateItemProgress(string targetId, double progress)
     {
         if (_buttonVisuals.TryGetValue(targetId, out var btn))

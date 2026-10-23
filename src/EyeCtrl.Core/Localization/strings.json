@@ -3019,7 +3019,7 @@
     "args": []
   },
   "settings.dwell.pause_grace.description": {
-    "text": "How long a dwell keeps its progress after a blink or a glance away. Looking back in time resumes it; 0 restarts at once.",
+    "text": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
     "who": "user",
     "where": "settings",
     "fit": "prose",

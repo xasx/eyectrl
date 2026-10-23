@@ -12,11 +12,13 @@ namespace EyeCtrl.Controls;
 /// </para>
 ///
 /// <para>
-/// 0.7 is a measured choice, not a taste one. At the pixel the accent arc covers, the dimmed
-/// colour is <c>0.7·accent + 0.3·halo</c> (the arc is stroked over its halo), and
-/// <c>DwellPausedCueContrastTests</c> pins that colour at 3:1 or better against every button fill
-/// the arcs and bars are drawn on, in all four themes. Raising the dimming past that floor makes
-/// the held value unreadable, which defeats the point of holding it.
+/// 0.7 is a measured choice, not a taste one. An arc is stroked over its halo, so its dimmed pixel
+/// is <c>0.7·accent + 0.3·halo</c>; a bar has a transparent background, so its pixel is
+/// <c>0.7·accent + 0.3·SurfaceMedium</c>. <c>DwellPausedCueTests</c> pins both at 3:1 or better
+/// against the fill they are drawn on, in all four themes (0.6 put the warning-accent Reset arc
+/// under 3:1 in Midnight and Ember), and pins the held bar at 1.5:1 or more from the live one so
+/// the change itself is visible. Dimming further makes the held value unreadable, which defeats
+/// the point of holding it.
 /// </para>
 /// </summary>
 public static class DwellPausedCue

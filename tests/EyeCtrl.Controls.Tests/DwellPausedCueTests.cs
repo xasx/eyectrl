@@ -109,34 +109,56 @@ public class DwellPausedCueTests
     }
 
     /// <summary>
-    /// The (arc colour, fill) pairs a dwell arc or bar is really drawn on, for <paramref name="theme"/>.
-    /// Every surface A1 covers paints the accent on <c>SurfaceMedium</c> (toolbar, modes menu,
-    /// action menu, edge bar, hide button, QuickActions and TaskSwitcher tiles); the DwellToggle
-    /// switch bar is the accent on <c>SurfaceLight</c>; Reset's arc is the warning accent, only ever
-    /// on <c>SurfaceMedium</c> (ToolbarBand.ArcBrushFor/FillFor). A pair no surface draws is not
-    /// gated.
+    /// How each A1 surface really draws its progress, for <paramref name="theme"/>: the colour, the
+    /// pixel the dimmed element is blended over, and the fill it is read against.
+    /// <list type="bullet">
+    /// <item>An ARC (toolbar, modes menu, action menu, edge bar) is stroked over its own dark halo
+    /// (DwellArcButton's HaloPath), on the SurfaceMedium face; Reset's arc is the warning accent
+    /// (ToolbarBand.ArcBrushFor/FillFor).</item>
+    /// <item>A BAR (TaskSwitcher and QuickActions tiles, the QuickActions close button) is a
+    /// <c>ProgressBar</c> with a transparent background, so it blends straight over SurfaceMedium.</item>
+    /// </list>
+    /// A pair no A1 surface draws is not gated (review 01 L3).
     /// </summary>
-    private static IEnumerable<(string Name, Color Arc, Color Fill)> ArcOnFill(ITheme theme)
+    private static IEnumerable<(string Name, Color Progress, Color Under, Color Fill)> AsDrawn(ITheme theme)
     {
-        yield return ("Accent on SurfaceMedium", theme.Accent, theme.SurfaceMedium);
-        yield return ("Accent on SurfaceLight (switch bar)", theme.Accent, theme.SurfaceLight);
-        yield return ("AccentWarning on SurfaceMedium (Reset)", theme.AccentWarning, theme.SurfaceMedium);
+        yield return ("arc: Accent over its halo, on SurfaceMedium", theme.Accent, theme.StrokeHalo, theme.SurfaceMedium);
+        yield return ("arc: AccentWarning (Reset) over its halo, on SurfaceMedium", theme.AccentWarning, theme.StrokeHalo, theme.SurfaceMedium);
+        yield return ("bar: Accent over SurfaceMedium", theme.Accent, theme.SurfaceMedium, theme.SurfaceMedium);
     }
 
     [Theory]
     [MemberData(nameof(AllThemes))]
-    public void TheDimmedArc_StaysPerceptibleOnEveryFill_InEveryTheme(ITheme theme)
+    public void TheDimmedArcAndBar_StayPerceptibleOnTheirFill_InEveryTheme(ITheme theme)
     {
-        foreach (var (name, arc, fill) in ArcOnFill(theme))
+        foreach (var (name, progress, under, fill) in AsDrawn(theme))
         {
-            var dimmed = Over(arc, theme.StrokeHalo, DwellPausedCue.ProgressOpacity);
+            var dimmed = Over(progress, under, DwellPausedCue.ProgressOpacity);
             var contrast = Contrast(dimmed, fill);
             Check.WithCustomMessage(
                     $"{theme.Name}: dimmed {name} reaches only {contrast:F2}:1 — "
-                    + "a held arc must stay at 3:1 or better or the owner cannot see it is held")
+                    + "a held cue must stay at 3:1 or better or the owner cannot see it is held")
                 .That(contrast).IsStrictlyGreaterThan(3.0);
         }
     }
+
+    /// <summary>
+    /// The dim must also be SEEN as a change: the held bar against the live bar. Review 01 measured
+    /// 1.76–2.43:1 at 0.7; 1.5:1 is the floor below which "held" stops reading as different.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void TheDimmedBar_IsVisiblyDifferentFromTheLiveBar(ITheme theme)
+    {
+        const double MinHeldVsLive = 1.5;
+        var live = theme.Accent;
+        var held = Over(theme.Accent, theme.SurfaceMedium, DwellPausedCue.ProgressOpacity);
+
+        Check.WithCustomMessage($"{theme.Name}: the held bar is only {Contrast(live, held):F2}:1 from the live one")
+            .That(Contrast(live, held)).IsGreaterOrEqualThan(MinHeldVsLive);
+    }
+
+    // Mutation (A1-v5): ProgressOpacity 0.95 -> the held bar is indistinguishable, red.
 
     // Mutation (A1-v3): ProgressOpacity 0.3 -> a theme falls under 3:1 and this goes red.
 

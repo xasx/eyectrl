@@ -183,7 +183,7 @@ public class DwellDetectorGraceDifferentialTests
         }
 
         Check.That(logOld).Not.IsEmpty();
-                Check.That(string.Join("\n", logNew)).IsEqualTo(string.Join("\n", logOld));
+        Check.That(string.Join("\n", logNew)).IsEqualTo(string.Join("\n", logOld));
     }
 
     // Mutation (A1-d1): SetPauseGrace clears the activation cooldown -> the dwell re-accumulates inside

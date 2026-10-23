@@ -174,6 +174,20 @@ public class DwellPauseGraceWiringTests
                 .That(surface.Detector.PauseGraceMs).IsEqualTo(350);
     }
 
+    [Theory]
+    [MemberData(nameof(Wired))]
+    public void TheWiredSurface_ReleasesAHold_WhenTheGazeEntersAnotherTarget(string name)
+    {
+        // A1 fixup-01 M3: the overlay family's grace forgives empty space and silence, never a
+        // neighbour (the straddle Midas path). The detector-level behaviour is pinned in Core.
+        var surface = Build(name, new EyeCtrlSettings());
+        using (surface.Vm)
+            Check.WithCustomMessage($"{name}: the detector does not release holds on another target")
+                .That(surface.Detector.OtherTargetReleasesHold).IsTrue();
+    }
+
+    // Mutation (A1-m3d): the base constructor drops `OtherTargetReleasesHold = true` -> red.
+
     // Mutation (A1-w1): remove `settings.Dwell` from ONE surface's base(...) call -> that surface's
     //   case goes red (PauseGraceMs 0).
 

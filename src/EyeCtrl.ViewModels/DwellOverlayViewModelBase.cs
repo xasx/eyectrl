@@ -39,7 +39,13 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
         : base(messenger)
     {
         DwellDetector = new DwellDetector(dwellCooldownMs, context, sink,
-            pauseGraceSettings?.DwellPauseGraceMs ?? 0);
+            pauseGraceSettings?.DwellPauseGraceMs ?? 0)
+        {
+            // The grace forgives a blink or a glance into empty space, never a neighbour: a hold
+            // that survived the adjacent button would let a gaze on the gap between two buttons
+            // fire one of them (A1 fixup-01 M3).
+            OtherTargetReleasesHold = true,
+        };
         DwellDetector.TargetActivated += OnDetectorTargetActivated;
         DwellDetector.TargetProgress += OnTargetProgress;
         DwellDetector.TargetPauseChanged += OnTargetPauseChanged;

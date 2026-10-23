@@ -151,9 +151,12 @@ public class DwellDetectorPausedSignalTests
         Check.WithCustomMessage("A cooldown reset left A's paused cue frozen")
             .That(rec.Pauses.Last(p => p.StartsWith("A:"))).IsEqualTo("A:resumed");
         Check.That(detector.GetProgress("A")).IsEqualTo(0.0);
+        Check.WithCustomMessage("the cooldown cleared A's dim but left its frozen arc on screen")
+            .That(rec.Events.Last(e => e.StartsWith("progress A "))).IsEqualTo("progress A 0.000");
     }
 
     // Mutation (A1-p5): the cooldown loop does not clear -> the last A event stays "paused", red.
+    // Mutation (MD, review 01 L1): the cooldown loop drops `|| t.GracePaused` -> no 0 for A, red.
 
     [Fact]
     public void RemovingOrClearingAPausedTarget_ClearsPaused()
@@ -265,6 +268,161 @@ public class DwellDetectorPausedSignalTests
 
         Check.That(rec.Pauses).ContainsExactly("held:paused");
     }
+
+
+    // ------------------------------------------------------------------ fixup-01 M1: grace under the clamp
+
+    /// <summary>
+    /// A1 fixup-01 M1: a silence below the 150 ms clamp is credited at grace 0, so no grace may turn
+    /// it into a restart. One 120 ms silence on a 700 ms target: the activation lands at 720 ms for
+    /// every grace (review 01 measured 1140 ms at grace 50 and 100 before the fix).
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(50)]
+    [InlineData(100)]
+    [InlineData(150)]
+    [InlineData(500)]
+    public void ASubClampSilence_IsCreditedAtEveryGrace_ExactlyAsAtGraceZero(int graceMs)
+    {
+        var detector = NewDetector(graceMs);
+        long? firedAt = null;
+        long now = 0;
+        detector.TargetActivated += _ => firedAt ??= now;
+
+        for (long t = 0; t <= 300; t += 30) { now = t; detector.Update(On, t * Ms); }
+        for (long t = 420; t <= 1500 && firedAt is null; t += 30) { now = t; detector.Update(On, t * Ms); }
+
+        Check.WithCustomMessage($"grace {graceMs}: a 120 ms silence restarted the dwell")
+            .That(firedAt).IsEqualTo(720L);
+    }
+
+    // Mutation (A1-m1): drop the `&& sinceLastSampleUs >= MaxCreditedSampleGapUs` term -> the 50 and
+    //   100 rows fire at 1140, red.
+
+    [Fact]
+    public void ALowGrace_StillRestartsASilencePastItAndPastTheClamp()
+    {
+        var detector = NewDetector(100);
+
+        DriveInside(detector, 0, 180 * Ms);
+        detector.Update(On, 380 * Ms);   // 200 ms silence: past the grace and past the clamp
+
+        Check.That(detector.GetProgress("test")).IsEqualTo(0.0);
+    }
+
+    // ------------------------------------------------------------------ fixup-01 M3: never through a neighbour
+
+    private static readonly PhysicalPoint LeftOfSeam = new(134, 100);   // inside both, nearer A
+    private static readonly PhysicalPoint RightOfSeam = new(136, 100);  // inside both, nearer B
+
+    private static DwellDetector NewStraddle(int graceMs, bool releases)
+    {
+        var detector = new DwellDetector(cooldownMs: 400, pauseGraceMs: graceMs) { OtherTargetReleasesHold = releases };
+        detector.AddTarget(new DwellTarget("A", new PhysicalPoint(100, 100), radius: 40, dwellTimeMs: 700));
+        detector.AddTarget(new DwellTarget("B", new PhysicalPoint(170, 100), radius: 40, dwellTimeMs: 700));
+        return detector;
+    }
+
+    /// <summary>Gaze on the seam of two targets, the nearest alternating in runs of <paramref name="run"/>
+    /// 30 ms samples for 3 s. Returns the first activation, or null.</summary>
+    private static string? Straddle(DwellDetector detector, int run)
+    {
+        string? fired = null;
+        detector.TargetActivated += id => fired ??= id;
+        int i = 0;
+        for (long t = 0; t <= 3000 && fired is null; t += 30, i++)
+            detector.Update((i / run) % 2 == 0 ? LeftOfSeam : RightOfSeam, t * Ms);
+        return fired;
+    }
+
+    /// <summary>
+    /// A1 fixup-01 M3 (coordinator decision): a hold survives empty space and silence, never a
+    /// neighbour. Straddling two adjacent targets fires neither within 3 s at grace 500, exactly as
+    /// at grace 0 (review 01 measured A firing at 2.79 / 2.04 / 1.62 s for runs of 2 / 3 / 5).
+    /// </summary>
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(0, 3)]
+    [InlineData(0, 5)]
+    [InlineData(500, 2)]
+    [InlineData(500, 3)]
+    [InlineData(500, 5)]
+    public void StraddlingTwoTargets_FiresNeither_WhenAnotherTargetReleasesTheHold(int graceMs, int run)
+    {
+        Check.WithCustomMessage($"grace {graceMs}, runs of {run}: a gaze on the seam fired a button")
+            .That(Straddle(NewStraddle(graceMs, releases: true), run)).IsNull();
+    }
+
+    // Mutation (A1-m3): ignore OtherTargetReleasesHold (keep the holds on a neighbour) -> the grace-500
+    //   rows fire, red.
+
+    [Fact]
+    public void WithoutTheRelease_TheProbeKeepsItsHoldThroughANeighbour()
+    {
+        // The sub-pixel probe does not opt in (SP-4c D4 pins its hold through a nearest change), so
+        // its detector still assembles a straddled dwell. This is the measured difference the flag makes.
+        Check.That(Straddle(NewStraddle(500, releases: false), 3)).IsNotNull();
+    }
+
+    [Fact]
+    public void EnteringAnotherTarget_DropsAHeldDwellAtOnce_WithProgressZero()
+    {
+        var detector = new DwellDetector(pauseGraceMs: 500) { OtherTargetReleasesHold = true };
+        detector.AddTarget(new DwellTarget("A", On, radius: 30, dwellTimeMs: 700));
+        detector.AddTarget(new DwellTarget("B", new PhysicalPoint(500, 100), radius: 30, dwellTimeMs: 700));
+        var rec = new Recorder(detector);
+
+        DriveInside(detector, 0, 180 * Ms);
+        detector.Update(Off, 210 * Ms);                               // empty space: A is held
+        Check.That(rec.Pauses).ContainsExactly("A:paused");
+
+        detector.Update(new PhysicalPoint(500, 100), 240 * Ms);       // inside B: A's hold drops
+        Check.That(rec.Pauses).ContainsExactly("A:paused", "A:resumed");
+        Check.That(rec.Events.Last(e => e.StartsWith("progress A "))).IsEqualTo("progress A 0.000");
+
+        detector.Update(On, 270 * Ms);                                // back on A: a fresh start
+        Check.That(detector.GetProgress("A")).IsEqualTo(0.0);
+    }
+
+    // Mutation (A1-m3b): the not-inside release branch is dropped -> A stays paused, red.
+
+    [Fact]
+    public void LeavingStraightOntoANeighbour_NeverHolds()
+    {
+        var detector = new DwellDetector(pauseGraceMs: 500) { OtherTargetReleasesHold = true };
+        detector.AddTarget(new DwellTarget("A", On, radius: 30, dwellTimeMs: 700));
+        detector.AddTarget(new DwellTarget("B", new PhysicalPoint(500, 100), radius: 30, dwellTimeMs: 700));
+        var rec = new Recorder(detector);
+
+        DriveInside(detector, 0, 180 * Ms);
+        detector.Update(new PhysicalPoint(500, 100), 210 * Ms);
+
+        Check.That(rec.Pauses).IsEmpty();
+        Check.That(rec.Events.Last(e => e.StartsWith("progress A "))).IsEqualTo("progress A 0.000");
+        detector.Update(On, 240 * Ms);
+        Check.That(detector.GetProgress("A")).IsEqualTo(0.0);
+    }
+
+    // Mutation (A1-m3c): the leave keeps `pauses` true with a nearest target -> A pauses, red.
+
+    // ------------------------------------------------------------------ fixup-01 L2: same-id AddTarget
+
+    [Fact]
+    public void ReplacingAHeldTarget_ReleasesTheHold_AndZeroesItsCue()
+    {
+        var detector = NewDetector(500);
+        var rec = new Recorder(detector);
+
+        DriveInside(detector, 0, 180 * Ms);
+        detector.Update(Off, 210 * Ms);
+        detector.AddTarget(new DwellTarget("test", new PhysicalPoint(120, 100), radius: 30, dwellTimeMs: 700));
+
+        Check.That(rec.Pauses).ContainsExactly("test:paused", "test:resumed");
+        Check.That(rec.Events[^1]).IsEqualTo("progress test 0.000");
+    }
+
+    // Mutation (A1-l2): AddTarget forgets the replaced hold -> no "resumed", red.
 
     // ------------------------------------------------------------------ SetPauseGrace (live)
 

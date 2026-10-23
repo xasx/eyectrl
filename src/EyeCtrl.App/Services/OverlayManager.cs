@@ -99,6 +99,15 @@ public class OverlayManager : IOverlayManager
     }
 
     /// <summary>
+    /// Builds the calibration overlay with the LIVE dwell settings. Extracted so a test can pin the
+    /// hand-off (review 01, MEDIUM 1): the Cancel target's <c>max(1000 ms, toolbar dwell)</c> is
+    /// only right while the window holds the settings object the Settings tab edits — a copy, or the
+    /// parameterless constructor's defaults, silently caps it at the 1000 ms floor.
+    /// </summary>
+    internal static CalibrationWindow CreateCalibrationWindow(EyeCtrlSettings settings) =>
+        new(settings.Dwell);
+
+    /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
     /// </summary>
     public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType)
@@ -136,7 +145,7 @@ public class OverlayManager : IOverlayManager
         _keyboard.DataContext = viewModels.Keyboard;
         _keyboard.SetViewModel(viewModels.Keyboard);
 
-        _calibration = new CalibrationWindow();
+        _calibration = CreateCalibrationWindow(settings);
         _calibration.SetViewModel(viewModels.Calibration);
 
         // Set DataContext for TargetHighlight

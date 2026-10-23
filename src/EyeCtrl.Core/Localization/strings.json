@@ -258,6 +258,13 @@
     "fit": "row",
     "args": []
   },
+  "calibration.window.cancelDwell": {
+    "text": "✕ Cancel",
+    "who": "user",
+    "where": "calibration",
+    "fit": "modal170",
+    "args": []
+  },
   "calibration.window.cancelHint": {
     "text": "Press Esc to cancel",
     "who": "user",

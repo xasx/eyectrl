@@ -57,6 +57,24 @@
                     </Ellipse.RenderTransform>
                 </Ellipse>
             </Canvas>
+
+            <!-- The gaze Cancel target (A6): the way OUT of a session for a user who cannot press
+                 Esc. A disc 2 × CalibrationCancelPlacement.HitRadiusDip (144 DIP) across, placed in
+                 code at the session's farthest-from-every-target point. The square and the circle
+                 token are both required (CornerRadiusClampTests): an auto-sized element is not
+                 square. CalibrationDwellCancelTests pins 144 = 2 × the hit radius. IsHitTestVisible
+                 is false like every other gaze visual: the window stays click-through, so this
+                 target is gaze-only. -->
+            <Border x:Name="CancelDwellButton" Width="144" Height="144"
+                    CornerRadius="{StaticResource CircleCornerRadius}"
+                    Background="{StaticResource BrushSurfaceDark}"
+                    BorderBrush="{StaticResource BrushBorderSubtle}"
+                    BorderThickness="{StaticResource StandardBorderThickness}"
+                    Visibility="Collapsed" IsHitTestVisible="False">
+                <TextBlock x:Name="CancelDwellLabel" Text="{loc:T 'calibration.window.cancelDwell'}"
+                           Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="NoWrap"/>
+            </Border>
         </Canvas>
 
         <!-- Progress text. On a SurfaceDark card (review round 2 N1; round 4 m2): the scrim behind

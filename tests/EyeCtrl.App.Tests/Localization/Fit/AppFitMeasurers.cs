@@ -89,7 +89,9 @@ internal static class AppFitMeasurers
             ["B114"] = (_, text) => QuickActionTile(text),
             ["B260x2"] = (_, text) => SettingsButton(text, SettingsButtonBox("B260x2")),
             ["C-alert"] = CaregiverAlert,
-            ["modal170"] = (_, text) => ModalButton(text, wide: false),
+            ["modal170"] = (key, text) => key == "calibration.window.cancelDwell"
+                ? CalibrationCancelLabel(text)
+                : ModalButton(text, wide: false),
             ["modal460"] = (_, text) => ModalButton(text, wide: true),
             ["PV1"] = PreviewRowFit.Measure,
             ["btn360x100"] = (_, text) => SettingsButton(text, SettingsButtonBox("btn360x100")),
@@ -570,8 +572,30 @@ internal static class AppFitMeasurers
             $"box {FitText.Dip(button.ActualWidth)} − {OneLineInset}");
     }
 
-    // ────── Class C: growing windows ──────
+    /// <summary>
+    /// modal170's calibration member: the gaze Cancel target's one-line caption, measured in the
+    /// production disc itself (<c>CalibrationWindow.CancelDwellButton</c>). The disc's width is the
+    /// bound — 144 DIP less a 16 DIP inset — which is tighter than the class's nominal 170 − 8, so
+    /// the class's own budget never hides a caption that overruns the drawn surface.
+    /// </summary>
+    private static FitVerdict CalibrationCancelLabel(string text)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new CalibrationWindow();
+        var label = window.CancelDwellLabel;
+        label.Text = text;
 
+        // The disc is a child of the full-screen TargetCanvas; lift it into the fit host alone, so
+        // this measurement does not depend on the primary display's size.
+        var canvas = (Canvas)window.CancelDwellButton.Parent;
+        canvas.Children.Remove(window.CancelDwellButton);
+        using var host = FitHost.Open(window.CancelDwellButton, inheritFrom: window);
+        var room = window.CancelDwellButton.Width - 16;
+        return OneLine(label, text, room,
+            $"Cancel disc {FitText.Dip(window.CancelDwellButton.Width)} − 16");
+    }
+
+    // ────── Class C: growing windows ──────
     /// <summary>
     /// C-alert: the caregiver alert, prepared by its own <see cref="CaregiverAlertWindow.Prepare"/>
     /// against the user's work area. The window grows in height only; its bottom edge stays at the

@@ -102,7 +102,7 @@ public class CalibrationWindowVisualPinsTests
         var window = ConstructWindow();
         try
         {
-            foreach (var card in new[] { window.ProgressCard, window.CompletionCard, window.CancelCard })
+            foreach (var card in new[] { window.ProgressCard, window.CompletionCard, window.CancelCard, window.CancelDwellButton })
             {
                 var background = (SolidColorBrush)card.Background;
                 Check.WithCustomMessage(

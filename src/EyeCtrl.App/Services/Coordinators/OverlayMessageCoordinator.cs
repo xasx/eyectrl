@@ -21,12 +21,12 @@ using Serilog;
 internal sealed class OverlayMessageCoordinator : CoordinatorBase
 {
     /// <summary>
-    /// Inset of the right-edge bar from the screen edge, in DIP. Declared here rather than
-    /// widening <c>OverlayVmBindingCoordinator</c>'s private const of the same name: the two
-    /// coordinators anchor the same bar and must agree, and the value is the one every other
-    /// context (drag, manual selection) already uses.
+    /// The anchor the action menu's Close/Help pair is placed against: the shared right-edge exit
+    /// anchor every non-keyboard mode uses, so the out slot is the same absolute place here as in
+    /// manual selection, drag, repeat and scroll. Exposed so a test can pin that equality.
     /// </summary>
-    private const double RightEdgeInsetLogical = 30;
+    internal static PhysicalPoint ActionMenuExitAnchorPhysical =>
+        ScreenGeometry.SharedRightEdgeExitAnchor();
 
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly OverlayVmBindingCoordinator _vmBinding;
@@ -136,8 +136,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     // ShowActionMenu and both handlers queue at DispatcherPriority.Normal, which
                     // is FIFO. That ordering is a real WPF guarantee but invisible from here:
                     // changing either handler's dispatcher priority would silently invert it.
-                    var edgeAnchor = ScreenGeometry.RightEdgeAnchor(
-                        RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                    var edgeAnchor = ActionMenuExitAnchorPhysical;
                     Context.OverlayManager.EdgeButtonBar.ShowButtons(
                         ActionMenuEdgeButtons.Definitions(
                             msg.ShowBack
@@ -155,7 +154,8 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     // surface as stale latched icons after reopen.
                     try
                     {
-                        var modAnchor = ScreenGeometry.LeftEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                        var modAnchor = ScreenGeometry.LeftEdgeAnchor(
+                            ScreenGeometry.SharedRightEdgeInsetLogical, UIConstants.ButtonRadius);
                         Context.OverlayManager.ActionMenuModBar.ShowButtons(
                             ActionMenuModifierButtons.Definitions(
                                 msg.ShowBack

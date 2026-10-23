@@ -19,11 +19,6 @@ using Serilog;
 /// </summary>
 public class ScrollModeController : IDisposable
 {
-    // Inset (logical px) from the right screen edge for the scroll stop button center.
-    // The bar additionally reserves button radius + margin on the right so the button
-    // never extends past the desktop edge.
-    private const double ScrollStopInsetLogical = 50;
-
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
 
@@ -56,6 +51,13 @@ public class ScrollModeController : IDisposable
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.stopScrolling"));
+
+    /// <summary>
+    /// The one anchor the stop button (and its scroll stop zone) is placed against: the shared
+    /// right-edge exit anchor every non-keyboard mode uses. Exposed so a test can pin the
+    /// production placement to the same absolute centre as the other modes.
+    /// </summary>
+    internal static PhysicalPoint ExitAnchorPhysical => ScreenGeometry.SharedRightEdgeExitAnchor();
 
     /// <summary>
     /// The scroll-stop button's slot: the fixed UPPER "out" slot, one radius-plus-half-gap above
@@ -166,7 +168,7 @@ public class ScrollModeController : IDisposable
 
         _context.OverlayManager.CursorCircle.Hide();
 
-        var edgeAnchor = ScreenGeometry.RightEdgeAnchor(ScrollStopInsetLogical, UIConstants.ButtonRadius);
+        var edgeAnchor = ExitAnchorPhysical;
         var stopOffset = StopButtonVerticalOffsetPhysical;
         var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
         var stopDef = CreateScrollStopButtonDefinition(scrollStopDwell, stopOffset);

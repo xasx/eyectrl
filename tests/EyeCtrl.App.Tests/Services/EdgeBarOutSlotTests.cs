@@ -113,6 +113,63 @@ public class EdgeBarOutSlotTests
              .IsCloseTo(-SlotOffsetDip, 1e-9);
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void EveryRightEdgeMode_PutsItsExitAtTheSameAbsoluteCentre(double scale)
+    {
+        // The owner's check: "the out slot sits in the same place in each mode". Every mode whose
+        // exit lives on the right-edge anchor resolves that anchor through ONE shared helper, so
+        // the centres agree by construction at every DPI. The keyboard is the deliberate
+        // exception (it tracks the keyboard's edge) and is covered by its own slot pin above.
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            Check.That(ScreenGeometry.SharedRightEdgeInsetLogical).IsEqualTo(30.0);
+
+            var expected = ScreenGeometry.SharedRightEdgeExitAnchor()
+                + new PhysicalPoint(0, -SlotOffsetDip * DpiHelper.ScaleY);
+
+            var exits = new (string Mode, PhysicalPoint Centre)[]
+            {
+                ("ActionMenu",
+                    OverlayMessageCoordinator.ActionMenuExitAnchorPhysical
+                    + Offset(ActionMenuEdgeButtons.Definitions(600)
+                        .Single(d => d.Id == ActionMenuEdgeButtons.CloseId))),
+                ("ManualSelection",
+                    OverlayVmBindingCoordinator.ManualSelectionExitAnchorPhysical
+                    + Offset(ManualSelectionEdgeButtons.Definitions(600)
+                        .Single(d => d.Id == ManualSelectionEdgeButtons.CloseId))),
+                ("Drag",
+                    DragCoordinator.ExitAnchorPhysical
+                    + Offset(DragCoordinator.CreateCancelButtonDefinition(600))),
+                ("Repeat",
+                    RepeatModeController.ExitAnchorPhysical
+                    + Offset(RepeatModeController.CreateRepeatStopButtonDefinition(
+                        600, RepeatModeController.StopButtonVerticalOffsetPhysical))),
+                ("Scroll",
+                    ScrollModeController.ExitAnchorPhysical
+                    + Offset(ScrollModeController.CreateScrollStopButtonDefinition(
+                        600, ScrollModeController.StopButtonVerticalOffsetPhysical))),
+            };
+
+            foreach (var (mode, centre) in exits)
+            {
+                Check.WithCustomMessage(
+                        $"{mode}'s exit is at ({centre.X:F1},{centre.Y:F1}) but the shared out "
+                        + $"slot is ({expected.X:F1},{expected.Y:F1}) at DPI {scale}.")
+                     .That(centre).IsEqualTo(expected);
+            }
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    private static PhysicalPoint Offset(EdgeButtonDefinition definition) =>
+        new(0, definition.VerticalOffset);
+
     [StaFact]
     public void ScrollEntry_DrawsTheStopButtonWhereItsStopZoneIs()
     {
@@ -132,6 +189,11 @@ public class EdgeBarOutSlotTests
             CheckUpper(definition!);
 
             var drawnCentre = bar.EdgeBarVm.SeedCenters["scroll-stop"];
+            Check.WithCustomMessage(
+                    "the scroll entry did not draw the stop button on the shared exit anchor")
+                 .That(drawnCentre).IsEqualTo(
+                     ScrollModeController.ExitAnchorPhysical
+                     + new PhysicalPoint(0, ScrollModeController.StopButtonVerticalOffsetPhysical));
             Check.That(controller.OverlayVm).IsNotNull();
             Check.WithCustomMessage("the drawn button and the engine's stop zone disagree")
                  .That(controller.OverlayVm!.StopButtonCenter)

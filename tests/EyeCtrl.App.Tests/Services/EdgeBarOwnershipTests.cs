@@ -170,6 +170,10 @@ public class EdgeBarOwnershipTests
 
         drag.OnDragStarted(new PhysicalPoint(100, 100));
         Check.That(bar.ShownButtonIds).ContainsExactly("Drag_cancel");
+        Check.WithCustomMessage("the drag drew its Cancel off the shared exit anchor")
+             .That(bar.EdgeBarVm!.SeedCenters["Drag_cancel"]).IsEqualTo(
+                 DragCoordinator.ExitAnchorPhysical
+                 + new PhysicalPoint(0, DragCoordinator.CancelButtonVerticalOffsetPhysical));
 
         drag.OnDragCancel();
 
@@ -234,6 +238,20 @@ public class EdgeBarOwnershipTests
 
         Check.That(im.CurrentState).IsEqualTo(InteractionState.RepeatMode);
         Check.That(bar.ShownButtonIds).ContainsExactly("repeat-stop");
+        var stopCentre = bar.EdgeBarVm!.SeedCenters["repeat-stop"];
+        Check.WithCustomMessage("the repeat entry did not draw the stop on the shared exit anchor")
+             .That(stopCentre).IsEqualTo(
+                 RepeatModeController.ExitAnchorPhysical
+                 + new PhysicalPoint(0, RepeatModeController.StopButtonVerticalOffsetPhysical));
+        // The tick-suppression zone is appended after the toolbar band(s); it must stay centred on
+        // the drawn stop button, not on where the button used to sit.
+        var repeatZones = im.RepeatSuppressionZonesForTest;
+        Check.That(repeatZones).Not.IsEmpty();
+        Check.WithCustomMessage(
+                $"the repeat suppression zone centre is ({repeatZones[^1].Center.X:F1},"
+                + $"{repeatZones[^1].Center.Y:F1}) but the button is at "
+                + $"({stopCentre.X:F1},{stopCentre.Y:F1})")
+             .That(repeatZones[^1].Center).IsEqualTo(stopCentre);
 
         im.ExitRepeatMode();
         Pump(dispatcher);

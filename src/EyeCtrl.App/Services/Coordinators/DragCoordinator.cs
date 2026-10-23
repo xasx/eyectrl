@@ -38,7 +38,12 @@ using Serilog;
 /// </summary>
 internal sealed class DragCoordinator : CoordinatorBase
 {
-    private const double RightEdgeInsetLogical = 30;
+    /// <summary>
+    /// The anchor the drag's Cancel/Back pair is placed against: the shared right-edge exit
+    /// anchor every non-keyboard mode uses, so the out slot is the same absolute place here as
+    /// in the action menu, manual selection, repeat and scroll.
+    /// </summary>
+    internal static PhysicalPoint ExitAnchorPhysical => ScreenGeometry.SharedRightEdgeExitAnchor();
 
     private IDragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
@@ -206,7 +211,7 @@ internal sealed class DragCoordinator : CoordinatorBase
             // The anchor reserves the SAME r50 the cancel/back buttons now use (they are no longer
             // the old r20 drag-button size), so the pair fits fully on screen like every other
             // edge-bar exit.
-            var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
+            var anchor = ExitAnchorPhysical;
             var cancelDef = CreateCancelButtonDefinition(Context.Settings.Dwell.DragRightEdgeButtonDwellMs);
             Context.OverlayManager.EdgeButtonBar.ShowButtons(
                 new[] { cancelDef }, anchor, EdgeBarOwner.Drag);

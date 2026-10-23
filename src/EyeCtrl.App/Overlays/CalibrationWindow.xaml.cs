@@ -251,6 +251,12 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
             foreach (var text in new[] { widest, recording })
             {
                 ProgressText.Text = text;
+                // A changed TextBlock dirties only itself; the Border's constraint is unchanged from
+                // the previous Measure(∞), so WPF would return its PREVIOUS DesiredSize (the
+                // hidden-window measure trap, review 02 LOW A). Invalidating both forces a fresh
+                // pass on a window reused across sessions.
+                ProgressText.InvalidateMeasure();
+                ProgressCard.InvalidateMeasure();
                 ProgressCard.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 width = Math.Max(width, ProgressCard.DesiredSize.Width);
                 height = Math.Max(height, ProgressCard.DesiredSize.Height);
@@ -258,11 +264,10 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
             if (width <= 0 || height <= 0) return null;
 
-            // The card is centred horizontally, top-aligned with its own margin. The window covers
-            // the primary screen from (0,0), so this DIP rectangle is already screen-relative.
-            var margin = ProgressCard.Margin;
-            var leftDip = ((Width - width) / 2) + margin.Left;
-            var topDip = margin.Top;
+            // DesiredSize already includes the card's Margin (WPF adds it to the margin box), so the
+            // box is centred at y = 0 and its top edge must NOT add Margin.Top a second time.
+            var leftDip = (Width - width) / 2;
+            const double topDip = 0;
             const double padding = ProgressCardClearanceDip;
             return new PhysicalRect(
                 DpiHelper.LogicalToPhysicalX(leftDip - padding),

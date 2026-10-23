@@ -56,10 +56,10 @@ public class CalibrationDwellCancelTests
 
     private static CalibrationViewModel CreateVm(
         IMessenger messenger, IGazeProvider provider, CalibrationService? service = null,
-        bool start = true)
+        bool start = true, int pointCount = 3)
     {
         var vm = new CalibrationViewModel(
-            new CalibrationSettings { PointCount = 3, TargetHoldMs = 200, SettleWindowMs = 0 },
+            new CalibrationSettings { PointCount = pointCount, TargetHoldMs = 200, SettleWindowMs = 0 },
             service ?? new CalibrationService(),
             messenger,
             provider,
@@ -71,8 +71,9 @@ public class CalibrationDwellCancelTests
     }
 
     private static CalibrationViewModel CreateStartedVm(
-        IMessenger messenger, IGazeProvider provider, CalibrationService? service = null) =>
-        CreateVm(messenger, provider, service);
+        IMessenger messenger, IGazeProvider provider, CalibrationService? service = null,
+        int pointCount = 3) =>
+        CreateVm(messenger, provider, service, start: true, pointCount);
 
     private static CalibrationWindow CreateWindow(
         int toolbarDwellMs, IMessenger messenger, bool cloaked = false)
@@ -388,6 +389,8 @@ public class CalibrationDwellCancelTests
                 var target = window.CancelDwellDetector.Targets.Single();
                 var keepOut = window.LastCancelKeepOut;
                 Check.That(keepOut).IsNotNull();
+                Check.WithCustomMessage("the window must publish the refined centre the gate excludes")
+                    .That(vm.CancelTargetCenter).IsEqualTo(target.Center);
                 Check.WithCustomMessage("the disc must clear the progress card and its clearance")
                     .That(DistanceToRect(target.Center, keepOut!.Value))
                     .IsGreaterOrEqualThan(target.Radius - 1e-6);
@@ -409,6 +412,57 @@ public class CalibrationDwellCancelTests
         finally
         {
             DpiHelper.Update(previous.Item1, previous.Item2);
+        }
+    }
+
+    /// <summary>
+    /// Review 02, LOW A: the window is created once at startup and reused. A changed progress line
+    /// dirties only its TextBlock, so measuring the Border again with the same constraint would
+    /// return the previous line's DesiredSize; the keep-out would keep the old session's width. A
+    /// 3-point session followed by a 16-point one on the same window must produce exactly the keep-out
+    /// a fresh window produces for the 16-point session.
+    /// </summary>
+    [StaFact]
+    public void AReusedWindow_MeasuresTheProgressCardFresh_SoItsKeepOutEqualsAFreshWindows()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var provider = new FakeGazeProvider();
+        var threePoints = CreateStartedVm(messenger, provider, pointCount: 3);
+        var sixteenPoints = CreateStartedVm(messenger, provider, pointCount: 16);
+        var reused = CreateWindow(toolbarDwellMs: 700, messenger);
+        var fresh = CreateWindow(toolbarDwellMs: 700, messenger);
+        try
+        {
+            // First session on the reused window: its card is measured at "... 3 / 3".
+            reused.SetViewModel(threePoints);
+            reused.SyncCancelTarget(threePoints.State);
+            Check.That(reused.LastCancelKeepOut).IsNotNull();
+
+            threePoints.Cancel(); // Idle clears the target; the Border keeps its measured state
+            Check.That(reused.LastCancelKeepOut).IsNull();
+
+            // Second session, same window: "... 16 / 16" is wider, so a fresh measure is required.
+            reused.SetViewModel(sixteenPoints);
+            reused.SyncCancelTarget(sixteenPoints.State);
+            var reusedKeepOut = reused.LastCancelKeepOut;
+
+            fresh.SetViewModel(sixteenPoints);
+            fresh.SyncCancelTarget(sixteenPoints.State);
+            var freshKeepOut = fresh.LastCancelKeepOut;
+
+            Check.That(reusedKeepOut).IsNotNull();
+            Check.That(freshKeepOut).IsNotNull();
+            Check.WithCustomMessage(
+                    $"the reused window kept a stale card measure: {reusedKeepOut} vs fresh {freshKeepOut}")
+                .That(reusedKeepOut!.Value).IsEqualTo(freshKeepOut!.Value);
+        }
+        finally
+        {
+            threePoints.Cancel();
+            sixteenPoints.Cancel();
+            reused.Close();
+            fresh.Close();
         }
     }
 

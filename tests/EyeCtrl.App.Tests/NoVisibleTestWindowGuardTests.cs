@@ -90,6 +90,8 @@ public class NoVisibleTestWindowGuardTests
             "ShowBackdrop is called on FakeGlassBackdropOverlay, not a real window",
         ["RuntimeWindowGuardTests.cs"] =
             "the probes of the runtime check show plain windows at -30000 (off every monitor) on purpose, to prove the check turns RED; nothing is visible",
+        ["RuntimeOffScreenTagTests.cs"] =
+            "the probes of the off-screen tag show plain windows at -30000 (off every monitor) on purpose, judged by a lenient monitor; nothing is visible",
         ["Localization/SettingsLiveCheckTests.cs#Open"] =
             "a helper reached only from tests that begin with LiveCheck.Require() (EYECTRL_LIVE_CHECK opt-in)",
         ["Diagnostics/SubPixel/ProbeRingOnScreenHarness.cs#RunWhenEnabled"] =
@@ -751,6 +753,68 @@ public class NoVisibleTestWindowGuardTests
     }
 
     [Fact]
+    public void AnOffScreenPreparedWindow_ShownThroughACastOrANullConditional_IsAViolation()
+    {
+        // R1 (#260 review): PrepareOffScreen covers ShowBackdrop only (it goes through the PositionForShow seam); any other show lands on a monitor.
+        // The receiver may be cast, `?.`, `!.` or parenthesised: rule B follows the window through all of them.
+        const string prepared = "var b = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());\n ";
+        foreach (var statement in new[]
+                 {
+                     "b.Show();", "((Window)b).Show();", "b?.Show();", "b!.Show();", "(b as Window).Show();", "((GlassBackdropWindow)b).Show();",
+                     "((Window)b)?.ShowDialog();", "(b).Show();", "((Window)b)!.Show();", "(b as Window)?.Show();",
+                     "((Window)b).Visibility = Visibility.Visible;", "(b as Window).Visibility = c ? Visibility.Visible : Visibility.Collapsed;",
+                     "((UIElement)b).SetValue(UIElement.VisibilityProperty, Visibility.Visible);",
+                     "((Window)b).SetCurrentValue(Window.VisibilityProperty, Visibility.Visible);",
+                 })
+            Check.WithCustomMessage(statement).That(Scan(TestMember(prepared + statement))).Not.IsEmpty();
+
+        // the seam-honouring show, and everything that is not a show, stay clean (also through a cast or `?.`)
+        foreach (var fine in new[]
+                 {
+                     "b.ShowBackdrop(1, 2);", "((GlassBackdropWindow)b).ShowBackdrop(1, 2);", "b?.ShowBackdrop(1, 2);", "(b as GlassBackdropWindow).ShowBackdrop(1, 2);",
+                     "b.Measure(s);", "((Window)b).Measure(s);", "b?.Close();", "((Window)b).Visibility = Visibility.Collapsed;",
+                 })
+            Check.WithCustomMessage(fine).That(Scan(TestMember(prepared + fine))).IsEmpty();
+
+        // a receiver that merely ENDS in the name is another variable
+        Check.That(Scan(TestMember(prepared + "other.b.Measure(s);\n abb.Show();"))).IsEmpty();
+    }
+
+    [Fact]
+    public void AWsVisibleConstant_IsFlaggedOnlyWhenItLooksLikeAWindowStyleOrFeedsAWindowStyle()
+    {
+        // R2 (#260 review): a sentinel or a tick count may have the 0x10000000 bit without being a window style
+        foreach (var fine in new[]
+                 {
+                     "    private const int Max = 0x7FFFFFFF;\n", "    private const int TimeoutTicks = 300000000;\n",
+                     "    private static readonly uint Sentinel = 0xFFFFFFFF;\n", "    private const int Mask = 0x10000000;\n",
+                     "    private const int WS_POPUP = unchecked((int)0x80000000);\n", "    private const int WS_EX_NOACTIVATE = 0x08000000;\n",
+                 })
+            Check.WithCustomMessage(fine).That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(fine))).IsEmpty();
+
+        // a constant that LOOKS like a window style and carries the bit is flagged on its own
+        foreach (var bad in new[]
+                 {
+                     "    private const int WS_VISIBLE = 0x10000000;\n", "    private const int WsPopupVisible = unchecked((int)0x90000000);\n",
+                     "    private static readonly int ProbeStyle = unchecked((int)0x94000000);\n", "    private const uint BackdropWindowStyle = 0x90000000;\n",
+                 })
+            Check.WithCustomMessage(bad).That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(bad))).Not.IsEmpty();
+
+        // any constant (whatever its name) that FEEDS a WindowStyle assignment is judged by that use
+        const string feeds = "    private const int Flags = unchecked((int)0x90000000);\n" +
+                             "    public void M()\n    {\n        var p = new HwndSourceParameters(\"p\") { WindowStyle = Flags, Width = 1 };\n    }\n";
+        Check.That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(feeds))).HasSize(1);
+        Check.That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(feeds.Replace("WindowStyle = Flags", "WindowStyle = Flags | WsPopup")))).HasSize(1);
+        // ... and the same constant that feeds nothing is not a violation
+        Check.That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(
+            "    private const int Flags = unchecked((int)0x90000000);\n    public void M()\n    {\n        var x = Flags;\n    }\n"))).IsEmpty();
+        // a clean style stays clean
+        Check.That(FindViolations("Overlays/NotListedTests.cs", HeadlessFile(
+            "    private const int WsPopup = unchecked((int)0x80000000);\n    public void M()\n    {\n        var p = new HwndSourceParameters(\"p\") { WindowStyle = WsPopup };\n    }\n")))
+            .IsEmpty();
+    }
+
+    [Fact]
     public void AnHwndSourceWithWsVisible_IsAViolation_ByNameOrByValue()
     {
         // T4: WS_VISIBLE (0x10000000) in an HwndSource's WindowStyle paints it at once. The probes use WS_POPUP only (0x80000000).
@@ -833,13 +897,14 @@ public class NoVisibleTestWindowGuardTests
         var stripped = StripCommentsAndStrings(text);
         var ruleAWaived = HeadlessConstruction.Keys.Any(key => relative.EndsWith(key, StringComparison.Ordinal));
         var presentSeams = ruleAWaived ? FindPresentSeams(stripped) : NoPresentSeams;
+        var wsVisibleConstants = FindWsVisibleConstants(stripped);
 
         foreach (var member in Members(stripped))
         {
             if (AllowList.ContainsKey($"{relative}#{member.Name}")) continue;
             if (OptInGateRegexes.Any(g => g.IsMatch(member.Body))) continue;
             var visibleWriteWaived = HeadlessVisibleWriteWaivers.ContainsKey($"{relative}#{member.Name}");
-            foreach (var problem in MemberProblems(member.Body, ruleAWaived, presentSeams, visibleWriteWaived))
+            foreach (var problem in MemberProblems(member.Body, ruleAWaived, presentSeams, visibleWriteWaived, wsVisibleConstants))
                 violations.Add($"{relative}:{LineOf(stripped, member.Start)} {member.Name}: {problem}");
         }
         return violations;
@@ -917,7 +982,14 @@ public class NoVisibleTestWindowGuardTests
 
     private static readonly Regex WindowStyleAssignment = new(@"\bWindowStyle\s*=(?!=)\s*(?<rhs>[^;,}]*)", RegexOptions.Compiled);
 
-    private static readonly Regex IntConstant = new(@"\b(?:const|static\s+readonly)\s+(?:u?int)\s+\w+\s*=\s*(?<rhs>[^;]*)", RegexOptions.Compiled);
+    private static readonly Regex IntConstant = new(@"\b(?:const|static\s+readonly)\s+(?:u?int)\s+(?<name>\w+)\s*=\s*(?<rhs>[^;]*)", RegexOptions.Compiled);
+
+    /// <summary>A constant whose NAME says it is a window style: <c>WS_*</c> / <c>Ws*</c> or anything with <c>Style</c> in it. A sentinel such as <c>Max = 0x7FFFFFFF</c> is not.</summary>
+    private static readonly Regex StyleLookingName = new(@"^(?:ws_?\w*|\w*style\w*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>The names of every int constant in the file whose value carries WS_VISIBLE (a use in a <c>WindowStyle</c> assignment is judged by the assignment).</summary>
+    internal static HashSet<string> FindWsVisibleConstants(string strippedFile) =>
+        IntConstant.Matches(strippedFile).Where(m => CarriesWsVisible(m.Groups["rhs"].Value)).Select(m => m.Groups["name"].Value).ToHashSet();
 
     private static readonly Regex IntegerLiteral = new(@"\b(?:0[xX](?<hex>[0-9A-Fa-f]+)|(?<dec>\d+))[uUlL]*\b", RegexOptions.Compiled);
 
@@ -936,14 +1008,19 @@ public class NoVisibleTestWindowGuardTests
     }
 
     /// <summary>T4: an HwndSource made WS_VISIBLE would paint at once. By name or by value, in a WindowStyle assignment or an int constant.</summary>
-    private static IEnumerable<string> WsVisibleProblems(string body)
+    private static IEnumerable<string> WsVisibleProblems(string body, IReadOnlySet<string>? wsVisibleConstants = null)
     {
+        // a WindowStyle assignment is judged by what it assigns: a literal or a name that carries the bit, or a constant of the file that does
         foreach (Match m in WindowStyleAssignment.Matches(body))
-            if (CarriesWsVisible(m.Groups["rhs"].Value))
+        {
+            var rhs = m.Groups["rhs"].Value;
+            if (CarriesWsVisible(rhs) || (wsVisibleConstants is not null && Regex.Matches(rhs, @"\b[A-Za-z_]\w*\b").Any(i => wsVisibleConstants.Contains(i.Value))))
                 yield return "a WindowStyle that includes WS_VISIBLE (0x10000000) makes an HwndSource visible: use WS_POPUP only, parked off-screen";
+        }
+        // a constant is flagged on its own only when it LOOKS like a window style (an unrelated `Max = 0x7FFFFFFF` is not WS_VISIBLE)
         foreach (Match m in IntConstant.Matches(body))
-            if (CarriesWsVisible(m.Groups["rhs"].Value))
-                yield return "an int constant carrying WS_VISIBLE (0x10000000): an HwndSource built with it is visible";
+            if (StyleLookingName.IsMatch(m.Groups["name"].Value) && CarriesWsVisible(m.Groups["rhs"].Value))
+                yield return "a window-style constant carrying WS_VISIBLE (0x10000000): an HwndSource built with it is visible";
     }
 
     /// <summary>Any real overlay container built in the member (a Fake/Recording/Stub/Test double is not): production code under test would show what it is handed.</summary>
@@ -989,13 +1066,22 @@ public class NoVisibleTestWindowGuardTests
 
     private static readonly Regex AnyShowingApi = new(@"\.\s*(?<api>" + ApiAlternation + @")\b", RegexOptions.Compiled);
 
-    private static IEnumerable<string> MemberProblems(string body, bool ruleAWaived, PresentSeams? presentSeams = null, bool visibleWriteWaived = false)
+    /// <summary>
+    /// The pattern for a named window used as a receiver, up to (not including) the dot: <c>name</c>, <c>name?</c>, <c>name!</c>, <c>(name)</c>,
+    /// <c>((Window)name)</c>, <c>((GlassBackdropWindow)name)</c>, <c>(name as Window)</c> (and the same followed by <c>?</c> / <c>!</c>). A cast or opening
+    /// parenthesis BEFORE the name needs no pattern: the name only has to start a token (not follow a letter or a dot).
+    /// </summary>
+    internal static string ReceiverOf(string escapedName) =>
+        @"(?<![\w.])" + escapedName + @"(?:\s+as\s+[\w.]+)?(?:\s*\))*\s*[?!]?";
+
+    private static IEnumerable<string> MemberProblems(string body, bool ruleAWaived, PresentSeams? presentSeams = null, bool visibleWriteWaived = false,
+        IReadOnlySet<string>? wsVisibleConstants = null)
     {
         // A bare P/Invoke ShowWindow(...) call (the extern declaration itself is not a call).
         if (BareShowWindow.IsMatch(body) && !Regex.IsMatch(body, @"\bextern\b"))
             yield return "a bare ShowWindow(...) call shows a window the guard cannot name";
 
-        foreach (var problem in WsVisibleProblems(body)) yield return problem;
+        foreach (var problem in WsVisibleProblems(body, wsVisibleConstants)) yield return problem;
 
         if (ruleAWaived)
         {
@@ -1034,11 +1120,12 @@ public class NoVisibleTestWindowGuardTests
             }
 
             var name = Regex.Escape(use.Name);
-            var shownBy = Regex.Matches(body, $@"(?<![\w.]){name}\s*\.\s*(?<api>{ApisFor(use.Type, use.PresentSeam)})\b")
+            var receiver = ReceiverOf(name);
+            var shownBy = Regex.Matches(body, $@"{receiver}\s*\.\s*(?<api>{ApisFor(use.Type, use.PresentSeam)})\b")
                 .Select(m => m.Groups["api"].Value).ToList();
             // `w.Visibility = Visibility.Visible` (also fully qualified), `w.SetCurrentValue(VisibilityProperty, ...Visible)`, `w.SetValue(...)`
-            var madeVisible = Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Visibility\s*=(?!=)[^;]*?{VisibleToken}")
-                || Regex.IsMatch(body, $@"(?<![\w.]){name}\s*\.\s*Set(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,[^;]*?{VisibleToken}");
+            var madeVisible = Regex.IsMatch(body, $@"{receiver}\s*\.\s*Visibility\s*=(?!=)[^;]*?{VisibleToken}")
+                || Regex.IsMatch(body, $@"{receiver}\s*\.\s*Set(?:CurrentValue|Value)\s*\(\s*(?:[\w.]*\.)?VisibilityProperty\s*,[^;]*?{VisibleToken}");
             var handed = OverlayContainerArgs.Matches(body)
                 .Any(m => Regex.IsMatch(m.Groups["args"].Value, $@"(?<![\w.]){name}\b"));
 

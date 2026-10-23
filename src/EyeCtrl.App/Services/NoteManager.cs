@@ -214,6 +214,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// displayed (<see cref="NoteWindow.IsDisplayed"/>) - only the HWND show is skipped.</summary>
     internal static bool RealNoteWindows = true;
 
+    /// <summary>Test seam (the CI work-area fix, #227/#231/#234): the work area a manager uses when
+    /// the caller injects none. Null in production, where the constructor reads
+    /// <see cref="SystemParameters.WorkArea"/> as before; the App test assembly sets the OWNER's
+    /// 1920x1152 DIP once in its module initializer, so placement-dependent tests do not follow
+    /// the machine's screen (CI's is smaller and put a note on another side). An explicit
+    /// <c>workAreaDip</c> argument always wins. No writer in <c>src/</c>.</summary>
+    internal static Func<Rect>? DefaultWorkAreaDipForTests;
+
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null, INoteHitTester? hitTester = null,
         Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null,
@@ -236,7 +244,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _hitTester = hitTester ?? new NoteHitTester();
         // P3 D2.7: an absent argument IS the production worker area — SystemParameters.WorkArea
         // (the primary monitor's working rect in v1).
-        _workAreaDip = workAreaDip ?? (() => SystemParameters.WorkArea);
+        _workAreaDip = workAreaDip ?? DefaultWorkAreaDipForTests ?? (() => SystemParameters.WorkArea);
         _messenger.Register<GazeCursorMovedMessage>(this);
         _messenger.Register<EyeCareExerciseActiveMessage>(this);
         _messenger.Register<CalibrationStateChangedMessage>(this);
@@ -1794,6 +1802,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The
     /// container-wired manager must report the production <see cref="NoteHitTester"/>.</summary>
     internal INoteHitTester HitTesterForTest => _hitTester;
+
+    /// <summary>Test seam (the CI work-area fix): the work area this manager derives every note
+    /// placement from - the injected provider, else the test default, else the real one.</summary>
+    internal Rect WorkAreaDipForTest => _workAreaDip();
 
     /// <summary>
     /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a

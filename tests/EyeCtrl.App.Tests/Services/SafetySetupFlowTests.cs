@@ -20,6 +20,7 @@ public class SafetySetupFlowTests : IDisposable
     private readonly List<Action> _background = [];
     private readonly List<bool> _modeCalls = [];
     private readonly List<bool> _ended = [];
+    private readonly List<Scheduled> _scheduled = [];
     private readonly List<string> _tempFiles = [];
     private int _saves;
 
@@ -438,22 +439,116 @@ public class SafetySetupFlowTests : IDisposable
         Check.That(_ended).ContainsExactly(true);
     }
 
+    // ── crash recovery still in flight at the last answer (review 02 N2) ─────
+
     [Fact]
-    public void AnAsyncFailure_ThatArrivesAfterTheChainEnded_NeverReplacesAModal()
+    public void AnInFlightBringUpAtTheLastAnswer_ShowsTheCheckingCard_AndDoesNotEnd()
     {
-        // L1: the chain no longer owns the modal — whatever is up (e.g. "Reset General?") stays.
-        var supervision = FailingAsyncSupervision(_settings);
-        Flow(supervision: supervision).Start();
+        Flow(supervision: FailingAsyncSupervision(_settings)).Start();
+        Pick("safety_start");
+        Pick("safety_yes");                               // bring-up in flight
+        for (var i = 0; i < 3; i++) Pick("safety_no");
+        Pick("safety_all");                               // the last answer
+
+        Check.That(Top.Message).IsEqualTo("Checking crash recovery…");
+        Check.That(Top.Choices).IsEmpty();
+        Check.That(_ended).IsEmpty();
+        Check.That(_settings.General.SafetySetupDone).IsTrue();   // the answers are all in
+    }
+
+    [Fact]
+    public void TheCheckingCard_OnFailure_ShowsTheFailureCard_ThenEnds()
+    {
+        Flow(supervision: FailingAsyncSupervision(_settings)).Start();
         Pick("safety_start");
         Pick("safety_yes");
         for (var i = 0; i < 3; i++) Pick("safety_no");
         Pick("safety_all");
+
+        RunBackground();                                  // the bring-up fails and rolls back
+
+        Check.That(Top.Message).IsEqualTo("The Supervisor could not be started, so supervision is off.");
+        Check.That(Top.Choices.Select(c => c.Id)).ContainsExactly("safety_ok");
+        Check.That(_ended).IsEmpty();
+        Pick("safety_ok");
         Check.That(_ended).ContainsExactly(true);
+    }
+
+    [Fact]
+    public void TheCheckingCard_OnSuccess_EndsAtOnce()
+    {
+        Flow(supervision: WorkingAsyncSupervision(_settings)).Start();
+        Pick("safety_start");
+        Pick("safety_yes");
+        for (var i = 0; i < 3; i++) Pick("safety_no");
+        Pick("safety_all");
+        Check.That(Top.Message).IsEqualTo("Checking crash recovery…");
         var shown = _cards.Count;
 
-        RunBackground();
+        RunBackground();                                  // the Supervisor answers
 
+        Check.That(_settings.Supervision.Enabled).IsTrue();
+        Check.That(_cards).HasSize(shown);                // no further card
+        Check.That(_ended).ContainsExactly(true);
+    }
+
+    [Fact]
+    public void TheCeiling_TurnsAResultThatNeverComes_IntoACouldNotConfirmFailure_ThenEnds()
+    {
+        Flow(supervision: FailingAsyncSupervision(_settings)).Start();
+        Pick("safety_start");
+        Pick("safety_yes");
+        Check.That(_scheduled).HasSize(1);
+        Check.That(_scheduled[0].Delay).IsEqualTo(SupervisorBringUp.StartWait + TimeSpan.FromSeconds(5));
+        for (var i = 0; i < 3; i++) Pick("safety_no");
+        Pick("safety_all");
+        Check.That(Top.Message).IsEqualTo("Checking crash recovery…");
+
+        _scheduled[0].Action();                           // 20 s, and still no result
+
+        Check.That(Top.Message).IsEqualTo("Crash recovery could not be confirmed. Check it in Settings → General.");
+        Check.That(Top.Choices.Select(c => c.Id)).ContainsExactly("safety_ok");
+        Pick("safety_ok");
+        Check.That(_ended).ContainsExactly(true);
+
+        var shown = _cards.Count;
+        RunBackground();                                  // a result after the ceiling is ignored
         Check.That(_cards).HasSize(shown);
+    }
+
+    [Fact]
+    public void TheCeiling_ReachedMidChain_IsShownAtTheNextBoundary()
+    {
+        Flow(supervision: FailingAsyncSupervision(_settings)).Start();
+        Pick("safety_start");
+        Pick("safety_yes");                               // q2 on screen
+        var question = Top.Message;
+
+        _scheduled[0].Action();
+
+        Check.That(Top.Message).IsEqualTo(question);      // never over a question
+        Pick("safety_no");
+        Check.That(Top.Message).IsEqualTo("Crash recovery could not be confirmed. Check it in Settings → General.");
+    }
+
+    [Fact]
+    public void AResult_CancelsTheCeiling_AndAbandonCancelsIt()
+    {
+        Flow(supervision: FailingAsyncSupervision(_settings)).Start();
+        Pick("safety_start");
+        Pick("safety_yes");
+        RunBackground();
+        Check.That(_scheduled[0].Disposed).IsTrue();
+        _scheduled[0].Action();                           // a stale tick after the result changes nothing
+        Pick("safety_no");
+        Check.That(Top.Message).IsEqualTo("The Supervisor could not be started, so supervision is off.");
+
+        var flow = Flow(supervision: FailingAsyncSupervision(_settings));
+        flow.Start();
+        Pick("safety_start");
+        Pick("safety_yes");
+        flow.Abandon();
+        Check.That(_scheduled[1].Disposed).IsTrue();
     }
 
     [Fact]
@@ -510,7 +605,30 @@ public class SafetySetupFlowTests : IDisposable
             (message, choices) => _cards.Add((message, choices)),
             () => _saves++,
             _modeCalls.Add,
-            completed => { _ended.Add(completed); onEnded?.Invoke(completed); });
+            completed => { _ended.Add(completed); onEnded?.Invoke(completed); },
+            (delay, action) =>
+            {
+                var s = new Scheduled(delay, action);
+                _scheduled.Add(s);
+                return s;
+            });
+
+    /// <summary>One captured <c>schedule</c> call: the test fires it by hand.</summary>
+    private sealed class Scheduled(TimeSpan delay, Action action) : IDisposable
+    {
+        public TimeSpan Delay { get; } = delay;
+        public Action Action { get; } = action;
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
+
+    /// <summary>A switch whose bring-up runs only when the test says so, and then succeeds.</summary>
+    private SupervisionToggleService WorkingAsyncSupervision(EyeCtrlSettings settings) =>
+        new(settings,
+            new SupervisorBringUp(settings, () => { }, () => true, _ => { }, () => { }, () => true),
+            new SupervisorStartupEnsure(settings, () => { }, () => true, () => true),
+            persistEnabled: _ => { }, supervisorInstalled: () => true, isSupervisorConnected: () => true,
+            reconcileRunKey: () => { }, runInBackground: _background.Add, postToUi: w => w());
 
     /// <summary>A switch that turns on (reachable Supervisor) synchronously; the list records every
     /// persist of supervision.enabled through the sanctioned path.</summary>

@@ -40,6 +40,19 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     private readonly LeaveBeforeArmLatch _pagLatch;
     private readonly LeaveBeforeArmLatch _modalLatch;
 
+    /// <summary>
+    /// The leave-before-arm latch's release margin in DIP: a held target arms only once the gaze has
+    /// been farther than its hit radius plus this from its centre (A2 review 02 N1). The same 35 DIP
+    /// of hysteresis as the mode toggle's owner-ruled release (85 over a 50 hit radius, L16).
+    /// </summary>
+    public const double LatchReleaseMarginDip = 35;
+
+    /// <summary>
+    /// <see cref="LatchReleaseMarginDip"/> in physical pixels, the unit every target's geometry is in.
+    /// The window sets it for its DPI; the default is the DIP value (DPI 1.0).
+    /// </summary>
+    public double LatchReleaseMarginPhysical { get; set; } = LatchReleaseMarginDip;
+
     // Set when a modal closes, cleared by the next non-modal gaze sample: targets the closing
     // choice registers synchronously (a mode switch rebuilds the page) are held like the rest.
     private bool _holdNewNonModalTargets;
@@ -97,10 +110,10 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
         _controlDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
         _pagDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
         _modalDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
-        _tabLatch = new LeaveBeforeArmLatch(_tabDwell);
-        _controlLatch = new LeaveBeforeArmLatch(_controlDwell);
-        _pagLatch = new LeaveBeforeArmLatch(_pagDwell);
-        _modalLatch = new LeaveBeforeArmLatch(_modalDwell);
+        _tabLatch = new LeaveBeforeArmLatch(_tabDwell, () => LatchReleaseMarginPhysical);
+        _controlLatch = new LeaveBeforeArmLatch(_controlDwell, () => LatchReleaseMarginPhysical);
+        _pagLatch = new LeaveBeforeArmLatch(_pagDwell, () => LatchReleaseMarginPhysical);
+        _modalLatch = new LeaveBeforeArmLatch(_modalDwell, () => LatchReleaseMarginPhysical);
 
         // Wire up unified event handlers. Each activation lambda dispatches first and publishes
         // DwellActivationMessage (the dwell-completion cue's trigger) ONLY when the dispatch

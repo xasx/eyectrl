@@ -175,7 +175,7 @@ public partial class SettingsWindow : OverlayWindow
     /// Vertical margin is 0 — the budget is "height + vertical margins <= 56" (round-3 m1).</summary>
     internal const double ModeToggleHeight = 48;
 
-    private const double ModalBtnRadius = 70;
+    internal const double ModalBtnRadius = 70;
 
     // ── Container sizes that glyph sizes derive from ──
     // Re-added after commit 691a494 dropped them as dead. They are NOT dead now: the tab icon
@@ -481,6 +481,9 @@ public partial class SettingsWindow : OverlayWindow
         CloseButton.Background = _closeButtonBrush;
 
         _viewModel = viewModel;
+        // The leave-before-arm latch's release margin, in the physical pixels the targets use.
+        _viewModel.LatchReleaseMarginPhysical =
+            DpiHelper.LogicalToPhysicalX(SettingsWindowViewModel.LatchReleaseMarginDip);
         _settings = settings;
         _settingsService = settingsService;
         _registryService = registryService;

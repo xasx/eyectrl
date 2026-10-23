@@ -57,6 +57,71 @@ public class SettingsWindowLeaveBeforeArmTests
     }
 
     [Fact]
+    public void AOneSampleExcursionJustPastTheHitEdge_DoesNotArm()
+    {
+        // Review 02 N1: 65 DIP from the centre (inside r70), one 16 ms sample at 73 DIP (outside the
+        // hit circle, inside the 70 + 35 release circle), then rest again.
+        var vm = Create();
+        var chosen = 0;
+        ShowOneChoice(vm, () => chosen++);
+        var resting = new PhysicalPoint(Button.X + 65, Button.Y);
+        Gaze(vm, resting, ms: 500);
+
+        Gaze(vm, new PhysicalPoint(Button.X + 73, Button.Y), ms: 16);
+        Gaze(vm, resting, ms: 3000);
+
+        Check.That(chosen).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AGazePastTheReleaseRadius_Arms()
+    {
+        var vm = Create();
+        var chosen = 0;
+        ShowOneChoice(vm, () => chosen++);
+        Gaze(vm, Button, ms: 500);
+
+        Gaze(vm, new PhysicalPoint(Button.X, Button.Y - (Radius + SettingsWindowViewModel.LatchReleaseMarginDip + 1)), ms: 16);
+        Gaze(vm, Button, ms: 2000);
+
+        Check.That(chosen).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void TheReleaseMargin_FollowsTheWindowsPhysicalValue()
+    {
+        // At DPI 2.0 the window sets 70 physical px; a 110-px look-away is then still inside.
+        var vm = Create();
+        vm.LatchReleaseMarginPhysical = 70;
+        var chosen = 0;
+        ShowOneChoice(vm, () => chosen++);
+        Gaze(vm, Button, ms: 500);
+
+        Gaze(vm, new PhysicalPoint(Button.X + 110, Button.Y), ms: 16);
+        Gaze(vm, Button, ms: 2000);
+
+        Check.That(chosen).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AControlHeldWhenTheModalClosed_IgnoresAOneSampleExcursionToo()
+    {
+        var vm = Create();
+        var control = 0;
+        vm.Register("row", DwellCategory.Control, Radius, DwellMs, () => control++);
+        vm.UpdatePosition("row", DwellCategory.Control, Button);
+        ShowOneChoice(vm, () => { });
+        Gaze(vm, Away, ms: 100);
+        Gaze(vm, Button, ms: 2000);                                      // answers the modal
+        Check.That(vm.IsModalVisible).IsFalse();
+
+        Gaze(vm, new PhysicalPoint(Button.X + 73, Button.Y), ms: 16);
+        Gaze(vm, Button, ms: 3000);
+
+        Check.That(control).IsEqualTo(0);
+    }
+
+    [Fact]
     public void AModalChoiceShownAwayFromTheGaze_DwellsAsBefore()
     {
         var vm = Create();
@@ -141,6 +206,35 @@ public class SettingsWindowLeaveBeforeArmTests
         Gaze(vm, Button, ms: 2000);
 
         Check.That(control).IsGreaterOrEqualThan(1);
+    }
+
+    [Theory]
+    [InlineData(70, true)]     // on the hit edge
+    [InlineData(104, true)]    // inside the release circle
+    [InlineData(106, false)]   // past it
+    public void InsideRelease_ACircle_IsItsHitRadiusPlusTheMargin(double offset, bool inside)
+    {
+        var target = new DwellTarget("c", Button, Radius, DwellMs);
+        var gaze = new PhysicalPoint(Button.X + offset, Button.Y);
+
+        Check.That(LeaveBeforeArmLatch.InsideRelease(target, gaze, 35)).IsEqualTo(inside);
+    }
+
+    [Theory]
+    [InlineData(1, 0, true)]      // inside the rect
+    [InlineData(-34, 0, true)]    // left of it, within the margin
+    [InlineData(-36, 0, false)]   // left of it, past the margin
+    [InlineData(0, 234, true)]    // below it (rect is 200 tall), within the margin
+    [InlineData(0, 236, false)]   // below it, past the margin
+    [InlineData(334, 0, true)]    // right of it (rect is 300 wide), within the margin
+    [InlineData(336, 0, false)]
+    [InlineData(0, -36, false)]   // above it, past the margin
+    public void InsideRelease_ARect_IsItsBoundsOutsetByTheMargin(double dx, double dy, bool inside)
+    {
+        var target = new DwellTarget("r", new PhysicalRect(100, 100, 300, 200), DwellMs);
+        var gaze = new PhysicalPoint(100 + dx, 100 + dy);
+
+        Check.That(LeaveBeforeArmLatch.InsideRelease(target, gaze, 35)).IsEqualTo(inside);
     }
 
     // ── harness ──────────────────────────────────────────────────────────────

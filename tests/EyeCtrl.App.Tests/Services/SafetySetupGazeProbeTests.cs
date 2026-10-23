@@ -55,6 +55,37 @@ public class SafetySetupGazeProbeTests
     }
 
     [Fact]
+    public void AOneSampleJitterJustPastTheButtonsEdge_DoesNotLetQuestion2AnswerItself()
+    {
+        // Review 02 N1's probe: Q1 "Yes" answered at (−32, 0) — 65 DIP from Yes's centre — then one
+        // 16 ms sample at (−24, 0), 73 DIP away (just outside r70), then rest at (−32, 0) again.
+        var flow = StartChain(supervision: null);
+        Answer(-32);
+        Check.That(_vm.ModalMessage).StartsWith("Question 2 of 5");
+
+        Gaze(At(-24), 16);
+        Gaze(At(-32), RestMs);
+
+        Check.That(_vm.ModalMessage).StartsWith("Question 2 of 5");
+        Check.That(_settings.General.StartOnBoot).IsFalse();
+        GC.KeepAlive(flow);
+    }
+
+    [Fact]
+    public void ARealLookAway_ArmsQuestion2()
+    {
+        var flow = StartChain(supervision: null);
+        Answer(-Side);                                   // Q1 "Yes"; the gaze rests on Q2's "Yes"
+        Gaze(At(-Side), 500);
+
+        Answer(-Side);                                   // looks away (Away) and back: a real answer
+
+        Check.That(_vm.ModalMessage).StartsWith("Question 3 of 5");
+        Check.That(_settings.General.StartOnBoot).IsTrue();
+        GC.KeepAlive(flow);
+    }
+
+    [Fact]
     public void TheFailureCardsOk_AtTheSameSpot_DoesNotPassQuestion2()
     {
         // The failure card's single OK sits at the centre; the next question's "Yes" at −97. A gaze

@@ -127,15 +127,25 @@ internal sealed class SafetySetupHost
 ///
 /// <para>
 /// <b>Crash recovery can fail after the chain has moved on</b> (<c>RequestEnable</c> is asynchronous
-/// and rolls back). The chain never waits for it: the existing failure text is held and shown, with
-/// one acknowledgement button, at the next boundary between the chain's own cards. A failure that
-/// arrives after the chain has ended is only logged — the modal is no longer the chain's to replace.
+/// and rolls back; the bring-up polls for up to <see cref="SupervisorBringUp.StartWait"/>). The
+/// questions never wait for it: the existing failure text is held and shown, with one
+/// acknowledgement button, at the next boundary between the chain's own cards. But the chain does not
+/// END while the bring-up is still in flight (A2 review 02 N2): after the last answer it shows a
+/// "Checking crash recovery" card with no choices and ends only on the result — at once on success,
+/// after the failure card's OK on failure. A ceiling of <see cref="CrashRecoveryCeiling"/> from the
+/// request turns a result that never comes into a "could not be confirmed" failure, so the window
+/// cannot stay up forever. Abandoning the chain stops the wait, so a result never lands on a modal
+/// that is not the chain's.
 /// </para>
 /// </summary>
 internal sealed class SafetySetupFlow
 {
     /// <summary>How many questions the chain asks.</summary>
     internal const int QuestionCount = 5;
+
+    /// <summary>The longest the chain waits for crash recovery's bring-up, from the request: the
+    /// bring-up's own poll plus 5 s of slack.</summary>
+    internal static readonly TimeSpan CrashRecoveryCeiling = SupervisorBringUp.StartWait + TimeSpan.FromSeconds(5);
 
     // Dwell-target ids, not text: constants, so the text-literal ratchet reads them as ids.
     private const string StartId = "safety_start";
@@ -152,10 +162,13 @@ internal sealed class SafetySetupFlow
     private readonly Action _applyAndSave;
     private readonly Action<bool> _setSimpleSettingsUi;
     private readonly Action<bool> _onEnded;
+    private readonly Func<TimeSpan, Action, IDisposable> _schedule;
 
     private string? _pendingFailure;
     private bool _active;
     private bool _waitingForSupervision;
+    private bool _checking;
+    private IDisposable? _ceiling;
 
     /// <param name="settings">The live settings the answers are written to.</param>
     /// <param name="supervision">The crash-recovery switch; null on a degraded host, which skips
@@ -165,15 +178,20 @@ internal sealed class SafetySetupFlow
     /// <param name="setSimpleSettingsUi">The window's mode switch (re-renders the pages and the
     /// toggle label), true for Basic.</param>
     /// <param name="onEnded">Told once when the chain ends: true after the last answer (and any held
-    /// failure's acknowledgement), false on "Later".</param>
+    /// failure's acknowledgement, and crash recovery's result), false on "Later".</param>
+    /// <param name="schedule">Runs an action once after a delay on the UI thread and returns its
+    /// cancellation; the crash-recovery ceiling uses it. Defaults to a <c>DispatcherTimer</c> on the
+    /// current dispatcher.</param>
     internal SafetySetupFlow(
         EyeCtrlSettings settings,
         SupervisionToggleService? supervision,
         Action<string, IReadOnlyList<ModalChoice>> showModal,
         Action applyAndSave,
         Action<bool> setSimpleSettingsUi,
-        Action<bool>? onEnded = null)
+        Action<bool>? onEnded = null,
+        Func<TimeSpan, Action, IDisposable>? schedule = null)
     {
+        _schedule = schedule ?? DispatcherDelay;
         _settings = settings;
         _supervision = supervision;
         _showModal = showModal;
@@ -187,7 +205,7 @@ internal sealed class SafetySetupFlow
     {
         _active = true;
         _pendingFailure = null;
-        _showModal(T("settings.safety.intro.message"),
+        _showModal(StringTable.Current.T("settings.safety.intro.message", QuestionCount),
         [
             new ModalChoice(StartId, T("settings.safety.start"), ModalChoiceKind.Affirmative, () => Advance(0)),
             new ModalChoice(LaterId, T("settings.safety.later"), ModalChoiceKind.Negative, () => End(false)),
@@ -199,9 +217,18 @@ internal sealed class SafetySetupFlow
     internal void Abandon()
     {
         _active = false;
+        _checking = false;
+        StopWaiting();
+    }
+
+    /// <summary>Stops listening for crash recovery's result and cancels the ceiling.</summary>
+    private void StopWaiting()
+    {
         _waitingForSupervision = false;
         if (_supervision is not null)
             _supervision.StateChanged -= OnSupervisionStateChanged;
+        _ceiling?.Dispose();
+        _ceiling = null;
     }
 
     private static string T(string key) => StringTable.Current.T(key);
@@ -222,6 +249,16 @@ internal sealed class SafetySetupFlow
 
         if (index >= QuestionCount)
         {
+            // Never end while crash recovery is still being brought up: the owner said "Yes" to it,
+            // and a startup run closes the window at the end (N2). No choices: the result, or the
+            // ceiling, moves the chain on.
+            if (_waitingForSupervision)
+            {
+                _checking = true;
+                _showModal(T("settings.safety.checking"), []);
+                return;
+            }
+
             End(true);
             return;
         }
@@ -317,6 +354,7 @@ internal sealed class SafetySetupFlow
         {
             _waitingForSupervision = true;
             _supervision.StateChanged += OnSupervisionStateChanged;
+            _ceiling = _schedule(CrashRecoveryCeiling, OnCrashRecoveryCeiling);
             return;
         }
 
@@ -327,17 +365,52 @@ internal sealed class SafetySetupFlow
     {
         if (!_waitingForSupervision || _supervision is null || _supervision.InFlight) return;
 
-        _waitingForSupervision = false;
-        _supervision.StateChanged -= OnSupervisionStateChanged;
+        StopWaiting();
         HoldFailureIfRolledBack();
+        ResumeAfterCrashRecovery();
+    }
 
-        // The chain has ended: the modal on screen (if any) is no longer the chain's, so the failure
-        // must not replace it (A2 review L1). The General page's status line still shows it.
-        if (!_active && _pendingFailure is { } failure)
+    /// <summary>The bring-up never reported back: treat it as a failure the owner must see.</summary>
+    private void OnCrashRecoveryCeiling()
+    {
+        if (!_waitingForSupervision) return;
+
+        StopWaiting();
+        _pendingFailure = T("settings.safety.unconfirmed.message");
+        ResumeAfterCrashRecovery();
+    }
+
+    /// <summary>Crash recovery's outcome is known: leave the checking card if it is up, else keep a
+    /// failure for the next boundary.</summary>
+    private void ResumeAfterCrashRecovery()
+    {
+        // Otherwise a question is on screen: a held failure waits for the next boundary. The chain
+        // cannot have ended — it does not end while waiting, and abandoning it stops the wait — so a
+        // result never lands on a modal that is not the chain's (A2 review L1).
+        if (_checking)
         {
-            _pendingFailure = null;
-            Serilog.Log.Warning("Safety setup: crash recovery could not be turned on after the chain ended: {Failure}", failure);
+            _checking = false;
+            Advance(QuestionCount);
         }
+    }
+
+    /// <summary>The production <c>schedule</c>: a one-shot <c>DispatcherTimer</c> on this thread's
+    /// dispatcher (the chain runs on the UI thread).</summary>
+    private static IDisposable DispatcherDelay(TimeSpan delay, Action action)
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = delay };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            action();
+        };
+        timer.Start();
+        return new StopOnDispose(timer.Stop);
+    }
+
+    private sealed class StopOnDispose(Action stop) : IDisposable
+    {
+        public void Dispose() => stop();
     }
 
     /// <summary>A request that ended with supervision still off failed (or rolled back): its status

@@ -21,23 +21,36 @@ using EyeCtrl.Core.Processing;
 /// target's own circle, no timeout: a frozen stream accrues no dwell anywhere), but without
 /// unregistering: a held target stays in the detector and is only filtered out of
 /// <see cref="DwellDetector.Update(PhysicalPoint, long, Func{DwellTarget, bool})"/>, so its centre
-/// keeps following the view's per-frame position push. The "outside" test is the detector's own
-/// <see cref="DwellDetector.HitTest"/>, and it is trusted only once the target has had a real centre
-/// pushed: a target registered at the placeholder origin would otherwise read "outside" and arm
-/// before the view moves it under the gaze.
+/// keeps following the view's per-frame position push. The "outside" test is trusted only once the
+/// target has had a real centre pushed: a target registered at the placeholder origin would otherwise
+/// read "outside" and arm before the view moves it under the gaze.
+/// </para>
+///
+/// <para>
+/// <b>"Outside" means past a RELEASE radius, not the hit circle</b> (A2 review 02 N1): the target's
+/// own live hit radius plus a release margin (35 DIP, the hysteresis the mode toggle's owner-ruled
+/// 85-over-50 release follows). A single jitter sample just past the hit edge is not a look away —
+/// the probe that proved it answered Q1 at 65 DIP from "Yes", made one 16 ms sample at 73 DIP, and the
+/// next question's "Yes" answered itself. A rectangular target's release area is its bounds outset by
+/// the same margin.
 /// </para>
 /// </summary>
 internal sealed class LeaveBeforeArmLatch
 {
     private readonly DwellDetector _detector;
+    private readonly Func<double> _releaseMargin;
     private readonly HashSet<string> _held = new();
     private readonly HashSet<string> _positioned = new();
     private readonly Func<DwellTarget, bool> _armedOnly;
     private readonly List<string> _due = new();
 
-    internal LeaveBeforeArmLatch(DwellDetector detector)
+    /// <param name="detector">The detector whose targets this latch holds.</param>
+    /// <param name="releaseMarginPhysical">The release margin beyond each target's hit area, in
+    /// physical pixels, read per sample (the window sets it for its DPI).</param>
+    internal LeaveBeforeArmLatch(DwellDetector detector, Func<double> releaseMarginPhysical)
     {
         _detector = detector;
+        _releaseMargin = releaseMarginPhysical;
         _armedOnly = t => !_held.Contains(t.Id);
     }
 
@@ -90,20 +103,47 @@ internal sealed class LeaveBeforeArmLatch
 
     /// <summary>
     /// One gaze sample, BEFORE the detector's update: arms every held target that has a real centre
-    /// and does not contain <paramref name="gaze"/>. Allocation-free.
+    /// and whose release area does not contain <paramref name="gaze"/>. A held id the detector no
+    /// longer has is dropped. Allocation-free.
     /// </summary>
     internal void Update(PhysicalPoint gaze)
     {
         if (_held.Count == 0) return;
 
+        var margin = _releaseMargin();
+        var targets = _detector.Targets;
         _due.Clear();
         foreach (var id in _held)
         {
-            if (_positioned.Contains(id) && !_detector.HitTest(id, gaze))
+            var target = Find(targets, id);
+            if (target is null || (_positioned.Contains(id) && !InsideRelease(target, gaze, margin)))
                 _due.Add(id);
         }
 
         foreach (var id in _due)
             Forget(id);
+    }
+
+    private static DwellTarget? Find(IReadOnlyList<DwellTarget> targets, string id)
+    {
+        for (var i = 0; i < targets.Count; i++)
+            if (targets[i].Id == id) return targets[i];
+        return null;
+    }
+
+    /// <summary>Whether <paramref name="gaze"/> is inside the target's hit area grown by
+    /// <paramref name="margin"/> on every side.</summary>
+    internal static bool InsideRelease(DwellTarget target, PhysicalPoint gaze, double margin)
+    {
+        if (target.Bounds is { } b)
+        {
+            return gaze.X >= b.X - margin && gaze.X <= b.X + b.Width + margin
+                && gaze.Y >= b.Y - margin && gaze.Y <= b.Y + b.Height + margin;
+        }
+
+        var dx = gaze.X - target.Center.X;
+        var dy = gaze.Y - target.Center.Y;
+        var release = target.Radius + margin;
+        return dx * dx + dy * dy <= release * release;
     }
 }

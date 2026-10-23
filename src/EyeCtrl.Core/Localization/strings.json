@@ -4445,6 +4445,13 @@
       "total"
     ]
   },
+  "settings.safety.checking": {
+    "text": "Checking crash recovery…",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
   "settings.safety.crash.message": {
     "text": "Question {0} of {1}\nBring EyeCtrl back automatically after a crash?",
     "who": "user",
@@ -4466,11 +4473,13 @@
     ]
   },
   "settings.safety.intro.message": {
-    "text": "Safety setup: 5 short questions.",
+    "text": "Safety setup: {0} short questions.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
-    "args": []
+    "args": [
+      "count"
+    ]
   },
   "settings.safety.later": {
     "text": "Later",
@@ -4526,6 +4535,13 @@
       "number",
       "total"
     ]
+  },
+  "settings.safety.unconfirmed.message": {
+    "text": "Crash recovery could not be confirmed. Check it in Settings → General.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
   },
   "settings.selection.center_dot.description": {
     "text": "Diameter of the dot at the center of the gaze ring; applies after a restart.",

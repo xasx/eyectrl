@@ -69,6 +69,10 @@ public class SafetySetupWiringTests
                                 + "SwitchSettingsUiMode and reports its end to the host.")
             .That(flat).Contains("ApplyAndSave, SwitchSettingsUiMode, onEnded);");
         Check.That(flat).Contains("internal void StartSafetySetup(bool closeWhenDone) { if (_safetySetup.Start(closeWhenDone))");
+        Check.WithCustomMessage("The latch's release margin must be set in the targets' physical pixels "
+                                + "(review 02 N1); without it the latch runs on the DPI-1.0 default.")
+            .That(flat).Contains(
+                "_viewModel.LatchReleaseMarginPhysical = DpiHelper.LogicalToPhysicalX(SettingsWindowViewModel.LatchReleaseMarginDip);");
 
         var closed = flat.IndexOf("Closed += (_, _) =>", StringComparison.Ordinal);
         var closedEnd = flat.IndexOf("_viewModel.Dispose(); };", closed, StringComparison.Ordinal);

@@ -2441,6 +2441,10 @@
     "text": "Frage {0} von {1}\nEyeCtrl beim Anmelden starten?\nStartet beim Anmelden auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
     "src": "596c9992"
   },
+  "settings.safety.checking": {
+    "text": "Automatischer Neustart nach Absturz wird geprüft.",
+    "src": "7cad0fb9"
+  },
   "settings.safety.crash.message": {
     "text": "Frage {0} von {1}\nEyeCtrl nach einem Absturz automatisch neu starten?",
     "src": "299915eb"
@@ -2450,8 +2454,8 @@
     "src": "34f3cb03"
   },
   "settings.safety.intro.message": {
-    "text": "Sicherheitseinrichtung: 5 kurze Fragen.",
-    "src": "27d22af4"
+    "text": "Sicherheitseinrichtung: {0} kurze Fragen.",
+    "src": "a26e4bd9"
   },
   "settings.safety.later": {
     "text": "Später",
@@ -2480,6 +2484,10 @@
   "settings.safety.track.message": {
     "text": "Frage {0} von {1}\nTrackstatus anzeigen?",
     "src": "ea3a860c"
+  },
+  "settings.safety.unconfirmed.message": {
+    "text": "Der automatische Neustart nach Absturz konnte nicht bestätigt werden. Bitte unter Einstellungen → Allgemein prüfen.",
+    "src": "60d492a5"
   },
   "settings.selection.center_dot.description": {
     "text": "Durchmesser des Punkts in der Mitte des Blickrings; gilt nach einem Neustart.",

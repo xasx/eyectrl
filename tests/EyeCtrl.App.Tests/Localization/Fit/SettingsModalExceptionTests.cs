@@ -65,6 +65,7 @@ public class SettingsModalExceptionTests
         "language-recovery.prompt.message" => "language-recovery.prompt.restart|language-recovery.prompt.cancel",
         "language-recovery.restart.in_progress.message" => "language-recovery.restart.in_progress.hide",
         "settings.safety.intro.message" => "settings.safety.start|settings.safety.later",
+        "settings.safety.unconfirmed.message" => "settings.safety.ok",
         "settings.safety.mode.message" => "settings.safety.mode.basic|settings.safety.mode.all",
         _ => "settings.modal.yes|settings.modal.no",
     };
@@ -137,7 +138,8 @@ public class SettingsModalExceptionTests
     }
 
     /// <summary>One modal laid out: the card's box, each button's box (window DIP), and the message.</summary>
-    internal sealed record ModalLayout(Rect Card, IReadOnlyList<Rect> Buttons, string Message);
+    /// <param name="MessageBox">The message TextBlock's box (window DIP).</param>
+    internal sealed record ModalLayout(Rect Card, IReadOnlyList<Rect> Buttons, string Message, Rect MessageBox);
 
     private static string Fmt(Rect r) => string.Format(CultureInfo.InvariantCulture, "{0:0.##},{1:0.##} {2:0.##}×{3:0.##}", r.X, r.Y, r.Width, r.Height);
 
@@ -152,7 +154,7 @@ public class SettingsModalExceptionTests
         var (overlay, message, panel, card) = BuildModal(messageText, choices);
         using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
         Rect Box(FrameworkElement e) => e.TransformToAncestor(overlay).TransformBounds(new Rect(e.RenderSize));
-        return new ModalLayout(Box(card), panel.Children.OfType<Border>().Select(Box).ToList(), message.Text);
+        return new ModalLayout(Box(card), panel.Children.OfType<Border>().Select(Box).ToList(), message.Text, Box(message));
     }
 
     /// <summary>

@@ -1667,11 +1667,11 @@
     "src": "bd8a2ade"
   },
   "settings.dwell.pause_grace.description": {
-    "text": "Wie lange das Verweilen in Menüs und auf der Symbolleiste seinen Fortschritt nach einem Blinzeln oder Wegblicken behält. Kehrt der Blick rechtzeitig zurück, geht es weiter; bei 0 beginnt es sofort neu.",
+    "text": "Wie lange das Verweilen in Menüs und auf der Symbolleiste seinen Fortschritt nach einem Blinzeln oder Wegschauen behält. Kehrt der Blick rechtzeitig zurück, geht es weiter; bei 0 beginnt es sofort neu.",
     "src": "1b86c939"
   },
   "settings.dwell.pause_grace.label": {
-    "text": "Haltezeit beim Wegblicken (ms)",
+    "text": "Haltezeit beim Wegschauen (ms)",
     "src": "ba78963a"
   },
   "settings.dwell.prediction.description": {

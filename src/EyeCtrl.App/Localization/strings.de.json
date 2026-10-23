@@ -474,9 +474,29 @@
     "text": "Shift",
     "src": "bf8f96a7"
   },
+  "overlays.note.cancel": {
+    "text": "Abbrechen",
+    "src": "09b4eafd"
+  },
+  "overlays.note.capacity": {
+    "text": "8 Notizen – zuerst eine entfernen",
+    "src": "19cf0017"
+  },
+  "overlays.note.chip.discarded": {
+    "text": "Änderungen verworfen · Rückgängig",
+    "src": "64dc14b4"
+  },
+  "overlays.note.chip.removed": {
+    "text": "Notiz entfernt · Rückgängig",
+    "src": "26a7ded8"
+  },
   "overlays.note.close": {
     "text": "Notiz schließen",
     "src": "ca177537"
+  },
+  "overlays.note.discard": {
+    "text": "Änderungen verwerfen",
+    "src": "d2ed92f8"
   },
   "overlays.note.done": {
     "text": "Fertig",
@@ -490,13 +510,21 @@
     "text": "Notiz verschieben",
     "src": "7787d174"
   },
+  "overlays.note.otherSide": {
+    "text": "Andere Seite",
+    "src": "6de2740a"
+  },
+  "overlays.note.placeHere": {
+    "text": "Hier platzieren",
+    "src": "3416e6f1"
+  },
   "overlays.note.showKeyboard": {
     "text": "Tastatur zeigen",
     "src": "defb2a94"
   },
-  "overlays.note.title": {
-    "text": "ANGEHEFTETE NOTIZ",
-    "src": "aa84667f"
+  "overlays.note.undo": {
+    "text": "Rückgängig",
+    "src": "6bc7bbf8"
   },
   "overlays.pause.title": {
     "text": "EyeCtrl pausiert",
@@ -813,6 +841,14 @@
   "settings.action_menu.jump.label": {
     "text": "Vorschau des Aktionsmenüs",
     "src": "f2c5e4b9"
+  },
+  "settings.action_menu.notes.textSize.description": {
+    "text": "Wie groß Notiztext erscheint, von 18 bis 48. Jede Notiz passt sich sofort an.",
+    "src": "b5e32b19"
+  },
+  "settings.action_menu.notes.textSize.label": {
+    "text": "Textgröße der Notizen",
+    "src": "2b467400"
   },
   "settings.action_menu.preview.labels": {
     "text": "Beschriftungen erscheinen im Betrieb nur beim Verweilen",

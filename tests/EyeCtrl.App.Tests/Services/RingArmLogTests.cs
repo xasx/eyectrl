@@ -28,7 +28,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "approach=150 ms, glideOut=0) [source: default]");
+            + "go=500 ms corridor=R, glideOut=0) [source: default]");
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "approach=150 ms, glideOut=0) [source: --ring-arm]");
+            + "go=500 ms corridor=R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: run-only (pin=RunOnly, hold=None, grace=0 ms once proven 0 ms, "
-            + "approach=0 ms, glideOut=0) [source: --ring-arm]");
+            + "go=0 ms corridor=R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
-            + "approach=0 ms, glideOut=0) [source: --ring-arm]");
+            + "go=0 ms corridor=R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "approach=150 ms, glideOut=0) [source: --ring-arm]");
+            + "go=500 ms corridor=R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -93,6 +93,18 @@ public class RingArmLogTests
             .IsEqualTo("Ring pin (offer) at=(1000,1000) dist=287");
         Check.That(RingArmLog.PinLine(atOffer: false, new PhysicalPoint(1234.6, 998.4), 0))
             .IsEqualTo("Ring pin (settle) at=(1235,998) dist=0");
+
+        Check.That(RingArmLog.IgnoredPinLine(atOffer: false, new PhysicalPoint(1234.6, 998.4)))
+            .IsEqualTo("Ring pin (settle) at=(1235,998) ignored=near-offer");
+
+        Check.That(RingArmLog.GoStartLine(40.4, 3.6)).IsEqualTo("Ring go start dist=40 off=4");
+        Check.That(RingArmLog.GoStartLine(40.4, null)).IsEqualTo("Ring go start dist=40 off=na");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Hit, 241.4, 12.2)).IsEqualTo("Ring go end (hit) ms=241 off=12");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Left, 90, 100)).IsEqualTo("Ring go end (left) ms=90 off=100");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Timeout, 510, 5)).IsEqualTo("Ring go end (timeout) ms=510 off=5");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.OfferClosed, 30, 0)).IsEqualTo("Ring go end (offer-closed) ms=30 off=0");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Hidden, 30, null)).IsEqualTo("Ring go end (hidden) ms=30 off=na");
+        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Settled, 480, 7)).IsEqualTo("Ring go end (settled) ms=480 off=7");
 
         Check.That(RingArmLog.ReleaseLine(RingReleaseCause.RunEnd, 123.6))
             .IsEqualTo("Ring release (run-end) dist=124");
@@ -142,6 +154,158 @@ public class RingArmLogTests
         Check.That(log).HasSize(2);
         Check.That(log[0]).IsEqualTo("Ring pin (settle) at=(1000,1000) dist=0");
         Check.That(log[1].StartsWith("Ring release (run-end) dist=", StringComparison.Ordinal)).IsTrue();
+    }
+
+    [Fact]
+    public void TheLog_WritesTheIgnoredNearOfferLine_OnlyForTheNearMissRefusal()
+    {
+        // GL1: a near-miss settle the ring ignores (D) logs `Ring pin (settle) at=(x,y)
+        // ignored=near-offer`. Every other refusal stays silent: a pin on P's side of the zone applies
+        // and logs the normal line; a pin refused only because no fixation is up writes nothing.
+        // Mutant ML1: drop the reason from the VM's event -> no line.
+        var log = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger)
+        {
+            RingHoldPolicy = RingHoldPolicy.HybridFreeze,
+        };
+        var im = new InteractionManager();
+        using var sink = new RingArmLog(im, vm, log.Add);
+        im.PinRing += p => messenger.Send(new PinRingMessage(p));
+        im.StateChanged += s => messenger.Send(new StateChangedMessage(s));
+
+        var offerPoint = new PhysicalPoint(300, 300);
+        var button = new PhysicalPoint(600, 600);
+        messenger.Send(new GazeCursorMovedMessage(offerPoint, 30_000));
+        messenger.Send(new ShowActivationButtonMessage(button, 150, offerPoint, 80));
+
+        // No fixation up: a near-miss pin is refused by the state rule, not by D: silent.
+        var nearMiss = new PhysicalPoint(800, 600);                // 200 px from B, 583 from P
+        messenger.Send(new PinRingMessage(nearMiss));
+        Check.That(log).IsEmpty();
+
+        im.OnFixationStarted(nearMiss);                            // the state reaches the VM: Fixation
+        im.OnFixationSettled(nearMiss);                            // Core's settle pin: D ignores it
+
+        Check.That(log).ContainsExactly("Ring pin (settle) at=(800,600) ignored=near-offer");
+
+        // A settle on P's side of the zone (225 px from B, 199 px from P) applies as before.
+        im.OnFixationEnded();
+        log.Clear();
+        var swallowed = new PhysicalPoint(441, 441);
+        im.OnFixationStarted(swallowed);
+        im.OnFixationSettled(swallowed);
+
+        Check.That(log).HasSize(1);
+        Check.That(log[0].StartsWith("Ring pin (settle) at=(441,441) dist=", StringComparison.Ordinal)).IsTrue();
+    }
+
+    [Fact]
+    public void TheLog_AHoldBeatsTheNearOfferReason_NoIgnoredLineDuringAHold()
+    {
+        // R3: a near-miss settle pin that arrives while the ring is holding is refused by the hold, not
+        // by D, so the log stays silent and the ring stays held. Mutant ML2: drop `!holdSuppressed`
+        // from the VM's reason -> the ignored=near-offer line appears.
+        var log = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger)
+        {
+            RingHoldPolicy = RingHoldPolicy.HybridFreeze,
+        };
+        var im = new InteractionManager();
+        using var sink = new RingArmLog(im, vm, log.Add);
+        im.PinRing += p => messenger.Send(new PinRingMessage(p));
+        im.StateChanged += s => messenger.Send(new StateChangedMessage(s));
+
+        var offerPoint = new PhysicalPoint(300, 300);
+        var button = new PhysicalPoint(600, 600);
+        messenger.Send(new GazeCursorMovedMessage(offerPoint, 30_000));
+        messenger.Send(new ShowActivationButtonMessage(button, 150, offerPoint, 80));
+        messenger.Send(new GazeCursorMovedMessage(button, 60_000));   // into the hit area: the freeze starts
+        Check.That(vm.IsPinned).IsTrue();
+        log.Clear();                                                   // the hold-start line is not under test
+
+        var nearMiss = new PhysicalPoint(800, 600);                    // 200 px from B, 583 from P
+        im.OnFixationStarted(nearMiss);                                // the state reaches the VM: Fixation
+        im.OnFixationSettled(nearMiss);                                // Core's settle pin: the hold refuses it
+
+        Check.WithCustomMessage("logged: " + string.Join(" | ", log))
+            .That(log.Any(line => line.Contains("ignored=", StringComparison.Ordinal))).IsFalse();
+        Check.That(vm.IsPinned).IsTrue();                              // still held, where it froze
+    }
+
+    [Fact]
+    public void TheLog_WritesTheGoLines_ForEachWayTheKeepEnds()
+    {
+        // The going-for-it keep's lines, through the real VM: start (ring-to-gaze distance, the gaze's
+        // distance to the P-B segment), and one end line per reason with the time since the start.
+        // P = (1000,1000), B = (1400,1000), hit 150, R 80, frames 30 ms. Mutant M10: the go-end reasons
+        // swapped (left <-> timeout) -> the timeout and left lines read wrongly.
+        List<string> Go(Action<Action<PhysicalPoint>, Action<InteractionState>, Action, Action<PhysicalPoint>> script)
+        {
+            var log = new List<string>();
+            var messenger = new WeakReferenceMessenger();
+            var vm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger)
+            {
+                RingHoldPolicy = RingHoldPolicy.HybridFreeze,
+            };
+            var im = new InteractionManager();
+            using var sink = new RingArmLog(im, vm, log.Add);
+            long us = 0;
+            void Frame(PhysicalPoint at) => messenger.Send(new GazeCursorMovedMessage(at, us += 30_000));
+            var p = new PhysicalPoint(1000, 1000);
+            Frame(p);
+            messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+            messenger.Send(new PinRingMessage(p));
+            for (int i = 0; i < 10; i++) Frame(p);
+            messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(1400, 1000), 150, p, 80));
+            messenger.Send(new ReleaseRingMessage());
+            messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+            log.Clear();
+            script(Frame, s => messenger.Send(new StateChangedMessage(s)), () => messenger.Send(new HideActivationButtonMessage()),
+                at => messenger.Send(new PinRingMessage(at)));
+            return log.Where(l => l.StartsWith("Ring go ", StringComparison.Ordinal)).ToList();
+        }
+
+        Check.That(Go((frame, _, _, _) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            for (int i = 0; i < 17; i++) frame(new PhysicalPoint(1100, 1000));
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (timeout) ms=510 off=0");
+
+        Check.That(Go((frame, _, _, _) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(1100, 1100));
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (left) ms=30 off=100");
+
+        Check.That(Go((frame, _, _, _) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(1300, 1000));
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (hit) ms=30 off=0");
+
+        Check.That(Go((frame, _, hide, _) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(1100, 1000));
+            hide();
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (offer-closed) ms=30 off=0");
+
+        Check.That(Go((frame, state, _, _) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(1100, 1000));
+            state(InteractionState.Paused);
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (hidden) ms=30 off=0");
+
+        Check.That(Go((frame, state, _, settle) =>
+        {
+            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(1100, 1000));
+            state(InteractionState.Fixation);
+            settle(new PhysicalPoint(1100, 1000));
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (settled) ms=30 off=0");
     }
 
     [Fact]

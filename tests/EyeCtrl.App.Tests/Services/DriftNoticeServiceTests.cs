@@ -15,7 +15,14 @@ public class DriftNoticeServiceTests
     private sealed class FakeDriftNoticePresenter : IDriftNoticePresenter
     {
         public int ShowCalls { get; private set; }
+        public bool Visible { get; set; }
         public void ShowDriftNotice() => ShowCalls++;
+
+        public bool TryGetVisibleBounds(out EyeCtrl.Core.Models.PhysicalRect bounds)
+        {
+            bounds = default;
+            return Visible;
+        }
     }
 
     // Assessment with Drift gated (or not) — the service keys off ForMode(Drift).GatePassed.

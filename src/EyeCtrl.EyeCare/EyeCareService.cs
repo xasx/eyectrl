@@ -1,5 +1,6 @@
 namespace EyeCtrl.EyeCare;
 
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
@@ -17,6 +18,7 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
     private readonly FatigueMonitor _fatigueMonitor;
     private readonly ExerciseRunner _runner;
     private readonly IEyeCareHooks _hooks;
+    private readonly IMessenger? _messenger;
 
     // Touched from the gaze background thread and from async-void continuations (thread-pool).
     // volatile gives the re-entrancy guard cross-thread visibility.
@@ -33,13 +35,15 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         ExerciseRunner runner,
         IEyeCareHooks hooks,
         double fixationRadiusPixels = 50,
-        int fatigueWindowSeconds = 60)
+        int fatigueWindowSeconds = 60,
+        IMessenger? messenger = null)
     {
         _settings = settings;
         _scheduler = new EyeCareScheduler(settings);
         _fatigueMonitor = new FatigueMonitor(settings, fixationRadiusPixels, fatigueWindowSeconds);
         _runner = runner;
         _hooks = hooks;
+        _messenger = messenger;
         _scheduler.BreakDue += OnBreakDue;
         // Toggling eye-care off mid-session must immediately dismiss any visible overlay.
         _settings.PropertyChanged += OnSettingsChanged;
@@ -120,18 +124,31 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
 
             var exercise = _runner.NextExercise();
             exercise.Reset(); // exercises are reused singletons — clear prior-run samples/timestamps
-            await _hooks.ShowExerciseAsync(
-                exercise.Name,
-                _settings.ExerciseDurationSeconds * 1_000_000L,
-                exercise.GetTargetAt,
-                exercise.RecordGaze);
-            // Score from the exercise's own recorded samples, then show the summary.
-            var result = exercise.Complete();
-            var finalOutcome = new EyeCareExerciseOutcome(
-                result.ExerciseName, result.AccuracyPercent, result.Steadiness0To5,
-                result.ReactionTimeMs, result.DurationSeconds, result.EncouragementLine);
-            await _hooks.ShowSummaryAsync(finalOutcome);
-            _scheduler.OnBreakCompleted();
+
+            // P2 D1: the exercise-active flag is sent ONCE around the whole run + summary. The
+            // full-screen window stays shown between FinishRun and ShowSummaryAsync, so a flag
+            // scoped to the run alone would drop for that gap; the finally also covers
+            // CancelActive (the awaits complete or fault into the catch below either way).
+            _messenger?.Send(new EyeCareExerciseActiveMessage(true));
+            try
+            {
+                await _hooks.ShowExerciseAsync(
+                    exercise.Name,
+                    _settings.ExerciseDurationSeconds * 1_000_000L,
+                    exercise.GetTargetAt,
+                    exercise.RecordGaze);
+                // Score from the exercise's own recorded samples, then show the summary.
+                var result = exercise.Complete();
+                var finalOutcome = new EyeCareExerciseOutcome(
+                    result.ExerciseName, result.AccuracyPercent, result.Steadiness0To5,
+                    result.ReactionTimeMs, result.DurationSeconds, result.EncouragementLine);
+                await _hooks.ShowSummaryAsync(finalOutcome);
+                _scheduler.OnBreakCompleted();
+            }
+            finally
+            {
+                _messenger?.Send(new EyeCareExerciseActiveMessage(false));
+            }
         }
         catch (Exception ex)
         {

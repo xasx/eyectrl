@@ -152,7 +152,7 @@ public class NoteEditingRoutingTests
         var input = new RecordingInputSimulator();
         var ctx = TestFakes.MakeContext(input) with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
         // No `using`: the manager outlives this builder (windowless targets only, nothing to leak).
-        var manager = new NoteManager(ctx.Messenger);
+        var manager = new NoteManager(ctx.Messenger, hitTester: InactiveNoteHitTester.Instance);
         ctx = ctx with { NoteManager = manager };
         var dispatcher = new KeyboardInteractionDispatcher();
         dispatcher.Initialize(ctx);
@@ -164,7 +164,7 @@ public class NoteEditingRoutingTests
     {
         var input = new RecordingInputSimulator();
         var ctx = TestFakes.MakeContext(input) with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
-        var manager = new NoteManager(ctx.Messenger);
+        var manager = new NoteManager(ctx.Messenger, hitTester: InactiveNoteHitTester.Instance);
         ctx = ctx with { NoteManager = manager };
         var dispatcher = new KeyboardInteractionDispatcher();
         dispatcher.Initialize(ctx);

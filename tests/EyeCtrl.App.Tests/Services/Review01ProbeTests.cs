@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -46,7 +48,7 @@ public class Review01ProbeTests
     public void R2_GazeLingeringOnDone_ThenRemovesTheSavedNote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         DpiHelper.Initialize(2.0, 2.0);
@@ -72,7 +74,7 @@ public class Review01ProbeTests
     public void R3_DoneOnEmptyNewNote_SendsEditingFalse()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         int editingFalse = 0;
         messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) => { if (!m.Editing) editingFalse++; });
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -86,7 +88,7 @@ public class Review01ProbeTests
     public void R4_EditEnteredWithUsersKeyboardUp_DoneDoesNotHideIt()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true }; // the owner opened it
         manager.SetKeyboardProbe(probe);
         int hides = 0;
@@ -98,13 +100,8 @@ public class Review01ProbeTests
             .That(hides).IsEqualTo(0);
     }
 
-    private static PhysicalPoint Centre(PhysicalPoint anchor, int slot)
-    {
-        double l = DpiHelper.PhysicalToLogicalX(anchor.X) - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
-        double tp = DpiHelper.PhysicalToLogicalY(anchor.Y) - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = NoteLayout.ButtonCenter(slot);
-        return new(DpiHelper.LogicalToPhysicalX(l + lx), DpiHelper.LogicalToPhysicalY(tp + ly));
-    }
+    private static PhysicalPoint Centre(PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreFromAnchor(anchor, slot);
 
     private static IEnumerable<TextBlock> Blocks(DependencyObject root)
     {

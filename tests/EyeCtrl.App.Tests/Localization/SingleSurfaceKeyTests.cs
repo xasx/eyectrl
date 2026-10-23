@@ -89,6 +89,11 @@ public class SingleSurfaceKeyTests
         // adaptationPreview keys in code-behind.
         ("src/EyeCtrl.App/Overlays/AdaptationPreviewWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
+        // Sticky notes P3 D4: the Place-here window resolves its label from overlays keys.
+        ("src/EyeCtrl.App/Overlays/NotePlaceHereWindow.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/NoteNoticeWindow.cs", ["overlays"]),
+        // Sticky notes P2 D5: the manager picks the chip's kind-dependent text from overlays keys.
+        ("src/EyeCtrl.App/Services/NoteManager.cs", ["overlays"]),
         // Sticky notes P1 D6 + F3: the keyboard window's UIA HelpText announces note targeting
         // from an overlays key, resolved in the keyboard window's code-behind.
         ("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", ["overlays"]),

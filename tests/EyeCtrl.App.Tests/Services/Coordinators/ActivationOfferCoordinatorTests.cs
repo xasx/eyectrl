@@ -45,7 +45,8 @@ public class ActivationOfferCoordinatorTests
 
     private static Setup Build(
         Func<EventCoordinationContext, PhysicalRect[]>? collect = null,
-        ToolbarLifecycleCoordinator? toolbar = null)
+        ToolbarLifecycleCoordinator? toolbar = null,
+        Func<IMessenger, INoteManager>? makeNotes = null)
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
@@ -69,6 +70,13 @@ public class ActivationOfferCoordinatorTests
             TaskSwitcherVM = new TaskSwitcherViewModel(new TestFakes.FakeWindowActionManager(), settings, messenger),
             QuickActionsGridVM = new QuickActionsGridViewModel(new NoOpQuickActionsStore(), settings, messenger),
         };
+
+        if (makeNotes is not null)
+        {
+            // P2 D7's wiring reads the real note manager (the "note move" suspension reason).
+            // The manager must share the context messenger so its raise messages arrive here.
+            context = context with { NoteManager = makeNotes(messenger) };
+        }
 
         var coordinator = new ActivationOfferCoordinator(
             toolbar ?? new ToolbarLifecycleCoordinator(modal),
@@ -296,6 +304,58 @@ public class ActivationOfferCoordinatorTests
     }
 
     [StaFact]
+    public void NoteMove_SuspendsOffers_ButNotTheModalGate()
+    {
+        // P2 D7's T4 wiring: a note's Move is the "note move" suspension reason, carried by the
+        // NoteTargetsChangedMessage raise that enters and exits the Move state. While it holds,
+        // no offer may be made (a settle on the held dimmed card must not offer a dwell that
+        // would relaunch the control already under it). The reason is offers-ONLY:
+        // ModalSuspended — the note gate's suspender input, read through the composed predicate
+        // EventCoordinator wires — must NOT hold during the Move, because the Move set's
+        // dwells are the surface the gate has to stay open for.
+        // Mutation 1: drop the RecomputeSuspension call in the NoteTargetsChangedMessage
+        // registration → the held-Move settle offers, red. Mutation 2: fold "note move" into
+        // the modal flag (the natural pre-T4 reading of "suspend") → the second assert breaks.
+        NoteManager? manager = null;
+        var s = Build(makeNotes: m =>
+        {
+            var noteManager = new NoteManager(
+                m,
+                hitTester: InactiveNoteHitTester.Instance,
+                workAreaDip: EyeCtrl.App.Tests.TestSupport.NoteTestBench.WorkAreaProvider);
+            manager = noteManager;
+            return noteManager;
+        });
+        var noteManager = manager!; // Build created it before Initialize ran
+        using var _manager = noteManager;
+        using var _ = s.Context.GazeEngine;
+
+        Check.WithCustomMessage("the world settles an offer while nothing is up")
+            .That(Settle(s, 500, 500)).IsNotNull();
+
+        // Enter the Move state: the seam runs StartMove's body minus its window mutations, so
+        // the raise carries IsMoving=true to the coordinator the same way the real dwells do.
+        var id = noteManager.AddMovingNoteTargetsForTest(new PhysicalPoint(1600, 1000));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("a moving note must draw no offer")
+            .That(Settle(s, 600, 600)).IsNull();
+        Check.WithCustomMessage("the move reason must exclude the note gate's flag")
+            .That(s.Coordinator.ModalSuspended).IsFalse();
+
+        // The exit: the Cancel dwell (windowless, like every manager dwell test) returns to
+        // Display — the same raise path the real exit takes.
+        var cancel = EyeCtrl.App.Tests.TestSupport.NoteTestBench.CellCentre(noteManager, id, 1);
+        noteManager.OnGazeMoved(new PhysicalPoint(cancel.X + 10_000, cancel.Y), 0);
+        noteManager.OnGazeMoved(new PhysicalPoint(cancel.X + 10_000, cancel.Y), 66_000);
+        for (long t = 120_000; t <= 1_000_000; t += 33_000)
+            noteManager.OnGazeMoved(cancel, t);
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("offers resume when the note leaves Move")
+            .That(Settle(s, 700, 700)).IsNotNull();
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+    }
+
+    [StaFact]
     public void PreviewPanelVisible_SuspendsOffers_AndLogsTheReason()
     {
         // Task 12 / D16: the preview panel is a suspension input. While it is up no offer
@@ -514,6 +574,58 @@ public class ActivationOfferCoordinatorTests
         s.Messenger.Send(new LagMarkZoneMessage(null));
         Pump();
         Check.That(Settle(s, 1900, 1100)).IsNotNull();
+    }
+
+    [StaFact]
+    public void ModalSuspended_TracksTheCombinedSuspension_AndReadsFalseBeforeInitialization()
+    {
+        // P2 D1: the note gate's suspender input. The note predicate is wired BEFORE the offer
+        // coordinator is constructed (EventCoordinator), so an early read must be false, not
+        // throw; afterwards the flag tracks RecomputeSuspension exactly. Mutations: initialize
+        // _suspended from a single input, or drop the field write → a flag stuck on/off shows here.
+        var standalone = new ActivationOfferCoordinator(
+            new ToolbarLifecycleCoordinator(new ModalInteractionState()),
+            new ModalInteractionState(),
+            _ => Array.Empty<PhysicalRect>());
+        Check.WithCustomMessage("the flag must read false before the coordinator is initialized")
+            .That(standalone.ModalSuspended).IsFalse();
+
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        s.Messenger.Send(new EyeCareBannerActiveMessage(true));
+        Check.WithCustomMessage("the banner reason must set ModalSuspended")
+            .That(s.Coordinator.ModalSuspended).IsTrue();
+        s.Messenger.Send(new EyeCareBannerActiveMessage(false));
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        s.Modal.ProbeOpen = true;
+        Check.That(s.Coordinator.ModalSuspended).IsTrue();
+        s.Modal.ProbeOpen = false;
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        s.Context.TaskSwitcherVM.IsVisible = true;
+        Check.That(s.Coordinator.ModalSuspended).IsTrue();
+        s.Context.TaskSwitcherVM.IsVisible = false;
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+    }
+
+    [StaFact]
+    public void AStructuralNoteChange_SchedulesAZoneRepublish()
+    {
+        // P2 D7: NoteTargetsChangedMessage joins the trigger list — the zones must follow a note
+        // appearing, moving or closing, so no offer is ever placed over one. Mutation: drop the
+        // registration → the count stays at the initialize publish.
+        int collected = 0;
+        var s = Build(_ => { collected++; return Array.Empty<PhysicalRect>(); });
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(collected).IsEqualTo(1); // OnInitialize
+
+        s.Messenger.Send(new NoteTargetsChangedMessage());
+        Pump();
+        Check.That(collected).IsEqualTo(2);
     }
 
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns

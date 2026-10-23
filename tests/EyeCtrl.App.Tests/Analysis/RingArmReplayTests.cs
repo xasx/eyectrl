@@ -294,8 +294,22 @@ public class RingArmReplayTests(ITestOutputHelper output)
     /// </list></summary>
     internal enum HoldStyle { Freeze, KeepPin, BackToP }
 
+    /// <param name="GoCorridorPx">The going-for-it keep (the VM's <c>InGo</c>): 0 = the approach holds only
+    /// while the gaze is inside B's no-move zone (hit + R, today's test); otherwise it also holds while the
+    /// gaze is within this many px of the segment P-B (a capsule). A negative value means R itself (the
+    /// config's fixation radius, as the VM takes the engine's R from the show message).</param>
     internal sealed record ArmSpec(string Name, Pinning Pinning, int GlideOutMs = 0, int GraceMs = 0, double ExitMarginPx = 0,
-        HoldStyle Hold = HoldStyle.Freeze, int ApproachMs = 150, int ProvenMs = 0);
+        HoldStyle Hold = HoldStyle.Freeze, int ApproachMs = 150, int ProvenMs = 0, double GoCorridorPx = 0);
+
+    /// <summary>The distance from <paramref name="g"/> to the segment <paramref name="a"/>-<paramref name="b"/>.</summary>
+    internal static double DistanceToSegment(PhysicalPoint g, PhysicalPoint a, PhysicalPoint b)
+    {
+        double vx = b.X - a.X, vy = b.Y - a.Y, wx = g.X - a.X, wy = g.Y - a.Y;
+        double len2 = (vx * vx) + (vy * vy);
+        double t = len2 <= 0 ? 0 : Math.Clamp(((wx * vx) + (wy * vy)) / len2, 0, 1);
+        double dx = wx - (t * vx), dy = wy - (t * vy);
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
 
     internal static ArmTrace Play(Trace trace, ArmSpec spec)
     {
@@ -308,6 +322,11 @@ public class RingArmReplayTests(ITestOutputHelper output)
         bool hybrid = spec.Pinning == Pinning.Hybrid;
         var ledger = hybrid ? new HoldLedger() : null;
         double radiusPx = trace.Config.RadiusPx;
+        double corridorPx = spec.GoCorridorPx < 0 ? radiusPx : spec.GoCorridorPx;
+        // The approach's space: B's no-move zone, or (going-for-it) also the capsule P-B.
+        bool InGo(PhysicalPoint g, ActivationOffer o) =>
+            g.DistanceTo(o.Button) <= o.HitRadiusPx + radiusPx
+            || (corridorPx > 0 && DistanceToSegment(g, o.Point, o.Button) <= corridorPx);
 
         var previousState = InteractionState.FreeLook;
         ActivationOffer? offer = null;
@@ -354,7 +373,22 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         model.Release();
                         break;
                     case Kind.Settled when spec.Pinning is Pinning.RunOnly or Pinning.Hybrid:
-                        if (!holding && approachUntilUs is null) model.Pin(e.Point);
+                        // The hybrid ignores a NEAR-MISS settle of a live offer: inside its no-move zone and
+                        // strictly nearer B than P (the engine's NearMiss rule). A swallowed settle (nearer
+                        // P) pins as before.
+                        bool nearOffer = hybrid && offer is { } so
+                            && e.Point.DistanceTo(so.Button) <= so.HitRadiusPx + radiusPx
+                            && e.Point.DistanceTo(so.Button) < e.Point.DistanceTo(so.Point);
+                        // A settle during the going-for-it keep ENDS the keep (the eye has stopped) and is then
+                        // processed as without a keep: it pins, or a near miss is refused and the ring follows.
+                        bool endsKeep = hybrid && !holding && approachUntilUs is not null
+                            && previousState == InteractionState.Fixation;
+                        if (endsKeep) approachUntilUs = null;
+                        if (!holding && approachUntilUs is null)
+                        {
+                            if (!nearOffer) model.Pin(e.Point);
+                            else if (endsKeep) model.Release();
+                        }
                         break;
                     case Kind.State:
                         if (spec.Pinning is Pinning.RunOnly or Pinning.Hybrid
@@ -396,7 +430,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
                             if (offer is not null && model.IsPinned && d0 <= offer.HitRadiusPx)
                                 StartHold(row.Us, inPlace: false);           // lands on the button: keep the pin
                             else if (spec.Hold == HoldStyle.Freeze && offer is not null && model.IsPinned
-                                     && spec.ApproachMs > 0 && d0 <= offer.HitRadiusPx + radiusPx)
+                                     && spec.ApproachMs > 0 && InGo(g, offer))
                                 approachUntilUs = row.Us + (spec.ApproachMs * 1000L);  // heading for it: wait
                             else
                                 model.Release();
@@ -406,7 +440,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
                             double da = g.DistanceTo(ao.Button);
                             if (da <= ao.HitRadiusPx)
                                 StartHold(row.Us, inPlace: false);
-                            else if (da > ao.HitRadiusPx + radiusPx || row.Us >= until)
+                            else if (!InGo(g, ao) || row.Us >= until)
                             {
                                 approachUntilUs = null;
                                 model.Release();
@@ -424,7 +458,10 @@ public class RingArmReplayTests(ITestOutputHelper output)
                                 {
                                     outsideSinceUs ??= row.Us;
                                     bool proven = holdInHitSamples * 30 >= spec.ProvenMs;
-                                    if (!proven || row.Us - outsideSinceUs.Value >= spec.GraceMs * 1000L)
+                                    // Edge-tolerant hold: an unproven hold ends at once only when the gaze
+                                    // leaves the no-move zone; inside it, the grace applies as when proven.
+                                    if ((!proven && d > o.HitRadiusPx + radiusPx)
+                                        || row.Us - outsideSinceUs.Value >= spec.GraceMs * 1000L)
                                         EndHold(row.Us, release: true);
                                 }
                             }
@@ -597,9 +634,10 @@ public class RingArmReplayTests(ITestOutputHelper output)
     /// <summary>The grace protects only a hold that has proven itself: a saccade crossing the 300 px hit
     /// area spends at most one or two samples in it, a deliberate look at least three (90 ms).</summary>
     internal const int HybridProvenMs = 90;
-    internal const int HybridApproachMs = 150;
-    internal static readonly ArmSpec Hybrid = new("hybrid", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs);
-    internal static readonly ArmSpec HybridGlideOut = new("hybrid + glide-out", Pinning.Hybrid, GlideOutMs: GlideOutMs, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs);
+    internal const int HybridApproachMs = 500;
+    internal const double HybridGoCorridorPx = -1;   // the corridor's half-width is R
+    internal static readonly ArmSpec Hybrid = new("hybrid", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx);
+    internal static readonly ArmSpec HybridGlideOut = new("hybrid + glide-out", Pinning.Hybrid, GlideOutMs: GlideOutMs, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx);
 
     /// <summary>The scripted chain: four holds 400 px apart (a live offer chains), a swallowed settle beside
     /// the last P, a far hold; with <paramref name="withButtonVisit"/>, a 700 ms dwell on the last offer's
@@ -699,6 +737,52 @@ public class RingArmReplayTests(ITestOutputHelper output)
         return samples;
     }
 
+    internal enum SlipKind { Return, Grace, FlyThrough }
+
+    /// <summary>The slip chains: the freeze chain's offer (P = (2400, 800), B ≈ (2181, 1019)), then a brief
+    /// look at the button (2 samples in the hit area, so the hold is still unproven) and a slip out of the
+    /// hit area: <see cref="SlipKind.Return"/> 190 px from B (inside the 230-px no-move zone) for 180 ms,
+    /// back to B and out again; <see cref="SlipKind.Grace"/> 190 px from B for 660 ms, past the grace;
+    /// <see cref="SlipKind.FlyThrough"/> 260 px from B, beyond the zone. The edge-tolerant hold (A) decides
+    /// each differently. Deterministic (seeded).</summary>
+    internal static List<GazePoint> ScriptedSlips(SlipKind kind)
+    {
+        var samples = new List<GazePoint>();
+        long us = 1_000_000;
+        var rng = new Random(13);
+        void At(double x, double y, int count)
+        {
+            for (int i = 0; i < count; i++, us += 30_000)
+                samples.Add(new GazePoint(x + rng.NextDouble() * 4 - 2, y + rng.NextDouble() * 4 - 2, us, true));
+        }
+        void Hold(double x, double y, int ms) => At(x, y, ms / 30);
+
+        // Perpendicular to the P-B line, so the slip point is much nearer B than P (a near miss).
+        const double bx = 2181, by = 1019, step = 0.7071067811865476;
+        (double X, double Y) Slip(double d) => (bx + d * step, by + d * step);
+
+        Hold(2400, 800, 1200);
+        Hold(1700, 1500, 240);
+        At(bx, by, 2);
+        switch (kind)
+        {
+            case SlipKind.Return:
+                At(Slip(190).X, Slip(190).Y, 6);
+                At(bx, by, 4);
+                At(Slip(190).X, Slip(190).Y, 5);
+                break;
+            case SlipKind.Grace:
+                At(Slip(190).X, Slip(190).Y, 22);
+                break;
+            default:
+                At(Slip(260).X, Slip(260).Y, 6);
+                break;
+        }
+
+        Hold(1000, 1700, 900);
+        return samples;
+    }
+
     [Fact]
     public void Hybrid_FreezesAFollowingRing_WhenTheGazeReachesTheButtonFromElsewhere()
     {
@@ -768,7 +852,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
     /// publish), and a <see cref="ReleaseRingMessage"/> on every exit from Fixation, before its
     /// <see cref="StateChangedMessage"/>. Nothing from the offer lifecycle pins or releases.</item>
     /// </list>
-    /// Every arm also gets the offer's <see cref="ShowActivationButtonMessage"/> (B, hit radius) and
+    /// Every arm also gets the offer's <see cref="ShowActivationButtonMessage"/> (B, hit radius, P, R) and
     /// <see cref="HideActivationButtonMessage"/>, the <see cref="StateChangedMessage"/>s and the
     /// <see cref="GazeCursorMovedMessage"/> per sample. <paramref name="afterSample"/> runs once each
     /// sample's messages are delivered. The hybrid's hold is NOT synthesized here: it is the VM's job.
@@ -802,7 +886,8 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         messenger.Send(new StateChangedMessage(e.State));
                         break;
                     case Kind.OfferShown:
-                        messenger.Send(new ShowActivationButtonMessage(e.Offer!.Button, e.Offer.HitRadiusPx));
+                        messenger.Send(new ShowActivationButtonMessage(
+                            e.Offer!.Button, e.Offer.HitRadiusPx, e.Offer.Point, trace.Config.RadiusPx));
                         break;
                     case Kind.OfferClosed:
                         messenger.Send(new HideActivationButtonMessage());
@@ -917,21 +1002,21 @@ public class RingArmReplayTests(ITestOutputHelper output)
         sb.AppendLine("| Arm | > 100 px | Catch-ups / s | Peak step p95 | Teleport catch-ups / s | Still in Fixation | Dance px/s | Dance flips | Over button | Holds (spurious) |");
         sb.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
         var variants = new List<ArmSpec>();
-        // One knob at a time around the chosen hybrid (grace 500 ms once proven 90 ms, approach 150 ms).
+        // One knob at a time around the chosen hybrid (grace 500 ms once proven 90 ms, going-for-it keep 500 ms along the P-B corridor).
         foreach (int grace in new[] { 0, 250, 500, 750 })
             foreach (double margin in new[] { 0.0, 50.0 })
-                variants.Add(new ArmSpec($"hybrid grace {grace} ms, exit +{margin:0} px", Pinning.Hybrid, GraceMs: grace, ExitMarginPx: margin, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs));
+                variants.Add(new ArmSpec($"hybrid grace {grace} ms, exit +{margin:0} px", Pinning.Hybrid, GraceMs: grace, ExitMarginPx: margin, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx));
         foreach (int approach in new[] { 0, 150, 300 })
-            variants.Add(new ArmSpec($"hybrid approach window {approach} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: approach, ProvenMs: HybridProvenMs));
+            variants.Add(new ArmSpec($"hybrid approach window {approach} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: approach, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx));
         foreach (int proven in new[] { 0, 90, 150, 300 })
-            variants.Add(new ArmSpec($"hybrid grace only once proven {proven} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: proven));
+            variants.Add(new ArmSpec($"hybrid grace only once proven {proven} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: proven, GoCorridorPx: HybridGoCorridorPx));
         variants.Add(new ArmSpec("REJECTED: hybrid keep-pin only, grace 500 ms", Pinning.Hybrid, GraceMs: 500, Hold: HoldStyle.KeepPin));
         variants.Add(new ArmSpec("REJECTED: hybrid back-to-P, grace 500 ms", Pinning.Hybrid, GraceMs: 500, Hold: HoldStyle.BackToP));
         variants.Add(new ArmSpec("REJECTED: hybrid back-to-P, grace 0 ms", Pinning.Hybrid, GraceMs: 0, Hold: HoldStyle.BackToP));
         foreach (int glide in new[] { 80, 120, 200 })
             variants.Add(new ArmSpec($"glide-out {glide} ms", Pinning.Today, GlideOutMs: glide));
         foreach (int glide in new[] { 80, 120, 200 })
-            variants.Add(new ArmSpec($"hybrid + glide-out {glide} ms", Pinning.Hybrid, GlideOutMs: glide, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs));
+            variants.Add(new ArmSpec($"hybrid + glide-out {glide} ms", Pinning.Hybrid, GlideOutMs: glide, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx));
         foreach (var spec in variants)
         {
             var arm = Play(trace, spec);

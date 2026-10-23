@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Services;
 
+using EyeCtrl.Core.Models;
+
 /// <summary>
 /// Renders the caregiver alert. Separate from <see cref="CaregiverAlertService"/> so the sustain/
 /// rate-limit/suppression decision is headless-testable with a fake; the WPF <c>CaregiverAlertWindow</c>
@@ -16,4 +18,12 @@ public interface ICaregiverAlertPresenter
 
     /// <summary>Takes the banner down at once — suppression (§8.10), feature-off, or teardown.</summary>
     void HideCaregiverAlert();
+
+    /// <summary>
+    /// The banner's visible bounds in physical pixels while it is on screen (P2 D3): the note
+    /// gate's occluder source. False (and <paramref name="bounds"/> default) when it is not
+    /// showing — the fade-out tail keeps reporting true until the window hides, which is the
+    /// conservative reading.
+    /// </summary>
+    bool TryGetVisibleBounds(out PhysicalRect bounds);
 }

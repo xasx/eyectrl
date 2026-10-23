@@ -52,6 +52,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private DiagnosticsSettings _diagnostics = new();
     /// <summary>Locked repeat-click mode settings (interval, stop-button dwell).</summary>
     [ObservableProperty] private RepeatSettings _repeat = new();
+    /// <summary>Pinned-note appearance settings (P4 D1): the note body text size.</summary>
+    [ObservableProperty] private NoteSettings _note = new();
 
     /// <summary>
     /// Enumerates every sub-settings object with its property name. Single source of truth
@@ -82,6 +84,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
         yield return (nameof(Adaptation), Adaptation);
         yield return (nameof(Diagnostics), Diagnostics);
         yield return (nameof(Repeat), Repeat);
+        yield return (nameof(Note), Note);
     }
 
     /// <inheritdoc />

@@ -891,8 +891,43 @@
     "fit": "A68",
     "args": []
   },
+  "overlays.note.cancel": {
+    "text": "Cancel",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.capacity": {
+    "text": "8 notes — remove one first",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.chip.discarded": {
+    "text": "Changes discarded · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.chip.removed": {
+    "text": "Note removed · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.close": {
     "text": "Close note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.discard": {
+    "text": "Discard changes",
     "who": "user",
     "where": "overlays",
     "fit": "row",
@@ -919,6 +954,20 @@
     "fit": "row",
     "args": []
   },
+  "overlays.note.otherSide": {
+    "text": "Other side",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.placeHere": {
+    "text": "Place here",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.showKeyboard": {
     "text": "Show keyboard",
     "who": "user",
@@ -926,8 +975,8 @@
     "fit": "row",
     "args": []
   },
-  "overlays.note.title": {
-    "text": "PINNED NOTE",
+  "overlays.note.undo": {
+    "text": "Undo",
     "who": "user",
     "where": "overlays",
     "fit": "row",
@@ -1487,6 +1536,20 @@
     "who": "user",
     "where": "settings",
     "fit": "btn360x100",
+    "args": []
+  },
+  "settings.action_menu.notes.textSize.description": {
+    "text": "How large note text renders, from 18 to 48. Every note re-fits at once.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.notes.textSize.label": {
+    "text": "Note text size",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.action_menu.preview.labels": {

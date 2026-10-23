@@ -6,6 +6,8 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using Serilog;
 
 /// <summary>
@@ -83,6 +85,22 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     {
         Banner.BeginAnimation(UIElement.OpacityProperty, null); // cancel any in-flight fade — down AT ONCE
         Hide();
+    }
+
+    /// <inheritdoc />
+    public bool TryGetVisibleBounds(out PhysicalRect bounds)
+    {
+        bounds = default;
+        if (!IsVisible)
+            return false;
+        // The window's own rect in DIP, scaled to physical px (a length and a coordinate scale
+        // identically — the helper just multiplies).
+        bounds = new PhysicalRect(
+            DpiHelper.LogicalToPhysicalX(Left),
+            DpiHelper.LogicalToPhysicalY(Top),
+            DpiHelper.LogicalToPhysicalX(Width),
+            DpiHelper.LogicalToPhysicalY(Height));
+        return true;
     }
 
     /// <summary>

@@ -9,6 +9,8 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
 public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
@@ -150,5 +152,21 @@ public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
         var workArea = SystemParameters.WorkArea;
         Left = workArea.Right - Width - 10;
         Top = workArea.Top + 10;
+    }
+
+    /// <inheritdoc />
+    public bool TryGetVisibleBounds(out PhysicalRect bounds)
+    {
+        bounds = default;
+        if (!IsVisible)
+            return false;
+        // The window's own rect in DIP, scaled to physical px (a length and a coordinate scale
+        // identically — the helper just multiplies).
+        bounds = new PhysicalRect(
+            DpiHelper.LogicalToPhysicalX(Left),
+            DpiHelper.LogicalToPhysicalY(Top),
+            DpiHelper.LogicalToPhysicalX(Width),
+            DpiHelper.LogicalToPhysicalY(Height));
+        return true;
     }
 }

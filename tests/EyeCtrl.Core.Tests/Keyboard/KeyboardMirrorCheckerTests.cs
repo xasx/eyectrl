@@ -54,7 +54,14 @@ public class KeyboardMirrorCheckerTests
         ISensitiveContextDetector? sensitive = null, int timeBoxMs = 200) =>
         new(new KeyboardE1Recorder(log), probe, sensitive, TimeSpan.FromMilliseconds(timeBoxMs));
 
-    private static async Task Done(Task task) => await task.WaitAsync(TimeSpan.FromSeconds(10));
+    // Only a HANG guard, never a timing assertion: the checker's work runs on the thread pool, and under a loaded parallel suite (CI, with
+    // coverage) pool-thread injection alone can delay a continuation by seconds. Every ordering this file asserts is proved causally instead.
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    // A hanging read waits longer than the hang guard, so a checker that waited for the read would fail the guard, not slip through it.
+    private static readonly TimeSpan HangingReadWait = TimeSpan.FromSeconds(60);
+
+    private static async Task Done(Task task) => await task.WaitAsync(HangGuard);
 
     [Fact]
     public async Task AMatchingTail_IsMatch_WithTheLengthsAndNoText()
@@ -199,24 +206,35 @@ public class KeyboardMirrorCheckerTests
     [Fact]
     public async Task AHangingRead_NeverBlocksTheCaller_AndIsLoggedUnsupportedAtTheTimeBox()
     {
+        // CAUSAL, not wall-clock (CI run 40010182746 measured 6.7 s of thread-pool injection, not the time box): the read cannot end
+        // before `release` is set, so a verdict that arrives while it is unset came from the time box; and a Begin that returns while
+        // the verdict is still outstanding did not wait for it. The 1 s time box only has to outlast the two lines after Begin.
         var log = new Capture();
         using var release = new ManualResetEventSlim(false);
-        var probe = new FakeProbe { Read = _ => { release.Wait(TimeSpan.FromSeconds(30)); return "late"; } };
-        var checker = New(log, probe, timeBoxMs: 100);
+        var readEnded = 0;
+        var probe = new FakeProbe
+        {
+            Read = _ => { release.Wait(HangingReadWait); Volatile.Write(ref readEnded, 1); return "late"; },
+        };
+        var checker = New(log, probe, timeBoxMs: 1000);
+        try
+        {
+            var task = checker.Begin("hide", "abc");
 
-        var sw = Stopwatch.StartNew();
-        var task = checker.Begin("hide", "abc");
-        var returnedAfter = sw.ElapsedMilliseconds;
-        await Done(task);
-        var doneAfter = sw.ElapsedMilliseconds;
-        release.Set();
+            // Begin returned without waiting: the verdict is still outstanding (nothing logged yet, the task not complete)...
+            Check.WithCustomMessage("Begin must return before the verdict (the read is on the pool, not the caller)").That(task.IsCompleted).IsFalse();
+            Check.That(log.Snapshot()).IsEmpty();
 
-        // Begin returned at once (the hang is on the pool, not the caller)...
-        Check.That(returnedAfter).IsStrictlyLessThan(50L);
-        // ...and the verdict came at the time box, not when the read finally ended.
-        Check.That(doneAfter).IsStrictlyLessThan(5000L);
-        Check.That(log.Snapshot()).ContainsExactly(
-            "KB-E1 mirror at=hide res=unsupported mirrorlen=3 ctllen=0 common=0");
+            // ...and the verdict comes while the read is STILL hanging: from the time box, not from the read ending.
+            await Done(task);
+            Check.WithCustomMessage("the verdict must not wait for the hanging read").That(Volatile.Read(ref readEnded)).IsEqualTo(0);
+            Check.That(log.Snapshot()).ContainsExactly(
+                "KB-E1 mirror at=hide res=unsupported mirrorlen=3 ctllen=0 common=0");
+        }
+        finally
+        {
+            release.Set();
+        }
     }
 
     [Fact]
@@ -224,12 +242,18 @@ public class KeyboardMirrorCheckerTests
     {
         var log = new Capture();
         using var release = new ManualResetEventSlim(false);
-        var probe = new FakeProbe { Read = _ => { release.Wait(TimeSpan.FromSeconds(30)); return null; } };
+        var probe = new FakeProbe { Read = _ => { release.Wait(HangingReadWait); return null; } };
         var checker = New(log, probe, timeBoxMs: 50);
 
-        await Done(checker.Begin("hide", "abc"));          // times out, the read is still hanging
-        await Done(checker.Begin("enter", "abc"));         // must not pile on a second read
-        release.Set();
+        try
+        {
+            await Done(checker.Begin("hide", "abc"));          // times out, the read is still hanging
+            await Done(checker.Begin("enter", "abc"));         // must not pile on a second read
+        }
+        finally
+        {
+            release.Set();
+        }
 
         Check.That(probe.Reads).IsEqualTo(1);
         Check.That(log.Snapshot()).HasSize(2);
@@ -246,20 +270,27 @@ public class KeyboardMirrorCheckerTests
         {
             Read = _ =>
             {
-                if (Interlocked.Increment(ref calls) == 1) release.Wait(TimeSpan.FromSeconds(30));
+                if (Interlocked.Increment(ref calls) == 1) release.Wait(HangingReadWait);
                 return "abc";
             },
         };
         var checker = New(log, probe, timeBoxMs: 50);
 
-        await Done(checker.Begin("hide", "abc"));
-        release.Set();
-        // The slot frees when the read itself ends; give the continuation a moment.
-        for (var i = 0; i < 100 && probe.Reads == 1; i++)
+        try
+        {
+            await Done(checker.Begin("hide", "abc"));
+        }
+        finally
+        {
+            release.Set();
+        }
+        // The slot frees when the read itself ends, in a pool continuation: poll for it under the HANG guard only (a loaded pool can
+        // take seconds to run that continuation; a fixed number of short tries was a wall-clock bound in disguise).
+        var sw = Stopwatch.StartNew();
+        while (Volatile.Read(ref probe.Reads) == 1 && sw.Elapsed < HangGuard)
         {
             await Task.Delay(20, TestContext.Current.CancellationToken);
             await Done(checker.Begin("enter", "abc"));
-            if (probe.Reads > 1) break;
         }
 
         Check.That(probe.Reads).IsStrictlyGreaterThan(1);

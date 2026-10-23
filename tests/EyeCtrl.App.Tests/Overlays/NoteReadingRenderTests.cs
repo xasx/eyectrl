@@ -26,8 +26,9 @@ using Xunit;
 /// (<see cref="EyeCtrl.Core.Settings.NoteSettings.DefaultTextSizeDip"/>).
 ///
 /// <para>
-/// Output: <c>note-reading-renders/</c> at the repo root (git-excluded), overridable with
-/// EYECTRL_READING_RENDER_DIR. The folder path is part of the deliverable.
+/// Output: <c>eyectrl-note-reading-renders</c> under the user's temp folder, so every App run
+/// (CI included) leaves the repository clean; overridable with EYECTRL_READING_RENDER_DIR.
+/// The folder path is part of the deliverable.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
@@ -125,6 +126,6 @@ public class NoteReadingRenderTests
         var overrideDir = Environment.GetEnvironmentVariable("EYECTRL_READING_RENDER_DIR");
         return overrideDir is { Length: > 0 }
             ? overrideDir
-            : Path.Combine(SourceScanner.RepoRoot().FullName, "note-reading-renders");
+            : Path.Combine(Path.GetTempPath(), "eyectrl-note-reading-renders");
     }
 }

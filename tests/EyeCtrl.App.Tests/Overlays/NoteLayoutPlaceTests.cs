@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System.Windows;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 using static EyeCtrl.App.Overlays.NoteLayout;
@@ -17,8 +18,11 @@ using static EyeCtrl.App.Overlays.NoteLayout;
 public class NoteLayoutPlaceTests
 {
     private static readonly Rect WorkArea = new(0, 0, 1920, 1200);
+    // The P4 default card: width from the default text size, height at the control-column floor
+    // (no text measured in the pure Place table).
     private static readonly Size Card = new(
-        EyeCtrl.Core.LayoutConstants.NoteWindowWidth, EyeCtrl.Core.LayoutConstants.NoteWindowHeight);
+        NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip),
+        NoteLayout.CardHeightDip(NoteSettings.DefaultTextSizeDip, 0, WorkArea.Height));
     private const double Scale = 2.0;
     private const double Margin = NoteLayout.Constants.EdgeMarginDip;
     private static readonly Rect Inset = new(Margin, Margin, 1920 - 2 * Margin, 1200 - 2 * Margin);
@@ -37,7 +41,7 @@ public class NoteLayoutPlaceTests
     [InlineData(1800, 600, NoteSide.Left)]   // right edge: Right cannot fit, cycle falls to Left
     [InlineData(960, 1100, NoteSide.Above)]  // bottom edge: card+tail only fits above
     [InlineData(960, 100, NoteSide.Below)]   // top edge: only below
-    [InlineData(200, 100, NoteSide.Below)]   // near the top-left corner, still a clean fit
+    [InlineData(200, 300, NoteSide.Right)]   // near the left edge: a clean Right fit (the P4 card needs y >= 234 DIP on the Right)   // near the top-left corner: the wider P4 card no longer fits clean - the clamp keeps the preferred on screen
     public void TheSideCycle_FindsTheFirstFittingSide_AtEveryEdge(double x, double y, NoteSide expected)
     {
         var placement = Place(x, y);
@@ -45,6 +49,22 @@ public class NoteLayoutPlaceTests
         Check.That(placement.Side).IsEqualTo(expected);
         WindowIsInsideTheInsetArea(placement);
         TailIsSixDipShortOfTheAnchor(placement, x, y);
+        CellsAreInsideTheWindow(placement);
+    }
+
+    [Fact]
+    public void NoFitAtTheTopLeftCorner_ClampsThePreferredInsideTheInset()
+    {
+        // 200,100: every side misses (the window would start above the inset top, or left of
+        // the inset left) - the clamp keeps the preferred Below on screen, flush against the
+        // inset right edge (the P4 card is far wider than the free strip at that corner).
+        var placement = Place(200, 100, preferred: NoteSide.Below);
+
+        Check.That(placement.Side).IsEqualTo(NoteSide.Below);
+        WindowIsInsideTheInsetArea(placement);
+        // The unclamped window (anchor.x - w/2) overflows the inset LEFT at this corner, so the
+        // clamp hugs the left edge - the mirror of the top-right corner's right-edge clamp.
+        Check.That(placement.Window.Left).IsEqualTo(Inset.Left);
         CellsAreInsideTheWindow(placement);
     }
 
@@ -117,14 +137,15 @@ public class NoteLayoutPlaceTests
     [Fact]
     public void AvoidRects_AreHonoured_OverEveryCandidate()
     {
-        // One rect covers the Right slot exactly, a second covers Below's lower band: the cycle
-        // must skip Right and land on Left, whose window intersects neither.
-        var avoid = new[] { new Rect(966, 468, 310, 264), new Rect(820, 740, 280, 190) };
+        // One band covers the whole upper region: Right and Left windows reach into it, Above
+        // sits entirely inside it, so the cycle must land on Below, whose window intersects
+        // nothing (the P4 card is much larger than the T4 one, so the avoid is a band, not a
+        // per-side patch).
+        var avoid = new[] { new Rect(64, 64, 1792, 472) };
         var placement = Place(960, 600, avoid: avoid);
 
-        Check.That(placement.Side).IsEqualTo(NoteSide.Left);
+        Check.That(placement.Side).IsEqualTo(NoteSide.Below);
         Check.That(placement.Window.IntersectsWith(avoid[0])).IsFalse();
-        Check.That(placement.Window.IntersectsWith(avoid[1])).IsFalse();
     }
 
     [Fact]
@@ -203,9 +224,9 @@ public class NoteLayoutPlaceTests
         // ButtonCenter returns window-RELATIVE points; the window's own rect in its own frame
         // is (0, 0, width, height).
         var windowLocal = new Rect(0, 0, placement.Window.Width, placement.Window.Height);
-        for (int slot = 0; slot < 3; slot++)
+        for (int slot = 0; slot < 4; slot++) // all four rows, the gap included (review-02 nit)
         {
-            var (x, y) = ButtonCenter(placement.Side, slot);
+            var (x, y) = ButtonCenter(placement.Side, slot, placement.Card.Width);
             Check.WithCustomMessage($"cell {slot} at ({x}, {y}) must be inside the window {windowLocal}")
                 .That(windowLocal.Contains(new Point(x, y))).IsTrue();
         }
@@ -242,40 +263,30 @@ public class NoteLayoutPlaceTests
     [Fact]
     public void TheColumn_SitsOnTheCardEdgeAwayFromTheTail_PerSide()
     {
-        // Right: tail left → column on the far right edge (today's default).
-        var (rx, _) = ButtonCenter(NoteSide.Right, 0);
-        Check.That(rx).IsCloseTo(
-            EyeCtrl.Core.LayoutConstants.NoteWindowWidth
-            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
-            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius
-            + Constants.TailLengthDip, 1e-9);
+        // Hand-derived, independent of the members under test. The default card is
+        // 420 (text) + 100 (cell column) + 30 (gap) = 550 wide; a cell column centre
+        // on the right edge sits at 550 - 10 (padding) - 40 (half cell) = 500; row 0
+        // centres at 10 + 40 = 50 from the card top; the tail zone is 30 deep.
 
-        // Left: tail right → column on the far left edge.
-        var (lx, _) = ButtonCenter(NoteSide.Left, 0);
-        Check.That(lx).IsCloseTo(
-            EyeCtrl.Core.LayoutConstants.NoteButtonPadding
-            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius, 1e-9);
+        // Right: tail left, column on the far right edge.
+        var (rx, _) = ButtonCenter(NoteSide.Right, 0, Card.Width);
+        Check.That(rx).IsCloseTo(30 + 500, 1e-9);
 
-        // Below: tail at the top strip → column on the right edge, shifted DOWN by the tail zone
-        // (the tail strip takes the window's top; the card's X origin does not move).
-        var (bx, by) = ButtonCenter(NoteSide.Below, 0);
-        Check.That(bx).IsCloseTo(
-            EyeCtrl.Core.LayoutConstants.NoteWindowWidth
-            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
-            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius, 1e-9);
-        Check.That(by).IsCloseTo(EyeCtrl.Core.LayoutConstants.NoteTitleBarHeight
-            + EyeCtrl.Core.LayoutConstants.NoteButtonPadding
-            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius
-            + Constants.TailLengthDip, 1e-9);
+        // Left: tail right, column on the far left edge.
+        var (lx, _) = ButtonCenter(NoteSide.Left, 0, Card.Width);
+        Check.That(lx).IsCloseTo(50, 1e-9);
 
-        // Above: tail at the bottom → column on the right edge, no shift.
-        var (ax2, ay2) = ButtonCenter(NoteSide.Above, 0);
-        Check.That(ax2).IsCloseTo(
-            EyeCtrl.Core.LayoutConstants.NoteWindowWidth
-            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
-            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius, 1e-9);
-        Check.That(ay2).IsCloseTo(EyeCtrl.Core.LayoutConstants.NoteTitleBarHeight
-            + EyeCtrl.Core.LayoutConstants.NoteButtonPadding
-            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius, 1e-9);
+        // Below: tail at the top strip, column on the right edge, shifted DOWN by the tail.
+        var (bx, by) = ButtonCenter(NoteSide.Below, 0, Card.Width);
+        Check.That(bx).IsCloseTo(500, 1e-9);
+        Check.That(by).IsCloseTo(30 + 50, 1e-9);
+
+        // Above: tail at the bottom, column on the right edge, no shift.
+        var (ax2, ay2) = ButtonCenter(NoteSide.Above, 0, Card.Width);
+        Check.That(ax2).IsCloseTo(500, 1e-9);
+        Check.That(ay2).IsCloseTo(50, 1e-9);
     }
+
+
+
 }

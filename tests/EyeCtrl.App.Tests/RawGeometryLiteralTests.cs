@@ -90,6 +90,12 @@ public class RawGeometryLiteralTests
     /// </summary>
     private static readonly Dictionary<string, string> Exempt = new(StringComparer.OrdinalIgnoreCase)
     {
+        // P4 D1/D2: the note body text size is the NoteSettings.TextSizeDip SETTING (guarded
+        // 18-48, clamped on load). FontSize and LineHeight bind it directly; no token can vouch
+        // for a user value, and hoisting it into a local would not help (a local references no
+        // token either). Every other typography site in the file stays token-backed.
+        ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
+            "the note body font binds the guarded TextSizeDip setting (P4 D1) - a value no token can express",
         // EMPTY, and that is the finished state. Task 12 migrated the last nine files onto
         // ContainerRatio, so every scanned file's geometry and typography values now come from
         // the token surface. Any new entry is a regression, not a step in a migration: it means

@@ -36,7 +36,7 @@ public class Review02ProbeTests
             manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
             var slot0 = Centre(anchor, 0);
-            double r = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteButtonRadius);
+            double r = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
             long t = 0;
             for (; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse();

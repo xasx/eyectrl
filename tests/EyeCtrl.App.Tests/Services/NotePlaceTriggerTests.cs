@@ -40,7 +40,7 @@ public class NotePlaceTriggerTests
             manager.Apply(new NoteAppend("hello"));      // a draft to save: Done takes the straight-back exit
             var editing = manager.PlacementForTest(id)!;
             Check.That(editing.Side).IsEqualTo(NoteSide.Right);
-            Check.That(editing.Window).IsEqualTo(new Rect(806, 378, 310, 244)); // tail zone + card, DIP
+            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 580, 340)); // tail zone + card, DIP (P4 card: 550 text+column+gap)
 
             // T1: the keyboard appears over the card's right-side window (the bench work area DIP
             // rect doubled to physical when the probe delivers it).
@@ -53,7 +53,7 @@ public class NotePlaceTriggerTests
             Check.That(moved.Window.IntersectsWith(new Rect(800, 370, 330, 260))).IsFalse();
             Check.That(moved.Window.IntersectsWith(editing.Window)).IsFalse();
             Check.WithCustomMessage("the moved card stays inside the work-area inset")
-                .That(moved.Window.Top >= 54 && moved.Window.Top + moved.Window.Height <= 1146).IsTrue();
+                .That(moved.Window.Top >= NoteLayout.Constants.EdgeMarginDip && moved.Window.Top + moved.Window.Height <= 1200 - NoteLayout.Constants.EdgeMarginDip).IsTrue();
 
             // The saved side returns once the editor is gone even though the keyboard stays up.
             manager.FinishEdit(id, commit: true);
@@ -111,13 +111,14 @@ public class NotePlaceTriggerTests
             // T4's edge flip: the covered columns sit low onscreen, the anchor mid-low. Left and
             // Right are covered, Below falls outside the inset (bottom 1180 > 1146), so Above is
             // the only free side of the cycle.
-            var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(1600, 1800)); // DIP (800, 900)
+            var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(1800, 1800)); // DIP (900, 900)
             probe.RectsProvider = () => new[]
             {
-                // Left column: x 454..644, y 778..1028 DIP (physical doubled).
-                new PhysicalRect(908, 1556, 380, 500),
-                // Right column: x 1000..1700 DIP, same band.
-                new PhysicalRect(2000, 1556, 1400, 500),
+                // Left column: x 454..604, y 778..1028 DIP (physical doubled) - narrow enough
+                // that Above (524 DIP wide) still fits between the columns.
+                new PhysicalRect(908, 1556, 300, 500),
+                // Right column: x 1200..1700 DIP, same band.
+                new PhysicalRect(2400, 1556, 1000, 500),
             };
             var before = manager.PlacementForTest(id)!;
             Check.That(before.Side).IsEqualTo(NoteSide.Right);
@@ -127,9 +128,9 @@ public class NotePlaceTriggerTests
             var after = manager.PlacementForTest(id)!;
             Check.That(after.Side).IsEqualTo(NoteSide.Above);
             Check.WithCustomMessage("the Above side sits inside the work-area inset")
-                .That(after.Window.Left >= 54 && after.Window.Right <= 1866).IsTrue();
-            Check.That(after.Window.IntersectsWith(new Rect(454, 778, 190, 250))).IsFalse();
-            Check.That(after.Window.IntersectsWith(new Rect(1000, 778, 700, 250))).IsFalse();
+                .That(after.Window.Left >= NoteLayout.Constants.EdgeMarginDip && after.Window.Right <= 1920 - NoteLayout.Constants.EdgeMarginDip).IsTrue();
+            Check.That(after.Window.IntersectsWith(new Rect(454, 778, 150, 250))).IsFalse();
+            Check.That(after.Window.IntersectsWith(new Rect(1200, 778, 500, 250))).IsFalse();
         }
         finally
         {

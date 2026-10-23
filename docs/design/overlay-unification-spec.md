@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 33 overlay windows and 7 dwell controls — 29 with XAML (28 under
+EyeCtrl has 34 overlay windows and 7 dwell controls — 29 with XAML (28 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 4 without XAML (the
 code-only `NoteWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
@@ -78,6 +78,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML | collision-zone |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
 | **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |
+| **NoteNotice** | `NoteNoticeWindow` | `Transparent` + token-bordered card | code-only, no XAML | exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder) |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |
 
 The **Class** column is the match key for the drift-guard test

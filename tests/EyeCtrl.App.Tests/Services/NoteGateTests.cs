@@ -42,7 +42,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // A full 2 s hold on ✕, every sample carrying IsPaused: nothing may fire...
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -81,7 +81,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             im.TogglePause(); // the only pause writer (P2 D1): CurrentState == Paused
             for (long t = 0; t <= 1_500_000; t += 100_000)
@@ -105,7 +105,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // Paused, held on ✕.
             for (long t = 0; t <= 1_000_000; t += 100_000)
@@ -145,7 +145,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             messenger.Send(new EyeCareExerciseActiveMessage(true));
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -186,7 +186,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             messenger.Send(new CalibrationStateChangedMessage(state, 0));
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -208,7 +208,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             messenger.Send(new CalibrationStateChangedMessage(CalibrationState.Collecting, 0));
             for (long t = 0; t <= 1_000_000; t += 100_000)
@@ -300,7 +300,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // The notice sits exactly over ✕: a full hold must not fire.
             occluding = new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200);
@@ -347,7 +347,7 @@ public class NoteGateTests
             var bottomHandle = new WindowInteropHelper(bottomWindow!).EnsureHandle();
             var topHandle = new WindowInteropHelper(topWindow!).EnsureHandle();
 
-            var bottomClose = ButtonCentrePhysical(anchorBottom, 2);
+            var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
 
             // The gaze is over the BOTTOM note's ✕, but the TOP window is hit-testably on top.
             tester.Answer = topHandle;
@@ -382,7 +382,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             TypeIntoNewSavedNote(manager, "x", anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
             ArmThenHold(manager, closeCenter, startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
@@ -419,7 +419,7 @@ public class NoteGateTests
         using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var anchor = new PhysicalPoint(1600, 1000);
         manager.AddNoteTargetsForTest(anchor);
-        var closeCenter = ButtonCentrePhysical(anchor, 2);
+        var closeCenter = ButtonCentrePhysical(anchor, 3);
 
         using var router = new DwellTimeRouter(provider, registry); // applies the map on construction
 
@@ -496,12 +496,14 @@ public class NoteGateTests
                 DpiHelper.LogicalToPhysicalY(placement.Card.Height));
             Check.That(rects[0]).IsEqualTo(expectedCard);
 
-            double radius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
-            for (int slot = 0; slot < 3; slot++)
+            double half = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteCellDip / 2);
+            int i = 1;
+            foreach (var slot in NoteLayout.SlotsFor(NoteState.Display))
             {
                 var centre = NoteTestBench.CellCentre(placement, slot);
-                var expectedCell = new PhysicalRect(centre.X - radius, centre.Y - radius, radius * 2, radius * 2);
-                Check.That(rects[1 + slot]).IsEqualTo(expectedCell);
+                var expectedCell = new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2);
+                Check.That(rects[i]).IsEqualTo(expectedCell);
+                i++;
             }
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -695,7 +697,7 @@ public class NoteGateTests
             var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
             var bottomHandle = new WindowInteropHelper(manager.WindowForTest(bottomId)!).EnsureHandle();
             var topHandle = new WindowInteropHelper(manager.WindowForTest(topId)!).EnsureHandle();
-            var bottomClose = ButtonCentrePhysical(anchorBottom, 2);
+            var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
 
             // The real hit test must resolve the gaze to one of the two note windows.
             var root = new NoteHitTester().RootWindowAt(bottomClose);

@@ -583,7 +583,7 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var close = NoteTestBench.CellCentre(manager, id, 2);
+            var close = NoteTestBench.CellCentre(manager, id, 3);
 
             probe.RectsProvider = () => new[] { new PhysicalRect(close.X - 200, close.Y - 200, 400, 400) };
             probe.IsVisible = true;
@@ -894,13 +894,14 @@ public class NoteManagerTests
 
             var done = NoteTestBench.CellCentre(manager, id, 0);
             var keyboard = NoteTestBench.CellCentre(manager, id, 1);
-            var discard = NoteTestBench.CellCentre(manager, id, 2);
+            // P4 D3: Discard sits in the bottom row (slot 3), past the full gap cell.
+            var discard = NoteTestBench.CellCentre(manager, id, 3);
             var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
 
             Check.That(rects).HasSize(3);
-            Check.That(rects[0]).IsEqualTo(new PhysicalRect(done.X - 60, done.Y - 60, 120, 120));
-            Check.That(rects[1]).IsEqualTo(new PhysicalRect(keyboard.X - 60, keyboard.Y - 60, 120, 120));
-            Check.That(rects[2]).IsEqualTo(new PhysicalRect(discard.X - 60, discard.Y - 60, 120, 120));
+            Check.That(rects[0]).IsEqualTo(CellRect(done));
+            Check.That(rects[1]).IsEqualTo(CellRect(keyboard));
+            Check.That(rects[2]).IsEqualTo(CellRect(discard));
 
             manager.RemoveNote(manager.ActiveNotes[0].Id);
             Check.That(manager.LiveTargetRects()).IsEmpty();
@@ -951,13 +952,14 @@ public class NoteManagerTests
             var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
             var top = NoteTestBench.CellCentre(manager, id, 0);
             var mid = NoteTestBench.CellCentre(manager, id, 1);
-            var bottom = NoteTestBench.CellCentre(manager, id, 2);
+            // P4 D3: close sits in the bottom row (slot 3), past the full gap cell.
+            var bottom = NoteTestBench.CellCentre(manager, id, 3);
 
             Check.That(rects).HasSize(3);
             Check.That(rects).ContainsExactly(
-                new PhysicalRect(top.X - 60, top.Y - 60, 120, 120),
-                new PhysicalRect(mid.X - 60, mid.Y - 60, 120, 120),
-                new PhysicalRect(bottom.X - 60, bottom.Y - 60, 120, 120));
+                CellRect(top),
+                CellRect(mid),
+                CellRect(bottom));
         }
         finally
         {
@@ -982,12 +984,12 @@ public class NoteManagerTests
             // each the dwell circle of its column button centre (NoteButtonRadius).
             var otherside = NoteTestBench.CellCentre(manager, id, 0);
             var cancel = NoteTestBench.CellCentre(manager, id, 1);
-            double radius = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteButtonRadius);
+            double half = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
             // Order follows the detector's enumeration, not the registration order — sort by Y
             // (the same discipline as the Edit-state rect test) and pin the two squares.
             Check.That(manager.LiveTargetRects().OrderBy(r => r.Y).ToList()).ContainsExactly(
                 new[] { otherside, cancel }.OrderBy(c => c.Y).Select(c =>
-                    new PhysicalRect(c.X - radius, c.Y - radius, radius * 2, radius * 2)).ToList());
+                    new PhysicalRect(c.X - half, c.Y - half, half * 2, half * 2)).ToList());
         }
         finally
         {
@@ -1042,7 +1044,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
-            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             // Fixup B2: ✕ re-arms only after the gaze has LEFT its circle — a sample stream that
             // arrives at ✕ without a prior outside sample is exactly the held-Done hazard. Look
@@ -1109,7 +1111,7 @@ public class NoteManagerTests
             var probe = new CueProbe(EffectRanAtSend: () =>
                 manager.ActiveNotes.Count == 1 && manager.ActiveNotes[0].State == NoteState.PendingUndo);
             messenger.Register(probe);
-            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             // Fixup B2: arm ✕ by leaving its circle first (see CloseButtonDwell_AtVisiblePosition).
             for (long t = 0; t <= 200_000; t += 33_000)
@@ -1147,7 +1149,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true);
-            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             for (long t = 0; t <= 800_000; t += 33_000)
                 messenger.Send(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: true)));
@@ -1183,7 +1185,7 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             // Pre-probe: 500 ms of a 600 ms close dwell accrued on the button. Every delivered sample
             // is 100 ms after the previous one, below DwellDetector's 150 ms silence clamp.
@@ -1296,6 +1298,14 @@ public class NoteManagerTests
     /// <summary>Recording <see cref="IKeyboardProbe"/> fake: tests set IsVisible, choose the rects
     /// the gate reads, and raise <see cref="IKeyboardProbe.Changed"/> synchronously (the real
     /// probe's dispatcher hop is the probe's own concern).</summary>
+    /// <summary>The 80x80 DIP dwell cell (P4 D3) around a column centre, in physical px at the
+    /// live scale - exactly what DwellTargetFor registers and LiveTargetRects reports.</summary>
+    private static PhysicalRect CellRect(PhysicalPoint centre)
+    {
+        double half = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
+        return new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2);
+    }
+
     internal sealed class FakeKeyboardProbe : IKeyboardProbe
     {
         public bool IsVisible { get; set; }

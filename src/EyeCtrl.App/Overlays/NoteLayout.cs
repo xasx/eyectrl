@@ -36,39 +36,114 @@ internal static class NoteLayout
     /// <summary>The fixed side cycle (P3 D2.1): preferred first, then this order.</summary>
     private static readonly NoteSide[] Cycle = [NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above];
 
-    /// <summary>Window-relative X of the button column's centre when the column sits on the card's
-    /// RIGHT edge (the default, and the side away from the tail for Right/Below/Above).</summary>
-    public static double ButtonColumnCenterX =>
-        LayoutConstants.NoteWindowWidth - LayoutConstants.NoteButtonPadding - LayoutConstants.NoteButtonRadius;
+    /// <summary>Window-relative X of the hit-cell column centre when the column sits on the
+    /// card's RIGHT edge (the side away from the tail for Right/Below/Above): the CARD width
+    /// minus the padding minus the half-cell (T5 review-01 B1 - the width dropped out of this
+    /// formula once and put the column over the body text).</summary>
+    public static double ColumnCenterX(double cardWidthDip) =>
+        cardWidthDip - LayoutConstants.NoteButtonPadding - (LayoutConstants.NoteCellDip / 2);
 
-    /// <summary>Window-relative X of the button column's centre when the column sits on the card's
-    /// LEFT edge — the side away from the tail on a <see cref="NoteSide.Left"/> placement.</summary>
-    public static double ButtonColumnCenterXFromLeft =>
-        LayoutConstants.NoteButtonPadding + LayoutConstants.NoteButtonRadius;
+    /// <summary>Window-relative X of the hit-cell column centre when the column sits on the card's
+    /// LEFT edge - the side away from the tail on a <see cref="NoteSide.Left"/> placement.</summary>
+    public static double ColumnCenterXFromLeft =>
+        LayoutConstants.NoteButtonPadding + (LayoutConstants.NoteCellDip / 2);
 
-    /// <summary>Window-relative Y of the first (top) button's centre.</summary>
-    public static double FirstButtonCenterY =>
-        LayoutConstants.NoteTitleBarHeight + LayoutConstants.NoteButtonPadding + LayoutConstants.NoteButtonRadius;
 
-    /// <summary>Vertical distance between consecutive button centres.</summary>
-    public static double ButtonStep =>
-        (2 * LayoutConstants.NoteButtonRadius) + LayoutConstants.NoteButtonGap;
+    /// <summary>Window-relative Y of hit-cell row <paramref name="row"/>'s centre (P4 D3): the
+    /// rows are the four stacked 80 DIP cells between the column paddings.</summary>
+    public static double RowCenterY(int row) =>
+        LayoutConstants.NoteButtonPadding + (row * LayoutConstants.NoteCellDip) + (LayoutConstants.NoteCellDip / 2);
 
     /// <summary>
-    /// Window-relative centre of control #<paramref name="index"/> for a card on
-    /// <paramref name="side"/> (P3 D2.6): the column sits on the card edge AWAY from the tail —
-    /// the far vertical edge for Right/Left, the right edge for Below/Above. The card origin
-    /// inside the window shifts by the tail zone, so the returned point is window-relative
-    /// directly usable on the window's canvas.
+    /// The per-state slot table (P4 D3). A slot IS a hit-cell row: slot 0 and 1 are adjacent,
+    /// slot 2 is the full empty gap cell (P2 D8's "one cell apart", P1 D7's "Discard one slot
+    /// from Done"), and slot 3 is the bottom row. Display/Edit occupy rows 0, 1 and 3; Move
+    /// occupies rows 0 and 1; a chip occupies row 0 only (the Undo cell).
     /// </summary>
-    public static (double X, double Y) ButtonCenter(NoteSide side, int index)
+    public static IReadOnlyList<int> SlotsFor(NoteState state) => state switch
     {
-        double colX = side == NoteSide.Left ? ButtonColumnCenterXFromLeft : ButtonColumnCenterX;
-        double colY = FirstButtonCenterY + (index * ButtonStep);
+        NoteState.Display or NoteState.Edit => [0, 1, 3],
+        NoteState.Move => [0, 1],
+        NoteState.PendingUndo => [0],
+        _ => Array.Empty<int>(),
+    };
+
+    /// <summary>
+    /// Window-relative centre of hit cell #<paramref name="slot"/> for a card on
+    /// <paramref name="side"/> (P3 D2.6 + P4 D3): the column sits on the card edge AWAY from
+    /// the tail - the far vertical edge for Right/Left, the right edge for Below/Above - and
+    /// the slot maps 1:1 to its hit-cell row. The card origin inside the window shifts by the
+    /// tail zone, so the returned point is window-relative, directly usable on the window's
+    /// canvas and by <c>NoteManager</c>'s dwell-target placement.
+    /// </summary>
+    public static (double X, double Y) ButtonCenter(NoteSide side, int slot, double cardWidthDip)
+    {
+        double colX = side == NoteSide.Left ? ColumnCenterXFromLeft : ColumnCenterX(cardWidthDip);
         var (originX, originY) = CardOrigin(side);
-        return (originX + colX, originY + colY);
+        return (originX + colX, originY + RowCenterY(slot));
     }
 
+
+    // == the card size (P4 D2): the text size drives the width, the measured text height
+    // (capped) drives the height, and the control column is the floor. ==
+
+    /// <summary>The text column width in DIP: round(15 x size), about 28-32 characters per line.
+    /// 420 DIP at the provisional 28.</summary>
+    public static double TextColumnWidthDip(double textSize) => Math.Round(15 * textSize);
+
+    /// <summary>The card width in DIP: the text column plus the control column.</summary>
+    /// <summary>The strip between the text column and the hit-cell column (T5 review-01 B1):
+    /// the text never touches the cells - WPF rect intersection is edge-inclusive, so a real
+    /// gap is the only honest clearance.</summary>
+    public const double TextColumnGapDip = 30.0;
+
+    public static double CardWidthDip(double textSize) =>
+        TextColumnWidthDip(textSize) + LayoutConstants.NoteColumnWidthDip + TextColumnGapDip;
+
+    /// <summary>The control column's height in DIP (P4 D3): four hit-cell rows between the paddings.</summary>
+    public static double ControlsColumnHeightDip =>
+        (2 * LayoutConstants.NoteButtonPadding) + (4 * LayoutConstants.NoteCellDip);
+
+    /// <summary>One text line's height in DIP: the 1.25x leading of P4 D2.</summary>
+    public const double TextLineHeightFactor = 1.25;
+
+    public static double TextLineHeightDip(double textSize) => textSize * TextLineHeightFactor;
+
+    /// <summary>The auto-height cap (P4 D2): the smaller of 55 percent of the work area height
+    /// and 12 text lines. Over the cap the card stops growing and the text clips (fade + ellipsis).</summary>
+    public static double TextCapHeightDip(double workAreaHeightDip, double textSize) =>
+        Math.Min(workAreaHeightDip * 0.55, 12 * TextLineHeightDip(textSize));
+
+    /// <summary>
+    /// The card height in DIP (P4 D2): the larger of the control column (the floor - the cells
+    /// must always fit) and the measured text height plus padding, never past the cap.
+    /// </summary>
+    public static double CardHeightDip(double textSize, double measuredTextHeightDip, double workAreaHeightDip)
+    {
+        double cap = TextCapHeightDip(workAreaHeightDip, textSize);
+        double content = Math.Min(measuredTextHeightDip, cap);
+        return Math.Max(ControlsColumnHeightDip, content + (2 * LayoutConstants.NoteButtonPadding));
+    }
+
+    // == the chip (P4 D3's PendingUndo row): the shrunk-in-place window renders a single Undo
+    // cell plus the chip text. ==
+
+    /// <summary>The chip text column's width in DIP: the "Changes discarded - Undo" strings wrap
+    /// to two lines in it at the body size.</summary>
+    public const double ChipTextWidthDip = 140.0;
+
+    // == the capacity notice (P4 D4): one fixed-size, click-through, target-free window. ==
+
+    /// <summary>The notice card is 320x110 DIP: the EN and DE sentences on two wrapped lines
+    /// at the body-large size, with 16 DIP padding all around.</summary>
+    public const double NoticeCardWidthDip = 320.0;
+
+    public const double NoticeCardHeightDip = 110.0;
+    /// <summary>The chip card size (P4 D3's state table): at least one cell wide (it is the
+    /// cell plus the text column) and one cell row tall.</summary>
+    public static Size ChipCardSize() => new(
+        ChipTextWidthDip + LayoutConstants.NoteColumnWidthDip,
+        (2 * LayoutConstants.NoteButtonPadding) + LayoutConstants.NoteCellDip);
     /// <summary>Where the card rect sits inside the window, per side: the tail zone occupies the
     /// strip between the window edge and the card on the anchor's side.</summary>
     public static (double X, double Y) CardOrigin(NoteSide side) => side switch
@@ -321,6 +396,6 @@ internal static class NoteLayout
         public const double TailLengthDip = 30.0;
         public const double TipGapDip = 6.0;
         public const double TailHalfWidthDip = 18.0;
-        public const double EdgeMarginDip = LayoutConstants.NoteButtonRadius + 24.0;
+        public const double EdgeMarginDip = (LayoutConstants.NoteCellDip / 2) + 24.0;
     }
 }

@@ -407,6 +407,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"note notice\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"track status\"",
       "Count": 1
     },

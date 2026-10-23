@@ -5,6 +5,7 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Services;
 
 /// <summary>
@@ -38,11 +39,15 @@ internal static class NoteTestBench
         NoteLayout.Place(anchor, NoteSide.Right, PlacementCard, WorkArea, Array.Empty<Rect>(), DpiHelper.ScaleX)
             ?? throw new InvalidOperationException("no fitting side");
 
-    private static Size PlacementCard => new(LayoutConstants.NoteWindowWidth, LayoutConstants.NoteWindowHeight);
+    // The P4 default card at the control-column floor (the windowless seams measure no text).
+    private static Size PlacementCard => new(
+        NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip),
+        NoteLayout.CardHeightDip(NoteSettings.DefaultTextSizeDip, 0, WorkArea.Height));
+
 
     internal static PhysicalPoint CellCentre(NotePlacement placement, int slot)
     {
-        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot, placement.Card.Width);
         return new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));

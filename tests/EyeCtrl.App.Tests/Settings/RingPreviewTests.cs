@@ -514,7 +514,8 @@ public class RingPreviewTargetTests
         var rows = SettingsAutoPagination.FitRingPreview(ActionMenuRows(), ColumnWidth, budget);
         var registered = RegisteredIds(rows);
 
-        var expected = new HashSet<string>(StringComparer.Ordinal) { "am_reset" };
+        // The P4 D1 text-size slider: a stepper registers its down and up cells.
+        var expected = new HashSet<string>(StringComparer.Ordinal) { "am_reset", "am_notes_text_size_dn", "am_notes_text_size_up" };
         foreach (var action in Enum.GetValues<InteractionAction>())
         {
             expected.Add("am_" + action);

@@ -34,8 +34,9 @@ public class NoteWindowNameTests
 
         var texts = TextBlocks((Canvas)window.Content).ToList();
 
-        Check.WithCustomMessage("The note must have drawn its title bar.")
-             .That(texts.Select(t => t.Text)).Contains("PINNED NOTE");
+        // P4 D2: the title bar is gone - no caption text at all.
+        Check.WithCustomMessage("The note must not draw a title caption any more (P4 D2).")
+             .That(texts.Select(t => t.Text)).Not.Contains("PINNED NOTE");
 
         var named = texts
             .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetName(t)))

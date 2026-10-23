@@ -54,6 +54,8 @@ public class NoteGateCensusTests
             "occluder", "visible bounds via IDriftNoticePresenter.TryGetVisibleBounds"),
         ["EyeCtrl.App/Overlays/EdgeButtonBarWindow.xaml.cs"] = (
             "occluder", "the KEYBOARD instance's button rects ride the keyboard probe (IKeyboardProbe.Rects); the action-menu MODIFIER-bar instance is safe because it shows only with the action menu, a suspending state (review 01 m3)"),
+        ["EyeCtrl.App/Overlays/NoteNoticeWindow.cs"] = (
+            "occluder", "visible bounds via the manager seam while the capacity notice shows (P4 D4)"),
         ["EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs"] = (
             "occluder", "the instrumented button's rects via LagMarkBridge.LiveTargetRects"),
         ["EyeCtrl.App/Overlays/TrackStatusWindow.xaml"] = (

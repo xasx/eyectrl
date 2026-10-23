@@ -3,6 +3,16 @@ namespace EyeCtrl.Supervisor.Supervision;
 using System;
 using EyeCtrl.Supervisor.UI;
 
+/// <summary>Which entry point asked for the shared retry path - the log's <c>{Trigger}</c>
+/// argument. An enum, deliberately not string constants (fixup-02 N1):
+/// <c>TextLiteralRatchetTests</c> counts a <c>const string</c> initialiser as a text sink, and
+/// these are log vocabulary, not UI text. Serilog renders the name.</summary>
+internal enum FallenBackRetryTrigger
+{
+    DialogRetry,
+    Countdown,
+}
+
 /// <summary>
 /// The FallenBack dialog's one automatic retry (gaze-UX ticket A3): a 60 s countdown for a user
 /// who cannot click the dialog's mouse-only buttons, plus the per-session latch that spends it.
@@ -36,12 +46,6 @@ internal sealed class FallenBackAutoRetry
     /// flag reaches the shared retry path as true.</summary>
     public const bool LaunchPaused = true;
 
-    /// <summary>Trigger names the shared retry path receives, for its log line.</summary>
-    public const string TriggerDialogRetry = "dialog Retry";
-
-    /// <summary>Trigger names the shared retry path receives, for its log line.</summary>
-    public const string TriggerCountdown = "auto-retry countdown";
-
     /// <summary>True once this session's countdown has been armed. Never reset.</summary>
     private bool _spent;
 
@@ -62,24 +66,25 @@ internal sealed class FallenBackAutoRetry
     /// from <see cref="TryArm"/> means this episode opens without a countdown and waits for a click.
     /// </summary>
     /// <param name="retryNow">The shared retry path: (trigger, launchPaused). Called with
-    /// <see cref="TriggerDialogRetry"/> from the button, <see cref="TriggerCountdown"/> from the
-    /// countdown, and <see cref="LaunchPaused"/> from both.</param>
-    public void Attach(FallenBackDialog dialog, Action<string, bool> retryNow, DateTime now)
+    /// <see cref="FallenBackRetryTrigger.DialogRetry"/> from the button,
+    /// <see cref="FallenBackRetryTrigger.Countdown"/> from the countdown, and
+    /// <see cref="LaunchPaused"/> from both.</param>
+    public void Attach(FallenBackDialog dialog, Action<FallenBackRetryTrigger, bool> retryNow, DateTime now)
     {
-        void Retry(string trigger)
+        void Retry(FallenBackRetryTrigger trigger)
         {
             Cancel();
             dialog.ClearAutoRetryCountdown();
             retryNow(trigger, LaunchPaused);
         }
 
-        dialog.RetryRequested += () => Retry(TriggerDialogRetry);
+        dialog.RetryRequested += () => Retry(FallenBackRetryTrigger.DialogRetry);
         dialog.Dismissed += Cancel;
         // ANY close cancels - the title-bar X included, which raises no Dismissed. A user who
         // closed the dialog said "not now"; an auto-retry firing afterwards would relaunch behind
         // their back.
         dialog.Closed += (_, _) => Cancel();
-        if (TryArm(now, () => Retry(TriggerCountdown)))
+        if (TryArm(now, () => Retry(FallenBackRetryTrigger.Countdown)))
             dialog.ShowAutoRetryCountdown();
     }
 

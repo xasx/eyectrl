@@ -27,8 +27,8 @@ public class FallenBackWiringTests
     /// <summary>The shared retry path stand-in: records every (trigger, paused) it is handed.</summary>
     private sealed class Recorder
     {
-        public readonly List<(string Trigger, bool Paused)> Calls = new();
-        public void Retry(string trigger, bool paused) => Calls.Add((trigger, paused));
+        public readonly List<(FallenBackRetryTrigger Trigger, bool Paused)> Calls = new();
+        public void Retry(FallenBackRetryTrigger trigger, bool paused) => Calls.Add((trigger, paused));
     }
 
     private static void RunSta(Action action)
@@ -61,7 +61,7 @@ public class FallenBackWiringTests
 
                 dialog.OnRetry();
                 Check.That(recorder.Calls).HasSize(1);
-                Check.That(recorder.Calls[0].Trigger).IsEqualTo(FallenBackAutoRetry.TriggerDialogRetry);
+                Check.That(recorder.Calls[0].Trigger).IsEqualTo(FallenBackRetryTrigger.DialogRetry);
                 Check.That(recorder.Calls[0].Paused).IsTrue();
                 Check.That(autoRetry.IsCountdownArmed).IsFalse();
                 Check.That(dialog.CountdownText.Visibility).IsEqualTo(Visibility.Collapsed);
@@ -90,7 +90,7 @@ public class FallenBackWiringTests
 
                 autoRetry.Tick(T0.AddSeconds(60));
                 Check.That(recorder.Calls).HasSize(1);
-                Check.That(recorder.Calls[0].Trigger).IsEqualTo(FallenBackAutoRetry.TriggerCountdown);
+                Check.That(recorder.Calls[0].Trigger).IsEqualTo(FallenBackRetryTrigger.Countdown);
                 Check.That(recorder.Calls[0].Paused).IsTrue();
 
                 autoRetry.Tick(T0.AddSeconds(61));
@@ -169,6 +169,44 @@ public class FallenBackWiringTests
             finally
             {
                 dialog.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ASecondEpisode_WiresItsRetryButton_EvenWithoutACountdown()
+    {
+        // fixup-02 N2: the second episode's dialog waits for a click - and that click must still
+        // WORK. A slip that wires the button only where the countdown armed (mutant M8) leaves the
+        // user with a dead Retry and no way back to EyeCtrl until the Supervisor restarts.
+        RunSta(() =>
+        {
+            var first = new FallenBackDialog(StringTable.EmbeddedEnglish);
+            var second = new FallenBackDialog(StringTable.EmbeddedEnglish);
+            try
+            {
+                var recorder = new Recorder();
+                var autoRetry = new FallenBackAutoRetry();
+                autoRetry.Attach(first, recorder.Retry, T0);
+                Check.That(autoRetry.IsCountdownArmed).IsTrue();
+
+                autoRetry.Tick(T0.AddSeconds(60));   // the session's one countdown fires
+                Check.That(recorder.Calls).HasSize(1);
+
+                autoRetry.Attach(second, recorder.Retry, T0.AddSeconds(70));
+                Check.That(second.CountdownText.Visibility).IsEqualTo(Visibility.Collapsed);
+                Check.That(autoRetry.IsCountdownArmed).IsFalse();
+
+                recorder.Calls.Clear();
+                second.OnRetry();
+                Check.That(recorder.Calls).HasSize(1);
+                Check.That(recorder.Calls[0].Trigger).IsEqualTo(FallenBackRetryTrigger.DialogRetry);
+                Check.That(recorder.Calls[0].Paused).IsTrue();
+            }
+            finally
+            {
+                first.Close();
+                second.Close();
             }
         });
     }

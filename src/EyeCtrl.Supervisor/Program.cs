@@ -684,7 +684,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // first heartbeat can ADOPT it back into Supervising (otherwise it stays FallenBack, which
         // has no HeartbeatReceived case, so the retried app would be unsupervised — no crash
         // recovery, no clean-exit detection).
-        void RetryNow(string trigger, bool paused)
+        void RetryNow(FallenBackRetryTrigger trigger, bool paused)
         {
             Log.Information("FallenBack {Trigger}: relaunching app with --paused and returning to IdleWatch.", trigger);
             try

@@ -1671,7 +1671,7 @@
     "src": "1b86c939"
   },
   "settings.dwell.pause_grace.label": {
-    "text": "Toleranz beim Wegblicken (ms)",
+    "text": "Haltezeit beim Wegblicken (ms)",
     "src": "ba78963a"
   },
   "settings.dwell.prediction.description": {

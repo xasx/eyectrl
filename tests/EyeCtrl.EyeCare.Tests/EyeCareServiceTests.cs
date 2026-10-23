@@ -1,5 +1,6 @@
 namespace EyeCtrl.EyeCare.Tests;
 
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -226,5 +227,100 @@ public class EyeCareServiceTests
         Check.That(sut.TryGetFatigueScore(last, out var score)).IsTrue();
         Check.That(score).IsEqualTo(sut.FatigueScore);
         Check.That(score).IsStrictlyPositive();
+    }
+
+    /// <summary>
+    /// P2 D1 (review-02 B-1a / review-03 n-2): the exercise-active flag is sent ONCE, (true) before
+    /// the run and (false) in the finally after the summary. The gap between FinishRun and
+    /// ShowSummaryAsync — where the full-screen window is still up — must be covered, so the flag
+    /// must still read true AT SUMMARY START. The hooks complete synchronously, so "at summary
+    /// start" is observable from inside ShowSummaryAsync.
+    /// </summary>
+    [Fact]
+    public void TheExerciseActiveFlag_SpansTheRunAndTheSummary()
+    {
+        var settings = new EyeCareSettings
+        {
+            Enabled = true, IntervalMinutes = 1, NaturalBreakSeconds = 30, SnoozeMinutes = 1
+        };
+        var hooks = new AcceptingHooks();
+        var messenger = new WeakReferenceMessenger();
+        var runner = new ExerciseRunner(new IExercise[] { new StubExercise() }, seed: 1);
+        var svc = new EyeCareService(settings, runner, hooks, messenger: messenger);
+        messenger.Register<object, EyeCareExerciseActiveMessage>(this, (_, m) => hooks.ActiveFlag = m.Active);
+
+        for (long t = 0; t <= 70_000_000; t += 1_000_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        Check.That(hooks.BannerCalls).IsStrictlyGreaterThan(0);
+        Check.WithCustomMessage("the flag must still read true when the summary starts — the "
+                + "full-screen window is still shown between the run and the summary")
+            .That(hooks.ActiveFlagAtSummaryStart).IsTrue();
+        Check.WithCustomMessage("the finally must close the flag after the summary")
+            .That(hooks.ActiveFlag).IsFalse();
+    }
+
+    [Fact]
+    public void AFaultedExercise_StillLowersTheFlag()
+    {
+        // The finally, not the happy path, owns the (false): a faulting exercise (or a CancelActive
+        // ending the awaits) must leave the note gate closed behind no stuck suspender.
+        var settings = new EyeCareSettings
+        {
+            Enabled = true, IntervalMinutes = 1, NaturalBreakSeconds = 30, SnoozeMinutes = 1
+        };
+        var hooks = new FaultingHooks();
+        var messenger = new WeakReferenceMessenger();
+        var runner = new ExerciseRunner(new IExercise[] { new StubExercise() }, seed: 1);
+        var svc = new EyeCareService(settings, runner, hooks, messenger: messenger);
+        messenger.Register<object, EyeCareExerciseActiveMessage>(this, (_, m) =>
+        {
+            hooks.ActiveFlag = m.Active;
+            if (m.Active) hooks.SawTrue = true;
+        });
+
+        for (long t = 0; t <= 70_000_000; t += 1_000_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        Check.That(hooks.SawTrue).IsTrue();
+        Check.That(hooks.ActiveFlag).IsFalse();
+    }
+
+    /// <summary>Accepting hooks: the banner is dwelled Start, the exercise and summary complete
+    /// synchronously, and the flag value is captured at summary start.</summary>
+    private sealed class AcceptingHooks : IEyeCareHooks
+    {
+        public int BannerCalls;
+        public bool ActiveFlag;
+        public bool ActiveFlagAtSummaryStart;
+
+        public Task<bool> ShowBannerAsync(string message) { BannerCalls++; return Task.FromResult(true); }
+
+        public Task ShowExerciseAsync(string exerciseName, long durationMicroseconds,
+            Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze) => Task.CompletedTask;
+
+        public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome)
+        {
+            ActiveFlagAtSummaryStart = ActiveFlag;
+            return Task.CompletedTask;
+        }
+
+        public void CancelActive() { }
+    }
+
+    private sealed class FaultingHooks : IEyeCareHooks
+    {
+        public bool ActiveFlag;
+        public bool SawTrue;
+
+        public Task<bool> ShowBannerAsync(string message) => Task.FromResult(true);
+
+        public Task ShowExerciseAsync(string exerciseName, long durationMicroseconds,
+            Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze)
+            => Task.FromException(new InvalidOperationException("exercise failed"));
+
+        public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome) => Task.CompletedTask;
+
+        public void CancelActive() { }
     }
 }

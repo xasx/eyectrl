@@ -314,3 +314,14 @@ public record DwellActivationMessage;
 /// design: the inventory re-reads the live rects.
 /// </summary>
 public record NoteTargetsChangedMessage;
+
+/// <summary>
+/// Published by <c>NoteManager</c> when a note enters or leaves Edit (P1 D6): sent once with
+/// <c>Editing: true</c> on every entry into Edit — a switch between editors sends EXACTLY ONE
+/// <c>(true)</c> for the new editor, with no <c>(false)</c> in between (P1 D6/D8), because that
+/// one message is what clears the keyboard's typing context (ResetInputContext) — and with
+/// <c>Editing: false</c> on the ✓ Done exit and on Dispose mid-Edit. The keyboard VM consumes it:
+/// the flag drives the "→ Note" indicator and the input-context reset.
+/// </summary>
+/// <param name="Editing">True when a note entered Edit; false when editing ended.</param>
+public record NoteEditingChangedMessage(bool Editing);

@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// The report-only drift notice (design §7.1/§8.5): a bottom-center banner suggesting recalibration in Tobii that
@@ -68,5 +70,21 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Bottom - Height - MarginDip;
         _positioned = true;
+    }
+
+    /// <inheritdoc />
+    public bool TryGetVisibleBounds(out PhysicalRect bounds)
+    {
+        bounds = default;
+        if (!IsVisible)
+            return false;
+        // The window's own rect in DIP, scaled to physical px (a length and a coordinate scale
+        // identically — the helper just multiplies).
+        bounds = new PhysicalRect(
+            DpiHelper.LogicalToPhysicalX(Left),
+            DpiHelper.LogicalToPhysicalY(Top),
+            DpiHelper.LogicalToPhysicalX(Width),
+            DpiHelper.LogicalToPhysicalY(Height));
+        return true;
     }
 }

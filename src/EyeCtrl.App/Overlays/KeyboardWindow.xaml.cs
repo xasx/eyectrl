@@ -5,7 +5,6 @@ using EyeCtrl.App.Services;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using EyeCtrl.App.Services;   // KeyboardYield
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
@@ -140,6 +139,25 @@ public partial class KeyboardWindow : OverlayWindow
 
     public event Action<int>? SkinToneChanged;
 
+    /// <summary>
+    /// The note-targeting state (P1 D6, owner decision on review-02 F3): an accent FRAME around
+    /// the keyboard — the same colour as a note's Edit border — instead of a floating label. The
+    /// frame border is always present with a constant thickness and a transparent brush, so only
+    /// the brush changes here and SizeToContent can never see a difference: no resize, no keys
+    /// moving under a gaze about to type. The window's UIA HelpText says the same thing in plain
+    /// text (coordinator-approved key), set and cleared alongside the brush.
+    /// </summary>
+    private void UpdateNoteTargetingFrame()
+    {
+        bool targeting = _viewModel?.IsTargetingNote == true;
+        KeyboardChrome.BorderBrush = targeting ? Tokens.BrushAccent : Brushes.Transparent;
+        System.Windows.Automation.AutomationProperties.SetHelpText(
+            this,
+            targeting
+                ? EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.noteTargetingHelpText")
+                : string.Empty);
+    }
+
     public void SetViewModel(KeyboardViewModel viewModel)
     {
         if (_viewModel != null)
@@ -153,6 +171,7 @@ public partial class KeyboardWindow : OverlayWindow
         _viewModel.KeyDwellCompleted += OnKeyDwellCompleted;
         _viewModel.E1Geometry = GetE1Geometry;
         _viewModel.E1LetterBox = GetE1LetterBox;
+        UpdateNoteTargetingFrame();
 
         // Re-entry replaces the emoji manager (see the _viewModel guard above): unregister the old
         // one first, or its registry entry would outlive it holding a strong reference to a dead
@@ -646,6 +665,13 @@ public partial class KeyboardWindow : OverlayWindow
                 // a no-op in text mode, where ExitEmojiMode would rebuild an already-text grid.
                 if (_viewModel?.IsEmojiMode == false && CategoryBar.Visibility == Visibility.Visible)
                     ExitEmojiMode();
+                break;
+            case nameof(KeyboardViewModel.IsTargetingNote):
+                // P1 D6, owner decision on review-02 F3: the accent frame. The flag survives a
+                // hide (a mid-Edit hide is the edge-bar Close, not the end of editing), so a
+                // re-show brings the frame back with no extra wiring — the brush is window
+                // state, and Hide/Show never clear it.
+                UpdateNoteTargetingFrame();
                 break;
         }
     }
@@ -1142,9 +1168,11 @@ public partial class KeyboardWindow : OverlayWindow
             && index >= 0 && index < _renderedPredictions.Count)
         {
             RecordPickE1(index);
-            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
-            // The target still exists here (UpdatePredictions clears it), so capture its LIVE rect
-            // for the samples where the re-rendered bar has no target for this slot.
+            // Capture the slot's LIVE rect BEFORE the selection: HandlePredictionSelected can end in
+            // AutoReturnIfNeeded (a pick from the accents sub-layout), whose swap rebuilds the keys and
+            // clears every prediction target, so a lookup after it finds nothing and the latch would
+            // remember no geometry at all (a slot that is then absent counts as "still inside" for ever).
+            // The rect is what lets a real leave onto the keys re-arm the slot while its target is absent.
             PhysicalRect? latchedRect = null;
             foreach (var target in _predictionDwellDetector.Targets)
             {
@@ -1152,6 +1180,7 @@ public partial class KeyboardWindow : OverlayWindow
                 latchedRect = target.Bounds;
                 break;
             }
+            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
             _predictionRearm.Latch(targetId, latchedRect);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a

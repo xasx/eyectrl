@@ -516,6 +516,58 @@ public class ActivationOfferCoordinatorTests
         Check.That(Settle(s, 1900, 1100)).IsNotNull();
     }
 
+    [StaFact]
+    public void ModalSuspended_TracksTheCombinedSuspension_AndReadsFalseBeforeInitialization()
+    {
+        // P2 D1: the note gate's suspender input. The note predicate is wired BEFORE the offer
+        // coordinator is constructed (EventCoordinator), so an early read must be false, not
+        // throw; afterwards the flag tracks RecomputeSuspension exactly. Mutations: initialize
+        // _suspended from a single input, or drop the field write → a flag stuck on/off shows here.
+        var standalone = new ActivationOfferCoordinator(
+            new ToolbarLifecycleCoordinator(new ModalInteractionState()),
+            new ModalInteractionState(),
+            _ => Array.Empty<PhysicalRect>());
+        Check.WithCustomMessage("the flag must read false before the coordinator is initialized")
+            .That(standalone.ModalSuspended).IsFalse();
+
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        s.Messenger.Send(new EyeCareBannerActiveMessage(true));
+        Check.WithCustomMessage("the banner reason must set ModalSuspended")
+            .That(s.Coordinator.ModalSuspended).IsTrue();
+        s.Messenger.Send(new EyeCareBannerActiveMessage(false));
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        s.Modal.ProbeOpen = true;
+        Check.That(s.Coordinator.ModalSuspended).IsTrue();
+        s.Modal.ProbeOpen = false;
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        s.Context.TaskSwitcherVM.IsVisible = true;
+        Check.That(s.Coordinator.ModalSuspended).IsTrue();
+        s.Context.TaskSwitcherVM.IsVisible = false;
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+    }
+
+    [StaFact]
+    public void AStructuralNoteChange_SchedulesAZoneRepublish()
+    {
+        // P2 D7: NoteTargetsChangedMessage joins the trigger list — the zones must follow a note
+        // appearing, moving or closing, so no offer is ever placed over one. Mutation: drop the
+        // registration → the count stays at the initialize publish.
+        int collected = 0;
+        var s = Build(_ => { collected++; return Array.Empty<PhysicalRect>(); });
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(collected).IsEqualTo(1); // OnInitialize
+
+        s.Messenger.Send(new NoteTargetsChangedMessage());
+        Pump();
+        Check.That(collected).IsEqualTo(2);
+    }
+
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns
     /// the offer (or null when none was made).</summary>
     private static ActivationOffer? Settle(Setup s, double x, double y)

@@ -6,8 +6,12 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
-        <DockPanel>
+    <!-- Fixup F3 (owner decision): the note-targeting state is a FRAME, not a label. The border
+         is ALWAYS present with a CONSTANT thickness and a transparent brush, so SizeToContent
+         never sees a difference; only the brush flips to the accent while IsTargetingNote. -->
+    <Border x:Name="KeyboardChrome" Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8"
+            BorderBrush="Transparent" BorderThickness="3">
+        <DockPanel x:Name="RootDock">
             <!-- Prediction bar at top: always one slot per suggestion in text mode, so the bar
                  never changes the window's size. -->
             <UniformGrid x:Name="PredictionBar" Rows="1" HorizontalAlignment="Left"

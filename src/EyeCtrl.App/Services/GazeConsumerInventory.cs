@@ -319,7 +319,9 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         return new PhysicalRect(minX, minY, maxX - minX, maxY - minY);
     }
 
-    private static (string Id, double RadiusLogical)[] ButtonRadii(EdgeButtonBarViewModel vm)
+    // Internal so the notes' KeyboardProbe (P1 D5) reuses the same per-button radius list for its
+    // gate union — one shared derivation, not two that can drift.
+    internal static (string Id, double RadiusLogical)[] ButtonRadii(EdgeButtonBarViewModel vm)
     {
         var buttons = new (string Id, double RadiusLogical)[vm.Buttons.Count];
         for (var i = 0; i < vm.Buttons.Count; i++)

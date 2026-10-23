@@ -849,6 +849,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.keyboard.noteTargetingHelpText": {
+    "text": "Typing into a note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.lagmark.label": {
     "text": "Lag",
     "who": "user",
@@ -884,8 +891,36 @@
     "fit": "A68",
     "args": []
   },
+  "overlays.note.chip.discarded": {
+    "text": "Changes discarded · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.chip.removed": {
+    "text": "Note removed · Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.close": {
     "text": "Close note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.discard": {
+    "text": "Discard changes",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.done": {
+    "text": "Done",
     "who": "user",
     "where": "overlays",
     "fit": "row",
@@ -905,8 +940,22 @@
     "fit": "row",
     "args": []
   },
+  "overlays.note.showKeyboard": {
+    "text": "Show keyboard",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.title": {
     "text": "PINNED NOTE",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.undo": {
+    "text": "Undo",
     "who": "user",
     "where": "overlays",
     "fit": "row",

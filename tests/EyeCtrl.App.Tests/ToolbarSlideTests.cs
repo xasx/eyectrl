@@ -18,7 +18,9 @@ using Xunit;
 ///
 /// <para>
 /// Category=UI because these construct and Show real windows; CI runs Category!=UI
-/// (.github/workflows/ci.yml:84), so these are verified locally.
+/// (.github/workflows/ci.yml:84), so these are verified locally. The toolbar they Show is built by
+/// <c>ToolbarTestHelpers.NewBoundToolbar</c>, which makes it invisible and non-activating first
+/// (<c>InvisibleTestWindow.Prepare</c>); <c>NoVisibleTestWindowGuardTests</c> keeps it so.
 /// </para>
 /// </summary>
 [System.Runtime.Versioning.SupportedOSPlatform("windows")]

@@ -535,6 +535,20 @@ class EdgeCrowdingTally(unittest.TestCase):
         self.assertEqual((got["sides"]["N"]["n"], got["sides"]["E"]["n"]), (3, 3))
         self.assertEqual(got["outer"], 3)
 
+    def test_lines_written_at_the_20_dwell_minimum_read_the_same_as_one_summed_line(self) -> None:
+        # The recorder carries an edge's counts across shows and writes a line only at 20 dwells, so a day
+        # is a few lines of >= 20 each (spanning several shows), never one line per show. Summing them must
+        # give exactly the verdict one big line gives.
+        carried = [self._tally("top", {"c": 14, "e": 6}, second=1), self._tally("bottom", {"c": 20}, second=2),
+                   self._tally("top", {"c": 14, "e": 6}, second=3), self._tally("top", {"c": 12, "e": 8}, second=4)]
+        one = [self._tally("top", {"c": 40, "e": 20}, second=1), self._tally("bottom", {"c": 20}, second=2)]
+        a = kb.metrics(kb.parse(carried))["edge_crowding"]        # the real minimum, 50 dwells
+        b = kb.metrics(kb.parse(one))["edge_crowding"]
+        self.assertEqual(a, b)
+        self.assertEqual(a["top"]["n"], 60)
+        self.assertTrue(a["top"]["meets_rule2b"])               # 20 of 60 = 1/3 on the east side
+        self.assertFalse(a["bottom"]["meets_rule2b"])           # 20 dwells: under the 50 minimum
+
     def test_tallies_of_one_edge_add_up_and_edges_stay_apart(self) -> None:
         lines = [self._tally("top", {"c": 6, "e": 1}, second=1), self._tally("bottom", {"c": 10, "w": 5}, second=2),
                  self._tally("top", {"c": 2, "e": 1}, second=3)]

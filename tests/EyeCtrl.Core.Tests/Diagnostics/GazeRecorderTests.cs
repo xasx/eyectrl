@@ -1,15 +1,25 @@
 namespace EyeCtrl.Core.Tests.Diagnostics;
 
+using System.Diagnostics;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 
 /// <summary>
 /// The file side of the recorder: what lands on disk, that it is bounded, and that shutdown is
-/// budgeted. Timing-sensitive assertions wait on the observable result (the file) rather than
-/// sleeping for a fixed interval, so they do not flake under load.
+/// budgeted. Every wait ends on the observable result (the file, or the recorder's own self-disable),
+/// and the only time budget is a HANG guard: the writer is a BelowNormal-priority background thread,
+/// and a loaded, coverage-instrumented CI runner can starve it for seconds, so a fixed short wait
+/// measures scheduling rather than the contract.
 /// </summary>
 public class GazeRecorderTests : IDisposable
 {
+    // Only a HANG guard, never a timing assertion. See the class comment.
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    // A writer parked in its fault callback waits longer than the hang guard, so a RequestFlush that
+    // waited for the writer would fail the guard instead of slipping through when the callback ends.
+    private static readonly TimeSpan BlockedWriterWait = TimeSpan.FromSeconds(60);
+
     private readonly string _dir = Path.Combine(
         Path.GetTempPath(), "eyectrl-rec-" + Guid.NewGuid().ToString("N"));
 
@@ -30,31 +40,39 @@ public class GazeRecorderTests : IDisposable
     }
 
     /// <summary>
-    /// Waits for the background writer to produce a file satisfying <paramref name="until"/>.
-    /// Reads defensively: the writer appends and may rotate concurrently, so a read can legitimately
-    /// collide with it — that is the harness racing the subject, not a failure of the subject.
+    /// Waits for the background writer to produce a file satisfying <paramref name="until"/>, under the
+    /// <see cref="HangGuard"/> only. Reads defensively: the writer appends and may rotate concurrently, so
+    /// a read can legitimately collide with it — that is the harness racing the subject, not a failure of
+    /// the subject. The caller asserts the condition, so a starving writer names the wait that never ended
+    /// rather than failing a later, unrelated check.
     /// </summary>
-    private string WaitForFile(Func<string, bool> until, int budgetMs = 5000)
+    private bool WaitForFile(Func<string, bool> until)
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(budgetMs);
-        while (DateTime.UtcNow < deadline)
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < HangGuard)
         {
             string text = TryRead();
-            if (text.Length > 0 && until(text)) return text;
+            if (text.Length > 0 && until(text)) return true;
             Thread.Sleep(15);
         }
-        return TryRead();
+        string last = TryRead();
+        return last.Length > 0 && until(last);
     }
 
-    private static bool Wait(Func<bool> until, int budgetMs = 5000)
+    /// <summary>
+    /// Polls a real signal until it holds, under the <see cref="HangGuard"/> only; the caller asserts the
+    /// returned condition, so a starved writer reports as "never observed the signal", not as a later,
+    /// unrelated failure.
+    /// </summary>
+    private static bool Wait(Func<bool> until)
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(budgetMs);
-        while (DateTime.UtcNow < deadline)
+        var sw = Stopwatch.StartNew();
+        while (!until())
         {
-            if (until()) return true;
+            if (sw.Elapsed >= HangGuard) return false;
             Thread.Sleep(15);
         }
-        return until();
+        return true;
     }
 
     private string TryRead()
@@ -73,11 +91,12 @@ public class GazeRecorderTests : IDisposable
     /// final drain. <c>Dispose</c> can return before that — it joins the writer on a 2 s budget and the
     /// writer is BelowNormal priority, so on a loaded machine it can be starved past the join — and a
     /// test that must see a closed file waits for the marker rather than trusting Dispose. Returns the
-    /// whole file, read shared; throws naming the file when the marker does not arrive in the budget.
+    /// whole file, read shared; throws naming the file when the marker does not arrive before the
+    /// <see cref="HangGuard"/>, which fails only a real hang.
     /// </summary>
-    private string WaitForClosed(int budgetMs = 30_000)
+    private string WaitForClosed()
     {
-        var deadline = Environment.TickCount64 + budgetMs;
+        var deadline = Environment.TickCount64 + (long)HangGuard.TotalMilliseconds;
         while (Environment.TickCount64 < deadline)
         {
             var last = TryReadLastLine();
@@ -92,7 +111,7 @@ public class GazeRecorderTests : IDisposable
             Thread.Sleep(15);
         }
         throw new TimeoutException(
-            $"The gaze recorder never wrote its closing trailer to {Path_} within {budgetMs} ms.");
+            $"The gaze recorder never wrote its closing trailer to {Path_} within {HangGuard.TotalSeconds} s (the hang guard).");
     }
 
     /// <summary>
@@ -126,7 +145,8 @@ public class GazeRecorderTests : IDisposable
             recorder.Record(new GazePoint(0, 0, 2_000, IsValid: false));
             recorder.RequestFlush();
 
-            WaitForFile(t => t.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length >= 3);
+            Check.WithCustomMessage($"The recorder never wrote its header and two samples to {Path_} within {HangGuard.TotalSeconds} s.")
+                .That(WaitForFile(t => t.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length >= 3)).IsTrue();
         }
 
         var lines = ClosedLines();
@@ -144,11 +164,13 @@ public class GazeRecorderTests : IDisposable
         {
             recorder.Record(new GazePoint(1, 1, 1000, true));
             recorder.RequestFlush();
-            WaitForFile(t => t.Contains("1,1,1000,1"));
+            Check.WithCustomMessage($"The recorder never wrote the first sample to {Path_} within {HangGuard.TotalSeconds} s.")
+                .That(WaitForFile(t => t.Contains("1,1,1000,1"))).IsTrue();
 
             recorder.Record(new GazePoint(2, 2, 2000, true));
             recorder.RequestFlush();
-            WaitForFile(t => t.Contains("2,2,2000,1"));
+            Check.WithCustomMessage($"The recorder never wrote the second sample to {Path_} within {HangGuard.TotalSeconds} s.")
+                .That(WaitForFile(t => t.Contains("2,2,2000,1"))).IsTrue();
         }
 
         int headers = ClosedLines().Count(l => l.StartsWith("# "));
@@ -168,7 +190,8 @@ public class GazeRecorderTests : IDisposable
             {
                 recorder.Record(new GazePoint(1234.5, 987.25, 5_000, true));
                 recorder.RequestFlush();
-                WaitForFile(t => t.Contains("1234.5"));
+                Check.WithCustomMessage($"The recorder never wrote the invariant-culture sample to {Path_} within {HangGuard.TotalSeconds} s.")
+                    .That(WaitForFile(t => t.Contains("1234.5"))).IsTrue();
             }
 
             Check.That(WaitForClosed()).Contains("1234.5,987.25,5000,1");
@@ -191,7 +214,8 @@ public class GazeRecorderTests : IDisposable
             recorder.RequestFlush();
             // Wait on the rotation itself rather than by re-reading a 16 MB file, which would race the
             // writer's File.Move and report a harness collision as a rotation failure.
-            Wait(() => File.Exists(Path_ + ".1"));
+            Check.WithCustomMessage($"The over-cap file was never rotated to {Path_}.1 within {HangGuard.TotalSeconds} s.")
+                .That(Wait(() => File.Exists(Path_ + ".1"))).IsTrue();
         }
 
         Check.That(faults).IsEmpty();
@@ -218,17 +242,58 @@ public class GazeRecorderTests : IDisposable
     }
 
     [Fact]
-    public void RequestFlush_DoesNotBlockTheCaller()
+    public async Task RequestFlush_DoesNotBlockTheCaller()
     {
-        // Stop() calls this, and Stop() must not spend the user's shutdown on a diagnostic.
-        using var recorder = new GazeRecorder(Path_, Header());
-        recorder.Record(new GazePoint(1, 1, 1000, true));
+        // Stop() calls this, and Stop() must not spend the user's shutdown on a diagnostic. CAUSAL, not
+        // wall-clock: the writer is parked INSIDE its onFault callback with a sample still unread, so it
+        // can never drain or exit. A RequestFlush that waited for the writer — for a drain or for the
+        // thread — could not return until the callback is released; returning while the writer is still
+        // parked is proof the caller did not wait.
+        using var entered = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        var recorder = new GazeRecorder(Path_, Header(), onFault: _ =>
+        {
+            entered.Set();
+            release.Wait(BlockedWriterWait);
+        });
+        FileStream? held = null;
+        try
+        {
+            // The writer's first pass writes the header, then sleeps on its 250 ms tick. Hold the file
+            // exclusively BEFORE recording, so the next drain faults instead of consuming the sample —
+            // the fault is only the seam that parks the writer. The writer may still be closing the
+            // handle of its header append, so the open is retried under the hang guard.
+            Check.WithCustomMessage($"The recorder never wrote its header to {Path_} within {HangGuard.TotalSeconds} s.")
+                .That(WaitForFile(t => t.Contains("# "))).IsTrue();
+            Check.WithCustomMessage($"Could not take {Path_} exclusively within {HangGuard.TotalSeconds} s.")
+                .That(Wait(() =>
+                {
+                    try
+                    {
+                        held = new FileStream(Path_, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                        return true;
+                    }
+                    catch (IOException) { return false; }
+                })).IsTrue();
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        recorder.RequestFlush();
-        sw.Stop();
+            recorder.Record(new GazePoint(1, 1, 1000, true));
 
-        Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(100L);
+            Check.WithCustomMessage(
+                    $"The writer never reached its fault callback within {HangGuard.TotalSeconds} s, so this test could not park it.")
+                .That(entered.Wait(HangGuard, TestContext.Current.CancellationToken)).IsTrue();
+
+            await Task.Run(recorder.RequestFlush, TestContext.Current.CancellationToken)
+                .WaitAsync(HangGuard, TestContext.Current.CancellationToken);
+
+            Check.WithCustomMessage("RequestFlush returned only after the writer was released, so it waited for the writer.")
+                .That(release.IsSet).IsFalse();
+        }
+        finally
+        {
+            held?.Dispose();
+            release.Set();
+            recorder.Dispose();
+        }
     }
 
     [Fact]
@@ -400,8 +465,9 @@ public class GazeRecorderTests : IDisposable
                 recorder.Record(new GazePoint(1, 1, 1000, true));
                 recorder.RequestFlush();
 
-                var deadline = DateTime.UtcNow.AddSeconds(5);
-                while (recorder.IsRecording && DateTime.UtcNow < deadline) Thread.Sleep(15);
+                Check.WithCustomMessage(
+                        $"The recorder never self-disabled after its drain faulted, within {HangGuard.TotalSeconds} s.")
+                    .That(Wait(() => !recorder.IsRecording)).IsTrue();
 
                 Check.ThatCode(() => recorder.Dispose()).DoesNotThrow();
             }
@@ -423,14 +489,22 @@ public class GazeRecorderTests : IDisposable
 
         recorder.Record(new GazePoint(1, 1, 1000, true));
         recorder.RequestFlush();
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (recorder.IsRecording && DateTime.UtcNow < deadline) Thread.Sleep(15);
+        Check.WithCustomMessage(
+                $"The recorder never self-disabled after its first drain faulted, within {HangGuard.TotalSeconds} s.")
+            .That(Wait(() => !recorder.IsRecording)).IsTrue();
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Check.ThatCode(() => recorder.Dispose()).DoesNotThrow();
         sw.Stop();
 
-        Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(2000L);   // no full-budget wait
+        // The writer is at the end of its fault path, so the join has nothing to wait for — but a loaded
+        // runner can still deschedule THIS thread between Start and Stop, and then the measurement says
+        // nothing about Dispose. Skip that case exactly as Dispose_ThatReturnsInsideItsBudget does; the
+        // fast path, when measured, must not have spent the budget.
+        if (sw.ElapsedMilliseconds >= 1_750)
+            Assert.Skip($"Dispose spent {sw.ElapsedMilliseconds} ms after the writer had self-disabled, so the fast path proves nothing here: the runner starved this thread, not the writer.");
+
+        Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(1_750L);   // no full-budget wait
     }
 
     [Fact]
@@ -460,8 +534,9 @@ public class GazeRecorderTests : IDisposable
         recorder.Record(new GazePoint(1, 1, 1000, true));
         recorder.RequestFlush();
 
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (recorder.IsRecording && DateTime.UtcNow < deadline) Thread.Sleep(15);
+        Check.WithCustomMessage(
+                $"The recorder never self-disabled after its first drain faulted, within {HangGuard.TotalSeconds} s.")
+            .That(Wait(() => !recorder.IsRecording)).IsTrue();
 
         Check.That(recorder.IsRecording).IsFalse();
         Check.ThatCode(() => recorder.Record(new GazePoint(2, 2, 2000, true))).DoesNotThrow();

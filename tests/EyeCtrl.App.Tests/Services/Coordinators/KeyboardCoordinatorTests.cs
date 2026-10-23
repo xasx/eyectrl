@@ -1031,6 +1031,137 @@ public class KeyboardCoordinatorTests
         public void Save(Dictionary<string, int> words) { }
     }
 
+    // ---- lm-loading-hint wiring: the swap refresh and the build-in-flight forward --------
+
+    private sealed class HelDictProvider : IDictionaryProvider
+    {
+        public Dictionary<string, int> Load() =>
+            new() { ["hello"] = 1000, ["help"] = 900, ["helmet"] = 800 };
+        public void Save(Dictionary<string, int> words) { }
+    }
+
+    private static System.Windows.Controls.Border HintBorder(KeyboardWindow keyboard) =>
+        (System.Windows.Controls.Border)typeof(KeyboardWindow)
+            .GetField("_predictionLoadingHint",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(keyboard)!;
+
+    private static List<string> RenderedWords(KeyboardWindow keyboard) =>
+        ((IEnumerable<PredictionResult>)typeof(KeyboardWindow)
+            .GetField("_renderedPredictions",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(keyboard)!)
+        .Select(r => r.Word).ToList();
+
+    [StaFact]
+    public void StackSwapped_RefreshesTheBar_SuggestionsAppearWithoutAKeystroke()
+    {
+        // The ticket's Behaviour 2 second half: when the stack swaps in, the bar must refresh
+        // IMMEDIATELY (whatever ShowLMLoadingIndicator says). The first-open shape is pinned:
+        // hint on screen (build in flight, no stack), swap lands, suggestions render — delete
+        // OnStackSwapped's UpdatePredictions call and the stale hint survives the swap.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.SmartCapitalizationEnabled = false;
+        var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger()) { CurrentInput = "hel" };
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
+        keyboard.SetViewModel(vm);
+        keyboard.SetSettings(settings);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = new WeakReferenceMessenger(),
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            keyboard.SetPredictionBuildInFlight(true); // the first-open bar: hint, no suggestions
+            Check.That(HintBorder(keyboard).Visibility).IsEqualTo(System.Windows.Visibility.Visible);
+            Check.That(RenderedWords(keyboard)).IsEmpty();
+
+            var factoryField = typeof(KeyboardCoordinator).GetField("_predictionFactory",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var factory = factoryField!.GetValue(c)!;
+            var eventField = typeof(PredictionStackFactory).GetField("StackSwapped",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var handler = (Delegate?)eventField!.GetValue(factory);
+
+            var swapped = new PredictionOrchestrator(new WordPredictor(new HelDictProvider(), "QWERTY"));
+            try
+            {
+                handler!.DynamicInvoke(swapped, (object?)(("pred_test_model", ModelVerificationOutcome.Verified)));
+
+                Check.WithCustomMessage(
+                        "the swap did not refresh the bar — the suggestions stay invisible " +
+                        "until the first keystroke (and the loading hint outlives the build)")
+                    .That(RenderedWords(keyboard)).Contains("hello");
+                Check.WithCustomMessage("the swap refresh must retire the loading hint")
+                    .That(HintBorder(keyboard).Visibility)
+                    .IsEqualTo(System.Windows.Visibility.Collapsed);
+            }
+            finally
+            {
+                c.Dispose();
+                swapped.Dispose();
+            }
+        }
+        finally
+        {
+            keyboard.Close();
+        }
+    }
+
+    [StaFact]
+    public void BuildInFlightChanged_ForwardsToTheWindow_TheHintFollowsTheBuildState()
+    {
+        // The wiring half: PredictionStackFactory.BuildInFlightChanged → the coordinator →
+        // KeyboardWindow.SetPredictionBuildInFlight. Firing the LIVE factory's event through
+        // its backing delegate covers the subscription; a deleted forward leaves the hint
+        // stuck (or never shown).
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger());
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
+        keyboard.SetViewModel(vm);
+        keyboard.SetSettings(settings);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = new WeakReferenceMessenger(),
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            var factoryField = typeof(KeyboardCoordinator).GetField("_predictionFactory",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var factory = factoryField!.GetValue(c)!;
+            var eventField = typeof(PredictionStackFactory).GetField("BuildInFlightChanged",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            var handler = (Delegate?)eventField!.GetValue(factory);
+            Check.WithCustomMessage(
+                    "Nothing is subscribed to the LIVE factory's BuildInFlightChanged — the " +
+                    "loading hint would never show or clear.")
+                .That(handler).IsNotNull();
+
+            handler!.DynamicInvoke(true);
+            Check.WithCustomMessage("the in-flight start did not reach the window")
+                .That(HintBorder(keyboard).Visibility).IsEqualTo(System.Windows.Visibility.Visible);
+
+            handler!.DynamicInvoke(false);
+            Check.WithCustomMessage("the in-flight end did not reach the window — a stuck hint")
+                .That(HintBorder(keyboard).Visibility).IsEqualTo(System.Windows.Visibility.Collapsed);
+        }
+        finally
+        {
+            c.Dispose();
+            keyboard.Close();
+        }
+    }
+
     // ---- Fixation-suppression claim (architecture-check-2026-10, ticket 01 review F1) ------
     // Under the claim set a wrong key or a skipped release leaves fixation suppressed until
     // restart, and nothing else lifts it. The handler's window work (Show/Hide, edge bar) needs a

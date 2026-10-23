@@ -59,6 +59,18 @@ public class PredictionStackFactory : IDisposable
     private readonly CancellationTokenSource _disposeCts = new();
     private int _buildGeneration;
 
+    // The build-in-flight state (loading hint). Holds the GENERATION of the newest started
+    // background build, 0 = none: a generation, not a bool, because superseded builds end
+    // while a newer one is still running, and only the newest build's end may clear the
+    // flag — a plain bool cleared by the older build would hide the hint mid-build.
+    // _buildGeneration is never reused, so a live generation uniquely identifies one build.
+    private int _inFlightGeneration;
+
+    /// <summary>Whether a background build is in flight — the state behind the prediction
+    /// loading hint. Thread-safe read; transitions notify <see cref="BuildInFlightChanged"/>
+    /// on the UI thread.</summary>
+    public bool BuildInFlight => Volatile.Read(ref _inFlightGeneration) != 0;
+
     // Tombstones for ForgetWords, stamped with the build generation current at forget time.
     // Only a build that was ALREADY in flight (generation <= the stamp) loaded pre-forget disk
     // state — for it, the swap's ApplyLearnedDelta (which only ever ADDS) would resurrect the
@@ -81,12 +93,60 @@ public class PredictionStackFactory : IDisposable
     /// </summary>
     public event Action<PredictionOrchestrator?, (string ModelId, ModelVerificationOutcome Outcome)?>? StackSwapped;
 
+    /// <summary>
+    /// Raised on the UI thread whenever a background build starts or stops being
+    /// <see cref="BuildInFlight"/>. KeyboardCoordinator forwards it to the keyboard window,
+    /// which shows the prediction loading hint while the FIRST build is still running (the
+    /// keyboard opens with an empty bar until the swap). The START is raised directly on
+    /// Rebuild's calling (UI) thread; the ENDS raised inside the swap marshal run on that
+    /// marshal's thread, and pool-side ends (fault, discard) post through the same marshal as
+    /// <see cref="StackSwapped"/>. Cleared when a build ends in ANY way — swap, superseded,
+    /// failed, or cancelled — so a dead build can never leave the hint stuck. Not raised in
+    /// synchronous mode: the build completes inline, before any subscriber could observe the
+    /// state.
+    /// </summary>
+    public event Action<bool>? BuildInFlightChanged;
+
     public PredictionStackFactory(Action<Action>? postToUi = null)
     {
         _postToUi = postToUi;
     }
 
     public PredictionOrchestrator? Current => _current;
+
+    /// <summary>
+    /// Marks <paramref name="generation"/>'s build as the one in flight (a newer build
+    /// overwrites an older one's marker). The notification is raised DIRECTLY, not posted:
+    /// <see cref="Rebuild"/>'s caller is the UI thread — the same thread the marshal would
+    /// land on — so a post would only delay the hint behind LoadKeyboard's remaining work
+    /// while adding queue traffic between the caller and the build's own marshal.
+    /// </summary>
+    private void MarkBuildStarted(int generation)
+    {
+        Interlocked.Exchange(ref _inFlightGeneration, generation);
+        BuildInFlightChanged?.Invoke(true);
+    }
+
+    /// <summary>
+    /// Ends <paramref name="generation"/>'s tenure as the in-flight build — but ONLY if it is
+    /// still the newest: an older, superseded build ending here must not clear the state while
+    /// a newer build is still running (the CAS fails silently and the newer build's own end
+    /// clears it). Called from every end path: swap, superseded, failed, cancelled.
+    /// <paramref name="alreadyOnUiThread"/> is true for the ends raised inside the swap
+    /// marshal, whose body runs on the UI thread: raising directly keeps the notification
+    /// ordered AFTER StackSwapped's handlers without a second dispatcher hop; the pool-side
+    /// ends (fault, discard) must post through the marshal like everything else that leaves
+    /// the thread pool.
+    /// </summary>
+    private void MarkBuildEnded(int generation, bool alreadyOnUiThread)
+    {
+        if (Interlocked.CompareExchange(ref _inFlightGeneration, 0, generation) != generation)
+            return;
+        if (alreadyOnUiThread)
+            BuildInFlightChanged?.Invoke(false);
+        else if (_postToUi is not null)
+            _postToUi(() => BuildInFlightChanged?.Invoke(false));
+    }
 
     /// <summary>Test override for predictor construction. Production: null — the real
     /// SmallLMPredictor(modelsDir, modelSize, preferGPU, tokenizer, modelPath) runs inside
@@ -143,6 +203,8 @@ public class PredictionStackFactory : IDisposable
         // for free), while serialization and writing happen off the UI thread.
         var before = _current?.WordPredictor.CaptureLearnedState();
 
+        MarkBuildStarted(generation);
+
         _ = Task.Run(
             () =>
             {
@@ -166,6 +228,7 @@ public class PredictionStackFactory : IDisposable
                     if (t.IsFaulted)
                     {
                         Log.Error(t.Exception, "Background prediction-stack build failed; the previous stack keeps serving");
+                        MarkBuildEnded(generation, alreadyOnUiThread: false);
                         return;
                     }
 
@@ -182,6 +245,7 @@ public class PredictionStackFactory : IDisposable
                         // (an ONNX InferenceSession is native memory) — dropping the reference
                         // without Dispose leaks it.
                         orchestrator?.Dispose();
+                        MarkBuildEnded(generation, alreadyOnUiThread: false);
                         return;
                     }
 
@@ -192,6 +256,7 @@ public class PredictionStackFactory : IDisposable
                         if (_disposed || Volatile.Read(ref _buildGeneration) != generation)
                         {
                             orchestrator.Dispose();
+                            MarkBuildEnded(generation, alreadyOnUiThread: true);
                             return;
                         }
                         SwapInWithLearnedTail(orchestrator, before, generation);
@@ -203,6 +268,10 @@ public class PredictionStackFactory : IDisposable
                             modelRegistry.ReportVerification(
                                 swapVerdict.Value.ModelId, swapVerdict.Value.Outcome);
                         StackSwapped?.Invoke(_current, swapVerdict);
+                        // AFTER StackSwapped: the re-bind lands first, so the window's swap
+                        // refresh renders suggestions; the not-in-flight notification that
+                        // follows only re-renders the (now identical) bar without the hint.
+                        MarkBuildEnded(generation, alreadyOnUiThread: true);
                     });
                 },
                 TaskScheduler.Default);
@@ -603,6 +672,10 @@ public class PredictionStackFactory : IDisposable
         if (_disposed) return;
         _disposed = true;
         _disposeCts.Cancel();
+        // The in-flight marker dies here without a notification: at teardown the dispatcher
+        // this would post to may already be going away, and a stale build's own end path
+        // (which re-checks _disposed) would only post the same clear again.
+        Interlocked.Exchange(ref _inFlightGeneration, 0);
         SaveAndDisposeCurrent();
         _disposeCts.Dispose();
     }

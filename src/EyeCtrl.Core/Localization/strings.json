@@ -863,6 +863,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.keyboard.predictionsLoading": {
+    "text": "Loading predictions…",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.lagmark.label": {
     "text": "Lag",
     "who": "user",
@@ -3584,6 +3591,20 @@
   },
   "settings.keyboard.layout.option.qwertz": {
     "text": "QWERTZ",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.lm_loading_hint.description": {
+    "text": "Shows a short note in the prediction bar while predictions are still loading after the keyboard opens.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.lm_loading_hint.label": {
+    "text": "Show loading hint for predictions",
     "who": "user",
     "where": "settings",
     "fit": "row",

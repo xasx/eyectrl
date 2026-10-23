@@ -93,14 +93,18 @@ public partial class FallenBackDialog : Window
         dismiss.Attach(ButtonHost);
     }
 
-    private void OnRetry()
+    /// <summary>The Retry button's action - internal so the wiring tests can drive the real button
+    /// path without showing the dialog.</summary>
+    internal void OnRetry()
     {
         RetryRequested?.Invoke();
         // Task 20 owns the close-on-retry decision; keep the dialog up until then so the
         // user sees confirmation their click registered.
     }
 
-    private void OnDismiss()
+    /// <summary>The Dismiss button's action - internal so the wiring tests can drive the real
+    /// button path without showing the dialog.</summary>
+    internal void OnDismiss()
     {
         Dismissed?.Invoke();
         Close();

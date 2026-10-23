@@ -412,10 +412,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     /// </summary>
     private void OnClockTick()
     {
+        // SupervisionClock.Tick also drives the FallenBack auto-retry countdown (A3) through
+        // TickFallenBackAutoRetry below - the clock-level feed is what the clock tests pin.
         SupervisionClock.Tick(DateTime.UtcNow, this);
-        // A3: the FallenBack dialog's auto-retry countdown, armed for the session's first episode.
-        // Fires the shared retry path at most one tick past its 60 s deadline.
-        _fallenBackAutoRetry.Tick(DateTime.UtcNow);
         // A parked StartOnBoot choice must reach an App running with supervision off too, which
         // publishes no heartbeats. The delivery applies its own backoff and single-flight.
         _startOnBootDelivery.OnRetryTick();
@@ -460,6 +459,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     }
 
     void ISupervisionClockHost.WireLaunchedProcess() => WireProcessExited();
+
+    void ISupervisionClockHost.TickFallenBackAutoRetry(DateTime now) => _fallenBackAutoRetry.Tick(now);
 
     // ---- Command drain -----------------------------------------------------------------
 
@@ -676,20 +677,19 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             warning => Log.Debug("Supervisor strings: {Warning}", warning)));
 
         // The one retry path (Program.cs 668-696 before A3): the dialog's Retry button and the
-        // 60 s auto-retry countdown both run exactly this. Paused-retry handoff: relaunch with
-        // --paused so the retried instance is inert (no SendInput) until the user is ready, without
-        // mutating the persisted setting. Transition the machine to IdleWatch so the retried app's
+        // 60 s auto-retry countdown both run exactly this — FallenBackAutoRetry.Attach wires both to
+        // it, and hands over the trigger for this line and its PAUSED flag (A3's paused-retry
+        // handoff: the retried instance is inert (no SendInput) until the user is ready, without
+        // mutating the persisted setting). Transition the machine to IdleWatch so the retried app's
         // first heartbeat can ADOPT it back into Supervising (otherwise it stays FallenBack, which
         // has no HeartbeatReceived case, so the retried app would be unsupervised — no crash
         // recovery, no clean-exit detection).
-        void RetryNow(string trigger)
+        void RetryNow(string trigger, bool paused)
         {
-            _fallenBackAutoRetry.Cancel();
-            dialog.ClearAutoRetryCountdown();
             Log.Information("FallenBack {Trigger}: relaunching app with --paused and returning to IdleWatch.", trigger);
             try
             {
-                _pc.Launch(_appExePath, paused: true, uiLanguage: _languageDelivery.LaunchArgument());
+                _pc.Launch(_appExePath, paused, uiLanguage: _languageDelivery.LaunchArgument());
                 _languageDelivery.AppLaunched();
                 _startOnBootDelivery.AppLaunched();
                 WireProcessExited();
@@ -709,22 +709,15 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             HandleInput(new FallenBackRetry(DateTime.UtcNow));
         }
 
-        dialog.RetryRequested += () => RetryNow("dialog Retry");
         dialog.Dismissed += () =>
-        {
-            _fallenBackAutoRetry.Cancel();
             Log.Information("FallenBack dialog Dismissed: staying idle with fallback AT.");
-        };
-        // A3: any close cancels the countdown — the title-bar X included, which raises no
-        // Dismissed. A user who closed the dialog said "not now"; an auto-retry firing afterwards
-        // would relaunch behind their back.
-        dialog.Closed += (_, _) => _fallenBackAutoRetry.Cancel();
 
-        // A3: arm the session's one auto-retry countdown for this episode. False once spent — a
-        // second FallenBack shows no countdown and waits for a click ("If the retry falls back
+        // A3 / fixup-01: the seam wires RetryRequested, Dismissed and Closed to the countdown's
+        // cancel (a manual Retry or any Close stops it — the title-bar X included, which raises no
+        // Dismissed), arms the session's one countdown for this episode and shows its line when
+        // armed. A second episode gets no countdown and waits for a click ("If the retry falls back
         // again, the dialog waits for a click as it does today").
-        if (_fallenBackAutoRetry.TryArm(DateTime.UtcNow, () => RetryNow("auto-retry countdown")))
-            dialog.ShowAutoRetryCountdown();
+        _fallenBackAutoRetry.Attach(dialog, RetryNow, DateTime.UtcNow);
 
         dialog.Show();
     }

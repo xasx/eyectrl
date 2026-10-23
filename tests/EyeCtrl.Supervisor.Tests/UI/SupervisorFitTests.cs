@@ -280,11 +280,11 @@ public sealed class SupervisorFitTests : IDisposable
     /// A3: the dialog as it opens on the session's first episode carries the auto-retry countdown
     /// line, and that line grows the window past the 320 DIP floor in BOTH languages (T09's growth:
     /// the height follows the content instead of squeezing the button row). The grown state is
-    /// examined here - full buttons, the work area, no broken run - and the two languages are
-    /// compared rather than pinned to an absolute: above the floor the window is content + machine
-    /// chrome, and no absolute of it holds on another machine (CI's frame is wider than this one's).
-    /// The floor pin above keeps holding the floor for the dialog WITHOUT the countdown (a second
-    /// episode, or a countdown already fired or cancelled).
+    /// examined here - full buttons, the work area, no broken run - but its HEIGHT is not pinned to
+    /// an absolute and the two languages are not compared (fixup-01 F2): above the floor the window
+    /// is content + machine chrome, and line wrapping differs by machine (CI's frame is wider than
+    /// this one's). The floor pin above keeps holding the floor for the dialog WITHOUT the countdown
+    /// (a second episode, or a countdown already fired or cancelled).
     /// </summary>
     [Fact]
     public void CFallback_WithTheAutoRetryCountdown_GrowsTheWindowAndStillFits()
@@ -306,19 +306,8 @@ public sealed class SupervisorFitTests : IDisposable
                 .That(english.Detail).Not.Contains($"window {FitText.Dip(320)} ");
             Check.WithCustomMessage("the countdown line was not laid out: " + german)
                 .That(german.Detail).Not.Contains($"window {FitText.Dip(320)} ");
-
-            // German must grow the dialog exactly as English does: one countdown line, one window.
-            // If a machine's metrics wrap the German body to a further line, this is the re-measure
-            // the floor pin's comment asks for.
-            Check.WithCustomMessage(
-                "German grows the dialog differently from English; re-measure both:\n  " + english + "\n  " + german)
-                .That(WindowFigure(german.Detail)).IsEqualTo(WindowFigure(english.Detail));
         });
     }
-
-    /// <summary>The "window X " figure of a verdict's detail, for comparing two grown dialogs.</summary>
-    private static string WindowFigure(string detail) =>
-        System.Text.RegularExpressions.Regex.Match(detail, @"window [^ ]+ ").Value;
 
     [Fact]
     public void BothClasses_AnOverLongText_Fails()

@@ -97,20 +97,21 @@ public class FallenBackAutoRetryTests
     }
 
     [Fact]
-    public void ARepeatArm_KeepsTheOriginalDeadline_AndRetargetsTheRetry()
+    public void ARepeatArm_IsRefused_EvenWhileTheCountdownIsPending()
     {
-        // The dialog re-showing over an open countdown (not reachable from the machine's
-        // transitions today) must not extend the wait, but must fire the dialog now on screen.
+        // fixup-01 F3: at most one countdown per session, full stop. The old "keep the deadline,
+        // retarget" branch was unreachable from the machine's transitions and wrong if reached.
         var first = new FireCounter();
         var second = new FireCounter();
         var retry = new FallenBackAutoRetry();
 
         Check.That(retry.TryArm(T0, first.Retry)).IsTrue();
-        Check.That(retry.TryArm(T0.AddSeconds(30), second.Retry)).IsTrue();
+        Check.That(retry.TryArm(T0.AddSeconds(30), second.Retry)).IsFalse();
+        Check.That(retry.IsCountdownArmed).IsTrue();
 
         retry.Tick(T0.AddSeconds(60));
-        Check.That(first.Fires).IsEqualTo(0);
-        Check.That(second.Fires).IsEqualTo(1);
+        Check.That(first.Fires).IsEqualTo(1);
+        Check.That(second.Fires).IsEqualTo(0);
     }
 
     [Fact]

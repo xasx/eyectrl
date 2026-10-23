@@ -1,16 +1,19 @@
 namespace EyeCtrl.Supervisor.Supervision;
 
 using System;
+using EyeCtrl.Supervisor.UI;
 
 /// <summary>
 /// The FallenBack dialog's one automatic retry (gaze-UX ticket A3): a 60 s countdown for a user
 /// who cannot click the dialog's mouse-only buttons, plus the per-session latch that spends it.
 /// </summary>
 /// <remarks>
-/// <para>When the countdown expires it runs the SAME retry path as the dialog's Retry button
-/// (launch the app with <c>--paused</c>, close the dialog, feed <see cref="FallenBackRetry"/>) —
-/// the host passes that path in at arm time, so the two entry points cannot drift apart. A manual
-/// Retry or Close cancels the countdown before it fires.</para>
+/// <para><see cref="Attach"/> wires one FallenBack episode (fixup-01): it subscribes the dialog's
+/// Retry, Dismiss and Close to the countdown's cancel, arms the countdown and shows its line. Both
+/// entry points - the Retry button and the countdown - then run the SAME retry path, passed in at
+/// attach time as (trigger, launchPaused), so they cannot drift apart. The relaunch is PAUSED
+/// (<see cref="LaunchPaused"/>, A3's paused-retry handoff): the retried instance is inert until the
+/// user is ready.</para>
 /// <para>The latch makes the auto-retry a one-shot safety net, modelled on the supervisor's
 /// <c>_fallbackAtLaunched</c>: set once per session, never reset. It is spent when the countdown is
 /// ARMED, so the session's single countdown belongs to its FIRST FallenBack episode — a second
@@ -19,13 +22,25 @@ using System;
 /// <c>--paused</c>, with no helper present to resume).</para>
 /// <para>Clock-injected like <see cref="SupervisionClock"/>: every decision takes the current
 /// <c>now</c> as a parameter, so the countdown is tested headless against synthetic timestamps —
-/// no dialog, no dispatcher, no wall clock. Production feeds it from the supervisor's 1 s clock
-/// tick (<c>SupervisorApp.OnClockTick</c>), so a fired countdown is at most one tick late.</para>
+/// no dialog shown, no dispatcher, no wall clock. Production feeds it from the supervisor's 1 s
+/// clock tick (<see cref="SupervisionClock.Tick"/> via <see cref="ISupervisionClockHost"/>'s
+/// <c>TickFallenBackAutoRetry</c>), so a fired countdown is at most one tick late.</para>
 /// </remarks>
 internal sealed class FallenBackAutoRetry
 {
     /// <summary>The countdown shown in the dialog ("Trying again in 60 s…") and enforced here.</summary>
     public static readonly TimeSpan Delay = TimeSpan.FromSeconds(60);
+
+    /// <summary>A3's paused-retry handoff: both entry points relaunch the app PAUSED (inert until
+    /// the user is ready), without mutating the persisted setting. The attach tests pin that the
+    /// flag reaches the shared retry path as true.</summary>
+    public const bool LaunchPaused = true;
+
+    /// <summary>Trigger names the shared retry path receives, for its log line.</summary>
+    public const string TriggerDialogRetry = "dialog Retry";
+
+    /// <summary>Trigger names the shared retry path receives, for its log line.</summary>
+    public const string TriggerCountdown = "auto-retry countdown";
 
     /// <summary>True once this session's countdown has been armed. Never reset.</summary>
     private bool _spent;
@@ -40,25 +55,52 @@ internal sealed class FallenBackAutoRetry
     public bool IsCountdownArmed => _dueAt is not null;
 
     /// <summary>
+    /// Wires one FallenBack episode onto <paramref name="dialog"/> and arms the session's one
+    /// countdown for it (fixup-01's testable seam - the wiring the composition root used to keep):
+    /// the Retry button and the countdown both run <paramref name="retryNow"/>, a manual Retry or
+    /// any Close cancels the countdown, and the countdown line shows while it is pending. False
+    /// from <see cref="TryArm"/> means this episode opens without a countdown and waits for a click.
+    /// </summary>
+    /// <param name="retryNow">The shared retry path: (trigger, launchPaused). Called with
+    /// <see cref="TriggerDialogRetry"/> from the button, <see cref="TriggerCountdown"/> from the
+    /// countdown, and <see cref="LaunchPaused"/> from both.</param>
+    public void Attach(FallenBackDialog dialog, Action<string, bool> retryNow, DateTime now)
+    {
+        void Retry(string trigger)
+        {
+            Cancel();
+            dialog.ClearAutoRetryCountdown();
+            retryNow(trigger, LaunchPaused);
+        }
+
+        dialog.RetryRequested += () => Retry(TriggerDialogRetry);
+        dialog.Dismissed += Cancel;
+        // ANY close cancels - the title-bar X included, which raises no Dismissed. A user who
+        // closed the dialog said "not now"; an auto-retry firing afterwards would relaunch behind
+        // their back.
+        dialog.Closed += (_, _) => Cancel();
+        if (TryArm(now, () => Retry(TriggerCountdown)))
+            dialog.ShowAutoRetryCountdown();
+    }
+
+    /// <summary>
     /// Starts this episode's countdown, at or after which <see cref="Tick"/> runs
     /// <paramref name="onAutoRetry"/>. False when the session's one countdown is already spent:
-    /// that episode opens without one and waits for a click. A repeat call while a countdown is
-    /// still pending (the dialog re-showing over an open one) keeps the ORIGINAL deadline — a
-    /// re-show must not extend the wait — and re-targets the retry path at the dialog now on
-    /// screen.
+    /// that episode opens without one and waits for a click. At most one countdown per session
+    /// (fixup-01 F3): a repeat arm is refused even while one is still pending.
     /// </summary>
     public bool TryArm(DateTime now, Action onAutoRetry)
     {
-        if (_spent && _dueAt is null) return false;
+        if (_spent) return false;
         _spent = true;
-        _dueAt ??= now + Delay;
+        _dueAt = now + Delay;
         _onAutoRetry = onAutoRetry;
         return true;
     }
 
     /// <summary>
     /// A manual Retry or Close: the countdown stops and never fires. Idempotent, and called again
-    /// when the fired path closes the dialog — a no-op once the countdown is gone.
+    /// when the fired path closes the dialog - a no-op once the countdown is gone.
     /// </summary>
     public void Cancel()
     {

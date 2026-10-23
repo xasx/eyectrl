@@ -34,6 +34,10 @@ internal interface ISupervisionClockHost
     /// launch outcome was fed: a process that already exited must be seen as launched-then-exited,
     /// in that order (ticket 06 review F4). Only called when the launch succeeded.</summary>
     void WireLaunchedProcess();
+    /// <summary>Feeds the FallenBack dialog's auto-retry countdown (gaze-UX A3). The countdown
+    /// decides its own deadline and fires the shared retry path at most once; driving it from THIS
+    /// tick is what makes "the clock tick drives the countdown" a clock-level, testable fact.</summary>
+    void TickFallenBackAutoRetry(DateTime now);
 }
 
 /// <summary>
@@ -127,6 +131,11 @@ internal static class SupervisionClock
                 }
             }
         }
+
+        // A3: the FallenBack dialog's auto-retry countdown - the tick's last wall-clock decision,
+        // checked after the deferred relaunch. It only fires in FallenBack (where nothing above is
+        // active), and its retry path feeds FallenBackRetry, which leaves the state again.
+        host.TickFallenBackAutoRetry(now);
     }
 
     /// <summary>A pending launch still has a state that expects it: Launching (a requested launch —

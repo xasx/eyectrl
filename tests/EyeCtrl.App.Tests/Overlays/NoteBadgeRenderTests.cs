@@ -20,13 +20,16 @@ using Xunit;
 /// NEVER shown; a RenderTargetBitmap draws the real NoteWindow visuals (the same construction
 /// as <see cref="NoteReadingRenderTests"/>). Four PNGs: three badged notes (numerals 1-3) and
 /// one lone note without a badge, in Midnight and Daylight at 28 DIP, into
-/// <c>note-badge-renders/</c> next to <c>note-reading-renders/</c> (git-excluded; the folder
-/// path is part of the deliverable).
+/// <c>eyectrl-note-badge-renders</c> under the user's temp folder (the folder path is part of
+/// the deliverable).
 /// </summary>
 [Collection("WpfApplication")]
 public class NoteBadgeRenderTests
 {
-    internal const string BadgeRenderDirName = "note-badge-renders";
+    /// <summary>The render folder: a TEMP one, so every App run (CI included) leaves the
+    /// repository clean.</summary>
+    internal static string RenderDirectory() =>
+        Path.Combine(Path.GetTempPath(), "eyectrl-note-badge-renders");
 
     public static TheoryData<string> ThemeNames()
     {
@@ -38,7 +41,7 @@ public class NoteBadgeRenderTests
     [MemberData(nameof(ThemeNames))]
     public void RendersTheBadgedSet(string themeName)
     {
-        var directory = Path.Combine(SourceScanner.RepoRoot().FullName, BadgeRenderDirName);
+        var directory = RenderDirectory();
         Directory.CreateDirectory(directory);
         RenderSet(themeName, directory);
     }
@@ -48,7 +51,7 @@ public class NoteBadgeRenderTests
     {
         // Self-sufficient: renders the whole set itself, so test ORDER cannot decide whether
         // the files exist (the NoteReadingRenderTests discipline).
-        var directory = Path.Combine(SourceScanner.RepoRoot().FullName, BadgeRenderDirName);
+        var directory = RenderDirectory();
         Directory.CreateDirectory(directory);
         foreach (var themeName in new[] { "Midnight", "Daylight" })
             RenderSet(themeName, directory);

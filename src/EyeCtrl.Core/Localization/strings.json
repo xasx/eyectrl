@@ -5049,6 +5049,16 @@
     "args": [],
     "crisis": true
   },
+  "supervisor.fallback.countdown": {
+    "text": "Trying again in {0} s…",
+    "who": "user",
+    "where": "supervisor",
+    "fit": "C-fallback",
+    "args": [
+      "seconds"
+    ],
+    "crisis": true
+  },
   "supervisor.fallback.dismiss": {
     "text": "Dismiss (keep fallback)",
     "who": "user",

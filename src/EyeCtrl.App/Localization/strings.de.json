@@ -2785,6 +2785,10 @@
     "text": "Ein Ersatzprogramm zur Blicksteuerung läuft jetzt. Damit (oder mit der Maus) eine der Möglichkeiten unten wählen.",
     "src": "b2e1dba4"
   },
+  "supervisor.fallback.countdown": {
+    "text": "EyeCtrl startet in {0} s erneut",
+    "src": "a5efcec5"
+  },
   "supervisor.fallback.dismiss": {
     "text": "Schließen (Ersatzprogramm behalten)",
     "src": "c58df1bd"

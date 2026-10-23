@@ -19,6 +19,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -37,10 +38,22 @@
                    TextWrapping="Wrap"
                    Margin="0,0,0,16" />
 
+        <!-- A3: the auto-retry countdown line. Shown while the session's one 60 s countdown is
+             pending (ShowAutoRetryCountdown), hidden once it fires or is cancelled — a dialog left
+             open after a failed launch must never claim a retry is still coming. Same face and
+             width as the body, so the C-fallback fit gate measures both alike. -->
+        <TextBlock x:Name="CountdownText"
+                   Grid.Row="2"
+                   Foreground="White"
+                   FontSize="18"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   Margin="0,0,0,16" />
+
         <!-- DwellButtons are added from code-behind; they can't be declared in XAML
              because their constructor requires an IDwellRegistrar. -->
         <StackPanel x:Name="ButtonHost"
-                    Grid.Row="2"
+                    Grid.Row="3"
                     Orientation="Horizontal"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center" />

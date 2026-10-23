@@ -158,6 +158,12 @@ public class SupervisionLifecycleScenarioTests
             // The wire-time race guard (F4). The scenario's processes never exit at wire time.
         }
 
+        void ISupervisionClockHost.TickFallenBackAutoRetry(DateTime now)
+        {
+            // A3: the scenarios drive the machine, never the FallenBack dialog's countdown (which
+            // SupervisionClockTests pins through the real FallenBackAutoRetry).
+        }
+
         public void Tick()
         {
             var now = Now;

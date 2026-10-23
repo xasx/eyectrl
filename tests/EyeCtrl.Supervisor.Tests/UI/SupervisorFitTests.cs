@@ -124,13 +124,17 @@ public sealed class SupervisorFitTests : IDisposable
     /// height the window's own sizing rule produces — <c>SizeToContent=Height</c> from its
     /// <c>MinHeight</c>, or its fixed <c>Height</c> if the XAML ever loses the growth. The button
     /// row must keep its full 110 DIP buttons, the grown window must fit the work area, and every
-    /// run of the title and body must fit the text width.
+    /// run of the title and body must fit the text width. <paramref name="showCountdown"/> adds A3's
+    /// auto-retry countdown line (the dialog as it opens on the session's first episode) - the
+    /// floor pins below measure the dialog without it, because a window ABOVE the 320 floor is
+    /// content + machine chrome and no number of it pins across machines.
     /// </summary>
-    private static FitVerdict FallenBack(string? title, string? body, string? buttonLabel, StringTable? strings = null)
+    private static FitVerdict FallenBack(string? title, string? body, string? buttonLabel, StringTable? strings = null, bool showCountdown = false)
     {
         var dialog = new FallenBackDialog(strings ?? StringTable.EmbeddedEnglish);
         try
         {
+            if (showCountdown) dialog.ShowAutoRetryCountdown();
             if (title is not null) dialog.HeadlineText.Text = title;
             if (body is not null) dialog.BodyText.Text = body;
             var buttons = dialog.ButtonHost.Children.OfType<Border>().ToList();
@@ -160,6 +164,7 @@ public sealed class SupervisorFitTests : IDisposable
             var textWidth = dialog.HeadlineText.ActualWidth;
             var (titleRun, titleRunWidth) = FitText.WidestRun(dialog.HeadlineText, dialog.HeadlineText.Text);
             var (bodyRun, bodyRunWidth) = FitText.WidestRun(dialog.BodyText, dialog.BodyText.Text);
+            var (countdownRun, countdownRunWidth) = FitText.WidestRun(dialog.CountdownText, dialog.CountdownText.Text);
 
             // B260x3: the button's own label in its 260 × (110 − 6) room.
             var layout = (Grid)label.Parent;
@@ -167,12 +172,14 @@ public sealed class SupervisorFitTests : IDisposable
             var labelHeight = FitText.NaturalHeight(host, label, layout.ActualWidth);
             var buttonFits = buttonRunWidth <= layout.ActualWidth && labelHeight <= layout.RowDefinitions[0].ActualHeight;
 
-            var ok = fullButtons && outer <= WorkAreaHeight && titleRunWidth <= textWidth && bodyRunWidth <= textWidth && buttonFits;
+            var ok = fullButtons && outer <= WorkAreaHeight && titleRunWidth <= textWidth && bodyRunWidth <= textWidth
+                     && countdownRunWidth <= textWidth && buttonFits;
             return new FitVerdict(ok,
                 $"content {FitText.Dip(desired)} → client {FitText.Dip(clientWidth)}×{FitText.Dip(clientHeight)} "
                 + $"(min {FitText.Dip(minClient)}), window {FitText.Dip(outer)} vs work area {WorkAreaHeight}; buttons "
                 + $"{string.Join("/", buttonHeights.Select(FitText.Dip))} (need 110); title run '{titleRun}' "
-                + $"{FitText.Dip(titleRunWidth)} and body run '{bodyRun}' {FitText.Dip(bodyRunWidth)} vs {FitText.Dip(textWidth)}; "
+                + $"{FitText.Dip(titleRunWidth)}, body run '{bodyRun}' {FitText.Dip(bodyRunWidth)} and countdown run "
+                + $"'{countdownRun}' {FitText.Dip(countdownRunWidth)} vs {FitText.Dip(textWidth)}; "
                 + $"button run '{buttonRun}' {FitText.Dip(buttonRunWidth)} vs {FitText.Dip(layout.ActualWidth)}, label "
                 + $"{FitText.Dip(labelHeight)} vs {FitText.Dip(layout.RowDefinitions[0].ActualHeight)}",
                 FitText.ResolvedFace(buttonLabel is not null ? label : body is not null ? dialog.BodyText : dialog.HeadlineText));
@@ -266,6 +273,39 @@ public sealed class SupervisorFitTests : IDisposable
             Check.WithCustomMessage(verdict.ToString()).That(verdict.Fits).IsTrue();
             Check.WithCustomMessage("A three-times-longer body must grow the window past 320: " + verdict)
                 .That(verdict.Detail).Not.Contains($"window {FitText.Dip(320)} ");
+        });
+    }
+
+    /// <summary>
+    /// A3: the dialog as it opens on the session's first episode carries the auto-retry countdown
+    /// line, and that line grows the window past the 320 DIP floor in BOTH languages (T09's growth:
+    /// the height follows the content instead of squeezing the button row). The grown state is
+    /// examined here - full buttons, the work area, no broken run - but its HEIGHT is not pinned to
+    /// an absolute and the two languages are not compared (fixup-01 F2): above the floor the window
+    /// is content + machine chrome, and line wrapping differs by machine (CI's frame is wider than
+    /// this one's). The floor pin above keeps holding the floor for the dialog WITHOUT the countdown
+    /// (a second episode, or a countdown already fired or cancelled).
+    /// </summary>
+    [Fact]
+    public void CFallback_WithTheAutoRetryCountdown_GrowsTheWindowAndStillFits()
+    {
+        RunSta(() =>
+        {
+            var english = FallenBack(null, null, null, showCountdown: true);
+            var german = FallenBack(null, null, null, GermanDraft.Table, showCountdown: true);
+            _output.WriteLine("the English dialog as it opens: " + english);
+            _output.WriteLine("the German dialog as it opens: " + german);
+
+            Check.WithCustomMessage(english.ToString()).That(english.Fits).IsTrue();
+            Check.WithCustomMessage(german.ToString()).That(german.Fits).IsTrue();
+
+            // The countdown line is content: the window leaves the floor rather than squeezing it
+            // away. (Its WIDTH is gated like every C-fallback text - CFallback_EveryEnglishText_Fits
+            // measures it at the body's face.)
+            Check.WithCustomMessage("the countdown line was not laid out: " + english)
+                .That(english.Detail).Not.Contains($"window {FitText.Dip(320)} ");
+            Check.WithCustomMessage("the countdown line was not laid out: " + german)
+                .That(german.Detail).Not.Contains($"window {FitText.Dip(320)} ");
         });
     }
 
@@ -497,6 +537,7 @@ public sealed class SupervisorFitTests : IDisposable
         var dialog = new FallenBackDialog(strings);
         try
         {
+            dialog.ShowAutoRetryCountdown();
             var chrome = Chrome();
             var clientWidth = dialog.Width - chrome.Left - chrome.Right;
             var root = (FrameworkElement)dialog.Content;

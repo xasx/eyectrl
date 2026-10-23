@@ -23,10 +23,13 @@ using EyeCtrl.ViewModels.Messages;
 /// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
 /// so chrome that appears over one takes it away (review A F3).</item>
 /// <item><b>Suspension.</b> While EyeCtrl's Settings window, the task switcher, the quick-actions
-/// grid, the eye-care banner, the adaptation preview panel (D16) or the restart notice card is
-/// open, NO offer is made and a live unfired offer is cleared (the user's decision of 2026-10-02,
+/// grid, the eye-care banner, the adaptation preview panel (D16), the restart notice card or a
+/// note Move (P2 D7's "note move" reason, carried by <c>NoteTargetsChangedMessage</c>) is up,
+/// NO offer is made and a live unfired offer is cleared (the user's decision of 2026-10-02,
 /// review B F3). A single suspension flag carries that rule, because these surfaces are not
-/// chrome to avoid but interactions to yield to entirely.</item>
+/// chrome to avoid but interactions to yield to entirely — with the one exclusion the "note
+/// move" reason carries: it suspends offers but never <see cref="ModalSuspended"/> (the note
+/// gate).</item>
 /// </list>
 ///
 /// <para>
@@ -51,6 +54,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private bool _previewVisible;
     private bool _restartNoticeActive;
     private bool _suspended;
+    private bool _modalSuspended;
     private PhysicalRect? _lagMarkZone;
 
     public ActivationOfferCoordinator(
@@ -66,13 +70,15 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     /// <summary>
     /// The combined modal-suspension state <see cref="RecomputeSuspension"/> last computed (P2 D1):
     /// the note gate's suspender input, read through the composed predicate EventCoordinator wires.
-    /// True while ANY of the collected reasons holds — Settings, probe, task switcher, quick-actions
-    /// grid, eye-care banner, adaptation preview, restart notice. When T4 adds the "note move"
-    /// reason it is excluded HERE, because a note Move must suspend offers but not the note gate
-    /// itself. Null-safe by construction: the flag exists from construction, so a read before the
-    /// coordinator is initialized (the note predicate is wired first) simply reads false.
+    /// True while any of the modal reasons holds — Settings, probe, task switcher, quick-actions
+    /// grid, eye-care banner, adaptation preview, restart notice. The "note move" reason (P2 D7,
+    /// T4's wiring) suspends the OFFERS through the same computation but is excluded HERE: that
+    /// flag must not hold during a Move, because the Move set's dwells are the live surface the
+    /// gate must keep open. Null-safe by construction: the flag exists from construction, so a
+    /// read before the coordinator is initialized (the note predicate is wired first) simply
+    /// reads false.
     /// </summary>
-    public bool ModalSuspended => _suspended;
+    public bool ModalSuspended => _modalSuspended;
 
     protected override void OnInitialize()
     {
@@ -133,9 +139,14 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             SchedulePublish();
         });
         // P2 D7: a structural note change (create/remove/state flip) moves the note chrome zones —
-        // the coalesced publish re-collects them, so no offer is ever placed over a note.
+        // the coalesced publish re-collects them, so no offer is ever placed over a note. It is
+        // also a suspension input (P2 D7's "note move" reason): StartMove and its exits raise
+        // this message, so the Move state's whole lifetime carries the offers suspension.
         context.Messenger.Register<ActivationOfferCoordinator, NoteTargetsChangedMessage>(this, (_, _) =>
-            SchedulePublish());
+        {
+            SchedulePublish();
+            RecomputeSuspension();
+        });
 
         RecomputeSuspension();
         SchedulePublish();
@@ -191,7 +202,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         if (Context is null)
             return;
 
-        var reasons = new List<string>(7);
+        var reasons = new List<string>(8);
         if (_modal.SettingsOpen)
             reasons.Add("Settings");
         if (_modal.ProbeOpen)
@@ -206,6 +217,16 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("adaptation preview");
         if (_restartNoticeActive)
             reasons.Add("restart notice");
+
+        // P2 D7 (T4's wiring): while a note is moving, its card must not offer a dwell that would
+        // relaunch the very control under it — offers suspend for the whole Move. The reason is
+        // offers-only: ModalSuspended (the note gate's suspender input) must NOT hold, because
+        // the Move set's other-side/cancel/place dwells are the live surface the gate stays open
+        // for. So the note gate flag is true only when SOME modal reason is ALSO up.
+        bool noteMoving = Context.NoteManager is { IsMoving: true };
+        if (noteMoving)
+            reasons.Add("note move");
+        _modalSuspended = reasons.Count > 0 && (!noteMoving || reasons.Count > 1);
 
         bool suspended = reasons.Count > 0;
         _suspended = suspended;

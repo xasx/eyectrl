@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -33,14 +35,14 @@ public class NoteGateTests
     public void PausedSamples_NeverFire_AndEditStaysInPlace()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // A full 2 s hold on ✕, every sample carrying IsPaused: nothing may fire...
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -70,7 +72,7 @@ public class NoteGateTests
         // P2 D1 row 2: the poll reads InteractionManager.CurrentState per sample, so a pause the
         // sample's flag does not carry (entered from the tray) still freezes the notes.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var im = new InteractionManager();
         manager.SetPausePoll(() => im.CurrentState == InteractionState.Paused);
 
@@ -79,7 +81,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             im.TogglePause(); // the only pause writer (P2 D1): CurrentState == Paused
             for (long t = 0; t <= 1_500_000; t += 100_000)
@@ -96,14 +98,14 @@ public class NoteGateTests
         // P2 D1 row 2's recovery: reset + arm-latch. The gaze sat on ✕ while paused; on resume the
         // dwell starts fresh AND ✕ is latched, so it fires only after a real leave.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // Paused, held on ✕.
             for (long t = 0; t <= 1_000_000; t += 100_000)
@@ -136,14 +138,14 @@ public class NoteGateTests
         // P2 D1: the exercise window is click-through and full-screen — WindowFromPoint sees the
         // note under it, so only the flag stops a hidden ✕ from firing.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             messenger.Send(new EyeCareExerciseActiveMessage(true));
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -177,14 +179,14 @@ public class NoteGateTests
         // P2 D1 (review-03 B-2): the calibration window turns click-through at runtime when
         // Collecting starts, and the owner fixates screen edges and corners where notes sit.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             messenger.Send(new CalibrationStateChangedMessage(state, 0));
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -199,14 +201,14 @@ public class NoteGateTests
     public void CalibrationEnd_Resumes_AndArmLatches()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             messenger.Send(new CalibrationStateChangedMessage(CalibrationState.Collecting, 0));
             for (long t = 0; t <= 1_000_000; t += 100_000)
@@ -289,7 +291,7 @@ public class NoteGateTests
         Action<NoteManager, Func<PhysicalRect?>> wire, string because)
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         PhysicalRect? occluding = null;
         wire(manager, () => occluding);
 
@@ -298,7 +300,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // The notice sits exactly over ✕: a full hold must not fire.
             occluding = new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200);
@@ -327,7 +329,8 @@ public class NoteGateTests
         // the bottom target is filtered and the top one — 40 px off, also hitting — takes over.
         var messenger = new WeakReferenceMessenger();
         var tester = new FakeHitTester();
-        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null, hitTester: tester);
+        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null, hitTester: tester,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -344,7 +347,7 @@ public class NoteGateTests
             var bottomHandle = new WindowInteropHelper(bottomWindow!).EnsureHandle();
             var topHandle = new WindowInteropHelper(topWindow!).EnsureHandle();
 
-            var bottomClose = ButtonCentrePhysical(anchorBottom, 2);
+            var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
 
             // The gaze is over the BOTTOM note's ✕, but the TOP window is hit-testably on top.
             tester.Answer = topHandle;
@@ -371,7 +374,7 @@ public class NoteGateTests
         // the explicit InactiveNoteHitTester sentinel — and with it the plain dwell behaves
         // exactly as if the conjunct did not exist (headless determinism).
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         Check.That(manager.HitTesterForTest).IsInstanceOf<InactiveNoteHitTester>();
 
         DpiHelper.Initialize(2.0, 2.0);
@@ -379,7 +382,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             TypeIntoNewSavedNote(manager, "x", anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
             ArmThenHold(manager, closeCenter, startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
@@ -413,10 +416,10 @@ public class NoteGateTests
 
         var messenger = new WeakReferenceMessenger();
         var registry = new DwellDetectorRegistry();
-        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var anchor = new PhysicalPoint(1600, 1000);
         manager.AddNoteTargetsForTest(anchor);
-        var closeCenter = ButtonCentrePhysical(anchor, 2);
+        var closeCenter = ButtonCentrePhysical(anchor, 3);
 
         using var router = new DwellTimeRouter(provider, registry); // applies the map on construction
 
@@ -439,7 +442,7 @@ public class NoteGateTests
         // covering rects grow and this goes red.
         var messenger = new WeakReferenceMessenger();
         var registry = new DwellDetectorRegistry();
-        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
@@ -469,7 +472,7 @@ public class NoteGateTests
     public void ChromeRects_ReturnTheCardBodyAndTheThreeCells()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
@@ -482,24 +485,25 @@ public class NoteGateTests
             Check.WithCustomMessage("one card body + three control cells per note")
                 .That(rects).HasSize(4);
 
-            double winLeftLogical = DpiHelper.PhysicalToLogicalX(anchor.X) - LayoutConstants.NoteWindowWidth / 2;
-            double winTopLogical = DpiHelper.PhysicalToLogicalY(anchor.Y) - LayoutConstants.NoteAnchorOffsetY;
+            // The expected rects must come from the SAME placement the manager registered from
+            // (NoteTestBench replicates the manager's registration derivation — anchor, default
+            // right side, bench work area).
+            var placement = NoteTestBench.PlacementAnchor(anchor);
             var expectedCard = new PhysicalRect(
-                DpiHelper.LogicalToPhysicalX(winLeftLogical),
-                DpiHelper.LogicalToPhysicalY(winTopLogical),
-                DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteWindowWidth),
-                DpiHelper.LogicalToPhysicalY(LayoutConstants.NoteWindowHeight));
+                DpiHelper.LogicalToPhysicalX(placement.Card.Left),
+                DpiHelper.LogicalToPhysicalY(placement.Card.Top),
+                DpiHelper.LogicalToPhysicalX(placement.Card.Width),
+                DpiHelper.LogicalToPhysicalY(placement.Card.Height));
             Check.That(rects[0]).IsEqualTo(expectedCard);
 
-            double radius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
-            for (int slot = 0; slot < 3; slot++)
+            double half = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteCellDip / 2);
+            int i = 1;
+            foreach (var slot in NoteLayout.SlotsFor(NoteState.Display))
             {
-                var (lx, ly) = NoteLayout.ButtonCenter(slot);
-                var expectedCell = new PhysicalRect(
-                    DpiHelper.LogicalToPhysicalX(winLeftLogical + lx) - radius,
-                    DpiHelper.LogicalToPhysicalY(winTopLogical + ly) - radius,
-                    radius * 2, radius * 2);
-                Check.That(rects[1 + slot]).IsEqualTo(expectedCell);
+                var centre = NoteTestBench.CellCentre(placement, slot);
+                var expectedCell = new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2);
+                Check.That(rects[i]).IsEqualTo(expectedCell);
+                i++;
             }
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -528,7 +532,7 @@ public class NoteGateTests
         // The production collector pulls the zones from the context's manager (null-safe).
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
             Settings = settings,
@@ -563,7 +567,7 @@ public class NoteGateTests
         // back must not fire the control it never left. P2 D8 moved ✕ to slot 2, so the Display
         // control re-registered into Done's circle is ✎; firing it would re-enter Edit.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -607,7 +611,7 @@ public class NoteGateTests
         // the empty new note disappears, and the neighbour's ✎, under the same held gaze, must
         // come back LATCHED, not live.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -655,7 +659,7 @@ public class NoteGateTests
     public void Dispose_UnsubscribesTheGateMessages_AndIgnoresLateOnes()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.AddNoteTargetsForTest(new PhysicalPoint(1600, 1000));
         manager.Dispose();
 
@@ -678,7 +682,7 @@ public class NoteGateTests
 
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null,
-            hitTester: new NoteHitTester());
+            hitTester: new NoteHitTester(), workAreaDip: NoteTestBench.WorkAreaProvider);
 
         // This one needs REAL HWNDs: the gate test drives WindowFromPoint. The App test assembly
         // switches RealNoteWindows off, so switch it back on for this test only.
@@ -693,7 +697,7 @@ public class NoteGateTests
             var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
             var bottomHandle = new WindowInteropHelper(manager.WindowForTest(bottomId)!).EnsureHandle();
             var topHandle = new WindowInteropHelper(manager.WindowForTest(topId)!).EnsureHandle();
-            var bottomClose = ButtonCentrePhysical(anchorBottom, 2);
+            var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
 
             // The real hit test must resolve the gaze to one of the two note windows.
             var root = new NoteHitTester().RootWindowAt(bottomClose);
@@ -726,16 +730,10 @@ public class NoteGateTests
         return manager.ActiveNotes[^1].Id;
     }
 
-    /// <summary>A dwell button's centre in physical px, through the SAME math the manager uses.</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot)
-    {
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(anchor.X) - LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(anchor.Y) - LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = NoteLayout.ButtonCenter(slot);
-        return new(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-    }
+    /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
+    /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3).</summary>
+    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreFromAnchor(anchor, slot);
 
     /// <summary>Arms ✕ (a 200 ms excursion outside its circle, past the 150 ms release) and then
     /// holds the gaze on it for 900 ms — enough for a fresh 600 ms dwell to complete.</summary>

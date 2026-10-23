@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using System.IO;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
@@ -84,7 +86,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 2);
+                var closeCenter = ButtonCentrePhysical(anchor, 3);
 
                 // Leave-before-arm: 300 ms outside the circle, then a 900 ms hold on ✕.
                 for (long t = 0; t <= 300_000; t += 100_000)
@@ -156,7 +158,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
 
             // The card sits exactly over ✕, visible: a full hold must not fire.
             trackStatus.Visible = true;
@@ -178,7 +180,7 @@ public class NoteOccluderWiringTests
         var sink = new CapturingSink();
         var previousLogger = Log.Logger;
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         bool throwOnRead = true;
         manager.SetOccluderSources(driftNoticeBounds: () =>
         {
@@ -197,7 +199,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 2);
+                var closeCenter = ButtonCentrePhysical(anchor, 3);
 
                 // A 2 s hold on ✕ with the source throwing on every sample: nothing escapes,
                 // and the destructive dwell can never complete (fail closed).
@@ -273,7 +275,7 @@ public class NoteOccluderWiringTests
     public void AThrowingOccluderSource_LetsDoneFire_ButKeepsCloseGated()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false }; // hidden: ⌨ registers in slot 1
         manager.SetKeyboardProbe(probe);
         manager.SetOccluderSources(driftNoticeBounds: () =>
@@ -316,7 +318,7 @@ public class NoteOccluderWiringTests
 
             // The same held gaze now rests on ✕ (slot 2, P2 D8 — re-registered fresh by the
             // exit): the destructive control must stay gated by the fail-closed answer.
-            var slot2 = ButtonCentrePhysical(anchor, 2); // ✕ Close in Display
+            var slot2 = ButtonCentrePhysical(anchor, 3); // ✕ Close in Display
             for (long t = 2_600_000; t <= 3_600_000; t += 100_000)
                 manager.OnGazeMoved(slot2, t);
             Check.WithCustomMessage(
@@ -337,7 +339,7 @@ public class NoteOccluderWiringTests
     public void AFailingOccluderSource_NeverReleasesALatch_OnlyAHealthyLeaveDoes()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         bool throwOnRead = false;
         manager.SetOccluderSources(driftNoticeBounds: () =>
         {
@@ -351,7 +353,7 @@ public class NoteOccluderWiringTests
             var anchor = new PhysicalPoint(1600, 1000);
             var idA = manager.AddNoteTargetsForTest(anchor);
             var idB = manager.AddNoteTargetsForTest(new PhysicalPoint(3000, 2000));
-            var closeCenter = ButtonCentrePhysical(anchor, 2); // ✕ (P2 D8)
+            var closeCenter = ButtonCentrePhysical(anchor, 3); // ✕ (P2 D8)
             var away = new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y);
 
             // 1. Latch ✕ under a held gaze: the gaze settles on ✕, then a neighbour's removal
@@ -388,14 +390,8 @@ public class NoteOccluderWiringTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    /// <summary>A dwell button's centre in physical px, through the SAME math the manager uses.</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot)
-    {
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(anchor.X) - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(anchor.Y) - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = EyeCtrl.App.Overlays.NoteLayout.ButtonCenter(slot);
-        return new(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-    }
+    /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
+    /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3).</summary>
+    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreFromAnchor(anchor, slot);
 }

@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
@@ -25,7 +27,7 @@ public class Review02ProbeTests
     public void R5_OneSampleExcursionAfterDone_ThenHeldGaze_DeletesTheNote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.SetKeyboardProbe(new NoteManagerTests.FakeKeyboardProbe { IsVisible = false });
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -34,7 +36,7 @@ public class Review02ProbeTests
             manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
             var slot0 = Centre(anchor, 0);
-            double r = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteButtonRadius);
+            double r = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
             long t = 0;
             for (; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse();
@@ -52,7 +54,7 @@ public class Review02ProbeTests
     public void R6_DoneOnB_HeldGaze_DoesNotDeleteNeighbourA()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.SetKeyboardProbe(new NoteManagerTests.FakeKeyboardProbe { IsVisible = false });
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -72,11 +74,6 @@ public class Review02ProbeTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    private static PhysicalPoint Centre(PhysicalPoint anchor, int slot)
-    {
-        double l = DpiHelper.PhysicalToLogicalX(anchor.X) - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
-        double tp = DpiHelper.PhysicalToLogicalY(anchor.Y) - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = NoteLayout.ButtonCenter(slot);
-        return new(DpiHelper.LogicalToPhysicalX(l + lx), DpiHelper.LogicalToPhysicalY(tp + ly));
-    }
+    private static PhysicalPoint Centre(PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreFromAnchor(anchor, slot);
 }

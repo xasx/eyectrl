@@ -89,7 +89,9 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
             [
-                ("Small", 1, "the note's title-bar button glyph, beside other chrome."),
+                ("Solo", 1, "the note control discs' glyphs - a label-less gaze disc (T5 review-02 "
+                    + "F2): the DwellArcButton convention for discs, about 32 DIP of the 56 DIP "
+                    + "disc. The P4 body text is the setting, not a ratio."),
             ],
             ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs"] =
             [

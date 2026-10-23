@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,27 +11,57 @@ using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Models;
 
 public class NoteWindow : OverlayWindow
 {
     private const double ButtonRadius = LayoutConstants.NoteButtonRadius;
     private const double ButtonDiameter = ButtonRadius * 2;
-    private const double ButtonGap = LayoutConstants.NoteButtonGap;
     private const double ButtonPadding = LayoutConstants.NoteButtonPadding;
-    private const double TitleBarHeight = LayoutConstants.NoteTitleBarHeight;
-    private const double TextAreaWidth = 200;
+    private const double CellDip = LayoutConstants.NoteCellDip;
+
+    /// <summary>The hit-cell fill (P2 D2 layout rule 2): the token near-black at 1/255
+    /// opacity - alpha &gt; 0 under the whole hit area, invisible against the card.</summary>
+    private static readonly Brush CellFillBrush = CreateCellFillBrush();
+    // Frozen: the window is constructed on whichever STA thread runs, and a frozen Freezable
+    // is the one WPF shape that is shareable across them.
+    private static Brush CreateCellFillBrush()
+    {
+        var brush = new SolidColorBrush(Tokens.StrokeHalo) { Opacity = 1.0 / 255.0 };
+        brush.Freeze();
+        return brush;
+    }
 
     private readonly string _noteId;
     private readonly Canvas _canvas;
     private readonly Dictionary<string, Ellipse> _buttons = new();
     private readonly Dictionary<string, TextBlock> _buttonLabels = new();
     private readonly Dictionary<string, (Path Arc, double StartAngle)> _arcs = new();
+    private readonly Dictionary<int, Rectangle> _cellFills = new();
+    /// <summary>The current card width in DIP (T5 review-01 B1): the ONE source the drawn
+    /// cells, the column and the text placement share, taken from the applied placement.</summary>
+    private double CardWidthDip =>
+        _placement is { } p ? NoteLayout.RectLocal(p).Width : NoteLayout.CardWidthDip(_textSize);
+
     private TextBlock? _textBlock;
     private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
     private NoteState _state;
+    // The note body text size in DIP (P4 D1): pushed by the manager at creation and on every
+    // T8 raise; every text measurement and drawn font derives from it.
+    private double _textSize = NoteSettings.DefaultTextSizeDip;
+
     private string _chipText = string.Empty;
+    // The note's body text (fixup-01 B1): UpdateContent rebuilds the text block plainly empty,
+    // and the re-place paths (T6, the probe raise, Move's tails) never re-push SetText — the
+    // window alone keeps the last body text across a redraw.
+    private string _text = string.Empty;
+    // The side the placement chose (P3 D2); Right until the manager applies a placement.
+    private NoteSide _side = NoteSide.Right;
+    // The placement the manager last applied (P3 D2): every drawn rect — the card, the title
+    // bar, the tail, the column — derives from it. Null only before the first ApplyPlacement.
+    private NotePlacement? _placement;
 
     public string NoteId => _noteId;
     public NoteState State => _state;
@@ -44,13 +75,47 @@ public class NoteWindow : OverlayWindow
         Topmost = true;
         ShowInTaskbar = false;
         IsClickThrough = false;
-        Width = LayoutConstants.NoteWindowWidth;
-        Height = LayoutConstants.NoteWindowHeight;
+        ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        // The pre-placement size is a placeholder: every real size arrives through
+        // ApplyPlacement before Show. It is the DEFAULT-size card, so a window measured before
+        // its first placement still reports sane bounds.
+        Width = NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip);
+        Height = NoteLayout.ControlsColumnHeightDip;
 
         _canvas = new Canvas { ClipToBounds = false };
         Content = _canvas;
         Loaded += OnLoaded;
     }
+
+    /// <summary>
+    /// Applies a derived placement (P3 D2): resizes the window to the placement's window rect
+    /// (card + tail zone) and redraws everything — the column follows the side, the tail appears
+    /// beside the card. The manager sets <c>Left</c>/<c>Top</c> from the same placement, so the
+    /// drawn geometry and the window position can never disagree. Safe before Show(): Draw is
+    /// idempotent and the Loaded handler re-runs it. Internal: <see cref="NotePlacement"/> is,
+    /// and only the manager (same assembly) applies placements.
+    /// </summary>
+    internal void ApplyPlacement(NotePlacement placement)
+    {
+        _placement = placement;
+        _side = placement.Side;
+        Dispatcher.Invoke(() =>
+        {
+            Width = placement.Window.Width;
+            Height = placement.Window.Height;
+            Draw();
+        });
+    }
+
+    /// <summary>Test accessor (P4 D1/T8): the text size the window currently renders at.</summary>
+    internal double TextSizeForTest => _textSize;
+    /// <summary>Test accessor (fixup-01 G3): the drawn buttons, keyed per note id and set slot,
+    /// so the window-geometry pin can check the canvas against NoteLayout.ButtonCenter.</summary>
+    internal System.Collections.Generic.IReadOnlyDictionary<string, Ellipse> ButtonsForTest() => _buttons;
+
+    internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
+    internal double ButtonRadiusForTest => ButtonRadius;
 
     // The show seam (T6 fixup-08 R4, moved down by sync 4): set when the manager skipped the HWND show.
     private bool _displayedWithoutHwnd;
@@ -90,52 +155,73 @@ public class NoteWindow : OverlayWindow
         _buttons.Clear();
         _buttonLabels.Clear();
         _arcs.Clear();
+        _cellFills.Clear();
+
+        // P3 D2: the card sits inside the window at the placement card origin (the tail zone
+        // takes the strip on the anchor side); the pointer tail is drawn INSIDE the window.
+        // P4 D2: no title bar - the card is body text plus the control column.
+        var cardLocal = _placement is { } p ? NoteLayout.RectLocal(p)
+            : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+        var borderBrush = GetBorderBrush();
+
+        if (_placement?.TailVisible == true)
+        {
+            // The tail is NOT an offer zone (P2 D7): it is drawn under the card z-order and
+            // ChromeRects never reports it. Same surface fill, same border colour.
+            var tail = new Polygon
+            {
+                Points = new PointCollection(NoteLayout.TailTriangle(_placement)!),
+                Fill = Tokens.BrushSurfaceDark,
+                Stroke = borderBrush,
+                StrokeThickness = 1
+            };
+            _canvas.Children.Add(tail);
+        }
 
         var bg = new Border
         {
-            Width = LayoutConstants.NoteWindowWidth, Height = Height,
+            Width = cardLocal.Width, Height = cardLocal.Height,
             Background = Tokens.BrushSurfaceDark,
             CornerRadius = Tokens.StandardCornerRadius,
-            BorderBrush = GetBorderBrush(),
+            BorderBrush = borderBrush,
             BorderThickness = GetBorderThickness(),
-            // StrokeHalo is the palette's near-black; at 0.4 opacity it is indistinguishable
+            // StrokeHalo is the palette near-black; at 0.4 opacity it is indistinguishable
             // from pure black, and it keeps the shadow on the token so a light theme can move it.
             Effect = new DropShadowEffect { Color = Tokens.StrokeHalo, BlurRadius = 8, Opacity = 0.4, ShadowDepth = 2 }
         };
-        Canvas.SetLeft(bg, 0); Canvas.SetTop(bg, 0);
+        Canvas.SetLeft(bg, cardLocal.Left); Canvas.SetTop(bg, cardLocal.Top);
         _canvas.Children.Add(bg);
 
-        var titleBar = new Border
+        // P4 D3: every hit-cell row gets its alpha-1 fill (P2 D2 layout rule 2 - the hit area
+        // sits on alpha > 0 pixels even where its disc does not reach). Drawn once for ALL rows
+        // like the buttons; UpdateButtonVisibility picks the state rows.
+        for (int row = 0; row < 4; row++)
         {
-            Height = TitleBarHeight, Width = LayoutConstants.NoteWindowWidth,
-            Background = Tokens.BrushSurfaceMedium,
-            // Top-only radius: the title bar sits flush against the note body below it.
-            // Derived from the same token, so it cannot drift from the body's corners.
-            CornerRadius = new CornerRadius(
-                Tokens.CornerRadiusStandard, Tokens.CornerRadiusStandard, 0, 0)
-        };
-        var titleLabel = new TextBlock
-        {
-            Text = StringTable.Current.T("overlays.note.title"), FontSize = Tokens.FontSizeBody,
-            Foreground = Tokens.BrushTextSecondary,
-            Margin = new Thickness(8, 4, 0, 0)
-        };
-        titleBar.Child = titleLabel;
-        Canvas.SetLeft(titleBar, 0); Canvas.SetTop(titleBar, 0);
-        _canvas.Children.Add(titleBar);
+            var (cx, cy) = NoteLayout.ButtonCenter(_side, row, CardWidthDip);
+            var fill = new Rectangle
+            {
+                Width = CellDip, Height = CellDip,
+                Fill = CellFillBrush
+            };
+            Canvas.SetLeft(fill, cx - (CellDip / 2));
+            Canvas.SetTop(fill, cy - (CellDip / 2));
+            _canvas.Children.Add(fill);
+            _cellFills[row] = fill;
+        }
 
         _contentBorder = new Border
         {
-            Width = LayoutConstants.NoteWindowWidth, Height = Height - TitleBarHeight,
+            Width = cardLocal.Width, Height = cardLocal.Height,
             Background = Brushes.Transparent
         };
-        Canvas.SetLeft(_contentBorder, 0); Canvas.SetTop(_contentBorder, TitleBarHeight);
+        Canvas.SetLeft(_contentBorder, cardLocal.Left); Canvas.SetTop(_contentBorder, cardLocal.Top);
         _canvas.Children.Add(_contentBorder);
 
         DrawButtons();
         UpdateContent();
         UpdateButtonVisibility();
     }
+
 
     /// <summary>
     /// P1 D3: the editor is NOT a TextBox. Edit shows the same display TextBlock followed by a
@@ -153,13 +239,17 @@ public class NoteWindow : OverlayWindow
         _contentBorder.Child = null;
         _textBlock = null;
         _chipTextBlock = null;
+        OverCapForTest = false;
+        OverCapFadeForTest = false;
 
         if (_state == NoteState.PendingUndo)
         {
+            // The chip (P4 D3, styling final): the Undo cell plus the chip text at the body size,
+            // in the shrunk-in-place window.
             _chipTextBlock = new TextBlock
             {
-                Width = TextAreaWidth - 20,
-                MaxWidth = TextAreaWidth - 20,
+                Width = NoteLayout.ChipTextWidthDip,
+                MaxWidth = NoteLayout.ChipTextWidthDip,
                 Margin = new Thickness(10, 10, 0, 0),
                 FontSize = Tokens.FontSizeBody,
                 Foreground = Tokens.BrushTextPrimary,
@@ -167,20 +257,61 @@ public class NoteWindow : OverlayWindow
                 Text = _chipText
             };
             _contentBorder.Child = _chipTextBlock;
+            // B1: beside the column here too.
+            var chipCard = _placement is { } cp ? NoteLayout.RectLocal(cp)
+                : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+            _contentBorder.Width = NoteLayout.ChipTextWidthDip + ButtonPadding;
+            Canvas.SetLeft(_contentBorder, _side == NoteSide.Left
+                ? chipCard.Left + LayoutConstants.NoteColumnWidthDip
+                : chipCard.Left);
+            Canvas.SetTop(_contentBorder, chipCard.Top);
             return;
         }
 
-        // Each state keeps its previous text colour: Display's amber body and Edit's primary
-        // editor text are today's look, and restyling them is T5's scope, not this ticket's.
+        // P4 D2: one primary-colour body for Display and Edit alike (the amber Display accent is
+        // gone with the title bar). Over the cap, Display clips from the TOP with a fade and an
+        // ellipsis; Edit clips to the TAIL of the draft, where the end marker sits.
+        double avail = TextAreaHeightDip();
+        bool overCap = MeasureTextHeightDip(_text) > avail + 0.5;
+        string shown = overCap
+            ? _state == NoteState.Edit
+                ? TailThatFits(_text, avail)
+                : HeadThatFits(_text, Math.Max(1, avail - NoteLayout.TextLineHeightDip(_textSize))) + "…"
+            : _text;
+
         _textBlock = new TextBlock
         {
-            Width = TextAreaWidth - 20,
-            MaxWidth = TextAreaWidth - 20,
+            Width = NoteLayout.TextColumnWidthDip(_textSize),
+            MaxWidth = NoteLayout.TextColumnWidthDip(_textSize),
             Margin = new Thickness(10, 10, 0, 0),
-            FontSize = Tokens.FontSizeBody,
-            Foreground = _state == NoteState.Edit ? Tokens.BrushTextPrimary : Tokens.BrushAccentWarning,
-            TextWrapping = TextWrapping.Wrap
+            FontSize = _textSize,
+            FontFamily = Tokens.FontStandard,
+            Foreground = Tokens.BrushTextPrimary,
+            TextWrapping = TextWrapping.Wrap,
+            // The P4 D2 leading: 1.25x, pinned as a block height so every line is identical.
+            LineHeight = NoteLayout.TextLineHeightDip(_textSize),
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Text = shown
         };
+
+        if (overCap && _state != NoteState.Edit)
+        {
+            // The P4 D2 fade, DISPLAY ONLY, only over the cap.
+            _textBlock.OpacityMask = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1),
+                GradientStops =
+                {
+                    new GradientStop(Tokens.StrokeHalo, 0.0),
+                    new GradientStop(Tokens.StrokeHalo, 0.72),
+                    new GradientStop(Colors.Transparent, 1.0),
+                }
+            };
+            OverCapFadeForTest = true;
+        }
+        OverCapForTest = overCap;
 
         var stack = new StackPanel();
         stack.Children.Add(_textBlock);
@@ -200,9 +331,99 @@ public class NoteWindow : OverlayWindow
         }
 
         _contentBorder.Child = stack;
+
+        // T5 review-01 B1: the text sits BESIDE the control column, never under it. The column
+        // hugs the card edge away from the tail, so the text area takes the remaining strip.
+        var card = _placement is { } p ? NoteLayout.RectLocal(p)
+            : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+        bool columnOnLeft = _side == NoteSide.Left;
+        _contentBorder.Width = NoteLayout.TextColumnWidthDip(_textSize) + ButtonPadding;
+        Canvas.SetLeft(_contentBorder, columnOnLeft ? card.Left + LayoutConstants.NoteColumnWidthDip : card.Left);
+        Canvas.SetTop(_contentBorder, card.Top);
     }
 
-    /// <summary>Sets the Undo chip's text (P2 D5) and re-renders when the chip is showing. The
+    /// <summary>Test seams (P4 acceptance): whether the current render clips over the cap, and
+    /// whether the fade+ellipsis treatment is applied (Display only).</summary>
+    internal bool OverCapForTest { get; private set; }
+
+    internal bool OverCapFadeForTest { get; private set; }
+
+    /// <summary>The text area's available height in DIP: the card inner height minus the
+    /// paddings. The cap itself rode the placement - the manager derived the card height from
+    /// min(55 percent of the work area, 12 lines) - so the window clips to whatever fits it.</summary>
+    private double TextAreaHeightDip()
+    {
+        double h = _placement is { } p ? NoteLayout.RectLocal(p).Height : NoteLayout.ControlsColumnHeightDip;
+        return Math.Max(1, h - (2 * ButtonPadding));
+    }
+
+    /// <summary>Measures the wrapped text height in DIP the auto-height derives from (P4 D2):
+    /// the same style the card body draws, measured at the text column width.</summary>
+    internal double MeasureTextHeightDip(string text)
+    {
+        var block = new TextBlock
+        {
+            FontSize = _textSize,
+            FontFamily = Tokens.FontStandard,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = NoteLayout.TextLineHeightDip(_textSize),
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Text = text,
+            Width = NoteLayout.TextColumnWidthDip(_textSize)
+        };
+        block.Measure(new Size(NoteLayout.TextColumnWidthDip(_textSize), double.PositiveInfinity));
+        return block.DesiredSize.Height;
+    }
+
+    /// <summary>The longest prefix that fits <paramref name="avail"/> DIP (binary search over
+    /// character counts; the caller appends the ellipsis).</summary>
+    private string HeadThatFits(string text, double avail)
+    {
+        int lo = 0, hi = text.Length;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) / 2;
+            if (MeasureTextHeightDip(text[..mid]) <= avail) lo = mid;
+            else hi = mid - 1;
+        }
+        return text[..lo];
+    }
+
+    /// <summary>The longest suffix that fits <paramref name="avail"/> DIP - Edit over the cap
+    /// shows the end of the draft, where the end marker is (P4 D2).</summary>
+    private string TailThatFits(string text, double avail)
+    {
+        int lo = 0, hi = text.Length;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) / 2;
+            if (MeasureTextHeightDip(text[^mid..]) <= avail) lo = mid;
+            else hi = mid - 1;
+        }
+        return text[^lo..];
+    }
+
+    /// <summary>Pushes a new body text (P1 typing, re-places, restores). The clip point moves
+    /// with the text, so a live block re-renders.</summary>
+    public void SetText(string text)
+    {
+        _text = text;
+        if (_textBlock != null)
+            Dispatcher.Invoke(UpdateContent);
+    }
+
+    /// <summary>Pushes the text size (P4 D1/T8). Every measurement and the drawn font follow.</summary>
+    public void SetTextSize(double textSize)
+    {
+        _textSize = textSize;
+        if (_contentBorder != null)
+            Dispatcher.Invoke(UpdateContent);
+    }
+
+
+    public string GetText() => _textBlock?.Text ?? "";
+
+    /// <summary>Sets the Undo chip text (P2 D5) and re-renders when the chip is showing. The
     /// text comes from the manager through the localization table, kind-dependent.</summary>
     public void SetChipText(string text)
     {
@@ -210,13 +431,6 @@ public class NoteWindow : OverlayWindow
         if (_state == NoteState.PendingUndo && _chipTextBlock != null)
             _chipTextBlock.Text = text;
     }
-
-    public void SetText(string text)
-    {
-        if (_textBlock != null) _textBlock.Text = text;
-    }
-
-    public string GetText() => _textBlock?.Text ?? "";
 
     public void SetState(NoteState state)
     {
@@ -226,7 +440,9 @@ public class NoteWindow : OverlayWindow
             UpdateContent();
             UpdateBorder();
             UpdateButtonVisibility();
-            Opacity = state == NoteState.Move ? 0.85 : 1.0;
+            // P3 D4: Move dims the card in place to 0.6 — the 0.85 of the gaze-chasing Move is
+            // gone with the follow loop; the card must visibly yield while its spot is decided.
+            Opacity = state == NoteState.Move ? 0.6 : 1.0;
             // No SetOverlayInteraction call on any path (P1 D3): the base class already pinned
             // click-through:false + focusable:false in OnSourceInitialized, and the window stays
             // WS_EX_NOACTIVATE for life.
@@ -245,8 +461,10 @@ public class NoteWindow : OverlayWindow
 
     private void UpdateBorder() => Dispatcher.Invoke(() =>
     {
-        if (_canvas.Children.Count == 0) return;
-        if (_canvas.Children[0] is Border bg)
+        // P3 D2: the tail polygon may occupy slot 0 (it is drawn under the card), so the bg
+        // border is found by type, not by index.
+        var bg = _canvas.Children.OfType<Border>().FirstOrDefault();
+        if (bg != null)
         {
             bg.BorderBrush = GetBorderBrush();
             bg.BorderThickness = GetBorderThickness();
@@ -275,43 +493,45 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        // ALL sets are drawn once, over the same three slots (P1 D7, fixup B1; T3 P2 D8), so the
+        // ALL sets are drawn once (P1 D7, fixup B1), over the P4 D3 slot table, so the
         // dwell-target math (NoteLayout.ButtonCenter) never changes per state:
-        //   Display:      0 ✎ edit, 1 ↕ move, 2 ✕ close  (P2 D8: ✕ sits apart, bottom slot)
-        //   Edit:         0 ✓ Done (AccentSuccess), 1 ⌨ Show keyboard (Accent, keyboard-hidden
-        //                 only), 2 ↩ Discard (AccentDanger) — Done and Discard stay one slot apart
-        //   PendingUndo:  0 ↺ Undo — the chip's only control (P2 D5)
-        // Every note is created in Edit before Show(), so a canvas that drew only the current
-        // state's set could never gain the Display controls later — SetState(Display) would
-        // unhide buttons that do not exist while their dwell targets go live.
-        // UpdateButtonVisibility picks the visible set per state; every other slot's twin is
-        // Collapsed. The fourth field is the button's UIA name: the disc is an Ellipse (no
-        // automation peer), and the glyph label would otherwise announce as its own symbol, so
-        // the name goes on the peer-bearing TextBlock (D11).
+        //   Display:      0 edit, 1 move, 2 GAP, 3 close   (P2 D8: close a full cell apart)
+        //   Edit:         0 done, 1 show-keyboard (hidden kb only), 2 GAP, 3 discard
+        //   Move:         0 other side (only while it fits), 1 cancel
+        //   PendingUndo:  0 undo (the chip)
+        // UpdateButtonVisibility picks the visible set per state; every other twin is Collapsed,
+        // including the cell fills. The fourth field is the button UIA name: the disc is an
+        // Ellipse (no automation peer), so the name goes on the peer-bearing TextBlock (D11).
         _displayButtons =
         [
-            ("edit",  "✎", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.edit")),
-            ("move",  "↕", Tokens.MarkerMove, StringTable.Current.T("overlays.note.move")),
-            ("close", "✕", Tokens.AccentDanger, StringTable.Current.T("overlays.note.close")),
+            ("edit",  "✎", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.edit"), 0),
+            ("move",  "↕", Tokens.MarkerMove, StringTable.Current.T("overlays.note.move"), 1),
+            ("close", "✕", Tokens.AccentDanger, StringTable.Current.T("overlays.note.close"), 3),
         ];
         _editButtons =
         [
-            ("done",     "✓", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.done")),
-            ("keyboard", "⌨", Tokens.Accent, StringTable.Current.T("overlays.note.showKeyboard")),
-            ("discard",  "↩", Tokens.AccentDanger, StringTable.Current.T("overlays.note.discard")),
+            ("done",     "✓", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.done"), 0),
+            ("keyboard", "⌨", Tokens.Accent, StringTable.Current.T("overlays.note.showKeyboard"), 1),
+            ("discard",  "↩", Tokens.AccentDanger, StringTable.Current.T("overlays.note.discard"), 3),
         ];
         _chipButtons =
         [
-            ("undo", "↺", Tokens.Accent, StringTable.Current.T("overlays.note.undo")),
+            ("undo", "↺", Tokens.Accent, StringTable.Current.T("overlays.note.undo"), 0),
+        ];
+        _moveButtons =
+        [
+            ("otherside", "⇄", Tokens.Accent, StringTable.Current.T("overlays.note.otherSide"), 0),
+            ("cancel",    "⊘", Tokens.AccentDanger, StringTable.Current.T("overlays.note.cancel"), 1),
         ];
 
-        foreach (var symbols in new[] { _displayButtons, _editButtons, _chipButtons })
+        foreach (var symbols in new[] { _displayButtons, _editButtons, _chipButtons, _moveButtons })
         {
-            for (int i = 0; i < symbols.Length; i++)
+            foreach (var (suffix, symbol, color, accessibleName, slot) in symbols)
             {
-                var (suffix, symbol, color, accessibleName) = symbols[i];
-                // Window-relative logical center, shared with NoteManager's dwell-target placement.
-                var (cx, cy) = NoteLayout.ButtonCenter(i);
+                // Window-relative logical centre, shared with NoteManager dwell-target
+                // placement - column side follows the placement side (P3 D2.6), the slot maps
+                // 1:1 to its hit-cell row (P4 D3).
+                var (cx, cy) = NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
 
                 var ellipse = new Ellipse
                 {
@@ -328,14 +548,29 @@ public class NoteWindow : OverlayWindow
                 var label = new TextBlock
                 {
                     Text = symbol,
-                    // Sized from the 60px button disc that bounds it (ButtonDiameter above).
-                    FontSize = ButtonDiameter * ContainerRatio.Small,
+                    // T5 review-02 F2: a label-less gaze disc carries a GAZE-sized glyph - the
+                    // DwellArcButton convention for discs (Solo, 0.58 of the 56 DIP disc = about
+                    // 32 DIP). Small (0.23, for glyphs BESIDE other content) left a 12.9 DIP
+                    // stamp on a 56 DIP target. The family is pinned so the ink math below
+                    // measures the same face the TextBlock renders.
+                    FontFamily = Tokens.FontStandard,
+                    FontSize = ButtonDiameter * ContainerRatio.Solo,
                     Foreground = new SolidColorBrush(color),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                Canvas.SetLeft(label, cx - 8);
-                Canvas.SetTop(label, cy - 10);
+                // T5 fixup-03 G1: centre the glyph on its INK, not on its box. A TextBlock box
+                // is advance width x line height (~43 DIP tall), so box centring sat every glyph
+                // 6-10 DIP low. BuildGeometry gives the ink bounds relative to the text origin,
+                // which for an auto-sized TextBlock is the box top-left. The brush is never
+                // painted - only the ink geometry is measured; the palette test rejects raw
+                // Brush literals in UI files, so it reads a Tokens brush.
+                var formatted = new FormattedText(symbol, CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+                    Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
+                Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+                Canvas.SetLeft(label, cx - (ink.Left + (ink.Width / 2)));
+                Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
                 if (accessibleName.Length > 0)
                     System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
                 _canvas.Children.Add(label);
@@ -353,21 +588,36 @@ public class NoteWindow : OverlayWindow
         }
     }
 
-    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _displayButtons = [];
-    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _editButtons = [];
-    private (string Suffix, string Symbol, Color Color, string AccessibleName)[] _chipButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName, int Slot)[] _displayButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName, int Slot)[] _editButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName, int Slot)[] _chipButtons = [];
+    private (string Suffix, string Symbol, Color Color, string AccessibleName, int Slot)[] _moveButtons = [];
 
     /// <summary>
     /// Shows or hides the control buttons to match the current state so the visible buttons stay
     /// in sync with the dwell targets registered by <c>NoteManager</c>:
     /// Display = edit+move+close; Edit = Done and Discard always, ⌨ only while the keyboard is
     /// hidden (the manager drives that half through <see cref="SetKeyboardControlVisible"/>);
-    /// Move = none; PendingUndo = the chip's Undo disc. Both other sets EXIST on the canvas
-    /// (fixup B1), so every branch must set every key explicitly — a fresh Ellipse's default
-    /// Visibility is Visible, and an untouched twin would render on top of the active set.
+    /// Move = Other side (only while it fits, the manager drives that through
+    /// <see cref="SetOtherSideAvailable"/>) plus Cancel; PendingUndo = the chip's Undo disc.
+    /// Every other set EXISTs on the canvas (fixup B1), so every branch must set every key
+    /// explicitly — a fresh Ellipse's default Visibility is Visible, and an untouched twin would
+    /// render on top of the active set.
     /// </summary>
     private void UpdateButtonVisibility()
     {
+        // The P4 D3 slot table is the single truth (NoteLayout.SlotsFor): a state shows exactly
+        // its table slots, and every other set EXISTs on the canvas (fixup B1) so every branch
+        // must set every key explicitly - a fresh Ellipse default Visibility is Visible, and an
+        // untouched twin would render on top of the active set.
+        var slots = NoteLayout.SlotsFor(_state);
+        bool occupied(int slot) => slots.Contains(slot);
+
+        SetCellVisible(0, occupied(0));
+        SetCellVisible(1, occupied(1));
+        SetCellVisible(2, occupied(2));
+        SetCellVisible(3, occupied(3));
+
         if (_state == NoteState.PendingUndo)
         {
             SetButtonVisible("undo", true);
@@ -377,6 +627,8 @@ public class NoteWindow : OverlayWindow
             SetButtonVisible("close", false);
             SetButtonVisible("edit", false);
             SetButtonVisible("move", false);
+            SetButtonVisible("otherside", false);
+            SetButtonVisible("cancel", false);
             return;
         }
 
@@ -389,6 +641,8 @@ public class NoteWindow : OverlayWindow
             SetButtonVisible("close", false);
             SetButtonVisible("edit", false);
             SetButtonVisible("move", false);
+            SetButtonVisible("otherside", false);
+            SetButtonVisible("cancel", false);
             return;
         }
 
@@ -396,12 +650,36 @@ public class NoteWindow : OverlayWindow
         SetButtonVisible("done", false);
         SetButtonVisible("keyboard", false);
         SetButtonVisible("discard", false);
-        SetButtonVisible("close", _state != NoteState.Move);
+        SetButtonVisible("close", _state == NoteState.Display);
         SetButtonVisible("edit", _state == NoteState.Display);
         SetButtonVisible("move", _state == NoteState.Display);
+        // The Move set (P3 D4): Other side shows only while another side fits - the manager
+        // drives that through SetOtherSideAvailable; Cancel is always part of Move.
+        SetButtonVisible("otherside", _state == NoteState.Move && _otherSideAvailable);
+        SetButtonVisible("cancel", _state == NoteState.Move);
     }
 
+    private void SetCellVisible(int row, bool visible)
+    {
+        if (_cellFills.TryGetValue(row, out var fill))
+            fill.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+
     private bool _keyboardControlVisible;
+    private bool _otherSideAvailable;
+
+    /// <summary>
+    /// The Move state's Other-side control (P3 D4): registered and drawn only while
+    /// <c>Place(..., exclude: current)</c> found another fitting side — the manager calls this
+    /// on entering Move and on every T1–T6 re-evaluation so the drawn button can never disagree
+    /// with the registered dwell target (the same invariant ⌨'s drawn/registered pair pins).
+    /// </summary>
+    public void SetOtherSideAvailable(bool available)
+    {
+        _otherSideAvailable = available;
+        Dispatcher.Invoke(() => SetButtonVisible("otherside", _state == NoteState.Move && available));
+    }
 
     private void SetButtonVisible(string suffix, bool visible)
     {

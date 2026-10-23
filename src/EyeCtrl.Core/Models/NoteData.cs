@@ -48,8 +48,15 @@ public class NoteData
     public string? PreviousText { get; set; }
     /// <summary>The in-progress text while the note is in Edit (P1 D4); mirrors Text in Display.</summary>
     public string Draft { get; set; } = string.Empty;
-    /// <summary>The position of the note in physical screen pixels.</summary>
-    public PhysicalPoint Position { get; set; }
+    /// <summary>
+    /// The looked-at spot this note comments on, in physical screen pixels (P3 D1). The only
+    /// position state a note carries: its window rect is always DERIVED from this and
+    /// <see cref="Side"/> by the App's <c>NoteLayout.Place</c> — the old stored
+    /// <c>Position</c> (which put the anchor inside the card) is gone.
+    /// </summary>
+    public PhysicalPoint Anchor { get; set; }
+    /// <summary>The side of the <see cref="Anchor"/> the card prefers to sit on (P3 D1).</summary>
+    public NoteSide Side { get; set; } = NoteSide.Right;
     /// <summary>The current interaction state of the note (edit, display, move, or pending undo).</summary>
     public NoteState State { get; set; } = NoteState.Edit;
     /// <summary>What a <see cref="NoteState.PendingUndo"/> chip can reverse. Null in every other

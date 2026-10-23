@@ -36,6 +36,11 @@ internal static class NoteOccluderWiring
                 services.GetRequiredService<ICaregiverAlertPresenter>().TryGetVisibleBounds(out var alert)
                     ? alert : null,
             trackStatusBounds: () =>
-                context.OverlayManager.TrackStatus.TryGetVisibleBounds(out var track) ? track : null);
+                context.OverlayManager.TrackStatus.TryGetVisibleBounds(out var track) ? track : null,
+            // P4 D4: the capacity notice is manager-owned (never in DI); the wiring reads its
+            // visible bounds through the manager seam so the notice gates notes exactly like
+            // every other occluder.
+            noteNoticeBounds: () =>
+                ((NoteManager)noteManager).TryGetNoticeVisibleBounds(out var notice) ? notice : null);
     }
 }

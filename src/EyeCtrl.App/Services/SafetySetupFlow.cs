@@ -396,7 +396,7 @@ internal sealed class SafetySetupFlow
 
     /// <summary>The production <c>schedule</c>: a one-shot <c>DispatcherTimer</c> on this thread's
     /// dispatcher (the chain runs on the UI thread).</summary>
-    private static IDisposable DispatcherDelay(TimeSpan delay, Action action)
+    internal static IDisposable DispatcherDelay(TimeSpan delay, Action action)
     {
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = delay };
         timer.Tick += (_, _) =>

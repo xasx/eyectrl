@@ -215,6 +215,19 @@ internal sealed class DragCoordinator : CoordinatorBase
             var cancelDef = CreateCancelButtonDefinition(Context.Settings.Dwell.DragRightEdgeButtonDwellMs);
             Context.OverlayManager.EdgeButtonBar.ShowButtons(
                 new[] { cancelDef }, anchor, EdgeBarOwner.Drag);
+
+            // PX1: tell the trail which rests belong to the bar's own exits. Built from the SAME
+            // anchor the bar draws at, so the zone cannot drift from the button. Both buttons are
+            // supplied for the whole drag: Back's slot is the lower one whether or not its button
+            // is currently drawn, and a rest there must not drop either.
+            var exitRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+            Context.DragTrailVM.SetExitZones(new[]
+            {
+                new DragExitZone(
+                    anchor + new PhysicalPoint(0, CancelButtonVerticalOffsetPhysical), exitRadius),
+                new DragExitZone(
+                    anchor + new PhysicalPoint(0, BackButtonVerticalOffsetPhysical), exitRadius),
+            });
         }
         catch (Exception ex)
         {

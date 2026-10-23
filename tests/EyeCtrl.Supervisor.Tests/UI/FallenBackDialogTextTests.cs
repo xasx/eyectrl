@@ -83,10 +83,11 @@ public class FallenBackDialogTextTests
 
                 dialog.ShowAutoRetryCountdown();
                 Check.That(dialog.CountdownText.Visibility).IsEqualTo(Visibility.Visible);
-                Check.That(dialog.CountdownText.Text).IsEqualTo("Trying again in 60 s…");
+                // NBSP (\u00A0) between the seconds and the unit, so they never wrap apart.
+                Check.That(dialog.CountdownText.Text).IsEqualTo("Trying again in 60\u00A0s…");
                 // The seconds are a format argument, not baked in (fixup-02 addendum).
                 Check.That(StringTable.EmbeddedEnglish.T("supervisor.fallback.countdown", 5))
-                    .IsEqualTo("Trying again in 5 s…");
+                    .IsEqualTo("Trying again in 5\u00A0s…");
                 Check.That(dialog.CountdownText.Text).Contains(
                     ((int)FallenBackAutoRetry.Delay.TotalSeconds).ToString(
                         System.Globalization.CultureInfo.InvariantCulture));

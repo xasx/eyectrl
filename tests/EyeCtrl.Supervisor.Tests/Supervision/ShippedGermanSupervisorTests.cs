@@ -193,11 +193,13 @@ public class ShippedGermanSupervisorTests : IDisposable
                 Check.That(TextsUnder(buttons[0])).Contains("EyeCtrl erneut starten (einmal)");
                 Check.That(TextsUnder(buttons[1])).Contains("Schließen (Ersatzprogramm behalten)");
 
-                // A3: the auto-retry countdown line — the German carries no ellipsis (T10 copy rules).
+                // A3: the auto-retry countdown line — the German carries no ellipsis (T10 copy rules),
+                // and echoes the Retry button ("EyeCtrl erneut starten (einmal)"). NBSP before the
+                // unit, so the seconds and the "s" never wrap apart.
                 dialog.ShowAutoRetryCountdown();
-                Check.That(dialog.CountdownText.Text).IsEqualTo("Erneuter Versuch in 60 s");
+                Check.That(dialog.CountdownText.Text).IsEqualTo("EyeCtrl startet in 60\u00A0s erneut");
                 // The seconds are a format argument, not baked in (fixup-02 addendum).
-                Check.That(german.T("supervisor.fallback.countdown", 5)).IsEqualTo("Erneuter Versuch in 5 s");
+                Check.That(german.T("supervisor.fallback.countdown", 5)).IsEqualTo("EyeCtrl startet in 5\u00A0s erneut");
             }
             finally
             {

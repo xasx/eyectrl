@@ -90,7 +90,8 @@ internal static class InvisibleTestWindow
             w.Left = -30000;
             w.Top = -30000;
         };
-        RuntimeWindowMonitor.MarkPrepared(window);
+        // a DISTINCT tag: the runtime check does not take this window's word for it, it judges its rectangle (a plain Show() would land on a monitor)
+        RuntimeWindowMonitor.MarkPrepared(window, offScreen: true);
         return window;
     }
 

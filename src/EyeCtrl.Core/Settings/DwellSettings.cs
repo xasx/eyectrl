@@ -52,6 +52,20 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _manualSelectionSideButtonDwellMs = 600;
     /// <summary>Dwell time in milliseconds for the backdrop hide button. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _backdropHideButtonDwellMs = 600;
+    /// <summary>
+    /// How long, in milliseconds, a menu/toolbar dwell HOLDS its progress after the gaze leaves the
+    /// target (or goes silent, as in a blink): returning within it resumes, and time away is never
+    /// credited. 0 restores the exact reset-on-leave behaviour. Valid range: 0–1000. Defaults to the
+    /// fixation detector's gap-abort bound, so a dwell forgives exactly what a fixation forgives.
+    /// </summary>
+    [ObservableProperty] private int _dwellPauseGraceMs = Processing.FixationDetector.GapAbortMs;
+
+    partial void OnDwellPauseGraceMsChanging(int value)
+    {
+        if (value < 0 || value > 1000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(DwellPauseGraceMs)} must be between 0 and 1000");
+    }
 
     partial void OnFixationDetectionMsChanging(int value)
     {
@@ -213,7 +227,8 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(DragRightEdgeButtonDwellMs, 200, 2000, nameof(DragRightEdgeButtonDwellMs)),
             ValidationHelper.ValidateRange(ScrollStopButtonDwellMs, 200, 2000, nameof(ScrollStopButtonDwellMs)),
             ValidationHelper.ValidateRange(ManualSelectionSideButtonDwellMs, 200, 2000, nameof(ManualSelectionSideButtonDwellMs)),
-            ValidationHelper.ValidateRange(BackdropHideButtonDwellMs, 200, 2000, nameof(BackdropHideButtonDwellMs))
+            ValidationHelper.ValidateRange(BackdropHideButtonDwellMs, 200, 2000, nameof(BackdropHideButtonDwellMs)),
+            ValidationHelper.ValidateRange(DwellPauseGraceMs, 0, 1000, nameof(DwellPauseGraceMs))
         );
     }
 }

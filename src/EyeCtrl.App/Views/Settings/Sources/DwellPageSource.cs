@@ -59,6 +59,10 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.dwell.cooldown.label"), 100, 1000, 50, 0,
                     () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.cooldown.description") },
+                new SliderSpec("d_pause_grace",
+                    StringTable.Current.T("settings.dwell.pause_grace.label"), 0, 1000, 50, 0,
+                    () => d.DwellPauseGraceMs, v => { d.DwellPauseGraceMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.pause_grace.description"), Simple = true },
                 new ToggleSpec("d_cue_sound",
                     StringTable.Current.T("settings.dwell.cue_sound.label"),
                     () => d.CueEnabled, v => { d.CueEnabled = v; _ctx.ApplyAndSave(); })
@@ -77,6 +81,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         d.KeyboardPredictionDwellMs = def.KeyboardPredictionDwellMs;
                         d.FixationRadiusPixels = def.FixationRadiusPixels;
                         d.DwellCooldownMs = def.DwellCooldownMs;
+                        d.DwellPauseGraceMs = def.DwellPauseGraceMs;
                         d.CueEnabled = def.CueEnabled;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();

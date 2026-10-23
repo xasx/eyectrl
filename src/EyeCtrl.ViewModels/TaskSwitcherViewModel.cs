@@ -32,7 +32,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         IMessenger messenger,
         IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink, dwellRegistry, settings.Dwell)
     {
         _windowManager = windowManager;
         _messenger = messenger;
@@ -109,6 +109,13 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
         if (tile != null)
             tile.DwellProgress = progress;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
+        if (tile != null)
+            tile.IsDwellPaused = paused;
     }
 
     /// <summary>

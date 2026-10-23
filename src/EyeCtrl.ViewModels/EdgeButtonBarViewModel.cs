@@ -41,7 +41,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
 
     public EdgeButtonBarViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.EdgeButtonBar, sink, dwellRegistry, settings.Dwell)
     {
     }
 
@@ -146,11 +146,22 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
             state.DwellProgress = progress;
     }
 
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        var state = Buttons.FirstOrDefault(s => s.Id == targetId);
+        if (state is not null)
+            state.IsDwellPaused = paused;
+    }
+
     /// <summary>
     /// Feeds the sample to the detector, with the re-arm gate in front: while a re-arm is pending
     /// AND the pending target is the nearest hitting target — the very sample the detector would
-    /// award to it — the sample is delivered as a filter that matches nothing, so every target is
-    /// cleared exactly as an ungated miss would clear it (no partial dwell survives a gated run).
+    /// award to it — the sample is delivered as a filter that matches nothing, so no target can
+    /// accumulate. The pending target has no anchor under the gate (its activation cleared it), so
+    /// it builds nothing. Another target the gaze held a moment ago is released, not kept: the
+    /// detector decides the "gaze is inside another target" release on the UNFILTERED hit, so the
+    /// gated modifier under the gaze still drops a neighbour's hold (A1 fixup-02 M1). A hold only
+    /// survives a gated run over truly empty space, for at most the pause grace.
     /// In-gap samples restart the exit clock BEFORE the gate: the interpolator emits held-position
     /// samples for a whole blink, and blink-edge displacement must never complete a D-span of
     /// "valid" exit.

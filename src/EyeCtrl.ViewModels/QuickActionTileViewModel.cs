@@ -12,6 +12,12 @@ public partial class QuickActionTileViewModel : ObservableObject
 {
     /// <summary>Dwell progress 0.0–1.0, driven by the grid VM during gaze dwell.</summary>
     [ObservableProperty] private double _dwellProgress;
+    /// <summary>
+    /// True while this item's dwell is HELD: the gaze stepped off mid-dwell and <see cref="DwellProgress"/>
+    /// is kept for the pause grace. The view dims the progress indicator; it never changes the value.
+    /// Display-only — nothing reads it to decide whether a dwell holds.
+    /// </summary>
+    [ObservableProperty] private bool _isDwellPaused;
 
     /// <summary>The quick action this tile represents.</summary>
     public QuickAction Action { get; }

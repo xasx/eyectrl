@@ -130,6 +130,10 @@
     "text": "So übernehmen",
     "src": "750e17ad"
   },
+  "calibration.window.cancelDwell": {
+    "text": "✕ Abbrechen",
+    "src": "f913e623"
+  },
   "calibration.window.cancelHint": {
     "text": "Mit Esc abbrechen",
     "src": "31338ae1"
@@ -1686,6 +1690,14 @@
     "text": "Aktionsmenü bei manueller Auswahl (ms)",
     "src": "bd8a2ade"
   },
+  "settings.dwell.pause_grace.description": {
+    "text": "Wie lange das Verweilen in Menüs und auf der Symbolleiste seinen Fortschritt nach einem Blinzeln oder Wegschauen behält. Kehrt der Blick rechtzeitig zurück, geht es weiter; bei 0 beginnt es sofort neu.",
+    "src": "1b86c939"
+  },
+  "settings.dwell.pause_grace.label": {
+    "text": "Haltezeit beim Wegschauen (ms)",
+    "src": "ba78963a"
+  },
   "settings.dwell.prediction.description": {
     "text": "Verweilzeit für die Vorhersagen über der Tastatur.",
     "src": "2ee458f9"
@@ -2772,6 +2784,10 @@
   "supervisor.fallback.body": {
     "text": "Ein Ersatzprogramm zur Blicksteuerung läuft jetzt. Damit (oder mit der Maus) eine der Möglichkeiten unten wählen.",
     "src": "b2e1dba4"
+  },
+  "supervisor.fallback.countdown": {
+    "text": "EyeCtrl startet in {0} s erneut",
+    "src": "a5efcec5"
   },
   "supervisor.fallback.dismiss": {
     "text": "Schließen (Ersatzprogramm behalten)",

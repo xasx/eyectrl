@@ -413,6 +413,13 @@ internal sealed class ToolbarBand
             button.UpdateProgress(progress);
     }
 
+    /// <summary>Dims or restores one button's progress arc while its dwell is held (display-only).</summary>
+    internal void SetPaused(string id, bool paused)
+    {
+        if (_buttons.TryGetValue(id, out var button))
+            button.SetPaused(paused);
+    }
+
     /// <summary>
     /// Applies the selection-mode tint to the SelectionMode disc, caching it in
     /// <see cref="_selectionModeBrush"/> (see that field's doc for why a cache, not a live

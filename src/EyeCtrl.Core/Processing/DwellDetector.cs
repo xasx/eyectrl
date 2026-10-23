@@ -120,6 +120,64 @@ public class DwellDetector
     /// <summary>Raised with the target's dwell progress (0.0–1.0) each update cycle.</summary>
     public event Action<string, double>? TargetProgress;
 
+    /// <summary>
+    /// Raised when a target's grace pause starts (<c>true</c>: the gaze left it mid-dwell and its
+    /// progress is now HELD for up to <see cref="PauseGraceMs"/>) and when it ends (<c>false</c>: the
+    /// gaze returned, the grace expired, or the state was reset by <see cref="ResetAllState"/>, a
+    /// cooldown, <see cref="SetPauseGrace"/>, or a target removal). Fires only on a change, and
+    /// never on a grace-0 detector. Purely a display signal: the held progress keeps arriving on
+    /// <see cref="TargetProgress"/>, and nothing in the hold logic reads this state.
+    /// </summary>
+    public event Action<string, bool>? TargetPauseChanged;
+
+    /// <summary>Whether the pause grace holds this target: a grace is set and the target did not opt out
+    /// (<see cref="DwellTarget.PauseGraceExempt"/>). At grace 0 this is always false, as before.</summary>
+    private bool GraceApplies(DwellTarget target) =>
+        _pauseGraceMicroseconds > 0 && !target.PauseGraceExempt;
+
+    private void SetGracePaused(DwellTarget target, bool paused)
+    {
+        if (target.GracePaused == paused) return;
+        target.GracePaused = paused;
+        TargetPauseChanged?.Invoke(target.Id, paused);
+    }
+
+    /// <summary>
+    /// Sets the pause grace live, mirroring <see cref="SetCooldown"/>. Raising it takes effect from
+    /// the next sample. Lowering it applies from the next sample too, except that setting 0 (grace
+    /// off) drops every held dwell now — their progress goes to 0 and their paused state clears —
+    /// because a grace-0 detector never reads a held anchor again.
+    /// </summary>
+    /// <param name="pauseGraceMs">Grace in milliseconds; 0 restores the reset-on-leave behaviour.</param>
+    public void SetPauseGrace(int pauseGraceMs)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(pauseGraceMs);
+        _pauseGraceMicroseconds = pauseGraceMs * MathConstants.MicrosecondsPerMillisecond;
+        if (pauseGraceMs != 0) return;
+
+        var targets = _targetsSnapshot;
+        for (int i = 0; i < targets.Length; i++)
+        {
+            var t = targets[i];
+            if (t.IsGazeInside || !t.EnteredTimestamp.HasValue) continue;
+            t.EnteredTimestamp = null;
+            t.LastInsideTimestampUs = null;
+            SetGracePaused(t, false);
+            TargetProgress?.Invoke(t.Id, 0);
+        }
+    }
+
+    /// <summary>
+    /// When true, a grace hold survives only empty space and silence: as soon as the gaze is inside
+    /// a DIFFERENT target, every other held dwell drops at once (progress 0, paused cleared) — the
+    /// grace-0 outcome for that case (A1 fixup-01 M3). Without it a hold survives a neighbour, and
+    /// a gaze resting on the gap between two buttons can assemble one of them out of alternating
+    /// runs (measured: fires in 1.6–2.8 s at grace 500, never at grace 0). The overlay dwell family
+    /// sets it; the sub-pixel probe keeps its SP-4c hold-through-neighbour behaviour. Meaningless at
+    /// grace 0.
+    /// </summary>
+    public bool OtherTargetReleasesHold { get; init; }
+
     /// <summary>Sets the cooldown period between activations.</summary>
     /// <param name="cooldownMs">Cooldown duration in milliseconds.</param>
     public void SetCooldown(int cooldownMs)
@@ -151,21 +209,37 @@ public class DwellDetector
     /// <summary>Adds a target for dwell detection. Replaces any existing target with the same ID.</summary>
     public void AddTarget(DwellTarget target)
     {
+        _targets.TryGetValue(target.Id, out var replaced);
         _targets[target.Id] = target;
         _targetsSnapshot = _targets.Values.ToArray();
         ApplyMap(target);
         ApplyGeometryMap(target);
+
+        // A replaced target that was grace-held takes its hold with it: the new target starts
+        // fresh, so its owner must drop the dimmed cue and the frozen value (A1 fixup-01 L2).
+        // GracePaused is only ever set under a grace, so grace 0 is unchanged.
+        if (replaced is not null && !ReferenceEquals(replaced, target) && replaced.GracePaused)
+        {
+            SetGracePaused(replaced, false);
+            TargetProgress?.Invoke(target.Id, 0);
+        }
     }
     /// <summary>Removes a target from dwell detection.</summary>
     public void RemoveTarget(string id)
     {
-        if (_targets.TryRemove(id, out _))
+        if (_targets.TryRemove(id, out var removed))
+        {
             _targetsSnapshot = _targets.Values.ToArray();
+            SetGracePaused(removed, false);
+        }
     }
     /// <summary>Removes all targets from dwell detection.</summary>
     public void ClearTargets()
     {
+        var removed = _targetsSnapshot;
         _targets.Clear();
+        for (int i = 0; i < removed.Length; i++)
+            SetGracePaused(removed[i], false);
         _targetsSnapshot = _targets.Values.ToArray();
     }
 
@@ -188,8 +262,12 @@ public class DwellDetector
         for (int i = 0; i < targets.Length; i++)
         {
             var t = targets[i];
-            if (t.IsGazeInside)
+            // A grace-held target is outside (IsGazeInside false) yet still shows its frozen
+            // progress: it must be told to drop it, or its cue would stay frozen with nothing left
+            // to expire it. GracePaused is only ever set under a grace, so grace 0 is unchanged.
+            if (t.IsGazeInside || t.GracePaused)
                 TargetProgress?.Invoke(t.Id, 0);
+            SetGracePaused(t, false);
             t.IsGazeInside = false;
             t.EnteredTimestamp = null;
             t.LastInsideTimestampUs = null;
@@ -359,12 +437,21 @@ public class DwellDetector
             {
                 var target = targets[i];
                 if (!target.EnteredTimestamp.HasValue) continue;
+                if (target.PauseGraceExempt)
+                {
+                    // Exempt: exactly the grace-0 rule (a silence at the clamp restarts).
+                    if (sinceLastSampleUs >= MaxCreditedSampleGapUs)
+                        target.EnteredTimestamp = timestampMicroseconds;
+                    continue;
+                }
                 if (target.IsGazeInside)
                 {
-                    if (sinceLastSampleUs > _pauseGraceMicroseconds)
+                    if (sinceLastSampleUs > _pauseGraceMicroseconds && sinceLastSampleUs >= MaxCreditedSampleGapUs)
                     {
-                        // Above the grace: restart from this sample. Both stamps move to it, so a
-                        // following leave pauses with a frozen progress of 0.
+                        // Above the grace AND at the clamp: restart from this sample. Both stamps
+                        // move to it, so a following leave pauses with a frozen progress of 0. The
+                        // clamp term keeps a grace under 150 ms from restarting a silence that grace
+                        // 0 credits (A1 fixup-01 M1); for any grace of 150 or more it is implied.
                         target.EnteredTimestamp = timestampMicroseconds;
                         target.LastInsideTimestampUs = timestampMicroseconds;
                     }
@@ -388,6 +475,7 @@ public class DwellDetector
                     // (mutant O1 is killed by P4). The explicit 0 is what the outline needs.
                     target.EnteredTimestamp = null;
                     target.LastInsideTimestampUs = null;
+                    SetGracePaused(target, false);
                     TargetProgress?.Invoke(target.Id, 0);
                 }
             }
@@ -409,8 +497,9 @@ public class DwellDetector
             for (int i = 0; i < targets.Length; i++)
             {
                 var t = targets[i];
-                if (t.IsGazeInside)
+                if (t.IsGazeInside || t.GracePaused)
                     TargetProgress?.Invoke(t.Id, 0);
+                SetGracePaused(t, false);
                 t.IsGazeInside = false;
                 t.EnteredTimestamp = null;
             }
@@ -420,6 +509,16 @@ public class DwellDetector
 
         // ── Find the single nearest target within hit range ──
         var nearestId = FindNearestHittingTargetId(targets, gazePoint, targetFilter);
+
+        // The target whose hit releases every OTHER hold (OtherTargetReleasesHold). It is decided on
+        // the UNFILTERED hit: a filter says which targets may accumulate, not where the gaze is. A
+        // caller that withholds the sample from every target (the edge bar's re-arm gate passes
+        // `_ => false` while the gaze rests on a just-fired modifier) must not turn the real
+        // neighbour under the gaze into "empty space" that keeps a hold alive (A1 fixup-02 M1).
+        // Null at grace 0, for a detector that did not opt in, and over truly empty space.
+        string? releaseBy = OtherTargetReleasesHold && _pauseGraceMicroseconds > 0
+            ? (targetFilter is null ? nearestId : FindNearestHittingTargetId(targets, gazePoint, null))
+            : null;
 
         // ── Accumulate dwell on nearest only; every other target leaves it ──
         string? activatedId = null;
@@ -443,7 +542,7 @@ public class DwellDetector
                     // The anchor is advanced by the away time, so the away time is not credited;
                     // without a grace, with no live pause, or on a return past the grace, the
                     // dwell simply starts over.
-                    if (_pauseGraceMicroseconds > 0 && target.EnteredTimestamp.HasValue
+                    if (GraceApplies(target) && target.EnteredTimestamp.HasValue
                         && target.LastInsideTimestampUs is { } lastInside
                         && timestampMicroseconds - lastInside <= _pauseGraceMicroseconds)
                     {
@@ -455,6 +554,7 @@ public class DwellDetector
                     }
 
                     target.IsGazeInside = true;
+                    SetGracePaused(target, false);
                 }
                 else if (target.EnteredTimestamp.HasValue)
                 {
@@ -486,7 +586,12 @@ public class DwellDetector
                     // With a live grace pause the leave keeps showing the FROZEN progress (fixup 01
                     // F2): the owner must not read "lost it, start again" while the dwell is still
                     // held. Without a grace, and for a target with no anchor, this is the old 0.
-                    bool pauses = _pauseGraceMicroseconds > 0 && target.EnteredTimestamp.HasValue;
+                    bool pauses = GraceApplies(target) && target.EnteredTimestamp.HasValue
+                        && !(releaseBy is not null && releaseBy != target.Id);
+                    // Paused is announced BEFORE the frozen progress, so a consumer that derives
+                    // "the gaze is on this" from a positive progress can already see that it is held.
+                    if (pauses)
+                        SetGracePaused(target, true);
                     TargetProgress?.Invoke(target.Id, pauses ? FrozenProgress(target) : 0);
                     if (_sink is not null && target.EnteredTimestamp.HasValue
                         && (targetFilter is null || targetFilter(target)))
@@ -511,10 +616,18 @@ public class DwellDetector
                         target.LastInsideTimestampUs = null;
                     }
                 }
-                else if (_pauseGraceMicroseconds == 0)
+                else if (!GraceApplies(target))
                 {
                     target.EnteredTimestamp = null;
                     target.LastInsideTimestampUs = null;
+                }
+                else if (releaseBy is not null && releaseBy != target.Id && target.EnteredTimestamp.HasValue)
+                {
+                    // The gaze is inside another target: a hold never survives a neighbour (M3).
+                    target.EnteredTimestamp = null;
+                    target.LastInsideTimestampUs = null;
+                    SetGracePaused(target, false);
+                    TargetProgress?.Invoke(target.Id, 0);
                 }
 
                 target.IsGazeInside = false;
@@ -597,7 +710,7 @@ public class DwellDetector
         if (!_targets.TryGetValue(targetId, out var target)) return 0;
         if (!target.EnteredTimestamp.HasValue) return 0;
         if (!target.IsGazeInside)
-            return _pauseGraceMicroseconds > 0 ? FrozenProgress(target) : 0;
+            return GraceApplies(target) ? FrozenProgress(target) : 0;
 
         long elapsed = _lastTimestamp - target.EnteredTimestamp.Value;
         return Math.Min(1.0, (double)elapsed / target.DwellTimeMicroseconds);

@@ -89,6 +89,9 @@ public class GlassBackdropViewModelTests
     public void Gaze_AwayFromHideButton_ResetsProgress()
     {
         var settings = new EyeCtrlSettings();
+        // The reset-on-leave rule is the grace-0 behaviour; the default grace now HOLDS the progress
+        // instead (DwellPauseGraceWiringTests covers that side).
+        settings.Dwell.DwellPauseGraceMs = 0;
         var messenger = new WeakReferenceMessenger();
         var vm = new GlassBackdropViewModel(settings, messenger);
         var buttonCenter = new PhysicalPoint(1860, 40);

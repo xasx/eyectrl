@@ -5,6 +5,7 @@ using System.Windows;
 using EyeCtrl.Controls;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Supervisor.Supervision;
 using Media = System.Windows.Media;
 
 /// <summary>
@@ -44,6 +45,24 @@ public partial class FallenBackDialog : Window
         BuildButtons();
     }
 
+    /// <summary>Shows the auto-retry countdown line ("Trying again in 60 s…") — A3's safety net for
+    /// a user who cannot click Retry. Called when the session's one countdown is armed for this
+    /// episode; the text comes from the dialog's own table, with the countdown's SECONDS as the
+    /// format argument (fixup-02 addendum: the number is never baked into the string).</summary>
+    internal void ShowAutoRetryCountdown()
+    {
+        CountdownText.Text = Strings.T(
+            "supervisor.fallback.countdown", (int)FallenBackAutoRetry.Delay.TotalSeconds);
+        CountdownText.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Hides the countdown line once the countdown has fired or been cancelled, so a
+    /// dialog left open (a failed launch) never claims a retry is still pending.</summary>
+    internal void ClearAutoRetryCountdown()
+    {
+        CountdownText.Visibility = Visibility.Collapsed;
+    }
+
     private void BuildButtons()
     {
         // Large hit areas + large font: this is shown when the app is broken; the user may
@@ -77,14 +96,18 @@ public partial class FallenBackDialog : Window
         dismiss.Attach(ButtonHost);
     }
 
-    private void OnRetry()
+    /// <summary>The Retry button's action - internal so the wiring tests can drive the real button
+    /// path without showing the dialog.</summary>
+    internal void OnRetry()
     {
         RetryRequested?.Invoke();
         // Task 20 owns the close-on-retry decision; keep the dialog up until then so the
         // user sees confirmation their click registered.
     }
 
-    private void OnDismiss()
+    /// <summary>The Dismiss button's action - internal so the wiring tests can drive the real
+    /// button path without showing the dialog.</summary>
+    internal void OnDismiss()
     {
         Dismissed?.Invoke();
         Close();

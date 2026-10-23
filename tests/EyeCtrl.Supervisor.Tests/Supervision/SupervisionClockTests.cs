@@ -200,6 +200,11 @@ public class SupervisionClockTests
         }
 
         public void WireLaunchedProcess() => Actions.Add("WireLaunchedProcess");
+
+        /// <summary>A3 fixup-01: the real countdown behind the clock's feed (M4), armed by the tests.</summary>
+        public FallenBackAutoRetry AutoRetry { get; } = new();
+
+        public void TickFallenBackAutoRetry(DateTime now) => AutoRetry.Tick(now);
     }
 
     private static Host Supervising(DateTime since, DateTime lastHeartbeat)
@@ -459,5 +464,28 @@ public class SupervisionClockTests
         SupervisionClock.Tick(now, host);
 
         Check.That(host.Actions).ContainsExactly("HeartbeatStale");
+    }
+
+    // ─── A3 fixup-01: the FallenBack auto-retry countdown's feed ─────────────────────
+
+    /// <summary>The tick DRIVES the FallenBack dialog's auto-retry countdown: the countdown knows
+    /// its own deadline, but only this feed can fire it. Removing the feed from
+    /// <see cref="SupervisionClock.Tick"/> (review-01's M4) strands a dialog that promises
+    /// "Trying again in 60 s..." with nothing to try, and all suites stayed green.</summary>
+    [Fact]
+    public void Tick_DrivesTheFallenBackAutoRetryCountdown()
+    {
+        var host = new Host();
+        var fires = 0;
+        Check.That(host.AutoRetry.TryArm(T0, () => fires++)).IsTrue();
+
+        SupervisionClock.Tick(T0.AddSeconds(59), host);
+        Check.That(fires).IsEqualTo(0);
+
+        SupervisionClock.Tick(T0.AddSeconds(60), host);
+        Check.That(fires).IsEqualTo(1);
+
+        SupervisionClock.Tick(T0.AddSeconds(61), host);
+        Check.That(fires).IsEqualTo(1);
     }
 }

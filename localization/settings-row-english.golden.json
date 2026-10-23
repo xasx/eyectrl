@@ -139,6 +139,12 @@
           "Modal": null
         },
         {
+          "Id": "d_pause_grace",
+          "Label": "Look-Away Grace (ms)",
+          "Description": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
+          "Modal": null
+        },
+        {
           "Id": "d_cue_sound",
           "Label": "Dwell Completion Sound",
           "Description": "Plays a soft tone when a dwell activates on any EyeCtrl surface — buttons, menus, settings. Keys keep their own click sound.",

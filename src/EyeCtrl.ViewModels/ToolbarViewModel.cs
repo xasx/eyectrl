@@ -110,7 +110,12 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             // positions only for buttons it actually renders, unrendered buttons never get a
             // target and so can't be dwell-activated from an off-screen/corner gaze.
             DwellDetector.AddTarget(new DwellTarget(buttonId, screenCenter,
-                _buttonDwellRadiusPhysical, _toolbarButtonDwellMs));
+                _buttonDwellRadiusPhysical, _toolbarButtonDwellMs)
+            {
+                // The adaptation reset is a destructive confirm: its preview must be followed by a
+                // pass from zero, so the forgiving-dwell grace never holds it (ResetPreviewEngine).
+                PauseGraceExempt = buttonId == ResetPreviewEngine.ResetId,
+            });
         }
         else
         {
@@ -149,7 +154,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null,
         Func<bool>? isFeedbackSuppressed = null, ILogger<ToolbarViewModel>? logger = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry, settings.Dwell)
     {
         _logger = logger;
         _previewEngine = new ResetPreviewEngine(isFeedbackSuppressed);
@@ -527,7 +532,17 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // sample on (lines 229-233); it fires exactly 0 on leave (line 253) and on activation
         // (line 276). So "progress > 0" is "gaze is on this target", one gaze sample after entry —
         // ~30 ms at the tracker's ~33 Hz (TobiiStreamEngineProvider.cs:195).
-        btn.IsHighlighted = progress > 0;
+        // A held dwell (the gaze stepped off; the detector announces the pause BEFORE the frozen
+        // progress) keeps its arc but is no longer "acquired" — the highlight tracks the gaze.
+        btn.IsHighlighted = progress > 0 && !btn.IsDwellPaused;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        // Display only: the arc keeps its held value and only dims; the acquired highlight is
+        // derived from progress above (and owned by the adaptation preview for Reset).
+        if (_buttonLookup.TryGetValue(targetId, out var btn))
+            btn.IsDwellPaused = paused;
     }
 
     /// <summary>Service → engine bounds report (P2): the live panel rect or its kind of absence.</summary>

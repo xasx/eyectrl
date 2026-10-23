@@ -22,7 +22,7 @@ public partial class GlassBackdropViewModel : DwellOverlayViewModelBase,
 
     public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink, dwellRegistry, settings.Dwell)
     {
         _settings = settings;
     }

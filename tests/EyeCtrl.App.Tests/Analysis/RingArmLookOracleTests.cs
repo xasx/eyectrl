@@ -181,6 +181,23 @@ public class RingArmLookOracleTests
     }
 
     [Fact]
+    public void Outcome_ANearMissSettleOnT_EndsTheKeep_IsRefused_AndTheRingFollows()
+    {
+        // Review-02 G1: the eye resumes at the near-miss spot after a gap, the keep starts, and the settle
+        // there reaches the ring on T: it ends the keep, D refuses it, and the owed run-end release lets the
+        // ring follow (no ring left pinned at P without a keep, hold or pending release).
+        var run = RunWired(GoingForItChains.GapToNearMiss());
+        var events = run.Events.ToList();
+        int settled = events.IndexOf("go end Settled");
+        Check.WithCustomMessage(string.Join(" | ", events)).That(settled).IsGreaterOrEqualThan(0);
+        Check.That(events.Skip(settled).Take(3)).ContainsExactly("go end Settled", "pin near-miss", "release RunEnd");
+        // The release is owed on the very sample the settle ends the keep, not at the next run end.
+        int settledSample = run.FirstSample("go end Settled");
+        Check.That(run.FirstSample("release RunEnd", settledSample)).IsEqualTo(settledSample);
+        Check.That(run.Pinned[settledSample]).IsFalse();
+    }
+
+    [Fact]
     public void Outcome_DriftEndedRun_LookingAway_FollowsAtOnce_WithNoKeep()
     {
         // F3, the other way: the same drift-ended run, then the eye looks 500 px to the side: no keep, the

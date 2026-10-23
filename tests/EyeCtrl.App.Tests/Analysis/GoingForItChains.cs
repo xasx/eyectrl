@@ -96,6 +96,21 @@ internal static class GoingForItChains
     }
 
     /// <summary>
+    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (190 px from B,
+    /// beside the button, much nearer B than P): the first post-run frame is inside B's no-move zone, so the
+    /// keep starts; the eye stays, the detector settles there 500 ms after the new run's anchor, so the
+    /// settle reaches the ring on the keep's time-limit frame, ends the keep, and D refuses it as a near miss.
+    /// The owed run-end release then lets the ring follow (fixup-01's deviation a; review-02 G1).
+    /// </summary>
+    internal static List<GazePoint> GapToNearMiss()
+    {
+        var (p, b, pt) = Geometry();
+        var miss = pt(p.DistanceTo(b), 190);
+        return new Chain(61).Hold(p.X, p.Y, 1200).Skip(700).Hold(miss.X, miss.Y, 960)
+            .Hold(1000, 1700, 1500).Samples;
+    }
+
+    /// <summary>
     /// The run ends near P (a 700 ms sample-clock gap), the eye resumes 40 px from P, stops 60 px past P for
     /// 900 ms in the corridor (the detector settles there, 500 ms after the new run's anchor, so the settle
     /// reaches the ring on the keep's time-limit frame), and replaces the offer. With
@@ -182,6 +197,7 @@ internal static class GoingForItChains
         list.Add(("drift: the run ends 66 px from P, then to B", Drift(DriftKind.ToButton)));
         list.Add(("drift: the run ends 66 px from P, then away", Drift(DriftKind.Away)));
         list.Add(("a corridor stop near P: the settle replaces the offer", StopNearP(null)));
+        list.Add(("near miss: the run ends at the near-miss spot, the settle lands on T and D refuses it", GapToNearMiss()));
         return list;
     }
 }

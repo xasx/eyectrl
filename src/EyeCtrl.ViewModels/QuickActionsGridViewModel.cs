@@ -50,6 +50,8 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
     /// <summary>Reserved dwell-target id for the grid's close button (not a QuickAction).</summary>
     public const string CloseTargetId = "__qa_close__";
     [ObservableProperty] private double _closeDwellProgress;
+    /// <summary>True while the close button's dwell is held (gaze stepped off mid-dwell): its bar dims.</summary>
+    [ObservableProperty] private bool _closeDwellPaused;
 
     public QuickActionsGridViewModel(
         IQuickActionsStore store,
@@ -57,7 +59,7 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
         IMessenger messenger,
         IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.QuickActions, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.QuickActions, sink, dwellRegistry, settings.Dwell)
     {
         _store = store;
         _settings = settings;
@@ -172,6 +174,18 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
         var tile = Tiles.FirstOrDefault(t => t.Action.Id == targetId);
         if (tile != null)
             tile.DwellProgress = progress;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        if (targetId == CloseTargetId)
+        {
+            CloseDwellPaused = paused;
+            return;
+        }
+        var tile = Tiles.FirstOrDefault(t => t.Action.Id == targetId);
+        if (tile != null)
+            tile.IsDwellPaused = paused;
     }
 
     // Test-only hook — same pattern as ToolbarViewModel.SimulateButtonActivated.

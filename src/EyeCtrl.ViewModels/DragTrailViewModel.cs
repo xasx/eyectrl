@@ -36,7 +36,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.DragTrail, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.DragTrail, sink, dwellRegistry, settings.Dwell)
     {
         _settings = settings;
 

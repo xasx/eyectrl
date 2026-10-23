@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
+        xmlns:ctl="clr-namespace:EyeCtrl.Controls;assembly=EyeCtrl.Controls"
         WindowStyle="None" AllowsTransparency="True" Background="{StaticResource BrushSurfaceDark}"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         IsClickThrough="False">
@@ -38,7 +39,8 @@
                                 <ProgressBar Grid.Row="1" Value="{Binding DwellProgress}" Maximum="1" Minimum="0"
                                              Height="6" Margin="0,6,0,0"
                                              Foreground="{StaticResource BrushAccent}" Background="Transparent"
-                                             BorderThickness="0" Focusable="False" IsHitTestVisible="False"/>
+                                             BorderThickness="0" Focusable="False" IsHitTestVisible="False"
+                                             Opacity="{Binding IsDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
                             </Grid>
                         </Border>
                     </DataTemplate>

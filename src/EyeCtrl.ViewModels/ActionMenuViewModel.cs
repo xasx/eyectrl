@@ -56,7 +56,7 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
 
     public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActionMenu, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActionMenu, sink, dwellRegistry, settings.Dwell)
     {
         _settings = settings;
     }
@@ -232,5 +232,11 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     {
         if (_itemLookup.TryGetValue(targetId, out var item))
             item.DwellProgress = progress;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        if (_itemLookup.TryGetValue(targetId, out var item))
+            item.IsDwellPaused = paused;
     }
 }

@@ -46,7 +46,7 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
 
     public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ManualSelection, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ManualSelection, sink, dwellRegistry, settings.Dwell)
     {
     }
 

@@ -53,7 +53,7 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
 
     public ModesMenuViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry)
+        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry, settings.Dwell)
     {
         _rowDwellMs = settings.Dwell.ToolbarButtonDwellMs;
         RebuildButtons();
@@ -133,6 +133,13 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
         var button = Buttons.FirstOrDefault(b => b.Id == targetId);
         if (button is not null)
             button.DwellProgress = progress;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        var button = Buttons.FirstOrDefault(b => b.Id == targetId);
+        if (button is not null)
+            button.IsDwellPaused = paused;
     }
 
     public void HideOverlay()

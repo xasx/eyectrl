@@ -36,6 +36,12 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
 
     /// <summary>Dwell progress 0.0–1.0, driven by the VM's DwellDetector via OnTargetProgress.</summary>
     [ObservableProperty] private double _dwellProgress;
+    /// <summary>
+    /// True while this item's dwell is HELD: the gaze stepped off mid-dwell and <see cref="DwellProgress"/>
+    /// is kept for the pause grace. The view dims the progress indicator; it never changes the value.
+    /// Display-only — nothing reads it to decide whether a dwell holds.
+    /// </summary>
+    [ObservableProperty] private bool _isDwellPaused;
 
     public TaskSwitcherTileViewModel(IntPtr hwnd, string title, uint processId, string processName, PhysicalPoint position)
     {

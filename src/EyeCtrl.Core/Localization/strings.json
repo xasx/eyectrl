@@ -3053,6 +3053,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.pause_grace.description": {
+    "text": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.pause_grace.label": {
+    "text": "Look-Away Grace (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.prediction.description": {
     "text": "Dwell for the word suggestions above the keyboard.",
     "who": "user",

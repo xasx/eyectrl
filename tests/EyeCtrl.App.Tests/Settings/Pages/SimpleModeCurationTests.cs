@@ -173,8 +173,11 @@ public class SimpleModeCurationTests
         // c_opacity builds before c_size (CursorPageSource.cs:79 vs :103).
         "Cursor" => ["Pick:c_color", "Combo:c_ring_style", "Slider:c_opacity", "Slider:c_size",
             "Button:c_reset"],
+        // d_pause_grace joined the simple set deliberately (gaze-UX wave A, ticket A1: the forgiving
+        // dwell is the one dwell control a caregiver is expected to find); it builds after d_cooldown.
         "Dwell" => ["Slider:d_act", "Slider:d_menu", "Slider:d_tool", "Slider:d_key",
-            "Slider:d_pred", "Slider:d_rad", "Toggle:d_cue_sound", "Button:d_reset"],
+            "Slider:d_pred", "Slider:d_rad", "Slider:d_pause_grace", "Toggle:d_cue_sound",
+            "Button:d_reset"],
         "Keyboard" => ["Combo:k_layout", "Slider:k_size", "Toggle:k_pred", "Combo:k_lang",
             "Toggle:k_sound", "Button:k_reset"],
         _ => throw new ArgumentException($"Unknown simple tab {tab}")

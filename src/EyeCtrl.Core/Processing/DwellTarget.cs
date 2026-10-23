@@ -29,6 +29,22 @@ public class DwellTarget
     /// </summary>
     internal long? LastInsideTimestampUs { get; set; }
 
+    /// <summary>
+    /// Whether the owning detector last reported this target as paused (gaze left mid-dwell and the
+    /// grace still holds its progress) through <c>DwellDetector.TargetPauseChanged</c>. Display
+    /// bookkeeping only — it makes the paused/resumed event fire exactly on a change, and no hold
+    /// decision reads it.
+    /// </summary>
+    internal bool GracePaused { get; set; }
+
+    /// <summary>
+    /// Opts this target out of the detector's pause grace: it behaves as on a grace-0 detector
+    /// (reset on leave, restart on a silence at the clamp). For a target whose confirm flow depends
+    /// on a fresh dwell after a leave — the toolbar's Reset-adaptation button, whose preview must be
+    /// followed by a pass from zero. Default false; meaningless at grace 0.
+    /// </summary>
+    public bool PauseGraceExempt { get; set; }
+
     /// <summary>Optional rectangular bounds. When set, HitTest uses rect containment; null ⇒ circle.</summary>
     public PhysicalRect? Bounds { get; set; }
 

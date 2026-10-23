@@ -217,6 +217,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
                 {
                     if (e.PropertyName == nameof(ActionMenuItemViewModel.DwellProgress))
                         UpdateItemProgress(capturedId, capturedItem.DwellProgress);
+                    else if (e.PropertyName == nameof(ActionMenuItemViewModel.IsDwellPaused)
+                        && _buttonVisuals.TryGetValue(capturedId, out var heldButton))
+                        heldButton.SetPaused(capturedItem.IsDwellPaused);
                 };
                 itemVm.PropertyChanged += handler;
                 _itemProgressSubs.Add((capturedItem, handler));
@@ -227,6 +230,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         Top = DpiHelper.PhysicalToLogicalY(center.Y) - Height / 2;
         Show();
     }
+
+    /// <summary>Test seam: the ring buttons the last <c>Show</c> painted, keyed by item id.</summary>
+    internal IReadOnlyDictionary<string, DwellArcButton> DrawnButtonsForTest => _buttonVisuals;
 
     private void UpdateItemProgress(string targetId, double progress)
     {

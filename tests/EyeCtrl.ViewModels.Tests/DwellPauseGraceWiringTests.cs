@@ -385,6 +385,49 @@ public class DwellPauseGraceWiringTests
 
     // Mutation (A1-x3): drop the PauseGraceExempt initialiser in ToolbarViewModel -> red here and in P16.
 
+    /// <summary>
+    /// A1 fixup-02 M1: the edge bar's re-arm gate must not reopen the straddle path. Toggle
+    /// modifier B (RearmOnGazeExit: it now waits for the gaze to leave), then rest on the A/B
+    /// boundary with the nearest alternating. While B is nearest the bar withholds the sample from
+    /// every target (`_ => false`); the release of A's hold must still see B under the gaze, so A
+    /// never assembles a dwell out of the alternating runs.
+    /// </summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void EdgeBar_AfterTogglingOneModifier_StraddlingItsNeighbour_FiresNeither(int run)
+    {
+        var toggles = new List<string>();
+        EdgeButtonDefinition Modifier(string id, double offset) => new(
+            id, Symbol: string.Empty, DwellMs: 700, Activate: _ => toggles.Add(id),
+            VerticalOffset: offset, RadiusLogical: 50, Icon: ActionIcon.Close, Label: id, RearmOnGazeExit: true);
+
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.ShowButtons([Modifier("A", 0), Modifier("B", 90)], new PhysicalPoint(1000, 500));
+        var targets = DetectorOf(vm).Targets;
+        var a = targets.Single(t => t.Id == "A").Center;
+        var b = targets.Single(t => t.Id == "B").Center;
+        var mid = new PhysicalPoint((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+        var nearA = new PhysicalPoint(mid.X, mid.Y - 2);
+        var nearB = new PhysicalPoint(mid.X, mid.Y + 2);
+        Check.That(DetectorOf(vm).HitTest("A", nearB) && DetectorOf(vm).HitTest("B", nearA)).IsTrue();
+
+        // Toggle B with a plain dwell: B is now pending re-arm and gated while it is nearest.
+        long t = 0;
+        for (; t <= 900; t += 30) vm.Receive(new GazeCursorMovedMessage(b, t * Ms));
+        Check.That(toggles).ContainsExactly("B");
+
+        int i = 0;
+        for (long end = t + 3000; t <= end; t += 30, i++)
+            vm.Receive(new GazeCursorMovedMessage((i / run) % 2 == 0 ? nearA : nearB, t * Ms));
+
+        Check.WithCustomMessage($"runs of {run}: the gated modifier let its neighbour's hold survive and fire")
+            .That(toggles).ContainsExactly("B");
+    }
+
+    // Mutation (A1-g1): release keyed off the FILTERED nearestId again -> A fires, red.
+
     [Fact]
     public void TheQuickActionsCloseButton_GetsItsOwnPausedFlag()
     {

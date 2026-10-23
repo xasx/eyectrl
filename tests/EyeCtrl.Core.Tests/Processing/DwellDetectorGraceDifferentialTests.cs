@@ -57,7 +57,10 @@ public class DwellDetectorGraceDifferentialTests
             var sinkOld = new Sink();
             var sinkNew = new Sink();
             var oldD = new Rv4cOldDwellDetector(cooldown, DwellContext.Other, withSink ? sinkOld : null);
-            var newD = new DwellDetector(cooldown, DwellContext.Other, withSink ? sinkNew : null);
+            // The production configuration of the overlay family: the neighbour release is on. At
+            // grace 0 it must be inert (A1 fixup-02 L1).
+            var newD = new DwellDetector(cooldown, DwellContext.Other, withSink ? sinkNew : null)
+                { OtherTargetReleasesHold = true };
             var logOld = new List<string>();
             var logNew = new List<string>();
             oldD.TargetProgress += (id, p) => logOld.Add($"P {id} {p:R}");
@@ -154,7 +157,7 @@ public class DwellDetectorGraceDifferentialTests
     public void P1b_SetPauseGraceZero_DuringACooldown_ChangesNothing()
     {
         var oldD = new Rv4cOldDwellDetector(400, DwellContext.Other, null);
-        var newD = new DwellDetector(400, DwellContext.Other, null);
+        var newD = new DwellDetector(400, DwellContext.Other, null) { OtherTargetReleasesHold = true };
         long now = 0;
         var logOld = new List<string>();
         var logNew = new List<string>();

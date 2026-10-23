@@ -510,6 +510,16 @@ public class DwellDetector
         // ── Find the single nearest target within hit range ──
         var nearestId = FindNearestHittingTargetId(targets, gazePoint, targetFilter);
 
+        // The target whose hit releases every OTHER hold (OtherTargetReleasesHold). It is decided on
+        // the UNFILTERED hit: a filter says which targets may accumulate, not where the gaze is. A
+        // caller that withholds the sample from every target (the edge bar's re-arm gate passes
+        // `_ => false` while the gaze rests on a just-fired modifier) must not turn the real
+        // neighbour under the gaze into "empty space" that keeps a hold alive (A1 fixup-02 M1).
+        // Null at grace 0, for a detector that did not opt in, and over truly empty space.
+        string? releaseBy = OtherTargetReleasesHold && _pauseGraceMicroseconds > 0
+            ? (targetFilter is null ? nearestId : FindNearestHittingTargetId(targets, gazePoint, null))
+            : null;
+
         // ── Accumulate dwell on nearest only; every other target leaves it ──
         string? activatedId = null;
         // One slot each is sufficient: only the nearest target is ever given IsGazeInside == true,
@@ -577,7 +587,7 @@ public class DwellDetector
                     // F2): the owner must not read "lost it, start again" while the dwell is still
                     // held. Without a grace, and for a target with no anchor, this is the old 0.
                     bool pauses = GraceApplies(target) && target.EnteredTimestamp.HasValue
-                        && !(OtherTargetReleasesHold && nearestId is not null);
+                        && !(releaseBy is not null && releaseBy != target.Id);
                     // Paused is announced BEFORE the frozen progress, so a consumer that derives
                     // "the gaze is on this" from a positive progress can already see that it is held.
                     if (pauses)
@@ -611,7 +621,7 @@ public class DwellDetector
                     target.EnteredTimestamp = null;
                     target.LastInsideTimestampUs = null;
                 }
-                else if (OtherTargetReleasesHold && nearestId is not null && target.EnteredTimestamp.HasValue)
+                else if (releaseBy is not null && releaseBy != target.Id && target.EnteredTimestamp.HasValue)
                 {
                     // The gaze is inside another target: a hold never survives a neighbour (M3).
                     target.EnteredTimestamp = null;

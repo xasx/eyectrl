@@ -388,6 +388,27 @@ public class DwellDetectorPausedSignalTests
     // Mutation (A1-m3b): the not-inside release branch is dropped -> A stays paused, red.
 
     [Fact]
+    public void AFilterThatWithholdsTheSample_StillReleasesAHold_OnTheTargetUnderTheGaze()
+    {
+        // A1 fixup-02 M1: the edge bar's re-arm gate updates with `_ => false` while the gaze rests on
+        // a just-fired modifier. The filter decides who may accumulate, not where the gaze is: B is
+        // under the gaze, so A's hold must drop as on an ungated sample.
+        var detector = new DwellDetector(pauseGraceMs: 500) { OtherTargetReleasesHold = true };
+        detector.AddTarget(new DwellTarget("A", On, radius: 30, dwellTimeMs: 700));
+        detector.AddTarget(new DwellTarget("B", new PhysicalPoint(500, 100), radius: 30, dwellTimeMs: 700));
+        var rec = new Recorder(detector);
+
+        DriveInside(detector, 0, 180 * Ms);
+        detector.Update(Off, 210 * Ms);                                          // A held
+        detector.Update(new PhysicalPoint(500, 100), 240 * Ms, static _ => false); // gated, on B
+
+        Check.That(rec.Pauses).ContainsExactly("A:paused", "A:resumed");
+        Check.That(rec.Events.Last(e => e.StartsWith("progress A "))).IsEqualTo("progress A 0.000");
+    }
+
+    // Mutation (A1-g1): the release keys off the FILTERED nearest again -> A stays held, red.
+
+    [Fact]
     public void LeavingStraightOntoANeighbour_NeverHolds()
     {
         var detector = new DwellDetector(pauseGraceMs: 500) { OtherTargetReleasesHold = true };

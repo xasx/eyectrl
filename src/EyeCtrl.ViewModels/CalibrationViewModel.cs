@@ -177,15 +177,16 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     [ObservableProperty] private IReadOnlyList<PhysicalPoint> _targetPositions = Array.Empty<PhysicalPoint>();
 
     /// <summary>
-    /// The centre of this session's gaze Cancel target, in physical screen pixels. Computed once
-    /// when the session starts, from the same published target list the collector gates on, so the
-    /// point the overlay draws is the point this view model excludes from collection.
+    /// The centre of this session's gaze Cancel target, in physical screen pixels. Computed when the
+    /// session starts from the same published target list the collector gates on, then refined once
+    /// by the overlay against its own progress card (see <see cref="SetCancelTarget"/>).
     /// </summary>
     /// <remarks>
-    /// The overlay owns the drawing and the dwell detection; this view model owns the geometry
+    /// The overlay owns the drawing and the dwell detection; this view model owns the final geometry
     /// because it is the only object that has BOTH inputs — the session's target layout and the
     /// display size — and because collection has to know where the Cancel area is in order to skip
-    /// samples that land in it.
+    /// samples that land in it. The overlay's refinement is the one piece only a view can compute:
+    /// the measured rectangle of the progress card it draws.
     /// </remarks>
     public PhysicalPoint CancelTargetCenter { get; private set; }
 
@@ -195,6 +196,28 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// radius, so the drawn target and the enforced one cannot drift apart.
     /// </summary>
     public double CancelTargetRadiusPixels { get; private set; }
+
+    /// <summary>
+    /// The display size this session's coordinates are in, in physical screen pixels. Exposed so
+    /// the overlay can refine <see cref="CancelTargetCenter"/> against its own chrome using the same
+    /// coordinate space the target layout and gaze samples use.
+    /// </summary>
+    public PhysicalPoint ScreenSize => _screenSize;
+
+    /// <summary>
+    /// Replaces this session's Cancel geometry with the overlay's chrome-aware placement. The
+    /// overlay calls this when the target is first registered: it is the only object that can
+    /// measure its own progress card, and the collection gate must exclude exactly the circle the
+    /// overlay eventually draws.
+    /// </summary>
+    /// <param name="centre">The Cancel target's centre in physical screen pixels.</param>
+    /// <param name="radiusPixels">The Cancel target's hit radius in physical screen pixels.</param>
+    public void SetCancelTarget(PhysicalPoint centre, double radiusPixels)
+    {
+        if (State != CalibrationState.Collecting) return;
+        CancelTargetCenter = centre;
+        CancelTargetRadiusPixels = radiusPixels;
+    }
 
     /// <summary>
     /// Raised for every VALID raw gaze sample while a target is being collected, on the thread the
@@ -320,7 +343,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // The way out of the session, placed once, from the layout above: the point farthest from
         // every target, one hit radius in from every edge. Radius in PHYSICAL pixels because that is
         // the unit the dwell target and the gaze samples use; the scale is read per session, so a
-        // display-scaling change is picked up by the next calibration.
+        // display-scaling change is picked up by the next calibration. The overlay refines the
+        // CENTRE once against its own progress card before the first sample (SetCancelTarget); this
+        // provisional value is what a windowless caller (and the collection gate before that first
+        // sync) sees.
         CancelTargetRadiusPixels =
             Math.Max(DpiHelper.ScaleX, DpiHelper.ScaleY) * CalibrationCancelPlacement.HitRadiusDip;
         CancelTargetCenter = CalibrationCancelPlacement.GetPosition(

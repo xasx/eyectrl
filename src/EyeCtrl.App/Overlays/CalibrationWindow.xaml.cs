@@ -17,6 +17,7 @@ using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -36,6 +37,13 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     /// end the session.
     /// </summary>
     internal const int MinimumCancelDwellMs = 1000;
+
+    /// <summary>
+    /// Clearance in DIP between the Cancel disc and the progress card's measured rectangle. The card
+    /// is window chrome the disc must not cover; without this, at 150 % on a 1080p display with three
+    /// points the top-edge placement and the top-centre card overlap (review 01, LOW 2).
+    /// </summary>
+    private const double ProgressCardClearanceDip = 12;
 
     private readonly DwellDetector _cancelDwell;
     private readonly DwellOutlineOverlay _cancelOutline;
@@ -174,10 +182,36 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
             return;
         }
 
-        var centre = _viewModel.CancelTargetCenter;
-        var radiusPx = _viewModel.CancelTargetRadiusPixels;
-        var dwellMs = CancelDwellMs;
+        UpdateCancelTarget();
+    }
 
+    /// <summary>The progress-card keep-out last used, in physical pixels — the LOW-2 test seam.</summary>
+    internal PhysicalRect? LastCancelKeepOut { get; private set; }
+
+    /// <summary>
+    /// Computes the chrome-aware placement, publishes it to the view model (the collection gate
+    /// excludes the SAME circle), and registers and draws the target.
+    /// </summary>
+    private void UpdateCancelTarget()
+    {
+        if (_viewModel is null || _viewModel.CancelTargetRadiusPixels <= 0)
+        {
+            ClearCancelTarget();
+            return;
+        }
+
+        var radiusPx = _viewModel.CancelTargetRadiusPixels;
+        var keepOut = ProgressCardKeepOut();
+        LastCancelKeepOut = keepOut;
+
+        var centre = CalibrationCancelPlacement.GetPosition(
+            _viewModel.TargetPositions,
+            _viewModel.ScreenSize,
+            radiusPx,
+            keepOut is { } rectangle ? [rectangle] : null);
+        _viewModel.SetCancelTarget(centre, radiusPx);
+
+        var dwellMs = CancelDwellMs;
         var registered = FindCancelTarget();
         if (registered is null
             || registered.Center != centre
@@ -195,6 +229,53 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         CancelDwellButton.Visibility = Visibility.Visible;
     }
 
+    /// <summary>
+    /// The progress card's own rectangle, in physical pixels, inflated by its clearance; null when
+    /// it has no measurable size. Measured from the WIDEST line the session can show, so advancing
+    /// the target (which changes the index and therefore the card's width) cannot move the disc and
+    /// restart its dwell mid-session.
+    /// </summary>
+    private PhysicalRect? ProgressCardKeepOut()
+    {
+        if (_viewModel is null) return null;
+
+        ProgressCard.Visibility = Visibility.Visible;
+        var previous = ProgressText.Text;
+        try
+        {
+            var total = Math.Max(1, _viewModel.TotalTargets);
+            var widest = StringTable.Current.T("calibration.progress.lookAtDot", total, total);
+            var recording = StringTable.Current.T("calibration.progress.recording");
+            var width = 0.0;
+            var height = 0.0;
+            foreach (var text in new[] { widest, recording })
+            {
+                ProgressText.Text = text;
+                ProgressCard.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                width = Math.Max(width, ProgressCard.DesiredSize.Width);
+                height = Math.Max(height, ProgressCard.DesiredSize.Height);
+            }
+
+            if (width <= 0 || height <= 0) return null;
+
+            // The card is centred horizontally, top-aligned with its own margin. The window covers
+            // the primary screen from (0,0), so this DIP rectangle is already screen-relative.
+            var margin = ProgressCard.Margin;
+            var leftDip = ((Width - width) / 2) + margin.Left;
+            var topDip = margin.Top;
+            const double padding = ProgressCardClearanceDip;
+            return new PhysicalRect(
+                DpiHelper.LogicalToPhysicalX(leftDip - padding),
+                DpiHelper.LogicalToPhysicalY(topDip - padding),
+                DpiHelper.LogicalToPhysicalX(width + (2 * padding)),
+                DpiHelper.LogicalToPhysicalY(height + (2 * padding)));
+        }
+        finally
+        {
+            ProgressText.Text = previous;
+        }
+    }
+
     private DwellTarget? FindCancelTarget()
     {
         foreach (var target in _cancelDwell.Targets)
@@ -210,6 +291,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         _cancelDwell.ClearTargets();
         _cancelOutline.SetProgress(0);
         CancelDwellButton.Visibility = Visibility.Collapsed;
+        LastCancelKeepOut = null;
     }
 
     // Post-effect publish, like every dwell surface: the session ends first, then the cue confirms.
@@ -560,11 +642,6 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         StopAutoDismiss();
 
-        // The gaze Cancel target exists only while there is a session to abandon. Re-synced on
-        // every state change, and idempotent: a repeated Collecting notification keeps the dwell
-        // state it already has.
-        SyncCancelTarget(state);
-
         // Hoisted here so both progress-bearing states read the same values through
         // ProgressTextFor; the states that draw no progress line ignore them. These are the view
         // model's raw reads — the 0-based index included — so the display arithmetic stays in the
@@ -581,6 +658,13 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 CompletionCard.Visibility = Visibility.Collapsed;
                 ProgressCard.Visibility = Visibility.Visible;
                 CancelCard.Visibility = Visibility.Visible;
+                ProgressText.Text = ProgressTextFor(
+                    state, index: idx, total: total, measureOnly: measureOnly);
+                // AFTER the progress text: the placement must avoid the card it measures. This call
+                // is the production registration path — the only one that puts the target on
+                // screen — and the state route (the view model's State property and the
+                // coordinator's message) both end here.
+                SyncCancelTarget(state);
                 Show();
                 // Mouse passes through (never blocks the screen), but keep keyboard focus so Esc
                 // cancels. MUST come after Show(): SetOverlayInteraction early-returns while the
@@ -591,12 +675,11 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 // blocked by WS_EX_NOACTIVATE and Esc did nothing, despite the visible hint.
                 SetOverlayInteraction(clickThrough: true, focusable: true);
                 Activate();
-                ProgressText.Text = ProgressTextFor(
-                    state, index: idx, total: total, measureOnly: measureOnly);
                 StartPulse();
                 break;
 
             case CalibrationState.Training:
+                ClearCancelTarget();
                 TargetCanvas.Visibility = Visibility.Collapsed;
                 CancelCard.Visibility = Visibility.Collapsed;
                 StopPulse();
@@ -605,14 +688,17 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 break;
 
             case CalibrationState.Active:
+                ClearCancelTarget();
                 ShowCompletion(goodResult: true);
                 break;
 
             case CalibrationState.Failed:
+                ClearCancelTarget();
                 ShowCompletion(goodResult: false);
                 break;
 
             default:
+                ClearCancelTarget();
                 TargetCanvas.Visibility = Visibility.Collapsed;
                 ProgressCard.Visibility = Visibility.Collapsed;
                 CancelCard.Visibility = Visibility.Collapsed;

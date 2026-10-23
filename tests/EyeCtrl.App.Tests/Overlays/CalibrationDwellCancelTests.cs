@@ -8,21 +8,28 @@ using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
-/// A6's window half: the gaze Cancel target's dwell wiring. Headless throughout — the window is
-/// prepared with <see cref="InvisibleTestWindow.Prepare"/> and the sessions are started BEFORE the
-/// window is attached, so no test drives the Collecting path's <c>Show()</c>. Gaze is fed through
-/// the real <see cref="CalibrationViewModel.GazeSampleReceived"/> path (from a fake provider), which
-/// is the production route: provider → OnRawGaze → window.
+/// A6's window half: the gaze Cancel target's dwell wiring. Gaze is fed through the real
+/// <see cref="CalibrationViewModel.GazeSampleReceived"/> path (from a fake provider), which is the
+/// production route: provider → OnRawGaze → window.
+///
+/// <para>
+/// Most tests prepare the window with <see cref="InvisibleTestWindow.Prepare"/> and start the
+/// session BEFORE attaching it, so they never drive the Collecting branch's <c>Show()</c>. The one
+/// test that must exercise that branch — the pin on the production registration path — uses
+/// <see cref="InvisibleTestWindow.PrepareCloaked"/> and skips if DWM cannot cloak the window here.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 public class CalibrationDwellCancelTests
@@ -47,8 +54,9 @@ public class CalibrationDwellCancelTests
 
     private static readonly PhysicalPoint Screen = new(1920, 1080);
 
-    private static CalibrationViewModel CreateStartedVm(
-        IMessenger messenger, IGazeProvider provider, CalibrationService? service = null)
+    private static CalibrationViewModel CreateVm(
+        IMessenger messenger, IGazeProvider provider, CalibrationService? service = null,
+        bool start = true)
     {
         var vm = new CalibrationViewModel(
             new CalibrationSettings { PointCount = 3, TargetHoldMs = 200, SettleWindowMs = 0 },
@@ -58,17 +66,24 @@ public class CalibrationDwellCancelTests
             Screen,
             "test-monitor",
             Path.Combine(Path.GetTempPath(), "eyectrl-cal-dwell-" + Guid.NewGuid().ToString("N") + ".json"));
-        messenger.Send(new CalibrationRequestedMessage());
+        if (start) messenger.Send(new CalibrationRequestedMessage());
         return vm;
     }
 
-    private static CalibrationWindow CreateWindow(int toolbarDwellMs, IMessenger messenger)
+    private static CalibrationViewModel CreateStartedVm(
+        IMessenger messenger, IGazeProvider provider, CalibrationService? service = null) =>
+        CreateVm(messenger, provider, service);
+
+    private static CalibrationWindow CreateWindow(
+        int toolbarDwellMs, IMessenger messenger, bool cloaked = false)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        // Prepared before any show (the window is never shown by these tests; the preparation is
-        // the guard's requirement and the runtime backstop's contract).
-        return InvisibleTestWindow.Prepare(
-            new CalibrationWindow(new DwellSettings { ToolbarButtonDwellMs = toolbarDwellMs }, messenger));
+        // Prepared before any show: the guard's requirement and the runtime backstop's contract.
+        var window = new CalibrationWindow(
+            new DwellSettings { ToolbarButtonDwellMs = toolbarDwellMs }, messenger);
+        return cloaked
+            ? InvisibleTestWindow.PrepareCloaked(window)
+            : InvisibleTestWindow.Prepare(window);
     }
 
     [StaFact]
@@ -273,5 +288,134 @@ public class CalibrationDwellCancelTests
             vm.Cancel();
             window.Close();
         }
+    }
+
+    /// <summary>
+    /// Review 01, MEDIUM 1: the production hand-off of the live dwell settings. The mutant
+    /// <c>new CalibrationWindow()</c> leaves the window on its 700 ms defaults, so a user whose
+    /// toolbar dwell is 1500 ms would get the 1000 ms floor instead of max(1000, toolbar).
+    /// </summary>
+    [StaFact]
+    public void TheOverlayManager_HandsTheLiveDwellSettingsToTheCalibrationWindow()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ToolbarButtonDwellMs = 1500;
+        var window = InvisibleTestWindow.Prepare(OverlayManager.CreateCalibrationWindow(settings));
+        try
+        {
+            Check.WithCustomMessage("a 1500 ms toolbar dwell must reach the window")
+                .That(window.CancelDwellMs).IsEqualTo(1500);
+
+            // The same object the Settings tab edits, not a snapshot taken at startup.
+            settings.Dwell.ToolbarButtonDwellMs = 1800;
+            Check.WithCustomMessage("the window must read the LIVE settings object")
+                .That(window.CancelDwellMs).IsEqualTo(1800);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// Review 01, MEDIUM 2: the ONLY production call that registers and draws the Cancel target
+    /// lives in <c>UpdateVisualState(Collecting)</c>. This test enters Collecting through the real
+    /// State route, with the window attached first, so the clear-only mutant (never register) goes
+    /// red. The window is DWM-cloaked so the branch's Show()/Activate() paint nothing, and the test
+    /// skips where DWM cannot cloak it.
+    /// </summary>
+    [StaFact]
+    public void EnteringCollecting_ThroughThePublishedStateRoute_RegistersTheCancelTarget()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var provider = new FakeGazeProvider();
+        var vm = CreateVm(messenger, provider, start: false);
+        var window = CreateWindow(toolbarDwellMs: 1000, messenger, cloaked: true);
+        try
+        {
+            Assert.SkipUnless(
+                InvisibleTestWindow.IsCloaked(window) == true,
+                "DWM did not cloak the window here; the Collecting branch calls Show().");
+            window.SetViewModel(vm);
+            Check.WithCustomMessage("nothing is registered before a session exists")
+                .That(window.CancelDwellDetector.Targets).IsEmpty();
+
+            // The production route: the view model's State change drives UpdateVisualState(Collecting).
+            messenger.Send(new CalibrationRequestedMessage());
+
+            Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
+            var target = window.CancelDwellDetector.Targets.Single();
+            Check.WithCustomMessage("the registration path must publish the geometry the gate uses")
+                .That(target.Center).IsEqualTo(vm.CancelTargetCenter);
+            Check.WithCustomMessage("the disc must be drawn")
+                .That(window.CancelDwellButton.Visibility).IsEqualTo(Visibility.Visible);
+        }
+        finally
+        {
+            vm.Cancel();
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// Review 01, LOW 2: at 150 % on a 1080p display with three points the old top-centre placement
+    /// covered the progress card. The window now measures the card (as the widest line the session
+    /// can show) and hands it to the placement as a keep-out.
+    /// </summary>
+    [StaFact]
+    public void At150PercentWithThreePoints_ThePlacementKeepsTheDiscOffTheProgressCard()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var previous = (DpiHelper.ScaleX, DpiHelper.ScaleY);
+        try
+        {
+            DpiHelper.Update(1.5, 1.5);
+            var messenger = new WeakReferenceMessenger();
+            var provider = new FakeGazeProvider();
+            var vm = CreateStartedVm(messenger, provider); // radius is now 72 DIP × 1.5 = 108 px
+            var window = CreateWindow(toolbarDwellMs: 700, messenger);
+            try
+            {
+                // The VM's 1920x1080 physical screen is 1280x720 DIP at 150 %. The window's own
+                // full-screen size comes from the real primary display, so pin it to the same box.
+                window.Width = Screen.X / 1.5;
+                window.Height = Screen.Y / 1.5;
+                window.SetViewModel(vm);
+                window.SyncCancelTarget(vm.State);
+
+                var target = window.CancelDwellDetector.Targets.Single();
+                var keepOut = window.LastCancelKeepOut;
+                Check.That(keepOut).IsNotNull();
+                Check.WithCustomMessage("the disc must clear the progress card and its clearance")
+                    .That(DistanceToRect(target.Center, keepOut!.Value))
+                    .IsGreaterOrEqualThan(target.Radius - 1e-6);
+
+                // The regression that motivated the keep-out: without it the chosen point sits on
+                // the card. If this ever stops colliding, the test above proves nothing.
+                var provisional = CalibrationCancelPlacement.GetPosition(
+                    vm.TargetPositions, vm.ScreenSize, target.Radius);
+                Check.WithCustomMessage("the unobstructed placement must actually collide here")
+                    .That(DistanceToRect(provisional, keepOut.Value))
+                    .IsStrictlyLessThan(target.Radius);
+            }
+            finally
+            {
+                vm.Cancel();
+                window.Close();
+            }
+        }
+        finally
+        {
+            DpiHelper.Update(previous.Item1, previous.Item2);
+        }
+    }
+
+    private static double DistanceToRect(PhysicalPoint point, PhysicalRect rect)
+    {
+        var dx = Math.Max(Math.Max(rect.X - point.X, 0), point.X - (rect.X + rect.Width));
+        var dy = Math.Max(Math.Max(rect.Y - point.Y, 0), point.Y - (rect.Y + rect.Height));
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 }

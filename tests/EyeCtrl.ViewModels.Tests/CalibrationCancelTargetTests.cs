@@ -84,6 +84,9 @@ public class CalibrationCancelTargetTests
         finally
         {
             vm.Cancel();
+            // The collection doc's rule: a writer restores the process-global scale, or the next
+            // test in the assembly starts on someone else's 2.0.
+            DpiHelper.Update(1.0, 1.0);
         }
     }
 
@@ -207,6 +210,36 @@ public class CalibrationCancelTargetTests
             Check.That(Distance(target, outside)).IsLessOrEqualThan(band);
             _provider.FireGaze(new GazePoint(outside.X, outside.Y, 0, IsValid: true));
             Check.That(service.HasArrivedAtTarget).IsTrue();
+        }
+        finally
+        {
+            vm.Cancel();
+        }
+    }
+
+    [Fact]
+    public void TheOverlaysRefinedGeometry_IsWhatTheCollectionGateExcludes()
+    {
+        var service = new CalibrationService();
+        var vm = StartSession(new PhysicalPoint(1920, 1080), pointCount: 3, service: service);
+        try
+        {
+            var target = vm.CurrentTargetPosition;
+            var radius = vm.CancelTargetRadiusPixels;
+            var away = vm.CancelTargetCenter;
+
+            // The overlay publishes a refined centre once it has measured its progress card. The
+            // gate must exclude the REFINED circle, not the provisional one.
+            vm.SetCancelTarget(target, radius);
+            Check.That(vm.CancelTargetCenter).IsEqualTo(target);
+            _provider.FireGaze(new GazePoint(target.X, target.Y, 0, IsValid: true));
+            Check.WithCustomMessage("a sample in the published Cancel circle must not reach the collector")
+                .That(service.HasArrivedAtTarget).IsFalse();
+
+            vm.SetCancelTarget(away, radius);
+            _provider.FireGaze(new GazePoint(target.X, target.Y, 0, IsValid: true));
+            Check.WithCustomMessage("with the circle away again the same sample is collected")
+                .That(service.HasArrivedAtTarget).IsTrue();
         }
         finally
         {

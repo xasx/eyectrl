@@ -45,12 +45,21 @@ public static class CalibrationCancelPlacement
     /// <param name="screenSize">Display size in physical screen pixels.</param>
     /// <param name="radiusPx">The hit radius in physical pixels, which is also the inset from every
     /// screen edge.</param>
+    /// <param name="keepOut">
+    /// Rectangles the disc must not cover, in physical screen pixels — the calibration window's own
+    /// progress card is the one that matters. Each is inflated by <paramref name="radiusPx"/> on
+    /// every side (a conservative, axis-aligned clearance: the disc's centre must sit outside the
+    /// inflated rectangle), and candidates inside are skipped. A display on which every candidate is
+    /// blocked falls back to the unobstructed placement rather than returning no answer; the window
+    /// is a fixed piece of chrome, not a reason to strand the user.
+    /// </param>
     /// <returns>The chosen centre, in physical screen pixels.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="targets"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="radiusPx"/> is negative, NaN,
     /// or infinite.</exception>
     public static PhysicalPoint GetPosition(
-        IReadOnlyList<PhysicalPoint> targets, PhysicalPoint screenSize, double radiusPx)
+        IReadOnlyList<PhysicalPoint> targets, PhysicalPoint screenSize, double radiusPx,
+        IReadOnlyList<PhysicalRect>? keepOut = null)
     {
         ArgumentNullException.ThrowIfNull(targets);
         if (!double.IsFinite(radiusPx) || radiusPx < 0)
@@ -89,6 +98,8 @@ public static class CalibrationCancelPlacement
 
         void Consider(double x, double y)
         {
+            if (IsInsideKeepOut(x, y, keepOut, radiusPx)) return;
+
             var distance = NearestTargetDistance(targets, x, y);
             // Strictly greater only, scanning y then x ascending: an exact tie keeps the point
             // encountered first, which makes the result deterministic (topmost, then leftmost).
@@ -134,7 +145,33 @@ public static class CalibrationCancelPlacement
             }
         }
 
+        // Every candidate was blocked (a keep-out covering the whole usable box, which no shipped
+        // display does): the unobstructed rule is still a better answer than no answer — the way out
+        // must exist even when the chrome is in the way.
+        if (bestDistance < 0 && keepOut is { Count: > 0 })
+            return GetPosition(targets, screenSize, radiusPx);
+
         return best;
+    }
+
+    /// <summary>
+    /// Whether the disc's centre at (<paramref name="x"/>, <paramref name="y"/>) would sit inside a
+    /// keep-out rectangle inflated by the disc's radius — the conservative axis-aligned rule: a
+    /// point diagonally past a corner is also excluded, though the circle itself might clear it.
+    /// </summary>
+    private static bool IsInsideKeepOut(
+        double x, double y, IReadOnlyList<PhysicalRect>? keepOut, double radiusPx)
+    {
+        if (keepOut is null) return false;
+        for (var i = 0; i < keepOut.Count; i++)
+        {
+            var rect = keepOut[i];
+            if (x >= rect.X - radiusPx && x <= rect.X + rect.Width + radiusPx
+                && y >= rect.Y - radiusPx && y <= rect.Y + rect.Height + radiusPx)
+                return true;
+        }
+
+        return false;
     }
 
     private static double NearestTargetDistance(IReadOnlyList<PhysicalPoint> targets, double x, double y)

@@ -157,6 +157,110 @@ public class CalibrationCancelPlacementTests
         Check.That(error!.ParamName).IsEqualTo("radiusPx");
     }
 
+    // ── The window's progress card as a keep-out (review 01, LOW 2) ─────────────────────────────
+
+    /// <summary>
+    /// The progress card's production geometry in DIP: 30 DIP from the top, one line of
+    /// FontSizeSubtitle (18 DIP) plus 8/8 padding, generously widened to cover the German line.
+    /// The window adds <see cref="ProgressCardClearanceDip"/> to this rectangle before passing it.
+    /// </summary>
+    private const double ProgressCardTopDip = 30;
+    private const double ProgressCardWidthDip = 360;
+    private const double ProgressCardHeightDip = 42;
+    private const double ProgressCardClearanceDip = 12;
+
+    /// <summary>The card's keep-out rectangle in physical pixels, centred as the window draws it.</summary>
+    private static PhysicalRect ProgressCardKeepOut(PhysicalPoint screen, double scale)
+    {
+        var width = ProgressCardWidthDip * scale;
+        var height = ProgressCardHeightDip * scale;
+        var clearance = ProgressCardClearanceDip * scale;
+        var left = ((screen.X - width) / 2) - clearance;
+        var top = (ProgressCardTopDip * scale) - clearance;
+        return new PhysicalRect(left, top, width + (2 * clearance), height + (2 * clearance));
+    }
+
+    public static TheoryData<PhysicalPoint, double> DisplaysAndScales() => new()
+    {
+        { new PhysicalPoint(1366, 768), 1.0 },
+        { new PhysicalPoint(1920, 1080), 1.0 },
+        { new PhysicalPoint(1920, 1080), 1.5 },
+        { new PhysicalPoint(3840, 2400), 1.0 },
+        { new PhysicalPoint(3840, 2400), 2.0 },
+    };
+
+    [Theory]
+    [MemberData(nameof(DisplaysAndScales))]
+    public void EveryLayout_AvoidsTheProgressCard_AndKeepsTheTargetClearance(PhysicalPoint screen, double scale)
+    {
+        var radius = CalibrationCancelPlacement.HitRadiusDip * scale;
+        var card = ProgressCardKeepOut(screen, scale);
+
+        for (var count = 3; count <= 16; count++)
+        {
+            var targets = CalibrationTargetPositionHelper.GetPositions(count, screen);
+            var point = CalibrationCancelPlacement.GetPosition(targets, screen, radius, [card]);
+
+            Check.WithCustomMessage($"{screen} at {scale:0.##}: inside the radius inset")
+                .That(point.X >= radius - 1e-6 && point.X <= screen.X - radius + 1e-6
+                      && point.Y >= radius - 1e-6 && point.Y <= screen.Y - radius + 1e-6)
+                .IsTrue();
+
+            var nearest = targets.Min(t => Distance(point, t));
+            Check.WithCustomMessage($"{screen} at {scale:0.##}, count={count}: nearest target {nearest:0.#} px")
+                .That(nearest)
+                .IsGreaterOrEqualThan(radius + CalibrationCancelPlacement.MinimumTargetGapPx - 1e-6);
+
+            Check.WithCustomMessage(
+                    $"{screen} at {scale:0.##}, count={count}: the disc covers the progress card keep-out "
+                    + $"(distance {DistanceToRect(point, card):0.#} px, radius {radius:0.#})")
+                .That(DistanceToRect(point, card)).IsGreaterOrEqualThan(radius - 1e-6);
+        }
+    }
+
+    [Fact]
+    public void At150PercentWithThreePoints_TheKeepOutRepairsTheRegression()
+    {
+        // The exact case from review 01: 1920x1080 at 150 % (the VM's screen is physical; the card
+        // is DIP). Without the obstacle the top-centre point lands on the card; with it, it moves.
+        var screen = new PhysicalPoint(1920, 1080);
+        const double scale = 1.5;
+        var radius = CalibrationCancelPlacement.HitRadiusDip * scale;
+        var card = ProgressCardKeepOut(screen, scale);
+        var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
+
+        var unobstructed = CalibrationCancelPlacement.GetPosition(targets, screen, radius);
+        var placed = CalibrationCancelPlacement.GetPosition(targets, screen, radius, [card]);
+
+        Check.WithCustomMessage("the regression premise: the unobstructed point sits on the card")
+            .That(DistanceToRect(unobstructed, card)).IsStrictlyLessThan(radius);
+        Check.WithCustomMessage("the keep-out point must clear the card")
+            .That(DistanceToRect(placed, card)).IsGreaterOrEqualThan(radius - 1e-6);
+        Check.That(placed).IsNotEqualTo(unobstructed);
+    }
+
+    [Fact]
+    public void WhenEveryCandidateIsBlocked_TheUnobstructedPlacementIsUsed()
+    {
+        // A keep-out covering the whole display cannot strand the way out: the fallback is the
+        // ordinary maximin point.
+        var targets = CalibrationTargetPositionHelper.GetPositions(5, StandardScreen);
+        var wholeScreen = new PhysicalRect(0, 0, StandardScreen.X, StandardScreen.Y);
+
+        var blocked = CalibrationCancelPlacement.GetPosition(
+            targets, StandardScreen, OwnerRadiusPx, [wholeScreen]);
+        var free = CalibrationCancelPlacement.GetPosition(targets, StandardScreen, OwnerRadiusPx);
+
+        Check.That(blocked).IsEqualTo(free);
+    }
+
+    private static double DistanceToRect(PhysicalPoint point, PhysicalRect rect)
+    {
+        var dx = Math.Max(Math.Max(rect.X - point.X, 0), point.X - (rect.X + rect.Width));
+        var dy = Math.Max(Math.Max(rect.Y - point.Y, 0), point.Y - (rect.Y + rect.Height));
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
+
     [Fact]
     public void NullTargets_AreRejected()
     {

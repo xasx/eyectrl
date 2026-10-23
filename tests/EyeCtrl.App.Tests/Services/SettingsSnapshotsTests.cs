@@ -38,7 +38,7 @@ public class SettingsSnapshotsTests
             nameof(KeyboardSettings.ShowPredictionTypes),        // read live in KeyboardWindow
             nameof(KeyboardSettings.SmartCapitalizationEnabled), // read live in KeyboardViewModel
             nameof(KeyboardSettings.NextWordPredictionEnabled),
-            nameof(KeyboardSettings.ShowLMLoadingIndicator),
+            nameof(KeyboardSettings.ShowLMLoadingIndicator),  // read live at render time (prediction loading hint) — toggling it must not rebuild the stack
             nameof(KeyboardSettings.CustomModels),               // managed by ModelRegistryService
             nameof(KeyboardSettings.MaxSuggestions),             // read live in KeyboardViewModel per keystroke
         };

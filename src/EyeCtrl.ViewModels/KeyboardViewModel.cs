@@ -907,6 +907,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         OnPropertyChanged(nameof(ActiveModifiers));
     }
 
+    /// <summary>Whether a prediction stack is bound — false while the first build is still in
+    /// flight (the window's prediction loading hint condition) and whenever prediction is off.
+    /// Deliberately not observable: every caller that moves it (SetOrchestrator via the
+    /// coordinator, the swap's bar refresh) re-renders the bar itself.</summary>
+    public bool HasOrchestrator => _orchestrator is not null;
+
     public void SetOrchestrator(PredictionOrchestrator? orchestrator)
     {
         if (ReferenceEquals(_orchestrator, orchestrator))

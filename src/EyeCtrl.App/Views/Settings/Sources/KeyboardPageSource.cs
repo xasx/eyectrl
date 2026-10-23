@@ -38,6 +38,12 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.keyboard.prediction_count.label"), 1, Core.Settings.KeyboardSettings.MaxSuggestionsCeiling, 1, 0,
                     () => k.MaxSuggestions, v => { k.MaxSuggestions = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.keyboard.prediction_count.description") },
+                // "Alle Optionen" only (deliberately no Simple flag): a read-live display
+                // nicety, not a control the simple tier needs.
+                new ToggleSpec("k_lm_loading_hint",
+                    StringTable.Current.T("settings.keyboard.lm_loading_hint.label"),
+                    () => k.ShowLMLoadingIndicator, v => { k.ShowLMLoadingIndicator = v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.keyboard.lm_loading_hint.description") },
                 new ComboBoxSpec("k_lang",
                     StringTable.Current.T("settings.keyboard.dictionary_language.label"),
                     [
@@ -76,6 +82,7 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                         k.LanguagePack = def.LanguagePack;
                         k.ClickSoundEnabled = def.ClickSoundEnabled;
                         k.ScreenEdge = def.ScreenEdge;
+                        k.ShowLMLoadingIndicator = def.ShowLMLoadingIndicator;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

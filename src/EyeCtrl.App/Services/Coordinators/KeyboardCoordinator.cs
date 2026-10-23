@@ -124,6 +124,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         _predictionFactory.Dispose();
         _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
         _predictionFactory.StackSwapped += OnStackSwapped;
+        _predictionFactory.BuildInFlightChanged += OnPredictionBuildInFlightChanged;
         // Hand the fresh factory to the dictionary page's service (SetModelServices pattern):
         // its ForgetWords needs the LIVE stack so a settings-page delete takes effect at once
         // and survives the in-flight-rebuild window.
@@ -283,20 +284,37 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
     /// <summary>
     /// The <see cref="PredictionStackFactory.StackSwapped"/> handler: re-binds the keyboard to
-    /// the swapped orchestrator, then patches the stored snapshot's verdict term (patch
-    /// mechanics and rationale on <see cref="PatchSnapshotWithSwappedVerdict"/>; the event is
-    /// raised on the UI thread after the winning swap). Deliberately NO Context null-guard —
-    /// a swap must never be silently dropped, and the subscription only exists after
-    /// Initialize set it. Extracted from an inline lambda (issue #166 round-1 M2): the
-    /// method-group subscription is what the wiring pin matches, because an inline lambda's
-    /// body can be dead-wrapped while its call text still satisfies a substring pin.
+    /// the swapped orchestrator, refreshes the prediction bar ONLY when it shows nothing
+    /// (review 01 Q1, owner decision — see KeyboardWindow.ShouldRefreshBarForSwap) so the
+    /// new stack's suggestions appear WITHOUT a keystroke on the first open, while a later
+    /// rebuild's swap leaves the serving words and any dwell in progress alone, then patches
+    /// the stored snapshot's verdict term (patch mechanics and rationale on
+    /// <see cref="PatchSnapshotWithSwappedVerdict"/>; the event is raised on the UI thread
+    /// after the winning swap). Deliberately NO Context null-guard — a swap must never be
+    /// silently dropped, and the subscription only exists after Initialize set it. Extracted
+    /// from an inline lambda (issue #166 round-1 M2): the method-group subscription is what
+    /// the wiring pin matches, because an inline lambda's body can be dead-wrapped while its
+    /// call text still satisfies a substring pin.
     /// </summary>
     internal void OnStackSwapped(PredictionOrchestrator? orchestrator,
         (string ModelId, ModelVerificationOutcome Outcome)? verification)
     {
-        Context!.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+        var keyboard = Context!.OverlayManager.Keyboard;
+        keyboard.SetOrchestrator(orchestrator);
+        if (keyboard.ShouldRefreshBarForSwap())
+            keyboard.UpdatePredictions();
         PatchSnapshotWithSwappedVerdict(verification);
     }
+
+    /// <summary>
+    /// The <see cref="PredictionStackFactory.BuildInFlightChanged"/> handler: forwards the
+    /// build-in-flight state to the keyboard window, which shows or hides the prediction
+    /// loading hint from it (Keyboard.ShowLMLoadingIndicator gates the showing side inside the
+    /// window, read live at render time). No Context null-guard, same reasoning as
+    /// <see cref="OnStackSwapped"/>: a dropped transition would leave the hint stuck on.
+    /// </summary>
+    internal void OnPredictionBuildInFlightChanged(bool inFlight) =>
+        Context!.OverlayManager.Keyboard.SetPredictionBuildInFlight(inFlight);
 
     /// <summary>
     /// Instance seam for the swap-time snapshot PATCH the <see cref="OnStackSwapped"/> handler

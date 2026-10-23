@@ -2438,7 +2438,7 @@
     "src": "92ff458a"
   },
   "settings.safety.boot.message": {
-    "text": "Frage {0} von {1}\nEyeCtrl beim Anmelden starten?\nStartet beim Anmelden auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
+    "text": "Frage {0} von {1}\nEyeCtrl bei der Windows-Anmeldung starten?\nStartet dabei auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
     "src": "596c9992"
   },
   "settings.safety.checking": {
@@ -2450,7 +2450,7 @@
     "src": "299915eb"
   },
   "settings.safety.cue.message": {
-    "text": "Frage {0} von {1}\nEinen Ton abspielen, wenn das Verweilen einen Klick auslöst?",
+    "text": "Frage {0} von {1}\nEinen leisen Ton abspielen, wenn ein Verweilen auslöst?",
     "src": "34f3cb03"
   },
   "settings.safety.intro.message": {

@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Windows;
 using EyeCtrl.App.Services;
 using EyeCtrl.Tests.TestSupport;
 
@@ -46,5 +47,10 @@ using EyeCtrl.Tests.TestSupport;
 internal static class HeadlessNoteWindowDefaults
 {
     [ModuleInitializer]
-    internal static void Initialize() => NoteManager.RealNoteWindows = false;
+    internal static void Initialize()
+    {
+        NoteManager.RealNoteWindows = false;
+        // The CI work-area fix: placement-dependent note tests must not follow the machine's screen.
+        NoteManager.DefaultWorkAreaDipForTests = () => new Rect(0, 0, 1920, 1152);
+    }
 }

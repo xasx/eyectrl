@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -25,20 +27,20 @@ public class NoteManagerTests
     public void CreateNote_AddsToActiveNotes()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         manager.CreateNoteAt(new PhysicalPoint(100, 200));
 
         Check.That(manager.ActiveNotes).HasSize(1);
-        Check.That(manager.ActiveNotes[0].Position.X).IsEqualTo(100);
-        Check.That(manager.ActiveNotes[0].Position.Y).IsEqualTo(200);
+        Check.That(manager.ActiveNotes[0].Anchor.X).IsEqualTo(100);
+        Check.That(manager.ActiveNotes[0].Anchor.Y).IsEqualTo(200);
     }
 
     [StaFact]
     public void CreateNote_DefaultsToEditState_AndIsTheSingleEditor()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
 
@@ -50,7 +52,7 @@ public class NoteManagerTests
     public void RemoveNote_RemovesFromActiveNotes()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
 
@@ -64,7 +66,7 @@ public class NoteManagerTests
     public void IsAtCapacity_ReturnsTrue_WhenMaxReached()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         // Each note carries text: a commit-first pin on an EMPTY new note would make that note
         // disappear again (P1 D4's Done table), silently undoing the capacity fill.
@@ -78,7 +80,7 @@ public class NoteManagerTests
     public void CreateNote_DoesNotAdd_WhenAtCapacity()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         for (int i = 0; i < 8; i++)
             TypeIntoNewDraftNote(manager, $"note {i}", new PhysicalPoint(i * 50, 0));
@@ -91,7 +93,7 @@ public class NoteManagerTests
     public void StartEdit_ChangesState()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "test text");
 
         manager.StartEdit(id);
@@ -104,7 +106,7 @@ public class NoteManagerTests
     public void FinishEdit_CommitsTheDraft()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "hello world");
 
         manager.FinishEdit(id, commit: true);
@@ -118,7 +120,7 @@ public class NoteManagerTests
     public void StartMove_ChangesState()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "test");
 
         manager.StartMove(id);
@@ -127,17 +129,17 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void FinishMove_UpdatesPosition()
+    public void FinishMove_UpdatesAnchor()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "test");
         manager.StartMove(id);
 
         manager.FinishMove(id, new PhysicalPoint(500, 600));
 
-        Check.That(manager.ActiveNotes[0].Position.X).IsEqualTo(500);
-        Check.That(manager.ActiveNotes[0].Position.Y).IsEqualTo(600);
+        Check.That(manager.ActiveNotes[0].Anchor.X).IsEqualTo(500);
+        Check.That(manager.ActiveNotes[0].Anchor.Y).IsEqualTo(600);
         Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
     }
 
@@ -145,22 +147,22 @@ public class NoteManagerTests
     public void OnGazeMoved_UpdatesLastGazePoint_ForPlaceTarget()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "test");
         manager.StartMove(id);
 
         manager.OnGazeMoved(new PhysicalPoint(300, 400), 1000000);
         manager.FinishMove(id, new PhysicalPoint(300, 400));
 
-        Check.That(manager.ActiveNotes[0].Position.X).IsEqualTo(300);
-        Check.That(manager.ActiveNotes[0].Position.Y).IsEqualTo(400);
+        Check.That(manager.ActiveNotes[0].Anchor.X).IsEqualTo(300);
+        Check.That(manager.ActiveNotes[0].Anchor.Y).IsEqualTo(400);
     }
 
     [StaFact]
     public void MoveOneNote_KeepsOtherNotesControls()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id1 = TypeIntoNewDraftNote(manager, "note1");
         manager.CreateNoteAt(new PhysicalPoint(300, 0));
         var id2 = manager.ActiveNotes[1].Id;
@@ -180,7 +182,7 @@ public class NoteManagerTests
     public void StartEdit_DoesNotTriggerEditTwice()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "original");
 
         // Enter edit, re-save, re-enter — should work without retrigger
@@ -199,7 +201,7 @@ public class NoteManagerTests
         // P1 D8: the single editor. A second StartEdit on the editing note must not run the
         // commit-first exit on itself — an empty new note would silently disappear.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
         manager.Apply(new NoteAppend("draft"));
@@ -215,7 +217,7 @@ public class NoteManagerTests
     public void CreateNote_ShowsWindow()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         manager.CreateNoteAt(new PhysicalPoint(400, 300));
 
@@ -230,7 +232,7 @@ public class NoteManagerTests
     public void Done_NewNoteWithText_SavesAndDisplays()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "hello");
 
         manager.FinishEdit(id, commit: true);
@@ -244,7 +246,7 @@ public class NoteManagerTests
     public void Done_NewNoteWithEmptyDraft_RemovesTheNote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         int editingFalse = 0;
         messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) => { if (!m.Editing) editingFalse++; });
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
@@ -262,7 +264,7 @@ public class NoteManagerTests
     public void Done_TrimBlankEdgeLines_BeforeSaving()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "\n \nhello\n\n  ");
 
         manager.FinishEdit(id, commit: true);
@@ -274,7 +276,7 @@ public class NoteManagerTests
     public void Done_ExistingNoteWithText_SavesAndDisplays()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "original");
 
         manager.StartEdit(id);
@@ -291,7 +293,7 @@ public class NoteManagerTests
         // P2 D5 replaced P1's interim silent restore: Done on an emptied existing note leaves a
         // Removed chip, and Undo brings the saved text back (expiry would remove it instead).
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var id = TypeIntoNewDraftNote(manager, "original");
         manager.FinishEdit(id, commit: true); // a real SAVED note
 
@@ -316,7 +318,7 @@ public class NoteManagerTests
     public void Apply_AppendsBackspacesAndDeletesWord_InTheDraft_AndRerendersTheWindow()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var note = manager.ActiveNotes[0];
 
@@ -349,7 +351,7 @@ public class NoteManagerTests
     public void Apply_IsIgnored_WhenNoNoteIsEditing()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         // Defensive: the dispatchers only route while IsEditing, but Apply is public surface.
         Check.ThatCode(() => manager.Apply(new NoteAppend("x"))).DoesNotThrow();
@@ -362,7 +364,7 @@ public class NoteManagerTests
     public void CreateNote_WithKeyboardHidden_SummonsTheKeyboard_AndAnnouncesEditing()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         int showRequests = 0, editingTrue = 0;
         messenger.Register<object, KeyboardShowRequestedMessage>(this, (_, _) => showRequests++);
         messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) => { if (m.Editing) editingTrue++; });
@@ -378,7 +380,7 @@ public class NoteManagerTests
     public void Done_OnAnOwningEditor_WithKeyboardVisible_HidesIt()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -396,7 +398,7 @@ public class NoteManagerTests
     public void Done_WithKeyboardAlreadyHidden_SendsNoHide()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -414,7 +416,7 @@ public class NoteManagerTests
         // A foreign hide (edge-bar Close) cleared the claim; a later Done must not "hide" a
         // keyboard the note does not own — another owner may be holding it (P1 D5).
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -441,7 +443,7 @@ public class NoteManagerTests
         // hidden transition clears the claim. Here the hide is foreign (edge-bar Close, toolbar
         // toggle) while the note stays in Edit.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -466,7 +468,7 @@ public class NoteManagerTests
     public void KeyboardTarget_RegistersOnlyWhileTheKeyboardIsHidden()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -488,7 +490,7 @@ public class NoteManagerTests
     public void KeyboardTargetDwell_ReSummonsTheKeyboard_AndTakesOwnership()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         int showRequests = 0;
@@ -504,7 +506,7 @@ public class NoteManagerTests
             int initial = showRequests; // the entry-into-Edit summon
 
             // Gaze on slot 1 (the ⌨ centre) past the 600 ms dwell.
-            var centre = ButtonCentrePhysical(anchor, 1);
+            var centre = NoteTestBench.CellCentre(manager, id, 1);
             for (long t = 0; t <= 800_000; t += 33_000)
                 manager.OnGazeMoved(centre, t);
 
@@ -524,7 +526,7 @@ public class NoteManagerTests
     public void KeyboardGate_GazeInsideTheKeyboardRect_NeverFiresDone()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -534,7 +536,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
-            var done = ButtonCentrePhysical(anchor, 0);
+            var done = NoteTestBench.CellCentre(manager, id, 0);
 
             // The keyboard covers the Done button: every sample is gated, so the dwell never
             // completes no matter how long the gaze rests.
@@ -572,7 +574,7 @@ public class NoteManagerTests
         // The gate is not Edit-specific: a Display note's ✕ sitting under the keyboard or its
         // edge bar must not accumulate dwell either (P1 D5 gates "note targets").
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -581,7 +583,7 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var close = ButtonCentrePhysical(anchor, 2);
+            var close = NoteTestBench.CellCentre(manager, id, 2);
 
             probe.RectsProvider = () => new[] { new PhysicalRect(close.X - 200, close.Y - 200, 400, 400) };
             probe.IsVisible = true;
@@ -610,7 +612,7 @@ public class NoteManagerTests
         // held gaze must not re-enter Edit, and once the gaze has left and come back, the dwell
         // completes and the ✎ works.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -620,7 +622,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             // A REAL window: the liveness half dwells ✎, and StartEdit drives the note's window.
             var id = TypeIntoNewDraftNote(manager, "hello", anchor);
-            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var slot0 = NoteTestBench.CellCentre(manager, id, 0);
             var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y); // outside every circle
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
@@ -646,7 +648,7 @@ public class NoteManagerTests
         // slot down is armed; the gate over the ↕ must hold it, and only an ungated dwell may
         // fire it.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -655,8 +657,8 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "hello", anchor); // a real window: ↕ must be able to move
-            var slot0 = ButtonCentrePhysical(anchor, 0);
-            var slot1 = ButtonCentrePhysical(anchor, 1);
+            var slot0 = NoteTestBench.CellCentre(manager, id, 0);
+            var slot1 = NoteTestBench.CellCentre(manager, id, 1);
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse(); // Done fired; ✎ latched → latch non-empty
@@ -689,7 +691,7 @@ public class NoteManagerTests
         // information" — it neither advances a latched target's leave timer nor resets it.
         // A gated excursion past the circle must not satisfy the 150 ms leave.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -699,7 +701,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
-            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var slot0 = NoteTestBench.CellCentre(manager, id, 0);
             var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
@@ -730,7 +732,7 @@ public class NoteManagerTests
         // with the registered ⌨ target after a mid-Edit hide/show and nothing noticed. A real
         // window, a real probe flip, both halves asserted.
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -772,7 +774,7 @@ public class NoteManagerTests
     public void PinNote_WhileEditing_CommitsTheEditor_AndSendsExactlyOneEditingTrue()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false }; // the hand-over P1 can really produce
         manager.SetKeyboardProbe(probe);
         var a = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -800,7 +802,7 @@ public class NoteManagerTests
     public void StartEdit_WhileAnotherNoteEdits_CommitsTheFirst()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var b = TypeIntoNewDraftNote(manager, "second"); // B: a real Display note with its window
         manager.FinishEdit(b, commit: true);
         var a = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0)); // A: the editor
@@ -821,7 +823,7 @@ public class NoteManagerTests
     public void HandOver_WithKeyboardVisible_SendsNeitherHideNorShow()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = true };
         manager.SetKeyboardProbe(probe);
         manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -843,7 +845,7 @@ public class NoteManagerTests
     public void Dispose_MidEdit_SendsEditingFalse()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
         int editingFalse = 0;
         messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) => { if (!m.Editing) editingFalse++; });
@@ -857,7 +859,7 @@ public class NoteManagerTests
     public void Dispose_DetachesTheKeyboardProbe()
     {
         var messenger = new WeakReferenceMessenger();
-        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
@@ -878,7 +880,7 @@ public class NoteManagerTests
     public void LiveTargetRects_EditState_IsDoneKeyboardAndDiscardWhenHidden_DrainsOnRemove()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -888,10 +890,11 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.CreateNoteAt(anchor); // Edit state: Done + ⌨ (keyboard hidden) + ↩ Discard
+            var id = manager.ActiveNotes[0].Id;
 
-            var done = ButtonCentrePhysical(anchor, 0);
-            var keyboard = ButtonCentrePhysical(anchor, 1);
-            var discard = ButtonCentrePhysical(anchor, 2);
+            var done = NoteTestBench.CellCentre(manager, id, 0);
+            var keyboard = NoteTestBench.CellCentre(manager, id, 1);
+            var discard = NoteTestBench.CellCentre(manager, id, 2);
             var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
 
             Check.That(rects).HasSize(3);
@@ -912,7 +915,7 @@ public class NoteManagerTests
     public void LiveTargetRects_EditState_WithKeyboardVisible_IsDoneAndDiscard()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = true };
         manager.SetKeyboardProbe(probe);
 
@@ -932,7 +935,7 @@ public class NoteManagerTests
     public void LiveTargetRects_DisplayState_IsAllThreeButtonSquares()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
 
@@ -946,9 +949,9 @@ public class NoteManagerTests
             // The detector snapshot's order is unspecified (dictionary-backed) — compare as a set
             // by sorting both sides down the button column.
             var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
-            var top = ButtonCentrePhysical(anchor, 0);
-            var mid = ButtonCentrePhysical(anchor, 1);
-            var bottom = ButtonCentrePhysical(anchor, 2);
+            var top = NoteTestBench.CellCentre(manager, id, 0);
+            var mid = NoteTestBench.CellCentre(manager, id, 1);
+            var bottom = NoteTestBench.CellCentre(manager, id, 2);
 
             Check.That(rects).HasSize(3);
             Check.That(rects).ContainsExactly(
@@ -966,18 +969,25 @@ public class NoteManagerTests
     public void LiveTargetRects_MoveState_IsThePlacementSquareAroundTheNote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
-            manager.StartMove(id); // only the :place target, radius 100 logical around the note
+            manager.StartMove(id); // the Move move-set: ↕ Other side (slot 0) + Cancel (slot 1)
 
-            double radius = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NotePlacementRadius);
-            Check.That(manager.LiveTargetRects()).ContainsExactly(
-                new PhysicalRect(anchor.X - radius, anchor.Y - radius, radius * 2, radius * 2));
+            // The rect set equals the two column targets the re-derived placement registered —
+            // each the dwell circle of its column button centre (NoteButtonRadius).
+            var otherside = NoteTestBench.CellCentre(manager, id, 0);
+            var cancel = NoteTestBench.CellCentre(manager, id, 1);
+            double radius = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteButtonRadius);
+            // Order follows the detector's enumeration, not the registration order — sort by Y
+            // (the same discipline as the Edit-state rect test) and pin the two squares.
+            Check.That(manager.LiveTargetRects().OrderBy(r => r.Y).ToList()).ContainsExactly(
+                new[] { otherside, cancel }.OrderBy(c => c.Y).Select(c =>
+                    new PhysicalRect(c.X - radius, c.Y - radius, radius * 2, radius * 2)).ToList());
         }
         finally
         {
@@ -993,7 +1003,7 @@ public class NoteManagerTests
         // remove) — a note appearing under a mid-read panel without the raise would leave the
         // panel up over fed dwell buttons (the R4-H1 harm).
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var count = 0;
         var probe = new NoteTargetsProbe(() => count++);
         messenger.Register(probe);
@@ -1021,7 +1031,7 @@ public class NoteManagerTests
     public void CloseButtonDwell_AtVisiblePosition_EntersPendingUndo()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         // Regression guard for the dwell-target/visual-button mismatch: the buggy code placed the
         // target ~150px right of where the button renders. Everything at the user's 2.0, centres
@@ -1032,7 +1042,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
 
             // Fixup B2: ✕ re-arms only after the gaze has LEFT its circle — a sample stream that
             // arrives at ✕ without a prior outside sample is exactly the held-Done hazard. Look
@@ -1087,7 +1097,7 @@ public class NoteManagerTests
     public void CloseButtonDwell_PublishesDwellActivation()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -1099,7 +1109,7 @@ public class NoteManagerTests
             var probe = new CueProbe(EffectRanAtSend: () =>
                 manager.ActiveNotes.Count == 1 && manager.ActiveNotes[0].State == NoteState.PendingUndo);
             messenger.Register(probe);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
 
             // Fixup B2: arm ✕ by leaving its circle first (see CloseButtonDwell_AtVisiblePosition).
             for (long t = 0; t <= 200_000; t += 33_000)
@@ -1129,7 +1139,7 @@ public class NoteManagerTests
     public void HeldSamples_DoNotDwellCloseANote()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -1137,7 +1147,7 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
             manager.FinishEdit(id, commit: true);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
 
             for (long t = 0; t <= 800_000; t += 33_000)
                 messenger.Send(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: true)));
@@ -1164,7 +1174,7 @@ public class NoteManagerTests
     public void ProbeGate_SuspendsNoteDwell_AndResetsOnResume()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var modal = new EyeCtrl.App.Services.Coordinators.ModalInteractionState();
         manager.SetSuspendPredicate(() => modal.ProbeOpen);
 
@@ -1172,8 +1182,8 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 2);
+            var id = manager.AddNoteTargetsForTest(anchor);
+            var closeCenter = NoteTestBench.CellCentre(manager, id, 2);
 
             // Pre-probe: 500 ms of a 600 ms close dwell accrued on the button. Every delivered sample
             // is 100 ms after the previous one, below DwellDetector's 150 ms silence clamp.
@@ -1224,7 +1234,7 @@ public class NoteManagerTests
     public void EnteringEditViaADwell_LatchesTheShowKeyboardTargetUnderTheHeldGaze()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         // StartEdit needs the note's live window (it drives SetState on it), and the note must be
         // in DISPLAY so ✎ exists to dwell — this file's TypeIntoNewDraftNote leaves the note EDITING
         // (its CreateNoteAt already summoned the keyboard once), so the test exits that Edit
@@ -1244,8 +1254,8 @@ public class NoteManagerTests
             manager.FinishEdit(id, commit: true);
             Check.That(manager.IsEditing).IsFalse();
             counting = true;
-            var editSlot = ButtonCentrePhysical(anchor, 0); // ✎ in Display (P2 D8: ✎ · ↕ · ✕)
-            var keyboardSlot = ButtonCentrePhysical(anchor, 1); // ⌨ in Edit
+            var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in Display (P2 D8: ✎ · ↕ · ✕)
+            var keyboardSlot = NoteTestBench.CellCentre(manager, id, 1); // ⌨ in Edit
             var away = new PhysicalPoint(editSlot.X + 10_000, editSlot.Y);
 
             // Arm ✎ (200 ms outside), then dwell it: the note enters Edit, whose ✓ Done sits in
@@ -1281,22 +1291,6 @@ public class NoteManagerTests
         manager.CreateNoteAt(point ?? new PhysicalPoint(0, 0));
         manager.Apply(new NoteAppend(text));
         return manager.ActiveNotes[0].Id;
-    }
-
-    /// <summary>
-    /// A dwell button's centre in physical px, computed through the SAME math
-    /// <see cref="NoteManager"/> uses for its targets (window origin from the anchor, then the
-    /// NoteLayout column centre scaled): the test can never disagree with the registration.
-    /// Call at the DPI the test pins.
-    /// </summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot)
-    {
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(anchor.X) - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(anchor.Y) - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = NoteLayout.ButtonCenter(slot);
-        return new(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
     }
 
     /// <summary>Recording <see cref="IKeyboardProbe"/> fake: tests set IsVisible, choose the rects

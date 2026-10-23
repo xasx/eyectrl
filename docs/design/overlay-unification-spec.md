@@ -7,10 +7,10 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 32 overlay windows and 7 dwell controls — 29 with XAML (28 under
+EyeCtrl has 33 overlay windows and 7 dwell controls — 29 with XAML (28 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
-`Views/`, which also derives from `OverlayWindow`) and 3 without XAML (the
-code-only `NoteWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
+`Views/`, which also derives from `OverlayWindow`) and 4 without XAML (the
+code-only `NoteWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
 (`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
 (`SubPixelProbeWindow`), the T0(a) lag-mark button (`LagMarkWindow`, main's 27th XAML window
@@ -77,6 +77,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML | collision-zone |
 | **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML | collision-zone |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
+| **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |
 
 The **Class** column is the match key for the drift-guard test

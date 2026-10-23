@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -57,7 +59,7 @@ public class NoteUndoTests
         var clock = new FakeClock();
         var timer = new FakeUndoTimer();
         var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
-            clockMs: clock.Read, undoTimer: timer);
+            clockMs: clock.Read, undoTimer: timer, workAreaDip: NoteTestBench.WorkAreaProvider);
         if (pausePoll != null) manager.SetPausePoll(pausePoll);
         if (suspend != null) manager.SetSuspendPredicate(suspend);
         return (manager, clock, timer);
@@ -91,16 +93,11 @@ public class NoteUndoTests
         timer.RaiseTick();
     }
 
-    /// <summary>A dwell button's centre in physical px, through the SAME math the manager uses.</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot)
-    {
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(anchor.X) - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(anchor.Y) - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = NoteLayout.ButtonCenter(slot);
-        return new(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-    }
+    /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
+    /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3) — the test
+    /// can never disagree with the registration.</summary>
+    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreFromAnchor(anchor, slot);
 
     /// <summary>The chip's Undo disc: the chip re-renders in place, so its ↺ sits in the note's
     /// slot 0 — the same NoteLayout math the manager registers the target with.</summary>
@@ -431,7 +428,7 @@ public class NoteUndoTests
         var timer = new FakeUndoTimer();
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false }; // hidden at start
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
-            clockMs: clock.Read, undoTimer: timer);
+            clockMs: clock.Read, undoTimer: timer, workAreaDip: NoteTestBench.WorkAreaProvider);
         manager.SetKeyboardProbe(probe);
 
         DpiHelper.Initialize(2.0, 2.0);
@@ -763,7 +760,8 @@ public class NoteUndoTests
         var timer = new FakeUndoTimer();
         var tester = new FakeHitTester();
         using var manager = new NoteManager(messenger, sink: null, dwellRegistry: null,
-            hitTester: tester, clockMs: clock.Read, undoTimer: timer);
+            hitTester: tester, clockMs: clock.Read, undoTimer: timer,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
@@ -827,7 +825,7 @@ public class NoteUndoTests
         var clock = new FakeClock();
         var timer = new FakeUndoTimer();
         var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
-            clockMs: clock.Read, undoTimer: timer);
+            clockMs: clock.Read, undoTimer: timer, workAreaDip: NoteTestBench.WorkAreaProvider);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
@@ -886,12 +884,15 @@ public class NoteUndoTests
     {
         // 7 Display notes + 1 Removed chip: 8 windows but only 7 live notes. The pin finalizes
         // the chip (as on its expiry) and creates — the total never reaches 9.
+        // Anchors spread over TWO ROWS (row 2 at Y 1000): with the P3 tail zone every window is
+        // 310 DIP wide, so a single right-aligned row clamps notes 6 and 7 into IDENTICAL window
+        // rects — their two ✕ targets would coincide and the dwell must not resolve them.
         var (manager, _, _) = MakeManager(out _);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             for (int i = 0; i < 7; i++)
-                SavedNote(manager, $"note {i}", new PhysicalPoint(400 + i * 600, 400));
+                SavedNote(manager, $"note {i}", new PhysicalPoint(400 + (i % 4) * 600, i < 4 ? 400 : 1000));
             var chipped = SavedNote(manager, "chipped", new PhysicalPoint(4600, 400));
             ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 400), 2), startUs: 0); // ✕ → chip
 
@@ -1089,7 +1090,8 @@ public class NoteUndoTests
         var clock = new FakeClock();
         var timer = new FakeUndoTimer();
         using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry,
-            hitTester: InactiveNoteHitTester.Instance, clockMs: clock.Read, undoTimer: timer);
+            hitTester: InactiveNoteHitTester.Instance, clockMs: clock.Read, undoTimer: timer,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try

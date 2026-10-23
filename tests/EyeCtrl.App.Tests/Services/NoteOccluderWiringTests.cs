@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Tests.TestSupport;
+
 using System.IO;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
@@ -178,7 +180,7 @@ public class NoteOccluderWiringTests
         var sink = new CapturingSink();
         var previousLogger = Log.Logger;
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         bool throwOnRead = true;
         manager.SetOccluderSources(driftNoticeBounds: () =>
         {
@@ -273,7 +275,7 @@ public class NoteOccluderWiringTests
     public void AThrowingOccluderSource_LetsDoneFire_ButKeepsCloseGated()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false }; // hidden: ⌨ registers in slot 1
         manager.SetKeyboardProbe(probe);
         manager.SetOccluderSources(driftNoticeBounds: () =>
@@ -337,7 +339,7 @@ public class NoteOccluderWiringTests
     public void AFailingOccluderSource_NeverReleasesALatch_OnlyAHealthyLeaveDoes()
     {
         var messenger = new WeakReferenceMessenger();
-        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance);
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         bool throwOnRead = false;
         manager.SetOccluderSources(driftNoticeBounds: () =>
         {
@@ -388,14 +390,8 @@ public class NoteOccluderWiringTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    /// <summary>A dwell button's centre in physical px, through the SAME math the manager uses.</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot)
-    {
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(anchor.X) - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(anchor.Y) - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
-        var (lx, ly) = EyeCtrl.App.Overlays.NoteLayout.ButtonCenter(slot);
-        return new(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-    }
+    /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
+    /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3).</summary>
+    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreFromAnchor(anchor, slot);
 }

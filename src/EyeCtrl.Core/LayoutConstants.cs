@@ -86,16 +86,11 @@ public static class LayoutConstants
     public const double NoteButtonPadding = 10.0;
 
     /// <summary>
-    /// Vertical distance (logical px) from the note window's top edge down to the gaze anchor point.
-    /// The fixation point maps to this offset below the window top so the note appears just under the gaze.
-    /// Shared by <c>NoteManager</c> (window positioning + dwell-target math) and must stay in sync.
-    /// </summary>
-    public const double NoteAnchorOffsetY = 70.0;
-
-    /// <summary>
     /// Height of the NoteWindow in logical pixels. Sized to fit the title bar plus the vertical
     /// column of three control buttons (close/edit/move) with top and bottom padding, so no button
     /// is clipped: title + padding + 3·diameter + 2·gap + padding.
+    /// P3 note: this is the CARD height — the window also carries the tail zone on one edge, so
+    /// the drawn window is taller on the anchor's side.
     /// </summary>
     public const double NoteWindowHeight =
         NoteTitleBarHeight + NoteButtonPadding
@@ -103,6 +98,26 @@ public static class LayoutConstants
         + 2 * NoteButtonGap
         + NoteButtonPadding;
 
-    /// <summary>Radius (logical px) of the placement dwell target shown while a note is being moved.</summary>
-    public const double NotePlacementRadius = 100.0;
+    // ── the Place-here window (P3 D4) ──
+    // One small window per NoteManager, shown beside an accepted settle's centroid while a note
+    // is being moved. It is not click-through, so the P2 own-window conjunct can resolve it.
+
+    /// <summary>Width of the Place-here window in logical pixels (DIP).</summary>
+    public const double NotePlaceHereWidthDip = 150.0;
+
+    /// <summary>Height of the Place-here window in logical pixels (DIP).</summary>
+    public const double NotePlaceHereHeightDip = 44.0;
+
+    /// <summary>Horizontal offset from an accepted settle's centroid to the Place-here window's
+    /// left edge, so the window never covers the centroid it was born from.</summary>
+    public const double NotePlaceHereOffsetDip = 40.0;
+
+    /// <summary>The Place-here exclusion margin (P3 D4): the window inflated by its hit half-size
+    /// plus this. While the gaze is inside that margin the window never moves — an accepted
+    /// settle inside it is ignored.</summary>
+    public const double NotePlaceHereDetourDip = 60.0;
+
+    /// <summary>The Place-here dwell target's hit half-size in logical pixels: the same disc the
+    /// note buttons use, over the window's centre.</summary>
+    public const double NotePlaceHereHitRadiusDip = NoteButtonRadius;
 }

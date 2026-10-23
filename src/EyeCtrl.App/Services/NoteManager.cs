@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Services;
 
+using System.Windows;
 using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -15,7 +16,8 @@ using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels.Messages;
 
 public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
-    IRecipient<EyeCareExerciseActiveMessage>, IRecipient<CalibrationStateChangedMessage>, IDisposable
+    IRecipient<EyeCareExerciseActiveMessage>, IRecipient<CalibrationStateChangedMessage>,
+    IRecipient<DisplayGeometryChangedMessage>, IDisposable
 {
     private readonly List<NoteWindow> _windows = new();
     private readonly List<NoteData> _notes = new();
@@ -110,7 +112,40 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The clock's stamp of the last valid (non-gap, gate-passing) sample. Null before the first.
     private long? _lastValidSampleClockMs;
 
+    // ── placement and Move (P3) ──
+    // Every note's derived placement (P3 D2): the window rect, the card rect and the side are
+    // never stored on the note — they are computed by NoteLayout.Place from the note's anchor
+    // and side, the card size, the work area and the (Edit) avoid rects, and cached here so the
+    // target registrations, the chrome zones and the window all read the SAME answer.
+    private readonly Dictionary<string, NotePlacement> _placements = new();
+    // The work area in DIP (P3 D2.7), injected: production reads SystemParameters.WorkArea
+    // (primary monitor in v1); headless tests inject a fixed 1920x1200.
+    private readonly Func<Rect> _workAreaDip;
+    // The Move state (P3 D4): at most one note moves at a time — StartMove finishes any current
+    // move first, and every exit path below clears this id together with the place-here window.
+    private string? _movingNoteId;
+    // fixup-01 m1 (review): the Other-side candidate RegisterMoveTargetsForNote JUDGED over the
+    // T1 avoid set — OtherSideForMoving applies exactly it, never a fresh un-avoided re-derive
+    // that could differ from what was offered. Refreshed on every move re-registration; cleared
+    // with the move.
+    private NotePlacement? _judgedOtherSideForMoving;
+    private readonly NoteSettleTracker _settleTracker = new();
+    // The accepted settle's centroid (physical px) the :place target will re-anchor to.
+    private PhysicalPoint? _placeCentroid;
+    // The Place-here window (P3 D4): one per manager, created lazily, never in DI. It is NOT
+    // click-through, so the own-window conjunct can resolve it; Dispose closes it.
+    private NotePlaceHereWindow? _placeWindow;
+    private Rect _placeWindowRect;
+    private bool _placeShown;
+
     public IReadOnlyList<NoteData> ActiveNotes => _notes.AsReadOnly();
+
+    /// <summary>P2 D7: true while any note is in the Move state. The activation-offer
+    /// coordinator reads this as its "note move" suspension reason — offers suspend for the
+    /// whole Move, but (unlike the modal reasons) it does NOT turn ModalSuspended on, because
+    /// that flag is the note gate's suspender input and a Move must not suspend the notes
+    /// themselves.</summary>
+    public bool IsMoving => _movingNoteId is not null;
 
     /// <summary>P2 D5's redefinition: Display + Edit + Move notes plus NON-yieldable chips. A
     /// <c>DiscardedExisting</c> chip counts as a live note (the saved text still exists behind
@@ -179,9 +214,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// displayed (<see cref="NoteWindow.IsDisplayed"/>) - only the HWND show is skipped.</summary>
     internal static bool RealNoteWindows = true;
 
+    /// <summary>Test seam (the CI work-area fix, #227/#231/#234): the work area a manager uses when
+    /// the caller injects none. Null in production, where the constructor reads
+    /// <see cref="SystemParameters.WorkArea"/> as before; the App test assembly sets the OWNER's
+    /// 1920x1152 DIP once in its module initializer, so placement-dependent tests do not follow
+    /// the machine's screen (CI's is smaller and put a note on another side). An explicit
+    /// <c>workAreaDip</c> argument always wins. No writer in <c>src/</c>.</summary>
+    internal static Func<Rect>? DefaultWorkAreaDipForTests;
+
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null, INoteHitTester? hitTester = null,
-        Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null)
+        Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null,
+        Func<Rect>? workAreaDip = null)
     {
         _messenger = messenger;
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
@@ -198,9 +242,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // P2 D2's production default (fixup 01 M2): null means "the real tester", never "none" —
         // the inactive case is the explicit sentinel, so it is visible at every call site.
         _hitTester = hitTester ?? new NoteHitTester();
+        // P3 D2.7: an absent argument IS the production worker area — SystemParameters.WorkArea
+        // (the primary monitor's working rect in v1).
+        _workAreaDip = workAreaDip ?? DefaultWorkAreaDipForTests ?? (() => SystemParameters.WorkArea);
         _messenger.Register<GazeCursorMovedMessage>(this);
         _messenger.Register<EyeCareExerciseActiveMessage>(this);
         _messenger.Register<CalibrationStateChangedMessage>(this);
+        // T6 (P3 D3): the geometry watcher's message joins the WPF SystemParameters subscription —
+        // the message alone does not fire on a taskbar resize or auto-hide.
+        _messenger.Register<DisplayGeometryChangedMessage>(this);
+        SystemParameters.StaticPropertyChanged += OnSystemPropertyChanged;
         _dwellRegistry = dwellRegistry;
         // P2 D6: the explicit registration replaces ForDetector — an explicit 600 ms floor and a
         // NAMED no-op geometry applier. The no-op is the point: AdaptGeometry defaults on, with
@@ -222,6 +273,105 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// requires a non-null applier.
     /// </summary>
     private static void NoteGeometryOptOut(Func<double, double>? _) { }
+
+    // ── placement derivation (P3 D2) ──
+
+    /// <summary>The card size every placement is derived with (T5 may make it per-note).</summary>
+    private static Size CardSize() => new(LayoutConstants.NoteWindowWidth, LayoutConstants.NoteWindowHeight);
+
+    // DIP-in-PhysicalPoint conversions: the Core's point type is axis-free; the SETTLE TRACKER
+    // works in DIP (its DIP semantics ride the PhysicalPoint wrapper), while window rects and
+    // the place-here math read SystemParameters' work area in DIP and the screen in physical px.
+    private static PhysicalPoint ToDipPoint(PhysicalPoint p) =>
+        new(DpiHelper.PhysicalToLogicalX(p.X), DpiHelper.PhysicalToLogicalY(p.Y));
+
+    private static PhysicalPoint ToPhysicalPoint(PhysicalPoint dipPoint) =>
+        new(DpiHelper.LogicalToPhysicalX(dipPoint.X), DpiHelper.LogicalToPhysicalY(dipPoint.Y));
+
+    private static Rect PhysicalRectToDip(PhysicalRect r) => new(
+        DpiHelper.PhysicalToLogicalX(r.X),
+        DpiHelper.PhysicalToLogicalY(r.Y),
+        DpiHelper.PhysicalToLogicalX(r.X + r.Width) - DpiHelper.PhysicalToLogicalX(r.X),
+        DpiHelper.PhysicalToLogicalY(r.Y + r.Height) - DpiHelper.PhysicalToLogicalY(r.Y));
+
+    private static PhysicalRect DipRectToPhysical(Rect r) => new(
+        DpiHelper.LogicalToPhysicalX(r.Left),
+        DpiHelper.LogicalToPhysicalY(r.Top),
+        DpiHelper.LogicalToPhysicalX(r.Width),
+        DpiHelper.LogicalToPhysicalY(r.Height));
+
+    /// <summary>The avoid rects in DIP for one placement derivation: in Edit, the keyboard window
+    /// and its edge bar through the probe (D2.5); otherwise empty.</summary>
+    private List<Rect> AvoidRectsDip(bool avoidKeyboard)
+    {
+        if (!avoidKeyboard || _keyboardProbe is not { } probe)
+            return new List<Rect>();
+        return probe.Rects().Select(PhysicalRectToDip).ToList();
+    }
+
+    /// <summary>Derives the placement for a note (P3 D2): the pure <see cref="NoteLayout.Place"/>
+    /// over the note's anchor and side, the card size, the injected work area and — only in the
+    /// Edit state — the keyboard's avoid rects. Tests derive their expected geometry through the
+    /// same closure via the stored placement (see <see cref="PlacementForTest"/>).</summary>
+    private NotePlacement PlaceFor(NoteData note, bool avoidKeyboard)
+    {
+        var placement = NoteLayout.Place(
+            note.Anchor, note.Side, CardSize(), _workAreaDip(), AvoidRectsDip(avoidKeyboard),
+            DpiHelper.ScaleX);
+        return placement ?? throw new InvalidOperationException(
+            "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
+    }
+
+    /// <summary>Applies a note's derived placement to its window and caches it: resize, redraw
+    /// (the column follows the side, the tail appears) and position the window from the same
+    /// rect, so drawing and the dwell registrations read one answer. Identical derivations are
+    /// skipped: a trigger's re-place of an unmoved card must not rebuild the drawn tree (held
+    /// drawn-tree references stay valid, review-01's drawn⌁registered invariant holds).</summary>
+    private void ApplyPlacementToWindow(NoteData note)
+    {
+        var placement = PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit);
+        if (_placements.TryGetValue(note.Id, out var current) && current == placement)
+            return;
+        _placements[note.Id] = placement;
+        if (Window(note.Id) is not { } window)
+            return;
+        window.ApplyPlacement(placement);
+        window.Left = placement.Window.Left;
+        window.Top = placement.Window.Top;
+    }
+
+    /// <summary>
+    /// T6 (P3 D3): the display geometry or the work area changed — EVERY note re-derives its
+    /// placement from the fresh work area (chips included: a chip's rect is a derived
+    /// placement), the windows re-apply it in place and the registration is rebuilt so every
+    /// dwell centre and the Move/Other side availability re-derive from the placements (<see
+    /// cref="RegisterMoveTargetsForNote"/> reads <see cref="NoteLayout.Place"/> per call). The
+    /// sole-editor rule is honoured by <see cref="ReRegisterAllTargets"/> itself.
+    /// </summary>
+    private void RePlaceEveryNote()
+    {
+        if (_disposed) return;
+        foreach (var note in _notes.ToList())
+            ApplyPlacementToWindow(note);
+        ReRegisterAllTargets();
+        RaiseTargetsChanged();
+    }
+
+    /// <summary>The next side in the fixed cycle (P3 D4's Other side walks one step).</summary>
+    private static NoteSide NextSide(NoteSide side) => side switch
+    {
+        NoteSide.Right => NoteSide.Left,
+        NoteSide.Left => NoteSide.Below,
+        NoteSide.Below => NoteSide.Above,
+        _ => NoteSide.Right,
+    };
+
+    /// <summary>Test/seam helper: the derived placement of a note, or null when the id is unknown.
+    /// Headless geometry tests read the SAME placement the manager registered from instead of
+    /// re-deriving it, so the accepted P4 layout constants cannot make a test's expectation and
+    /// the manager's truth disagree.</summary>
+    internal NotePlacement? PlacementForTest(string noteId) =>
+        _placements.TryGetValue(noteId, out var p) ? p : null;
 
     // ── typing into the note (P1 D1/D2) ──
 
@@ -257,6 +407,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 return;
         }
 
+        // T7/T8 (P3 D3): a card-height or text-size change re-derives through
+        // ApplyPlacementToWindow the moment its source exists — the fixed T4 card size cannot
+        // change the derived rect, so no height trigger is wired here until T5's auto-height
+        // and the text-size setting land (T5 re-places with this same seam).
         Window(note.Id)?.SetText(note.Draft);
     }
 
@@ -280,20 +434,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             FinalizeOldestYieldableChip();
         }
 
-        var data = new NoteData { Position = point, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
+        var data = new NoteData { Anchor = point, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
         var window = new NoteWindow(data.Id);
         _notes.Add(data);
         _windows.Add(window);
+        _placements[data.Id] = NoteLayout.Place(data.Anchor, data.Side, CardSize(), _workAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!;
 
-        // Set the initial state before Show() so the first render builds the editor layout.
+        // Set the initial state before Show() so the first render builds the editor layout. The
+        // placement the window renders first is the one its position comes from (P3 D2): apply
+        // the placement before Show, and Show() must run here, not inside the window's Loaded
+        // handler — Loaded only fires once the window is shown, so a Show() registered inside
+        // Loaded would never execute. The ⌨ control's drawn visibility is seeded before Show so
+        // the first render matches the registered targets.
         window.SetState(NoteState.Edit);
-        window.Left = DpiHelper.PhysicalToLogicalX(point.X) - LayoutConstants.NoteWindowWidth / 2;
-        window.Top = DpiHelper.PhysicalToLogicalY(point.Y) - LayoutConstants.NoteAnchorOffsetY;
-
-        // Show() must run here, not inside the window's Loaded handler: Loaded only fires once the
-        // window is shown, so a Show() registered inside Loaded would never execute. The ⌨
-        // control's drawn visibility is seeded before Show so the first render matches the
-        // registered targets.
+        window.ApplyPlacement(_placements[data.Id]);
+        window.Left = _placements[data.Id].Window.Left;
+        window.Top = _placements[data.Id].Window.Top;
         window.SetKeyboardControlVisible(KeyboardHidden);
         window.ShowForDisplay(RealNoteWindows);
         window.SetText(data.Draft);
@@ -311,6 +467,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         {
             // A chip has no card targets; a programmatic removal consumes it and deletes outright.
             ConsumeChip(note);
+        }
+        if (_movingNoteId == id && note is not null)
+        {
+            // P3 D4: a programmatic removal of a moving note exits its Move cleanly first.
+            LeaveMove(note);
         }
         if (_editingNote?.Id == id)
         {
@@ -363,6 +524,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private void BeginEditOn(NoteData note)
     {
         note.State = NoteState.Edit;
+        // T1-T5's state-driven avoid (P3 D3): entering Edit re-derives against the keyboard's
+        // rects — Place keeps the saved side when it already clears them and moves only when it
+        // intersects, so the restore after Done is the same derivation with the avoid gone.
+        ApplyPlacementToWindow(note);
         var window = Window(note.Id);
         if (window != null)
         {
@@ -503,6 +668,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         note.Draft = note.Text;
         note.State = NoteState.Display;
+        // T1-T5's shared restore (P3 D3): straight back to Display re-derives without the avoid —
+        // the card returns to its saved side exactly as the chip paths did in EnterPendingUndo.
+        ApplyPlacementToWindow(note);
         var window = Window(note.Id);
         if (window != null)
         {
@@ -525,9 +693,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// probe flips, gate recovery) and before that from the Edit exits, so a target that appears or
     /// moves under a held gaze is never live until the gaze has demonstrably left it once.
     /// <para>
-    /// The gaze-chasing <c>:place</c> target is exempt: it is re-centred on every sample, so its
-    /// circle always contains the gaze and a latch could never release — its safety comes from the
-    /// aim that started the Move, and T4 reworks Move entirely.
+    /// T4 note: the P3 :place target is NOT exempt and never needed to be. The old
+    /// gaze-chasing :place re-centred on every sample (a latch could never release); P3's place
+    /// target sits on the Place-here window, which appears beside a judged settle — a fixed
+    /// target that can legitimately be born under (or near) a held gaze, so it latches like any
+    /// other registration.
     /// </para>
     /// Called AFTER the registration it follows, so the scan sees the fresh targets; a held sample
     /// is by definition still inside the circles it must leave.
@@ -538,8 +708,6 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // (P2 D4 covers every (re)registration, P2 D5's chips included).
         foreach (var target in _dwellDetector.Targets.Concat(_undoDetector.Targets))
         {
-            if (target.Id.EndsWith(":place", StringComparison.Ordinal))
-                continue;
             double dx = _lastGazePoint.X - target.Center.X;
             double dy = _lastGazePoint.Y - target.Center.Y;
             if (dx * dx + dy * dy <= (double)target.Radius * target.Radius)
@@ -613,6 +781,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (kind == PendingUndoKind.Removed)
             note.Draft = note.Text; // the saved text is Undo's payload; Discarded* keep their draft
 
+        // T1-T5's shared restore (P3 D3): out of Edit, the re-derivation drops the keyboard avoid
+        // and the chip returns to its anchor-based rect (the saved side) — every chip kind walks
+        // through here, so this one call covers Done-Removed, DiscardedNew and DiscardedExisting.
+        ApplyPlacementToWindow(note);
+
         var window = Window(note.Id);
         if (window != null)
         {
@@ -643,15 +816,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(note.Position.X) - LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(note.Position.Y) - LayoutConstants.NoteAnchorOffsetY;
-        double radiusPhysical = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
-        var (lx, ly) = NoteLayout.ButtonCenter(0);
-        var center = new PhysicalPoint(
-            DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-            DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-        _undoDetector.AddTarget(new DwellTarget($"{noteId}:undo", center, radiusPhysical, DwellTimeMs));
-        _undoTargetWindows[$"{noteId}:undo"] = WindowHandleOrZero(noteId);
+        AddColumnTarget(_undoDetector, _undoTargetWindows, noteId, ":undo", slot: 0);
+    }
+
+    /// <summary>Registers one dwell target over the drawn column button #<paramref name="slot"/>
+    /// (P3 D2.6: the column follows the side, so the target centre derives from the note's stored
+    /// placement via <see cref="DwellTargetFor"/>). The detector and its window map arrive as
+    /// arguments because the chip targets live in the second detector with their own mapping.</summary>
+    private void AddColumnTarget(DwellDetector detector, Dictionary<string, IntPtr> windowMap,
+        string noteId, string suffix, int slot)
+    {
+        detector.AddTarget(DwellTargetFor(noteId, suffix, slot));
+        windowMap[noteId + suffix] = WindowHandleOrZero(noteId);
     }
 
     /// <summary>The ✕ dwell (P2 D5): a Display note becomes a <c>PendingUndo(Removed)</c> chip.
@@ -901,6 +1077,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var window = Window(note.Id);
         if (window != null) { window.Close(); _windows.Remove(window); }
         _notes.Remove(note);
+        _placements.Remove(note.Id); // P3 D2: a removed note's derived rect dies with it
         ReRegisterAllTargets();
         RaiseTargetsChanged();
     }
@@ -946,9 +1123,20 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         if (_editingNote is { } note)
         {
+            // T1-T5 (P3 D3): the probe's five sources collapse at this one raise — re-derive the
+            // editing card against the keyboard's CURRENT rects (state-driven avoid) BEFORE the
+            // re-registration so the targets read the fresh placement. Place keeps the saved
+            // side when it clears the rects and picks the first fitting of the cycle otherwise.
+            ApplyPlacementToWindow(note);
             Window(note.Id)?.SetKeyboardControlVisible(!visible); // mutant A's guard (review 01)
             RegisterSoleEditorTargets(note.Id);
             _dwellDetector.ResetAllState();
+        }
+        else if (_movingNoteId is not null)
+        {
+            // T1-T5 while Move (P3 D4): Other side's availability re-derives from
+            // Place(..., exclude: current) inside the re-registration, latched as always.
+            ReRegisterAllTargets();
         }
     }
 
@@ -960,48 +1148,164 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _editingOwnsKeyboard = true;
     }
 
+    /// <summary>
+    /// Enters Move (P3 D4): the card dims to 0.6 in place — it never chases the gaze now — and
+    /// the manager registers the move set: Other side (slot 0, only while another side of the
+    /// anchor fits) and Cancel (slot 1), both latched under the held gaze. A fresh Move has no
+    /// place-here window yet; that appears on the first accepted settle. The commit-first rule
+    /// applies BEFORE the chip guard can be evaluated in reverse: any editor is committed, then
+    /// the note re-fetched (an emptied new note's committed exit removes it). Programmatic
+    /// re-entry while already moving is a no-op.
+    /// </summary>
     public void StartMove(string id)
     {
         var note = _notes.FirstOrDefault(n => n.Id == id);
+        if (_movingNoteId == id)
+            return; // already moving this note
         var window = _windows.FirstOrDefault(w => w.NoteId == id);
         if (note == null || window == null) return;
         if (note.State == NoteState.PendingUndo)
         {
-            // M1 (T3 review-01), the StartMove twin: on a chip this must be a no-op. The old
-            // finalize-then-continue deleted the note, then cleared the WHOLE main detector
-            // (every other note's controls died) and registered a ghost :place that follows the
-            // gaze and can never resolve. The chip stays pending, untouched.
+            // M1 (T3 review-01), the StartMove twin: on a chip this must be a no-op. The chip
+            // stays pending, untouched, and the guard runs BEFORE ExitEditing so a
+            // chip-addressed no-op cannot commit the current editor.
             return;
         }
-        if (_editingNote?.Id == id)
-        {
-            // No P1 target reaches this (Edit registers no :move); defensive clean-up mirrors
-            // RemoveNote so a stray StartMove cannot strand the editing state.
-            _editingNote = null;
-            ReleaseKeyboard(handOver: false);
-            _messenger.Send(new NoteEditingChangedMessage(false));
-        }
+        // fixup-01 M1: Move is exclusive. A different current Move ends first — the earlier
+        // note returns to Display through the shared exit; without this, two notes sit in
+        // Move at once and the first one stays dimmed and stuck (its Cancel dwell sinks on
+        // `_movingNoteId != A`). A no-op on a chip must stay complete: the guard above
+        // already returned, so this line only ends a REAL fresh Move.
+        if (_movingNoteId is { } otherId && otherId != id && FindNote(otherId) is { } other)
+            LeaveMove(other);
+        // The commit-first rule (P1 D8): entering Move must not strand the editing state.
+        // After ExitEditing the note may be gone (an emptied new note's committed exit) — re-fetch.
+        ExitEditing(commit: true, handOver: true);
+        note = _notes.FirstOrDefault(n => n.Id == id);
+        if (note == null) return;
+
         note.State = NoteState.Move;
-        window.SetState(NoteState.Move);
-        // Only the placement target is active while moving; done/keyboard and close/edit/move are
-        // removed to prevent accidental activation, and all other notes are frozen. The :place
-        // target is deliberately NOT latched (P2 D4): it is re-centred on the gaze every sample,
-        // so a latch could never release — and a Move started by an aimed ↕ dwell is deliberate.
+        window.SetState(NoteState.Move); // dims to 0.6, shows Cancel (+ Other side when it fits)
+        HidePlaceHere();                 // a fresh Move never inherits a stale place window
+        _settleTracker.Reset();
+        _movingNoteId = id;
         _dwellDetector.ClearTargets();
-        _dwellDetector.AddTarget(new DwellTarget($"{id}:place", note.Position,
-            DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlacementRadius), DwellTimeMs));
-        _targetWindows[$"{id}:place"] = new WindowInteropHelper(window).EnsureHandle();
+        _targetWindows.Clear();
+        RegisterMoveTargetsForNote(note);
         _dwellDetector.ResetAllState();
+        LatchTargetsUnderTheGaze();
         RaiseTargetsChanged();
     }
 
-    public void FinishMove(string id, PhysicalPoint newPosition)
+    /// <summary>Registers the moving note's local set: Other side (P3 D4) when the NEXT side of
+    /// the cycle fits beside the current placement (the exclusion rule forbids re-offering the
+    /// side the note is already on), and Cancel always. NOT a full replacement — the StartMove
+    /// caller clears first, and <see cref="RegisterTargetsForState"/>'s Move case relies on that
+    /// being the only earlier mutation.</summary>
+    private void RegisterMoveTargetsForNote(NoteData note)
+    {
+        if (!_placements.TryGetValue(note.Id, out var placement))
+            return;
+        var next = NextSide(placement.Side);
+        // P3 D3 row T1: the availability derives over the same avoid-rect set the placement
+        // itself used — a keyboard-covered alternative must not offer (the ⊢ window cannot be
+        // reached without leaving the gaze inside the keyboard's dwell space). The probe's
+        // raise re-derives through the Move re-registration below (OnKeyboardProbeChanged), so
+        // Other side re-appears the moment T1 frees the room back.
+        var other = NoteLayout.Place(note.Anchor, next, CardSize(), _workAreaDip(),
+            AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: placement.Side);
+        _judgedOtherSideForMoving = other;
+        bool otherFits = other is not null;
+        Window(note.Id)?.SetOtherSideAvailable(otherFits);
+        if (otherFits)
+            AddColumnTarget(_dwellDetector, _targetWindows, note.Id, ":otherside", slot: 0);
+        AddColumnTarget(_dwellDetector, _targetWindows, note.Id, ":cancel", slot: 1);
+    }
+
+    /// <summary>The shared exit from Move (P3 D4): the place-here window goes away, the tracker
+    /// resets, the note returns to Display (or, with <paramref name="registerDisplay"/> false, a
+    /// caller that re-registers itself first suppresses the double registration), and the
+    /// full re-registrations re-latch everything under the held gaze. Sends the targets-changed
+    /// raise so the activation offers re-publish (the Move suspension reason may be ending).</summary>
+    private void LeaveMove(NoteData note)
+    {
+        HidePlaceHere(); // must run while _movingNoteId still names this move
+        _movingNoteId = null;
+        _judgedOtherSideForMoving = null;
+        _settleTracker.Reset();
+        note.State = NoteState.Display;
+        Window(note.Id)?.SetState(NoteState.Display);
+        ReRegisterAllTargets();
+        RaiseTargetsChanged();
+    }
+
+    /// <summary>The ↘ Cancel dwell (P3 D4): the note returns to Display where it already is —
+    /// its anchor and side are unchanged.</summary>
+    private void CancelMove(string noteId)
+    {
+        if (_movingNoteId != noteId) return;
+        if (FindNote(noteId) is not { } note) return;
+        LeaveMove(note);
+    }
+
+    /// <summary>The Other side dwell (P3 D4): one step of the side cycle, applied immediately —
+    /// the note re-places on the new side and returns to Display there. Defensive no-ops keep
+    /// the method honest when the placement could not be rebuilt.</summary>
+    private void OtherSideForMoving(string noteId)
+    {
+        if (_movingNoteId != noteId) return;
+        if (FindNote(noteId) is not { } note) return;
+        if (!_placements.TryGetValue(noteId, out var current)) return;
+        // fixup-02 nit 2: apply the candidate the offer judged available — whatever cycle step
+        // the avoid set landed it on. The fallback (the judged one went stale without a
+        // re-registration) re-derives over the same avoid set, so even it cannot wander back
+        // over the keyboard.
+        var other = _judgedOtherSideForMoving;
+        if (other is null)
+            other = NoteLayout.Place(note.Anchor, NextSide(current.Side), CardSize(), _workAreaDip(),
+                AvoidRectsDip(avoidKeyboard: true), DpiHelper.ScaleX, exclude: current.Side);
+        if (other is null)
+        {
+            // The target only registers while an alternative exists (RegisterMoveTargetsForNote),
+            // so this is defensive: leave the note exactly where it is.
+            LeaveMove(note);
+            return;
+        }
+        note.Side = other.Side;
+        _placements[noteId] = other;
+        if (Window(noteId) is { } window)
+        {
+            window.ApplyPlacement(other);
+            window.Left = other.Window.Left;
+            window.Top = other.Window.Top;
+        }
+        LeaveMove(note);
+    }
+
+    /// <summary>
+    /// The Place-here dwell (P3 D4): re-anchors the note at the accepted settle's centroid — NOT
+    /// the last gaze point (that could have moved on between the settle and the dwell). The
+    /// anchor moves; the side preference stays, and the placement (which may pick another side)
+    /// is derived fresh. The window map entry for :place belongs to the place-here window, not
+    /// the note card — the cleared own-window mapping is not needed here.
+    /// </summary>
+    public void FinishMove(string id, PhysicalPoint newAnchor)
     {
         var note = _notes.FirstOrDefault(n => n.Id == id);
         var window = _windows.FirstOrDefault(w => w.NoteId == id);
         if (note == null || window == null) return;
-        note.Position = newPosition;
+        note.Anchor = newAnchor;
+        HidePlaceHere(); // must run while _movingNoteId still names this move
+        _movingNoteId = null;
+        _judgedOtherSideForMoving = null;
+        _settleTracker.Reset();
         note.State = NoteState.Display;
+        var placement = NoteLayout.Place(note.Anchor, note.Side, CardSize(), _workAreaDip(),
+            new List<Rect>(), DpiHelper.ScaleX)!;
+        _placements[id] = placement;
+        window.ApplyPlacement(placement);
+        window.Left = placement.Window.Left;
+        window.Top = placement.Window.Top;
         window.SetState(NoteState.Display);
         ReRegisterAllTargets();
         RaiseTargetsChanged();
@@ -1019,31 +1323,41 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <inheritdoc />
     public IReadOnlyList<PhysicalRect> ChromeRects()
     {
-        var rects = new List<PhysicalRect>(_notes.Count * 4);
+        var rects = new List<PhysicalRect>(_notes.Count * 4 + 1);
         foreach (var note in _notes)
         {
-            // Window top-left in logical screen coords — the same math CreateNoteAt positions with
-            // and the registrations target. The card body is the drawn card, which today fills the
-            // window; there is no tail in v1, and when P3 adds the pointer tail it must NOT join
-            // these zones (P2 D7: the tail and the raw window rect stay out).
-            double winLeftLogical = DpiHelper.PhysicalToLogicalX(note.Position.X) - LayoutConstants.NoteWindowWidth / 2;
-            double winTopLogical = DpiHelper.PhysicalToLogicalY(note.Position.Y) - LayoutConstants.NoteAnchorOffsetY;
-            rects.Add(new PhysicalRect(
-                DpiHelper.LogicalToPhysicalX(winLeftLogical),
-                DpiHelper.LogicalToPhysicalY(winTopLogical),
-                DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteWindowWidth),
-                DpiHelper.LogicalToPhysicalY(LayoutConstants.NoteWindowHeight)));
+            // P3 D2: the card is the drawn card (the placement's Card rect, tail zone excluded —
+            // P2 D7 keeps the tail and the raw window rect out of the chrome zones), and the three
+            // column cells follow the placement's side.
+            if (_placements.TryGetValue(note.Id, out var placement))
+                rects.Add(DipRectToPhysical(placement.Card));
 
             double radius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
             for (int slot = 0; slot < 3; slot++)
             {
-                var (lx, ly) = NoteLayout.ButtonCenter(slot);
-                double cx = DpiHelper.LogicalToPhysicalX(winLeftLogical + lx);
-                double cy = DpiHelper.LogicalToPhysicalY(winTopLogical + ly);
-                rects.Add(new PhysicalRect(cx - radius, cy - radius, radius * 2, radius * 2));
+                if (!TryColumnCentre(note.Id, slot, out var centre)) continue;
+                rects.Add(new PhysicalRect(centre.X - radius, centre.Y - radius, radius * 2, radius * 2));
             }
         }
+        // P3 D4: a shown Place-here window is chrome — the activation offers must not overlap it.
+        if (_placeShown)
+            rects.Add(DipRectToPhysical(_placeWindowRect));
         return rects;
+    }
+
+    /// <summary>The drawn column button #<paramref name="slot"/>'s centre in physical px (P3 D2),
+    /// derived from the note's stored placement. False when the note has no placement (a windowless
+    /// test seam note before its first derivation — the test seams compute one at registration).</summary>
+    private bool TryColumnCentre(string noteId, int slot, out PhysicalPoint centre)
+    {
+        centre = default;
+        if (!_placements.TryGetValue(noteId, out var placement))
+            return false;
+        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot);
+        centre = new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
+            DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
+        return true;
     }
 
     public void OnGazeMoved(PhysicalPoint gazePoint, long timestamp)
@@ -1095,16 +1409,113 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // same latch, same own-window conjunct — the one filter serves both detectors.
         _undoDetector.Update(gazePoint, timestamp, filter);
 
-        foreach (var note in _notes.Where(n => n.State == NoteState.Move))
+        // P3 D4: a moving note never chases the gaze. Every valid sample feeds the settle
+        // tracker (DIP); an accepted settle shows the Place-here window beside the centroid.
+        if (_movingNoteId is { } movingId && FindNote(movingId) is { } moving)
         {
-            _dwellDetector.UpdateTargetCenter($"{note.Id}:place", gazePoint);
-            var window = _windows.FirstOrDefault(w => w.NoteId == note.Id);
-            if (window != null)
+            // The tracker's "DIP" samples ride the PhysicalPoint wrapper (pure Core type system);
+            // the caller's conversion decides the meaning.
+            _settleTracker.AddSample(ToDipPoint(gazePoint), timestamp);
+            if (_settleTracker.Settled && _settleTracker.Centroid is { } centroidDip)
             {
-                window.Left = DpiHelper.PhysicalToLogicalX(gazePoint.X) - LayoutConstants.NoteWindowWidth / 2;
-                window.Top = DpiHelper.PhysicalToLogicalY(gazePoint.Y) - LayoutConstants.NoteAnchorOffsetY;
+                _settleTracker.Reset();
+                OnSettled(moving, centroidDip);
             }
         }
+    }
+
+    /// <summary>The moving note's manager lookup.</summary>
+    private NoteData? FindNote(string id) => _notes.FirstOrDefault(n => n.Id == id);
+
+    /// <summary>
+    /// One accepted settle of the moving note's gaze (P3 D4): the centroid is judged against the
+    /// note's card (looking at the note you are holding is evidence, not intent) and against the
+    /// Place-here window's margin on a re-settle (the window holds still there — see
+    /// <see cref="ShowPlaceHere"/>). Otherwise the Place-here window appears beside the centroid
+    /// and is dwelled to re-anchor the note.
+    /// </summary>
+    private void OnSettled(NoteData moving, PhysicalPoint centroidDip)
+    {
+        var centroid = ToPhysicalPoint(centroidDip);
+        if (_placements.TryGetValue(moving.Id, out var placement)
+            && DipRectToPhysical(placement.Card).Contains(centroid))
+            return; // ignore settles on the card
+
+        // P3 D4's settle-within-place guard: a shown Place-here window holds still through the
+        // settles in its margin (radius + detour, physical px) — the dwell on it accumulates and
+        // the window is not re-shown to a different spot on every new settle.
+        if (_placeShown)
+        {
+            var place = DipRectToPhysical(_placeWindowRect);
+            double detour =
+                DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlaceHereDetourDip)
+                + DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlaceHereHitRadiusDip);
+            if (new PhysicalRect(
+                    place.X - detour, place.Y - detour,
+                    place.Width + 2 * detour, place.Height + 2 * detour).Contains(centroid))
+                return;
+        }
+
+        ShowPlaceHere(moving, centroid);
+    }
+
+    /// <summary>(P3 D4) Puts the Place-here window beside an accepted settle's centroid —
+    /// clamped into the work area, offset along +X — and swaps the :place dwell target onto it.
+    /// The target's own-window mapping points at the Place-here window itself, NOT the moving
+    /// note's card: the conjunct resolves the topmost hit-testable window under the gaze, and
+    /// the gaze is on the place window here.</summary>
+    private void ShowPlaceHere(NoteData moving, PhysicalPoint centroidPhysical)
+    {
+        var work = _workAreaDip();
+        double w = LayoutConstants.NotePlaceHereWidthDip, h = LayoutConstants.NotePlaceHereHeightDip;
+        var centroidDip = ToDipPoint(centroidPhysical);        double x = centroidDip.X + LayoutConstants.NotePlaceHereOffsetDip;
+        double y = centroidDip.Y - h / 2;
+        x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right - w));
+        y = Math.Clamp(y, work.Top, Math.Max(work.Top, work.Bottom - h));
+
+        _placeWindowRect = new Rect(x, y, w, h);
+        _placeWindow ??= new NotePlaceHereWindow();
+        _placeWindow.Left = x;
+        _placeWindow.Top = y;
+        _placeWindow.ShowForDisplay(RealNoteWindows);
+        RegisterPlaceTarget(moving.Id);
+        _placeCentroid = centroidPhysical;
+        _placeShown = true;
+        _dwellDetector.ResetAllState();
+        LatchTargetsUnderTheGaze();
+    }
+
+    /// <summary>Registers (or re-registers) the {noteId}:place dwell target over the current
+    /// Place-here window rect (P3 D4). The target lives in the main detector and its own-window
+    /// mapping points at the Place-here window itself, NOT the moving note's card: the conjunct
+    /// resolves the topmost hit-testable window under the gaze, and the gaze is on the place
+    /// window here. Used on every show and on every full re-registration that would otherwise
+    /// drop a live <c>:place</c>.</summary>
+    private void RegisterPlaceTarget(string noteId)
+    {
+        double pw = LayoutConstants.NotePlaceHereWidthDip / 2;
+        double ph = LayoutConstants.NotePlaceHereHeightDip / 2;
+        _dwellDetector.RemoveTarget($"{noteId}:place");
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:place", new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(_placeWindowRect.X + pw),
+            DpiHelper.LogicalToPhysicalY(_placeWindowRect.Y + ph)),
+            DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlaceHereHitRadiusDip), DwellTimeMs));
+        if (_placeWindow is not null)
+            _targetWindows[$"{noteId}:place"] = new WindowInteropHelper(_placeWindow).EnsureHandle();
+    }
+
+    /// <summary>Hides the Place-here window and unregisters its dwell target and window map
+    /// entry. Keeps the window instance for the next Move (one per manager; Dispose closes).</summary>
+    private void HidePlaceHere()
+    {
+        _placeWindow?.Hide();
+        if (_movingNoteId is { } moveId)
+        {
+            _dwellDetector.RemoveTarget($"{moveId}:place");
+            _targetWindows.Remove($"{moveId}:place");
+        }
+        _placeShown = false;
+        _placeCentroid = null;
     }
 
     /// <summary>Gate conjunct 4's occluder half (P2 D3): the keyboard window and its edge bar
@@ -1269,8 +1680,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         // Gate row 1 (P2 D1): held (blink) samples repeat the frozen last valid position — they
         // must not advance a note's close/edit/move dwell, and a note being placed simply stays
-        // put until the eyes reopen.
-        if (message.IsInGap) return;
+        // put until the eyes reopen. P3 D4: a gap also invalidates any running settle (its
+        // dispersion window must span continuous samples only).
+        if (message.IsInGap)
+        {
+            _settleTracker.Invalidate();
+            return;
+        }
 
         // Gate row 2 (P2 D1): paused — the sample's own flag OR the polled interaction state.
         // The poll is what catches a pause entered from the tray while no sample carried the flag.
@@ -1284,6 +1700,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (paused || suspended)
         {
             _gateClosed = true;
+            _settleTracker.Invalidate(); // P3 D4: gated samples are no information — disperse, restart
             return;
         }
         if (_gateClosed)
@@ -1296,6 +1713,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             _gateClosed = false;
             _dwellDetector.ResetAllState();
             _undoDetector.ResetAllState();
+            _settleTracker.Reset(); // P3 D4: a settle interrupted by the gate starts over, too
             _lastGazePoint = message.Position;
             LatchTargetsUnderTheGaze();
         }
@@ -1337,6 +1755,24 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _calibrating = message.State is CalibrationState.Collecting or CalibrationState.Training;
     }
 
+    /// <summary>T6's message trigger (P3 D3): the display geometry or work area changed. The
+    /// payload is not read — the re-derivation reads the work-area seam, which IS the current
+    /// truth in production (SystemParameters.WorkArea) and under test (the injected provider).</summary>
+    public void Receive(DisplayGeometryChangedMessage message) => RePlaceEveryNote();
+
+    /// <summary>T6's SystemParameters trigger (P3 D3): the DisplayGeometryChangedMessage does
+    /// not fire on a taskbar resize or auto-hide; this does.</summary>
+    private void OnSystemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SystemParameters.WorkArea))
+            RePlaceEveryNote();
+    }
+
+    /// <summary>Test seam (fixup-01 G2): drives the SystemParameters half of T6 the way the
+    /// static property-changed handler does, without touching global WPF statics.</summary>
+    internal void OnWorkAreaChangedForTest() =>
+        OnSystemPropertyChanged(null, new(nameof(SystemParameters.WorkArea)));
+
     /// <summary>The pause poll seam (P2 D1 row 2), configured once from EventCoordinator.</summary>
     public void SetPausePoll(Func<bool> poll) =>
         _pausePoll = poll ?? throw new ArgumentNullException(nameof(poll));
@@ -1367,14 +1803,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// container-wired manager must report the production <see cref="NoteHitTester"/>.</summary>
     internal INoteHitTester HitTesterForTest => _hitTester;
 
+    /// <summary>Test seam (the CI work-area fix): the work area this manager derives every note
+    /// placement from - the injected provider, else the test default, else the real one.</summary>
+    internal Rect WorkAreaDipForTest => _workAreaDip();
+
     /// <summary>
     /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a
     /// <see cref="NoteWindow"/> — <see cref="CreateNoteAt"/> shows and focuses a real window, which
     /// W5(d) must not do. Returns the generated note id.
     /// </summary>
-    internal string AddNoteTargetsForTest(PhysicalPoint position)
+    internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
-        var data = new NoteData { Position = position, State = NoteState.Display };
+        var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
+        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
         _notes.Add(data);
         RegisterDwellTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -1387,10 +1828,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <see cref="CreateNoteAt"/> would show. Summon/hide assertions still read the messenger.
     /// Returns the generated note id.
     /// </summary>
-    internal string AddEditingNoteTargetsForTest(PhysicalPoint position)
+    internal string AddEditingNoteTargetsForTest(PhysicalPoint anchor)
     {
         ExitEditing(commit: true, handOver: true);
-        var data = new NoteData { Position = position, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
+        var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
+        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
         _notes.Add(data);
         RegisterSoleEditorTargets(data.Id);
         _dwellDetector.ResetAllState();
@@ -1403,10 +1845,41 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// is exposed for the ownership tests instead of inferred.</summary>
     internal bool EditingOwnsKeyboardForTest => _editingOwnsKeyboard;
 
+    /// <summary>Test seam (P2 D7's coordinator wiring): places a windowless NoteData DIRECTLY in
+    /// the Move state with the move set registered and the targets-changed raise broadcast —
+    /// StartMove's body where its real NoteWindow would exist (the drawn-state mutations are the
+    /// window's). Returns the generated note id.</summary>
+    internal string AddMovingNoteTargetsForTest(PhysicalPoint anchor)
+    {
+        var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Move };
+        _placements[data.Id] = PlaceFor(data, avoidKeyboard: false);
+        _notes.Add(data);
+        _movingNoteId = data.Id;
+        _settleTracker.Reset();
+        RegisterMoveTargetsForNote(data);
+        _dwellDetector.ResetAllState();
+        LatchTargetsUnderTheGaze();
+        RaiseTargetsChanged();
+        return data.Id;
+    }
+
     /// <summary>Test seam (P2 D5): runs exactly what the chip's Undo dwell would run — the same
     /// activation the second detector's TargetActivated handler dispatches, without the 600 ms
     /// of gaze. Non-chip ids are the same defensive no-op the real path is.</summary>
     internal void UndoChipForTest(string noteId) => OnUndoActivated($"{noteId}:undo");
+
+    /// <summary>Test seams (fixup-01 m1): the Other-side dwell's activation (the same switch the
+    /// detector dispatches, without the 600 ms gaze) and the candidate the offer judged — read
+    /// back so a test can compare what was offered against what OtherSideForMoving applied.</summary>
+    internal void OtherSideForTest(string noteId) => OnTargetActivated($"{noteId}:otherside");
+    internal NotePlacement? JudgedOtherSideForTest => _judgedOtherSideForMoving;
+
+    /// <summary>Test seams (P3 D4's Move acceptance): the Place-here state the settle path
+    /// drives — the shown flag, the accepted centroid (physical) and the window rect (DIP) it
+    /// raised beside that centroid. Read-only mirrors of the private Move-state fields.</summary>
+    internal bool PlaceShownForTest => _placeShown;
+    internal PhysicalPoint? PlaceCentroidForTest => _placeCentroid;
+    internal Rect PlaceWindowRectForTest => _placeWindowRect;
 
     /// <summary>Test seam: the live window of a note, or null. The drawn-vs-registered ⌨ check
     /// (review 01 mutant A) needs the real window the manager drives on probe changes.</summary>
@@ -1417,12 +1890,23 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// Called after a note is removed or returns to Display so surviving notes regain their
     /// controls, then resets accumulated dwell state to avoid a spurious immediate activation,
     /// and latches every target under the held gaze (P2 D4: every (re)registration latches).
+    /// While a Move is active the re-registration hands back ONLY the moving note's move set
+    /// (fixup-01 M1): a mid-Move raise (T1–T5, T6, a chip expiry, an undo) must not make the
+    /// other notes' card controls live again while their note sits dimmed under the Move.
     /// </summary>
     private void ReRegisterAllTargets()
     {
         _dwellDetector.ClearTargets();
         _targetWindows.Clear();
-        if (_editingNote is { } editor)
+        if (_movingNoteId is { } movingId && FindNote(movingId) is { } moving)
+        {
+            // Move is exclusive: the moving note's Move set plus a live :place, and nothing
+            // else — the other notes' ✎ ↕ ✕ stay frozen until the Move ends.
+            RegisterMoveTargetsForNote(moving);
+            if (_placeShown)
+                RegisterPlaceTarget(movingId); // a full re-registration must not drop a live :place
+        }
+        else if (_editingNote is { } editor)
         {
             // Fixup F5: the single-editor rule wins — a re-register while a note edits hands back
             // ONLY the editor's targets, never every note's card targets. No P1 path reaches this
@@ -1447,9 +1931,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 RegisterEditTargets(note.Id);
                 break;
             case NoteState.Move:
-                _dwellDetector.AddTarget(new DwellTarget($"{note.Id}:place", note.Position,
-                    DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlacementRadius), DwellTimeMs));
-                _targetWindows[$"{note.Id}:place"] = WindowHandleOrZero(note.Id);
+                RegisterMoveTargetsForNote(note);
+                if (_placeShown && _movingNoteId == note.Id)
+                    RegisterPlaceTarget(note.Id); // a full re-registration must not drop a live :place
                 break;
             case NoteState.PendingUndo:
                 // The chip registers NOTHING here (P2 D5): its Undo target lives in the second
@@ -1481,28 +1965,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
 
-        // Window top-left in logical screen coords — must match CreateNoteAt positioning.
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(note.Position.X) - LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(note.Position.Y) - LayoutConstants.NoteAnchorOffsetY;
-
-        double radiusPhysical = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
-
-        PhysicalPoint ButtonCenter(int index)
-        {
-            var (lx, ly) = NoteLayout.ButtonCenter(index);
-            return new(
-                DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-                DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-        }
-
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:done", ButtonCenter(0), radiusPhysical, DwellTimeMs));
+        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":done", slot: 0));
         _targetWindows[$"{noteId}:done"] = WindowHandleOrZero(noteId);
         if (KeyboardHidden)
         {
-            _dwellDetector.AddTarget(new DwellTarget($"{noteId}:keyboard", ButtonCenter(1), radiusPhysical, DwellTimeMs));
+            _dwellDetector.AddTarget(DwellTargetFor(noteId, ":keyboard", slot: 1));
             _targetWindows[$"{noteId}:keyboard"] = WindowHandleOrZero(noteId);
         }
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:discard", ButtonCenter(2), radiusPhysical, DwellTimeMs));
+        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":discard", slot: 2));
         _targetWindows[$"{noteId}:discard"] = WindowHandleOrZero(noteId);
     }
 
@@ -1532,32 +2002,32 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
 
-        // Window top-left in logical screen coords — must match CreateNoteAt/OnGazeMoved positioning.
-        double winLeftLogical = DpiHelper.PhysicalToLogicalX(note.Position.X) - LayoutConstants.NoteWindowWidth / 2;
-        double winTopLogical = DpiHelper.PhysicalToLogicalY(note.Position.Y) - LayoutConstants.NoteAnchorOffsetY;
-
-        double radiusPhysical = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
-
-        // Button centers come from NoteLayout (window-relative logical coords), shared with
-        // NoteWindow.DrawButtons so the dwell targets can't drift from the drawn buttons.
-        // P2 D8: the column reads ✎ · ↕ · ✕ — Remove sits apart in the bottom slot (2), away
-        // from the targets a hand-over or an exit can re-register under a held gaze. The
-        // one-cell gap needs a fourth slot and arrives with T5's column.
-        PhysicalPoint ButtonCenter(int index)
-        {
-            var (lx, ly) = NoteLayout.ButtonCenter(index);
-            return new(
-                DpiHelper.LogicalToPhysicalX(winLeftLogical + lx),
-                DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
-        }
-
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:edit", ButtonCenter(0), radiusPhysical, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:move", ButtonCenter(1), radiusPhysical, DwellTimeMs));
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:close", ButtonCenter(2), radiusPhysical, DwellTimeMs));
+        // P2 D8: the column reads ✎ · ↕ · ✕ — Remove sits apart in the bottom slot (2), away from
+        // the targets a hand-over or an exit can re-register under a held gaze. The one-cell gap
+        // needs a fourth slot and arrives with T5's column. The button centres follow the note's
+        // stored placement (P3 D2.6: the column follows the side the placement chose).
+        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":edit", slot: 0));
+        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":move", slot: 1));
+        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":close", slot: 2));
         var handle = WindowHandleOrZero(noteId);
         _targetWindows[$"{noteId}:edit"] = handle;
         _targetWindows[$"{noteId}:move"] = handle;
         _targetWindows[$"{noteId}:close"] = handle;
+    }
+
+    /// <summary>Builds a dwell target over the note's drawn column button #<paramref name="slot"/>
+    /// (P3 D2.6), read from the note's stored placement so the targets cannot drift from what the
+    /// window draws.</summary>
+    private DwellTarget DwellTargetFor(string noteId, string suffix, int slot)
+    {
+        if (!_placements.TryGetValue(noteId, out var placement))
+            throw new InvalidOperationException($"No placement derived for note {noteId} — derive one before registering its targets");
+        var (lx, ly) = NoteLayout.ButtonCenter(placement.Side, slot);
+        var center = new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
+            DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
+        var radius = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteButtonRadius);
+        return new DwellTarget(noteId + suffix, center, radius, DwellTimeMs);
     }
 
     private NoteWindow? Window(string noteId) => _windows.FirstOrDefault(w => w.NoteId == noteId);
@@ -1583,7 +2053,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             case "close": RemoveForUndo(noteId); break;
             case "edit": StartEdit(noteId); break;
             case "move": StartMove(noteId); break;
-            case "place": FinishMove(noteId, _lastGazePoint); break;
+            // P3 D4: place re-anchors on the ACCEPTED settle's centroid — the dwell started on
+            // the Place-here window, and the last gaze point could be anywhere in its radius.
+            // Defensive fallback to the last gaze only when a centroid is somehow missing.
+            case "place": FinishMove(noteId, _placeCentroid ?? _lastGazePoint); break;
+            case "otherside": OtherSideForMoving(noteId); break;
+            case "cancel": CancelMove(noteId); break;
             case "done": FinishEdit(noteId, commit: true); break;
             case "discard": FinishEdit(noteId, commit: false); break;
             case "keyboard": ShowKeyboardForEditing(noteId); break;
@@ -1621,6 +2096,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // delivered after Dispose must not resurrect state (the handlers also _disposed-guard).
         _messenger.Unregister<EyeCareExerciseActiveMessage>(this);
         _messenger.Unregister<CalibrationStateChangedMessage>(this);
+        // T6 (P3 D3): the geometry subscriptions die with the manager.
+        _messenger.Unregister<DisplayGeometryChangedMessage>(this);
+        SystemParameters.StaticPropertyChanged -= OnSystemPropertyChanged;
+
+        // P3 D4: the Place-here window is manager-owned (never in DI) — a teardown closes it.
+        _placeWindow?.Close();
+        _placeWindow = null;
 
         // P1 D8: a Dispose mid-Edit tells the keyboard editing is over — the "→ Note" indicator
         // must not survive the manager. Deliberately NO keyboard hide request: the app teardown
@@ -1637,9 +2119,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             window.Close();
         _windows.Clear();
         _notes.Clear();
+        _placements.Clear();
         _dwellDetector.ClearTargets();
         _undoDetector.ClearTargets();
         _undoTargetWindows.Clear();
         _chipReachedMs.Clear();
+        _movingNoteId = null;
+        _placeShown = false;
+        _placeCentroid = null;
     }
 }

@@ -83,9 +83,9 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs"] =
             [
-                ("Small", 2, "key legend and prediction word — short labels in a key that RESIZES "
-                    + "with the KeySize setting. No const to multiply, so this census is the only "
-                    + "thing holding the bucket."),
+                ("Small", 3, "key legend, prediction word and the prediction loading hint — short "
+                    + "labels in a key-sized cell that RESIZES with the KeySize setting. No const "
+                    + "to multiply, so this census is the only thing holding the bucket."),
             ],
             ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
             [

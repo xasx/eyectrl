@@ -468,6 +468,12 @@
           "Modal": null
         },
         {
+          "Id": "k_lm_loading_hint",
+          "Label": "Show loading hint for predictions",
+          "Description": "Shows a short note in the prediction bar while predictions are still loading after the keyboard opens.",
+          "Modal": null
+        },
+        {
           "Id": "k_lang",
           "Label": "Dictionary Language",
           "Description": "Which language the word suggestions draw from.",
@@ -962,6 +968,12 @@
           "Id": "k_pred_count",
           "Label": "Max Predictions",
           "Description": "How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type.",
+          "Modal": null
+        },
+        {
+          "Id": "k_lm_loading_hint",
+          "Label": "Show loading hint for predictions",
+          "Description": "Shows a short note in the prediction bar while predictions are still loading after the keyboard opens.",
           "Modal": null
         },
         {

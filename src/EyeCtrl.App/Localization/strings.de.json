@@ -458,6 +458,10 @@
     "text": "Tippt in eine Notiz",
     "src": "5903c25c"
   },
+  "overlays.keyboard.predictionsLoading": {
+    "text": "Vorhersagen werden geladen",
+    "src": "d6ac5d2c"
+  },
   "overlays.lagmark.label": {
     "text": "Hängt",
     "src": "197595ea"
@@ -1992,6 +1996,14 @@
   "settings.keyboard.layout.option.qwertz": {
     "text": "QWERTZ",
     "src": "1292f6f2"
+  },
+  "settings.keyboard.lm_loading_hint.description": {
+    "text": "Zeigt in der Vorhersageleiste einen kurzen Hinweis, solange die Vorhersagen nach dem Öffnen der Tastatur noch geladen werden.",
+    "src": "9ba96719"
+  },
+  "settings.keyboard.lm_loading_hint.label": {
+    "text": "Ladehinweis für Vorhersagen anzeigen",
+    "src": "de4d69b2"
   },
   "settings.keyboard.prediction.description": {
     "text": "Zeigt beim Schreiben vorhergesagte Wörter über der Tastatur.",

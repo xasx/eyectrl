@@ -92,6 +92,14 @@ public partial class KeyboardWindow : OverlayWindow
     private string _toolbarEdge = "none";
     private double _toolbarExtentDip;
     private bool _predictionTargetsInitialized;
+    // The prediction loading hint's two halves: a full-bar Border (sized to the cells'
+    // footprint in UpdatePredictions) and its centered text. NEVER a dwell target, never in
+    // _renderedPredictions, never a pred_ target — the hint is chrome, not a suggestion, so
+    // E1's empty= stays truthful while it shows.
+    private readonly Border _predictionLoadingHint;
+    private readonly TextBlock _predictionLoadingHintText;
+    // Forwarded by KeyboardCoordinator from PredictionStackFactory.BuildInFlightChanged.
+    private bool _predictionBuildInFlight;
     private string? _previousNearestKeyId;
     // C1: the window has been positioned for the CURRENT visibility session. Cleared by
     // PlaceForShow, so the show path's explicit placement is the session's first placement and
@@ -135,6 +143,30 @@ public partial class KeyboardWindow : OverlayWindow
         _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
             _predictionDwellDetector, DwellContext.KeyboardPrediction,
             AdaptationDwellRanges.KeyboardMinDwellMs, AdaptationDwellRanges.KeyboardMaxDwellMs));
+
+        // The loading hint, docked exactly where the prediction bar sits (the bar is collapsed
+        // while the hint owns the row, so only one of the two is ever visible).
+        _predictionLoadingHintText = new TextBlock
+        {
+            Foreground = Tokens.BrushTextSecondary,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            // Safety only — the fit test proves the German fits the smallest bar; trimming
+            // would engage only for an untested language or a future longer string.
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        _predictionLoadingHint = new Border
+        {
+            Visibility = Visibility.Collapsed,
+            IsHitTestVisible = false,
+            CornerRadius = Tokens.StandardCornerRadius,
+            Background = new SolidColorBrush(PredictionBarColor),
+            Child = _predictionLoadingHintText
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(
+            _predictionLoadingHintText, "Keyboard_PredictionsLoadingHint");
+        DockPanel.SetDock(_predictionLoadingHint, Dock.Top);
+        RootDock.Children.Insert(0, _predictionLoadingHint);
     }
 
     public event Action<int>? SkinToneChanged;
@@ -219,6 +251,24 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     public void SetOrchestrator(PredictionOrchestrator? orchestrator) => _viewModel?.SetOrchestrator(orchestrator);
+
+    /// <summary>
+    /// The prediction stack's build-in-flight state, forwarded by KeyboardCoordinator from
+    /// <see cref="PredictionStackFactory.BuildInFlightChanged"/>. A transition re-renders the
+    /// bar ONLY when the hint's visibility actually moves (review 01 F2): with a stack
+    /// already serving — every later rebuild — the hint can neither show nor hide, and a
+    /// re-render would clear the dwell targets, re-query the LM and reset E1's render clock
+    /// for nothing. The first build's start and its swap's end are the only transitions that
+    /// render.
+    /// </summary>
+    public void SetPredictionBuildInFlight(bool inFlight)
+    {
+        if (_predictionBuildInFlight == inFlight) return;
+        var hintShown = _predictionLoadingHint.Visibility == Visibility.Visible;
+        _predictionBuildInFlight = inFlight;
+        if (hintShown != ShouldShowPredictionLoadingHint())
+            UpdatePredictions();
+    }
 
     public void SetScreenEdge(string edge)
     {
@@ -797,6 +847,9 @@ public partial class KeyboardWindow : OverlayWindow
     {
         _predictionDwellDetector.ResetAllState();
         PredictionBar.Visibility = Visibility.Collapsed;
+        // The hint claims the same row; emoji mode must collapse it too (UpdatePredictions is
+        // not called on this path, so the render-time condition would never re-run).
+        _predictionLoadingHint.Visibility = Visibility.Collapsed;
         _emojiManager?.Enter();
     }
 
@@ -933,7 +986,11 @@ public partial class KeyboardWindow : OverlayWindow
         if (_viewModel.IsSensitiveContext)
         {
             _barEmptiedForSensitiveContext = true;
-            if (_renderedPredictions.Count > 0)
+            // The loading hint must go with the suggestions: a hint over a password field
+            // reads as if predictions were being prepared for it. The count check alone
+            // leaves it standing — the hint is never IN _renderedPredictions.
+            if (_renderedPredictions.Count > 0
+                || _predictionLoadingHint.Visibility == Visibility.Visible)
                 UpdatePredictions();          // renders nothing while sensitive
         }
         else if (_barEmptiedForSensitiveContext)
@@ -942,6 +999,38 @@ public partial class KeyboardWindow : OverlayWindow
             UpdatePredictions();              // the guard ends the session, so the context holds nothing typed there
         }
     }
+
+    /// <summary>
+    /// The loading hint shows only while the bar is empty BECAUSE the first prediction stack is
+    /// still building: build in flight, no stack bound yet, the setting on, and the bar a
+    /// visible surface (prediction on, text mode, no sensitive field — the password bar stays
+    /// empty for privacy). Everything is read live at render time, like
+    /// <c>ShowPredictionConfidence</c>; no build problems ever show it (a failed build ends
+    /// the in-flight state, and model problems stay log-only by scope). Later rebuilds keep
+    /// the old stack serving (<see cref="KeyboardViewModel.HasOrchestrator"/> true), so no
+    /// hint; prediction turned off collapses the bar, so no hint.
+    /// </summary>
+    internal bool ShouldShowPredictionLoadingHint() =>
+        _predictionBuildInFlight
+        && _viewModel is not null
+        && !_viewModel.HasOrchestrator
+        && (_settings?.Keyboard.PredictionEnabled ?? true)
+        && (_settings?.Keyboard.ShowLMLoadingIndicator ?? true)
+        && _viewModel.IsEmojiMode != true
+        && _viewModel.IsSensitiveContext != true;
+
+    /// <summary>
+    /// Whether a stack swap should refresh the bar NOW (review 01 Q1, owner decision
+    /// 2026-10-24: later rebuilds stay silent, old suggestions keep working): only when the
+    /// bar shows NOTHING — the loading hint, or empty cells with no rendered suggestions
+    /// (the first open, before anything was typed). A later rebuild's swap with suggestions
+    /// on screen must NOT re-render: the words would swap asynchronously under a resting
+    /// gaze, and a prediction dwell in progress would be cleared; the next keystroke brings
+    /// the new stack's words.
+    /// </summary>
+    internal bool ShouldRefreshBarForSwap() =>
+        _predictionLoadingHint.Visibility == Visibility.Visible
+        || _renderedPredictions.Count == 0;
 
     public void UpdatePredictions()
     {
@@ -962,6 +1051,25 @@ public partial class KeyboardWindow : OverlayWindow
         Array.Fill(_slotDwellStartMs, long.MinValue);
         Array.Fill(_slotLastRunStartMs, long.MinValue);
         _slotsVisitedMask = 0;
+
+        if (ShouldShowPredictionLoadingHint())
+        {
+            // One plain, non-interactive text across the whole bar. The hint surface keeps the
+            // cells' exact layout footprint (a cell is _keySize + 3+3 margin, the grid's own
+            // margin is 0,0,0,6), so the hint→suggestions transition never resizes the window
+            // under a resting gaze.
+            PredictionBar.Visibility = Visibility.Collapsed;
+            _predictionLoadingHint.Height = _keySize;
+            _predictionLoadingHint.Margin = new Thickness(0, 3, 0, 9);
+            _predictionLoadingHint.Width = _keyGridWidth > 0 ? _keyGridWidth : double.NaN;
+            _predictionLoadingHintText.Text =
+                EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.predictionsLoading");
+            _predictionLoadingHintText.FontSize =
+                Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize);
+            _predictionLoadingHint.Visibility = Visibility.Visible;
+            return;
+        }
+        _predictionLoadingHint.Visibility = Visibility.Collapsed;
 
         if (PredictionBar is System.Windows.Controls.Primitives.UniformGrid grid)
             grid.Columns = slotCount;

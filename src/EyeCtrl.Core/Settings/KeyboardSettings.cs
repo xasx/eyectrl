@@ -45,8 +45,6 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private bool _showPredictionConfidence = false;
     /// <summary>Whether to show prediction source labels (bigram, phrase, ML).</summary>
     [ObservableProperty] private bool _showPredictionTypes = false;
-    /// <summary>Whether emoji suggestions are shown in the prediction bar.</summary>
-    [ObservableProperty] private bool _emojiSuggestionsEnabled = false;
 
     /// <summary>Whether decay-based frequency weighting is enabled for learned words.</summary>
     [ObservableProperty] private bool _decayEnabled = true;

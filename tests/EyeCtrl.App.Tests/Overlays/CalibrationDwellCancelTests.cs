@@ -76,12 +76,16 @@ public class CalibrationDwellCancelTests
         CreateVm(messenger, provider, service, start: true, pointCount);
 
     private static CalibrationWindow CreateWindow(
-        int toolbarDwellMs, IMessenger messenger, bool cloaked = false)
+        int toolbarDwellMs, IMessenger messenger, bool cloaked = false) =>
+        CreateWindow(
+            new DwellSettings { ToolbarButtonDwellMs = toolbarDwellMs }, messenger, cloaked);
+
+    private static CalibrationWindow CreateWindow(
+        DwellSettings dwellSettings, IMessenger messenger, bool cloaked = false)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         // Prepared before any show: the guard's requirement and the runtime backstop's contract.
-        var window = new CalibrationWindow(
-            new DwellSettings { ToolbarButtonDwellMs = toolbarDwellMs }, messenger);
+        var window = new CalibrationWindow(dwellSettings, messenger);
         return cloaked
             ? InvisibleTestWindow.PrepareCloaked(window)
             : InvisibleTestWindow.Prepare(window);
@@ -287,6 +291,84 @@ public class CalibrationDwellCancelTests
         finally
         {
             vm.Cancel();
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// A7/M2 (holistic review 01, probe HP4): the Cancel detector now carries A1's pause grace.
+    /// A blink is a SILENCE in the raw stream, and 200 ms is past the detector's 150 ms silence
+    /// clamp, so at grace 0 the 1000 ms hold restarts on the return sample and completes at
+    /// ~1933 ms (HP4 measured 1966 ms). The settings' 500 ms default resumes instead, so it
+    /// completes at ~1233 ms. The stream below ends at 1400 ms, which separates the two.
+    /// </summary>
+    [StaFact]
+    public void A200MsBlinkMidDwell_DoesNotRestartTheCancelDwell()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var provider = new FakeGazeProvider();
+        var vm = CreateStartedVm(messenger, provider);
+        var window = CreateWindow(toolbarDwellMs: 1000, messenger); // default grace: 500 ms
+        try
+        {
+            window.SetViewModel(vm);
+            window.SyncCancelTarget(vm.State);
+            var centre = vm.CancelTargetCenter;
+
+            // 700 ms on the disc at ~30 Hz, then the blink: no samples at all for 233 ms (the
+            // calibration stream simply stops), then the gaze returns to the same disc.
+            for (long t = 0; t <= 700_000; t += 33_333)
+                provider.FireGaze(new GazePoint(centre.X, centre.Y, t, IsValid: true));
+            for (long t = 933_333; t <= 1_400_000; t += 33_333)
+                provider.FireGaze(new GazePoint(centre.X, centre.Y, t, IsValid: true));
+
+            Check.WithCustomMessage(
+                    "the 200 ms blink restarted the Cancel dwell (grace not applied)")
+                .That(vm.State).IsEqualTo(CalibrationState.Idle);
+            Check.That(window.CancelDwellDetector.Targets).IsEmpty();
+        }
+        finally
+        {
+            vm.Cancel();
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// A7/M2: the window is created once at startup and reused, so the grace must be re-applied at
+    /// each session entry. The constructor's value alone would leave the first live settings change
+    /// unheard until the Supervisor restarted.
+    /// </summary>
+    [StaFact]
+    public void ALivePauseGraceChange_ReachesTheNextSession()
+    {
+        var settings = new DwellSettings { ToolbarButtonDwellMs = 1000 };
+        var messenger = new WeakReferenceMessenger();
+        var provider = new FakeGazeProvider();
+        var first = CreateStartedVm(messenger, provider);
+        var second = CreateStartedVm(messenger, provider);
+        var window = CreateWindow(settings, messenger);
+        try
+        {
+            Check.WithCustomMessage("the constructor must pass the settings grace")
+                .That(window.CancelDwellDetector.PauseGraceMs).IsEqualTo(500);
+
+            window.SetViewModel(first);
+            window.SyncCancelTarget(first.State);
+            Check.That(window.CancelDwellDetector.PauseGraceMs).IsEqualTo(500);
+
+            first.Cancel();
+            settings.DwellPauseGraceMs = 320; // the live object the Settings tab edits
+            window.SetViewModel(second);
+            window.SyncCancelTarget(second.State);
+
+            Check.WithCustomMessage("a live settings change must reach the next session")
+                .That(window.CancelDwellDetector.PauseGraceMs).IsEqualTo(320);
+        }
+        finally
+        {
+            first.Cancel();
+            second.Cancel();
             window.Close();
         }
     }

@@ -410,22 +410,22 @@ public class KeyboardE1RecorderTests
 
         recorder.RecordSpace(7, barEmpty: true);
         recorder.RecordHoldOn(7, 600, capped: true);
-        recorder.RecordAbandon(new AbandonE1(5_000, 0, 3, KeyE1.Letter, "-", 65, "NearestChanged", 12, -9, "NE", "letters", "top"));
-        recorder.RecordAbandon(new AbandonE1(6_000, 3, 0, KeyE1.Shift, "modifier:shift", 40, "GazeLeft", 5, 6, "-", "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(5_000, 0, 3, KeyE1.Letter, "-", 65, "NearestChanged", 120, 12, -9, "NE", "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(6_000, 3, 0, KeyE1.Shift, "modifier:shift", 40, "GazeLeft", 7, 5, 6, "-", "letters", "top"));
         recorder.RecordMirror("enter", "mismatch", mirrorLength: 14, controlLength: 14, commonSuffix: 6);
 
         Check.That(log.Lines).ContainsExactly(
             "KB-E1 space seq=7 empty=True",
             "KB-E1 holdon seq=7 ms=600 capped=True",
-            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged sub=letters edge=top",
-            "KB-E1 abandon ts=6000 r=3 c=0 cls=shift act=modifier:shift pct=40 why=GazeLeft mdx=5 mdy=6 sub=letters edge=top",
+            "KB-E1 abandon ts=5000 cls=letter pct=65 why=NearestChanged endms=120 sub=letters edge=top",
+            "KB-E1 abandon ts=6000 r=3 c=0 cls=shift act=modifier:shift pct=40 why=GazeLeft endms=7 mdx=5 mdy=6 sub=letters edge=top",
             "KB-E1 mirror at=enter res=mismatch mirrorlen=14 ctllen=14 common=6");
     }
 
     // ---- the per-dock-edge tally (replaces the per-letter edge class) ------------------------------
 
     private static AbandonE1 Abandon(string cls, string quarter, string edge = "top") =>
-        new(5_000, 0, 3, cls, "-", 65, "NearestChanged", 12, -9, quarter, "letters", edge);
+        new(5_000, 0, 3, cls, "-", 65, "NearestChanged", 30, 12, -9, quarter, "letters", edge);
 
     private const string TopTally =
         "KB-E1 edgeq edge=top fires=3 c=1 n=0 ne=1 e=1 se=0 s=0 sw=0 w=0 nw=0 " +
@@ -606,7 +606,7 @@ public class KeyboardE1RecorderTests
         recorder.RecordKey(Key(KeyE1.Digit));
         recorder.RecordKey(Key(KeyE1.Backspace, "backspace"));
         recorder.RecordHoldOn(1, 300, capped: false);
-        recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 0, 0, "-", "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 30, 0, 0, "-", "letters", "top"));
         recorder.RecordCorrection(2, Corr());
         recorder.RecordSlip(true, "E", 1, 500, "top", Corr());
         recorder.RecordPick(0, "dict", 1, 5, 100, 0);
@@ -707,7 +707,7 @@ public class KeyboardE1RecorderTests
         recorder.RecordCorrection(1, Corr());
         recorder.RecordSlip(true, "E", 1, 1, "top", Corr());
         recorder.RecordHoldOn(1, 1, false);
-        recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 0, 0, "-", "letters", "top"));
+        recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 30, 0, 0, "-", "letters", "top"));
         recorder.RecordPick(0, "dict", 1, 1, 1, 0);
         recorder.RecordSpace(1, true);
         recorder.RecordMode("emoji", "text", "emoji");

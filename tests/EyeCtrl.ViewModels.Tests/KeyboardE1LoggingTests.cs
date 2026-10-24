@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -86,6 +87,12 @@ public class KeyboardE1LoggingTests
         public void Dispose() { }
     }
 
+    private sealed class FakeSink : IStruggleTelemetrySink
+    {
+        public readonly List<DwellOutcome> Outcomes = new();
+        public void Report(in DwellOutcome outcome) => Outcomes.Add(outcome);
+    }
+
     private sealed class Rig : IDisposable
     {
         public readonly KeyboardViewModel Vm;
@@ -100,10 +107,12 @@ public class KeyboardE1LoggingTests
 
         /// <param name="tallyMinFires">The recorder's edge-tally minimum: 1 here so the older tests keep
         /// pinning the tally's contents on a few dwells; the 20-dwell minimum has its own tests.</param>
-        public Rig(bool logging = true, Dictionary<string, int>? words = null, int tallyMinFires = 1)
+        /// <param name="sink">A telemetry sink when a test needs the reported <see cref="DwellOutcome"/>s.</param>
+        public Rig(bool logging = true, Dictionary<string, int>? words = null, int tallyMinFires = 1,
+            FakeSink? sink = null)
         {
             Vm = new KeyboardViewModel(new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } },
-                new WeakReferenceMessenger(), sensitiveContext: Sensitive);
+                new WeakReferenceMessenger(), sink, sensitiveContext: Sensitive);
             // A key far from the rest (4.6 key pitches from Space) for long-saccade cases; it is not in the
             // layout, so it logs as a non-text key.
             Positions["far"] = new PhysicalPoint(2000, 100);
@@ -522,6 +531,69 @@ public class KeyboardE1LoggingTests
         rig.Hold(new PhysicalPoint(5000, 5000), 30, inside: false);
 
         Check.That(Fields(rig.Log.Of("abandon").Single())["why"]).IsEqualTo("GazeLeft");
+    }
+
+    [Fact]
+    public void TheAbandonmentPct_IsTheProgressAtTheLastOnKeySample_NotAtTheSwitch()
+    {
+        // 420 ms of a 450 ms dwell: the key was at 93 %. The sample that switches already sits on the
+        // neighbour and would read 100 %; endms says the step (30 ms) between the two.
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["key_0_1"], DwellMs - StepMs);
+        rig.Hold(rig.Positions["key_0_2"], StepMs);
+
+        var f = Fields(rig.Log.Of("abandon").Single());
+        Check.That(f["why"]).IsEqualTo("NearestChanged");
+        Check.That(f["pct"]).IsEqualTo("93");
+        Check.That(f["endms"]).IsEqualTo("30");
+    }
+
+    [Fact]
+    public void TheAbandonmentPct_OnAGazeLeft_IsAlsoTheProgressAtTheLastOnKeySample()
+    {
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["key_0_1"], DwellMs - StepMs);
+        rig.Hold(new PhysicalPoint(5000, 5000), StepMs, inside: false);
+
+        var f = Fields(rig.Log.Of("abandon").Single());
+        Check.That(f["why"]).IsEqualTo("GazeLeft");
+        Check.That(f["pct"]).IsEqualTo("93");
+        Check.That(f["endms"]).IsEqualTo("30");
+    }
+
+    [Fact]
+    public void AStreamGapBeforeTheSwitch_ShowsInEndms_AndPctStaysAtTheProgressBeforeIt()
+    {
+        // The last credited sample is at 240 ms (53 %). Hold() leaves Ts one step past it, so the extra
+        // 370 ms makes the ending sample 400 ms after the last ON-KEY one: the hole is what endms shows.
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["key_0_1"], 240);
+        rig.Ts += 370_000;
+        rig.Hold(rig.Positions["key_0_2"], StepMs);
+
+        var f = Fields(rig.Log.Of("abandon").Single());
+        Check.That(f["why"]).IsEqualTo("NearestChanged");
+        Check.That(f["pct"]).IsEqualTo("53");
+        Check.That(f["endms"]).IsEqualTo("400");
+    }
+
+    [Fact]
+    public void TheThresholdGateAndTheSinksProgress_StillUseTheEndingSample_OnlyE1LooksBack()
+    {
+        // The ending sample is at 150 ms (33 %, above the 30 % gate); the last sample credited to the key
+        // was at 120 ms (27 %). The gate must still admit the abandonment and the sink must still get the
+        // ENDING-sample progress: E1's pct is the only thing that looks back, so it can sit below the gate.
+        var sink = new FakeSink();
+        using var rig = new Rig(sink: sink);
+        rig.Hold(rig.Positions["key_0_1"], 120);
+        rig.Hold(rig.Positions["key_0_2"], StepMs);
+
+        var f = Fields(rig.Log.Of("abandon").Single());
+        Check.That(f["pct"]).IsEqualTo("27");
+        Check.That(f["endms"]).IsEqualTo("30");
+        Check.That(sink.Outcomes).HasSize(1);
+        Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
+        Check.That(sink.Outcomes[0].ProgressAtEnd).IsCloseTo(1.0 / 3.0, 1e-9);   // 150 of 450 ms, as before
     }
 
     // ---- hold-on ---------------------------------------------------------------------------

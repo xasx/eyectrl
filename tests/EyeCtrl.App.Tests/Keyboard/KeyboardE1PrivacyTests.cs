@@ -88,7 +88,7 @@ public class KeyboardE1PrivacyTests
         ["edgeq"] = ["Edge", "Fires", "C", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
                      "Aborts", "AC", "AN", "ANE", "AE", "ASE", "AS", "ASW", "AW", "ANW"],
         ["holdon"] = ["Seq", "Ms", "Capped"],
-        ["abandon"] = ["TsUs", "Class", "Pct", "Why", "Sub", "Edge"],
+        ["abandon"] = ["TsUs", "Class", "Pct", "Why", "EndMs", "Sub", "Edge"],
         ["slip"] = ["Adj", "Dir", "Dist", "Ms", "Reg", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
         ["corr"] = ["Seq", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
         ["pick"] = ["Slot", "Source", "PrefixLen", "InsLen", "SinceKeyMs", "SincePickMs", "RenderMs", "Visited"],

@@ -578,6 +578,39 @@ public class KeyboardE1LoggingTests
     }
 
     [Fact]
+    public void ABlinkRightAfterLanding_LogsPctZero_AndTheWholeHoleInEndms()
+    {
+        // The only sample the key is credited for is the one that ENTERS it: the entry write of
+        // _lastOnKeyTimestampUs keeps the pct at 0. The next sample comes 400 ms later and already
+        // sits on the neighbour, so the gate (400 of 450 ms, 89 %) admits the abandonment.
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["key_0_1"], 0);      // one sample: the entry
+        rig.Ts += 370_000;                          // 400 ms hole (Ts already one step past the entry)
+        rig.Hold(rig.Positions["key_0_2"], 0);      // the neighbour ends it: 89 % at the gate, 0 % credited
+
+        var f = Fields(rig.Log.Of("abandon").Single());
+        Check.That(f["pct"]).IsEqualTo("0");
+        Check.That(f["endms"]).IsEqualTo("400");
+    }
+
+    [Fact]
+    public void AGapRestartFollowedBySlowSamples_LogsPctFromTheRestart()
+    {
+        // The hole restarts the dwell: the restart write of _lastOnKeyTimestampUs is the last credit,
+        // so the pct counts from there (0) and endms measures the second hole to the switch (200 ms).
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["key_0_1"], 240);
+        rig.Ts += 170_000;                          // 200 ms hole > 150 ms: the next on-key sample restarts
+        rig.Hold(rig.Positions["key_0_1"], 0);
+        rig.Ts += 170_000;                          // 200 ms again: 44 % since the restart, above the gate
+        rig.Hold(rig.Positions["key_0_2"], 0);
+
+        var f = Fields(rig.Log.Of("abandon").Single());
+        Check.That(f["pct"]).IsEqualTo("0");
+        Check.That(f["endms"]).IsEqualTo("200");
+    }
+
+    [Fact]
     public void TheThresholdGateAndTheSinksProgress_StillUseTheEndingSample_OnlyE1LooksBack()
     {
         // The ending sample is at 150 ms (33 %, above the 30 % gate); the last sample credited to the key

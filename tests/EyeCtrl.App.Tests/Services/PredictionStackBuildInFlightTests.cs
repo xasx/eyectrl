@@ -168,22 +168,38 @@ public class PredictionStackBuildInFlightTests : IDisposable
         var posted = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (_uiQueue.Count == 0 && DateTime.UtcNow < posted)
             Thread.Sleep(10);
-        Check.WithCustomMessage("build 1's end never posted")
-            .That(_uiQueue.Count).IsStrictlyGreaterThan(0);
+        // Build 1's end post is the ONLY item that can be queued here: its start was raised
+        // directly, a faulted build raises no marshal, and build 2 does not exist yet.
+        Check.WithCustomMessage("build 1's end never posted, or something unexpected is queued")
+            .That(_uiQueue.Count).IsEqualTo(1);
 
         // Build 2 starts while build 1's stale end still sits in the queue. Its start
-        // notification is raised directly, BEFORE this Rebuild returns.
+        // notification is raised directly, BEFORE this Rebuild returns. Build 2 may finish on
+        // the pool at any moment — harmless: its marshal sits in the queue behind the stale
+        // end and runs only when this test pumps.
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Check.That(factory.BuildInFlight).IsTrue();
 
-        Drain(); // deliver build 1's stale end under build 2's tenure
+        // Deliver EXACTLY build 1's stale end, under build 2's tenure. Dequeueing one item
+        // (not Drain) is the determinism fix: a Drain could also run build 2's marshal, whose
+        // swap legitimately clears the state — the mid-test assertion below would then race
+        // build 2's completion (the flake the UX team saw).
+        _uiQueue.Dequeue()();
 
-        Check.WithCustomMessage("build 2 is running — the state must be in flight")
-            .That(factory.BuildInFlight).IsTrue();
         Check.WithCustomMessage(
-                "the last notification lied about the current state (a stale end-delivery " +
+                "a stale end notification lied about the current state (a stale end-delivery " +
                 "false after a newer start) — the newer first build would show no hint " +
                 "(review 01 F1)")
             .That(seen[^1]).IsTrue();
+        Check.WithCustomMessage("build 2 is still the in-flight build — the state must hold")
+            .That(factory.BuildInFlight).IsTrue();
+
+        // Now let build 2's own end land: the swap marshals, the state clears, and the last
+        // notification tells the truth about it.
+        Pump();
+        Check.That(factory.BuildInFlight).IsFalse();
+        Check.WithCustomMessage("build 2's swap end must notify false")
+            .That(seen[^1]).IsFalse();
     }
 
     [Fact]
@@ -209,7 +225,9 @@ public class PredictionStackBuildInFlightTests : IDisposable
         Check.That(factory.BuildInFlight).IsTrue();
 
         _uiQueue.Dequeue()(); // build 1's stale marshal: its re-check discards the build
-        Drain();             // plus any notification it posted, leaving the queue empty
+        // No Drain here (the flake discipline): build 2's marshal may already sit behind
+        // this one, and running it would clear the state mid-test. The discarded build's
+        // MarkBuildEnded CAS-fails and posts nothing, so there is nothing to clean up.
         Check.WithCustomMessage(
                 "an older build's end cleared the state while build 2 is still running — a " +
                 "plain bool cleared by whoever finishes first has exactly this bug")

@@ -16,6 +16,13 @@ public enum DragSubState
     ManualSelectionActive
 }
 
+/// <summary>
+/// One edge-bar drag button's hit circle, in physical px. While the gaze is inside one during a
+/// drag, the drag must neither settle nor drop: that rest belongs to the button's own dwell
+/// (Cancel or Back). Supplied by <c>DragCoordinator</c> from the same anchor the bar draws at.
+/// </summary>
+public readonly record struct DragExitZone(PhysicalPoint Center, double RadiusPhysical);
+
 public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     IRecipient<StartDragTrailMessage>,
     IRecipient<DragCancelMessage>,
@@ -25,6 +32,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
+    private IReadOnlyList<DragExitZone> _exitZones = Array.Empty<DragExitZone>();
+    private bool _inExitZone;
 
     [ObservableProperty] private bool _isDragActive;
     [ObservableProperty] private PhysicalPoint _grabOrigin;
@@ -47,6 +56,13 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         _settleDetector.FixationEnded += OnSettleEnded;
     }
 
+    /// <summary>
+    /// Supplies the drag's edge-bar exit hit circles (Cancel and Back), in physical px. The
+    /// coordinator sets these per drag from the shared exit anchor; the list is empty by default,
+    /// which is exactly the pre-fix behaviour for any caller that does not supply them.
+    /// </summary>
+    public void SetExitZones(IReadOnlyList<DragExitZone> zones) => _exitZones = zones;
+
     public void Receive(StartDragTrailMessage message)
     {
         GrabOrigin = message.GrabOrigin;
@@ -55,6 +71,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         DragState = DragSubState.FreeDrag;
         SettleProgress = 0;
         ShowBack = false;
+        _inExitZone = false;
 
         UpdateReleaseButtonPosition(message.GrabOrigin);
         SetupDwellTargets();
@@ -89,21 +106,57 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         if (!SampleMayDwell(message)) return;
 
         CursorPosition = message.Position;
-        DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 
-        if (DragState == DragSubState.FreeDrag || DragState == DragSubState.Settling)
+        // A rest on an edge-bar drag button belongs to that button's own dwell. Letting the settle
+        // or the gaze-following release target accumulate there drops the item before the 600 ms
+        // Cancel/Back dwell can fire — the owner's only exit would commit the drag instead.
+        if (IsInExitZone(message.Position))
         {
-            _settleDetector.Update(message.Position, message.TimestampMicroseconds);
-            SettleProgress = _settleDetector.GetProgress();
+            if (!_inExitZone)
+            {
+                // PX2/R4: a look at an exit is a clean break — no release progress carries over.
+                _inExitZone = true;
+                DwellDetector.ResetAllState();
+            }
 
-            if (SettleProgress > 0 && DragState == DragSubState.FreeDrag)
-                DragState = DragSubState.Settling;
-            else if (SettleProgress == 0 && DragState == DragSubState.Settling)
+            _settleDetector.Reset();
+            SettleProgress = 0;
+            if (DragState == DragSubState.Settling)
                 DragState = DragSubState.FreeDrag;
+            // Filtered to match nothing: the release target holds for the grace, then resets. It
+            // never completes while the gaze is on the exit.
+            DwellDetector.Update(message.Position, message.TimestampMicroseconds, static _ => false);
+        }
+        else
+        {
+            _inExitZone = false;
+            DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+
+            if (DragState == DragSubState.FreeDrag || DragState == DragSubState.Settling)
+            {
+                _settleDetector.Update(message.Position, message.TimestampMicroseconds);
+                SettleProgress = _settleDetector.GetProgress();
+
+                if (SettleProgress > 0 && DragState == DragSubState.FreeDrag)
+                    DragState = DragSubState.Settling;
+                else if (SettleProgress == 0 && DragState == DragSubState.Settling)
+                    DragState = DragSubState.FreeDrag;
+            }
         }
 
         UpdateReleaseButtonPosition(message.Position);
         DwellDetector.UpdateTargetCenter(ReleaseTargetId, ReleaseButtonCenter);
+    }
+
+    private bool IsInExitZone(PhysicalPoint point)
+    {
+        foreach (var zone in _exitZones)
+        {
+            var radius = zone.RadiusPhysical;
+            if (point.DistanceSquaredTo(zone.Center) <= radius * radius)
+                return true;
+        }
+        return false;
     }
 
     private void OnSettleStarted(PhysicalPoint point)
@@ -135,6 +188,11 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             return;
 
         ReleaseButtonCenter = new PhysicalPoint(cursorPos.X - offset, cursorPos.Y - offset);
+        // PX2/R4: a release dwell belongs to the SPOT it started at. A1's pause grace may hold a
+        // blink or a gap at the same spot, but when the target re-centres onto a new spot the held
+        // progress must not follow it — a glance would otherwise drop the item there in a fraction
+        // of a dwell.
+        DwellDetector.ResetAllState();
     }
 
     private void SetupDwellTargets()

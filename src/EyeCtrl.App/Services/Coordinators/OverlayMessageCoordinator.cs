@@ -21,12 +21,12 @@ using Serilog;
 internal sealed class OverlayMessageCoordinator : CoordinatorBase
 {
     /// <summary>
-    /// Inset of the right-edge bar from the screen edge, in DIP. Declared here rather than
-    /// widening <c>OverlayVmBindingCoordinator</c>'s private const of the same name: the two
-    /// coordinators anchor the same bar and must agree, and the value is the one every other
-    /// context (drag, manual selection) already uses.
+    /// The anchor the action menu's Close/Help pair is placed against: the shared right-edge exit
+    /// anchor every non-keyboard mode uses, so the out slot is the same absolute place here as in
+    /// manual selection, drag, repeat and scroll. Exposed so a test can pin that equality.
     /// </summary>
-    private const double RightEdgeInsetLogical = 30;
+    internal static PhysicalPoint ActionMenuExitAnchorPhysical =>
+        ScreenGeometry.SharedRightEdgeExitAnchor();
 
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly OverlayVmBindingCoordinator _vmBinding;
@@ -136,14 +136,14 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     // ShowActionMenu and both handlers queue at DispatcherPriority.Normal, which
                     // is FIFO. That ordering is a real WPF guarantee but invisible from here:
                     // changing either handler's dispatcher priority would silently invert it.
-                    var edgeAnchor = ScreenGeometry.RightEdgeAnchor(
-                        RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                    var edgeAnchor = ActionMenuExitAnchorPhysical;
                     Context.OverlayManager.EdgeButtonBar.ShowButtons(
                         ActionMenuEdgeButtons.Definitions(
                             msg.ShowBack
                                 ? Context.Settings.Dwell.ManualSelectionActionMenuDwellMs
                                 : Context.Settings.Dwell.ActionMenuDwellMs),
-                        edgeAnchor);
+                        edgeAnchor,
+                        EdgeBarOwner.ActionMenu);
 
                     // The LEFT-edge modifier bar. Its own try: a manager (or test fake) without
                     // the slot must not cost the user the right-bar buttons above. The icon set
@@ -154,14 +154,16 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     // surface as stale latched icons after reopen.
                     try
                     {
-                        var modAnchor = ScreenGeometry.LeftEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                        var modAnchor = ScreenGeometry.LeftEdgeAnchor(
+                            ScreenGeometry.SharedRightEdgeInsetLogical, UIConstants.ButtonRadius);
                         Context.OverlayManager.ActionMenuModBar.ShowButtons(
                             ActionMenuModifierButtons.Definitions(
                                 msg.ShowBack
                                     ? Context.Settings.Dwell.ManualSelectionActionMenuDwellMs
                                     : Context.Settings.Dwell.ActionMenuDwellMs,
                                 Context.ActionMenuVM.LatchedModifiers),
-                            modAnchor);
+                            modAnchor,
+                            EdgeBarOwner.ActionMenu);
                     }
                     catch (Exception ex)
                     {
@@ -190,8 +192,8 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
             {
                 try
                 {
-                    // Takes the menu's Close/Help off the bar, but ONLY while the menu still owns
-                    // it. The bar is shared, and this handler is deferred while the contexts that
+                    // Takes the menu's Close/Help off the bar, but ONLY if the menu still owns it.
+                    // The bar is shared, and this handler is deferred while the contexts that
                     // take the bar over from the menu are not:
                     //
                     //   InteractionManager.OnActionSelected fires HideActionMenu (:148, :156) and
@@ -199,27 +201,28 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     //   reaches here through GazeEngineAdapter.OnHideActionMenu, which wraps it in
                     //   Dispatcher.BeginInvoke — so it lands AFTER DragCoordinator.OnDragStarted
                     //   and ScrollModeController.EnterScrollMode, both of which run synchronously
-                    //   off their events and have already called ShowButtons by then.
+                    //   off their events and have already claimed the bar.
                     //
-                    // Unguarded, this would therefore clear the drag's cancel button and scroll
-                    // mode's stop button the instant either began — removing the only way out of
-                    // a drag for a user whose sole input channel is an eye tracker.
+                    // The ownership API encodes exactly that: Hide(ActionMenu) is a no-op when a
+                    // successor is the visible owner, and otherwise withdraws the menu's own saved
+                    // claim — it can never clear the drag's cancel button or scroll mode's stop
+                    // button, the only way out for a user whose sole input channel is an eye
+                    // tracker.
                     var bar = Context?.OverlayManager.EdgeButtonBar;
-                    if (bar?.EdgeBarVm?.DefinitionFor(ActionMenuEdgeButtons.CloseId) is not null)
-                        bar.Hide();
+                    bar?.Hide(EdgeBarOwner.ActionMenu);
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex, "Error hiding the action-menu edge bar");
                 }
 
-                // The LEFT-edge modifier bar hides UNCONDITIONALLY: nothing but the action menu
-                // ever owns it, so there is no ownership question — and a throwing mod bar (an
-                // overlay manager without the slot) must not prevent the hides around it
-                // (spec mechanism 9). Its own try keeps the fault here.
+                // The LEFT-edge modifier bar hides by the same ownership rule: only the action
+                // menu ever shows it, and a throwing mod bar (an overlay manager without the slot)
+                // must not prevent the hides around it (spec mechanism 9). Its own try keeps the
+                // fault here.
                 try
                 {
-                    Context?.OverlayManager.ActionMenuModBar.Hide();
+                    Context?.OverlayManager.ActionMenuModBar.Hide(EdgeBarOwner.ActionMenu);
                 }
                 catch (Exception ex)
                 {

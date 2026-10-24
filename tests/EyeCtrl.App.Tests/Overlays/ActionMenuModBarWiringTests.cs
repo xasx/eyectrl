@@ -20,13 +20,12 @@ using Xunit;
 /// <summary>
 /// App-plumbing pins for the LEFT-edge action-menu modifier bar: the show handler in
 /// <see cref="OverlayMessageCoordinator"/> builds <c>ActionMenuModifierButtons.Definitions</c> at
-/// <c>ScreenGeometry.LeftEdgeAnchor</c>, and the hide handler hides the mod bar UNCONDITIONALLY —
-/// unlike the shared right-edge bar, whose hide is guarded by the ownership check
-/// (<c>bar?.EdgeBarVm?.DefinitionFor(ActionMenuEdgeButtons.CloseId)</c>), nothing but the action
-/// menu ever owns the left bar. Both sides isolate a throwing mod bar in its own try, so an
-/// overlay manager without the slot (the default-throw interface member, or
-/// <c>PartialOverlayManager</c> with no slot supplied) cannot cost the user the right-bar buttons
-/// or the TargetHighlight hide.
+/// <c>ScreenGeometry.LeftEdgeAnchor</c>, and the hide handler hides the mod bar through the
+/// ownership API. Unlike the shared right-edge bar, where <c>Hide(ActionMenu)</c> must leave a
+/// displacing context's buttons alone, nothing but the action menu ever owns the left bar. Both
+/// sides isolate a throwing mod bar in its own try, so an overlay manager without the slot (the
+/// default-throw interface member, or <c>PartialOverlayManager</c> with no slot supplied) cannot
+/// cost the user the right-bar buttons or the TargetHighlight hide.
 ///
 /// <para>
 /// Built on the <c>HideActionMenuBarOwnershipTests</c> harness shape: the real state machine, the
@@ -58,7 +57,7 @@ public class ActionMenuModBarWiringTests
     }
 
     [StaFact]
-    public void HideActionMenu_HidesTheModBar_Unconditionally_EvenWhenTheRightBarIsOwnedByADrag()
+    public void HideActionMenu_HidesTheModBar_EvenWhenTheRightBarIsOwnedByADrag()
     {
         using var h = BuildContext();
         // Reach Dragging the way the ownership tests do: fixation, then activation dwell (menu
@@ -72,7 +71,20 @@ public class ActionMenuModBarWiringTests
         h.PumpDispatcher();
 
         Check.That(h.ModBarCalls).Contains("Hide");
-        Check.That(h.RightBarCalls).Not.Contains("Hide"); // ownership guard held
+        // The visible state, not just the call: a release that names the wrong owner records a
+        // "Hide" on this fake and leaves the real view model showing (M23).
+        Check.That(h.ModBar).IsNotNull();
+        Check.WithCustomMessage(
+                $"the mod bar still shows [{string.Join(",", h.ModBar!.ShownButtonIds)}]")
+             .That(h.ModBar.EdgeBarVm!.IsVisible).IsFalse();
+        Check.That(h.ModBar.EdgeBarVm.Buttons).IsEmpty();
+        // The right bar's ownership release is a no-op on screen at this point: the menu is
+        // displaced, so Hide(ActionMenu) only withdraws its saved claim and the drag's cancel —
+        // the user's only way out — stays put.
+        Check.WithCustomMessage(
+                $"right bar holds [{string.Join(",", h.RightBar.ShownButtonIds)}] "
+                + $"after calls [{string.Join(",", h.RightBarCalls)}]")
+             .That(h.RightBar.ShownButtonIds).ContainsExactly("Drag_cancel");
     }
 
     [StaFact]
@@ -196,6 +208,9 @@ public class ActionMenuModBarWiringTests
                 return _modBar.Calls;
             }
         }
+
+        /// <summary>The mod bar itself, so a test can assert its VISIBLE state (not just calls).</summary>
+        internal TestFakes.FakeEdgeButtonBar? ModBar => _modBar;
 
         internal IReadOnlyList<string> RightBarCalls => RightBar.Calls;
 

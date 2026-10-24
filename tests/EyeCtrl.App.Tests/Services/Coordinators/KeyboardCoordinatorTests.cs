@@ -14,6 +14,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
@@ -950,6 +951,173 @@ public class KeyboardCoordinatorTests
             keyboard.Close();
         }
     }
+
+    /// <summary>
+    /// A4 fixup-01 F1: the keyboard's own claim and release must be pinned at the CALL SITE. Every
+    /// earlier ownership test seeded the pair by hand, so a keyboard that claimed as another owner
+    /// (M14) or released another owner (M15) left every suite green.
+    /// </summary>
+    [StaFact]
+    public void ShowAndHide_ClaimAndReleaseTheBar_ThroughTheCoordinator()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var engine = new GazeEngine(
+            new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), settings);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar, new HiddenToolbarOverlay()),
+            GazeEngine = engine,
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        try
+        {
+            messenger.Send(new ShowKeyboardRequestMessage());
+            PumpDispatcher();
+
+            Check.That(bar.EdgeBarVm).IsNotNull();
+            Check.WithCustomMessage("the keyboard did not claim the bar as itself (M14).")
+                 .That(bar.EdgeBarVm!.CurrentOwner).IsEqualTo(EdgeBarOwner.Keyboard);
+            Check.That(bar.EdgeBarVm.Buttons.Select(b => b.Id))
+                 .ContainsExactly(KeyboardEdgeButtons.CloseId, KeyboardEdgeButtons.FlipId);
+
+            messenger.Send(new KeyboardHideRequestedMessage());
+            PumpDispatcher();
+
+            Check.WithCustomMessage("the keyboard's release left its pair on the bar (M15).")
+                 .That(bar.EdgeBarVm.CurrentOwner).IsNull();
+            Check.That(bar.EdgeBarVm.Buttons).IsEmpty();
+            Check.That(bar.EdgeBarVm.IsVisible).IsFalse();
+        }
+        finally
+        {
+            c.Dispose();
+            keyboard.Close();
+            engine.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A4 fixup-01 F1: the ticket's headline journey, with the pair put up by the COORDINATOR (not
+    /// seeded by hand): keyboard → repeat → exit restores Close and Flip.
+    /// </summary>
+    [StaFact]
+    public void ShowThenRepeatExit_RestoresCloseAndFlip_ThroughTheCoordinator()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var im = new InteractionManager();
+        var engine = new GazeEngine(
+            new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), settings);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar, new HiddenToolbarOverlay()),
+            InteractionManager = im,
+            GazeEngine = engine,
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+            ModesMenuVM = new ModesMenuViewModel(settings, messenger),
+        };
+        var keyboardCoordinator = NewCoordinator();
+        keyboardCoordinator.Initialize(context);
+        using var repeat = new RepeatModeController();
+        repeat.Initialize(context);
+        try
+        {
+            messenger.Send(new ShowKeyboardRequestMessage());
+            PumpDispatcher();
+            Check.That(bar.EdgeBarVm!.CurrentOwner).IsEqualTo(EdgeBarOwner.Keyboard);
+
+            im.EnterRepeatMode(InteractionAction.LeftClick);
+            PumpDispatcher();
+            Check.That(bar.ShownButtonIds).ContainsExactly("repeat-stop");
+
+            im.ExitRepeatMode();
+            PumpDispatcher();
+
+            Check.WithCustomMessage($"bar holds [{string.Join(",", bar.ShownButtonIds)}]")
+                 .That(bar.ShownButtonIds)
+                 .ContainsExactly(KeyboardEdgeButtons.CloseId, KeyboardEdgeButtons.FlipId);
+        }
+        finally
+        {
+            keyboardCoordinator.Dispose();
+            keyboard.Close();
+            engine.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A4 fixup-01 F1: a keyboard closed while another context has displaced it must WITHDRAW its
+    /// saved claim — otherwise the displacer's exit resurrects Close/Flip over a closed keyboard.
+    /// </summary>
+    [StaFact]
+    public void HideWhileDisplaced_WithdrawsTheClaim_SoNothingIsRestored()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var keyboard = InvisibleTestWindow.Prepare(new KeyboardWindow());
+        var bar = new TestFakes.FakeEdgeButtonBar();
+        var im = new InteractionManager();
+        var engine = new GazeEngine(
+            new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), settings);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard, bar, new HiddenToolbarOverlay()),
+            InteractionManager = im,
+            GazeEngine = engine,
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            Settings = settings,
+            ModesMenuVM = new ModesMenuViewModel(settings, messenger),
+        };
+        var keyboardCoordinator = NewCoordinator();
+        keyboardCoordinator.Initialize(context);
+        using var repeat = new RepeatModeController();
+        repeat.Initialize(context);
+        try
+        {
+            messenger.Send(new ShowKeyboardRequestMessage());
+            PumpDispatcher();
+            im.EnterRepeatMode(InteractionAction.LeftClick);
+            PumpDispatcher();
+            Check.That(bar.EdgeBarVm!.CurrentOwner).IsEqualTo(EdgeBarOwner.Repeat);
+
+            // The keyboard closes while repeat owns the bar. Its release must drop its saved claim.
+            messenger.Send(new KeyboardHideRequestedMessage());
+            PumpDispatcher();
+
+            im.ExitRepeatMode();
+            PumpDispatcher();
+
+            Check.WithCustomMessage(
+                    $"bar holds [{string.Join(",", bar.ShownButtonIds)}] after a displaced keyboard closed")
+                 .That(bar.EdgeBarVm.Buttons).IsEmpty();
+            Check.That(bar.EdgeBarVm.CurrentOwner).IsNull();
+        }
+        finally
+        {
+            keyboardCoordinator.Dispose();
+            keyboard.Close();
+            engine.Dispose();
+        }
+    }
+
+    private static void PumpDispatcher() =>
+        System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+            () => { }, System.Windows.Threading.DispatcherPriority.Background);
 
     [StaFact]
     public void StackSwapped_OnTheLiveFactory_RebindsTheKeyboard_AndPatchesTheSnapshot()

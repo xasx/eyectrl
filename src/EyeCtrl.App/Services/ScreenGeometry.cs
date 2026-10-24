@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Windows;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.ViewModels;
 
 /// <summary>
 /// Shared screen-geometry helpers for the App layer. Returns physical-pixel anchors derived from
@@ -18,6 +19,24 @@ internal static class ScreenGeometry
     /// must stay equal for the right edge to line up.
     /// </summary>
     internal const double EdgeButtonWindowMarginLogical = 10;
+
+    /// <summary>
+    /// Right-edge inset for every context whose exit lives on the shared screen-edge anchor:
+    /// action menu, manual selection, drag, repeat and scroll. ONE value, so their out slots are
+    /// the same absolute place on screen — the owner's "the out slot sits in the same place in
+    /// each mode" check. The keyboard is the deliberate exception: its anchor tracks the
+    /// keyboard's edge vertically and keeps its own inset.
+    /// </summary>
+    internal const double SharedRightEdgeInsetLogical = 30;
+
+    /// <summary>
+    /// The shared right-edge anchor for the exit-bearing modes, built through
+    /// <see cref="RightEdgeAnchor"/> so every caller resolves the same numbers BY CONSTRUCTION.
+    /// A per-caller inset is exactly how repeat and scroll once drifted 20 DIP inward from the
+    /// action menu, drag and manual selection.
+    /// </summary>
+    internal static PhysicalPoint SharedRightEdgeExitAnchor()
+        => RightEdgeAnchor(SharedRightEdgeInsetLogical, UIConstants.ButtonRadius);
 
     /// <summary>
     /// Anchor at the right screen edge in physical pixels. The returned centre is offset

@@ -522,10 +522,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // Reverse-overlap guard (spec B4 #10, the OverlayMessageCoordinator hand-off dance):
         // if the bar is currently showing ANOTHER context's definitions (scroll Stop, drag
         // Cancel, the menu pair), do not clobber them. Skipping is safe in both directions:
-        // showing only when the bar is free-or-ours, hiding only when ours. A skip is NOT the
-        // end of the story (see the trace at B4 #10 in the keyboard spec): the keyboard stays
+        // showing only when the bar is free-or-ours, and releasing only the keyboard's own claim
+        // (the ownership API makes that release a no-op on another context's set). A skip is NOT
+        // the end of the story (see the trace at B4 #10 in the keyboard spec): the keyboard stays
         // closable via the toolbar's Keyboard toggle, and the skip records _keyboardPairWanted
-        // so the pair is re-claimed the moment the other context releases the bar.
+        // so the pair is re-claimed the moment the other context frees the bar.
         if (!ShouldShowKeyboardEdgeBar(bar.EdgeBarVm))
         {
             _keyboardPairWanted = true;
@@ -545,7 +546,8 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // OverlayMessageCoordinator.cs:119-121.
         bar.ShowButtons(
             KeyboardEdgeButtons.Definitions(KeyboardEdgeButtonDwellMs(Context.Settings.Dwell)),
-            ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
+            ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius),
+            EdgeBarOwner.Keyboard);
     }
 
     /// <summary>
@@ -562,12 +564,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // The keyboard is going away — a pending retry claim dies with it.
         _keyboardPairWanted = false;
 
-        // Guarded hand-off (spec B4 #10): the bar is shared — only clear it while the
-        // keyboard's definitions still own it, mirroring OverlayMessageCoordinator's
-        // ActionMenu Close guard.
-        var bar = Context?.OverlayManager.EdgeButtonBar;
-        if (ShouldHideKeyboardEdgeBar(bar?.EdgeBarVm))
-            bar!.Hide();
+        // Guarded hand-off (spec B4 #10): the bar is shared, and the release is ownership-aware.
+        // If the keyboard is still the visible owner the pair clears; if another context has
+        // displaced it, this only withdraws the keyboard's saved claim (no-op on screen), so a
+        // keyboard that has already closed can never be restored by that context's later exit.
+        Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Keyboard);
     }
 
     /// <summary>The bar is claimable for the keyboard pair when it holds no definitions at
@@ -577,15 +578,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         || barVm.Buttons.Count == 0
         || barVm.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
 
-    /// <summary>The keyboard's hide may clear the bar only while the keyboard pair still
-    /// owns it — another context's stop/cancel buttons must survive.</summary>
-    internal static bool ShouldHideKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
-        barVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
-
     /// <summary>The retry decision for a keyboard pair that lost the show race (spec B4 #10
     /// reverse-overlap trace): only a keyboard that WANTS the bar, is STILL up, and sees the
-    /// bar FREE again (the other context ended and its unguarded Hide emptied it) may
-    /// re-claim. "Already ours" is not a retry — that is ShowKeyboardEdgeBar's own flip path.
+    /// bar FREE again (the other context ended and released its claim) may re-claim. "Already
+    /// ours" is not a retry — that is ShowKeyboardEdgeBar's own flip path.
     /// Extracted so the decision is headless-testable; the caller adds the event wiring.</summary>
     internal static bool ShouldRetryKeyboardEdgeBar(
         bool pairWanted, bool keyboardVisible, EdgeButtonBarViewModel? barVm) =>

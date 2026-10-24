@@ -18,9 +18,9 @@ public class WireTimeExitTests
 {
     private static readonly DateTime T0 = new(2026, 10, 24, 12, 0, 0, DateTimeKind.Utc);
 
-    private sealed class FakeProcess(bool hasExited) : IProcessHandle
+    private sealed class FakeProcess(bool hasExited, int id = 4242) : IProcessHandle
     {
-        public int Id => 4242;
+        public int Id => id;
         public bool HasExited => hasExited;
         public string? ExePath => null;
         public DateTime? StartTime => null;
@@ -38,16 +38,19 @@ public class WireTimeExitTests
     {
         public SupervisionStateMachine Machine { get; } = new(maxRetries: 3, windowSeconds: 120);
         public DateTime Now { get; set; } = T0;
-        public int? BoundPid { get; private set; } = 100;
+        public int BoundPid => _bound!.Id;
         public List<int?> FedExitPids { get; } = new();
         public int DialogsOpened { get; private set; }
         public int DialogsOpen { get; private set; }
+
+        private readonly ProcessExitIntake _intake = new();
+        private IProcessHandle? _bound = new FakeProcess(hasExited: false, id: 100);
 
         public void Handle(SupervisionInput input)
         {
             if (input is ProcessExited exit)
             {
-                if (!exit.Matches(BoundPid)) return; // Program.HandleInput's bound-pid filter
+                if (!_intake.Accepts(exit, _bound)) return; // Program.HandleInput's exit intake
                 FedExitPids.Add(exit.Pid);
             }
 
@@ -61,7 +64,7 @@ public class WireTimeExitTests
         }
 
         /// <summary>RetryNow's <c>_pc.Launch</c>: the retried instance becomes the bound one.</summary>
-        public void Rebind(int pid) => BoundPid = pid;
+        public void Rebind(int pid) => _bound = new FakeProcess(hasExited: false, id: pid);
 
         /// <summary>RetryNow's <c>dialog.Close()</c> for the episode it is retrying.</summary>
         public void CloseEpisodeDialog() => DialogsOpen--;
@@ -77,7 +80,11 @@ public class WireTimeExitTests
         // retry moved the machine, leaving a dialog over a launch that is already dead.
         var sup = new SupervisorModel();
         sup.Handle(new AdoptRequest(T0));                       // IdleWatch -> Supervising
-        for (var i = 0; i < 4; i++) sup.Handle(new ProcessExited(sup.Now, sup.BoundPid));
+        for (var i = 0; i < 4; i++)
+        {
+            sup.Rebind(101 + i);                                // the recovery relaunch binds a new instance
+            sup.Handle(new ProcessExited(sup.Now, sup.BoundPid));
+        }
         Check.That(sup.Machine.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(sup.DialogsOpened).IsEqualTo(1);
         Check.That(sup.DialogsOpen).IsEqualTo(1);

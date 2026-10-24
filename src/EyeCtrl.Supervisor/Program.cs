@@ -76,6 +76,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     // Dependency-injected supervision state (all constructed in Initialize()).
     private SupervisionStateMachine _sm = null!;
     private ProcessController _pc = null!;
+    /// <summary>A7 fixup-01/S1 + fixup-02/D1: every <see cref="ProcessExited"/> passes this before
+    /// the machine — it drops an exit from a previous binding and a second report of the same
+    /// binding's exit.</summary>
+    private readonly ProcessExitIntake _exitIntake = new();
     private HeartbeatFreshnessEvaluator _freshness = null!;
     private SupervisorTrayIcon _tray = null!;
     private TrayStatusText _statusText = null!;
@@ -292,15 +296,16 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // tick (both end up on the UI thread, but the lock makes the invariant explicit).
         lock (_loopLock)
         {
-            // A7 fixup-01 (S1): an Exited callback marshalled for a PREVIOUS instance can run
-            // after a relaunch/adopt has bound a new process. It must not strike the new one —
-            // notably the FallenBack retry, which rebinds and then waits for its first heartbeat.
-            // The feeders tag the pid; drop the exit unless it is still the bound process.
-            if (input is ProcessExited exit && !exit.Matches(_pc.BoundProcess?.Id))
+            // A7 fixup-01 (S1) + fixup-02 (D1): an Exited callback marshalled for a PREVIOUS
+            // instance can run after a relaunch/adopt has bound a new process, and the two feeders
+            // (the controller callback and the wire-time guard) can both report the SAME exit. The
+            // intake drops both: a foreign pid, and a repeat for the current binding (which would
+            // otherwise book an extra strike and open a second identical FallenBack dialog).
+            if (input is ProcessExited exit && !_exitIntake.Accepts(exit, _pc.BoundProcess))
             {
                 Log.Information(
-                    "Dropping ProcessExited for pid={ExitedPid}; the bound process is pid={BoundPid}.",
-                    exit.Pid, _pc.BoundProcess?.Id);
+                    "Dropping ProcessExited for pid={ExitedPid}; not the bound process, or already counted.",
+                    exit.Pid);
                 return;
             }
 

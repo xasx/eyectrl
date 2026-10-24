@@ -247,14 +247,14 @@ public sealed class KeyboardE1Recorder
         {
             CountEdgeQuarter(a.Edge, a.EdgeQuarter, abandon: true);
             Emit(
-                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} sub={Sub} edge={Edge}",
-                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.SubLayout, a.Edge);
+                "KB-E1 abandon ts={TsUs} cls={Class} pct={Pct} why={Why} endms={EndMs} sub={Sub} edge={Edge}",
+                a.TimestampUs, a.Class, a.ProgressPct, a.Reason, a.EndMs, a.SubLayout, a.Edge);
             return;
         }
         Emit(
-            "KB-E1 abandon ts={TsUs} r={Row} c={Col} cls={Class} act={Act} pct={Pct} why={Why} mdx={MeanDx} " +
-            "mdy={MeanDy} sub={Sub} edge={Edge}",
-            a.TimestampUs, a.Row, a.Col, a.Class, a.Action, a.ProgressPct, a.Reason, a.MeanDxPx, a.MeanDyPx,
+            "KB-E1 abandon ts={TsUs} r={Row} c={Col} cls={Class} act={Act} pct={Pct} why={Why} endms={EndMs} " +
+            "mdx={MeanDx} mdy={MeanDy} sub={Sub} edge={Edge}",
+            a.TimestampUs, a.Row, a.Col, a.Class, a.Action, a.ProgressPct, a.Reason, a.EndMs, a.MeanDxPx, a.MeanDyPx,
             a.SubLayout, a.Edge);
     }
 
@@ -548,9 +548,14 @@ public readonly record struct KeyE1(
 public readonly record struct CorrE1(string Saccade, int Restarts, bool Likely, bool WordStart, bool NoContinuation);
 
 /// <summary>Everything E1 logs for one abandonment.</summary>
+/// <param name="ProgressPct">The fill at the LAST sample credited to the key (never the sample that ended
+/// the dwell), so it can sit below the threshold gate that admitted the abandonment.</param>
+/// <param name="EndMs">Whole ms between that last credited sample and the sample that ended the dwell: a
+/// large value marks a blink or tracker pause before the switch.</param>
 public readonly record struct AbandonE1(
     long TimestampUs, int Row, int Col, string Class, string Action,
-    int ProgressPct, string Reason, int MeanDxPx, int MeanDyPx, string EdgeQuarter, string SubLayout, string Edge);
+    int ProgressPct, string Reason, int EndMs, int MeanDxPx, int MeanDyPx, string EdgeQuarter, string SubLayout,
+    string Edge);
 
 /// <summary>
 /// The window facts a key line carries and the view-model cannot see: the dock edge, the window's

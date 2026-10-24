@@ -100,6 +100,91 @@ public class DragToolbarPauseExitZoneTests
         }
     }
 
+    [StaFact]
+    public void APauseMovedMidDrag_IsStillAnExitAtItsNewCentre()
+    {
+        // G2: the zone is a LIVE query, not the drag-start snapshot. A re-dock or re-layout moves
+        // the button and re-reports its centre mid-drag; the new spot must not settle.
+        DpiHelper.Initialize(1.0, 1.0);
+        try
+        {
+            using var world = Build();
+            world.StartDrag();
+
+            var moved = new PhysicalPoint(PauseCentre.X + 300, PauseCentre.Y + 120);
+            world.Toolbar.UpdateButtonScreenPosition("Pause", moved);
+
+            world.Rest(moved, 800);
+
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.WithCustomMessage("the moved Pause dropped the drag instead of cancelling it.")
+                 .That(world.Drops).IsEqualTo(0);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(GrabOrigin);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [StaFact]
+    public void AToolbarThatIsNotDwellActive_DoesNotZoneTheRest()
+    {
+        // G2: a hidden/calibrating band cannot fire Pause, so its old spot must behave like any
+        // other rest and DROP. The live query reads the same SetActive state the auto-hide drives.
+        DpiHelper.Initialize(1.0, 1.0);
+        try
+        {
+            using var world = Build();
+            world.StartDrag();
+            world.Toolbar.SetActive(false);
+
+            world.Rest(PauseCentre, 900);
+            world.Pump();   // the drop's teardown is posted to the dispatcher
+
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.FreeLook);
+            Check.WithCustomMessage("an inactive toolbar still zoned the drag's settle.")
+                 .That(world.Drops).IsEqualTo(1);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(PauseCentre);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [StaFact]
+    public void AToolbarSummonedMidDrag_MakesItsPauseAnExit()
+    {
+        // G2: a drag can start while the band is auto-hidden; summoning it mid-drag makes Pause
+        // dwellable again, and the zone must appear with it (a drag-start snapshot never did).
+        DpiHelper.Initialize(1.0, 1.0);
+        try
+        {
+            using var world = Build();
+            world.Toolbar.SetActive(false);
+            world.StartDrag();
+
+            world.Toolbar.SetActive(true);   // the summon, as ToolbarVisibilityAdapter does on Show
+            world.Rest(PauseCentre, 800);
+
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.WithCustomMessage("a Pause summoned mid-drag dropped the drag.")
+                 .That(world.Drops).IsEqualTo(0);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(GrabOrigin);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     private sealed class World : IDisposable
     {
         public required EventCoordinationContext Context { get; init; }
@@ -109,6 +194,7 @@ public class DragToolbarPauseExitZoneTests
         public required TestFakes.FakeEdgeButtonBar Bar { get; init; }
         public required DragCoordinator Drag { get; init; }
         public required Dispatcher Dispatcher { get; init; }
+        public required ToolbarViewModel Toolbar { get; init; }
 
         public int Drops { get; set; }
 
@@ -148,7 +234,19 @@ public class DragToolbarPauseExitZoneTests
         settings.SelectionMode = SelectionMode.AutoSelection;
 
         var messenger = madeContext.Messenger;
-        var toolbar = new ToolbarViewModel(settings, messenger) { IsVisible = true };
+        // THE PRODUCTION SHAPE (fixup-02 G1): the full-arity factory from AppBootstrapper.cs, and
+        // NOTHING sets IsVisible — production never does (auto-hide drives SetActive instead). The
+        // old zone was gated on IsVisible and was therefore dead here; the assertion below pins the
+        // production state so a test cannot force the zone alive again.
+        var toolbar = new ToolbarViewModel(
+            settings,
+            messenger,
+            sink: null,
+            dwellRegistry: null,
+            isFeedbackSuppressed: static () => false,
+            logger: null);
+        Check.WithCustomMessage("the production toolbar VM must not need IsVisible for its Pause zone.")
+             .That(toolbar.IsVisible).IsFalse();
         toolbar.UpdateButtonScreenPosition("Pause", PauseCentre);
         var dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -166,6 +264,7 @@ public class DragToolbarPauseExitZoneTests
             Bar = bar,
             Drag = drag,
             Dispatcher = dispatcher,
+            Toolbar = toolbar,
         };
 
         // Production's chain, in miniature: the toolbar's Pause dwell sends PauseToggledMessage,

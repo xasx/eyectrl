@@ -233,12 +233,15 @@ internal sealed class DragCoordinator : CoordinatorBase
 
             // A5 fixup-01 F2 (owner decision): drag + Pause = CANCEL, never a drop. In Auto
             // Selection the drag settles after 500 ms while the toolbar Pause dwell is 700 ms, so
-            // a rest on the toolbar Pause would DROP at the toolbar before Pause could fire. The
-            // Pause button's own hit circle is an exit zone (the PX1 pattern): the drag neither
-            // settles nor releases there, and the button's dwell cancels and then pauses. Only the
-            // Pause button, not the whole band — a rest anywhere else on the toolbar still drops.
-            if (Context.ToolbarVM?.PauseDragExitZone is { } pauseZone)
-                zones.Add(new DragExitZone(pauseZone.Center, pauseZone.RadiusPhysical));
+            // a rest on the toolbar Pause would DROP at the toolbar before Pause could fire.
+            // fixup-02 G2: the zone is a LIVE query, not a snapshot — the toolbar can re-dock,
+            // re-layout or be summoned mid-drag, and it disappears while the band is not
+            // dwell-active (a hidden band's Pause cannot fire). Only the Pause button, not the
+            // whole band — a rest anywhere else on the toolbar still drops.
+            if (Context.ToolbarVM is { } toolbar)
+                Context.DragTrailVM.SetPauseExitZoneProvider(() => toolbar.PauseDragExitZone);
+            else
+                Context.DragTrailVM.SetPauseExitZoneProvider(null);
 
             Context.DragTrailVM.SetExitZones(zones);
         }
@@ -408,6 +411,12 @@ internal sealed class DragCoordinator : CoordinatorBase
         catch (Exception ex)
         {
             // Attempted first and still outstanding: ReleaseHeldButton restored the claim.
+            // G5 (fixup-02): on the non-Pause paths (Cancel, ESC, lost gaze) this used to escape
+            // into the dispatcher, where crash-to-die applied and the fatal-exit handler retried the
+            // release. Now the cancel finishes in FreeLook — where the pointer follows the gaze —
+            // with the button possibly held until dispose. Unreachable with the shipped
+            // Win32InputSimulator (SendRaw logs shortfalls instead of throwing); only a test double
+            // can throw here.
             Log.Error(ex, "The drag release failed; the cancel continues and dispose will retry it.");
         }
 

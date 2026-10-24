@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
 using EyeCtrl.App.Services;
+using Serilog;
 
 /// <summary>
 /// The lifecycle skeleton all nine coordinators shared by hand: a nullable context set
@@ -61,7 +62,14 @@ internal abstract class CoordinatorBase : IDisposable
         }
 
         if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            // A distinct line (not just the caller's "did not run" one): the shutdown branch is what
+            // keeps the caller from queueing work onto a dispatcher that will never run it, and the
+            // G4 test pins this line.
+            Log.Warning(
+                "The UI dispatcher has shut down (or is shutting down); the synchronous teardown did not run.");
             return false;
+        }
 
         // The wrapper distinguishes "the delegate ran and threw" (propagate: a real failure) from
         // "Invoke refused before running" (return false: nothing was torn down).

@@ -600,6 +600,67 @@ public class DragCoordinatorTests
     }
 
     [Fact]
+    public void PauseCancelDrag_WhenTheDispatcherHasShutDown_PausesAndKeepsTheClaim()
+    {
+        // G4 (fixup-02), pinning the F7 shutdown branch. TogglePause is UI-thread-only in
+        // production, so this guards the defensive marshal only: it must not queue the teardown
+        // onto a dead dispatcher (the "Invoke returns without running" trap). It logs, reports
+        // "not run", leaves the claim for dispose, and Pause still lands.
+        Dispatcher? ui = null;
+        using var ready = new ManualResetEventSlim();
+        var worker = new Thread(() =>
+        {
+            ui = Dispatcher.CurrentDispatcher;
+            ready.Set();
+            Dispatcher.Run();
+        });
+        worker.SetApartmentState(ApartmentState.STA);
+        worker.IsBackground = true;
+        worker.Start();
+        Check.That(ready.Wait(TimeSpan.FromSeconds(10))).IsTrue();
+        ui!.InvokeShutdown();
+        Check.WithCustomMessage("the test dispatcher thread did not stop.")
+             .That(worker.Join(TimeSpan.FromSeconds(10))).IsTrue();
+        Check.That(ui.HasShutdownFinished).IsTrue();
+
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            var input = new TestFakes.FakeInputSimulator();
+            var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+            var context = madeContext with { Dispatcher = ui };
+            var im = context.InteractionManager;
+            var drag = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+            drag.Initialize(context);
+
+            im.OnFixationStarted(new PhysicalPoint(610, 210));
+            im.OnActivationButtonDwelled();
+            im.OnActionSelected(InteractionAction.Drag);
+            Check.That(input.MouseDownCount).IsEqualTo(1);
+
+            Check.ThatCode(() => im.TogglePause()).DoesNotThrow();
+
+            Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.That(input.MouseUpCount).IsEqualTo(0);   // the cancel never ran
+            Check.WithCustomMessage(
+                    $"the shutdown branch did not log; saw: {string.Join(" | ", sink.Messages)}")
+                 .That(sink.Messages.Any(
+                     m => m.Contains("synchronous teardown did not run", StringComparison.Ordinal)))
+                 .IsTrue();
+
+            drag.Dispose();                                // the claim was never consumed: retry it
+            Check.That(input.MouseUpCount).IsEqualTo(1);
+            Check.That(input.ButtonsBalanced).IsTrue();
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [Fact]
     public void ASuccessfulDragThenDrop_BalancesAndClearsTheBar()
     {
         // The ordinary path, now observable end to end. Also pins that the drop clears the cancel

@@ -402,9 +402,10 @@ public class InteractionManagerTests
     [Fact]
     public void TogglePause_DuringDragging_WhenTheCancelThrows_DoesNotPause()
     {
-        // The pause WAITS for the release: a release that did not finish must not be followed by
-        // Paused (the sticky notes would read anything synthesized afterwards as a caretaker
-        // click). The exception escapes; the process-level paths own the fatal handling.
+        // Core keeps propagating a throwing hook (a wiring bug): the pause must not overtake a
+        // release that did not finish. The App's drag handler is non-throwing by design (F3 —
+        // it logs the failure and lets the pause land), so this Core contract is exercised only
+        // through a deliberately throwing hook.
         var manager = new InteractionManager();
         manager.CancelDragForPause += () => throw new InvalidOperationException("the release failed");
         manager.OnFixationStarted(new PhysicalPoint(100, 100));

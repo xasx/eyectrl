@@ -183,21 +183,16 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void TogglePause_InRepeatMode_ExitsRepeatThenPauses()
     {
-        // A5 (b) at the Core contract level: the repeat stop runs first (the owner's hook), then
-        // the state flips to Paused — and the locked action is gone, so nothing is re-armed into
-        // the paused state.
+        // A5 (b) at the Core contract level: the repeat stop (the state-only exit the stop
+        // button and ESC also reach) runs first, then the state flips to Paused — and the locked
+        // action is gone (F8/M7: a bare manager must not carry its payload into Paused).
         var im = Armed(InteractionAction.LeftClick);
         var events = new List<string>();
         im.StateChanged += s => events.Add(s.ToString());
-        im.ExitRepeatModeForPause += () =>
-        {
-            events.Add("exit-repeat");
-            im.ExitRepeatMode();
-        };
 
         im.TogglePause();
 
-        Check.That(events).ContainsExactly("exit-repeat", "FreeLook", "Paused");
+        Check.That(events).ContainsExactly("FreeLook", "Paused");
         Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
         Check.That(im.RepeatAction).IsNull();
     }

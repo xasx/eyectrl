@@ -126,6 +126,18 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>
+    /// The Pause toggle's live hit circle in physical px — its last reported on-screen centre and
+    /// the same radius its dwell target uses — or null while the band is hidden or the View has not
+    /// positioned it. A5 fixup-01 F2: during a drag this is an exit zone, so a rest on the toolbar
+    /// Pause belongs to the Pause dwell (cancel → pause) instead of the drag's 500 ms settle (a
+    /// drop). Only the Pause button; a rest anywhere else on the band still drops.
+    /// </summary>
+    internal (PhysicalPoint Center, double RadiusPhysical)? PauseDragExitZone =>
+        IsVisible && _lastCenters.TryGetValue(PauseTargetId, out var center)
+            ? (center, _buttonDwellRadiusPhysical)
+            : null;
+
+    /// <summary>
     /// The View's rendered-band report (Task 6): the button ids the toolbar shows right now. A
     /// previously positioned id that is absent left the band — its dwell target must go (a stale
     /// target at a former screen position could fire from gaze merely passing there), its held

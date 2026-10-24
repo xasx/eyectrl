@@ -81,21 +81,16 @@ public class InteractionManagerScrollModeTests
     public void TogglePause_InScrollMode_StopsScrollingThenPauses()
     {
         // A5 (c), scope box of 2026-10-22: Pause in ScrollMode runs the existing scroll stop FIRST
-        // (the owner's hook) and only then becomes Paused, so no wheel can be injected while the
-        // user is paused. The anchor is cleared by the exit, so nothing survives into Paused.
+        // and only then becomes Paused, so no wheel can be injected while the user is paused. The
+        // anchor is cleared by the exit (F8/M7: a bare manager must not carry it into Paused).
         var im = InActionMenu(out _);
         im.OnActionSelected(InteractionAction.ScrollMode);
         var events = new List<string>();
         im.StateChanged += s => events.Add(s.ToString());
-        im.ExitScrollModeForPause += () =>
-        {
-            events.Add("stop-scroll");
-            im.ExitScrollMode();
-        };
 
         im.TogglePause();
 
-        Check.That(events).ContainsExactly("stop-scroll", "FreeLook", "Paused");
+        Check.That(events).ContainsExactly("FreeLook", "Paused");
         Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
         Check.That(im.ScrollAnchor).IsNull();
     }

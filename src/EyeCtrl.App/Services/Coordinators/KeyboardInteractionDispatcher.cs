@@ -183,6 +183,20 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         var backdrop = Context.OverlayManager.GlassBackdrop;
         backdrop.CompleteHideNow();
 
+        // A5 fixup-01 F5 (the sticky contract's cheap belt): no synthesized CLICK may land once
+        // the state is Paused. The notes accept a mouse input only while paused, so a repeat click
+        // queued just before a Pause (the tray, at millisecond timing) would be read as a physical
+        // caretaker click. IsRepeatableClick is exactly the click family — left, right, double,
+        // middle. Non-click actions are unchanged. InteractionManager is null in some focused test
+        // contexts; those are not paused.
+        if (Context.InteractionManager?.CurrentState == InteractionState.Paused
+            && msg.Action.IsRepeatableClick())
+        {
+            Log.Information("Action dropped while paused: {Action} at ({X:F0}, {Y:F0})",
+                msg.Action, msg.Point.X, msg.Point.Y);
+            return;
+        }
+
         var pt = msg.IsPreciseTarget ? msg.Point : (Context.GazeEngine.StableCentroid ?? msg.Point);
         Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] [Modifiers={Modifiers}] [BackdropVisible={BackdropVisible}]",
             msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers, backdrop.IsVisible);

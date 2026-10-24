@@ -17,13 +17,14 @@ using Xunit;
 /// A5 — Pause in repeat and scroll mode, through the real App owners and the real
 /// <see cref="InteractionManager"/>.
 /// <para>
-/// The binding contract (ticket A5, sticky notes' T6): Pause first runs the mode's existing stop
-/// through its owner — <c>InteractionManager.ExitRepeatModeForPause</c> /
-/// <c>ExitScrollModeForPause</c> — and only then flips the state to <see cref="InteractionState.Paused"/>,
-/// so no synthesized input can follow the flip. The scroll test observes the worker's state from a
+/// The binding contract (ticket A5, sticky notes' T6): Pause first runs the mode's existing
+/// state-only stop and only then flips the state to <see cref="InteractionState.Paused"/>, so no
+/// synthesized input can follow the flip. Repeat holds no OS state; its controller clears the stop
+/// button from the posted <c>StateChanged</c>. The scroll test observes the worker's state from a
 /// <see cref="InteractionManager.StateChanged"/> handler that is subscribed BEFORE the controller's
-/// own: at <c>StateChanged(Paused)</c> the worker must already have been stopped. A pause-then-stop
-/// swap sees it still active there.
+/// own: at <c>StateChanged(Paused)</c> the worker must already have been stopped (the exit's
+/// <c>StateChanged(FreeLook)</c> tears it down inline). A pause-then-stop swap sees it still active
+/// there.
 /// </para>
 /// </summary>
 public class UniversalPauseTests

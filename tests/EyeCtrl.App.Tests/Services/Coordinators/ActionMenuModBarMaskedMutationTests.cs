@@ -284,11 +284,18 @@ public class ActionMenuModBarMaskedMutationTests
             _vm.ShowButtons(definitions, edgeAnchor);
         }
 
+        public void ShowButtons(
+            IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor, EdgeBarOwner owner)
+        {
+            LastAnchor = edgeAnchor;
+            _vm.ShowButtons(definitions, edgeAnchor, owner);
+        }
+
         public void AddButton(EdgeButtonDefinition definition) => _vm.AddButton(definition);
 
         public void RemoveButton(string id) => _vm.RemoveButton(id);
 
-        public void Hide() => _vm.Hide();
+        public void Hide(EdgeBarOwner owner) => _vm.Hide(owner);
     }
 
     /// <summary>No-op ring window: satisfies the vm-binding coordinator's show/crossing paths.</summary>

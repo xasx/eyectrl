@@ -17,8 +17,14 @@ using Serilog;
 /// </summary>
 internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 {
-    // Inset (logical px) from the right screen edge for drag/manual-selection edge buttons.
-    private const double RightEdgeInsetLogical = 30;
+    /// <summary>
+    /// The anchor the manual-selection Close/Recapture pair is placed against: the shared
+    /// right-edge exit anchor every non-keyboard mode uses, so the out slot is the same absolute
+    /// place here as in the action menu, drag, repeat and scroll. Exposed so a test can pin that
+    /// equality.
+    /// </summary>
+    internal static PhysicalPoint ManualSelectionExitAnchorPhysical =>
+        ScreenGeometry.SharedRightEdgeExitAnchor();
 
     private readonly ModalInteractionState _modal;
     private IGlassBackdropOverlay? _glassBackdrop;
@@ -303,10 +309,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         {
             if (Context.ManualSelectionVM.IsVisible)
             {
-                var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                var anchor = ManualSelectionExitAnchorPhysical;
                 var dwell = Context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
                 Context.OverlayManager.EdgeButtonBar.ShowButtons(
-                    ManualSelectionEdgeButtons.Definitions(dwell), anchor);
+                    ManualSelectionEdgeButtons.Definitions(dwell), anchor, EdgeBarOwner.ManualSelection);
                 // ShowButtons now raises the bar to the top of the top-most band (see
                 // EdgeButtonBarWindow.SyncButtons for why it has to), which lands it over the gaze
                 // dot as well as over the backdrop it was hiding behind. The indicator window spans
@@ -326,7 +332,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             }
             else
             {
-                Context.OverlayManager.EdgeButtonBar.Hide();
+                Context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.ManualSelection);
             }
         }
     }

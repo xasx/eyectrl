@@ -38,7 +38,12 @@ using Serilog;
 /// </summary>
 internal sealed class DragCoordinator : CoordinatorBase
 {
-    private const double RightEdgeInsetLogical = 30;
+    /// <summary>
+    /// The anchor the drag's Cancel/Back pair is placed against: the shared right-edge exit
+    /// anchor every non-keyboard mode uses, so the out slot is the same absolute place here as
+    /// in the action menu, manual selection, repeat and scroll.
+    /// </summary>
+    internal static PhysicalPoint ExitAnchorPhysical => ScreenGeometry.SharedRightEdgeExitAnchor();
 
     private IDragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
@@ -124,26 +129,40 @@ internal sealed class DragCoordinator : CoordinatorBase
     }
 
     /// <summary>
-    /// Builds the drag-cancel button (above the anchor on the right edge). Static and internal so
-    /// the symbol/label sweep test can reach the definition without a live coordinator — the same
-    /// pattern as <see cref="ScrollModeController.CreateScrollStopButtonDefinition"/>.
+    /// The fixed UPPER "out" slot: one radius-plus-half-gap above the shared right-edge anchor
+    /// (negative Y, 60 DIP at the shipped sizes). Cancel is the drag's exit and always lives here.
+    /// </summary>
+    internal static double CancelButtonVerticalOffsetPhysical =>
+        -DpiHelper.LogicalToPhysicalY(UIConstants.EdgeButtonSlotOffset);
+
+    /// <summary>The mirrored lower slot (positive Y), taken by the secondary Back button.</summary>
+    internal static double BackButtonVerticalOffsetPhysical =>
+        DpiHelper.LogicalToPhysicalY(UIConstants.EdgeButtonSlotOffset);
+
+    /// <summary>
+    /// Builds the drag-cancel button (the fixed upper out slot on the right edge, r50 like every
+    /// other edge-bar exit). Static and internal so the symbol/label sweep test can reach the
+    /// definition without a live coordinator — the same pattern as
+    /// <see cref="ScrollModeController.CreateScrollStopButtonDefinition"/>.
     /// </summary>
     internal static EdgeButtonDefinition CreateCancelButtonDefinition(int dwellMs)
         => new(
             "Drag_cancel", "\u2715", dwellMs,
             m => m.Send(new DragCancelMessage()),
-            VerticalOffset: DpiHelper.LogicalToPhysicalY(30),
+            VerticalOffset: CancelButtonVerticalOffsetPhysical,
+            RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.cancelDrag"));
 
     /// <summary>
-    /// Builds the post-drop back button (below the anchor). Static and internal for the same
-    /// reason as <see cref="CreateCancelButtonDefinition"/>.
+    /// Builds the post-drop back button (the lower slot, below the anchor). Static and internal for
+    /// the same reason as <see cref="CreateCancelButtonDefinition"/>.
     /// </summary>
     internal static EdgeButtonDefinition CreateBackButtonDefinition(int dwellMs)
         => new(
             "Drag_back", "\u21A9", dwellMs,
             m => m.Send(new DragDismissManualSelectionMessage()),
-            VerticalOffset: -DpiHelper.LogicalToPhysicalY(30),
+            VerticalOffset: BackButtonVerticalOffsetPhysical,
+            RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.back"));
 
     internal void OnDragStarted(PhysicalPoint grabOrigin)
@@ -189,9 +208,26 @@ internal sealed class DragCoordinator : CoordinatorBase
             _dragTrailOverlay.Configure(Context.Settings.Drag.TrailColor, Context.Settings.Drag.TrailOpacity);
             _dragTrailOverlay.Show();
 
-            var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.DragButtonRadius);
+            // The anchor reserves the SAME r50 the cancel/back buttons now use (they are no longer
+            // the old r20 drag-button size), so the pair fits fully on screen like every other
+            // edge-bar exit.
+            var anchor = ExitAnchorPhysical;
             var cancelDef = CreateCancelButtonDefinition(Context.Settings.Dwell.DragRightEdgeButtonDwellMs);
-            Context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
+            Context.OverlayManager.EdgeButtonBar.ShowButtons(
+                new[] { cancelDef }, anchor, EdgeBarOwner.Drag);
+
+            // PX1: tell the trail which rests belong to the bar's own exits. Built from the SAME
+            // anchor the bar draws at, so the zone cannot drift from the button. Both buttons are
+            // supplied for the whole drag: Back's slot is the lower one whether or not its button
+            // is currently drawn, and a rest there must not drop either.
+            var exitRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+            Context.DragTrailVM.SetExitZones(new[]
+            {
+                new DragExitZone(
+                    anchor + new PhysicalPoint(0, CancelButtonVerticalOffsetPhysical), exitRadius),
+                new DragExitZone(
+                    anchor + new PhysicalPoint(0, BackButtonVerticalOffsetPhysical), exitRadius),
+            });
         }
         catch (Exception ex)
         {
@@ -240,7 +276,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     {
         ReleaseHeldButton(_dragGrabOrigin);
 
-        try { Context?.OverlayManager.EdgeButtonBar.Hide(); }
+        try { Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag); }
         catch (Exception ex) { Log.Error(ex, "Failed to hide the edge button bar while aborting a drag."); }
 
         try { CloseDragOverlay(); }
@@ -326,7 +362,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     internal void OnDragDrop(DragDropMessage msg)
     {
         ReleaseHeldButton(msg.DropPoint);
-        Context?.OverlayManager.EdgeButtonBar.Hide();
+        Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag);
         Context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
     }
@@ -334,7 +370,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     internal void OnDragCancel()
     {
         ReleaseHeldButton(_dragGrabOrigin);
-        Context?.OverlayManager.EdgeButtonBar.Hide();
+        Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag);
         Context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
     }

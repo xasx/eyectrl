@@ -13,6 +13,16 @@ using EyeCtrl.ViewModels.Messages;
 /// Context-driven right-edge button bar. Owns one DwellDetector (via the base) and a
 /// declarative button set supplied per interaction context. Each button occupies a fixed
 /// vertical slot (anchor.Y + VerticalOffset); buttons never move when the set changes.
+///
+/// <para>
+/// The bar is SHARED, and it is a safety surface: in a drag, scroll or repeat mode it is the only
+/// gaze-reachable way out. So it also tracks <em>who</em> shows it (<see cref="EdgeBarOwner"/>):
+/// a claim saves the displaced owner's full set and anchor, a release by the current owner puts
+/// the previous claim back, and a release by a non-owner is a no-op (a deferred hide from a
+/// context that has already been displaced must not tear down its successor). A context that
+/// releases while it is <em>displaced</em> withdraws its saved claim without touching the visible
+/// set, so a closed context can never be resurrected by the next release.
+/// </para>
 /// </summary>
 public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
 {
@@ -22,11 +32,41 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
 
     private readonly Dictionary<string, EdgeButtonDefinition> _definitions = new();
     private readonly Dictionary<string, PhysicalPoint> _seedCenters = new();
+
+    // The claim stack, top = the set currently on screen. One entry per live owner.
+    private readonly List<EdgeBarClaim> _claims = new();
+
     private PhysicalPoint _edgeAnchor;
     private string? _pendingRearmId;
     private long? _pendingExitStartUs;
 
     public ObservableCollection<EdgeButtonState> Buttons { get; } = new();
+
+    /// <summary>
+    /// The owner whose buttons are on screen, or null while the bar is empty/hidden. Diagnostic and
+    /// test seam; the ownership tests read it to prove a displaced owner is (or is not) restored.
+    /// </summary>
+    public EdgeBarOwner? CurrentOwner => _claims.Count == 0 ? null : _claims[^1].Owner;
+
+    /// <summary>One owner's saved show: the whole set plus the anchor it was placed against.</summary>
+    private sealed class EdgeBarClaim
+    {
+        internal EdgeBarClaim(
+            EdgeBarOwner owner, IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint anchor)
+        {
+            Owner = owner;
+            Definitions = new List<EdgeButtonDefinition>(definitions);
+            Anchor = anchor;
+        }
+
+        internal EdgeBarOwner Owner { get; }
+
+        /// <summary>Mutable so <see cref="AddButton"/>/<see cref="RemoveButton"/> keep the saved
+        /// set equal to what the owner showed, across a displacement and restore.</summary>
+        internal List<EdgeButtonDefinition> Definitions { get; }
+
+        internal PhysicalPoint Anchor { get; }
+    }
 
     /// <summary>
     /// Raised once per logical mutation of the visible button set (<see cref="ShowButtons"/>,
@@ -45,7 +85,124 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     {
     }
 
+    /// <summary>
+    /// Replaces the bar's contents WITHOUT claiming it. Kept as the raw view-model primitive (the
+    /// window's parameterless overload and the component-level tests drive it); every production
+    /// context goes through the ownership-aware overload instead.
+    /// </summary>
     public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
+    {
+        _claims.Clear();
+        ApplySet(definitions, edgeAnchor);
+    }
+
+    /// <summary>
+    /// Shows <paramref name="definitions"/> on the bar and claims it for <paramref name="owner"/>.
+    /// The previous owner's set (definitions and anchor) is saved, and is restored when
+    /// <paramref name="owner"/> later releases the bar. A repeat claim by the same owner (the
+    /// keyboard's flip rebuild) replaces its own claim instead of stacking a duplicate.
+    /// </summary>
+    public void ShowButtons(
+        IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor, EdgeBarOwner owner)
+    {
+        // Validate the WHOLE set before the claim is pushed or anything is cleared: a later throw
+        // (or an invalid definition) must leave both the stack and the screen as they were.
+        foreach (var def in definitions)
+            Validate(def);
+
+        _claims.RemoveAll(c => c.Owner == owner);
+        _claims.Add(new EdgeBarClaim(owner, definitions, edgeAnchor));
+        ApplySet(definitions, edgeAnchor);
+    }
+
+    /// <summary>
+    /// Adds a button using the anchor cached by the last <see cref="ShowButtons"/> call.
+    /// One-arg on purpose: a caller passing a *different* anchor here would misalign the new
+    /// button relative to the survivors — exactly what the fixed-slot model prevents.
+    /// </summary>
+    public void AddButton(EdgeButtonDefinition definition)
+    {
+        AddTarget(definition);
+        // Keep the current owner's saved set in step: a displaced-and-restored drag must come
+        // back with the Back button it added after the claim.
+        if (_claims.Count > 0)
+            _claims[^1].Definitions.Add(definition);
+        ButtonSetChanged?.Invoke();
+    }
+
+    public void RemoveButton(string id)
+    {
+        if (!_definitions.Remove(id)) return;
+        _seedCenters.Remove(id);
+        DwellDetector.RemoveTarget(id);
+        if (id == _pendingRearmId)
+        {
+            _pendingRearmId = null;
+            _pendingExitStartUs = null;
+        }
+        var state = Buttons.FirstOrDefault(s => s.Id == id);
+        if (state is not null) Buttons.Remove(state);
+        if (_claims.Count > 0)
+            _claims[^1].Definitions.RemoveAll(d => d.Id == id);
+        ButtonSetChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Swaps one button's definition IN PLACE — the icon variant changes, the dwell target and
+    /// the cooldown are untouched. Deliberately NOT <see cref="ShowButtons"/>: that resets the
+    /// detector's cooldown, which under the synchronous toggle chain re-arms a held gaze at dwell
+    /// cadence (spec round-1 blocker). No-op for an unknown id.
+    /// </summary>
+    public void ReplaceButton(string id, EdgeButtonDefinition definition)
+    {
+        if (!_definitions.ContainsKey(id)) return;
+        Validate(definition);
+        _definitions[id] = definition;
+        if (_claims.Count > 0)
+        {
+            var index = _claims[^1].Definitions.FindIndex(d => d.Id == id);
+            if (index >= 0) _claims[^1].Definitions[index] = definition;
+        }
+        ButtonSetChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Raw teardown: clears the screen AND every saved claim. Kept for the window's parameterless
+    /// overload and the component-level tests; production contexts release through
+    /// <see cref="Hide(EdgeBarOwner)"/> so a displaced owner's set can come back.
+    /// </summary>
+    public void Hide()
+    {
+        _claims.Clear();
+        ClearSet();
+    }
+
+    /// <summary>
+    /// Releases <paramref name="owner"/>'s claim. If it is the visible (top) claim, the previous
+    /// owner's saved set and anchor are restored, or the bar is cleared when no claim remains.
+    /// A release by an owner that is no longer visible is a no-op on screen — but it still drops
+    /// that owner's saved claim, so a context that has already been displaced (and has since
+    /// closed) is never restored by the next release. An owner with no claim at all is a no-op.
+    /// </summary>
+    public void Hide(EdgeBarOwner owner)
+    {
+        var index = _claims.FindLastIndex(c => c.Owner == owner);
+        if (index < 0) return;
+
+        _claims.RemoveAt(index);
+        if (index < _claims.Count) return; // a displaced claim withdrew; the visible set is unchanged
+
+        if (_claims.Count == 0)
+        {
+            ClearSet();
+            return;
+        }
+
+        var restored = _claims[^1];
+        ApplySet(restored.Definitions, restored.Anchor);
+    }
+
+    private void ApplySet(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
     {
         // Validate the WHOLE set before clearing anything: clearing first and then throwing on a
         // later definition would leave a half-built bar behind the exception.
@@ -68,47 +225,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         ButtonSetChanged?.Invoke();
     }
 
-    /// <summary>
-    /// Adds a button using the anchor cached by the last <see cref="ShowButtons"/> call.
-    /// One-arg on purpose: a caller passing a *different* anchor here would misalign the new
-    /// button relative to the survivors — exactly what the fixed-slot model prevents.
-    /// </summary>
-    public void AddButton(EdgeButtonDefinition definition)
-    {
-        AddTarget(definition);
-        ButtonSetChanged?.Invoke();
-    }
-
-    public void RemoveButton(string id)
-    {
-        if (!_definitions.Remove(id)) return;
-        _seedCenters.Remove(id);
-        DwellDetector.RemoveTarget(id);
-        if (id == _pendingRearmId)
-        {
-            _pendingRearmId = null;
-            _pendingExitStartUs = null;
-        }
-        var state = Buttons.FirstOrDefault(s => s.Id == id);
-        if (state is not null) Buttons.Remove(state);
-        ButtonSetChanged?.Invoke();
-    }
-
-    /// <summary>
-    /// Swaps one button's definition IN PLACE — the icon variant changes, the dwell target and
-    /// the cooldown are untouched. Deliberately NOT <see cref="ShowButtons"/>: that resets the
-    /// detector's cooldown, which under the synchronous toggle chain re-arms a held gaze at dwell
-    /// cadence (spec round-1 blocker). No-op for an unknown id.
-    /// </summary>
-    public void ReplaceButton(string id, EdgeButtonDefinition definition)
-    {
-        if (!_definitions.ContainsKey(id)) return;
-        Validate(definition);
-        _definitions[id] = definition;
-        ButtonSetChanged?.Invoke();
-    }
-
-    public void Hide()
+    private void ClearSet()
     {
         DwellDetector.ClearTargets();
         _pendingRearmId = null;

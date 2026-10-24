@@ -159,42 +159,46 @@ public class KeyboardEdgeButtonsTests
     }
 
     [Fact]
-    public void GuardTests_KeyboardPairClaimsFreeBar_ButNeverClobbersOrClearsOthers()
+    public void GuardTests_KeyboardPairClaimsFreeBar_ButNeverClobbersOthers()
     {
         // The shared-bar hand-off (spec B4 #10 / §6): show only when the bar is free or
-        // already ours; hide only while ours. Real EdgeButtonBarViewModel, no WPF windows.
+        // already ours; a release is ownership-aware, so another context's stop/cancel buttons
+        // are never cleared by the keyboard. Real EdgeButtonBarViewModel, no WPF windows.
         var messenger = new WeakReferenceMessenger();
         var settings = new EyeCtrlSettings();
         var barVm = new EdgeButtonBarViewModel(settings, messenger);
 
         // Free bar (no definitions): claimable.
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
-        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
 
-        // Our pair: re-claimable (flip rebuild) and clearable (keyboard hide).
+        // Our pair: re-claimable (flip rebuild), and a keyboard release clears it.
         barVm.ShowButtons(
             KeyboardEdgeButtons.Definitions(600),
-            new PhysicalPoint(1800, 800));
+            new PhysicalPoint(1800, 800),
+            EdgeBarOwner.Keyboard);
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
-        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsTrue();
 
-        // Another context's button (scroll stop shape): never clobbered, never cleared.
+        // Another context's button (scroll stop shape): never clobbered.
         barVm.ShowButtons(
             new[] { new EdgeButtonDefinition(
                 "scroll_stop", Symbol: string.Empty, 600,
                 _ => { }, VerticalOffset: 0) },
-            new PhysicalPoint(1800, 800));
+            new PhysicalPoint(1800, 800),
+            EdgeBarOwner.Scroll);
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsFalse();
-        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
 
-        // Hidden bar (Hide clears everything): claimable again.
+        // Releasing the displacer restores the keyboard pair it displaced.
+        barVm.Hide(EdgeBarOwner.Scroll);
+        Check.That(barVm.Buttons.Select(b => b.Id))
+             .ContainsExactly(KeyboardEdgeButtons.CloseId, KeyboardEdgeButtons.FlipId);
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+
+        // Raw teardown clears every claim: claimable again from empty.
         barVm.Hide();
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
-        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
 
         // Null-tolerant (window not constructed).
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(null)).IsTrue();
-        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(null)).IsFalse();
     }
 
     [Fact]

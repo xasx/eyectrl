@@ -14,7 +14,7 @@ using EyeCtrl.ViewModels.Messages;
 /// every wired surface's detector carries <see cref="DwellSettings.DwellPauseGraceMs"/> and follows
 /// a live change; a held dwell reaches the surface's item as a display-only paused flag (set on
 /// leave, cleared on return and on expiry) while the item keeps the held progress; and the scroll
-/// overlay, which is not wired, stays at grace 0.
+/// overlay follows the same live grace after A4 moved it into the wired family.
 /// </summary>
 [Collection("DpiHelper Tests (ViewModels)")]
 public class DwellPauseGraceWiringTests
@@ -252,16 +252,18 @@ public class DwellPauseGraceWiringTests
     // Mutation (A1-w3): OnDispose forgets the unsubscribe -> red.
 
     [Fact]
-    public void TheScrollOverlay_StaysAtGraceZero_EvenWhenTheSettingChanges()
+    public void TheScrollOverlay_FollowsTheLiveGrace_AfterA4WiredIt()
     {
+        // A4's scope extension moved the scroll overlay IN: it is built in ScrollModeController,
+        // which #252/#253 freed, and it now opts into the same live grace as the other surfaces.
         var settings = new EyeCtrlSettings();
         using var vm = new ScrollOverlayViewModel(new WeakReferenceMessenger(), settings.Scroll, settings.Dwell);
-        Check.That(DetectorOf(vm).PauseGraceMs).IsEqualTo(0);
+        Check.That(DetectorOf(vm).PauseGraceMs).IsEqualTo(settings.Dwell.DwellPauseGraceMs);
 
         settings.Dwell.DwellPauseGraceMs = 800;
 
-        Check.WithCustomMessage("the scroll overlay is out of A1's scope (ScrollModeController is owned elsewhere)")
-            .That(DetectorOf(vm).PauseGraceMs).IsEqualTo(0);
+        Check.WithCustomMessage("a live slider change did not reach the scroll overlay's detector")
+            .That(DetectorOf(vm).PauseGraceMs).IsEqualTo(800);
     }
 
     // ------------------------------------------------------------------ (d) the paused signal reaches the item

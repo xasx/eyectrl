@@ -27,14 +27,19 @@ using EyeCtrl.ViewModels.Messages;
 /// </summary>
 internal sealed class RepeatModeController : CoordinatorBase
 {
-    private const double StopInsetLogical = 50;
-
     /// <summary>
     /// Margin factor on the stop button's radius for the tick-suppression zone. The click lands
     /// at the fixation centroid, which trails the gaze while the user dwells the stop button —
     /// 1.5× covers that trail so no tick escapes the zone mid-dwell.
     /// </summary>
     private const double StopZoneMarginFactor = 1.5;
+
+    /// <summary>
+    /// The one anchor the stop button (and its tick-suppression zone) is placed against: the
+    /// shared right-edge exit anchor every non-keyboard mode uses. Exposed so a test can pin the
+    /// production placement to the same absolute centre as the other modes.
+    /// </summary>
+    internal static PhysicalPoint ExitAnchorPhysical => ScreenGeometry.SharedRightEdgeExitAnchor();
 
     /// <summary>
     /// Builds the repeat-stop <see cref="EdgeButtonDefinition"/>. Static and internal so a
@@ -51,6 +56,14 @@ internal sealed class RepeatModeController : CoordinatorBase
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.stopRepeat"));
+
+    /// <summary>
+    /// The stop button's slot: the fixed UPPER "out" slot, one radius-plus-half-gap above the
+    /// shared right-edge anchor (negative Y, 60 DIP at the shipped sizes). Exposed so a test can
+    /// pin the production placement, not just the factory's parameter.
+    /// </summary>
+    internal static double StopButtonVerticalOffsetPhysical =>
+        -DpiHelper.LogicalToPhysicalY(UIConstants.EdgeButtonSlotOffset);
 
     private bool _active;
     private PhysicalPoint _stopCenterPhysical;
@@ -159,18 +172,39 @@ internal sealed class RepeatModeController : CoordinatorBase
         if (_active) return;
         var context = Context!;
 
-        var edgeAnchor = ScreenGeometry.RightEdgeAnchor(StopInsetLogical, UIConstants.ButtonRadius);
-        _stopCenterPhysical = edgeAnchor;
+        var edgeAnchor = ExitAnchorPhysical;
+        var stopOffset = StopButtonVerticalOffsetPhysical;
+        // The suppression zone follows the button, not the anchor: the stop now sits in the upper
+        // out slot, and a zone left on the anchor would let ticks fire while the user dwells the
+        // upper half of the very button they are aiming at.
+        _stopCenterPhysical = edgeAnchor + new PhysicalPoint(0, stopOffset);
         _stopRadiusPhysical = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
         var stopDef = CreateRepeatStopButtonDefinition(
-            context.Settings.Repeat.StopButtonDwellMs, verticalOffset: 0);
-        context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
+            context.Settings.Repeat.StopButtonDwellMs, verticalOffset: stopOffset);
 
-        ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
-        Serilog.Log.Information(
-            "Repeat mode entered: {Action}, dwell {DwellMs} ms",
-            context.InteractionManager.RepeatAction, context.Settings.Repeat.DwellMs);
-        _active = true;
+        try
+        {
+            context.OverlayManager.EdgeButtonBar.ShowButtons(
+                new[] { stopDef }, edgeAnchor, EdgeBarOwner.Repeat);
+            _active = true;   // from here an Exit exists for every later failure (F6)
+
+            ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
+            Serilog.Log.Information(
+                "Repeat mode entered: {Action}, dwell {DwellMs} ms",
+                context.InteractionManager.RepeatAction, context.Settings.Repeat.DwellMs);
+        }
+        catch
+        {
+            // A failed entry must END the mode, not just drop its button: the process keeps
+            // running (supervision off logs and continues), and a mode left entered with an empty
+            // bar has no on-screen way out. Exit first (state-guarded, so a throw here is safe),
+            // then release the claim; the early active flag keeps the regular Exit path available.
+            try { context.InteractionManager.ExitRepeatMode(); }
+            catch { /* the entering exception is the one that matters */ }
+            try { context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Repeat); }
+            catch { /* the entering exception is the one that matters */ }
+            throw;
+        }
     }
 
     private void ApplySuppressionZones(params Core.Models.PhysicalRect[] zones)
@@ -214,7 +248,9 @@ internal sealed class RepeatModeController : CoordinatorBase
     private void Exit()
     {
         Context?.InteractionManager.SetRepeatSuppressionZones();
-        Context?.OverlayManager.EdgeButtonBar.Hide();
+        // Ownership-aware: while repeat owned the bar this restores whoever it displaced (the
+        // keyboard's Close/Flip, typically); otherwise it is a no-op.
+        Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Repeat);
         Serilog.Log.Information("Repeat mode exited");
         _active = false;
     }

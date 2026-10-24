@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System.Collections.Concurrent;
 using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Settings.Pages;
@@ -17,7 +18,11 @@ public class PredictionStackBuildInFlightTests : IDisposable
 {
     private readonly string _appDataDir;
     private readonly string _baseDir;
-    private readonly Queue<Action> _uiQueue = new();
+    // Concurrent, not Queue<Action>: the factory's marshal enqueues from POOL threads (a
+    // background build may finish at any moment) while the test thread reads and dequeues —
+    // a plain Queue<T> can corrupt or misread under that race (coordinator review of
+    // 6f4adbf8: another flake source).
+    private readonly ConcurrentQueue<Action> _uiQueue = new();
 
     public PredictionStackBuildInFlightTests()
     {
@@ -45,25 +50,25 @@ public class PredictionStackBuildInFlightTests : IDisposable
         new(work => _uiQueue.Enqueue(work));
 
     /// <summary>Blocks until at least one UI callback has arrived, then drains the queue —
-    /// including items enqueued while draining (the swap's end notification is posted from
+    /// including items enqueued while draining (the swap's end notification is raised from
     /// inside the marshal it follows).</summary>
     private void Pump()
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+        while (_uiQueue.IsEmpty && DateTime.UtcNow < deadline)
             Thread.Sleep(10);
         Check.WithCustomMessage("no UI callback arrived within 10s — the swap never posted")
-            .That(_uiQueue.Count).IsStrictlyGreaterThan(0);
-        for (var i = 0; i < 100 && _uiQueue.Count > 0; i++)
-            _uiQueue.Dequeue()();
+            .That(_uiQueue.IsEmpty).IsFalse();
+        for (var i = 0; i < 100 && _uiQueue.TryDequeue(out var run); i++)
+            run();
     }
 
-    /// <summary>Drains whatever is queued NOW, without waiting (for notifications that post
-    /// synchronously on the caller's thread, like the build-start).</summary>
+    /// <summary>Drains whatever is queued NOW, without waiting (for paths that marshal
+    /// synchronously or are expected to post nothing).</summary>
     private void Drain()
     {
-        for (var i = 0; i < 100 && _uiQueue.Count > 0; i++)
-            _uiQueue.Dequeue()();
+        for (var i = 0; i < 100 && _uiQueue.TryDequeue(out var run); i++)
+            run();
     }
 
     [Fact]
@@ -166,24 +171,41 @@ public class PredictionStackBuildInFlightTests : IDisposable
 
         factory.Rebuild(settings, _baseDir, _appDataDir, registry); // build 1: will fault
         var posted = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (_uiQueue.Count == 0 && DateTime.UtcNow < posted)
+        while (_uiQueue.IsEmpty && DateTime.UtcNow < posted)
             Thread.Sleep(10);
-        Check.WithCustomMessage("build 1's end never posted")
-            .That(_uiQueue.Count).IsStrictlyGreaterThan(0);
+        // Build 1's end post is the ONLY item that can be queued here: its start was raised
+        // directly, a faulted build raises no marshal, and build 2 does not exist yet.
+        Check.WithCustomMessage("build 1's end never posted, or something unexpected is queued")
+            .That(_uiQueue.Count).IsEqualTo(1);
 
         // Build 2 starts while build 1's stale end still sits in the queue. Its start
-        // notification is raised directly, BEFORE this Rebuild returns.
+        // notification is raised directly, BEFORE this Rebuild returns. Build 2 may finish on
+        // the pool at any moment — harmless: its marshal sits in the queue behind the stale
+        // end and runs only when this test pumps.
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Check.That(factory.BuildInFlight).IsTrue();
 
-        Drain(); // deliver build 1's stale end under build 2's tenure
+        // Deliver EXACTLY build 1's stale end, under build 2's tenure. Dequeueing one item
+        // (not Drain) is the determinism fix: a Drain could also run build 2's marshal, whose
+        // swap legitimately clears the state — the mid-test assertion below would then race
+        // build 2's completion (the flake the UX team saw).
+        Check.That(_uiQueue.TryDequeue(out var staleEnd)).IsTrue();
+        staleEnd!();
 
-        Check.WithCustomMessage("build 2 is running — the state must be in flight")
-            .That(factory.BuildInFlight).IsTrue();
         Check.WithCustomMessage(
-                "the last notification lied about the current state (a stale end-delivery " +
+                "a stale end notification lied about the current state (a stale end-delivery " +
                 "false after a newer start) — the newer first build would show no hint " +
                 "(review 01 F1)")
             .That(seen[^1]).IsTrue();
+        Check.WithCustomMessage("build 2 is still the in-flight build — the state must hold")
+            .That(factory.BuildInFlight).IsTrue();
+
+        // Now let build 2's own end land: the swap marshals, the state clears, and the last
+        // notification tells the truth about it.
+        Pump();
+        Check.That(factory.BuildInFlight).IsFalse();
+        Check.WithCustomMessage("build 2's swap end must notify false")
+            .That(seen[^1]).IsFalse();
     }
 
     [Fact]
@@ -199,7 +221,7 @@ public class PredictionStackBuildInFlightTests : IDisposable
         // next arrival is provably its marshal — its pool-thread generation check has passed.
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+        while (_uiQueue.IsEmpty && DateTime.UtcNow < deadline)
             Thread.Sleep(10);
         Check.WithCustomMessage("build 1's marshal never enqueued")
             .That(_uiQueue.Count).IsStrictlyGreaterThan(0);
@@ -208,8 +230,11 @@ public class PredictionStackBuildInFlightTests : IDisposable
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
         Check.That(factory.BuildInFlight).IsTrue();
 
-        _uiQueue.Dequeue()(); // build 1's stale marshal: its re-check discards the build
-        Drain();             // plus any notification it posted, leaving the queue empty
+        Check.That(_uiQueue.TryDequeue(out var staleMarshal)).IsTrue();
+        staleMarshal!(); // build 1's stale marshal: its re-check discards the build
+        // No Drain here (the flake discipline): build 2's marshal may already sit behind
+        // this one, and running it would clear the state mid-test. The discarded build's
+        // MarkBuildEnded CAS-fails and posts nothing, so there is nothing to clean up.
         Check.WithCustomMessage(
                 "an older build's end cleared the state while build 2 is still running — a " +
                 "plain bool cleared by whoever finishes first has exactly this bug")

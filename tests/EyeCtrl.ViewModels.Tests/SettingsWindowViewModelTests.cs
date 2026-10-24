@@ -331,8 +331,12 @@ public class SettingsWindowViewModelTests
 
         vm.UpdatePosition("modal_yes", DwellCategory.Modal, new PhysicalPoint(100, 100));
 
+        // A modal choice arms once the gaze has been outside it (leave-before-arm latch, A2
+        // fixup-01): the gaze arrives from elsewhere, as a real look at the button does.
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(600, 600), 0));
+
         // Simulate partial dwell
-        for (int i = 0; i < 10; i++)
+        for (int i = 1; i < 10; i++)
         {
             _messenger.Send(new GazeCursorMovedMessage(
                 new PhysicalPoint(100, 100), i * 33000));

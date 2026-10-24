@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using EyeCtrl.App.Services;
@@ -18,8 +19,10 @@ public class PredictionStackBackgroundTests : IDisposable
     private readonly string _appDataDir;
     private readonly string _baseDir;
     // The fake UI queue: Rebuild's continuation lands here; Pump() runs it, simulating the
-    // dispatcher servicing its queue.
-    private readonly Queue<Action> _uiQueue = new();
+    // dispatcher servicing its queue. Concurrent (not Queue<Action>): the factory's marshal
+    // enqueues from POOL threads while the test thread reads and dequeues — a plain Queue<T>
+    // can corrupt or misread under that race.
+    private readonly ConcurrentQueue<Action> _uiQueue = new();
 
     public PredictionStackBackgroundTests()
     {
@@ -52,20 +55,20 @@ public class PredictionStackBackgroundTests : IDisposable
     private void Pump()
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+        while (_uiQueue.IsEmpty && DateTime.UtcNow < deadline)
             Thread.Sleep(10);
         Check.WithCustomMessage("no UI callback arrived within 10s — the swap never posted")
-            .That(_uiQueue.Count).IsStrictlyGreaterThan(0);
-        for (var i = 0; i < 100 && _uiQueue.Count > 0; i++)
-            _uiQueue.Dequeue()();
+            .That(_uiQueue.IsEmpty).IsFalse();
+        for (var i = 0; i < 100 && _uiQueue.TryDequeue(out var run); i++)
+            run();
     }
 
     /// <summary>Drains whatever is queued NOW, without waiting (for paths that marshal
     /// synchronously or are expected to post nothing).</summary>
     private void Drain()
     {
-        for (var i = 0; i < 100 && _uiQueue.Count > 0; i++)
-            _uiQueue.Dequeue()();
+        for (var i = 0; i < 100 && _uiQueue.TryDequeue(out var run); i++)
+            run();
     }
 
     [Fact]
@@ -302,8 +305,8 @@ public class PredictionStackBackgroundTests : IDisposable
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
         while (DateTime.UtcNow < deadline)
         {
-            while (_uiQueue.Count > 0)
-                _uiQueue.Dequeue()();
+            while (_uiQueue.TryDequeue(out var run))
+                run();
             Thread.Sleep(50);
         }
 
@@ -331,13 +334,14 @@ public class PredictionStackBackgroundTests : IDisposable
         // generation check has already passed.
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+        while (_uiQueue.IsEmpty && DateTime.UtcNow < deadline)
             Thread.Sleep(10);
         Check.WithCustomMessage("generation-1 marshal never enqueued").That(_uiQueue.Count).IsStrictlyGreaterThan(0);
 
         // Now advance the generation (rebuild 2), THEN run the stale gen-1 marshal.
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
-        _uiQueue.Dequeue()(); // the stale marshal: its re-check must drop it
+        Check.That(_uiQueue.TryDequeue(out var staleMarshal)).IsTrue();
+        staleMarshal!(); // the stale marshal: its re-check must drop it
 
         Check.That(swaps).IsEmpty();                              // no event from the stale build
         Check.That(ReferenceEquals(factory.Current, serving)).IsTrue(); // nothing swapped
@@ -413,7 +417,7 @@ public class PredictionStackBackgroundTests : IDisposable
         // GenerationAdvanceBetweenPoolCheckAndMarshal_TheStaleMarshalIsDropped).
         factory.Rebuild(settings, _baseDir, _appDataDir, registry);
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+        while (_uiQueue.IsEmpty && DateTime.UtcNow < deadline)
             Thread.Sleep(10);
         Check.WithCustomMessage("build #1 marshal never enqueued").That(_uiQueue.Count).IsStrictlyGreaterThan(0);
 
@@ -425,7 +429,8 @@ public class PredictionStackBackgroundTests : IDisposable
         // Run the stale marshal #1: its UI-side re-check sees generation 2 and must DISCARD
         // the superseded orchestrator (disposing its LM, PredictionOrchestrator.cs:150) and
         // publish NOTHING — no event, no ledger write.
-        _uiQueue.Dequeue()();
+        Check.That(_uiQueue.TryDequeue(out var staleMarshal)).IsTrue();
+        staleMarshal!();
         lock (swapsGuard) Check.That(swaps.Count).IsEqualTo(0);
         // Nothing has legitimately published yet (the winner is parked in the seam), so any
         // verdict in the ledger here was written by Build/classification itself — exactly the

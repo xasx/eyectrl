@@ -455,6 +455,48 @@
       "Reason": "A command-line flag or a named kernel event; not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_all\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_basic\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_later\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_no\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_ok\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_start\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_yes\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/SupervisorLauncher.cs",
       "Literal": "\"EYECTRL_SUPERVISOR_EXE\"",
       "Category": "id",

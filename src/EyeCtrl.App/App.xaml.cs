@@ -506,6 +506,15 @@ public partial class App : Application
             // and a concurrent retry dwell cannot start a second launch. No persist, no Run-key.
             supervisionToggle.RequestEnsure();
 
+            // One-time safety setup, answered by gaze: opens Settings on the first-run chain while
+            // it has never been answered to the end. Skipped on a Supervisor recovery relaunch
+            // (--paused) and in --test-mode; the decision and the send are SafetySetupStartup's.
+            // Sent only now, after the supervision toggle has been handed to the settings window's
+            // owner and the startup ensure is queued, so opening the window cannot depend on the
+            // dispatcher's BeginInvoke ordering (A2 review L2).
+            SafetySetupStartup.MaybeRequest(
+                settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode, messenger);
+
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 

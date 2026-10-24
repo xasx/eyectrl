@@ -146,6 +146,8 @@ public class SettingsWindowDwellActivationTests
         vm.ShowModal("Proceed?", [new ModalChoice("go", "Go", ModalChoiceKind.Affirmative, () => { })]);
         vm.Register("go", DwellCategory.Modal, 30, 25, () => { });
         vm.UpdatePosition("go", DwellCategory.Modal, new PhysicalPoint(50, 50));
+        // A modal choice arms once the gaze has been outside it (leave-before-arm latch, A2 fixup-01).
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(500, 500), 1));
 
         LookAt(vm);
 

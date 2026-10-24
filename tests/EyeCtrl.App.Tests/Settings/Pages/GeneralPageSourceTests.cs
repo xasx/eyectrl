@@ -183,6 +183,27 @@ public class GeneralPageSourceTests
         }
     }
 
+    [Fact]
+    public void General_HasARunSafetySetupAgainRow_ThatReRunsTheChainRegardlessOfTheFlag()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.General.SafetySetupDone = true;
+        var runs = 0;
+        var ctx = TestSettingsPageContext.Build(settings: settings, runSafetySetup: () => runs++);
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        var row = rows.OfType<ButtonSpec>().Single(b => b.Id == "g_safety");
+        Check.That(row.Label).IsEqualTo("Run Safety Setup Again");
+        Check.That(row.Simple).IsTrue();                  // reachable in the basic view
+        Check.That(row.Width).IsEqualTo(300);             // aimable, sized like the Restart button
+        Check.That(row.Height).IsEqualTo(100);
+
+        row.OnActivate();
+
+        Check.That(runs).IsEqualTo(1);
+        Check.That(settings.General.SafetySetupDone).IsTrue();   // the row never touches the flag itself
+    }
+
     private sealed class FakeStartupRegistrar : IStartupRegistrar
     {
         public bool IsRegistered => true;

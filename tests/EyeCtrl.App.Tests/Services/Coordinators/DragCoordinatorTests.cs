@@ -617,7 +617,7 @@ public class DragCoordinatorTests
         worker.SetApartmentState(ApartmentState.STA);
         worker.IsBackground = true;
         worker.Start();
-        Check.That(ready.Wait(TimeSpan.FromSeconds(10))).IsTrue();
+        Check.That(ready.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).IsTrue();
         ui!.InvokeShutdown();
         Check.WithCustomMessage("the test dispatcher thread did not stop.")
              .That(worker.Join(TimeSpan.FromSeconds(10))).IsTrue();

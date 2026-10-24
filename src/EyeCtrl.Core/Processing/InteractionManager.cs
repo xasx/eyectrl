@@ -216,6 +216,10 @@ public class InteractionManager
     // Whether LockedModeGazeLost already fired for the current lost-gaze episode. Gaze thread only.
     private bool _lockedModeGazeLostRaised;
     private PhysicalRect[] _repeatSuppressionZones = Array.Empty<PhysicalRect>();
+    // The on-screen arm gate for the repeat dwell (A5 fixup-03 H2): the App publishes the primary
+    // screen at mode entry. Null keeps the pre-fix behaviour (every point may arm).
+    private PhysicalRect? _repeatScreenBounds;
+    private double _repeatScreenTolerancePhysical;
     private PhysicalPoint? _repeatDwellPoint;
     private long _repeatDwellStartedUs;
     private bool _repeatDwellFired;
@@ -579,8 +583,10 @@ public class InteractionManager
         {
             // D25: the fixation arms the dwell at its start point; valid samples advance it in
             // NoteGazeSample; it fires once and re-arms only on the NEXT fixation. Fixations on
-            // EyeCtrl chrome (suppression zones, D26) never arm — nothing will fire there.
-            if (!IsInAnyRepeatSuppressionZone(point))
+            // EyeCtrl chrome (suppression zones, D26) never arm — nothing will fire there. Neither
+            // does a fixation past the screen edge (H2): that is the toolbar summon gesture, and
+            // its click would land on the clamped edge row.
+            if (!IsInAnyRepeatSuppressionZone(point) && IsOnRepeatScreen(point))
             {
                 _repeatDwellPoint = point;
                 _repeatDwellStartedUs = _lastSampleTimestampUs;
@@ -1029,6 +1035,38 @@ public class InteractionManager
     /// </summary>
     public void SetRepeatSuppressionZones(params PhysicalRect[] zones)
         => _repeatSuppressionZones = zones ?? Array.Empty<PhysicalRect>();
+
+    /// <summary>
+    /// The on-screen area the repeat dwell may ARM in, in physical px, set by the app-side repeat
+    /// controller at mode entry (A5 fixup-03 H2). A fixation outside it is the toolbar/Quick-Actions
+    /// summon gesture; a repeat click there would be clamped by the OS onto the screen edge (a tab
+    /// strip or title bar). Only the ARM is refused — a run already armed on-screen keeps its
+    /// target. Null (the default) keeps the pre-fix behaviour.
+    /// </summary>
+    public void SetRepeatScreenBounds(PhysicalRect? bounds, double tolerancePhysical = 0)
+    {
+        _repeatScreenBounds = bounds;
+        _repeatScreenTolerancePhysical = tolerancePhysical;
+    }
+
+    /// <summary>
+    /// Test seam (InternalsVisibleTo): the on-screen bounds currently published for the repeat
+    /// dwell, so the controller's production wiring can be pinned.
+    /// </summary>
+    internal (PhysicalRect Bounds, double Tolerance)? RepeatScreenBoundsForTest =>
+        _repeatScreenBounds is { } bounds ? (bounds, _repeatScreenTolerancePhysical) : null;
+
+    /// <summary>
+    /// Whether a repeat fixation may arm at <paramref name="point"/>: inside the published screen
+    /// bounds inflated by the tolerance. With no bounds published, everything is allowed.
+    /// </summary>
+    private bool IsOnRepeatScreen(PhysicalPoint point)
+    {
+        if (_repeatScreenBounds is not { } screen) return true;
+        var tol = _repeatScreenTolerancePhysical;
+        return point.X >= screen.X - tol && point.X <= screen.X + screen.Width + tol
+            && point.Y >= screen.Y - tol && point.Y <= screen.Y + screen.Height + tol;
+    }
 
     /// <summary>
     /// Test seam (InternalsVisibleTo): the zones currently published for the repeat dwell, so the

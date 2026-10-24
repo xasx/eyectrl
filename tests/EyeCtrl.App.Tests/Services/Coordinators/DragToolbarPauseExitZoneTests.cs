@@ -185,6 +185,82 @@ public class DragToolbarPauseExitZoneTests
         }
     }
 
+    [StaTheory]
+    [InlineData(1.0, SelectionMode.AutoSelection)]
+    [InlineData(2.0, SelectionMode.AutoSelection)]
+    [InlineData(1.0, SelectionMode.ManualSelection)]
+    [InlineData(2.0, SelectionMode.ManualSelection)]
+    public void ARestPastTheEdge_NeverDrops_AndPauseAfterTheSummonCancels(
+        double scale, SelectionMode mode)
+    {
+        // H1 (fixup-03): with the toolbar auto-hidden, the way to Pause is the past-edge summon.
+        // That gaze must never settle or release the drag: in AutoSelection the 500 ms settle used
+        // to drop at 533 ms, and in ManualSelection the release target dropped on a slow summon.
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            using var world = Build(mode);
+            world.Toolbar.SetActive(false);   // auto-hidden after 5 s off the band
+            world.StartDrag();
+
+            var off = new PhysicalPoint(PauseCentre.X, -100);
+            world.Rest(off, 2_000);           // the summon gesture, held for 2 s
+
+            Check.WithCustomMessage($"DPI {scale}/{mode}: a past-edge rest dropped the drag.")
+                 .That(world.Drops).IsEqualTo(0);
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.Dragging);
+            Check.WithCustomMessage("the past-edge rest settled into the manual-selection view.")
+                 .That(world.Context.DragTrailVM.ShowBack).IsFalse();
+            Check.That(world.Input.MouseUpCount).IsEqualTo(0);
+
+            // The summon completes; Pause is now dwellable and the gaze moves to it: cancel at the
+            // grab point, then Paused.
+            world.Toolbar.SetActive(true);
+            world.Rest(PauseCentre, 800);
+
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.That(world.Drops).IsEqualTo(0);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(GrabOrigin);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [StaTheory]
+    [InlineData(1.0, SelectionMode.AutoSelection)]
+    [InlineData(2.0, SelectionMode.AutoSelection)]
+    [InlineData(1.0, SelectionMode.ManualSelection)]
+    [InlineData(2.0, SelectionMode.ManualSelection)]
+    public void ARestOnScreenNearTheEdge_StillDrops(double scale, SelectionMode mode)
+    {
+        // The on-screen tolerance: the edge row itself (or a few px of tracker jitter at the
+        // border) is a normal rest and must keep today's drop.
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            using var world = Build(mode);
+            world.StartDrag();
+            var near = new PhysicalPoint(PauseCentre.X, 5);   // inside the 10 px tolerance
+
+            world.Rest(near, 900);
+            world.Pump();   // the drop's teardown is posted to the dispatcher
+
+            Check.WithCustomMessage($"DPI {scale}/{mode}: an on-screen rest near the edge did not drop.")
+                 .That(world.Drops).IsEqualTo(1);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(near);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     private sealed class World : IDisposable
     {
         public required EventCoordinationContext Context { get; init; }
@@ -224,14 +300,14 @@ public class DragToolbarPauseExitZoneTests
         public void Dispose() => Drag.Dispose();
     }
 
-    private World Build()
+    private World Build(SelectionMode mode = SelectionMode.AutoSelection)
     {
         var input = new TestFakes.FakeInputSimulator();
         var (madeContext, bar) = TestFakes.MakeDragContextWithBar(input);
         var settings = madeContext.Settings;
         // Auto Selection is the mode where the 500 ms settle DROPS (Manual Selection enters the
-        // magnifier instead), so it is the one that used to defeat the Pause button.
-        settings.SelectionMode = SelectionMode.AutoSelection;
+        // magnifier first); both matter, so the H1 tests run in each.
+        settings.SelectionMode = mode;
 
         var messenger = madeContext.Messenger;
         // THE PRODUCTION SHAPE (fixup-02 G1): the full-arity factory from AppBootstrapper.cs, and

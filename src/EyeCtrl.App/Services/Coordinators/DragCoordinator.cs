@@ -243,6 +243,13 @@ internal sealed class DragCoordinator : CoordinatorBase
             else
                 Context.DragTrailVM.SetPauseExitZoneProvider(null);
 
+            // A5 fixup-03 H1: past the screen edge is the toolbar/Quick-Actions summon gesture, so
+            // it must never settle or release a drag into an off-screen point the OS clamps onto the
+            // edge row. The small tolerance keeps the edge row itself (and tracker jitter) usable.
+            Context.DragTrailVM.SetScreenBounds(
+                ScreenGeometry.PrimaryScreenBoundsPhysical(),
+                ScreenGeometry.OffScreenTolerancePhysical);
+
             Context.DragTrailVM.SetExitZones(zones);
         }
         catch (Exception ex)

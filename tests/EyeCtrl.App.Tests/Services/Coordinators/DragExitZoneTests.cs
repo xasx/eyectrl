@@ -212,6 +212,48 @@ public class DragExitZoneTests
         });
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ASlideIntoBack_InsideTheReleaseTarget_NeedsAFullDwellAfterEachVisit(double scale)
+    {
+        // L1 (holistic probe HP1, A4 Q2): a 20 DIP slide into Back that stays INSIDE the release
+        // target's r20 — so the target never re-centres — must still be a clean break on entry, and
+        // the zone flag must clear when the gaze leaves. Two visits: neither may carry progress
+        // back to P. Mutants: the zone-entry reset removed (R4b) and the flag never cleared (R4c).
+        WithDpi(scale, () =>
+        {
+            using var world = new World(s => s.Drag.SettleDwellMs = 2000);
+            var r = world.ExitRadius;
+            var dip = DpiHelper.LogicalToPhysicalX(1);
+            var u = 1 / Math.Sqrt(2);
+            var p = new PhysicalPoint(
+                world.BackCentre.X + (u * (r + (10 * dip))),
+                world.BackCentre.Y + (u * (r + (10 * dip))));
+            var inZone = new PhysicalPoint(p.X - (u * 20 * dip), p.Y - (u * 20 * dip));
+
+            world.DriveRange(p, 0, 450_000);              // 450 ms at P (outside Back)
+            world.DriveRange(inZone, 480_000, 570_000);   // 90 ms just inside Back
+            world.DriveRange(p, 600_000, 1_000_000);      // 400 ms back at P
+
+            Check.WithCustomMessage(
+                    $"DPI {scale}: the first Back visit's release progress carried back "
+                    + $"(drops={world.Drops}).")
+                 .That(world.Drops).IsEqualTo(0);
+
+            world.DriveRange(inZone, 1_030_000, 1_120_000);   // second visit
+            world.DriveRange(p, 1_150_000, 1_450_000);        // 300 ms back at P
+
+            Check.WithCustomMessage(
+                    $"DPI {scale}: the second Back visit's release progress carried back "
+                    + $"(drops={world.Drops}).")
+                 .That(world.Drops).IsEqualTo(0);
+
+            world.DriveRange(p, 1_480_000, 2_200_000);        // past the full dwell at P
+            Check.That(world.Drops).IsEqualTo(1);
+        });
+    }
+
     private static void WithDpi(double scale, Action body)
     {
         DpiHelper.Initialize(scale, scale);

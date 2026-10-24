@@ -37,6 +37,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private readonly FixationDetector _settleDetector;
     private IReadOnlyList<DragExitZone> _exitZones = Array.Empty<DragExitZone>();
     private Func<DragExitZone?>? _pauseExitZone;
+    private PhysicalRect? _screenBounds;
+    private double _screenTolerancePhysical;
     private bool _inExitZone;
 
     [ObservableProperty] private bool _isDragActive;
@@ -75,6 +77,21 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// returns null when Pause cannot fire. Null restores the pre-fix behaviour.
     /// </summary>
     public void SetPauseExitZoneProvider(Func<DragExitZone?>? provider) => _pauseExitZone = provider;
+
+    /// <summary>
+    /// Supplies the on-screen rectangle in physical px, plus a small tolerance, as an exit zone
+    /// (A5 fixup-03 H1). A gaze sample OUTSIDE it is the toolbar/Quick-Actions summon gesture:
+    /// letting it settle or release drops the item at an off-screen point, which the OS clamps to
+    /// the screen edge (a title bar or tab strip). No settle and no release dwell there; the edge
+    /// row itself stays on-screen through <paramref name="tolerancePhysical"/>, so tracker jitter
+    /// at the border does not suppress a legitimate drop. The coordinator sets this at drag start
+    /// from the primary screen; null (the default) keeps the pre-fix behaviour.
+    /// </summary>
+    public void SetScreenBounds(PhysicalRect bounds, double tolerancePhysical)
+    {
+        _screenBounds = bounds;
+        _screenTolerancePhysical = tolerancePhysical;
+    }
 
     public void Receive(StartDragTrailMessage message)
     {
@@ -163,6 +180,15 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     private bool IsInExitZone(PhysicalPoint point)
     {
+        // H1: past the screen edge is the summon gesture, never a rest to settle or release on.
+        if (_screenBounds is { } screen)
+        {
+            var tol = _screenTolerancePhysical;
+            if (point.X < screen.X - tol || point.X > screen.X + screen.Width + tol
+                || point.Y < screen.Y - tol || point.Y > screen.Y + screen.Height + tol)
+                return true;
+        }
+
         foreach (var zone in _exitZones)
         {
             var radius = zone.RadiusPhysical;

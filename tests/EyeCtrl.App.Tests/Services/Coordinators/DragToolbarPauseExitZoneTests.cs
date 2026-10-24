@@ -261,6 +261,36 @@ public class DragToolbarPauseExitZoneTests
         }
     }
 
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ARestJustPastTheEdge_InsideTheTolerance_StillDrops(double scale)
+    {
+        // T1: the 10 px tolerance is what keeps the border usable. A rest 5 px ABOVE the screen is
+        // still an ordinary rest — it must drop, not vanish into the summon suppression.
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            using var world = Build();
+            world.StartDrag();
+            var justPast = new PhysicalPoint(PauseCentre.X, -5);
+
+            world.Rest(justPast, 900);
+            world.Pump();   // the drop's teardown is posted to the dispatcher
+
+            Check.WithCustomMessage(
+                    $"DPI {scale}: a rest 5 px past the edge (inside the tolerance) did not drop.")
+                 .That(world.Drops).IsEqualTo(1);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(justPast);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
     private sealed class World : IDisposable
     {
         public required EventCoordinationContext Context { get; init; }

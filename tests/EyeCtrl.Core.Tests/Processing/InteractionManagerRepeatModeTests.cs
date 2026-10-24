@@ -225,6 +225,23 @@ public class InteractionManagerRepeatModeTests
     }
 
     [Fact]
+    public void AFixationJustPastTheEdge_InsideTheTolerance_StillArms()
+    {
+        // T1: the tolerance keeps the border usable. 5 px above the screen is still an ordinary
+        // on-screen fixation (tracker jitter at the edge row), so it must arm and fire.
+        var im = Armed(InteractionAction.LeftClick);
+        im.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var fired = 0;
+        im.ActionRequested += (_, _, _) => fired++;
+
+        im.OnFixationStarted(new PhysicalPoint(960, -5));
+        im.NoteGazeSample(true, 10 * Ms + 2_000 * Ms);
+
+        Check.WithCustomMessage("a fixation 5 px past the edge (inside the tolerance) did not arm.")
+             .That(fired).IsEqualTo(1);
+    }
+
+    [Fact]
     public void WithNoScreenBoundsPublished_AnOffScreenFixationStillArms()
     {
         // Pre-fix contract for a bare manager: nothing published means nothing refused.

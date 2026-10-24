@@ -70,12 +70,21 @@ public class RepeatModeOffScreenTests
         Check.WithCustomMessage("an off-screen fixation armed the repeat dwell in production wiring.")
              .That(fired).IsEmpty();
 
+        // T1: the published TOLERANCE is load-bearing. 5 px above the edge is still inside it, so
+        // this fixation arms and fires (a controller that published tolerance 0 would fail here).
+        im.OnFixationEnded();
+        im.OnFixationStarted(new PhysicalPoint(bounds.X + (bounds.Width / 2), bounds.Y - 5));
+        im.NoteGazeSample(true, nowUs + (6_000 * Ms));
+        Check.WithCustomMessage(
+                "a fixation 5 px past the edge (inside the published tolerance) did not arm.")
+             .That(fired).HasSize(1);
+
         // The on-screen half still fires.
         im.OnFixationEnded();
         im.OnFixationStarted(new PhysicalPoint(
             bounds.X + (bounds.Width / 2), bounds.Y + (bounds.Height / 2)));
-        im.NoteGazeSample(true, nowUs + (4_000 * Ms));
-        Check.That(fired).HasSize(1);
+        im.NoteGazeSample(true, nowUs + (8_000 * Ms));
+        Check.That(fired).HasSize(2);
 
         // Leaving the mode retracts the gate with the suppression zones.
         im.ExitRepeatMode();

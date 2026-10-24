@@ -123,13 +123,22 @@ public partial class KeyboardWindow : OverlayWindow
     private int _slotsVisitedMask;                 // slots whose dwell began at least once since render
 
     /// <summary>
-    /// Headless-probe geometry for the gaze-off un-yield. A probe's Window is never shown: it has
-    /// no presentation source (its own <c>PointToScreen</c> throws, so <see cref="TryGetScreenRect"/>
-    /// returns false) and its <c>ActualWidth</c>/<c>ActualHeight</c> stay 0 (so
-    /// <see cref="RepositionOnScreen"/> would bail). Production leaves this null and both are read
-    /// live; the wiring test supplies the arrangement it cannot give the unshown Window.
+    /// The geometry the gaze-off un-yield reads: the work area and size its placement runs with,
+    /// the window's WHOLE on-screen rect in physical px, and the physical px per DIP the DIP yield
+    /// converts with (2.0 at 200 % DPI).
     /// </summary>
-    internal (Rect WorkArea, PhysicalRect WindowRect, double WidthDip, double HeightDip)? UnYieldProbeGeometry { get; set; }
+    internal readonly record struct UnYieldGeometry(
+        Rect WorkArea, double WidthDip, double HeightDip, PhysicalRect WindowRect, double PixelsPerDip);
+
+    /// <summary>
+    /// Test seam for the gaze-off un-yield's READS ONLY. A probe's Window is never shown: it has no
+    /// presentation source (its own <c>PointToScreen</c> throws, so <see cref="TryGetScreenRect"/>
+    /// returns false) and its <c>ActualWidth</c>/<c>ActualHeight</c> stay 0 (so the placement would
+    /// bail). Production leaves this null and reads the live geometry; a wiring test supplies the
+    /// arrangement it cannot give the unshown Window. The move itself is shared: both paths end in
+    /// the same <see cref="Place"/> call, so the seam replaces no behaviour (review 01 F3).
+    /// </summary>
+    internal UnYieldGeometry? UnYieldProbeGeometry { get; set; }
 
     public KeyboardWindow(IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
@@ -387,10 +396,12 @@ public partial class KeyboardWindow : OverlayWindow
     /// <list type="bullet">
     /// <item>a toolbar appearing on its edge (<see cref="KeyboardMove.Yield"/>, never a zero
     /// offset, so a hiding toolbar cannot pull it back) yields away and arms D13;</item>
-    /// <item>the toolbar's departure, after the gaze has been off the window long enough
-    /// (<see cref="KeyboardMove.UnYield"/>), moves back to the CURRENT yield — a full un-yield
-    /// with no toolbar, a partial one with a smaller toolbar — and arms D13. A current yield of
-    /// the same or a larger magnitude is not applied: this move never yields further;</item>
+    /// <item>the toolbar's departure, after the gaze has been off the window AND its landing area
+    /// long enough (<see cref="KeyboardMove.UnYield"/>), moves back to the CURRENT yield — a full
+    /// un-yield with no toolbar, a partial one with a smaller toolbar. A current yield of the same
+    /// or a larger magnitude is not applied: this move never yields further. It arms the VM's
+    /// one-shot LANDING anchor (see <see cref="MoveTo"/>), not D13: after the gate's 300 ms off
+    /// there is no pre-move in-key point left to anchor;</item>
     /// <item>a deliberate Flip (<see cref="KeyboardMove.Flip"/>) moves to the other edge and
     /// arms D13;</item>
     /// <item>a resize, sub-layout switch or settings re-layout (<see cref="KeyboardMove.Keep"/>)
@@ -407,9 +418,7 @@ public partial class KeyboardWindow : OverlayWindow
     {
         var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
         var (left, baseTop) = OverlayPositioning.PlaceAtEdge(workArea, edge, widthDip, heightDip);
-        var currentYield = KeyboardYield.VerticalOffset(
-            edge, _toolbarOccupied, _toolbarEdge, _toolbarExtentDip,
-            baseTop, heightDip, workArea.Top, workArea.Bottom);
+        var currentYield = CurrentYieldDip(workArea, edge, baseTop, heightDip);
 
         // The first placement of the session. No suppression is armed — the gaze is not resting
         // on the keys yet (a hide clears the VM's in-grid anchor).
@@ -444,7 +453,9 @@ public partial class KeyboardWindow : OverlayWindow
             // Yield's job, and the gaze is off the keyboard when this arrives.
             case KeyboardMove.UnYield when Math.Abs(currentYield) < Math.Abs(_appliedYieldDip):
                 _appliedYieldDip = currentYield;
-                MoveTo(left, DockedTop(workArea, baseTop, heightDip, _appliedYieldDip));
+                // The landing anchor, not D13: see MoveTo.
+                MoveTo(left, DockedTop(workArea, baseTop, heightDip, _appliedYieldDip),
+                    armLandingAnchor: true);
                 break;
 
             // F1: re-anchor the docked edge for the new size, keeping the applied yield. A grown
@@ -476,14 +487,32 @@ public partial class KeyboardWindow : OverlayWindow
     private static double LargerMagnitude(double applied, double candidate) =>
         Math.Abs(candidate) > Math.Abs(applied) ? candidate : applied;
 
-    /// <summary>Moves the window and arms D13 when either axis actually changed. The arm is the
-    /// non-destructive one (R2-1): a Keep runs mid-rebuild after a swap has already armed, and
-    /// the key-position dictionary is empty then.</summary>
-    private void MoveTo(double left, double top)
+    /// <summary>The yield the CURRENT toolbar state asks for, against the given placement geometry,
+    /// in DIP. One read of the occupancy for both the placement and the gate's keep-clear rect.</summary>
+    private double CurrentYieldDip(Rect workArea, string edge, double baseTop, double heightDip) =>
+        KeyboardYield.VerticalOffset(edge, _toolbarOccupied, _toolbarEdge, _toolbarExtentDip,
+            baseTop, heightDip, workArea.Top, workArea.Bottom);
+
+    /// <summary>
+    /// Moves the window when either axis actually changed. Every move that catches a gaze which is
+    /// still ON the keys arms D13 at it — the non-destructive arm (R2-1): a Keep runs mid-rebuild
+    /// after a swap has already armed, and the key-position dictionary is empty then.
+    /// <para>
+    /// The gaze-off un-yield passes <paramref name="armLandingAnchor"/> instead. Its D13 arm would
+    /// be vacuous: the gate required 300 ms outside the window, which already nulled the VM's
+    /// in-key point, and after the move the grid is somewhere else. So the VM is told to arm a
+    /// ONE-SHOT anchor at the FIRST sample that lands on the moved grid (review 01 F1b) — which
+    /// also protects a gaze that returns right after the move and lands on a shifted grid.
+    /// </para>
+    /// </summary>
+    private void MoveTo(double left, double top, bool armLandingAnchor = false)
     {
         bool moved = Math.Abs(Top - top) > 1e-9 || Math.Abs(Left - left) > 1e-9;
         SetPosition(left, top);
-        if (moved)
+        if (!moved) return;
+        if (armLandingAnchor)
+            _viewModel?.ArmLandingSuppressionAfterUnYield();
+        else
             _viewModel?.ArmDwellSuppressionForMove();
     }
 
@@ -665,8 +694,9 @@ public partial class KeyboardWindow : OverlayWindow
 
         // C1's gaze-off un-yield runs BEFORE the key positions are re-read: when it moves the
         // window, this same sample's detection must see the position the keyboard is actually in.
-        // MoveTo arms D13 like every other move, and this sample is outside the window by
-        // definition, so it cannot type on arrival.
+        // The gate is the protection, not D13: this sample is outside the keep-clear area, so it
+        // CANNOT be on the moved grid either (the move is toward that edge). A gaze that RETURNS
+        // is the other case, and the move's landing anchor covers it (see MoveTo).
         UnYieldIfGazeHasLeft(screenPoint, timestampMicroseconds);
 
         UpdateKeyScreenPositions();
@@ -733,24 +763,26 @@ public partial class KeyboardWindow : OverlayWindow
     /// <summary>
     /// C1's gaze-off un-yield (owner decision 24.10): the keyboard may return toward its docked
     /// edge once the toolbar that forced the yield has gone or shrunk, but only after the gaze has
-    /// been continuously OUTSIDE the WHOLE window — keys, prediction bar, emoji tabs, the chrome
-    /// around them — for <see cref="KeyboardUnYieldGate.OffThresholdUs"/>. That is what keeps the
-    /// move from landing under a gaze resting on a key (the 19.10 incident); a gaze kept on the
-    /// keys resets the run on every sample. A toolbar that reappears afterwards yields again on
-    /// its own. <see cref="Place"/> applies only a SMALLER current yield, so this never yields
-    /// further.
+    /// been continuously OUTSIDE the keep-clear area for
+    /// <see cref="KeyboardUnYieldGate.OffThresholdUs"/>. The keep-clear area is the window's
+    /// current rect UNIONED with the band it would move into
+    /// (<see cref="KeyboardUnYieldGate.KeepClearRect"/>) — the whole window, keys, prediction bar,
+    /// emoji tabs and chrome, plus the strip the toolbar just vacated. A gaze resting in that
+    /// strip used to pass a current-rect-only gate and be landed on (review 01 F1). A gaze kept
+    /// on either area resets the run on every sample. A toolbar that reappears afterwards yields
+    /// again on its own. <see cref="Place"/> applies only a SMALLER current yield, so this never
+    /// yields further.
     /// <para>
     /// Fed by the coordinator's real, non-gap-held samples only (ShouldFeedKeyboardSample), so a
     /// gap-held sample or a paused keyboard never accumulates off-time here. The gate resets after
-    /// it opens, so a placement happens once per off-run rather than on every sample.
+    /// it opens, so a placement happens once per off-run rather than on every sample. The move
+    /// arms the VM's landing anchor (<see cref="MoveTo"/>), which covers the gaze RETURNING onto
+    /// the moved grid.
     /// </para>
     /// </summary>
     private void UnYieldIfGazeHasLeft(PhysicalPoint screenPoint, long timestampMicroseconds)
     {
-        var probe = UnYieldProbeGeometry;
-        var windowRect = probe?.WindowRect
-            ?? (TryGetScreenRect(this, out var measured) ? measured : (PhysicalRect?)null);
-        if (windowRect is not { } rect)
+        if (!TryGetUnYieldGeometry(out var geometry))
         {
             // No on-screen geometry to judge against (not presented/laid out): an off-run must
             // not accumulate across this gap, or a later sample could complete it on no evidence.
@@ -758,15 +790,49 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
-        if (!_unYieldGate.Update(!rect.Contains(screenPoint), timestampMicroseconds)) return;
+        var keepClear = KeepClearRectFor(geometry);
+        if (!_unYieldGate.Update(!keepClear.Contains(screenPoint), timestampMicroseconds)) return;
 
         _unYieldGate.Reset();
-        if (probe is { } geometry)
-            // The unshown-probe path: the same Place production reaches through
-            // RepositionOnScreen, with the geometry the probe cannot give the Window.
-            Place(geometry.WorkArea, geometry.WidthDip, geometry.HeightDip, KeyboardMove.UnYield);
-        else
-            RepositionOnScreen(KeyboardMove.UnYield);
+        // The shared path: production and the headless probe both land HERE, in the real
+        // placement rule — the seam replaced only the geometry reads above.
+        Place(geometry.WorkArea, geometry.WidthDip, geometry.HeightDip, KeyboardMove.UnYield);
+    }
+
+    /// <summary>
+    /// The gaze-off gate's geometry: the live reads in production, the probe's arrangement in the
+    /// headless wiring tests. False when the window has no measurable on-screen presence.
+    /// </summary>
+    private bool TryGetUnYieldGeometry(out UnYieldGeometry geometry)
+    {
+        if (UnYieldProbeGeometry is { } probe)
+        {
+            geometry = probe;
+            return true;
+        }
+
+        if (ActualWidth <= 0 || ActualHeight <= 0 || !TryGetScreenRect(this, out var windowRect))
+        {
+            geometry = default;
+            return false;
+        }
+
+        // The rect came from PointToScreen on this window, so its own height ratio IS the transform
+        // the DIP yield has to be converted by — including a layout transform, should one exist.
+        geometry = new UnYieldGeometry(SystemParameters.WorkArea, ActualWidth, ActualHeight,
+            windowRect, windowRect.Height / ActualHeight);
+        return true;
+    }
+
+    /// <summary>Where the gaze must be to let the keyboard move, from the live toolbar state.</summary>
+    private PhysicalRect KeepClearRectFor(UnYieldGeometry geometry)
+    {
+        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
+        var (_, baseTop) = OverlayPositioning.PlaceAtEdge(
+            geometry.WorkArea, edge, geometry.WidthDip, geometry.HeightDip);
+        var currentYield = CurrentYieldDip(geometry.WorkArea, edge, baseTop, geometry.HeightDip);
+        return KeyboardUnYieldGate.KeepClearRect(
+            geometry.WindowRect, edge, _appliedYieldDip, currentYield, geometry.PixelsPerDip);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

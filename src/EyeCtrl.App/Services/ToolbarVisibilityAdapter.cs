@@ -125,8 +125,11 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
             // through SetPauseIndicator (spec H1) — a band leaving has nothing to say about it.
             //
             // The hide completes inside this callback (the instant short-circuit included), so
-            // the transition event fires with it — the keyboard un-yields only after the band
-            // has cleared, mirroring the show path's after-the-window-call ordering.
+            // the transition event fires with it — the keyboard's occupancy only becomes
+            // "unoccupied" after the band has cleared. That is not a move: the keyboard stays
+            // yielded until the gaze-off gate (KeyboardMove.UnYield) sees the gaze away from the
+            // window AND its landing band, mirroring the show path's after-the-window-call
+            // ordering.
             OnVisibilityChanged(false);
         });
         // Gated on IsSliding — i.e. only when a slide actually starts — unlike ShowToolbar's

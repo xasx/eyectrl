@@ -1,12 +1,13 @@
 namespace EyeCtrl.App.Overlays;
 
 /// <summary>
-/// Why the keyboard is being asked to place itself (C1: it never moves while the gaze is on it).
-/// The session's first placement is whatever request arrives after a show — the show's own
-/// layout (<see cref="Keep"/>) or the show path's explicit <see cref="Show"/>. Once placed, only a
-/// toolbar appearing (<see cref="Yield"/>), a deliberate <see cref="Flip"/>, a resize that
-/// re-anchors the docked edge (<see cref="Keep"/>), or the toolbar's departure once the gaze has
-/// been off the window for long enough (<see cref="UnYield"/>) may move it.
+/// Why the keyboard is being asked to place itself (C1: it never moves while the gaze is on it,
+/// or on the ground it is about to cover). The session's first placement is whatever request
+/// arrives after a show — the show's own layout (<see cref="Keep"/>) or the show path's explicit
+/// <see cref="Show"/>. Once placed, only a toolbar appearing (<see cref="Yield"/>), a deliberate
+/// <see cref="Flip"/>, a resize that re-anchors the docked edge (<see cref="Keep"/>), or the
+/// toolbar's departure once the gaze has been off the window and its landing area for long enough
+/// (<see cref="UnYield"/>) may move it.
 /// </summary>
 internal enum KeyboardMove
 {
@@ -25,11 +26,11 @@ internal enum KeyboardMove
 
     /// <summary>
     /// The toolbar that forced the yield has gone or shrunk AND the gaze has been continuously
-    /// outside the keyboard window for <see cref="KeyboardUnYieldGate.OffThresholdUs"/>: move back
-    /// to the CURRENT yield — a full un-yield with no toolbar on the edge, a partial one with a
-    /// smaller toolbar. Only a magnitude smaller than the applied yield moves the keyboard; it
-    /// never yields further. Requested by <see cref="KeyboardWindow.UpdateGaze"/> through its
-    /// gaze-off gate.
+    /// outside the keyboard AND the band it will move into for
+    /// <see cref="KeyboardUnYieldGate.OffThresholdUs"/>: move back to the CURRENT yield — a full
+    /// un-yield with no toolbar on the edge, a partial one with a smaller toolbar. Only a magnitude
+    /// smaller than the applied yield moves the keyboard; it never yields further. Requested by
+    /// <see cref="KeyboardWindow.UpdateGaze"/> through its gaze-off gate.
     /// </summary>
     UnYield,
 

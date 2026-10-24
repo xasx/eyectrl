@@ -17,16 +17,19 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
 /// <summary>
-/// C1: once open, the keyboard never moves while the gaze rests on it. A toolbar that appears may
-/// make it yield (move away); a toolbar that hides must NOT make it move back AT THAT MOMENT —
-/// that is the 280 px jump under a resting gaze that re-mapped the gaze onto another key. Owner
-/// decision 24.10: the keyboard moves back once the gaze is off it, through
-/// <see cref="KeyboardMove.UnYield"/> and only after the gaze has been continuously outside the
-/// whole window for <see cref="KeyboardUnYieldGate.OffThresholdUs"/>; the next show also un-yields.
-/// A size change re-anchors the DOCKED edge (so a grown 5-row function layout cannot run off the
-/// work area) while keeping the applied yield; a settings reload that repeats the same edge is not
-/// a Flip. Every move that still happens (yield, gaze-off un-yield, Flip, docked-edge re-anchor)
-/// arms the D13 suppression, so nothing dwells until the gaze travels about half a key.
+/// C1: once open, the keyboard never moves while the gaze rests on it — or on the ground the move
+/// would cover. A toolbar that appears may make it yield (move away); a toolbar that hides must
+/// NOT make it move back AT THAT MOMENT — that is the 280 px jump under a resting gaze that
+/// re-mapped the gaze onto another key. Owner decision 24.10: the keyboard moves back once the
+/// gaze is off it, through <see cref="KeyboardMove.UnYield"/> and only after the gaze has been
+/// continuously outside the window PLUS the band it would move into for
+/// <see cref="KeyboardUnYieldGate.OffThresholdUs"/>; the next show also un-yields. A size change
+/// re-anchors the DOCKED edge (so a grown 5-row function layout cannot run off the work area)
+/// while keeping the applied yield; a settings reload that repeats the same edge is not a Flip.
+/// Yield, Flip and the docked-edge re-anchor arm D13 at the pre-move gaze; the gaze-off un-yield
+/// cannot (its gate requires the gaze to be off the grid), so it arms a ONE-SHOT landing anchor at
+/// the first sample that returns to the moved grid. Either way nothing dwells until the gaze
+/// travels about half a key.
 ///
 /// <para>
 /// Driven through <see cref="KeyboardWindow.Place"/> / <see cref="KeyboardWindow.PlaceForShow"/>
@@ -214,7 +217,8 @@ public class KeyboardNeverMovesTests
         using var probe = Open();
         var window = probe.Window;
         var contentRect = ContentScreenRect(probe);
-        window.UnYieldProbeGeometry = (WorkArea, contentRect, WidthDip, HeightDip);
+        window.UnYieldProbeGeometry = new KeyboardWindow.UnYieldGeometry(
+            WorkArea, WidthDip, HeightDip, contentRect, PixelsPerDip: 1.0);
 
         window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
         window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
@@ -261,6 +265,152 @@ public class KeyboardNeverMovesTests
         window.UpdateGaze(offWindow, offAgainStart + KeyboardUnYieldGate.OffThresholdUs);
         Check.WithCustomMessage("the keyboard did not un-yield after 300 ms off the window")
             .That(window.Top).IsEqualTo(BottomTop);
+    }
+
+    [StaFact]
+    public void GazeInTheVacatedBand_DoesNotUnYield_AtTheBottomDock()
+        => AssertGazeInTheBandDoesNotUnYield("bottom");
+
+    [StaFact]
+    public void GazeInTheVacatedBand_DoesNotUnYield_AtTheTopDock()
+        => AssertGazeInTheBandDoesNotUnYield("top");
+
+    /// <summary>
+    /// Review 01 F1, the inverted probe: the band between the docked edge and the yielded keyboard
+    /// is outside the CURRENT rect but inside the one the keyboard would move into. A gaze resting
+    /// there must not un-yield — that is exactly the report's "keyboard jumped under the gaze"
+    /// case, and the landing fired a key 462 ms later before the keep-clear rect.
+    /// </summary>
+    private static void AssertGazeInTheBandDoesNotUnYield(string edge)
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        var contentRect = ContentScreenRect(probe);
+        window.UnYieldProbeGeometry = new KeyboardWindow.UnYieldGeometry(
+            WorkArea, WidthDip, HeightDip, contentRect, PixelsPerDip: 1.0);
+
+        window.SetScreenEdge(edge);
+        window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+        window.SetToolbarOccupancy(true, edge, ToolbarExtentDip);
+        window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+        var yieldedTop = edge == "top"
+            ? WorkArea.Top + ToolbarExtentDip : BottomTop - ToolbarExtentDip;
+        Check.That(window.Top).IsEqualTo(yieldedTop);
+
+        // The toolbar auto-hides: the Yield path itself must not move the keyboard.
+        window.SetToolbarOccupancy(false, "none", 0);
+        Check.That(window.Top).IsEqualTo(yieldedTop);
+
+        // 20 px inside the 132 px band the keyboard would move into (the toolbar's old strip).
+        var band = edge == "top"
+            ? new PhysicalPoint(contentRect.X + 10, contentRect.Y - 20)
+            : new PhysicalPoint(contentRect.X + 10, contentRect.Y + contentRect.Height + 20);
+
+        for (long t = 1_000_000; t <= 2_000_000; t += 50_000)
+        {
+            window.UpdateGaze(band, t);
+            Check.WithCustomMessage(
+                    $"a gaze resting in the {edge}-dock landing band un-yielded the keyboard onto it")
+                .That(window.Top).IsEqualTo(yieldedTop);
+        }
+    }
+
+    [StaFact]
+    public void GazeBeyondTheBand_StillUnYieldsAfter300Ms()
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        var contentRect = ContentScreenRect(probe);
+        window.UnYieldProbeGeometry = new KeyboardWindow.UnYieldGeometry(
+            WorkArea, WidthDip, HeightDip, contentRect, PixelsPerDip: 1.0);
+
+        window.SetScreenEdge("bottom");
+        window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+        window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+        window.SetToolbarOccupancy(false, "none", 0);
+
+        // 200 px beyond the window: past the 132 px keep-clear band, so fully clear of both rects.
+        var clear = new PhysicalPoint(contentRect.X + 10, contentRect.Y + contentRect.Height + 200);
+        const long start = 1_000_000;
+        for (long t = start; t < start + KeyboardUnYieldGate.OffThresholdUs; t += 50_000)
+        {
+            window.UpdateGaze(clear, t);
+            Check.WithCustomMessage("the keyboard un-yielded before the off time was complete")
+                .That(window.Top).IsEqualTo(YieldedBottomTop);
+        }
+
+        window.UpdateGaze(clear, start + KeyboardUnYieldGate.OffThresholdUs);
+        Check.WithCustomMessage("the keyboard did not un-yield with the gaze fully clear")
+            .That(window.Top).IsEqualTo(BottomTop);
+    }
+
+    /// <summary>
+    /// Review 01 F1b: the un-yield arms a ONE-SHOT landing anchor at the first sample that reaches
+    /// the key area after the move, so a gaze that returns onto the shifted grid does not dwell
+    /// while it rests. Travelling beyond half a key clears it, and it is NOT re-armed: typing then
+    /// works normally. Without the arm, the landing fires a key at the key dwell.
+    /// </summary>
+    [StaFact]
+    public void LandingAfterAnUnYield_DoesNotTypeUntilTheGazeTravels()
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        var contentRect = ContentScreenRect(probe);
+        window.UnYieldProbeGeometry = new KeyboardWindow.UnYieldGeometry(
+            WorkArea, WidthDip, HeightDip, contentRect, PixelsPerDip: 1.0);
+
+        window.SetScreenEdge("bottom");
+        window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+        window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+        window.SetToolbarOccupancy(false, "none", 0);
+
+        var fired = new List<string>();
+        probe.Vm.KeyDwellCompleted += id => fired.Add(id);
+        var keyCentre = Centres(window)["key_0_0"];
+        var clear = new PhysicalPoint(contentRect.X + 10, contentRect.Y + contentRect.Height + 200);
+
+        long t = 1_000_000;
+        for (; t <= 1_300_000; t += 50_000)
+            window.UpdateGaze(clear, t);
+        Check.That(window.Top).IsEqualTo(BottomTop);   // the premise: the un-yield moved the window
+
+        // Land on a key and hold far past the 400 ms key dwell: the landing anchor must suppress.
+        for (; t <= 2_500_000; t += 50_000)
+        {
+            window.UpdateGaze(keyCentre, t);
+            Check.WithCustomMessage("a key fired on the landing sample after the un-yield")
+                .That(fired).IsEmpty();
+        }
+
+        // More than half a key away (the anchor's radius) and back: normal typing resumes, which
+        // also proves the anchor was consumed once instead of re-arming at every sample.
+        var away = new PhysicalPoint(keyCentre.X + 120, keyCentre.Y);
+        for (; t <= 3_000_000; t += 50_000)
+            window.UpdateGaze(away, t);
+        for (var hold = t; hold <= t + 800_000; hold += 50_000)
+            window.UpdateGaze(keyCentre, hold);
+
+        Check.WithCustomMessage("the keyboard never typed again after the landing anchor cleared")
+            .That(fired).Contains("key_0_0");
+    }
+
+    [Fact]
+    public void UnYieldGate_ReadsTheWholeWindowRect_NotTheKeyGrid()
+    {
+        // Review 01 F3 / mutant M8: the gate's production read must be the WHOLE window (keys,
+        // prediction bar, emoji tabs, chrome), never KeyRows. The wiring tests replace only the
+        // geometry READS, so no headless run exercises this production line; the source pin is
+        // what keeps it from drifting to the key grid.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Overlays", "KeyboardWindow.xaml.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("the gaze-off un-yield no longer reads the whole window rect")
+            .That(source.Contains("!TryGetScreenRect(this,outvarwindowRect)")).IsTrue();
+        Check.WithCustomMessage("the gaze-off un-yield measures the key grid instead of the window")
+            .That(source.Contains("TryGetScreenRect(KeyRows,outvarwindowRect)")).IsFalse();
     }
 
     [StaFact]

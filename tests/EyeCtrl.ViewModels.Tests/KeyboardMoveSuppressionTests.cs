@@ -161,4 +161,65 @@ public class KeyboardMoveSuppressionTests
             }
         }
     }
+
+    // ---- Review 01 F1b: the one-shot landing anchor after a gaze-off un-yield -------------------------
+
+    [Fact]
+    public void LandingSuppression_RestingGazeAfterUnYield_NeverDwells()
+    {
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield();
+
+        // The grid is not reached on the un-yield's own sample (the gate saw the gaze away); the
+        // first IN-KEY-AREA sample is the landing. It must not fire, held far past the dwell.
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(500, 500), false, 0);
+        for (long t = 1_000; t < 3_001_000; t += 50_000)
+        {
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+            Check.WithCustomMessage("a key fired on the landing sample after the un-yield")
+                .That(fired).IsEmpty();
+        }
+    }
+
+    [Fact]
+    public void LandingSuppression_TravelBeyondHalfAKey_DwellsNormally()
+    {
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield();
+
+        // Land on key_0_0 (suppressed), then 120 units away = 0.6 pitch > the 100-unit radius.
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 1_000);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 50_000);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, 100_000);
+        for (long t = 150_000; t < 2_150_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_1");
+    }
+
+    [Fact]
+    public void LandingSuppression_IsConsumedOnce_SoAReturningGazeTypesNormally()
+    {
+        // A landing anchor that was never consumed would re-anchor at every in-grid sample and
+        // suppress forever. Here the gaze lands, travels beyond the radius, then RETURNS: the
+        // return must dwell normally.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield();
+
+        for (long t = 1_000; t <= 500_000; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);   // the landing
+        Check.WithCustomMessage("the landing itself fired").That(fired).IsEmpty();
+
+        for (long t = 550_000; t <= 900_000; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, t);   // clears the anchor
+
+        for (long t = 950_000; t <= 2_000_000 && !fired.Contains("key_0_0"); t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);   // back on key_0_0
+
+        Check.WithCustomMessage("the landing anchor re-armed on the return and suppressed forever")
+            .That(fired).Contains("key_0_0");
+    }
 }

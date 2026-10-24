@@ -44,6 +44,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private PhysicalPoint? _lastGazeInsideWindowPoint;
     private PhysicalPoint? _swapSuppressedAnchor;
     private double _swapSuppressedClearRadiusSquared;
+    // Review 01 F1b: a gaze-off un-yield moved the window while the gaze was away, so there is no
+    // pre-move in-key point to anchor at. The FIRST sample that lands on the moved grid becomes
+    // the anchor instead; true between the arm and that sample (one-shot).
+    private bool _landingSuppressionPending;
 
     /// <summary>
     /// Longest interval between two DELIVERED gaze samples that may still count as continuous
@@ -391,6 +395,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _lastSampleTimestampUs = 0;
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
+        _landingSuppressionPending = false;
         FinishHoldOn(capped: false);
         _slipCandidate = null;
         _slipArmed = false;
@@ -463,6 +468,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             }
             _lastGazeInsideWindowPoint = null;
             return;
+        }
+
+        // Review 01 F1b: the first in-key-area sample after a gaze-off un-yield is the LANDING.
+        // Anchor the spatial suppression at it, against the CURRENT (post-move) centres, then
+        // consume the one-shot flag. This runs before the cooldown check below: a landing during
+        // the post-activation cooldown still sets the anchor, which then guards the samples after.
+        if (_landingSuppressionPending)
+        {
+            _landingSuppressionPending = false;
+            ArmSuppressionAt(gazePoint, keyScreenPositions);
         }
 
         // Post-activation cooldown (deliberately no emission — not a struggle signal).
@@ -917,6 +932,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // against the OLD layout's grid is meaningless on the new one.
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
+        _landingSuppressionPending = false;
 
         // M7 (impl review M2), corrected r2 N1/N4: raised AFTER the assignment above, so a
         // raise landing before it would repaint the OLD grid. On the production reload path
@@ -1437,6 +1453,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     public void ArmDwellSuppressionForMove() => ArmDwellSuppressionCore(clearWhenUnavailable: false);
 
+    /// <summary>
+    /// Arms a ONE-SHOT landing anchor for the first sample that reaches the key area after a
+    /// gaze-off un-yield (review 01 F1b). The un-yield legitimately moves the window while the gaze
+    /// is away, so <see cref="ArmDwellSuppressionForMove"/> cannot help: the gate required 300 ms
+    /// outside the window, and <c>ProcessKeyGaze</c> nulls its in-key point on every outside
+    /// sample. When the gaze then RETURNS, it lands on a grid that may have shifted by a toolbar
+    /// extent, so that first landing point is the anchor, with the same half-key radius as a swap,
+    /// measured against the CURRENT (post-move) centres. Consumed by that one sample; a gaze that
+    /// keeps resting is suppressed until it travels about half a key, exactly like a swap.
+    /// </summary>
+    public void ArmLandingSuppressionAfterUnYield() => _landingSuppressionPending = true;
+
     private void ArmDwellSuppressionCore(bool clearWhenUnavailable)
     {
         // A live swap/yield arm wins; the rebuild's move must not disturb it. "Live" means the gaze is
@@ -1453,29 +1481,42 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             && _lastKeyScreenPositions is { } positions
             && positions.Count >= 2)
         {
-            var d1 = double.MaxValue;
-            var d2 = double.MaxValue;
-            foreach (var center in positions.Values)
-            {
-                var d = anchor.DistanceSquaredTo(center);
-                if (d < d1)
-                {
-                    d2 = d1;
-                    d1 = d;
-                }
-                else if (d < d2)
-                {
-                    d2 = d;
-                }
-            }
-
-            _swapSuppressedAnchor = anchor;
-            _swapSuppressedClearRadiusSquared = 0.25 * d2;
+            ArmSuppressionAt(anchor, positions);
             return;
         }
 
         if (clearWhenUnavailable)
             _swapSuppressedAnchor = null;
+    }
+
+    /// <summary>
+    /// The shared radius rule: the anchor plus half the distance to the SECOND-nearest centre
+    /// (≈ half a key width; a gaze resting on a centre yields d1≈0, d2≈pitch). Fewer than two
+    /// positioned centres means no suppression — otherwise d2 stays <c>double.MaxValue</c> and the
+    /// radius becomes effectively infinite (plan-r2).
+    /// </summary>
+    private void ArmSuppressionAt(PhysicalPoint anchor, IReadOnlyDictionary<string, PhysicalPoint> positions)
+    {
+        if (positions.Count < 2) return;
+
+        var d1 = double.MaxValue;
+        var d2 = double.MaxValue;
+        foreach (var center in positions.Values)
+        {
+            var d = anchor.DistanceSquaredTo(center);
+            if (d < d1)
+            {
+                d2 = d1;
+                d1 = d;
+            }
+            else if (d < d2)
+            {
+                d2 = d;
+            }
+        }
+
+        _swapSuppressedAnchor = anchor;
+        _swapSuppressedClearRadiusSquared = 0.25 * d2;
     }
 
     /// <summary>

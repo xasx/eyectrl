@@ -583,15 +583,17 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     private void WireProcessExited()
     {
         // Race guard: if the process already exited between Adopt()/Launch() and the subscription,
-        // the Exited event may already have fired (or never will). Check now and feed
-        // ProcessExited immediately.
-        var proc = _pc.BoundProcess;
-        if (proc == null) return;
-        if (proc.HasExited)
-        {
-            Log.Information("Bound process already exited at wire time (pid={Pid}); feeding ProcessExited.", proc.Id);
-            HandleInput(new ProcessExited(DateTime.UtcNow));
-        }
+        // the Exited event may already have fired (or never will). Check now and POST
+        // ProcessExited: THIS CAN RUN INSIDE A STATE-MACHINE TRANSITION (RetryNow, from a
+        // FallenBack episode), where feeding it inline would re-enter HandleInput while the machine
+        // is still FallenBack and open a nested, stale dialog (A7/L3). See WireTimeExit's remarks.
+        var pid = WireTimeExit.PostIfExited(
+            _pc.BoundProcess,
+            work => Dispatcher.BeginInvoke(work),
+            HandleInput,
+            () => DateTime.UtcNow);
+        if (pid is not null)
+            Log.Information("Bound process already exited at wire time (pid={Pid}); feeding ProcessExited.", pid);
     }
 
     /// <summary><see cref="ProcessController"/>'s exit callback: marshals to the UI thread and

@@ -337,7 +337,7 @@ public class CalibrationDwellCancelTests
     /// <summary>
     /// A7/M2: the window is created once at startup and reused, so the grace must be re-applied at
     /// each session entry. The constructor's value alone would leave the first live settings change
-    /// unheard until the Supervisor restarted.
+    /// unheard until the app restarted.
     /// </summary>
     [StaFact]
     public void ALivePauseGraceChange_ReachesTheNextSession()

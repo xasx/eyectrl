@@ -13,12 +13,14 @@ using System;
 /// state-machine transition: <c>RetryNow</c> launches the FallenBack retry, wires the new process,
 /// closes the episode's dialog and only then feeds <see cref="FallenBackRetry"/>. A synchronous
 /// feed here re-enters <c>HandleInput</c> while the machine is still
-/// <see cref="SupervisorState.FallenBack"/>, which re-escalates into a second
-/// <see cref="SupervisorCommand.LaunchFallbackAt"/> and a second, countdown-less dialog. The retry
-/// then closes the FIRST dialog and re-arms IdleWatch, leaving the second one stale on screen with
-/// no way to run it. Posting lets the in-flight transition land first: the exit is then seen in
-/// IdleWatch, where the machine deliberately ignores it — exactly like an exit that races the
-/// retry rather than the wire.</para>
+/// <see cref="SupervisorState.FallenBack"/>: it re-escalates and opens the "crashed again" dialog
+/// BEFORE the retry lands, and the retry then moves the machine to
+/// <see cref="SupervisorState.Launching"/> behind that dialog — a stale dialog over a launch that
+/// is already dead, cleared only by the 60 s startup grace. Posting lets the retry land first; the
+/// exit is then handled by the Launching arm, which is the ordinary startup-death path (A7
+/// fixup-01/S1): one re-escalation, the dialog reappears, no countdown.</para>
+/// <para>The posted input carries the pid (A7 fixup-01/S1): if a relaunch rebinds before the post
+/// drains, the supervisor's bound-pid filter drops it instead of striking the new instance.</para>
 /// <para>Same Dispatcher-priority reasoning as the real <c>Exited</c> callback
 /// (<c>OnBoundProcessExited</c>): the supervisor's tick runs at Background priority, so a posted
 /// input at Normal runs before the next tick, and the launch outcome is never mistaken for a
@@ -45,7 +47,7 @@ internal static class WireTimeExit
         if (boundProcess is null || !boundProcess.HasExited) return null;
 
         var pid = boundProcess.Id;
-        post(() => feed(new ProcessExited(now())));
+        post(() => feed(new ProcessExited(now(), pid)));
         return pid;
     }
 }

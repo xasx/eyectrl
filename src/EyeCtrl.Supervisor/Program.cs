@@ -292,6 +292,18 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // tick (both end up on the UI thread, but the lock makes the invariant explicit).
         lock (_loopLock)
         {
+            // A7 fixup-01 (S1): an Exited callback marshalled for a PREVIOUS instance can run
+            // after a relaunch/adopt has bound a new process. It must not strike the new one —
+            // notably the FallenBack retry, which rebinds and then waits for its first heartbeat.
+            // The feeders tag the pid; drop the exit unless it is still the bound process.
+            if (input is ProcessExited exit && !exit.Matches(_pc.BoundProcess?.Id))
+            {
+                Log.Information(
+                    "Dropping ProcessExited for pid={ExitedPid}; the bound process is pid={BoundPid}.",
+                    exit.Pid, _pc.BoundProcess?.Id);
+                return;
+            }
+
             var prevState = _sm.State;
             _sm.Handle(input);
             DrainCommands(prevState);
@@ -526,6 +538,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     Log.Information("StartListening: reopening the heartbeat pipe (retry).");
                     EnsurePipeStartedAdoption();
                     break;
+                case SupervisorCommand.ClearPendingLaunch:
+                    // A7 fixup-01 (S1): the FallenBack retry already launched the process itself;
+                    // a deferred recovery relaunch left from the escalation would be a second one.
+                    Log.Information("ClearPendingLaunch: dropping a deferred relaunch superseded by the FallenBack retry.");
+                    _pendingLaunchAt = null;
+                    break;
                 case SupervisorCommand.NotifyCleanExit:
                     Log.Information("NotifyCleanExit: app signalled authenticated clean shutdown.");
                     break;
@@ -586,7 +604,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // the Exited event may already have fired (or never will). Check now and POST
         // ProcessExited: THIS CAN RUN INSIDE A STATE-MACHINE TRANSITION (RetryNow, from a
         // FallenBack episode), where feeding it inline would re-enter HandleInput while the machine
-        // is still FallenBack and open a nested, stale dialog (A7/L3). See WireTimeExit's remarks.
+        // is still FallenBack. That re-escalates into a second dialog BEFORE the retry's own
+        // FallenBackRetry lands; the retry then moves the machine to Launching behind that dialog
+        // (A7/L3). Posting lets the retry land first: the exit then takes the Launching arm and
+        // re-escalates correctly, which is also the S1 startup-death path. See WireTimeExit.
         var pid = WireTimeExit.PostIfExited(
             _pc.BoundProcess,
             work => Dispatcher.BeginInvoke(work),
@@ -613,7 +634,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 return;
             }
             Log.Information("Bound process exited (pid={Pid}).", proc.Id);
-            HandleInput(new ProcessExited(DateTime.UtcNow));
+            HandleInput(new ProcessExited(DateTime.UtcNow, proc.Id));
         }));
     }
 
@@ -682,13 +703,15 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // 60 s auto-retry countdown both run exactly this — FallenBackAutoRetry.Attach wires both to
         // it, and hands over the trigger for this line and its PAUSED flag (A3's paused-retry
         // handoff: the retried instance is inert (no SendInput) until the user is ready, without
-        // mutating the persisted setting). Transition the machine to IdleWatch so the retried app's
-        // first heartbeat can ADOPT it back into Supervising (otherwise it stays FallenBack, which
-        // has no HeartbeatReceived case, so the retried app would be unsupervised — no crash
-        // recovery, no clean-exit detection).
+        // mutating the persisted setting). FallenBackRetry moves the machine to LAUNCHING (A7
+        // fixup-01/S1): the process launched here is already bound, and Launching's arms cover its
+        // whole startup — first heartbeat -> Supervising, an exit before it -> Recovering ->
+        // FallenBack + the dialog again, a hang -> StartupGraceElapsed -> ForceKill -> FallenBack.
+        // (IdleWatch, the pre-fix target, had none of those: a retried app that died or hung during
+        // startup stranded the user with no app, no dialog and no relaunch.)
         void RetryNow(FallenBackRetryTrigger trigger, bool paused)
         {
-            Log.Information("FallenBack {Trigger}: relaunching app with --paused and returning to IdleWatch.", trigger);
+            Log.Information("FallenBack {Trigger}: relaunching app with --paused and returning to Launching.", trigger);
             try
             {
                 _pc.Launch(_appExePath, paused, uiLanguage: _languageDelivery.LaunchArgument());
@@ -706,8 +729,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 return;
             }
             dialog.Close();
-            // Re-arm IdleWatch so the next verified heartbeat adopts the retried instance. Feeding an
-            // explicit input (rather than poking State) keeps the transition through the machine's API.
+            // Move the machine to LAUNCHING (A7 fixup-01/S1) for the instance launched and bound
+            // above: its first verified heartbeat goes straight to Supervising, and its startup
+            // exit/hang re-escalates to FallenBack. Feeding an explicit input (rather than poking
+            // State) keeps the transition through the machine's API.
             HandleInput(new FallenBackRetry(DateTime.UtcNow));
         }
 

@@ -23,6 +23,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     // Gaze tracking state
     private long _nearestKeyEnteredTimestamp;
+    // The timestamp of the last sample the candidate key was CREDITED for: entering it counts, and
+    // every same-key sample that adds dwell moves it on. The sample that ENDS a dwell is never one:
+    // on NearestChanged it already sits on the neighbour and on GazeLeft outside the window. E1's
+    // abandonment pct is measured to here, or it would read one sample ahead of the fill the key
+    // really reached.
+    private long _lastOnKeyTimestampUs;
     private long _keyCooldownEndTimestamp;
     private long _lastSampleTimestampUs;
     private int _keyDwellMs;
@@ -381,6 +387,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyId = null;
         NearestKeyProgress = 0;
         _nearestKeyEnteredTimestamp = 0;
+        _lastOnKeyTimestampUs = 0;
         _lastSampleTimestampUs = 0;
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
@@ -498,6 +505,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             NearestKeyProgress = 0;
             NearestKeyId = nearestId;
             _nearestKeyEnteredTimestamp = timestampUs;
+            _lastOnKeyTimestampUs = timestampUs;
             // Where this candidate's dwell BEGAN: the saccade is measured from the previous fire point to
             // here, so it does not depend on how soon after the fire the dwell was allowed to start.
             _e1DwellStartPoint = gazePoint;
@@ -513,12 +521,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 // Restart instead, so only continuous gaze completes the dwell.
                 NearestKeyProgress = 0;
                 _nearestKeyEnteredTimestamp = timestampUs;
+                _lastOnKeyTimestampUs = timestampUs;
                 _e1Restarts++;
                 StartDwellOffsets(keyScreenPositions, gazePoint, nearestId);
             }
             else
             {
                 AddDwellOffset(keyScreenPositions, gazePoint, nearestId);
+                _lastOnKeyTimestampUs = timestampUs;
                 long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
                 int dwellMs = KeyDwellMsFor(nearestId);
                 NearestKeyProgress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
@@ -554,7 +564,19 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // surface using the same cut-off.
         if (progress < TelemetryThresholds.AbandonProgress) return;
         var center = keyScreenPositions.TryGetValue(NearestKeyId, out var c) ? c : gazePoint;
-        RecordAbandonE1(NearestKeyId, keyScreenBoxes, gazePoint, center, timestampUs, progress, reason);
+        // E1 alone reports the fill at the LAST sample CREDITED to the key. `timestampUs` belongs to
+        // the sample that ENDED the dwell, which already sits on the neighbour (NearestChanged) or
+        // outside the window (GazeLeft), so measuring to it logs one step more than the key reached.
+        // `progress` above deliberately keeps the ending sample: the gate must stay the cut-off
+        // DwellDetector applies in every context, and the abandon COUNTS must stay comparable with
+        // the E1 data already collected. The E1 pct may therefore sit below the gate value (e.g. 27).
+        double onKeyProgress = Math.Min(1.0,
+            (double)(_lastOnKeyTimestampUs - _nearestKeyEnteredTimestamp)
+            / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
+        // How long the stream was silent — or the gaze elsewhere — between that last credited sample
+        // and the one that ended the dwell: a large value marks a blink or tracker pause before the switch.
+        int endMs = (int)((timestampUs - _lastOnKeyTimestampUs) / MathConstants.MicrosecondsPerMillisecond);
+        RecordAbandonE1(NearestKeyId, keyScreenBoxes, gazePoint, center, timestampUs, onKeyProgress, endMs, reason);
         if (_sink is null) return;
         _sink.Report(new DwellOutcome(
             timestampUs, DwellContext.Keyboard, NearestKeyId,
@@ -670,7 +692,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     private void RecordAbandonE1(string keyId, IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes,
-        PhysicalPoint gazePoint, PhysicalPoint center, long timestampUs, double progress, AbandonReason reason)
+        PhysicalPoint gazePoint, PhysicalPoint center, long timestampUs, double onKeyProgress, int endMs,
+        AbandonReason reason)
     {
         try
         {
@@ -691,7 +714,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             EnsureLayoutLineE1();
             E1.RecordAbandon(new AbandonE1(
                 timestampUs, row, col, cls, action,
-                (int)Math.Round(progress * 100), reason.ToString(),
+                (int)Math.Round(onKeyProgress * 100), reason.ToString(), endMs,
                 (int)Math.Round(meanDx), (int)Math.Round(meanDy), edgeQuarter,
                 ActiveSubLayoutId, geometry.Edge));
         }

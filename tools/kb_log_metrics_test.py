@@ -51,6 +51,8 @@ The fixture, in event order (times are the log clock, ms after 10:00:00):
     L6 -> L7  not adjacent, dist 2   400 ms  mid        L11 -> L12 adj W dist 1  500 ms  bot (bottom edge)
   and two abandon lines (one identity-free letter, one Shift that keeps its position), a ``shown``
   line with the letter box, ``layout`` lines, and ONE ``KB-E1 sensitive`` marker (a password field).
+  The modern abandon lines carry ``endms`` (the ms between the last on-key sample and the sample that
+  ended the dwell); the legacy form predates it, and both must parse.
 
   Noise that must be skipped: a non-E1 line, a damaged 'key seq=zzz' line, a line cut off by
   a crash.
@@ -259,6 +261,16 @@ class Repairs(unittest.TestCase):
         self.assertEqual(kb.parse([good.replace("adj=true", "adj=1")]), [])
         self.assertEqual(kb.parse([good.replace(" reg=top", "")]), [])
 
+    def test_an_abandon_line_parses_with_or_without_endms(self) -> None:
+        # endms was added after the first logs were collected: read it when present, keep accepting the
+        # older lines that do not carry it (they are still valid data, not damaged).
+        old = ("2026-10-19 10:00:00.000 [INF] [X] KB-E1 abandon ts=5 cls=letter pct=60 "
+               "why=NearestChanged sub=letters edge=top")
+        new = old.replace("why=NearestChanged", "why=NearestChanged endms=30")
+        self.assertEqual(kb.parse([old])[0]["pct"], 60)
+        self.assertNotIn("endms", kb.parse([old])[0])
+        self.assertEqual(kb.parse([new])[0]["endms"], 30)
+
     def test_the_slip_split_by_edge_follows_the_flip(self) -> None:
         self.assertEqual(fixture_metrics("top")["repairs"]["n"], 3)
         self.assertEqual(fixture_metrics("bottom")["repairs"]["n"], 1)
@@ -398,6 +410,12 @@ class Privacy(unittest.TestCase):
         self.assertNotIn("r", abandons[0])
         self.assertNotIn("edgeq", abandons[0])
         self.assertEqual(abandons[1]["r"], 3)
+        self.assertEqual([e["endms"] for e in abandons], [30, 100])
+        # The older per-line form predates endms and must keep parsing.
+        legacy = [e for e in kb.parse(LEGACY_FIXTURE.read_text(encoding="utf-8").splitlines())
+                  if e["event"] == "abandon"]
+        self.assertEqual(len(legacy), 2)
+        self.assertTrue(all("endms" not in e for e in legacy))
 
     def test_the_letter_box_comes_on_shown_and_layout_lines_only(self) -> None:
         events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())

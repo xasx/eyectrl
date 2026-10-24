@@ -175,7 +175,7 @@ public partial class SettingsWindow : OverlayWindow
     /// Vertical margin is 0 — the budget is "height + vertical margins <= 56" (round-3 m1).</summary>
     internal const double ModeToggleHeight = 48;
 
-    private const double ModalBtnRadius = 70;
+    internal const double ModalBtnRadius = 70;
 
     // ── Container sizes that glyph sizes derive from ──
     // Re-added after commit 691a494 dropped them as dead. They are NOT dead now: the tab icon
@@ -324,6 +324,7 @@ public partial class SettingsWindow : OverlayWindow
 
     /// <summary>The tray item's deep link, queued while a modal is up (T04's open-modal case).</summary>
     private readonly SettingsDeepLinkQueue _languageRowDeepLink = new();
+    private readonly SafetySetupHost _safetySetup;
 
     // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
     // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
@@ -480,6 +481,9 @@ public partial class SettingsWindow : OverlayWindow
         CloseButton.Background = _closeButtonBrush;
 
         _viewModel = viewModel;
+        // The leave-before-arm latch's release margin, in the physical pixels the targets use.
+        _viewModel.LatchReleaseMarginPhysical =
+            DpiHelper.LogicalToPhysicalX(SettingsWindowViewModel.LatchReleaseMarginDip);
         _settings = settings;
         _settingsService = settingsService;
         _registryService = registryService;
@@ -497,6 +501,12 @@ public partial class SettingsWindow : OverlayWindow
         // list. The callback re-registers against the button's CURRENT boundary state, which
         // may have flipped while it was held.
         _pagerRearmGuard = new SettingsPagerRearmGuard(_viewModel, RearmPagerTarget);
+
+        // The safety setup chain's window side. The close is deferred: the chain ends from inside a
+        // modal choice's dispatch, and closing disposes the view model that dispatch is running on.
+        _safetySetup = new SafetySetupHost(
+            () => _viewModel.IsModalVisible, CreateSafetySetupFlow,
+            () => Dispatcher.BeginInvoke(new Action(Close)));
 
         // An accepted restart must also be visible. The handshake allows the replacement up
         // to 30s to announce itself; the dispatcher stays free, but silence for that long is
@@ -615,6 +625,9 @@ public partial class SettingsWindow : OverlayWindow
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
             _supervisionRefresher.Stop();
+            // An abandoned safety chain must not outlive the window: its pending crash-recovery
+            // result would otherwise try to raise a modal on a disposed view model.
+            _safetySetup.OnWindowClosed();
             // The restart notices above registered this window on the (app-lifetime) messenger,
             // which holds it weakly but until it is collected: a closed window would still receive
             // RestartInProgressMessage and show a modal nobody can see, on a window that is gone.
@@ -633,7 +646,11 @@ public partial class SettingsWindow : OverlayWindow
             _settings, _viewModel, _registryService, _modelManagementService,
             _calibrationService, _messenger, _restartCoordinator, _supervisionToggle, _dictionaryService,
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
-            () => System.Windows.Clipboard.GetText() ?? "");
+            () => System.Windows.Clipboard.GetText() ?? "")
+        {
+            // The row: the window stays open when the chain ends (the user opened it).
+            RunSafetySetup = () => StartSafetySetup(closeWhenDone: false),
+        };
         _cursorSource = new CursorPageSource(_ctx);
         _dwellSource = new DwellPageSource(_ctx);
         _selectionSource = new SelectionPageSource(_ctx);
@@ -1135,6 +1152,27 @@ public partial class SettingsWindow : OverlayWindow
         if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
             ShowLanguageRow();
     }
+
+    /// <summary>
+    /// Starts the one-time safety setup chain on this window: at startup (the coordinator, while
+    /// <c>SafetySetupDone</c> is false) and from the General page's "Run safety setup again" row. A
+    /// modal already up is never replaced — the request is dropped, and a first-run chain asks
+    /// again at the next start because its flag is still false.
+    /// </summary>
+    /// <param name="closeWhenDone">Close this window when the chain ends (its last answer, or
+    /// "Later") — true when the startup request opened the window for the chain.</param>
+    internal void StartSafetySetup(bool closeWhenDone)
+    {
+        if (_safetySetup.Start(closeWhenDone))
+            RaiseToTop();
+    }
+
+    /// <summary>The chain on this window: the live settings, the supervision switch, the modal, the
+    /// window's own apply+save and mode switch, and the end report the host turns into a close.</summary>
+    private SafetySetupFlow CreateSafetySetupFlow(Action<bool> onEnded) =>
+        new(_settings, _supervisionToggle,
+            (message, choices) => _viewModel.ShowModal(message, choices),
+            ApplyAndSave, SwitchSettingsUiMode, onEnded);
 
     /// <summary>
     /// Lands the whole window on the language row: content tab, sidebar highlight AND the sidebar

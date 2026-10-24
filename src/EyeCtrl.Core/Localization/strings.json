@@ -3347,6 +3347,13 @@
     "fit": "modal460",
     "args": []
   },
+  "settings.general.safety.label": {
+    "text": "Run Safety Setup Again",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
   "settings.general.supervision.description": {
     "text": "If EyeCtrl stops responding or crashes, it restarts automatically; if it keeps failing, TD Control opens instead.",
     "who": "user",
@@ -4448,6 +4455,114 @@
     "fit": "A105",
     "args": [],
     "mirrors": "overlays.ring.scrollUp"
+  },
+  "settings.safety.boot.message": {
+    "text": "Question {0} of {1}\nStart EyeCtrl when you sign in?\nIf another eye-control app also starts at sign-in, you will see two gaze points.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.checking": {
+    "text": "Checking crash recovery…",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.safety.crash.message": {
+    "text": "Question {0} of {1}\nBring EyeCtrl back automatically after a crash?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.cue.message": {
+    "text": "Question {0} of {1}\nPlay a sound when a dwell clicks?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.intro.message": {
+    "text": "Safety setup: {0} short questions.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "count"
+    ]
+  },
+  "settings.safety.later": {
+    "text": "Later",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.mode.all": {
+    "text": "All settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.mode.basic": {
+    "text": "Basic",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.mode.message": {
+    "text": "Question {0} of {1}\nSettings view: Basic or All settings?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.ok": {
+    "text": "✓ OK",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.start": {
+    "text": "✓ Start",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.safety.track.message": {
+    "text": "Question {0} of {1}\nShow Track Status?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "number",
+      "total"
+    ]
+  },
+  "settings.safety.unconfirmed.message": {
+    "text": "Crash recovery could not be confirmed. Check it in Settings → General.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
   },
   "settings.selection.center_dot.description": {
     "text": "Diameter of the dot at the center of the gaze ring; applies after a restart.",

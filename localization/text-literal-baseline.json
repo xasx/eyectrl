@@ -546,6 +546,41 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_all\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_basic\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_later\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_no\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_ok\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_start\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SafetySetupFlow.cs",
+      "Literal": "\"safety_yes\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
       "Literal": "\"cursor=(?,?)\"",
       "Count": 1

@@ -1854,6 +1854,10 @@
     "text": "↻ Mit Supervisor neu starten",
     "src": "65276443"
   },
+  "settings.general.safety.label": {
+    "text": "Sicherheitseinrichtung wiederholen",
+    "src": "1dda5f16"
+  },
   "settings.general.supervision.description": {
     "text": "Reagiert EyeCtrl nicht mehr oder stürzt ab, startet es automatisch neu; fällt es immer wieder aus, öffnet sich stattdessen TD Control.",
     "src": "6ba60a86"
@@ -2444,6 +2448,58 @@
   "settings.ring.scrollUp": {
     "text": "Nach oben",
     "src": "92ff458a"
+  },
+  "settings.safety.boot.message": {
+    "text": "Frage {0} von {1}\nEyeCtrl bei der Windows-Anmeldung starten?\nStartet dabei auch ein anderes Programm zur Blicksteuerung, sehen Sie zwei Blickpunkte.",
+    "src": "596c9992"
+  },
+  "settings.safety.checking": {
+    "text": "Automatischer Neustart nach Absturz wird geprüft.",
+    "src": "7cad0fb9"
+  },
+  "settings.safety.crash.message": {
+    "text": "Frage {0} von {1}\nEyeCtrl nach einem Absturz automatisch neu starten?",
+    "src": "299915eb"
+  },
+  "settings.safety.cue.message": {
+    "text": "Frage {0} von {1}\nEinen leisen Ton abspielen, wenn ein Verweilen auslöst?",
+    "src": "34f3cb03"
+  },
+  "settings.safety.intro.message": {
+    "text": "Sicherheitseinrichtung: {0} kurze Fragen.",
+    "src": "a26e4bd9"
+  },
+  "settings.safety.later": {
+    "text": "Später",
+    "src": "94b426bb"
+  },
+  "settings.safety.mode.all": {
+    "text": "Alle Optionen",
+    "src": "4ca9a15a"
+  },
+  "settings.safety.mode.basic": {
+    "text": "Einfach",
+    "src": "8bf2af6e"
+  },
+  "settings.safety.mode.message": {
+    "text": "Frage {0} von {1}\nEinstellungsansicht: Einfach oder Alle Optionen?",
+    "src": "58f81377"
+  },
+  "settings.safety.ok": {
+    "text": "✓ OK",
+    "src": "707b3797"
+  },
+  "settings.safety.start": {
+    "text": "✓ Starten",
+    "src": "13ba19e4"
+  },
+  "settings.safety.track.message": {
+    "text": "Frage {0} von {1}\nTrackstatus anzeigen?",
+    "src": "ea3a860c"
+  },
+  "settings.safety.unconfirmed.message": {
+    "text": "Der automatische Neustart nach Absturz konnte nicht bestätigt werden. Bitte unter Einstellungen → Allgemein prüfen.",
+    "src": "60d492a5"
   },
   "settings.selection.center_dot.description": {
     "text": "Durchmesser des Punkts in der Mitte des Blickrings; gilt nach einem Neustart.",

@@ -27,7 +27,8 @@ internal static class TestSettingsPageContext
         Action<string>? showError = null,
         Func<string>? readClipboard = null,
         SupervisionToggleService? supervision = null,
-        UserDictionaryService? dictionary = null) => new(
+        UserDictionaryService? dictionary = null,
+        Action? runSafetySetup = null) => new(
         settings ?? new EyeCtrlSettings(),
         viewModel!, registry!, modelManagement!,
         calibration ?? new CalibrationService(),
@@ -38,5 +39,8 @@ internal static class TestSettingsPageContext
         showModal: showModal ?? ((_, _) => { }),
         showError: showError ?? (_ => { }),
         applyAndSave: () => { }, rebuildContent: () => { }, invoke: _ => { },
-        close: () => { }, readClipboard: readClipboard ?? (() => ""));
+        close: () => { }, readClipboard: readClipboard ?? (() => ""))
+    {
+        RunSafetySetup = runSafetySetup ?? (() => { }),
+    };
 }

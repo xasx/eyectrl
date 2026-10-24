@@ -213,6 +213,10 @@ public enum SettingsTarget
 /// <param name="Target">Where to navigate once the window is up; <see cref="SettingsTarget.Default"/>
 /// keeps the historical behaviour (open on the last/default tab).</param>
 public record SettingsRequestedMessage(SettingsTarget Target = SettingsTarget.Default);
+
+/// <summary>Open the Settings window (if it is not open) and start the one-time safety setup chain
+/// on it. Sent once at startup while <c>General.SafetySetupDone</c> is false.</summary>
+public record SafetySetupRequestedMessage;
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);
 public record SpecialKeyMessage(string KeyName, IReadOnlySet<ModifierKey>? Modifiers = null);

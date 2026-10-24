@@ -88,4 +88,11 @@ internal sealed class SettingsPageContext
     public Action<Action> Invoke { get; }
     public Action Close { get; }
     public Func<string> ReadClipboard { get; }
+
+    /// <summary>
+    /// Re-runs the one-time safety setup chain (the General page's "Run safety setup again" row),
+    /// whatever <c>SafetySetupDone</c> says. An init property, not a constructor parameter, so the
+    /// stable ctor signature above is left alone; the shell supplies it, headless contexts keep the no-op.
+    /// </summary>
+    public Action RunSafetySetup { get; init; } = () => { };
 }

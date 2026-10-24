@@ -100,12 +100,12 @@ public class SimpleModeCurationTests
             var expected = new List<string> { "Combo:g_language", "Label:Wird nach Ne",
                 "Combo:g_theme", "Toggle:g_boot", "Toggle:g_pause", "Toggle:g_track" };
             if (branch == "unavailable")
-                expected.AddRange(["Label:Automatic Cr", "Button:g_reset"]);
+                expected.AddRange(["Label:Automatic Cr", "Button:g_safety", "Button:g_reset"]);
             else
             {
                 expected.Add("Toggle:g_supervision");
                 if (branch == "disconnected") expected.Add("Button:g_supervision_retry");
-                expected.AddRange([status, "Button:g_reset"]);
+                expected.AddRange([status, "Button:g_safety", "Button:g_reset"]);
             }
             Check.That(rows).ContainsExactly(expected.ToArray());
         }

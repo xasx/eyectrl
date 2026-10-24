@@ -63,6 +63,9 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.general.track.description"), Simple = true },
                 .. SupervisionRows(),
+                new ButtonSpec("g_safety",
+                    StringTable.Current.T("settings.general.safety.label"),
+                    () => _ctx.RunSafetySetup(), ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
                 new ButtonSpec("g_restart",
                     StringTable.Current.T("settings.general.restart.label"),
                     OnRestart, ButtonKind.Reset, Width: 300, Height: 100),

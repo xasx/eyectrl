@@ -17,14 +17,16 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
 /// <summary>
-/// C1: once open, the keyboard keeps its position until it closes. A toolbar that appears may
-/// make it yield (move away); a toolbar that hides must NOT make it move back — that is the
-/// 280 px jump under a resting gaze that re-mapped the gaze onto another key. The un-yield
-/// happens at the next show. A size change re-anchors the DOCKED edge (so a grown 5-row
-/// function layout cannot run off the work area) while keeping the applied yield; a settings
-/// reload that repeats the same edge is not a Flip. Every move that still happens (yield, Flip,
-/// docked-edge re-anchor) arms the D13 suppression, so nothing dwells until the gaze travels
-/// about half a key.
+/// C1: once open, the keyboard never moves while the gaze rests on it. A toolbar that appears may
+/// make it yield (move away); a toolbar that hides must NOT make it move back AT THAT MOMENT —
+/// that is the 280 px jump under a resting gaze that re-mapped the gaze onto another key. Owner
+/// decision 24.10: the keyboard moves back once the gaze is off it, through
+/// <see cref="KeyboardMove.UnYield"/> and only after the gaze has been continuously outside the
+/// whole window for <see cref="KeyboardUnYieldGate.OffThresholdUs"/>; the next show also un-yields.
+/// A size change re-anchors the DOCKED edge (so a grown 5-row function layout cannot run off the
+/// work area) while keeping the applied yield; a settings reload that repeats the same edge is not
+/// a Flip. Every move that still happens (yield, gaze-off un-yield, Flip, docked-edge re-anchor)
+/// arms the D13 suppression, so nothing dwells until the gaze travels about half a key.
 ///
 /// <para>
 /// Driven through <see cref="KeyboardWindow.Place"/> / <see cref="KeyboardWindow.PlaceForShow"/>
@@ -85,6 +87,183 @@ public class KeyboardNeverMovesTests
     }
 
     [StaFact]
+    public void UnYield_BottomDock_MovesBackToTheEdge()
+    {
+        // Owner decision 24.10: with the toolbar gone, the gaze-off gate's UnYield gives the
+        // applied yield back. The placement itself is the unit here; the gate is separate.
+        var window = NewWindow();
+        try
+        {
+            window.SetScreenEdge("bottom");
+            window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+            window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+            Check.That(window.Top).IsEqualTo(YieldedBottomTop);
+
+            window.SetToolbarOccupancy(false, "none", 0);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.UnYield);
+            Check.That(window.Top).IsEqualTo(BottomTop);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void UnYield_TopDock_MovesBackToTheEdge()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.SetScreenEdge("top");
+            window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+            Check.That(window.Top).IsEqualTo(WorkArea.Top);
+
+            window.SetToolbarOccupancy(true, "top", ToolbarExtentDip);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+            Check.That(window.Top).IsEqualTo(WorkArea.Top + ToolbarExtentDip);
+
+            window.SetToolbarOccupancy(false, "none", 0);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.UnYield);
+            Check.That(window.Top).IsEqualTo(WorkArea.Top);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void UnYield_WithASmallerRemainingToolbar_IsPartial()
+    {
+        // The toolbar shrank while still on the edge: the keyboard gives back only the difference
+        // — it must not leave the smaller toolbar overlapping the keys.
+        var window = NewWindow();
+        try
+        {
+            window.SetScreenEdge("bottom");
+            window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+            window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+            Check.That(window.Top).IsEqualTo(YieldedBottomTop);
+
+            window.SetToolbarOccupancy(true, "bottom", 60);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.UnYield);
+            Check.That(window.Top).IsEqualTo(BottomTop - 60);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void UnYield_NeverYieldsFurther()
+    {
+        // A bigger toolbar appears without its own Yield placement: UnYield must not act on a
+        // LARGER current yield. Yielding further is a Yield's job, and the gaze is off the keys
+        // when UnYield arrives.
+        var window = NewWindow();
+        try
+        {
+            window.SetScreenEdge("bottom");
+            window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+            window.SetToolbarOccupancy(true, "bottom", 60);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+            Check.That(window.Top).IsEqualTo(BottomTop - 60);
+
+            window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.UnYield);
+            Check.WithCustomMessage("UnYield yielded further toward a larger toolbar")
+                .That(window.Top).IsEqualTo(BottomTop - 60);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void UnYield_WhenAlreadyUnYielded_DoesNothing()
+    {
+        var window = NewWindow();
+        try
+        {
+            window.SetScreenEdge("bottom");
+            window.PlaceForShow(WorkArea, WidthDip, HeightDip);
+            window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.UnYield);
+            Check.That(window.Top).IsEqualTo(BottomTop);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// The wiring half of the gaze-off un-yield (owner decision 24.10): real gaze samples through
+    /// the real <see cref="KeyboardWindow.UpdateGaze"/> entry point. The window is placed with a
+    /// toolbar yield, the toolbar hides, and the keyboard must move back only after 300 ms of
+    /// CONTINUOUS samples outside the whole window — never while the gaze is on a key, and never
+    /// on the strength of an off-run that an inside sample interrupted.
+    /// </summary>
+    [StaFact]
+    public void GazeOffTheWindow_UnYieldsOnlyAfterTheOffTime_AGazeOnTheKeysNeverDoes()
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        var contentRect = ContentScreenRect(probe);
+        window.UnYieldProbeGeometry = (WorkArea, contentRect, WidthDip, HeightDip);
+
+        window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+        window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+        Check.That(window.Top).IsEqualTo(YieldedBottomTop);
+
+        // The reported incident: the toolbar auto-hides. The Yield path itself must not move the
+        // keyboard back at that moment (ToolbarHides_WhileOpen_DoesNotUnYield pins the placement).
+        window.SetToolbarOccupancy(false, "none", 0);
+        Check.That(window.Top).IsEqualTo(YieldedBottomTop);
+
+        var keyCentre = Centres(window)["key_0_0"];
+        var offWindow = new PhysicalPoint(contentRect.X - 500, contentRect.Y - 500);
+
+        // 250 ms off the window: under the 300 ms threshold, nothing may move.
+        for (long t = 1_000_000; t <= 1_250_000; t += 50_000)
+        {
+            window.UpdateGaze(offWindow, t);
+            Check.WithCustomMessage("the keyboard un-yielded before 300 ms off the window")
+                .That(window.Top).IsEqualTo(YieldedBottomTop);
+        }
+
+        // A gaze kept ON the keys for 550 ms (it types, but must never move the window), which
+        // also resets the 250 ms off-run above.
+        for (long t = 1_300_000; t <= 1_850_000; t += 50_000)
+        {
+            window.UpdateGaze(keyCentre, t);
+            Check.WithCustomMessage("a gaze resting on a key un-yielded the keyboard")
+                .That(window.Top).IsEqualTo(YieldedBottomTop);
+        }
+
+        // Off again. If the inside samples had not reset the run, this first sample would already
+        // pass the threshold; a fresh run needs its own 300 ms.
+        var offAgainStart = 1_900_000;
+        for (long t = offAgainStart; t < offAgainStart + KeyboardUnYieldGate.OffThresholdUs; t += 50_000)
+        {
+            window.UpdateGaze(offWindow, t);
+            Check.WithCustomMessage(
+                    "the interrupted off-run was credited: the keyboard moved before a full "
+                    + "300 ms of continuous off-window samples")
+                .That(window.Top).IsEqualTo(YieldedBottomTop);
+        }
+
+        // 300 ms of continuous off-window samples: the un-yield.
+        window.UpdateGaze(offWindow, offAgainStart + KeyboardUnYieldGate.OffThresholdUs);
+        Check.WithCustomMessage("the keyboard did not un-yield after 300 ms off the window")
+            .That(window.Top).IsEqualTo(BottomTop);
+    }
+
+    [StaFact]
     public void ReShow_TakesTheUnYieldedPosition_ThroughTheShowPlacement()
     {
         var window = NewWindow();
@@ -100,9 +279,9 @@ public class KeyboardNeverMovesTests
             window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
             Check.That(window.Top).IsEqualTo(YieldedBottomTop);
 
-            // The next show is where an un-yield is allowed. This drives the same
-            // PlaceForShow the coordinator calls after Show(); deleting its session reset
-            // leaves this red (it would keep the yielded Top).
+            // A show is an un-yield (the other one is the gaze-off gate while open). This drives
+            // the same PlaceForShow the coordinator calls after Show(); deleting its session
+            // reset leaves this red (it would keep the yielded Top).
             window.PlaceForShow(WorkArea, WidthDip, HeightDip);
             Check.That(window.Top).IsEqualTo(BottomTop);
         }
@@ -538,4 +717,18 @@ public class KeyboardNeverMovesTests
         (Dictionary<string, PhysicalPoint>)typeof(KeyboardWindow)
             .GetField("_keyScreenPositions", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
+
+    /// <summary>
+    /// The probe content's rect in physical pixels — the window's whole on-screen surface (the
+    /// content was lifted out of the never-shown Window, so this is what the gaze-off gate must
+    /// judge "off the keyboard" against in the headless harness).
+    /// </summary>
+    private static PhysicalRect ContentScreenRect(Probe probe)
+    {
+        var topLeft = probe.Content.PointToScreen(new Point(0, 0));
+        var bottomRight = probe.Content.PointToScreen(
+            new Point(probe.Content.ActualWidth, probe.Content.ActualHeight));
+        return new PhysicalRect(topLeft.X, topLeft.Y,
+            bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+    }
 }

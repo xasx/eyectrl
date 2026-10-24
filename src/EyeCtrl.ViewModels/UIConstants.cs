@@ -51,4 +51,13 @@ public static class UIConstants
 
     public const double DragButtonRadius = 20.0;
     public const double DragReleaseButtonOffset = 14.0;
+
+    /// <summary>
+    /// Distance in logical pixels from the shared right-edge anchor to the fixed exit ("out")
+    /// slot's centre: <see cref="ButtonRadius"/> plus half the side-button gap, so two r50 buttons
+    /// in the two slots are exactly the gap apart. 60 DIP at the shipped sizes. Positive Y is
+    /// down, so the UPPER (exit) slot is the negative offset and a secondary button takes the
+    /// mirrored positive one.
+    /// </summary>
+    public const double EdgeButtonSlotOffset = ButtonRadius + ManualSelectionSideButtonGap / 2;
 }

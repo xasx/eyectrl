@@ -969,6 +969,13 @@ public class InteractionManager
     public void SetRepeatSuppressionZones(params PhysicalRect[] zones)
         => _repeatSuppressionZones = zones ?? Array.Empty<PhysicalRect>();
 
+    /// <summary>
+    /// Test seam (InternalsVisibleTo): the zones currently published for the repeat dwell, so the
+    /// app-side placement can be checked against the drawn stop button. The last entry is the
+    /// stop-button zone the controller appends after the toolbar band(s).
+    /// </summary>
+    internal IReadOnlyList<PhysicalRect> RepeatSuppressionZonesForTest => _repeatSuppressionZones;
+
     private bool IsInAnyRepeatSuppressionZone(PhysicalPoint point)
     {
         foreach (var z in _repeatSuppressionZones)

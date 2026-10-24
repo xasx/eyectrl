@@ -33,14 +33,19 @@ public interface IEdgeButtonBar
 {
     /// <summary>
     /// The bound view model, or null before binding. Exposed because callers need to ask what is
-    /// currently on the bar — <c>OverlayMessageCoordinator</c> checks whether the action menu's
-    /// close button is present before hiding, which is what stops a deferred menu-dismiss from
-    /// clearing a drag's cancel button the instant the drag begins.
+    /// currently on the bar and who owns it — the keyboard coordinator's show guard checks whether
+    /// the bar is free or already its own before claiming, which is what stops it from clobbering
+    /// a drag's cancel button.
     /// </summary>
     EdgeButtonBarViewModel? EdgeBarVm { get; }
 
-    /// <summary>Replaces the bar's contents with <paramref name="definitions"/> and shows it.</summary>
-    void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor);
+    /// <summary>
+    /// Replaces the bar's contents with <paramref name="definitions"/>, shows it, and claims it
+    /// for <paramref name="owner"/>. A previous owner's set and anchor are saved and restored
+    /// when <paramref name="owner"/> releases the bar.
+    /// </summary>
+    void ShowButtons(
+        IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor, EdgeBarOwner owner);
 
     /// <summary>Adds one button, leaving the others in place.</summary>
     void AddButton(EdgeButtonDefinition definition);
@@ -49,8 +54,11 @@ public interface IEdgeButtonBar
     void RemoveButton(string id);
 
     /// <summary>
-    /// Clears the bar and hides it. Note this is the view-model-level hide, NOT
-    /// <c>Window.Hide</c> — the window responds to the view model's visibility change.
+    /// Releases <paramref name="owner"/>'s claim. If it is the visible owner the previous owner's
+    /// buttons are restored (or the bar is cleared when none remains); a release by a displaced
+    /// owner withdraws its saved claim without touching the visible set; an unknown owner is a
+    /// no-op. This is the view-model-level hide, NOT <c>Window.Hide</c> — the window responds to
+    /// the view model's visibility change.
     /// </summary>
-    void Hide();
+    void Hide(EdgeBarOwner owner);
 }

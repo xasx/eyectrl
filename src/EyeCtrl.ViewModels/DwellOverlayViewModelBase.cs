@@ -31,7 +31,7 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// (forgiving dwell): the detector starts with its current value and every later change reaches
     /// the live detector without a restart. <c>null</c> (the default) keeps the grace at 0 —
     /// reset-on-leave, exactly the behaviour before the setting existed — which is what a surface
-    /// that has not opted in (the scroll overlay) must keep.
+    /// that has not opted in must keep.
     /// </param>
     protected DwellOverlayViewModelBase(IMessenger messenger, int dwellCooldownMs,
         DwellContext context = DwellContext.Other, IStruggleTelemetrySink? sink = null,

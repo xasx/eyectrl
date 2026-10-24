@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -18,11 +19,6 @@ using Serilog;
 /// </summary>
 public class ScrollModeController : IDisposable
 {
-    // Inset (logical px) from the right screen edge for the scroll stop button center.
-    // The bar additionally reserves button radius + margin on the right so the button
-    // never extends past the desktop edge.
-    private const double ScrollStopInsetLogical = 50;
-
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out NativePoint point);
 
@@ -56,6 +52,21 @@ public class ScrollModeController : IDisposable
             RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.stopScrolling"));
 
+    /// <summary>
+    /// The one anchor the stop button (and its scroll stop zone) is placed against: the shared
+    /// right-edge exit anchor every non-keyboard mode uses. Exposed so a test can pin the
+    /// production placement to the same absolute centre as the other modes.
+    /// </summary>
+    internal static PhysicalPoint ExitAnchorPhysical => ScreenGeometry.SharedRightEdgeExitAnchor();
+
+    /// <summary>
+    /// The scroll-stop button's slot: the fixed UPPER "out" slot, one radius-plus-half-gap above
+    /// the shared right-edge anchor (negative Y, 60 DIP at the shipped sizes). Exposed so a test
+    /// can pin the production placement, not just the factory's parameter.
+    /// </summary>
+    internal static double StopButtonVerticalOffsetPhysical =>
+        -DpiHelper.LogicalToPhysicalY(UIConstants.EdgeButtonSlotOffset);
+
     private readonly EventCoordinationContext _context;
     private readonly Func<IScrollOverlaySurface> _createOverlayWindow;
     private readonly Func<PhysicalPoint?> _cursorReader;
@@ -68,6 +79,10 @@ public class ScrollModeController : IDisposable
 
     /// <summary>The live worker, so a test can drive its ticks deterministically (G5).</summary>
     internal ScrollWorker? Worker => _scrollWorker;
+
+    /// <summary>The live overlay VM while the mode runs — test seam for the entry wiring (the
+    /// stop button's drawn slot and its stop zone must agree).</summary>
+    internal ScrollOverlayViewModel? OverlayVm => _scrollOverlayVm;
 
     public bool IsActive => _scrollModeActive;
 
@@ -153,35 +168,59 @@ public class ScrollModeController : IDisposable
 
         _context.OverlayManager.CursorCircle.Hide();
 
-        var edgeAnchor = ScreenGeometry.RightEdgeAnchor(ScrollStopInsetLogical, UIConstants.ButtonRadius);
+        var edgeAnchor = ExitAnchorPhysical;
+        var stopOffset = StopButtonVerticalOffsetPhysical;
         var scrollStopDwell = _context.Settings.Dwell.ScrollStopButtonDwellMs;
-        var stopDef = CreateScrollStopButtonDefinition(scrollStopDwell, verticalOffset: 0);
-        _context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
+        var stopDef = CreateScrollStopButtonDefinition(scrollStopDwell, stopOffset);
 
-        _scrollOverlayVm = new ScrollOverlayViewModel(
-            _context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell,
-            line => Log.Information("{Scroll}", line));
-        _scrollOverlayVm.EnterScrollMode(anchor, edgeAnchor);
+        // The button now sits in the upper out slot, so the scroll engine's stop zone must follow
+        // it: the zone is where the button is drawn, and leaving it on the anchor would let the
+        // page keep scrolling while the user dwells their way out.
+        var stopButtonCenter = edgeAnchor + new PhysicalPoint(0, stopOffset);
 
-        // F-S5 (E5): the entry diagnosis — the anchor, the two thresholds, where the OS cursor was
-        // before the park (H-A's discriminator), and what the backdrop was at the injection point.
-        Log.Information(
-            "{ScrollModeLine}", DescribeEntry(anchor, _scrollOverlayVm, entryCursor, backdropVisible));
+        try
+        {
+            _context.OverlayManager.EdgeButtonBar.ShowButtons(
+                new[] { stopDef }, edgeAnchor, EdgeBarOwner.Scroll);
+            _scrollModeActive = true;   // from here an Exit exists for every later failure (F6)
 
-        _scrollOverlayWindow = _createOverlayWindow();
-        _scrollOverlayWindow.Show(_scrollOverlayVm);
+            _scrollOverlayVm = new ScrollOverlayViewModel(
+                _context.Messenger, _context.Settings.Scroll, _context.Settings.Dwell,
+                line => Log.Information("{Scroll}", line));
+            _scrollOverlayVm.EnterScrollMode(anchor, stopButtonCenter);
 
-        _scrollWorker = new ScrollWorker(_context.InputSimulator);
-        _scrollWorker.Start(
-            anchor,
-            isArmed: () => _scrollOverlayVm?.IsArmed ?? false,
-            cursorReader: _cursorReader,
-            nearestPx: () => _scrollOverlayVm?.NearestPx ?? -1);
+            // F-S5 (E5): the entry diagnosis — the anchor, the two thresholds, where the OS cursor
+            // was before the park (H-A's discriminator), and what the backdrop was at the injection
+            // point.
+            Log.Information(
+                "{ScrollModeLine}", DescribeEntry(anchor, _scrollOverlayVm, entryCursor, backdropVisible));
 
-        _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
-        _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
+            _scrollOverlayWindow = _createOverlayWindow();
+            _scrollOverlayWindow.Show(_scrollOverlayVm);
 
-        _scrollModeActive = true;
+            _scrollWorker = new ScrollWorker(_context.InputSimulator);
+            _scrollWorker.Start(
+                anchor,
+                isArmed: () => _scrollOverlayVm?.IsArmed ?? false,
+                cursorReader: _cursorReader,
+                nearestPx: () => _scrollOverlayVm?.NearestPx ?? -1);
+
+            _scrollOverlayVm.TargetVelocityChanged += OnScrollTargetVelocityChanged;
+            _scrollOverlayVm.FeedbackChanged += OnScrollFeedbackChanged;
+        }
+        catch
+        {
+            // A failed entry must END the mode, not just drop its button: the process keeps
+            // running (supervision off logs and continues), and a mode left entered with an empty
+            // bar has no on-screen way out. ExitScrollMode is state-guarded and re-enters this
+            // controller's Exit on the same thread, tearing down anything already built; the
+            // explicit release covers a throw before the flag was set.
+            try { _context.InteractionManager.ExitScrollMode(); }
+            catch { /* the entering exception is the one that matters */ }
+            try { _context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Scroll); }
+            catch { /* the entering exception is the one that matters */ }
+            throw;
+        }
     }
 
     /// <summary>The F-S5 entry line. Invariant: the session scripts parse it, and a German decimal
@@ -227,7 +266,7 @@ public class ScrollModeController : IDisposable
                 _scrollWorker?.TotalWheels ?? 0,
                 _scrollOverlayVm?.IsArmed ?? false));
 
-        _context.OverlayManager.EdgeButtonBar.Hide();
+        _context.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Scroll);
 
         _scrollWorker?.Stop();
         _scrollWorker?.Dispose();

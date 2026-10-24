@@ -90,6 +90,10 @@ internal sealed class DragCoordinator : CoordinatorBase
     {
         var context = Context!;
         context.InteractionManager.DragStarted += OnDragStarted;
+        // A5: Pause during a drag CANCELS it (owner decision 2026-10-22) before the state flips
+        // to Paused. The hook is the same OnDragCancel path the Cancel button and ESC use, so the
+        // release-first ordering and the exactly-once _osButtonHeld claim are preserved.
+        context.InteractionManager.CancelDragForPause += OnPauseCancelDrag;
         context.DragTrailVM.PropertyChanged += OnDragTrailVMPropertyChanged;
         context.Messenger.Register<DragCoordinator, DragDropMessage>(this, (_, m) =>
             context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
@@ -282,8 +286,9 @@ internal sealed class DragCoordinator : CoordinatorBase
         try { CloseDragOverlay(); }
         catch (Exception ex) { Log.Error(ex, "Failed to close the drag trail overlay while aborting a drag."); }
 
-        // Back to FreeLook, or the user is stuck in a Dragging state with nothing to drag and
-        // TogglePause deliberately blocked.
+        // Back to FreeLook, or the user is stuck in a Dragging state with nothing to drag: the
+        // drag never became usable, so its cancel path is not reachable (the state-only exit is
+        // the only reset this abort can rely on).
         try { Context?.InteractionManager.CompleteDrag(); }
         catch (Exception ex) { Log.Error(ex, "Failed to reset interaction state while aborting a drag."); }
     }
@@ -375,6 +380,18 @@ internal sealed class DragCoordinator : CoordinatorBase
         CloseDragOverlay();
     }
 
+    /// <summary>
+    /// A5's pause entry: <c>InteractionManager.TogglePause</c> raises this BEFORE it enters
+    /// <c>Paused</c>, and the state flip waits for this handler to return. It runs the existing
+    /// cancel path (release at the grab point → hide the bar → <c>CompleteDrag</c> → close the
+    /// trail), which is the owner's decision: dragging + Pause = cancel. The dispatcher hop is
+    /// synchronous on purpose — TogglePause can be reached off the UI thread (the Pause message is
+    /// delivered on the sender's thread), while the cancel touches WPF windows, and a queued
+    /// BeginInvoke would let Paused overtake the button release (the sticky notes' NoteInputPolicy
+    /// would then read the release as a caretaker click).
+    /// </summary>
+    private void OnPauseCancelDrag() => RunOnUiThreadSynchronously(OnDragCancel);
+
     private void CloseDragOverlay()
     {
         _dragTrailOverlay?.Close();
@@ -431,6 +448,7 @@ internal sealed class DragCoordinator : CoordinatorBase
         }
 
         Context.InteractionManager.DragStarted -= OnDragStarted;
+        Context.InteractionManager.CancelDragForPause -= OnPauseCancelDrag;
         Context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
         Context.EscapeHatch.EscapePressed -= OnEscapePressed;
         CloseDragOverlay();

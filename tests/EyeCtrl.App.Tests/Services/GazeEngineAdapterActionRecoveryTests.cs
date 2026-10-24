@@ -18,9 +18,10 @@ using Xunit;
 /// <c>ScrollMode</c>. So the recovery looked symmetric and recovered nothing.
 /// </para>
 /// <para>
-/// Being stuck in <c>Dragging</c> or <c>ScrollMode</c> is the worst outcome available:
-/// <c>TogglePause</c> is deliberately blocked in both, so a gaze-only user would have no cancel
-/// button and no way to pause out of it.
+/// Being stuck in <c>Dragging</c> or <c>ScrollMode</c> is the worst outcome available: the mode's
+/// own cancel/stop is the way out, and a throw on this entry path can leave that surface half-built.
+/// (Before A5, <c>TogglePause</c> was also blocked in both; it is not any more, but the reset is
+/// still what unwinds the state.)
 /// </para>
 /// <para>
 /// These assert the property directly on <see cref="InteractionManager"/> rather than through the
@@ -83,8 +84,8 @@ public class GazeEngineAdapterActionRecoveryTests
     [Fact]
     public void TheReset_RecoversFromDragging()
     {
-        // The worst case: TogglePause is blocked in Dragging, so being stuck here leaves a
-        // gaze-only user with no cancel button and no way to pause out.
+        // The worst case: the throw leaves Dragging, where the drag's own cancel is the escape a
+        // gaze-only user would have to aim for.
         var im = InActionMenu();
         im.OnActionSelected(InteractionAction.Drag);
         Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);

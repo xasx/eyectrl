@@ -188,6 +188,39 @@ public class InteractionManager
     /// <summary>Fired when a Drag action is selected. Carries the resolved grab origin point.</summary>
     public event Action<PhysicalPoint>? DragStarted;
 
+    /// <summary>
+    /// Raised by <see cref="TogglePause"/> when it is asked to pause during
+    /// <see cref="InteractionState.Dragging"/> — BEFORE the state becomes
+    /// <see cref="InteractionState.Paused"/>. The App's drag owner cancels the drag here: release
+    /// the held OS button at the grab point (the existing <c>DragCancelMessage → OnDragCancel</c>
+    /// path), hide the bar, complete the drag and close the trail. The handler must run to
+    /// completion synchronously — marshaling to the UI thread and WAITING for it when called from
+    /// another thread — because the pause waits for this to return: no synthesized mouse input may
+    /// follow the Paused flip (the sticky notes' <c>NoteInputPolicy</c> treats a click while paused
+    /// as a physical caretaker click). A handler that throws leaves the state in the mode and the
+    /// pause does not happen: the release did not finish, so the pause must not claim it did.
+    /// </summary>
+    public event Action? CancelDragForPause;
+
+    /// <summary>
+    /// Raised by <see cref="TogglePause"/> when it is asked to pause during
+    /// <see cref="InteractionState.RepeatMode"/>, BEFORE the state becomes
+    /// <see cref="InteractionState.Paused"/>. The App's repeat owner runs the existing repeat stop
+    /// here (<c>im.ExitRepeatMode()</c>); the handler follows the same synchronous contract as
+    /// <see cref="CancelDragForPause"/>.
+    /// </summary>
+    public event Action? ExitRepeatModeForPause;
+
+    /// <summary>
+    /// Raised by <see cref="TogglePause"/> when it is asked to pause during
+    /// <see cref="InteractionState.ScrollMode"/>, BEFORE the state becomes
+    /// <see cref="InteractionState.Paused"/>. The App's scroll owner runs the existing scroll stop
+    /// here (<c>im.ExitScrollMode()</c>, which tears the scroll worker down in the App's
+    /// <c>ScrollModeController</c>) so no scroll injection can follow the flip; the handler
+    /// follows the same synchronous contract as <see cref="CancelDragForPause"/>.
+    /// </summary>
+    public event Action? ExitScrollModeForPause;
+
     // Locked-action dwell-to-act (design D23–D28). Timing is sample-clock driven: a fixation
     // ARMS the dwell at its start point; only VALID gaze samples advance it; one fire per
     // fixation. Liveness also comes from raw validity (review PR #139 finding 1 — every filtered
@@ -830,27 +863,71 @@ public class InteractionManager
         ResetToFreeLook();
     }
 
-    /// <summary>Toggles gaze tracking between paused and active states.</summary>
-    /// <remarks>Blocked during <see cref="InteractionState.ScrollMode"/>, <see cref="InteractionState.Dragging"/> and <see cref="InteractionState.RepeatMode"/> — use the stop/cancel affordances to exit those modes.</remarks>
+    /// <summary>
+    /// Toggles gaze tracking between paused and active states.
+    /// <para>
+    /// <b>Pause is universal (A5).</b> In <see cref="InteractionState.Dragging"/>,
+    /// <see cref="InteractionState.RepeatMode"/> and <see cref="InteractionState.ScrollMode"/> the
+    /// mode is ended through its owner FIRST — <see cref="CancelDragForPause"/>,
+    /// <see cref="ExitRepeatModeForPause"/> and <see cref="ExitScrollModeForPause"/>, invoked
+    /// synchronously on this thread — and only then does the state become
+    /// <see cref="InteractionState.Paused"/>. Every synthesized mouse input (above all the drag's
+    /// button release, and any scroll the worker would still inject) therefore COMPLETES before the
+    /// flip: the sticky notes' <c>NoteInputPolicy</c> treats any click while paused as a physical
+    /// caretaker click. A throwing hook leaves the state in the mode and lets the exception escape —
+    /// an unfinished release must not be followed by Paused. When no owner is wired the matching
+    /// state-only exit still runs after the hook, so the machine never keeps a mode's payload and
+    /// Pause always reaches Paused.
+    /// </para>
+    /// <para>Resume is unchanged: a second call goes <see cref="InteractionState.Paused"/> →
+    /// <see cref="InteractionState.FreeLook"/>. No paused-like state exists.</para>
+    /// </summary>
     public void TogglePause()
     {
         if (CurrentState == InteractionState.Paused)
         {
             SetState(InteractionState.FreeLook);
-        }
-        else if (CurrentState is InteractionState.ScrollMode or InteractionState.Dragging or InteractionState.RepeatMode)
-        {
             return;
         }
-        else
+
+        EndLockedModeForPause();
+
+        // Pausing is a teardown: the offer is requested clear on the gaze thread, so a linger
+        // cannot outlive the pause and complete while the user is elsewhere (M5).
+        RequestActivationOfferClear();
+        HideActionMenu?.Invoke();
+        if (CurrentState is InteractionState.ManualSelectionActive or InteractionState.ManualSelectionActionMenuVisible)
+            EndManualSelection?.Invoke();
+        SetState(InteractionState.Paused);
+    }
+
+    /// <summary>
+    /// Ends a locked mode as the first step of a pause. The owner's hook runs first and must
+    /// complete the mode's teardown — including the drag's button release — before it returns; the
+    /// state-only exit that follows is the safety net for a bare manager with no owner wired (and a
+    /// no-op once the owner has already ended the mode).
+    /// <para>
+    /// The hook is deliberately raised BEFORE <see cref="SetState"/>: that is the ordering contract
+    /// (see <see cref="TogglePause"/>). Do not try/catch around the hook — swallowing its failure
+    /// would let the pause overtake an unfinished release.
+    /// </para>
+    /// </summary>
+    private void EndLockedModeForPause()
+    {
+        switch (CurrentState)
         {
-            // Pausing is a teardown: the offer is requested clear on the gaze thread, so a linger
-            // cannot outlive the pause and complete while the user is elsewhere (M5).
-            RequestActivationOfferClear();
-            HideActionMenu?.Invoke();
-            if (CurrentState is InteractionState.ManualSelectionActive or InteractionState.ManualSelectionActionMenuVisible)
-                EndManualSelection?.Invoke();
-            SetState(InteractionState.Paused);
+            case InteractionState.Dragging:
+                CancelDragForPause?.Invoke();
+                CompleteDrag();
+                break;
+            case InteractionState.RepeatMode:
+                ExitRepeatModeForPause?.Invoke();
+                ExitRepeatMode();
+                break;
+            case InteractionState.ScrollMode:
+                ExitScrollModeForPause?.Invoke();
+                ExitScrollMode();
+                break;
         }
     }
 

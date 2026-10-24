@@ -357,18 +357,64 @@ public class InteractionManagerTests
     }
 
     [Fact]
-    public void TogglePause_DuringDragging_IsBlocked()
+    public void TogglePause_DuringDragging_CancelsThenPauses()
     {
+        // A5 (a) at the Core contract level: the owner's cancel hook is raised BEFORE the state
+        // flips, so every synthesized input it issues (the button release, above all) completes
+        // first. The owner returns the machine to FreeLook, and only then does Paused land.
         var manager = new InteractionManager();
+        var events = new List<string>();
+        manager.StateChanged += s => events.Add(s.ToString());
+        manager.CancelDragForPause += () =>
+        {
+            events.Add("cancel");
+            manager.CompleteDrag();
+        };
+
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
         manager.OnActionSelected(InteractionAction.Drag);
         Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
+        events.Clear();
 
         manager.TogglePause();
 
+        Check.That(events).ContainsExactly("cancel", "FreeLook", "Paused");
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Paused);
+    }
+
+    [Fact]
+    public void TogglePause_DuringDragging_WithoutAnOwner_StillReachesPaused()
+    {
+        // The bare manager has no drag owner to release the button; the state-only exit still runs
+        // (the same CompleteDrag the drag's own paths use), so Pause always reaches Paused and no
+        // mode payload is left behind.
+        var manager = new InteractionManager();
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        manager.TogglePause();
+
+        Check.That(manager.CurrentState).IsEqualTo(InteractionState.Paused);
+    }
+
+    [Fact]
+    public void TogglePause_DuringDragging_WhenTheCancelThrows_DoesNotPause()
+    {
+        // The pause WAITS for the release: a release that did not finish must not be followed by
+        // Paused (the sticky notes would read anything synthesized afterwards as a caretaker
+        // click). The exception escapes; the process-level paths own the fatal handling.
+        var manager = new InteractionManager();
+        manager.CancelDragForPause += () => throw new InvalidOperationException("the release failed");
+        manager.OnFixationStarted(new PhysicalPoint(100, 100));
+        manager.OnActivationButtonDwelled();
+        manager.OnActionSelected(InteractionAction.Drag);
+
+        Check.ThatCode(() => manager.TogglePause()).Throws<InvalidOperationException>();
         Check.That(manager.CurrentState).IsEqualTo(InteractionState.Dragging);
     }
+
     [Fact]
     public void OnActionMenuDismissed_FromTheManualSelectionPath_EndsManualSelectionToo()
     {

@@ -24,6 +24,8 @@ internal abstract class CoordinatorBase : IDisposable
 
     protected abstract void OnInitialize();
 
+    protected virtual void OnDispose() { }
+
     public void Dispose()
     {
         if (_disposed)
@@ -33,5 +35,21 @@ internal abstract class CoordinatorBase : IDisposable
         Context?.Messenger.UnregisterAll(this);
     }
 
-    protected virtual void OnDispose() { }
+    /// <summary>
+    /// Runs <paramref name="work"/> on the context's dispatcher and WAITS for it: inline when
+    /// already there, otherwise a blocking <see cref="System.Windows.Threading.Dispatcher.Invoke(Action)"/>.
+    /// The wait is the point. The paused-teardown hooks (<c>InteractionManager.TogglePause</c>'s
+    /// cancel-drag/exit-repeat/exit-scroll) must finish the mode's teardown — above all a
+    /// synthesized button release — BEFORE the state becomes Paused, and a queued
+    /// <c>BeginInvoke</c> would let the pause overtake it (A5's ordering contract). A null
+    /// dispatcher (focused coordinator tests) runs inline.
+    /// </summary>
+    protected void RunOnUiThreadSynchronously(Action work)
+    {
+        var dispatcher = Context?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+            work();
+        else
+            dispatcher.Invoke(work);
+    }
 }

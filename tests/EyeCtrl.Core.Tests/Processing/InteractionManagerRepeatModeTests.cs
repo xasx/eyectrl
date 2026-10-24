@@ -181,10 +181,24 @@ public class InteractionManagerRepeatModeTests
     }
 
     [Fact]
-    public void TogglePause_IsBlockedInRepeatMode()
+    public void TogglePause_InRepeatMode_ExitsRepeatThenPauses()
     {
+        // A5 (b) at the Core contract level: the repeat stop runs first (the owner's hook), then
+        // the state flips to Paused — and the locked action is gone, so nothing is re-armed into
+        // the paused state.
         var im = Armed(InteractionAction.LeftClick);
+        var events = new List<string>();
+        im.StateChanged += s => events.Add(s.ToString());
+        im.ExitRepeatModeForPause += () =>
+        {
+            events.Add("exit-repeat");
+            im.ExitRepeatMode();
+        };
+
         im.TogglePause();
-        Check.That(im.CurrentState).IsEqualTo(InteractionState.RepeatMode);
+
+        Check.That(events).ContainsExactly("exit-repeat", "FreeLook", "Paused");
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(im.RepeatAction).IsNull();
     }
 }

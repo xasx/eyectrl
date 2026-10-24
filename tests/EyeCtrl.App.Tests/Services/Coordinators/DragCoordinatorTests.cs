@@ -1,8 +1,10 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -380,6 +382,93 @@ public class DragCoordinatorTests
     }
 
     [Fact]
+    public void PauseDuringADrag_CancelsAtTheGrabPointBeforeTheStateFlips()
+    {
+        // A5 (a) end to end: the owner's decision — dragging + Pause = CANCEL — through the
+        // existing OnDragCancel path, and the binding ordering contract. The event log INTERLEAVES
+        // the injected input with the state notifications, so it pins that the release is observed
+        // BEFORE StateChanged(Paused): the sticky notes' NoteInputPolicy treats any click while
+        // paused as a physical caretaker click, and the release the cancel just sent is a click.
+        // Exactly one MouseUp, at the grab point — the exactly-once _osButtonHeld claim.
+        var input = new PauseOrderingSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var im = context.InteractionManager;
+        input.Manager = () => im;
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+        im.StateChanged += s => input.Events.Add($"state:{s}");
+
+        var origin = new PhysicalPoint(210, 120);
+        im.OnFixationStarted(origin);
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        input.Events.Clear();
+
+        im.TogglePause();
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(input.Events).ContainsExactly("release", "state:FreeLook", "state:Paused");
+        // The REAL policy, read at the instant the synthesized release would hit Windows.
+        Check.WithCustomMessage("the drag release was treated as a caretaker click while paused.")
+             .That(input.PolicyAcceptedTheRelease).IsEqualTo(false);
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonEvents.Single(e => e.Action == "MouseUp").Point).IsEqualTo(origin);
+        Check.That(bar.ShownButtonIds).IsEmpty();
+        Check.That(overlay.CloseCount).IsEqualTo(1);
+
+        // (d) Resume is unchanged: a second Pause goes Paused → FreeLook.
+        im.TogglePause();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [StaFact]
+    public void PauseFromAPoolThread_ReleasesOnTheUiThreadBeforeTheFlip()
+    {
+        // The mechanism's threading half. TogglePause can be reached off the UI thread (the Pause
+        // message is delivered on the sender's thread); the cancel touches WPF windows, so the
+        // hook marshals — and WAITS. Mutation: BeginInvoke instead of Invoke → the state flips to
+        // Paused before the release, and the release runs later (the log order and the release
+        // thread both go red).
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var uiThread = Environment.CurrentManagedThreadId;
+        var input = new PauseOrderingSimulator();
+        var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+        var context = madeContext with { Dispatcher = dispatcher };
+        var im = context.InteractionManager;
+        input.Manager = () => im;
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+        im.StateChanged += s => input.Events.Add($"state:{s}");
+
+        im.OnFixationStarted(new PhysicalPoint(55, 66));
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+        input.Events.Clear();
+
+        Exception? failure = null;
+        var frame = new DispatcherFrame();
+        var pause = Task.Run(() =>
+        {
+            try { im.TogglePause(); }
+            catch (Exception ex) { failure = ex; }
+        });
+        pause.ContinueWith(_ => dispatcher.BeginInvoke(() => frame.Continue = false), TaskScheduler.Default);
+        Dispatcher.PushFrame(frame);   // the UI thread pumps so the blocking Invoke can run
+        pause.Wait();
+
+        Check.That(failure).IsNull();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(input.Events).ContainsExactly("release", "state:FreeLook", "state:Paused");
+        Check.WithCustomMessage("the release did not run on the UI thread.")
+             .That(input.ReleaseThreadId).IsEqualTo(uiThread);
+        Check.That(input.PolicyAcceptedTheRelease).IsEqualTo(false);
+    }
+
+    [Fact]
     public void ASuccessfulDragThenDrop_BalancesAndClearsTheBar()
     {
         // The ordinary path, now observable end to end. Also pins that the drop clears the cancel
@@ -466,6 +555,65 @@ public class DragCoordinatorTests
 
         Check.That(input.MouseUpCount).IsEqualTo(1);
         Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    /// <summary>
+    /// Records the injected input and the interaction-state notifications into ONE ordered log, and
+    /// reads the real <see cref="NoteInputPolicy"/> at the instant of the release. <c>Manager</c> is
+    /// assigned after the context exists, because the fake is needed to build the context.
+    /// </summary>
+    private sealed class PauseOrderingSimulator : IInputSimulator
+    {
+        public Func<InteractionManager>? Manager { get; set; }
+
+        public List<string> Events { get; } = new();
+
+        public List<(string Action, PhysicalPoint Point)> ButtonEvents { get; } = new();
+
+        public int? ReleaseThreadId { get; private set; }
+
+        public bool? PolicyAcceptedTheRelease { get; private set; }
+
+        public int MouseDownCount => ButtonEvents.Count(e => e.Action == "MouseDown");
+
+        public int MouseUpCount => ButtonEvents.Count(e => e.Action == "MouseUp");
+
+        public void MouseDown(PhysicalPoint point)
+        {
+            ButtonEvents.Add(("MouseDown", point));
+            Events.Add("down");
+        }
+
+        public void MouseUp(PhysicalPoint point)
+        {
+            ButtonEvents.Add(("MouseUp", point));
+            Events.Add("release");
+            ReleaseThreadId = Environment.CurrentManagedThreadId;
+            if (Manager is { } manager)
+            {
+                // THE REAL T6 P5 DECISION, not a stand-in: the sticky notes accept a mouse input
+                // only while EyeCtrl is paused, and EyeCtrl's own synthesized clicks are excluded
+                // by that gate. A release that lands before the flip must be rejected here.
+                PolicyAcceptedTheRelease = NoteInputPolicy.Accepts(
+                    NoteInputKind.Mouse,
+                    paused: manager().CurrentState == InteractionState.Paused,
+                    fromStylus: false,
+                    controlVisible: true,
+                    controlRegistered: true);
+            }
+        }
+
+        public void MoveCursor(PhysicalPoint point) { }
+        public void LeftClick(PhysicalPoint point) { }
+        public void RightClick(PhysicalPoint point) { }
+        public void DoubleClick(PhysicalPoint point) { }
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { }
+        public void SendKeyPress(ushort virtualKeyCode) { }
+        public void SendKeyPress(ushort virtualKeyCode, bool isExtendedKey) { }
+        public void SendKeyDown(ushort virtualKeyCode) { }
+        public void SendKeyUp(ushort virtualKeyCode) { }
+        public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 
     /// <summary>

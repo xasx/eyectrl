@@ -73,6 +73,10 @@ internal sealed class RepeatModeController : CoordinatorBase
     {
         var context = Context!;
         context.InteractionManager.StateChanged += OnStateChanged;
+        // A5: Pause in repeat mode runs the existing stop (the same im.ExitRepeatMode the stop
+        // button and ESC reach) before the state flips to Paused. The handler is synchronous: the
+        // pause waits for it, so no mode payload survives into Paused.
+        context.InteractionManager.ExitRepeatModeForPause += OnPauseExitRepeatMode;
 
         // Review PR #139 round 3 finding 1 — the entry guard's missing half. A Modes row is a
         // 700 ms dwell while fixation fires at 300 ms and nothing else suppresses it, so at row
@@ -139,6 +143,22 @@ internal sealed class RepeatModeController : CoordinatorBase
                     ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
             }
         });
+    }
+
+    /// <summary>
+    /// A5's pause entry: <c>InteractionManager.TogglePause</c> raises this BEFORE it enters
+    /// <c>Paused</c>, and the state flip waits for this handler to return. It runs the existing
+    /// repeat stop — the same <c>im.ExitRepeatMode()</c> the stop button's
+    /// <c>ExitRepeatModeMessage</c> and the ESC hatch end up at; the controller's own
+    /// <c>StateChanged</c> handler then clears the stop button and the suppression zones. The
+    /// dispatcher hop is synchronous on purpose: TogglePause can be reached off the UI thread, and
+    /// a queued BeginInvoke would let Paused overtake the exit.
+    /// </summary>
+    private void OnPauseExitRepeatMode()
+    {
+        var context = Context;
+        if (context is null) return;
+        RunOnUiThreadSynchronously(() => context.InteractionManager.ExitRepeatMode());
     }
 
     private void OnStateChanged(InteractionState state)
@@ -260,6 +280,7 @@ internal sealed class RepeatModeController : CoordinatorBase
         if (_active) Exit();
         if (Context is null) return;
         Context.InteractionManager.StateChanged -= OnStateChanged;
+        Context.InteractionManager.ExitRepeatModeForPause -= OnPauseExitRepeatMode;
         Context.EscapeHatch.EscapePressed -= OnEscapePressed;
     }
 }

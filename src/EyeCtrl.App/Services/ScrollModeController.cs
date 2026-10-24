@@ -103,8 +103,30 @@ public class ScrollModeController : IDisposable
         _createOverlayWindow = createOverlayWindow ?? throw new ArgumentNullException(nameof(createOverlayWindow));
         _cursorReader = cursorReader ?? ReadCursorPosition;
         _context.InteractionManager.StateChanged += OnInteractionStateChanged;
+        // A5: Pause in scroll mode runs the existing scroll stop before the state flips to Paused,
+        // so the worker stops injecting wheels FIRST. The state-only exit is the same
+        // im.ExitScrollMode the stop button's ExitScrollModeMessage reaches; the Exit below then
+        // stops and disposes the worker and closes the overlay.
+        _context.InteractionManager.ExitScrollModeForPause += OnPauseExitScrollMode;
         _context.Messenger.Register<ScrollModeController, ExitScrollModeMessage>(this, (_, _) =>
             _context.Dispatcher.BeginInvoke(() => _context.InteractionManager.ExitScrollMode()));
+    }
+
+    /// <summary>
+    /// A5's pause entry: <c>InteractionManager.TogglePause</c> raises this BEFORE it enters
+    /// <c>Paused</c>, and the state flip waits for this handler to return. The blocking dispatcher
+    /// hop is the point: from another thread a queued <c>BeginInvoke</c> would let Paused overtake
+    /// the stop, and the scroll worker could still inject a wheel while the user is paused. On the
+    /// UI thread the exit runs inline, and its <c>StateChanged(FreeLook)</c> tears the worker down
+    /// synchronously (see <see cref="OnInteractionStateChanged"/>) before returning here.
+    /// </summary>
+    private void OnPauseExitScrollMode()
+    {
+        var dispatcher = _context.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+            _context.InteractionManager.ExitScrollMode();
+        else
+            dispatcher.Invoke(() => _context.InteractionManager.ExitScrollMode());
     }
 
     // StateChanged arrives on whichever thread wrote the state — the gaze thread included (a
@@ -295,6 +317,7 @@ public class ScrollModeController : IDisposable
         if (_scrollModeActive) ExitScrollMode();
         _disposed = true;
         _context.InteractionManager.StateChanged -= OnInteractionStateChanged;
+        _context.InteractionManager.ExitScrollModeForPause -= OnPauseExitScrollMode;
     }
 }
 

@@ -1,13 +1,19 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Services.Notes;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using Xunit;
 
 /// <summary>
@@ -34,6 +40,7 @@ using Xunit;
 /// through a successful start rather than through a compensated failure.
 /// </para>
 /// </summary>
+[Collection("WpfApplication")]
 public class DragCoordinatorTests
 {
     private static DragCoordinator ThrowingOverlayFactory(
@@ -380,6 +387,280 @@ public class DragCoordinatorTests
     }
 
     [Fact]
+    public void PauseDuringADrag_CancelsAtTheGrabPointBeforeTheStateFlips()
+    {
+        // A5 (a) end to end: the owner's decision — dragging + Pause = CANCEL — through the
+        // existing OnDragCancel path, and the binding ordering contract. The event log INTERLEAVES
+        // the injected input with the state notifications, so it pins that the release is ISSUED
+        // before StateChanged(Paused). The guarantee lives at the SendInput layer: delivery to a
+        // note window is necessarily later (the dispatcher is busy in TogglePause), and the notes'
+        // press pairing is what makes that late delivery inert — a release acts only on a press,
+        // and presses are recorded only while paused.
+        // Exactly one MouseUp, at the grab point — the exactly-once _osButtonHeld claim.
+        var input = new PauseOrderingSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var im = context.InteractionManager;
+        input.Manager = () => im;
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+        im.StateChanged += s => input.Events.Add($"state:{s}");
+
+        var origin = new PhysicalPoint(210, 120);
+        im.OnFixationStarted(origin);
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        input.Events.Clear();
+
+        im.TogglePause();
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(input.Events).ContainsExactly("release", "state:FreeLook", "state:Paused");
+        // The REAL policy, read at the instant the synthesized release would hit Windows.
+        Check.WithCustomMessage("the drag release was treated as a caretaker click while paused.")
+             .That(input.PolicyAcceptedTheRelease).IsEqualTo(false);
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonEvents.Single(e => e.Action == "MouseUp").Point).IsEqualTo(origin);
+        Check.That(bar.ShownButtonIds).IsEmpty();
+        Check.That(overlay.CloseCount).IsEqualTo(1);
+
+        // (d) Resume is unchanged: a second Pause goes Paused → FreeLook.
+        im.TogglePause();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [StaFact]
+    public void PauseFromAPoolThread_ReleasesOnTheUiThreadBeforeTheFlip()
+    {
+        // The defensive branch (A5 fixup-01 F6/F7): TogglePause is UI-thread-only in production, so
+        // this path has no caller. It must not fire-and-forget if one ever appears: the drag hook
+        // marshals AND waits. Mutation: BeginInvoke instead of Invoke → the state flips to Paused
+        // before the release, and the release runs later (the log order and the release thread
+        // both go red).
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var uiThread = Environment.CurrentManagedThreadId;
+        var input = new PauseOrderingSimulator();
+        var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+        var context = madeContext with { Dispatcher = dispatcher };
+        var im = context.InteractionManager;
+        input.Manager = () => im;
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+        im.StateChanged += s => input.Events.Add($"state:{s}");
+
+        im.OnFixationStarted(new PhysicalPoint(55, 66));
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+        input.Events.Clear();
+
+        Exception? failure = null;
+        var frame = new DispatcherFrame();
+        var pause = Task.Run(() =>
+        {
+            try { im.TogglePause(); }
+            catch (Exception ex) { failure = ex; }
+        });
+        pause.ContinueWith(_ => dispatcher.BeginInvoke(() => frame.Continue = false), TaskScheduler.Default);
+        Dispatcher.PushFrame(frame);   // the UI thread pumps so the blocking Invoke can run
+        pause.Wait();
+
+        Check.That(failure).IsNull();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(input.Events).ContainsExactly("release", "state:FreeLook", "state:Paused");
+        Check.WithCustomMessage("the release did not run on the UI thread.")
+             .That(input.ReleaseThreadId).IsEqualTo(uiThread);
+        Check.That(input.PolicyAcceptedTheRelease).IsEqualTo(false);
+    }
+
+    [StaFact]
+    public void PauseDuringADrag_ResetsTheTrailVm_AndALaterRestDropsNothing()
+    {
+        // A5 fixup-01 F1. The Pause-cancel calls OnDragCancel DIRECTLY, so it misses the
+        // DragCancelMessage fan-out that resets DragTrailViewModel. Measured before the fix:
+        // IsDragActive stayed true, the trail kept a live dwell target (DwellActiveWhilePaused)
+        // and a 4 s rest settled into a ghost DragDropMessage. No input resulted only because the
+        // release claim was already spent — one guard away from an input while paused.
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var input = new TestFakes.FakeInputSimulator();
+        var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+        var context = madeContext with { Dispatcher = dispatcher };
+        var im = context.InteractionManager;
+        var drag = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        drag.Initialize(context);
+
+        var drops = 0;
+        context.Messenger.Register<DragDropMessage>(context, (_, _) => drops++);
+
+        var origin = new PhysicalPoint(310, 210);
+        im.OnFixationStarted(origin);
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+
+        im.TogglePause();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.WithCustomMessage("the trail view model stayed active after the Pause-cancel.")
+             .That(context.DragTrailVM.IsDragActive).IsFalse();
+
+        // Four seconds of rest, well past the 500 ms settle, at a spot away from every exit.
+        var rest = new PhysicalPoint(700, 500);
+        for (long t = 0; t <= 4_000_000; t += 30_000)
+            context.Messenger.Send(new GazeCursorMovedMessage(rest, t));
+        dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+        Check.WithCustomMessage("the paused trail still settled and sent a ghost drop.")
+             .That(drops).IsEqualTo(0);
+        Check.That(input.MouseUpCount).IsEqualTo(1);   // only the Pause-cancel release
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [Fact]
+    public void PauseDuringADrag_WithAThrowingBarHide_StillPauses()
+    {
+        // A5 fixup-01 F3: the release is first and unguarded; the cosmetic teardown after it is
+        // log-and-continue. Before the guard, a bar Hide throw escaped the hook and TogglePause
+        // refused — the user stayed in Dragging with the trail over the desktop and Pause dead.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var im = context.InteractionManager;
+        var drag = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        drag.Initialize(context);
+
+        var origin = new PhysicalPoint(410, 210);
+        im.OnFixationStarted(origin);
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+
+        bar.HideFailure = new InvalidOperationException("the bar refused the hide");
+        Check.ThatCode(() => im.TogglePause()).DoesNotThrow();
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonEvents.Single(e => e.Action == "MouseUp").Point).IsEqualTo(origin);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(context.DragTrailVM.IsDragActive).IsFalse();
+
+        // Pause still toggles: the next one resumes.
+        im.TogglePause();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [Fact]
+    public void PauseDuringADrag_WithAThrowingRelease_StillPauses_AndDisposeRetries()
+    {
+        // A5 fixup-01 F3's last clause: a failed release is LOGGED and the pause still lands —
+        // staying in Dragging would keep a held button moving with the gaze, while Paused freezes
+        // the pointer. ReleaseHeldButton restores the exactly-once claim, so dispose retries and
+        // the button ends balanced.
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            var input = new ThrowOnFirstReleaseSimulator();
+            var (context, _) = TestFakes.MakeDragContextWithBar(input);
+            var im = context.InteractionManager;
+            var drag = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+            drag.Initialize(context);
+
+            im.OnFixationStarted(new PhysicalPoint(510, 210));
+            im.OnActivationButtonDwelled();
+            im.OnActionSelected(InteractionAction.Drag);
+            Check.That(input.MouseDownCount).IsEqualTo(1);
+            Check.That(input.MouseUpCount).IsEqualTo(0);   // genuinely held
+
+            Check.ThatCode(() => im.TogglePause()).DoesNotThrow();
+
+            Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.That(input.MouseUpCount).IsEqualTo(0);   // attempted, failed, not marked done
+            Check.That(context.DragTrailVM.IsDragActive).IsFalse();
+            Check.WithCustomMessage($"the failed release went unlogged; saw: {string.Join(" | ", sink.Messages)}")
+                 .That(sink.Messages.Any(m => m.Contains("The drag release failed", StringComparison.Ordinal)))
+                 .IsTrue();
+
+            drag.Dispose();                                // the restored claim retries the release
+            Check.That(input.MouseUpCount).IsEqualTo(1);
+            Check.That(input.ButtonsBalanced).IsTrue();
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    /// <summary>Captures the lines a test wrote through the process-global Serilog logger.</summary>
+    private sealed class CapturingSink : ILogEventSink
+    {
+        public List<string> Messages { get; } = new();
+
+        public void Emit(LogEvent logEvent) => Messages.Add(logEvent.RenderMessage());
+    }
+
+    [Fact]
+    public void PauseCancelDrag_WhenTheDispatcherHasShutDown_PausesAndKeepsTheClaim()
+    {
+        // G4 (fixup-02), pinning the F7 shutdown branch. TogglePause is UI-thread-only in
+        // production, so this guards the defensive marshal only: it must not queue the teardown
+        // onto a dead dispatcher (the "Invoke returns without running" trap). It logs, reports
+        // "not run", leaves the claim for dispose, and Pause still lands.
+        Dispatcher? ui = null;
+        using var ready = new ManualResetEventSlim();
+        var worker = new Thread(() =>
+        {
+            ui = Dispatcher.CurrentDispatcher;
+            ready.Set();
+            Dispatcher.Run();
+        });
+        worker.SetApartmentState(ApartmentState.STA);
+        worker.IsBackground = true;
+        worker.Start();
+        Check.That(ready.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).IsTrue();
+        ui!.InvokeShutdown();
+        Check.WithCustomMessage("the test dispatcher thread did not stop.")
+             .That(worker.Join(TimeSpan.FromSeconds(10))).IsTrue();
+        Check.That(ui.HasShutdownFinished).IsTrue();
+
+        var sink = new CapturingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            var input = new TestFakes.FakeInputSimulator();
+            var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+            var context = madeContext with { Dispatcher = ui };
+            var im = context.InteractionManager;
+            var drag = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+            drag.Initialize(context);
+
+            im.OnFixationStarted(new PhysicalPoint(610, 210));
+            im.OnActivationButtonDwelled();
+            im.OnActionSelected(InteractionAction.Drag);
+            Check.That(input.MouseDownCount).IsEqualTo(1);
+
+            Check.ThatCode(() => im.TogglePause()).DoesNotThrow();
+
+            Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.That(input.MouseUpCount).IsEqualTo(0);   // the cancel never ran
+            Check.WithCustomMessage(
+                    $"the shutdown branch did not log; saw: {string.Join(" | ", sink.Messages)}")
+                 .That(sink.Messages.Any(
+                     m => m.Contains("synchronous teardown did not run", StringComparison.Ordinal)))
+                 .IsTrue();
+
+            drag.Dispose();                                // the claim was never consumed: retry it
+            Check.That(input.MouseUpCount).IsEqualTo(1);
+            Check.That(input.ButtonsBalanced).IsTrue();
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [Fact]
     public void ASuccessfulDragThenDrop_BalancesAndClearsTheBar()
     {
         // The ordinary path, now observable end to end. Also pins that the drop clears the cancel
@@ -466,6 +747,65 @@ public class DragCoordinatorTests
 
         Check.That(input.MouseUpCount).IsEqualTo(1);
         Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    /// <summary>
+    /// Records the injected input and the interaction-state notifications into ONE ordered log, and
+    /// reads the real <see cref="NoteInputPolicy"/> at the instant of the release. <c>Manager</c> is
+    /// assigned after the context exists, because the fake is needed to build the context.
+    /// </summary>
+    private sealed class PauseOrderingSimulator : IInputSimulator
+    {
+        public Func<InteractionManager>? Manager { get; set; }
+
+        public List<string> Events { get; } = new();
+
+        public List<(string Action, PhysicalPoint Point)> ButtonEvents { get; } = new();
+
+        public int? ReleaseThreadId { get; private set; }
+
+        public bool? PolicyAcceptedTheRelease { get; private set; }
+
+        public int MouseDownCount => ButtonEvents.Count(e => e.Action == "MouseDown");
+
+        public int MouseUpCount => ButtonEvents.Count(e => e.Action == "MouseUp");
+
+        public void MouseDown(PhysicalPoint point)
+        {
+            ButtonEvents.Add(("MouseDown", point));
+            Events.Add("down");
+        }
+
+        public void MouseUp(PhysicalPoint point)
+        {
+            ButtonEvents.Add(("MouseUp", point));
+            Events.Add("release");
+            ReleaseThreadId = Environment.CurrentManagedThreadId;
+            if (Manager is { } manager)
+            {
+                // The real T6 P5 decision evaluated at the SendInput instant — i.e. a second
+                // statement of the ORDER assertion, not the production defence (F4): the click's
+                // delivery is later, and the notes' press pairing is what makes it inert.
+                PolicyAcceptedTheRelease = NoteInputPolicy.Accepts(
+                    NoteInputKind.Mouse,
+                    paused: manager().CurrentState == InteractionState.Paused,
+                    fromStylus: false,
+                    controlVisible: true,
+                    controlRegistered: true);
+            }
+        }
+
+        public void MoveCursor(PhysicalPoint point) { }
+        public void LeftClick(PhysicalPoint point) { }
+        public void RightClick(PhysicalPoint point) { }
+        public void DoubleClick(PhysicalPoint point) { }
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { }
+        public void SendKeyPress(ushort virtualKeyCode) { }
+        public void SendKeyPress(ushort virtualKeyCode, bool isExtendedKey) { }
+        public void SendKeyDown(ushort virtualKeyCode) { }
+        public void SendKeyUp(ushort virtualKeyCode) { }
+        public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 
     /// <summary>

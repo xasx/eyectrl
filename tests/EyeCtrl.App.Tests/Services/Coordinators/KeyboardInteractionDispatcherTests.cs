@@ -7,6 +7,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -320,6 +321,45 @@ public class KeyboardInteractionDispatcherTests
             ((PhysicalPoint Point, int Dx, int Dy))(centroid!.Value, 0, 3));
         Check.WithCustomMessage("the fallback point must not be used while a stable centroid exists.")
             .That(recorder.BareScrolls).IsEmpty();
+    }
+
+    /// <summary>
+    /// A5 fixup-01 F5 (the sticky contract's cheap belt): a CLICK action requested while Paused is
+    /// dropped and logged, not injected. A repeat fire queued just before a tray Pause would
+    /// otherwise land while paused, where the notes' policy reads any mouse input as a physical
+    /// caretaker click. The four click actions are exactly <c>IsRepeatableClick</c>; non-click
+    /// actions are deliberately unchanged.
+    /// </summary>
+    [Fact]
+    public void AClickRequestedWhilePaused_IsDropped()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        var im = new InteractionManager();
+        var ctx = WithBackdrop(TestFakes.MakeContext(input)) with
+        {
+            TargetHighlightVM = new TargetHighlightOverlayViewModel(),
+            InteractionManager = im,
+        };
+        var dispatcher = new KeyboardInteractionDispatcher();
+        dispatcher.Initialize(ctx);
+        im.TogglePause();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        input.InjectionStateProbe = () => "injected";
+
+        foreach (var click in new[]
+                 {
+                     InteractionAction.LeftClick, InteractionAction.RightClick,
+                     InteractionAction.DoubleClick, InteractionAction.MiddleClick,
+                 })
+        {
+            dispatcher.HandleActionRequested(new ActionRequestedMessage(
+                click, new PhysicalPoint(10, 10), IsPreciseTarget: true));
+        }
+
+        Check.WithCustomMessage("a synthesized click was injected while Paused.")
+             .That(input.InjectionState).IsNull();
+        Check.That(input.BareClickCount).IsEqualTo(0);
+        Check.That(input.LastMiddleClick).IsNull();
     }
 
     /// <summary>A provider whose samples the test pushes synchronously (no timer, no device).</summary>

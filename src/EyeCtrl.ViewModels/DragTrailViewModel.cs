@@ -17,9 +17,12 @@ public enum DragSubState
 }
 
 /// <summary>
-/// One edge-bar drag button's hit circle, in physical px. While the gaze is inside one during a
-/// drag, the drag must neither settle nor drop: that rest belongs to the button's own dwell
-/// (Cancel or Back). Supplied by <c>DragCoordinator</c> from the same anchor the bar draws at.
+/// One exit hit circle during a drag, in physical px: the edge bar's Cancel and Back buttons (the
+/// static zones <c>DragCoordinator</c> supplies from the same anchor the bar draws at) and the
+/// toolbar Pause button (supplied by the LIVE provider, see
+/// <see cref="DragTrailViewModel.SetPauseExitZoneProvider"/>, because that button can move, appear
+/// or stop being dwellable mid-drag). While the gaze is inside one, the drag must neither settle
+/// nor drop: that rest belongs to the button's own dwell (Cancel, Back or Pause).
 /// </summary>
 public readonly record struct DragExitZone(PhysicalPoint Center, double RadiusPhysical);
 
@@ -33,6 +36,9 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
     private IReadOnlyList<DragExitZone> _exitZones = Array.Empty<DragExitZone>();
+    private Func<DragExitZone?>? _pauseExitZone;
+    private PhysicalRect? _screenBounds;
+    private double _screenTolerancePhysical;
     private bool _inExitZone;
 
     [ObservableProperty] private bool _isDragActive;
@@ -62,6 +68,30 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// which is exactly the pre-fix behaviour for any caller that does not supply them.
     /// </summary>
     public void SetExitZones(IReadOnlyList<DragExitZone> zones) => _exitZones = zones;
+
+    /// <summary>
+    /// Supplies the toolbar Pause button's exit zone as a LIVE query (A5 fixup-02 G2). It is
+    /// evaluated on every sample rather than captured at drag start: the toolbar can re-dock or
+    /// re-layout mid-drag, be summoned mid-drag (its Pause then becomes dwellable), or hide (a
+    /// hidden band's Pause cannot fire, so the spot drops like anywhere else). The provider itself
+    /// returns null when Pause cannot fire. Null restores the pre-fix behaviour.
+    /// </summary>
+    public void SetPauseExitZoneProvider(Func<DragExitZone?>? provider) => _pauseExitZone = provider;
+
+    /// <summary>
+    /// Supplies the on-screen rectangle in physical px, plus a small tolerance, as an exit zone
+    /// (A5 fixup-03 H1). A gaze sample OUTSIDE it is the toolbar/Quick-Actions summon gesture:
+    /// letting it settle or release drops the item at an off-screen point, which the OS clamps to
+    /// the screen edge (a title bar or tab strip). No settle and no release dwell there; the edge
+    /// row itself stays on-screen through <paramref name="tolerancePhysical"/>, so tracker jitter
+    /// at the border does not suppress a legitimate drop. The coordinator sets this at drag start
+    /// from the primary screen; null (the default) keeps the pre-fix behaviour.
+    /// </summary>
+    public void SetScreenBounds(PhysicalRect bounds, double tolerancePhysical)
+    {
+        _screenBounds = bounds;
+        _screenTolerancePhysical = tolerancePhysical;
+    }
 
     public void Receive(StartDragTrailMessage message)
     {
@@ -150,11 +180,28 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     private bool IsInExitZone(PhysicalPoint point)
     {
+        // H1: past the screen edge is the summon gesture, never a rest to settle or release on.
+        if (_screenBounds is { } screen)
+        {
+            var tol = _screenTolerancePhysical;
+            if (point.X < screen.X - tol || point.X > screen.X + screen.Width + tol
+                || point.Y < screen.Y - tol || point.Y > screen.Y + screen.Height + tol)
+                return true;
+        }
+
         foreach (var zone in _exitZones)
         {
             var radius = zone.RadiusPhysical;
             if (point.DistanceSquaredTo(zone.Center) <= radius * radius)
                 return true;
+        }
+
+        // LIVE (G2): the toolbar Pause can move, appear or stop being dwellable while the drag
+        // runs, so its zone is asked per sample rather than snapshotted at drag start.
+        if (_pauseExitZone?.Invoke() is { } pause)
+        {
+            var radius = pause.RadiusPhysical;
+            return point.DistanceSquaredTo(pause.Center) <= radius * radius;
         }
         return false;
     }

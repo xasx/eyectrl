@@ -30,6 +30,32 @@ internal static class ScreenGeometry
     internal const double SharedRightEdgeInsetLogical = 30;
 
     /// <summary>
+    /// The action menu's LEFT modifier bar sits at the mirror of the shared right-edge inset. It is
+    /// a separately named constant even though the value matches today: the two bars are
+    /// independent mirrored surfaces, and reusing <see cref="SharedRightEdgeInsetLogical"/> let a
+    /// future change to one silently move the other (A4 F9).
+    /// </summary>
+    internal const double LeftModBarInsetLogical = 30;
+
+    /// <summary>
+    /// Physical-px tolerance around the screen bounds inside which a gaze still counts as
+    /// ON-screen (A5 fixup-03). The edge row must stay usable: tracker jitter at the border must
+    /// not turn a legitimate drop/repeat into a "summon" that suppresses it. Everything farther
+    /// than this outside is the past-edge summon gesture.
+    /// </summary>
+    internal const double OffScreenTolerancePhysical = 10;
+
+    /// <summary>
+    /// The primary screen in physical px: (0,0) to width×height from WPF's
+    /// <see cref="SystemParameters"/> converted with <see cref="DpiHelper"/>. The one source the
+    /// off-screen exit zone (H1) and the repeat's on-screen arm gate (H2) share.
+    /// </summary>
+    internal static PhysicalRect PrimaryScreenBoundsPhysical() => new(
+        0, 0,
+        DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth),
+        DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight));
+
+    /// <summary>
     /// The shared right-edge anchor for the exit-bearing modes, built through
     /// <see cref="RightEdgeAnchor"/> so every caller resolves the same numbers BY CONSTRUCTION.
     /// A per-caller inset is exactly how repeat and scroll once drifted 20 DIP inward from the

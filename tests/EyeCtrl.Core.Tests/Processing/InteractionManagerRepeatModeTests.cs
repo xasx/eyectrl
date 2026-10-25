@@ -181,10 +181,77 @@ public class InteractionManagerRepeatModeTests
     }
 
     [Fact]
-    public void TogglePause_IsBlockedInRepeatMode()
+    public void TogglePause_InRepeatMode_ExitsRepeatThenPauses()
     {
+        // A5 (b) at the Core contract level: the repeat stop (the state-only exit the stop
+        // button and ESC also reach) runs first, then the state flips to Paused — and the locked
+        // action is gone (F8/M7: a bare manager must not carry its payload into Paused).
         var im = Armed(InteractionAction.LeftClick);
+        var events = new List<string>();
+        im.StateChanged += s => events.Add(s.ToString());
+
         im.TogglePause();
-        Check.That(im.CurrentState).IsEqualTo(InteractionState.RepeatMode);
+
+        Check.That(events).ContainsExactly("FreeLook", "Paused");
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(im.RepeatAction).IsNull();
+    }
+
+    [Fact]
+    public void OffScreenFixation_NeverArmsTheRepeatDwell()
+    {
+        // A5 fixup-03 H2: past the screen edge is the toolbar/Quick-Actions summon gesture. A
+        // repeat click armed there is clamped by the OS onto the edge row (a tab strip or title
+        // bar). Only the arm is refused; an on-screen fixation still fires normally.
+        var im = Armed(InteractionAction.LeftClick);
+        im.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var fired = new List<(InteractionAction A, PhysicalPoint P)>();
+        im.ActionRequested += (a, p, _) => fired.Add((a, p));
+
+        im.OnFixationStarted(new PhysicalPoint(960, -100));   // the summon gesture
+        im.NoteGazeSample(true, 10 * Ms + 2_000 * Ms);        // far past the dwell
+
+        Check.WithCustomMessage("an off-screen fixation armed the repeat dwell.")
+             .That(fired).IsEmpty();
+
+        // Control: on-screen still fires, at its own point.
+        im.OnFixationEnded();
+        im.OnFixationStarted(new PhysicalPoint(960, 540));
+        im.NoteGazeSample(true, 10 * Ms + 4_000 * Ms);
+
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].P.X).IsCloseTo(960, 1e-6);
+        Check.That(fired[0].P.Y).IsCloseTo(540, 1e-6);
+    }
+
+    [Fact]
+    public void AFixationJustPastTheEdge_InsideTheTolerance_StillArms()
+    {
+        // T1: the tolerance keeps the border usable. 5 px above the screen is still an ordinary
+        // on-screen fixation (tracker jitter at the edge row), so it must arm and fire.
+        var im = Armed(InteractionAction.LeftClick);
+        im.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var fired = 0;
+        im.ActionRequested += (_, _, _) => fired++;
+
+        im.OnFixationStarted(new PhysicalPoint(960, -5));
+        im.NoteGazeSample(true, 10 * Ms + 2_000 * Ms);
+
+        Check.WithCustomMessage("a fixation 5 px past the edge (inside the tolerance) did not arm.")
+             .That(fired).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void WithNoScreenBoundsPublished_AnOffScreenFixationStillArms()
+    {
+        // Pre-fix contract for a bare manager: nothing published means nothing refused.
+        var im = Armed(InteractionAction.LeftClick);
+        var fired = 0;
+        im.ActionRequested += (_, _, _) => fired++;
+
+        im.OnFixationStarted(new PhysicalPoint(960, -100));
+        im.NoteGazeSample(true, 10 * Ms + 2_000 * Ms);
+
+        Check.That(fired).IsEqualTo(1);
     }
 }

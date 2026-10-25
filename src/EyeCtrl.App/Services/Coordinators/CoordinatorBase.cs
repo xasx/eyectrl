@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
 using EyeCtrl.App.Services;
+using Serilog;
 
 /// <summary>
 /// The lifecycle skeleton all nine coordinators shared by hand: a nullable context set
@@ -24,6 +25,8 @@ internal abstract class CoordinatorBase : IDisposable
 
     protected abstract void OnInitialize();
 
+    protected virtual void OnDispose() { }
+
     public void Dispose()
     {
         if (_disposed)
@@ -33,5 +36,56 @@ internal abstract class CoordinatorBase : IDisposable
         Context?.Messenger.UnregisterAll(this);
     }
 
-    protected virtual void OnDispose() { }
+    /// <summary>
+    /// Runs <paramref name="work"/> on the context's dispatcher and WAITS for it: inline when
+    /// already there, otherwise a blocking <see cref="System.Windows.Threading.Dispatcher.Invoke(Action)"/>.
+    /// The wait is the point. <c>InteractionManager.TogglePause</c> is UI-thread-only, but the
+    /// drag's pause hook still marshals defensively — a future off-thread caller must not
+    /// fire-and-forget, because the pause must not overtake the held button's release. Not a
+    /// production path today.
+    /// <para>
+    /// Returns <see langword="false"/> when the work could NOT run: a dispatcher that has shut
+    /// down or is shutting down, or an
+    /// <see cref="System.Windows.Threading.Dispatcher.Invoke(Action)"/> that refuses before
+    /// running. (A null dispatcher — focused coordinator tests — runs inline and reports
+    /// <see langword="true"/>.) The caller owns the consequence of a skipped teardown — the
+    /// drag's claim stays set for dispose to retry, and the pause proceeds anyway.
+    /// </para>
+    /// </summary>
+    protected bool RunOnUiThreadSynchronously(Action work)
+    {
+        var dispatcher = Context?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            work();
+            return true;
+        }
+
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            // A distinct line (not just the caller's "did not run" one): the shutdown branch is what
+            // keeps the caller from queueing work onto a dispatcher that will never run it, and the
+            // G4 test pins this line.
+            Log.Warning(
+                "The UI dispatcher has shut down (or is shutting down); the synchronous teardown did not run.");
+            return false;
+        }
+
+        // The wrapper distinguishes "the delegate ran and threw" (propagate: a real failure) from
+        // "Invoke refused before running" (return false: nothing was torn down).
+        var ran = false;
+        try
+        {
+            dispatcher.Invoke(() =>
+            {
+                ran = true;
+                work();
+            });
+        }
+        catch (InvalidOperationException) when (!ran)
+        {
+            return false;
+        }
+        return ran;
+    }
 }

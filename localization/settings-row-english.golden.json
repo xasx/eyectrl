@@ -476,7 +476,7 @@
         {
           "Id": "k_landing_guard",
           "Label": "Guard the first key after the keyboard moves back",
-          "Description": "When the keyboard moves back to its edge after the toolbar hides, the key the gaze lands on in the first second does not type. This keeps a glance that was already on its way from typing a wrong key.",
+          "Description": "When the keyboard moves back to its edge after the toolbar hides, the first key the gaze lands on within a second is ignored until the gaze moves a little. This keeps a glance that was already on its way from typing a wrong key.",
           "Modal": null
         },
         {
@@ -985,7 +985,7 @@
         {
           "Id": "k_landing_guard",
           "Label": "Guard the first key after the keyboard moves back",
-          "Description": "When the keyboard moves back to its edge after the toolbar hides, the key the gaze lands on in the first second does not type. This keeps a glance that was already on its way from typing a wrong key.",
+          "Description": "When the keyboard moves back to its edge after the toolbar hides, the first key the gaze lands on within a second is ignored until the gaze moves a little. This keeps a glance that was already on its way from typing a wrong key.",
           "Modal": null
         },
         {

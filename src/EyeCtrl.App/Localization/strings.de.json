@@ -1978,8 +1978,8 @@
     "src": "f4dc85c0"
   },
   "settings.keyboard.landing_guard.description": {
-    "text": "Rückt die Tastatur nach dem Ausblenden der Symbolleiste an ihren Rand zurück, tippt die Taste, auf der der Blick in der ersten Sekunde landet, nichts. So löst ein Blick, der schon unterwegs war, keine falsche Taste aus.",
-    "src": "2c3733e8"
+    "text": "Rückt die Tastatur nach dem Ausblenden der Symbolleiste an ihren Rand zurück, wird die erste Taste, auf der der Blick innerhalb einer Sekunde landet, ignoriert, bis sich der Blick ein Stück bewegt. So löst ein Blick, der schon unterwegs war, keine falsche Taste aus.",
+    "src": "01d29019"
   },
   "settings.keyboard.landing_guard.label": {
     "text": "Erste Taste nach dem Zurückrücken schützen",

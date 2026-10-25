@@ -14,6 +14,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Core.Status;
 using EyeCtrl.Platform.Gaze;
 using System.IO;
 using System.Net.Http;
@@ -346,6 +347,25 @@ public class AppBootstrapper
             sp.GetRequiredService<EffectiveSettingsProvider>(),
             sp.GetRequiredService<ILogger<GazeEngine>>(),
             sp.GetRequiredService<IStruggleTelemetrySink>()));
+
+        // Control status (Wave B B1): one source of truth for "do you have control?".
+        // The pure state machine lives in Core (ControlStatusModel); this is the thin runtime adapter
+        // that feeds it the provider's samples and IsConnected, mirrors the interaction state, and
+        // publishes ControlStatusChangedMessage. Started from App.OnStartup AFTER gazeEngine.Start()
+        // so the 3 s lost-gaze clock begins with the stream, not with boot.
+        //
+        // The provider type is the RESOLVED one (GazeProviderFactory.GetProviderType unwraps the
+        // recording decorator): Mouse means NoTracker. Resolving GazeEngine here is fine - this
+        // factory is evaluated lazily, after the engine's own registration.
+        services.AddSingleton(sp => new ControlStatusService(
+            sp.GetRequiredService<IGazeProvider>(),
+            sp.GetRequiredService<GazeEngine>().InteractionManager,
+            GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()),
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<TimeProvider>(),
+            work => dispatcher.BeginInvoke(work),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<ControlStatusService>()));
+        services.AddSingleton<IControlStatus>(sp => sp.GetRequiredService<ControlStatusService>());
 
         // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.
         // BufferingTelemetrySink only buffers (zero behaviour change); DispatcherTelemetrySink

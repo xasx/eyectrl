@@ -41,8 +41,11 @@
                                      Opacity="{Binding CloseDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
                     </Grid>
                 </Border>
-                <!-- Action tiles -->
-                <ItemsControl x:Name="TilesControl" Grid.Row="1" Margin="0,8,0,0">
+                <!-- Action tiles. The ItemsSource binding was missing: the control was never
+                     populated, so configured actions were sized into the window but never
+                     rendered or registered as dwell targets. -->
+                <ItemsControl x:Name="TilesControl" Grid.Row="1" Margin="0,8,0,0"
+                              ItemsSource="{Binding Tiles}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <!-- Rows omitted (defaults to 0 = auto-compute from Columns + item count).

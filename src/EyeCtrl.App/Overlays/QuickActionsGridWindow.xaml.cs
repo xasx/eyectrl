@@ -121,8 +121,11 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
     /// Sizes the window to fit every tile — columns from the VM, rows computed — plus the
     /// close-button row, clamped to the work area. Gaze users can't scroll, so all tiles must be
     /// visible; the previous fixed 400×600 clipped 3+ column grids and pushed extra rows off-window.
+    ///
+    /// <c>internal</c> so a headless layout pin can size the production content exactly as the
+    /// show path does, without showing a window.
     /// </summary>
-    private void ResizeToContent()
+    internal void ResizeToContent()
     {
         if (_vm == null) return;
 

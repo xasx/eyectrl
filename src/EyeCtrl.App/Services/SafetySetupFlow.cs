@@ -11,9 +11,14 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// Whether the one-time safety setup should be raised at startup, and the raising itself. The
 /// decision is pure, so the three conditions are pinned without a window: the prompt shows only
-/// while it has never been answered to the end, never on a Supervisor recovery relaunch
-/// (<c>--paused</c>: the person may be mid-crash and must not meet five questions), and never in
-/// <c>--test-mode</c>.
+/// while it has never been answered to the end, never on a PAUSED launch (<c>--paused</c>: the
+/// FallenBack retry's inert relaunch, where the person may be mid-crash and must not meet five
+/// questions), and never in <c>--test-mode</c>.
+/// <para>
+/// A NORMAL crash-recovery relaunch is not paused (<c>paused: false</c>), so a crash before the
+/// last answer re-opens the intro card. Accepted (A7/M1): the setup is not done, "Later" closes it,
+/// and the Start/Later answer is latched, so it never strands anyone.
+/// </para>
 /// </summary>
 internal static class SafetySetupStartup
 {

@@ -69,7 +69,8 @@ public class SupervisionLifecycleScenarioTests
             Handle(new HeartbeatReceived(Now));
         }
 
-        /// <summary>The FallenBack dialog's "Retry EyeCtrl once": launch paused, then re-arm IdleWatch.</summary>
+        /// <summary>The FallenBack dialog's "Retry EyeCtrl once": launch paused (RetryNow binds the
+        /// new instance), then FallenBackRetry -> Launching (A7 fixup-01/S1).</summary>
         public void Retry()
         {
             KillInitiated = false;
@@ -123,6 +124,11 @@ public class SupervisionLifecycleScenarioTests
                         break;
                     case SupervisorCommand.StartListening:
                         Listening = true;                   // ticket 07 review F2
+                        break;
+                    case SupervisorCommand.ClearPendingLaunch:
+                        // A7 fixup-01/S1: the retry launched the app itself; a deferred recovery
+                        // relaunch left from the escalation must not launch a second instance.
+                        PendingLaunchAt = null;
                         break;
                 }
             }
@@ -436,7 +442,7 @@ public class SupervisionLifecycleScenarioTests
         var killsBefore = h.Kills;
 
         h.Retry();
-        Check.That(h.State).IsEqualTo(SupervisorState.IdleWatch);
+        Check.That(h.State).IsEqualTo(SupervisorState.Launching); // A7 fixup-01/S1
         Check.That(h.Listening).IsTrue();                    // F2: the pipe reopened before the first heartbeat
         h.Heartbeat();
         Check.That(h.State).IsEqualTo(SupervisorState.Supervising);
@@ -447,5 +453,33 @@ public class SupervisionLifecycleScenarioTests
         Check.That(h.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(h.Kills).IsEqualTo(killsBefore + 1);      // F1: the retried app is killed
         Check.That(h.Strikes).IsEqualTo(5);
+    }
+
+    [Fact]
+    public void Scenario13_RetryWithAStaleDeferredRelaunch_LaunchesOnlyTheRetry()
+    {
+        // A7 fixup-01/S1: the retry leaves Launching, a state the tick treats as launch-expected.
+        // A deferred recovery relaunch that was still queued when the escalation landed must be
+        // dropped (ClearPendingLaunch), or the next tick would start a SECOND instance behind the
+        // retry — the two race the app's single-instance mutex, and the loser's exit books a
+        // strike against the survivor.
+        var h = new Harness();
+        h.Startup();
+        h.Run(2);
+        h.Heartbeat();
+        h.Run(2);
+        h.Run(240);                                          // hang loop -> FallenBack
+        Check.That(h.State).IsEqualTo(SupervisorState.FallenBack);
+        h.PendingLaunchAt = h.Now.AddSeconds(-1);            // left over from the escalation
+        var launchesBefore = h.Launches;
+
+        h.Retry();                                           // the retry launched the process itself
+        Check.That(h.Launches).IsEqualTo(launchesBefore);
+        h.Run(3);                                            // due, and Launching expects a launch
+
+        Check.WithCustomMessage("a second instance must not be launched behind the retry")
+            .That(h.Launches).IsEqualTo(launchesBefore);
+        Check.That(h.PendingLaunchAt).IsNull();
+        Check.That(h.State).IsEqualTo(SupervisorState.Launching); // no heartbeat yet; grace not due
     }
 }

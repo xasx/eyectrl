@@ -152,21 +152,36 @@ public sealed class SupervisionStateMachine
             case ProcessExited when State == SupervisorState.FallenBack:
                 // "Retry EyeCtrl (once)" re-showed the dialog but the retried app crashed again.
                 // Spec line 350: "If it crashes again, the dialog reappears." Re-escalate so
-                // OnFallenBack fires again (the retry path leaves state in FallenBack).
+                // OnFallenBack fires again. Since A7 fixup-01/S1 the retry itself leaves LAUNCHING,
+                // so its startup death takes that arm instead; this arm still covers an exit that
+                // arrives while the machine is already back in FallenBack (one that raced the
+                // retry's transition).
                 ConsecutiveFailures++;
                 _crash.RecordStrike(input.At);
                 _commands.Add(SupervisorCommand.LaunchFallbackAt);
                 break;
 
             case FallenBackRetry when State == SupervisorState.FallenBack:
-                // User clicked "Retry EyeCtrl once": the retried app was launched with --paused, now
-                // return to IdleWatch so its first verified heartbeat ADOPTS it into Supervising
-                // (FallenBack has no HeartbeatReceived case). Resets the surviving-window + launch timers.
-                State = SupervisorState.IdleWatch;
+                // The dialog's "Retry EyeCtrl once", or the A3 countdown. RetryNow has ALREADY
+                // launched the retried process (paused) and bound it in ProcessController, so the
+                // machine enters LAUNCHING, not IdleWatch (A7 fixup-01/S1). That puts the retried
+                // app's whole startup under the existing arms:
+                //   - first heartbeat -> Supervising (the process is already bound; no adopt needed);
+                //   - exit before the heartbeat -> GoRecovering -> strike -> FallenBack +
+                //     LaunchFallbackAt -> the dialog reappears (no countdown: the A3 latch is spent);
+                //   - hang -> StartupGraceElapsed -> ForceKill -> FallenBack.
+                // In IdleWatch none of those existed: ProcessExited has no IdleWatch arm and the
+                // grace only runs in Launching/Recovering, so a retried app that died or hung during
+                // startup stranded the owner with no app, no dialog and no relaunch.
+                // ClearPendingLaunch: a deferred recovery relaunch left over from the escalation
+                // must not fire a SECOND process behind this one (the tick treats Launching as
+                // launch-expected; see SupervisorCommand.ClearPendingLaunch).
+                // Ticket 07 review F2: reopen the pipe the escalation closed, before the retried
+                // app's first heartbeat.
+                State = SupervisorState.Launching;
                 _supervisingSince = null;
-                _launchingSince = null;
-                // Ticket 07 review F2: the pipe was closed on entering FallenBack; reopen it BEFORE
-                // the retried app's first heartbeat (the app takes seconds to start).
+                _launchingSince = input.At;
+                _commands.Add(SupervisorCommand.ClearPendingLaunch);
                 _commands.Add(SupervisorCommand.StartListening);
                 break;
 

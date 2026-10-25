@@ -106,10 +106,12 @@ public class SupervisionStateMachineTests
     }
 
     [Fact]
-    public void FallenBackRetry_CommandsStartListening()
+    public void FallenBackRetry_GoesLaunching_ReopensThePipe_AndSchedulesNoLaunch()
     {
-        // Ticket 07 review F2: the dialog's Retry reopens the pipe the FallenBack escalation
-        // closed, so the retried app can be adopted on its first heartbeat.
+        // A7 fixup-01/S1: RetryNow already launched and bound the retried app, so the machine
+        // enters LAUNCHING — the state whose arms cover its startup (heartbeat, exit, grace).
+        // It must not ask the orchestrator for a second launch (LaunchApp). Ticket 07 review F2:
+        // the pipe the escalation closed is reopened before the first heartbeat.
         var sm = NewMachine();
         sm.Handle(new LaunchRequest(T0));
         for (int i = 1; i <= 4; i++) sm.Handle(new ProcessExited(T0.AddSeconds(i)));
@@ -117,8 +119,11 @@ public class SupervisionStateMachineTests
 
         sm.Handle(new FallenBackRetry(T0.AddSeconds(5)));
 
-        Check.That(sm.State).IsEqualTo(SupervisorState.IdleWatch);
+        Check.That(sm.State).IsEqualTo(SupervisorState.Launching);
+        Check.That(sm.LaunchingSince).IsEqualTo(T0.AddSeconds(5));
         Check.That(sm.Commands).Contains(SupervisorCommand.StartListening);
+        Check.That(sm.Commands).Contains(SupervisorCommand.ClearPendingLaunch);
+        Check.That(sm.Commands).Not.Contains(SupervisorCommand.LaunchApp);
     }
 
     [Fact]

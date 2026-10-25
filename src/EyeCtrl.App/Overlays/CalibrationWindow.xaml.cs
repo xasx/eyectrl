@@ -80,8 +80,8 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     /// <summary>Creates the window. It is constructed at startup but only shown when a session
     /// starts, so nothing here puts anything on screen.</summary>
     /// <param name="dwellSettings">The live dwell settings, read per session for the Cancel
-    /// target's <c>max(1000 ms, toolbar dwell)</c>. Null uses the defaults (toolbar 700 ms, so the
-    /// 1000 ms floor).</param>
+    /// target's <c>max(1000 ms, toolbar dwell)</c> and for A1's <c>DwellPauseGraceMs</c>. Null uses
+    /// the defaults (toolbar 700 ms, so the 1000 ms floor; pause grace 500 ms).</param>
     /// <param name="messenger">The bus the dwell-completion cue is published on; null is the app
     /// messenger.</param>
     public CalibrationWindow(DwellSettings? dwellSettings = null, IMessenger? messenger = null)
@@ -94,7 +94,10 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         var cancelLabel = CancelDwellLabel;
         CancelDwellButton.Child = null;
         _cancelOutline = DwellOutlineOverlay.Attach(CancelDwellButton, cancelLabel);
-        _cancelDwell = new DwellDetector(cooldownMs: 0);
+        // A7/M2: the Cancel target gets A1's forgiving-dwell grace, like every other overlay
+        // surface. Without it a blink mid-dwell restarts the 1000 ms Cancel hold, so the one way
+        // out of calibration without Esc is harder than the interactions it sits beside.
+        _cancelDwell = new DwellDetector(cooldownMs: 0, pauseGraceMs: _dwellSettings.DwellPauseGraceMs);
         _cancelDwell.TargetActivated += OnCancelDwellActivated;
         _cancelDwell.TargetProgress += (_, progress) => _cancelOutline.SetProgress(progress);
 
@@ -199,6 +202,12 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
             ClearCancelTarget();
             return;
         }
+
+        // A7/M2: the window is created once at startup and reused across sessions, so the grace is
+        // re-applied here, at session entry, for a live DwellPauseGraceMs change (the same object
+        // the Settings tab edits). The constructor's value only covers a detector used before the
+        // first registration.
+        _cancelDwell.SetPauseGrace(_dwellSettings.DwellPauseGraceMs);
 
         var radiusPx = _viewModel.CancelTargetRadiusPixels;
         var keepOut = ProgressCardKeepOut();

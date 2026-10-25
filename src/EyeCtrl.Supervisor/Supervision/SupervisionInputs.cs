@@ -8,7 +8,22 @@ public sealed record AdoptRequest(DateTime At) : SupervisionInput(At);      // m
 public sealed record HeartbeatReceived(DateTime At) : SupervisionInput(At);
 public sealed record HeartbeatStale(DateTime At) : SupervisionInput(At);
 public sealed record GazeStreamDead(DateTime At) : SupervisionInput(At);
-public sealed record ProcessExited(DateTime At) : SupervisionInput(At);
+/// <summary>The supervised process exited (an unannounced crash, or the retried app's startup
+/// death).</summary>
+/// <param name="Pid">
+/// The OS process the exit was observed on, when the feeder knows it (A7 fixup-01/S1). The
+/// supervisor drops an exit whose pid is no longer the BOUND process: after a FallenBack retry
+/// rebinds, an <c>Exited</c> callback marshalled for the previous instance would otherwise strike
+/// the fresh launch for a crash it did not have.
+/// </param>
+public sealed record ProcessExited(DateTime At, int? Pid = null) : SupervisionInput(At)
+{
+    /// <summary>True when this exit may count against the process the supervisor is bound to.
+    /// Untagged exits (<see cref="Pid"/> null) keep the pre-existing behaviour for probes and
+    /// machine tests; a tagged exit is accepted only for the pid currently bound.</summary>
+    public bool Matches(int? boundPid) => Pid is null || Pid == boundPid;
+}
+
 /// <param name="RestartRequested">
 /// <c>true</c> when the app asked to be relaunched after it exits (user-requested
 /// restart). Books no strike and skips backoff; see RelaunchDelayPolicy.
@@ -18,7 +33,7 @@ public sealed record CleanExitRequested(DateTime At, bool ClientVerified, bool R
 public sealed record DeadlineElapsed(DateTime At) : SupervisionInput(At);
 public sealed record SurvivedWindow(DateTime At) : SupervisionInput(At);    // survived a full crash window -> reset
 public sealed record StartupGraceElapsed(DateTime At) : SupervisionInput(At); // 60s in LAUNCHING with no heartbeat -> RECOVERING (spec failure mode #2)
-public sealed record FallenBackRetry(DateTime At) : SupervisionInput(At);    // user clicked "Retry EyeCtrl once" in the FALLEN_BACK dialog -> IdleWatch (re-adopt)
+public sealed record FallenBackRetry(DateTime At) : SupervisionInput(At);    // dialog Retry / countdown -> Launching (the app is already launched; grace + exit arms apply)
 /// <summary>A launch attempt actually started a process (ticket 06-C). Stamps the launch clock the
 /// startup grace measures, so the grace covers the process's start, not the decision to recover.</summary>
 public sealed record LaunchExecuted(DateTime At) : SupervisionInput(At);

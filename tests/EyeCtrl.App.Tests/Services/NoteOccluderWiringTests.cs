@@ -116,8 +116,9 @@ public class NoteOccluderWiringTests
     // Required (4): each of the four sources resolves through the real container (or, for the
     // track-status card, through the coordination context's overlay manager — the window is
     // OverlayManager-owned and deliberately NOT a DI service, which is exactly what B1 got
-    // wrong). The lag bridge reads empty before App attaches the instrumented host; the two
-    // notice presenters resolve (constructing their real windows) and report null while hidden.
+    // wrong). The lag bridge reads empty before App attaches the instrumented host; B4's ONE
+    // banner-slot source resolves and is empty; the two banner presenters the slot routes still
+    // resolve (they construct their real windows) and report null while hidden.
     [StaFact]
     public void EachOccluderSource_ResolvesThroughTheRealContainer()
     {
@@ -126,6 +127,11 @@ public class NoteOccluderWiringTests
 
         var lagMarkBridge = sp.GetRequiredService<LagMarkBridge>();
         Check.That(lagMarkBridge.LiveTargetRects()).IsEmpty();
+
+        var slot = sp.GetRequiredService<BannerSlot>();
+        Check.WithCustomMessage("the banner slot is empty in a fresh session")
+            .That(slot.TryGetVisibleBounds(out _)).IsFalse();
+        Check.That(slot.LiveBoundsOrEmpty()).IsEmpty();
 
         var drift = sp.GetRequiredService<IDriftNoticePresenter>();
         Check.WithCustomMessage("the drift notice is hidden in a fresh session")
@@ -171,6 +177,68 @@ public class NoteOccluderWiringTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    // B4 (coordinator condition e): the aggregate SLOT source must CONNECT, not merely not-throw —
+    // with a visible occupant over ✕ the production delegate (container → BannerSlot → manager)
+    // holds the destructive dwell, and once the occupant closes the same held gaze reaches ✕.
+    [StaFact]
+    public void TheWiredSlotSource_OccludesThroughTheRealWiring()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+        var manager = (NoteManager)sp.GetRequiredService<INoteManager>();
+        var trackStatus = new TestFakes.FakeTrackStatusOverlay();
+        var (_, context, _) = MakeContext(sp, manager, trackStatus);
+
+        NoteOccluderWiring.Wire(manager, sp, context);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddNoteTargetsForTest(anchor);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
+
+            var occupant = new FakeSlotOccupant(
+                new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200));
+            sp.GetRequiredService<BannerSlot>().Enqueue(occupant);
+
+            for (long t = 0; t <= 1_500_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("the wired banner-slot source must occlude ✕ beneath the live occupant")
+                .That(manager.ActiveNotes).HasSize(1);
+
+            // Control: the occupant closes and the slot empties; after the leave-before-arm the
+            // same held gaze reaches ✕ (into the chip, P2 D5). An always-on source would hold it.
+            occupant.Close();
+            for (long t = 1_600_000; t <= 1_900_000; t += 100_000)
+                manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
+            for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("an empty slot must not keep the gate shut")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    /// <summary>A visible banner for the slot's aggregate source: the slot only asks its live
+    /// occupant, so closing this one empties the source without any window involved.</summary>
+    private sealed class FakeSlotOccupant(PhysicalRect bounds) : IBannerSlotOccupant
+    {
+        public event EventHandler? Closed;
+
+        public void ShowInSlot() { }
+
+        public void HideFromSlot() { }
+
+        public bool TryGetVisibleBounds(out PhysicalRect actual)
+        {
+            actual = bounds;
+            return true;
+        }
+
+        public void Close() => Closed?.Invoke(this, EventArgs.Empty);
+    }
+
     // Fixup 02 (3): a throwing source fails CLOSED — no exception escapes the gaze path, the
     // sample counts as occluded so no note control fires, and the failure is logged once per
     // source per episode (a recovered source re-arms both the gate and the log).
@@ -182,7 +250,7 @@ public class NoteOccluderWiringTests
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         bool throwOnRead = true;
-        manager.SetOccluderSources(driftNoticeBounds: () =>
+        manager.SetOccluderSources(slotOccupantBounds: () =>
         {
             if (throwOnRead) throw new InvalidOperationException("wiring slip");
             return null;
@@ -222,7 +290,7 @@ public class NoteOccluderWiringTests
                     .That(occluderErrors.Single()
                         .Properties.TryGetValue("OccluderSource", out var source)
                         && source is ScalarValue { Value: string name }
-                        && name == NoteManager.KnownOccluderSources.DriftNotice).IsTrue();
+                        && name == NoteManager.KnownOccluderSources.BannerSlot).IsTrue();
 
                 // Recovery: the source heals, the gate re-opens, and a fresh failure is loud again.
                 throwOnRead = false;
@@ -278,7 +346,7 @@ public class NoteOccluderWiringTests
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = false }; // hidden: ⌨ registers in slot 1
         manager.SetKeyboardProbe(probe);
-        manager.SetOccluderSources(driftNoticeBounds: () =>
+        manager.SetOccluderSources(slotOccupantBounds: () =>
             throw new InvalidOperationException("wiring slip"));
 
         DpiHelper.Initialize(2.0, 2.0);
@@ -341,7 +409,7 @@ public class NoteOccluderWiringTests
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         bool throwOnRead = false;
-        manager.SetOccluderSources(driftNoticeBounds: () =>
+        manager.SetOccluderSources(slotOccupantBounds: () =>
         {
             if (throwOnRead) throw new InvalidOperationException("wiring slip");
             return null;

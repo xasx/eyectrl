@@ -23,6 +23,13 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
     private DispatcherTimer? _hideTimer;
     private bool _positioned;
 
+    /// <summary>
+    /// Raised when the banner has left the screen: its own hold/fade completed, or
+    /// <see cref="HideDriftNotice"/> took it down at once. The bottom-centre banner slot (B4)
+    /// advances on this, so it never believes a banner it has already lost is still up.
+    /// </summary>
+    internal event EventHandler? Hidden;
+
     /// <summary>Creates the drift-notice window (click-through + excluded from screen capture, set before init).</summary>
     public DriftNoticeWindow()
     {
@@ -54,11 +61,28 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
         _hideTimer.Start();
     }
 
+    /// <summary>
+    /// Takes the banner down at once, cancelling its hold and any fade in flight. The banner slot
+    /// uses this when a caregiver alert pre-empts the notice (B4): the window hides before the
+    /// alert is shown, and the notice resumes at full opacity when it comes back.
+    /// </summary>
+    public void HideDriftNotice()
+    {
+        _hideTimer?.Stop();
+        Banner.BeginAnimation(UIElement.OpacityProperty, null);
+        Hide();
+        Hidden?.Invoke(this, EventArgs.Empty);
+    }
+
     private void OnHideTick(object? sender, EventArgs e)
     {
         _hideTimer?.Stop();
         var fade = new DoubleAnimation(1.0, 0.0, FadeOut) { FillBehavior = FillBehavior.Stop };
-        fade.Completed += (_, _) => Hide();
+        fade.Completed += (_, _) =>
+        {
+            Hide();
+            Hidden?.Invoke(this, EventArgs.Empty);
+        };
         Banner.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 

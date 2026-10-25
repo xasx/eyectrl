@@ -11,9 +11,11 @@ using Microsoft.Extensions.DependencyInjection;
 /// while a note existed, and no headless test could see it).
 /// <para>
 /// Sources and their owners: the lag mark through its late-attached bridge (empty until the
-/// instrumented host attaches it), the drift notice and caregiver alert through their DI
-/// presenters, and the track-status card through <see cref="EventCoordinationContext.OverlayManager"/>'s
-/// <c>TrackStatus</c> — the window is constructed by the overlay manager, not registered in DI.
+/// instrumented host attaches it), the bottom-centre banner slot through its live occupant (B4: ONE
+/// aggregate source — the drift notice and the caregiver alert are shown only through the slot,
+/// and future status cards will join the same way), and the track-status card through
+/// <see cref="EventCoordinationContext.OverlayManager"/>'s <c>TrackStatus</c> — the window is
+/// constructed by the overlay manager, not registered in DI.
 /// </para>
 /// <para>
 /// A throwing source is survived by the gate itself: <see cref="NoteManager.OccludersContain"/>
@@ -29,12 +31,12 @@ internal static class NoteOccluderWiring
     {
         noteManager.SetOccluderSources(
             lagMarkRects: () => services.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
-            driftNoticeBounds: () =>
-                services.GetRequiredService<IDriftNoticePresenter>().TryGetVisibleBounds(out var drift)
-                    ? drift : null,
-            caregiverAlertBounds: () =>
-                services.GetRequiredService<ICaregiverAlertPresenter>().TryGetVisibleBounds(out var alert)
-                    ? alert : null,
+            // B4: the slot's live occupant, or null when the slot is empty. ONE source for every
+            // bottom-centre banner (the drift notice and the caregiver alert replaced the two
+            // per-banner delegates this wiring used to pass).
+            slotOccupantBounds: () =>
+                services.GetRequiredService<BannerSlot>().TryGetVisibleBounds(out var slotOccupant)
+                    ? slotOccupant : null,
             trackStatusBounds: () =>
                 context.OverlayManager.TrackStatus.TryGetVisibleBounds(out var track) ? track : null,
             // P4 D4: the capacity notice is manager-owned (never in DI); the wiring reads its

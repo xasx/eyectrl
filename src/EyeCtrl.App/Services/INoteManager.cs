@@ -66,14 +66,15 @@ public interface INoteManager : INoteTextInput
     /// The occluder sources (P2 D3), read per sample — no shared gaze-surface provider, no cache
     /// to invalidate. The keyboard and its edge bar reach the gate through <see cref="SetKeyboardProbe"/>'s
     /// rects; this setter takes the App-owned surfaces that neither suspend nor carry a probe: the
-    /// lag mark (empty before its bridge is attached), the drift notice's and caregiver alert's
-    /// visible bounds (<c>null</c> while not showing), and the track-status card's (fixup 01 M1 —
-    /// opaque, click-through, up for as long as TrackStatusSettings.Enabled).
+    /// lag mark (empty before its bridge is attached), the bottom-centre banner slot's live occupant
+    /// (B4 — ONE aggregate source replacing the old per-banner delegates; the drift notice, the
+    /// caregiver alert and future status cards all show only through the slot), and the
+    /// track-status card's bounds (fixup 01 M1 — opaque, click-through, up for as long as
+    /// TrackStatusSettings.Enabled).
     /// </summary>
     void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
-        Func<PhysicalRect?>? driftNoticeBounds = null,
-        Func<PhysicalRect?>? caregiverAlertBounds = null,
+        Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
         Func<PhysicalRect?>? noteNoticeBounds = null);
 

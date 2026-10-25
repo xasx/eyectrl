@@ -48,10 +48,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // deliberately fixates edges and corners where notes are clamped. volatile: same reasoning.
     private volatile bool _calibrating;
     // The occluder sources (P2 D3), evaluated per sample — no cache to invalidate. Null sources
-    // contribute nothing: the lag mark before its bridge is attached, the notices while hidden.
+    // contribute nothing: the lag mark before its bridge is attached, the banner slot while empty.
     private Func<IReadOnlyList<PhysicalRect>>? _lagMarkRects;
-    private Func<PhysicalRect?>? _driftNoticeBounds;
-    private Func<PhysicalRect?>? _caregiverAlertBounds;
+    private Func<PhysicalRect?>? _slotOccupantBounds;
     private Func<PhysicalRect?>? _trackStatusBounds;
     private Func<PhysicalRect?>? _noteNoticeBounds;
     // Gate conjunct 4's own-window half (P2 D2): target id → the HWND of the note window that
@@ -1260,16 +1259,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 Intersects, out hit) || hit)
             return true;
 
-        if (!TryReadOccluderRects(KnownOccluderSources.DriftNotice,
-                () => _driftNoticeBounds?.Invoke() is { } drift
-                    ? new[] { drift }
-                    : (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
-                Intersects, out hit) || hit)
-            return true;
-
-        if (!TryReadOccluderRects(KnownOccluderSources.CaregiverAlert,
-                () => _caregiverAlertBounds?.Invoke() is { } alert
-                    ? new[] { alert }
+        if (!TryReadOccluderRects(KnownOccluderSources.BannerSlot,
+                () => _slotOccupantBounds?.Invoke() is { } slotOccupant
+                    ? new[] { slotOccupant }
                     : (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
                 Intersects, out hit) || hit)
             return true;
@@ -1859,8 +1851,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     }
 
     /// <summary>Gate conjunct 4's occluder half (P2 D3): the keyboard window and its edge bar
-    /// (through the probe), the lag mark, and the drift notice / caregiver alert / track-status
-    /// card visible bounds. Each source is read live; nulls contribute nothing.
+    /// (through the probe), the lag mark, the bottom-centre banner slot's live occupant (B4: drift
+    /// notice, caregiver alert, future cards — one aggregate source) and the track-status card.
+    /// Each source is read live; nulls contribute nothing.
     /// <para>
     /// FAIL CLOSED (T2 fixup 02), with the ✓ Done exemption (T2 fixup 03 m1): a throwing source
     /// means the sample is treated as OCCLUDED for every target EXCEPT <c>{id}:done</c>, so no
@@ -1891,16 +1884,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         else
             genuine |= covers;
 
-        if (!TryReadOccluder(KnownOccluderSources.DriftNotice,
-                () => _driftNoticeBounds is { } drift && drift.Invoke() is { } driftBounds
-                    && driftBounds.Contains(gazePoint), out covers))
-            failed = true;
-        else
-            genuine |= covers;
-
-        if (!TryReadOccluder(KnownOccluderSources.CaregiverAlert,
-                () => _caregiverAlertBounds is { } alert && alert.Invoke() is { } alertBounds
-                    && alertBounds.Contains(gazePoint), out covers))
+        if (!TryReadOccluder(KnownOccluderSources.BannerSlot,
+                () => _slotOccupantBounds is { } slotOccupant && slotOccupant.Invoke() is { } slotBounds
+                    && slotBounds.Contains(gazePoint), out covers))
             failed = true;
         else
             genuine |= covers;
@@ -1934,8 +1920,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         public const string KeyboardProbe = "keyboard probe";
         public const string LagMark = "lag mark";
-        public const string DriftNotice = "drift notice";
-        public const string CaregiverAlert = "caregiver alert";
+        public const string BannerSlot = "banner slot";
         public const string TrackStatus = "track status";
         public const string NoteNotice = "note notice";
     }
@@ -2179,18 +2164,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>The occluder seams (P2 D3), configured once from the App wiring. Delegates are
     /// evaluated per sample, only for samples that reach conjunct 4 — there is no cache to
     /// invalidate, and a source attached later (the lag-mark bridge) needs no re-wire. The
-    /// track-status card joined in fixup 01 (review M1): opaque, click-through, parked top-right
-    /// for as long as TrackStatusSettings.Enabled.</summary>
+    /// banner slot (B4) is ONE aggregate source for every bottom-centre banner. The track-status
+    /// card joined in fixup 01 (review M1): opaque, click-through, parked top-right for as long as
+    /// TrackStatusSettings.Enabled.</summary>
     public void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
-        Func<PhysicalRect?>? driftNoticeBounds = null,
-        Func<PhysicalRect?>? caregiverAlertBounds = null,
+        Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
         Func<PhysicalRect?>? noteNoticeBounds = null)
     {
         _lagMarkRects = lagMarkRects;
-        _driftNoticeBounds = driftNoticeBounds;
-        _caregiverAlertBounds = caregiverAlertBounds;
+        _slotOccupantBounds = slotOccupantBounds;
         _trackStatusBounds = trackStatusBounds;
         _noteNoticeBounds = noteNoticeBounds;
     }

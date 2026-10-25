@@ -26,6 +26,13 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     internal const double MarginDip = 48;
     private static readonly Duration FadeOut = new(TimeSpan.FromSeconds(1));
 
+    /// <summary>
+    /// Raised when the banner has left the screen: its fade completed, or
+    /// <see cref="HideCaregiverAlert"/> took it down at once. The bottom-centre banner slot (B4)
+    /// advances on this, so the banner it pre-empted resumes as soon as the alert is gone.
+    /// </summary>
+    internal event EventHandler? Hidden;
+
     /// <summary>Creates the caregiver-alert window (click-through + excluded from screen capture, set before init).</summary>
     public CaregiverAlertWindow()
     {
@@ -76,7 +83,11 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     public void FadeOutCaregiverAlert()
     {
         var fade = new DoubleAnimation(1.0, 0.0, FadeOut) { FillBehavior = FillBehavior.Stop };
-        fade.Completed += (_, _) => Hide();
+        fade.Completed += (_, _) =>
+        {
+            Hide();
+            Hidden?.Invoke(this, EventArgs.Empty);
+        };
         Banner.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
@@ -85,6 +96,7 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     {
         Banner.BeginAnimation(UIElement.OpacityProperty, null); // cancel any in-flight fade — down AT ONCE
         Hide();
+        Hidden?.Invoke(this, EventArgs.Empty);
     }
 
     /// <inheritdoc />

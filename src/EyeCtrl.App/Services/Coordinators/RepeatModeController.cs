@@ -189,6 +189,12 @@ internal sealed class RepeatModeController : CoordinatorBase
             _active = true;   // from here an Exit exists for every later failure (F6)
 
             ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
+            // A5 fixup-03 H2: past the screen edge is the toolbar summon gesture — it must not arm
+            // a repeat click that the OS would clamp onto the edge row. The same primary-screen
+            // bounds and tolerance the drag uses.
+            context.InteractionManager.SetRepeatScreenBounds(
+                ScreenGeometry.PrimaryScreenBoundsPhysical(),
+                ScreenGeometry.OffScreenTolerancePhysical);
             Serilog.Log.Information(
                 "Repeat mode entered: {Action}, dwell {DwellMs} ms",
                 context.InteractionManager.RepeatAction, context.Settings.Repeat.DwellMs);
@@ -248,6 +254,7 @@ internal sealed class RepeatModeController : CoordinatorBase
     private void Exit()
     {
         Context?.InteractionManager.SetRepeatSuppressionZones();
+        Context?.InteractionManager.SetRepeatScreenBounds(null);
         // Ownership-aware: while repeat owned the bar this restores whoever it displaced (the
         // keyboard's Close/Flip, typically); otherwise it is a no-op.
         Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Repeat);

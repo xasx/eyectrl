@@ -90,6 +90,10 @@ internal sealed class DragCoordinator : CoordinatorBase
     {
         var context = Context!;
         context.InteractionManager.DragStarted += OnDragStarted;
+        // A5: Pause during a drag CANCELS it (owner decision 2026-10-22) before the state flips
+        // to Paused. The hook is the same OnDragCancel path the Cancel button and ESC use, so the
+        // release-first ordering and the exactly-once _osButtonHeld claim are preserved.
+        context.InteractionManager.CancelDragForPause += OnPauseCancelDrag;
         context.DragTrailVM.PropertyChanged += OnDragTrailVMPropertyChanged;
         context.Messenger.Register<DragCoordinator, DragDropMessage>(this, (_, m) =>
             context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
@@ -221,13 +225,32 @@ internal sealed class DragCoordinator : CoordinatorBase
             // supplied for the whole drag: Back's slot is the lower one whether or not its button
             // is currently drawn, and a rest there must not drop either.
             var exitRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
-            Context.DragTrailVM.SetExitZones(new[]
+            var zones = new List<DragExitZone>
             {
-                new DragExitZone(
-                    anchor + new PhysicalPoint(0, CancelButtonVerticalOffsetPhysical), exitRadius),
-                new DragExitZone(
-                    anchor + new PhysicalPoint(0, BackButtonVerticalOffsetPhysical), exitRadius),
-            });
+                new(anchor + new PhysicalPoint(0, CancelButtonVerticalOffsetPhysical), exitRadius),
+                new(anchor + new PhysicalPoint(0, BackButtonVerticalOffsetPhysical), exitRadius),
+            };
+
+            // A5 fixup-01 F2 (owner decision): drag + Pause = CANCEL, never a drop. In Auto
+            // Selection the drag settles after 500 ms while the toolbar Pause dwell is 700 ms, so
+            // a rest on the toolbar Pause would DROP at the toolbar before Pause could fire.
+            // fixup-02 G2: the zone is a LIVE query, not a snapshot — the toolbar can re-dock,
+            // re-layout or be summoned mid-drag, and it disappears while the band is not
+            // dwell-active (a hidden band's Pause cannot fire). Only the Pause button, not the
+            // whole band — a rest anywhere else on the toolbar still drops.
+            if (Context.ToolbarVM is { } toolbar)
+                Context.DragTrailVM.SetPauseExitZoneProvider(() => toolbar.PauseDragExitZone);
+            else
+                Context.DragTrailVM.SetPauseExitZoneProvider(null);
+
+            // A5 fixup-03 H1: past the screen edge is the toolbar/Quick-Actions summon gesture, so
+            // it must never settle or release a drag into an off-screen point the OS clamps onto the
+            // edge row. The small tolerance keeps the edge row itself (and tracker jitter) usable.
+            Context.DragTrailVM.SetScreenBounds(
+                ScreenGeometry.PrimaryScreenBoundsPhysical(),
+                ScreenGeometry.OffScreenTolerancePhysical);
+
+            Context.DragTrailVM.SetExitZones(zones);
         }
         catch (Exception ex)
         {
@@ -260,7 +283,7 @@ internal sealed class DragCoordinator : CoordinatorBase
             LastSetupFailure = ex;
             Log.Error(ex, "Drag trail start failed after the button was pressed; releasing it and aborting the drag.");
             AbortDragAfterSetupFailure();
-            ResetDragTrailVmAfterFailedStart();
+            ResetDragTrailVmToIdle();
         }
     }
 
@@ -282,31 +305,41 @@ internal sealed class DragCoordinator : CoordinatorBase
         try { CloseDragOverlay(); }
         catch (Exception ex) { Log.Error(ex, "Failed to close the drag trail overlay while aborting a drag."); }
 
-        // Back to FreeLook, or the user is stuck in a Dragging state with nothing to drag and
-        // TogglePause deliberately blocked.
+        // Back to FreeLook, or the user is stuck in a Dragging state with nothing to drag: the
+        // drag never became usable, so its cancel path is not reachable (the state-only exit is
+        // the only reset this abort can rely on).
         try { Context?.InteractionManager.CompleteDrag(); }
         catch (Exception ex) { Log.Error(ex, "Failed to reset interaction state while aborting a drag."); }
     }
 
     /// <summary>
-    /// Puts the drag-trail view model back to idle after a start that threw part-way through.
-    /// <c>StartDragTrailMessage</c> fans out synchronously into <c>DragTrailViewModel.Receive</c>,
+    /// Puts the drag-trail view model back to idle after a start that threw part-way through, or
+    /// after a Pause-cancel (A5 fixup-01 F1).
+    /// <para>
+    /// A <c>StartDragTrailMessage</c> fans out synchronously into <c>DragTrailViewModel.Receive</c>,
     /// which sets its properties one at a time; this coordinator's own PropertyChanged handler calls
     /// the overlay's <c>Update</c> on several of them. A throw part-way through therefore leaves the
     /// VM half-initialised — possibly <c>IsDragActive</c> true with no dwell targets, because
     /// <c>SetupDwellTargets</c> is the last statement. Cancelling it restores the idle state, so the
     /// NEXT drag starts clean.
+    /// </para>
+    /// <para>
+    /// The Pause-cancel reaches <see cref="OnDragCancel"/> directly, so it does not get the
+    /// <see cref="DragCancelMessage"/> fan-out the Cancel button, ESC and lost gaze get — without
+    /// this the trail stayed <c>IsDragActive</c> while paused, dwelled with the pause-grace opt-in
+    /// and sent a ghost drop after ~4 s (F1). Call this after every direct cancel.
+    /// </para>
     /// <para>
     /// Delivered by calling the VM's own <c>Receive</c>, not through the messenger: the coordinator
     /// is itself registered for <see cref="DragCancelMessage"/> as a DEFERRED teardown, and the drag
-    /// has already been fully unwound above — re-posting that teardown would only repeat the hide
-    /// and close on a later dispatcher turn, after the state has been reset.
+    /// has already been fully unwound — re-posting that teardown would only repeat the hide and
+    /// close on a later dispatcher turn, after the state has been reset.
     /// </para>
     /// </summary>
-    private void ResetDragTrailVmAfterFailedStart()
+    private void ResetDragTrailVmToIdle()
     {
         try { Context?.DragTrailVM.Receive(new DragCancelMessage()); }
-        catch (Exception ex) { Log.Error(ex, "Failed to reset the drag-trail view model after an aborted start."); }
+        catch (Exception ex) { Log.Error(ex, "Failed to reset the drag-trail view model."); }
     }
 
     /// <summary>
@@ -367,12 +400,64 @@ internal sealed class DragCoordinator : CoordinatorBase
         CloseDragOverlay();
     }
 
+    /// <summary>
+    /// Cancels an active drag: release the held button at the grab point, then tear the surface
+    /// down. The release is FIRST and is attempted whatever else happens (F3). Everything after it
+    /// is cosmetic and guarded with log-and-continue: it runs on the Pause path too, and a throw
+    /// there used to leave Pause dead and the user stuck in <c>Dragging</c> — where the pointer
+    /// follows the gaze with a held button. A failed release restores the exactly-once claim, so
+    /// <see cref="OnDispose"/> (or the fatal-exit path) retries it; moving on is still safer than
+    /// refusing to pause.
+    /// </summary>
     internal void OnDragCancel()
     {
-        ReleaseHeldButton(_dragGrabOrigin);
-        Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag);
-        Context?.InteractionManager.CompleteDrag();
-        CloseDragOverlay();
+        try
+        {
+            ReleaseHeldButton(_dragGrabOrigin);
+        }
+        catch (Exception ex)
+        {
+            // Attempted first and still outstanding: ReleaseHeldButton restored the claim.
+            // G5 (fixup-02): on the non-Pause paths (Cancel, ESC, lost gaze) this used to escape
+            // into the dispatcher, where crash-to-die applied and the fatal-exit handler retried the
+            // release. Now the cancel finishes in FreeLook — where the pointer follows the gaze —
+            // with the button possibly held until dispose. Unreachable with the shipped
+            // Win32InputSimulator (SendRaw logs shortfalls instead of throwing); only a test double
+            // can throw here.
+            Log.Error(ex, "The drag release failed; the cancel continues and dispose will retry it.");
+        }
+
+        try { Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag); }
+        catch (Exception ex) { Log.Error(ex, "Failed to hide the edge button bar while cancelling a drag."); }
+
+        try { Context?.InteractionManager.CompleteDrag(); }
+        catch (Exception ex) { Log.Error(ex, "Failed to reset interaction state while cancelling a drag."); }
+
+        try { CloseDragOverlay(); }
+        catch (Exception ex) { Log.Error(ex, "Failed to close the drag trail overlay while cancelling a drag."); }
+    }
+
+    /// <summary>
+    /// A5's pause entry: <c>InteractionManager.TogglePause</c> raises this BEFORE it enters
+    /// <c>Paused</c>, and the state flip waits for this handler to return. It runs the existing
+    /// cancel path (release at the grab point → hide the bar → <c>CompleteDrag</c> → close the
+    /// trail) and then resets the trail VM, which the direct call otherwise skips (F1).
+    /// <para>
+    /// <c>TogglePause</c> is UI-thread-only in production, so this normally runs inline. The
+    /// dispatcher hop still marshals — and WAITS — so a future off-thread caller cannot
+    /// fire-and-forget and let Paused overtake the release. When the dispatcher cannot run the
+    /// work (shutdown), the claim is left for dispose and the pause proceeds (F3/F7).
+    /// </para>
+    /// </summary>
+    private void OnPauseCancelDrag()
+    {
+        if (!RunOnUiThreadSynchronously(() =>
+            {
+                OnDragCancel();
+                ResetDragTrailVmToIdle();
+            }))
+            Log.Error("The Pause drag cancel could not run (the UI dispatcher is shutting down); "
+                + "pausing with the drag button possibly still held. The claim is left for dispose.");
     }
 
     private void CloseDragOverlay()
@@ -431,6 +516,7 @@ internal sealed class DragCoordinator : CoordinatorBase
         }
 
         Context.InteractionManager.DragStarted -= OnDragStarted;
+        Context.InteractionManager.CancelDragForPause -= OnPauseCancelDrag;
         Context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
         Context.EscapeHatch.EscapePressed -= OnEscapePressed;
         CloseDragOverlay();

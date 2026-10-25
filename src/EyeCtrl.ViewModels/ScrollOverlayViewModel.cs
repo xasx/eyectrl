@@ -141,9 +141,9 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
     {
         // Route through the shared sample gate (round-2 finding 2): this override replaced
         // base.Receive entirely, silently bypassing the pause gate — and its output IS OS input
-        // (TargetVelocityChanged drives ScrollWorker → SendInput.Scroll). Unreachable today
-        // (TogglePause refuses Paused from ScrollMode and fixation is dead while paused), but
-        // the gate makes the stated contract true instead of aspirational.
+        // (TargetVelocityChanged drives ScrollWorker → SendInput.Scroll). A5's Pause stops the
+        // worker before the state flips, so this is a belt-and-braces gate now; it keeps the
+        // stated contract true instead of aspirational.
         if (!IsVisible) return;
         if (!SampleMayDwell(message))
         {

@@ -155,7 +155,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     try
                     {
                         var modAnchor = ScreenGeometry.LeftEdgeAnchor(
-                            ScreenGeometry.SharedRightEdgeInsetLogical, UIConstants.ButtonRadius);
+                            ScreenGeometry.LeftModBarInsetLogical, UIConstants.ButtonRadius);
                         Context.OverlayManager.ActionMenuModBar.ShowButtons(
                             ActionMenuModifierButtons.Definitions(
                                 msg.ShowBack

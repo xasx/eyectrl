@@ -277,8 +277,9 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     /// accumulate. The pending target has no anchor under the gate (its activation cleared it), so
     /// it builds nothing. Another target the gaze held a moment ago is released, not kept: the
     /// detector decides the "gaze is inside another target" release on the UNFILTERED hit, so the
-    /// gated modifier under the gaze still drops a neighbour's hold (A1 fixup-02 M1). A hold only
-    /// survives a gated run over truly empty space, for at most the pause grace.
+    /// gated modifier under the gaze still drops a neighbour's hold (A1 fixup-02 M1). A hold
+    /// survives only the ungated empty-space samples between gated ones, for at most the pause
+    /// grace.
     /// In-gap samples restart the exit clock BEFORE the gate: the interpolator emits held-position
     /// samples for a whole blink, and blink-edge displacement must never complete a D-span of
     /// "valid" exit.

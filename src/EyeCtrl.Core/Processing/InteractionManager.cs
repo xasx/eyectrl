@@ -188,6 +188,21 @@ public class InteractionManager
     /// <summary>Fired when a Drag action is selected. Carries the resolved grab origin point.</summary>
     public event Action<PhysicalPoint>? DragStarted;
 
+    /// <summary>
+    /// Raised by <see cref="TogglePause"/> when it is asked to pause during
+    /// <see cref="InteractionState.Dragging"/> — BEFORE the state becomes
+    /// <see cref="InteractionState.Paused"/>. The App's drag owner cancels the drag here: release
+    /// the held OS button at the grab point (the existing <c>DragCancelMessage → OnDragCancel</c>
+    /// path), hide the bar, complete the drag and close the trail. The handler must run to
+    /// completion synchronously — marshaling to the UI thread and WAITING for it when called from
+    /// another thread — because the pause waits for this to return: the release is ISSUED before
+    /// the Paused flip, and the sticky notes' press pairing is what makes its necessarily later
+    /// delivery inert (a mouse release acts only on a matching press, and presses are recorded only
+    /// while paused). A handler that throws leaves the state in the mode and the pause does not
+    /// happen; the App's handler is non-throwing by design, so that is a wiring bug.
+    /// </summary>
+    public event Action? CancelDragForPause;
+
     // Locked-action dwell-to-act (design D23–D28). Timing is sample-clock driven: a fixation
     // ARMS the dwell at its start point; only VALID gaze samples advance it; one fire per
     // fixation. Liveness also comes from raw validity (review PR #139 finding 1 — every filtered
@@ -201,6 +216,10 @@ public class InteractionManager
     // Whether LockedModeGazeLost already fired for the current lost-gaze episode. Gaze thread only.
     private bool _lockedModeGazeLostRaised;
     private PhysicalRect[] _repeatSuppressionZones = Array.Empty<PhysicalRect>();
+    // The on-screen arm gate for the repeat dwell (A5 fixup-03 H2): the App publishes the primary
+    // screen at mode entry. Null keeps the pre-fix behaviour (every point may arm).
+    private PhysicalRect? _repeatScreenBounds;
+    private double _repeatScreenTolerancePhysical;
     private PhysicalPoint? _repeatDwellPoint;
     private long _repeatDwellStartedUs;
     private bool _repeatDwellFired;
@@ -564,8 +583,10 @@ public class InteractionManager
         {
             // D25: the fixation arms the dwell at its start point; valid samples advance it in
             // NoteGazeSample; it fires once and re-arms only on the NEXT fixation. Fixations on
-            // EyeCtrl chrome (suppression zones, D26) never arm — nothing will fire there.
-            if (!IsInAnyRepeatSuppressionZone(point))
+            // EyeCtrl chrome (suppression zones, D26) never arm — nothing will fire there. Neither
+            // does a fixation past the screen edge (H2): that is the toolbar summon gesture, and
+            // its click would land on the clamped edge row.
+            if (!IsInAnyRepeatSuppressionZone(point) && IsOnRepeatScreen(point))
             {
                 _repeatDwellPoint = point;
                 _repeatDwellStartedUs = _lastSampleTimestampUs;
@@ -830,27 +851,73 @@ public class InteractionManager
         ResetToFreeLook();
     }
 
-    /// <summary>Toggles gaze tracking between paused and active states.</summary>
-    /// <remarks>Blocked during <see cref="InteractionState.ScrollMode"/>, <see cref="InteractionState.Dragging"/> and <see cref="InteractionState.RepeatMode"/> — use the stop/cancel affordances to exit those modes.</remarks>
+    /// <summary>
+    /// Toggles gaze tracking between paused and active states.
+    /// <para>
+    /// <b>UI-THREAD ONLY.</b> Every production entry is on the dispatcher thread — the toolbar's
+    /// Pause dwell (delivered by <c>GazeEngineAdapter</c>), the tray item, and the startup pause.
+    /// There is no gaze-thread caller, and <see cref="StateChanged"/> handlers must not call it.
+    /// </para>
+    /// <para>
+    /// <b>Pause is universal (A5).</b> In <see cref="InteractionState.Dragging"/>,
+    /// <see cref="InteractionState.RepeatMode"/> and <see cref="InteractionState.ScrollMode"/> the
+    /// mode is ended FIRST and only then does the state become
+    /// <see cref="InteractionState.Paused"/>. Drag goes through <see cref="CancelDragForPause"/>
+    /// (above all its held-button release, issued before the flip); repeat and scroll use their
+    /// existing state-only exits (<see cref="ExitRepeatMode"/> / <see cref="ExitScrollMode"/>),
+    /// which on the dispatcher thread tear their owners' chrome and the scroll worker down inline.
+    /// A throwing drag hook leaves the state in the mode and lets the exception escape: an
+    /// unfinished release must not be followed by Paused (the App's handler is non-throwing by
+    /// design, so that only fires on a wiring bug).
+    /// </para>
+    /// <para>Resume is unchanged: a second call goes <see cref="InteractionState.Paused"/> →
+    /// <see cref="InteractionState.FreeLook"/>. No paused-like state exists.</para>
+    /// </summary>
     public void TogglePause()
     {
         if (CurrentState == InteractionState.Paused)
         {
             SetState(InteractionState.FreeLook);
-        }
-        else if (CurrentState is InteractionState.ScrollMode or InteractionState.Dragging or InteractionState.RepeatMode)
-        {
             return;
         }
-        else
+
+        EndLockedModeForPause();
+
+        // Pausing is a teardown: the offer is requested clear on the gaze thread, so a linger
+        // cannot outlive the pause and complete while the user is elsewhere (M5).
+        RequestActivationOfferClear();
+        HideActionMenu?.Invoke();
+        if (CurrentState is InteractionState.ManualSelectionActive or InteractionState.ManualSelectionActionMenuVisible)
+            EndManualSelection?.Invoke();
+        SetState(InteractionState.Paused);
+    }
+
+    /// <summary>
+    /// Ends a locked mode as the first step of a pause. The drag's owner hook runs first and must
+    /// complete the cancel — including the held button's release — before it returns; the
+    /// state-only <see cref="CompleteDrag"/> that follows is the safety net for a bare manager with
+    /// no owner wired (and a no-op once the owner has already ended the mode). Repeat and scroll
+    /// hold no OS state of their own, so their state-only exits are the whole teardown.
+    /// <para>
+    /// The hook is deliberately raised BEFORE <see cref="SetState"/>: that is the ordering contract
+    /// (see <see cref="TogglePause"/>). Do not try/catch around the hook — swallowing its failure
+    /// would let the pause overtake an unfinished release.
+    /// </para>
+    /// </summary>
+    private void EndLockedModeForPause()
+    {
+        switch (CurrentState)
         {
-            // Pausing is a teardown: the offer is requested clear on the gaze thread, so a linger
-            // cannot outlive the pause and complete while the user is elsewhere (M5).
-            RequestActivationOfferClear();
-            HideActionMenu?.Invoke();
-            if (CurrentState is InteractionState.ManualSelectionActive or InteractionState.ManualSelectionActionMenuVisible)
-                EndManualSelection?.Invoke();
-            SetState(InteractionState.Paused);
+            case InteractionState.Dragging:
+                CancelDragForPause?.Invoke();
+                CompleteDrag();
+                break;
+            case InteractionState.RepeatMode:
+                ExitRepeatMode();
+                break;
+            case InteractionState.ScrollMode:
+                ExitScrollMode();
+                break;
         }
     }
 
@@ -968,6 +1035,38 @@ public class InteractionManager
     /// </summary>
     public void SetRepeatSuppressionZones(params PhysicalRect[] zones)
         => _repeatSuppressionZones = zones ?? Array.Empty<PhysicalRect>();
+
+    /// <summary>
+    /// The on-screen area the repeat dwell may ARM in, in physical px, set by the app-side repeat
+    /// controller at mode entry (A5 fixup-03 H2). A fixation outside it is the toolbar/Quick-Actions
+    /// summon gesture; a repeat click there would be clamped by the OS onto the screen edge (a tab
+    /// strip or title bar). Only the ARM is refused — a run already armed on-screen keeps its
+    /// target. Null (the default) keeps the pre-fix behaviour.
+    /// </summary>
+    public void SetRepeatScreenBounds(PhysicalRect? bounds, double tolerancePhysical = 0)
+    {
+        _repeatScreenBounds = bounds;
+        _repeatScreenTolerancePhysical = tolerancePhysical;
+    }
+
+    /// <summary>
+    /// Test seam (InternalsVisibleTo): the on-screen bounds currently published for the repeat
+    /// dwell, so the controller's production wiring can be pinned.
+    /// </summary>
+    internal (PhysicalRect Bounds, double Tolerance)? RepeatScreenBoundsForTest =>
+        _repeatScreenBounds is { } bounds ? (bounds, _repeatScreenTolerancePhysical) : null;
+
+    /// <summary>
+    /// Whether a repeat fixation may arm at <paramref name="point"/>: inside the published screen
+    /// bounds inflated by the tolerance. With no bounds published, everything is allowed.
+    /// </summary>
+    private bool IsOnRepeatScreen(PhysicalPoint point)
+    {
+        if (_repeatScreenBounds is not { } screen) return true;
+        var tol = _repeatScreenTolerancePhysical;
+        return point.X >= screen.X - tol && point.X <= screen.X + screen.Width + tol
+            && point.Y >= screen.Y - tol && point.Y <= screen.Y + screen.Height + tol;
+    }
 
     /// <summary>
     /// Test seam (InternalsVisibleTo): the zones currently published for the repeat dwell, so the

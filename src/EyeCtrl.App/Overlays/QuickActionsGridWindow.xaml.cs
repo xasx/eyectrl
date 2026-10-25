@@ -19,13 +19,17 @@ using EyeCtrl.ViewModels;
 public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOverlay
 {
     /// <summary>
-    /// The close button's diameter, declared in XAML as Width/Height 44.
+    /// The close button's diameter: <b>2 × the shared hit radius</b>, declared in XAML as
+    /// Width/Height 100. B8: the disc must be drawn to exactly the size the dwell detector
+    /// hit-tests (<see cref="UIConstants.ButtonRadius"/> = 50 DIP), so a gaze that lands on the
+    /// visible circle always lands in its hit area — the drawing was 44 while the target was
+    /// r50, and a near miss outside the small disc still counted.
     ///
     /// <c>internal</c> rather than <c>private</c> so <c>GlyphSizeCouplingTests</c> can assert the
-    /// coupling instead of restating the 44: nothing else ties this const to the XAML attribute,
-    /// so the two could drift silently and the glyph would stop filling its button.
+    /// coupling instead of restating the number: nothing else ties this const to the XAML
+    /// attribute, so the two could drift silently and the glyph would stop filling its button.
     /// </summary>
-    internal const double CloseButtonSize = 44;
+    internal const double CloseButtonSize = UIConstants.ButtonRadius * 2;
 
     /// <summary>
     /// The action tile's edge length, declared in the ItemTemplate as Width/Height 120.
@@ -122,8 +126,8 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
     /// close-button row, clamped to the work area. Gaze users can't scroll, so all tiles must be
     /// visible; the previous fixed 400×600 clipped 3+ column grids and pushed extra rows off-window.
     ///
-    /// <c>internal</c> so a headless layout pin can size the production content exactly as the
-    /// show path does, without showing a window.
+    /// <c>internal</c> so the headless geometry pin can lay the production content out at the
+    /// exact size the show path uses, without showing a window (B8).
     /// </summary>
     internal void ResizeToContent()
     {

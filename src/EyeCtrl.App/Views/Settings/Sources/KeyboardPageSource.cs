@@ -44,6 +44,13 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.keyboard.lm_loading_hint.label"),
                     () => k.ShowLMLoadingIndicator, v => { k.ShowLMLoadingIndicator = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.keyboard.lm_loading_hint.description") },
+                // Owner decision (fixup 02): a return saccade planned before the moved keyboard
+                // was visible must not type. Read live at the un-yield, so no restart is needed.
+                // "Alle Optionen" only, like the loading hint above.
+                new ToggleSpec("k_landing_guard",
+                    StringTable.Current.T("settings.keyboard.landing_guard.label"),
+                    () => k.LandingGuardAfterUnYield, v => { k.LandingGuardAfterUnYield = v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.keyboard.landing_guard.description") },
                 new ComboBoxSpec("k_lang",
                     StringTable.Current.T("settings.keyboard.dictionary_language.label"),
                     [
@@ -83,6 +90,7 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                         k.ClickSoundEnabled = def.ClickSoundEnabled;
                         k.ScreenEdge = def.ScreenEdge;
                         k.ShowLMLoadingIndicator = def.ShowLMLoadingIndicator;
+                        k.LandingGuardAfterUnYield = def.LandingGuardAfterUnYield;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

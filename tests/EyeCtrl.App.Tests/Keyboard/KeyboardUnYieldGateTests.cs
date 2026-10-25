@@ -104,6 +104,20 @@ public class KeyboardUnYieldGateTests
     // ---- the keep-clear rect: the current window UNION the band it would move into (review 01 F1) ----
 
     [Theory]
+    [InlineData(100, 100, 1.0)]    // 100 % DPI
+    [InlineData(100, 200, 2.0)]    // the owner's 200 % display
+    [InlineData(74, 111, 1.5)]
+    public void PixelsPerDip_IsTheRectsPhysicalHeightOverTheWindowDipHeight(
+        double actualHeightDip, double physicalHeightPx, double expected)
+    {
+        // Review 02 R2: production derives px/DIP from the rect PointToScreen produced. Pinning it
+        // stops a "1.0" shortcut from silently halving the keep-clear band at the owner's 200 %.
+        Check.That(KeyboardUnYieldGate.PixelsPerDip(
+                new PhysicalRect(0, 0, 500, physicalHeightPx), actualHeightDip))
+            .IsEqualTo(expected);
+    }
+
+    [Theory]
     [InlineData("bottom", 1.0)]
     [InlineData("top", 1.0)]
     [InlineData("bottom", 2.0)]   // the owner's 200 % display

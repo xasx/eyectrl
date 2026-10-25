@@ -414,7 +414,11 @@ public partial class KeyboardWindow : OverlayWindow
     /// <c>SystemParameters.WorkArea</c>, tests pass a fixed rectangle (no display needed).</param>
     /// <param name="widthDip">Window width in DIP (<c>ActualWidth</c> in production).</param>
     /// <param name="heightDip">Window height in DIP (<c>ActualHeight</c> in production).</param>
-    internal void Place(Rect workArea, double widthDip, double heightDip, KeyboardMove move)
+    /// <param name="gazeTimestampUs">The gaze sample's timestamp that requested this placement. Used
+    /// only by <see cref="KeyboardMove.UnYield"/>: the landing guard expires
+    /// <see cref="KeyboardViewModel.LandingGuardWindowUs"/> after the move.</param>
+    internal void Place(Rect workArea, double widthDip, double heightDip, KeyboardMove move,
+        long gazeTimestampUs = 0)
     {
         var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
         var (left, baseTop) = OverlayPositioning.PlaceAtEdge(workArea, edge, widthDip, heightDip);
@@ -455,7 +459,7 @@ public partial class KeyboardWindow : OverlayWindow
                 _appliedYieldDip = currentYield;
                 // The landing anchor, not D13: see MoveTo.
                 MoveTo(left, DockedTop(workArea, baseTop, heightDip, _appliedYieldDip),
-                    armLandingAnchor: true);
+                    armLandingAnchor: true, gazeTimestampUs);
                 break;
 
             // F1: re-anchor the docked edge for the new size, keeping the applied yield. A grown
@@ -505,13 +509,18 @@ public partial class KeyboardWindow : OverlayWindow
     /// also protects a gaze that returns right after the move and lands on a shifted grid.
     /// </para>
     /// </summary>
-    private void MoveTo(double left, double top, bool armLandingAnchor = false)
+    private void MoveTo(double left, double top, bool armLandingAnchor = false, long gazeTimestampUs = 0)
     {
         bool moved = Math.Abs(Top - top) > 1e-9 || Math.Abs(Left - left) > 1e-9;
         SetPosition(left, top);
         if (!moved) return;
         if (armLandingAnchor)
-            _viewModel?.ArmLandingSuppressionAfterUnYield();
+        {
+            // The owner's switch, read LIVE at the move (a settings apply reaches this object
+            // immediately): off means the un-yield arms no landing anchor at all.
+            if (_settings?.Keyboard.LandingGuardAfterUnYield ?? true)
+                _viewModel?.ArmLandingSuppressionAfterUnYield(gazeTimestampUs);
+        }
         else
             _viewModel?.ArmDwellSuppressionForMove();
     }
@@ -796,7 +805,8 @@ public partial class KeyboardWindow : OverlayWindow
         _unYieldGate.Reset();
         // The shared path: production and the headless probe both land HERE, in the real
         // placement rule — the seam replaced only the geometry reads above.
-        Place(geometry.WorkArea, geometry.WidthDip, geometry.HeightDip, KeyboardMove.UnYield);
+        Place(geometry.WorkArea, geometry.WidthDip, geometry.HeightDip, KeyboardMove.UnYield,
+            timestampMicroseconds);
     }
 
     /// <summary>
@@ -820,7 +830,7 @@ public partial class KeyboardWindow : OverlayWindow
         // The rect came from PointToScreen on this window, so its own height ratio IS the transform
         // the DIP yield has to be converted by — including a layout transform, should one exist.
         geometry = new UnYieldGeometry(SystemParameters.WorkArea, ActualWidth, ActualHeight,
-            windowRect, windowRect.Height / ActualHeight);
+            windowRect, KeyboardUnYieldGate.PixelsPerDip(windowRect, ActualHeight));
         return true;
     }
 

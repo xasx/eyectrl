@@ -58,6 +58,15 @@ internal sealed class KeyboardUnYieldGate
     }
 
     /// <summary>
+    /// The window's physical px per DIP, from the rect <c>PointToScreen</c> produced over the
+    /// window's DIP height. Deriving it from the rect (rather than a second DPI source) guarantees
+    /// the DIP yield is converted by the SAME transform chain the rect came from — 2.0 at 200 %.
+    /// The caller only calls this once it knows <paramref name="actualHeightDip"/> is positive.
+    /// </summary>
+    internal static double PixelsPerDip(PhysicalRect windowRectPx, double actualHeightDip) =>
+        windowRectPx.Height / actualHeightDip;
+
+    /// <summary>
     /// Feed one real sample (the coordinator withholds gap-held ones). True once the gaze has been
     /// continuously outside the keep-clear area for <see cref="OffThresholdUs"/>.
     /// </summary>

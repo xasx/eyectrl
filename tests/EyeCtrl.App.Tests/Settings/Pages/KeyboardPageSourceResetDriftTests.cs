@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Drift guard for the Keyboard tab's "Reset Keyboard Settings" button (issue #157): every
@@ -51,6 +52,27 @@ public class KeyboardPageSourceResetDriftTests
             ctx => new KeyboardPageSource(ctx).Build(),
             resetButtonId: "k_reset",
             pageName: "Keyboard");
+    }
+
+    [Fact]
+    public void LandingGuardRow_ExistsRightAfterTheLoadingHint_AndTogglesItsSetting()
+    {
+        // Fixup 02 (owner decision): the switch for KeyboardViewModel's landing guard sits in
+        // "Alle Optionen" right after the loading hint, reads the live value and writes the
+        // setting. The generic reset guard below covers bringing it back to true.
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.LandingGuardAfterUnYield = false;
+        var rows = new KeyboardPageSource(TestSettingsPageContext.Build(settings)).Build()[0].Rows.ToList();
+
+        var hintIndex = rows.FindIndex(r => r.Id == "k_lm_loading_hint");
+        Check.That(hintIndex).IsGreaterOrEqualThan(0);
+        Check.That(rows[hintIndex + 1].Id).IsEqualTo("k_landing_guard");
+
+        var toggle = rows[hintIndex + 1] as ToggleSpec;
+        Check.That(toggle).IsNotNull();
+        Check.That(toggle!.Get()).IsFalse();
+        toggle.Set(true);
+        Check.That(settings.Keyboard.LandingGuardAfterUnYield).IsTrue();
     }
 
     [Fact]

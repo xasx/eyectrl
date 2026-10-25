@@ -44,10 +44,21 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private PhysicalPoint? _lastGazeInsideWindowPoint;
     private PhysicalPoint? _swapSuppressedAnchor;
     private double _swapSuppressedClearRadiusSquared;
-    // Review 01 F1b: a gaze-off un-yield moved the window while the gaze was away, so there is no
-    // pre-move in-key point to anchor at. The FIRST sample that lands on the moved grid becomes
-    // the anchor instead; true between the arm and that sample (one-shot).
+    // Review 01 F1b / fixup 02: a gaze-off un-yield moved the window while the gaze was away, so
+    // there is no pre-move in-key point to anchor at. The FIRST sample that lands on the moved
+    // grid becomes the anchor instead; true between the arm and that sample (one-shot).
     private bool _landingSuppressionPending;
+    private long _landingSuppressionDeadlineUs;
+
+    /// <summary>
+    /// How long a pending landing anchor stays good after the un-yield's move (owner decision,
+    /// fixup 02). A return saccade planned before the moved keyboard was visible happens within a
+    /// few hundred ms; a deliberate return later has SEEN the moved grid and must type normally.
+    /// One second is the coordinator's pick: comfortably past the planned-saccade window, short
+    /// enough that a fixation paused elsewhere is not silently swallowed. Deliberately not a
+    /// setting (the on/off switch is <see cref="KeyboardSettings.LandingGuardAfterUnYield"/>).
+    /// </summary>
+    internal const long LandingGuardWindowUs = 1000 * MathConstants.MicrosecondsPerMillisecond;
 
     /// <summary>
     /// Longest interval between two DELIVERED gaze samples that may still count as continuous
@@ -470,14 +481,17 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             return;
         }
 
-        // Review 01 F1b: the first in-key-area sample after a gaze-off un-yield is the LANDING.
-        // Anchor the spatial suppression at it, against the CURRENT (post-move) centres, then
-        // consume the one-shot flag. This runs before the cooldown check below: a landing during
-        // the post-activation cooldown still sets the anchor, which then guards the samples after.
+        // Review 01 F1b / fixup 02 R1: the first in-key-area sample after a gaze-off un-yield is
+        // the LANDING — but only while the guard window is open. A later first sample means the
+        // gaze has seen the moved grid; the flag is discarded and typing proceeds normally. When
+        // it is in time, the anchor goes on THIS sample, against the CURRENT (post-move) centres.
+        // This runs before the cooldown check below: a landing during the post-activation
+        // cooldown still sets the anchor, which then guards the samples after.
         if (_landingSuppressionPending)
         {
             _landingSuppressionPending = false;
-            ArmSuppressionAt(gazePoint, keyScreenPositions);
+            if (timestampUs <= _landingSuppressionDeadlineUs)
+                ArmSuppressionAt(gazePoint, keyScreenPositions);
         }
 
         // Post-activation cooldown (deliberately no emission — not a struggle signal).
@@ -1455,15 +1469,23 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// Arms a ONE-SHOT landing anchor for the first sample that reaches the key area after a
-    /// gaze-off un-yield (review 01 F1b). The un-yield legitimately moves the window while the gaze
-    /// is away, so <see cref="ArmDwellSuppressionForMove"/> cannot help: the gate required 300 ms
-    /// outside the window, and <c>ProcessKeyGaze</c> nulls its in-key point on every outside
-    /// sample. When the gaze then RETURNS, it lands on a grid that may have shifted by a toolbar
-    /// extent, so that first landing point is the anchor, with the same half-key radius as a swap,
-    /// measured against the CURRENT (post-move) centres. Consumed by that one sample; a gaze that
-    /// keeps resting is suppressed until it travels about half a key, exactly like a swap.
+    /// gaze-off un-yield (review 01 F1b), but only within
+    /// <see cref="LandingGuardWindowUs"/> of the move (fixup 02 R1). The un-yield legitimately
+    /// moves the window while the gaze is away, so <see cref="ArmDwellSuppressionForMove"/> cannot
+    /// help: the gate required 300 ms outside the window, and <c>ProcessKeyGaze</c> nulls its
+    /// in-key point on every outside sample. When the gaze then RETURNS quickly, it lands on a
+    /// grid that may have shifted by a toolbar extent, so that first landing point is the anchor,
+    /// with the same half-key radius as a swap, measured against the CURRENT (post-move) centres.
+    /// Consumed by that one sample; a gaze that keeps resting is suppressed until it travels about
+    /// half a key, exactly like a swap. A first landing later than the window is NOT guarded: the
+    /// gaze has seen the moved grid and a dead key would be unexplained.
     /// </summary>
-    public void ArmLandingSuppressionAfterUnYield() => _landingSuppressionPending = true;
+    /// <param name="moveTimestampUs">The gaze sample's timestamp that performed the move.</param>
+    public void ArmLandingSuppressionAfterUnYield(long moveTimestampUs)
+    {
+        _landingSuppressionPending = true;
+        _landingSuppressionDeadlineUs = moveTimestampUs + LandingGuardWindowUs;
+    }
 
     private void ArmDwellSuppressionCore(bool clearWhenUnavailable)
     {

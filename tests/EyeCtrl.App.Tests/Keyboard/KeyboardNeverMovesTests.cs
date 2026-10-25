@@ -394,6 +394,86 @@ public class KeyboardNeverMovesTests
             .That(fired).Contains("key_0_0");
     }
 
+    /// <summary>
+    /// Fixup 02 R1 (owner decision): the pending landing expires 1000 ms after the move. A gaze
+    /// that only comes back to the key area after that has seen the moved grid, so it must type
+    /// normally rather than hit an unexplained dead key.
+    /// </summary>
+    [StaFact]
+    public void GazeReturnsAfterTheLandingGuardWindow_TypesNormally()
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        var contentRect = ContentScreenRect(probe);
+        window.UnYieldProbeGeometry = new KeyboardWindow.UnYieldGeometry(
+            WorkArea, WidthDip, HeightDip, contentRect, PixelsPerDip: 1.0);
+
+        window.SetScreenEdge("bottom");
+        window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+        window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+        window.SetToolbarOccupancy(false, "none", 0);
+
+        var fired = new List<string>();
+        probe.Vm.KeyDwellCompleted += id => fired.Add(id);
+        var keyCentre = Centres(window)["key_0_0"];
+        var clear = new PhysicalPoint(contentRect.X + 10, contentRect.Y + contentRect.Height + 200);
+
+        // The un-yield fires at 1.3 s; keep the gaze off past the 1 s guard.
+        long t = 1_000_000;
+        for (; t <= 1_300_000; t += 50_000)
+            window.UpdateGaze(clear, t);
+        Check.That(window.Top).IsEqualTo(BottomTop);   // the premise: the un-yield moved the window
+        for (; t <= 2_350_000; t += 50_000)
+            window.UpdateGaze(clear, t);
+
+        // The FIRST key-area sample is at 2.4 s — 1.1 s after the move: no landing anchor.
+        for (; t <= 3_400_000 && fired.Count == 0; t += 50_000)
+            window.UpdateGaze(keyCentre, t);
+
+        Check.WithCustomMessage("a return after the guard window was still suppressed")
+            .That(fired).Contains("key_0_0");
+    }
+
+    /// <summary>
+    /// Fixup 02 R1 (owner decision): the landing guard is switchable. With it off, an un-yield arms
+    /// no anchor at all, so a quick return types after the normal dwell — the un-yield itself is
+    /// unchanged.
+    /// </summary>
+    [StaFact]
+    public void LandingGuardOff_AShortLandingTypesNormally()
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.LandingGuardAfterUnYield = false;
+        window.SetSettings(settings);
+        var contentRect = ContentScreenRect(probe);
+        window.UnYieldProbeGeometry = new KeyboardWindow.UnYieldGeometry(
+            WorkArea, WidthDip, HeightDip, contentRect, PixelsPerDip: 1.0);
+
+        window.SetScreenEdge("bottom");
+        window.SetToolbarOccupancy(true, "bottom", ToolbarExtentDip);
+        window.Place(WorkArea, WidthDip, HeightDip, KeyboardMove.Yield);
+        window.SetToolbarOccupancy(false, "none", 0);
+
+        var fired = new List<string>();
+        probe.Vm.KeyDwellCompleted += id => fired.Add(id);
+        var keyCentre = Centres(window)["key_0_0"];
+        var clear = new PhysicalPoint(contentRect.X + 10, contentRect.Y + contentRect.Height + 200);
+
+        long t = 1_000_000;
+        for (; t <= 1_300_000; t += 50_000)
+            window.UpdateGaze(clear, t);
+        Check.That(window.Top).IsEqualTo(BottomTop);   // the premise: the un-yield moved the window
+
+        // A 50 ms return, inside the guard window: with the setting off there is nothing to wait for.
+        for (; t <= 2_500_000 && fired.Count == 0; t += 50_000)
+            window.UpdateGaze(keyCentre, t);
+
+        Check.WithCustomMessage("the landing guard was still armed with its setting off")
+            .That(fired).Contains("key_0_0");
+    }
+
     [Fact]
     public void UnYieldGate_ReadsTheWholeWindowRect_NotTheKeyGrid()
     {
@@ -411,6 +491,11 @@ public class KeyboardNeverMovesTests
             .That(source.Contains("!TryGetScreenRect(this,outvarwindowRect)")).IsTrue();
         Check.WithCustomMessage("the gaze-off un-yield measures the key grid instead of the window")
             .That(source.Contains("TryGetScreenRect(KeyRows,outvarwindowRect)")).IsFalse();
+        // Review 02 R2 / N1: the DIP yield must be converted by the window's own px/DIP ratio. A
+        // "1.0" shortcut halves the keep-clear band at the owner's 200 % and no headless seam can
+        // see it (the seam supplies the ratio), so the production line is pinned here.
+        Check.WithCustomMessage("the gaze-off un-yield no longer converts DIP with the window's px/DIP")
+            .That(source.Contains("KeyboardUnYieldGate.PixelsPerDip(windowRect,ActualHeight)")).IsTrue();
     }
 
     [StaFact]

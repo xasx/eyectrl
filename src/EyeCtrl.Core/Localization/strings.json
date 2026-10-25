@@ -3568,6 +3568,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.keyboard.landing_guard.description": {
+    "text": "When the keyboard moves back to its edge after the toolbar hides, the key the gaze lands on in the first second does not type. This keeps a glance that was already on its way from typing a wrong key.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.landing_guard.label": {
+    "text": "Guard the first key after the keyboard moves back",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.keyboard.layout.description": {
     "text": "Key arrangement; QWERTZ suits German, AZERTY suits French.",
     "who": "user",

@@ -36,4 +36,11 @@ public class KeyboardSettingsTests
         Check.That(settings.CustomModels).IsNotNull();
         Check.That(settings.CustomModels).IsEmpty();
     }
+
+    [Fact]
+    public void Defaults_LandingGuardAfterUnYield_IsOn()
+    {
+        // Fixup 02 (owner decision): the guard ships on; the setting only lets the owner turn it off.
+        Check.That(new KeyboardSettings().LandingGuardAfterUnYield).IsTrue();
+    }
 }

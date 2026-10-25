@@ -407,11 +407,13 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             // R2-4: refresh the occupancy state BEFORE the show placement, without placing.
             // Toolbar visibility changes reach the keyboard through BeginInvoke, so a hide still
             // queued at show time leaves a stale "occupied". Placing with it would yield the
-            // whole session, and the fresh 0 that follows can never un-yield while open.
+            // whole session from the first frame, and the fresh 0 can only take it back through
+            // the gaze-off un-yield once the gaze has left the window.
             ApplyInitialToolbarOccupancy(place: false);
-            // F2: the explicit show placement. It is the session's one un-yield (docked position
-            // plus the refreshed toolbar yield); it must run after Show() so the window has its
-            // real size. The window no longer infers a show from IsVisibleChanged.
+            // F2: the explicit show placement. It is the session's re-show un-yield (docked
+            // position plus the refreshed toolbar yield); the other un-yield is the gaze-off gate
+            // while the keyboard stays open. It must run after Show() so the window has its real
+            // size. The window no longer infers a show from IsVisibleChanged.
             Context.OverlayManager.Keyboard.PlaceForShow();
             ShowKeyboardEdgeBar();
             if (manageSuppression)

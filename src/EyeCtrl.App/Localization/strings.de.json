@@ -1977,6 +1977,14 @@
     "text": "Spanisch",
     "src": "f4dc85c0"
   },
+  "settings.keyboard.landing_guard.description": {
+    "text": "Rückt die Tastatur nach dem Ausblenden der Symbolleiste an ihren Rand zurück, wird die erste Taste, auf der der Blick innerhalb einer Sekunde landet, ignoriert, bis sich der Blick ein Stück bewegt. So löst ein Blick, der schon unterwegs war, keine falsche Taste aus.",
+    "src": "01d29019"
+  },
+  "settings.keyboard.landing_guard.label": {
+    "text": "Erste Taste nach dem Zurückrücken schützen",
+    "src": "6a527054"
+  },
   "settings.keyboard.layout.description": {
     "text": "Tastenanordnung; QWERTZ passt zu Deutsch, AZERTY zu Französisch.",
     "src": "e7acc62a"

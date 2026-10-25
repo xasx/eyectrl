@@ -54,6 +54,7 @@ public class SettingsPageSourceCallbackTests
         k.KeySizeMultiplier = 1.5;
         k.PredictionEnabled = false;
         k.ScreenEdge = "Top";
+        k.LandingGuardAfterUnYield = false;
 
         var rec = new RecordingSettingsPageContext(settings);
         var reset = new KeyboardPageSource(rec.Context).Build()[0].Rows
@@ -73,6 +74,7 @@ public class SettingsPageSourceCallbackTests
         Check.That(k.KeySizeMultiplier).IsEqualTo(defaults.KeySizeMultiplier);
         Check.That(k.PredictionEnabled).IsEqualTo(defaults.PredictionEnabled);
         Check.That(k.ScreenEdge).IsEqualTo(defaults.ScreenEdge);
+        Check.That(k.LandingGuardAfterUnYield).IsEqualTo(defaults.LandingGuardAfterUnYield);
         Check.That(k.SmartCapitalizationEnabled).IsFalse();   // canary: reset must not reach rowless fields
         Check.That(settings.Keyboard).IsSameReferenceAs(k);   // field copy, not object replacement
         Check.That(rec.ApplyAndSaveCount).IsEqualTo(1);

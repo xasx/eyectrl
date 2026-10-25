@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
@@ -160,5 +161,140 @@ public class KeyboardMoveSuppressionTests
                     .That(fired).HasSize(1);
             }
         }
+    }
+
+    // ---- Review 01 F1b: the one-shot landing anchor after a gaze-off un-yield -------------------------
+
+    [Fact]
+    public void LandingSuppression_RestingGazeAfterUnYield_NeverDwells()
+    {
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield(0);
+
+        // The grid is not reached on the un-yield's own sample (the gate saw the gaze away); the
+        // first IN-KEY-AREA sample is the landing. It must not fire, held far past the dwell.
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(500, 500), false, 0);
+        for (long t = 1_000; t < 3_001_000; t += 50_000)
+        {
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+            Check.WithCustomMessage("a key fired on the landing sample after the un-yield")
+                .That(fired).IsEmpty();
+        }
+    }
+
+    [Fact]
+    public void LandingSuppression_TravelBeyondHalfAKey_DwellsNormally()
+    {
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield(0);
+
+        // Land on key_0_0 (suppressed), then 120 units away = 0.6 pitch > the 100-unit radius.
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 1_000);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 50_000);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, 100_000);
+        for (long t = 150_000; t < 2_150_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_1");
+    }
+
+    [Fact]
+    public void LandingSuppression_AtExactlyTheGuardBoundary_StillSuppresses()
+    {
+        // Fixup 02 R1: the guard is inclusive at 1000 ms (`<=`), so the first landing exactly on
+        // the boundary is still protected. The next test pins the other side.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield(0);
+
+        for (long t = KeyboardViewModel.LandingGuardWindowUs; t < 3_001_000; t += 50_000)
+        {
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+            Check.WithCustomMessage("a key fired on a landing exactly at the guard boundary")
+                .That(fired).IsEmpty();
+        }
+    }
+
+    [Fact]
+    public void LandingSuppression_AfterTheGuardWindow_TypesNormally()
+    {
+        // The first key-area sample arrives later than 1000 ms after the move: the gaze has seen
+        // the moved grid, so the pending landing is discarded and the key dwells normally.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield(0);
+
+        for (long t = KeyboardViewModel.LandingGuardWindowUs + 1_000; t < 2_001_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_0");
+    }
+
+    [Fact]
+    public void LandingSuppression_ClearedByHide()
+    {
+        // N9: a pending landing must not survive into the next session and anchor its first key.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.IsVisible = true;
+        vm.ArmLandingSuppressionAfterUnYield(0);
+        vm.IsVisible = false;    // the hide: ResetInteractionState
+        vm.IsVisible = true;
+
+        for (long t = 1_000; t < 1_001_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_0");
+    }
+
+    [Fact]
+    public void LandingSuppression_ClearedBySetLayout()
+    {
+        // N10: the same for a layout replacement — the pending landing's grid is gone.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield(0);
+        vm.SetLayout(Layout());
+
+        for (long t = 1_000; t < 1_001_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_0");
+    }
+
+    private static KeyboardLayout Layout() => new()
+    {
+        Name = "Test",
+        DefaultSubLayout = "letters",
+        SubLayouts = new Dictionary<string, SubLayout>
+        {
+            ["letters"] = new() { Label = "ABC", Rows = new List<List<KeyDefinition>>() },
+        },
+    };
+
+    [Fact]
+    public void LandingSuppression_IsConsumedOnce_SoAReturningGazeTypesNormally()
+    {
+        // A landing anchor that was never consumed would re-anchor at every in-grid sample and
+        // suppress forever. Here the gaze lands, travels beyond the radius, then RETURNS: the
+        // return must dwell normally.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ArmLandingSuppressionAfterUnYield(0);
+
+        for (long t = 1_000; t <= 500_000; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);   // the landing
+        Check.WithCustomMessage("the landing itself fired").That(fired).IsEmpty();
+
+        for (long t = 550_000; t <= 900_000; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, t);   // clears the anchor
+
+        for (long t = 950_000; t <= 2_000_000 && !fired.Contains("key_0_0"); t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);   // back on key_0_0
+
+        Check.WithCustomMessage("the landing anchor re-armed on the return and suppressed forever")
+            .That(fired).Contains("key_0_0");
     }
 }

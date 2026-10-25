@@ -57,6 +57,13 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private string _mLModelSize = "360M";
     /// <summary>Whether to show a loading indicator while the ML model initializes.</summary>
     [ObservableProperty] private bool _showLMLoadingIndicator = true;
+    /// <summary>
+    /// Whether the first key the gaze lands on within a second of the keyboard un-yielding is
+    /// guarded. The un-yield moves the keyboard while the gaze is elsewhere; a return saccade
+    /// planned before the moved grid was visible must not type a wrong key. Read live at each
+    /// un-yield, so toggling it needs no restart.
+    /// </summary>
+    [ObservableProperty] private bool _landingGuardAfterUnYield = true;
     /// <summary>Whether to prefer GPU inference for the ML model.</summary>
     [ObservableProperty] private bool _preferGPU = true;
     /// <summary>User-defined custom model entries for alternative ML models.</summary>

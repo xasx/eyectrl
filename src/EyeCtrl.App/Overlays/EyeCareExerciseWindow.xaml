@@ -11,6 +11,27 @@
                      Left="0" Top="0">
 
     <Grid>
+        <!-- Skip dwell target: a 100 DIP disc (r50) on the BOTTOM edge, MID-edge — never a corner,
+             where tracking is worst — and clear of every exercise's dot path (the bottom-centre
+             band no exercise reaches). Centred alignment is the same arithmetic
+             EyeCareExerciseWindow.ComputeSkipGeometry does in physical pixels; the disc's fill,
+             the Button above it and the dwell outline share this one box. Declared BEFORE Stage
+             so the live gaze ring draws over it — the user must still see where their gaze is
+             while dwelling the exit. -->
+        <Border x:Name="SkipTarget"
+                Width="100" Height="100"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                Background="{StaticResource BrushSurfaceLight}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="{StaticResource StandardBorderThickness}"
+                CornerRadius="{StaticResource CircleCornerRadius}">
+            <Button x:Name="SkipButton" Content="{loc:T 'eye-care.exercise.skip'}"
+                    Focusable="False"
+                    Foreground="{StaticResource BrushTextSecondary}" Background="Transparent"
+                    BorderThickness="0" BorderBrush="Transparent"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+        </Border>
+
         <Canvas x:Name="Stage">
             <!-- Target dot -->
             <Ellipse x:Name="TargetDot" Width="36" Height="36" Fill="{StaticResource BrushAccent}" Opacity="0.9"/>
@@ -25,11 +46,6 @@
             <TextBlock x:Name="Countdown" Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}"
                        HorizontalAlignment="Center" Margin="0,4,0,0"/>
         </StackPanel>
-
-        <!-- Skip button (corner) -->
-        <Button x:Name="SkipButton" Content="{loc:T 'eye-care.exercise.skip'}" Width="60" Height="32"
-                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
-                Foreground="{StaticResource BrushTextDim}" Background="Transparent" BorderBrush="{StaticResource BrushBorderSubtle}"/>
 
         <!-- Progress bar -->
         <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Minimum="0" Maximum="100"/>

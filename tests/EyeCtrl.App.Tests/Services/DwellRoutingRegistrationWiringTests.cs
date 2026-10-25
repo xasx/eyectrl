@@ -16,14 +16,14 @@ using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
-/// Guards the registry arguments of the five factory lambdas in <c>AppBootstrapper</c>
+/// Guards the registry arguments of the six factory lambdas in <c>AppBootstrapper</c>
 /// (ManualSelectionDwellService, ExternalDwellService, NoteManager, OverlayManager,
-/// EyeCareBannerWindow). Every one of them feeds an OPTIONAL constructor parameter
-/// (<c>IDwellDetectorRegistry? dwellRegistry = null</c>), so deleting the argument neither fails
-/// the build nor throws at resolution — the app just silently stops routing adaptation to that
+/// EyeCareBannerWindow, EyeCareExerciseWindow). Every one of them feeds an OPTIONAL constructor
+/// parameter (<c>IDwellDetectorRegistry? dwellRegistry = null</c>), so deleting the argument neither
+/// fails the build nor throws at resolution — the app just silently stops routing adaptation to that
 /// surface. An implementation-review mutation confirmed the suite stays green across all five
-/// deletions; these facts make each one loud by resolving the owner from a real provider and
-/// asserting the registry entry its factory must land.
+/// original deletions; these facts make each one loud by resolving the owner from a real provider
+/// and asserting the registry entry its factory must land.
 /// </summary>
 /// <remarks>
 /// Mirrors <see cref="TelemetrySinkRegistrationTests"/>: builds the real container and never
@@ -33,15 +33,15 @@ using Microsoft.Extensions.DependencyInjection;
 /// fact disposes its provider, and ServiceProvider disposal disposes both singletons — whose
 /// Dispose unregisters them from the messenger — so nothing leaks.
 ///
-/// The two window-constructing facts (ExternalDwellService builds a DwellFeedbackOverlay,
-/// EyeCareBannerWindow's XAML reads theme tokens) need [StaFact] plus
+/// The three window-constructing facts (ExternalDwellService builds a DwellFeedbackOverlay, and
+/// the eye-care windows' XAML reads theme tokens) need [StaFact] plus
 /// <see cref="WpfApplicationGate.EnsureApplicationWithTokens"/>. They are therefore gate callers
 /// and must never run concurrently with another one: this class sits in
 /// "DpiHelper Tests (App)", which is DisableParallelization, and xUnit v3 runs such a collection
 /// exclusively — the same reasoning <c>ExternalDwellServiceTests</c> ("ExternalDwellPipe") relies
 /// on instead of joining "WpfApplication".
 ///
-/// OverlayManager is guarded one level removed from the other four: its constructor only STORES
+/// OverlayManager is guarded one level removed from the other five: its constructor only STORES
 /// the registry — the entry lands later, in KeyboardWindow's constructor, which
 /// OverlayManager.Initialize() invokes alongside ~15 other XAML windows. Constructing that set
 /// headless is the XAML-resource flake zone, so by the same ruling that parks SetViewModel the
@@ -148,6 +148,22 @@ public class DwellRoutingRegistrationWiringTests
         // snapshot). Pins the same teardown contract the per-session owners honor.
         sp.Dispose();
         Check.That(registry.Registrations).IsEmpty();
+    }
+
+    [StaFact]
+    public void EyeCareExerciseWindow_ResolvedFromContainer_LandsItsRegistryEntry()
+    {
+        // B7 gave the exercise window its own detector (the Skip exit). Like the banner's, its
+        // registry argument is optional, so a deleted wiring would fail neither the build nor
+        // resolution — only adaptation would silently stop reaching the exit.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+
+        _ = sp.GetRequiredService<EyeCareExerciseWindow>();
+        var registry = sp.GetRequiredService<IDwellDetectorRegistry>();
+
+        CheckSingleEntry(registry.Registrations, DwellContext.EyeCare,
+            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs);
     }
 
     [StaFact]

@@ -65,7 +65,9 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         {
             var paused = msg.NewState == InteractionState.Paused;
             _autoHide?.SetPaused(paused);
-            // The strip is a pure function of paused state (spec H1/N2): one command per flip.
+            // The strip is a pure function of paused state (spec H1/N2): one command per flip. On the
+            // way OUT of Paused the adapter has normally hidden it already, synchronously inside
+            // TogglePause (B2a, TrackLeavingPause); this command then finds nothing to do.
             // The startup-paused push arrives here from App.OnStartup's TogglePause, which runs
             // AFTER ShowOverlays — that ordering is load-bearing for the strip's z-order (O4);
             // see the comment at App.xaml.cs.
@@ -236,6 +238,8 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             var rect = CaptureToolbarRect();
             Log.Information("Toolbar auto-hide rect refreshed: {Rect}", rect);
             _autoHide.UpdateToolbarRect(rect);
+            // B2a: the strip's Resume target is placed clear of the same rect.
+            _visibility?.PublishBandBounds(rect);
         }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
@@ -266,7 +270,9 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         if (Context is null || _autoHide == null) return;
         Context.Dispatcher.BeginInvoke(new Action(() =>
         {
-            _autoHide.UpdateGeometry(geometry.WidthPx, geometry.HeightPx, CaptureToolbarRect());
+            var rect = CaptureToolbarRect();
+            _autoHide.UpdateGeometry(geometry.WidthPx, geometry.HeightPx, rect);
+            _visibility?.PublishBandBounds(rect);
         }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
@@ -331,6 +337,8 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
         _autoHide = controller;
         _visibility = vis;
+        // B2a: the strip hides inside the state change that leaves Paused (see TrackLeavingPause).
+        vis.TrackLeavingPause(Context.InteractionManager);
 
         // Subscribe under any real tracker (NOT gated on `enabled`/IsDocked) so a runtime dock-toggle
         // can activate auto-hide. Feed() early-returns when !_enabled, so samples are a cheap no-op
@@ -353,6 +361,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
     protected override void OnDispose()
     {
+        _visibility?.StopTrackingLeavingPause(Context!.InteractionManager);
         if (_autoHideGazeHandler != null) Context!.GazeEngine.GazeSampled -= _autoHideGazeHandler;
         if (_gazeMovedHandler != null) Context!.GazeEngine.CursorMoved -= _gazeMovedHandler;
     }

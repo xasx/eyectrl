@@ -438,6 +438,8 @@ public class AppBootstrapper
         services.AddSingleton<TaskSwitcherViewModel>();
         services.AddSingleton<ModesMenuViewModel>();
         services.AddSingleton<RepeatCursorViewModel>();
+        // B2a: the paused strip's Resume target. Not handed the dwell registry (see its ctor).
+        services.AddSingleton<ResumeStripViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
 
         // Scripted ground truth (Stage 2 ticket 3; self-contained again for ticket 6's bias probe).
@@ -765,7 +767,8 @@ public class AppBootstrapper
             TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>(),
             QuickActionsGrid: quickActionsGridVm,
             ModesMenu: sp.GetRequiredService<ModesMenuViewModel>(),
-            RepeatCursor: sp.GetRequiredService<RepeatCursorViewModel>());
+            RepeatCursor: sp.GetRequiredService<RepeatCursorViewModel>(),
+            ResumeStrip: sp.GetRequiredService<ResumeStripViewModel>());
     }
 
     private static IExercise[] BuildExercisePool(PhysicalPoint center)

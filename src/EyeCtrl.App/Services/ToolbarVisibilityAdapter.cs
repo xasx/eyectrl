@@ -2,6 +2,8 @@ namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels;
 using Serilog;
 
@@ -25,15 +27,17 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     // read by the band show paths only to decide whether to re-raise the strip above the band.
     private bool _pauseIndicatorVisible;
 
-    // The last command POSTED for the strip (issue #166 M8). Checked by the pre-check before
-    // queuing another: skipping when this already equals the command is correct even with an
-    // earlier command still in flight, because the queued pipeline then already ends in the
-    // commanded state — comparing against the EXECUTED mirror instead would wrongly skip a real
+    // The latest command for the strip (issue #166 M8), posted or run inline (B2a's hide).
+    // Checked by the pre-check before queuing another, and READ by the applying lambda: skipping
+    // when this already equals the command is correct even with an earlier command still in
+    // flight, because the pipeline then already ends in the commanded state — comparing against
+    // the EXECUTED mirror instead would wrongly skip a real
     // transition (true→false arriving while the true is still queued would skip the false and
     // strand the strip shown; that exact sequence is Unpause_WhileBandVisible_HidesStrip).
-    // No synchronisation needed because the only sender of StateChangedMessage marshals the
-    // send onto the UI dispatcher (GazeEngineAdapter.OnStateChanged), so commands arrive
-    // serialized on one thread (round-1 review N1 — the call-site count was the wrong reason).
+    // No synchronisation needed because every command arrives on the UI thread: the only sender
+    // of StateChangedMessage marshals the send onto the dispatcher (GazeEngineAdapter.OnStateChanged),
+    // and the B2a leave-pause hook acts only when it is already there (round-1 review N1 — the
+    // call-site count was the wrong reason).
     private bool _commandedPauseIndicator;
 
     /// <summary>
@@ -56,6 +60,9 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     {
         if (_lastVisible == visible) return;
         _lastVisible = visible;
+        // B2a: the strip's Resume target hides while the band is up (the band has its own Play)
+        // and comes back once it has gone. Same edge as the event, on the same UI-thread call.
+        _overlays.PauseIndicator.SetBandVisible(visible);
         VisibilityChanged?.Invoke(visible);
     }
 
@@ -64,29 +71,81 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // Pre-check on the CALLER's thread (issue #166 M8): StateChangedMessage fires per gaze
         // flip, and the edge guard used to run only inside the posted lambda — every flip queued
         // a dispatcher item just to return there, the exact cost class the no-change guard at
-        // ToolbarAutoHideController.SetPaused documents as load-bearing. The authoritative write
-        // stays inside the lambda, whose guard is DEFENSIVE ONLY: with commands arriving
-        // serialized on one thread (the invariant the field comment states), the pre-check
-        // refuses every redundant post and each queued lambda carries the opposite of the one
-        // before it, so the guard is unreachable today (round-2 review N-1) — it costs nothing
-        // and backstops the invariant if a second caller ever appears.
+        // ToolbarAutoHideController.SetPaused documents as load-bearing.
         if (_commandedPauseIndicator == visible) return;
         _commandedPauseIndicator = visible;
-        _dispatcher.BeginInvoke(() =>
+
+        // B2a (sticky owner's condition 1): the strip now carries a dwellable Resume target, and
+        // the note gate opens the moment the state leaves Paused. So the HIDE runs inline when the
+        // command arrives on the UI thread, which in production it always does — from inside
+        // TogglePause itself through TrackLeavingPause, and again (as a no-op) from the posted
+        // StateChangedMessage. The show stays posted (the startup-push ordering, O4 at App.xaml.cs).
+        if (!visible && _dispatcher.CheckAccess())
         {
-            if (_pauseIndicatorVisible == visible) return; // StateChangedMessage fires per gaze flip
-            _pauseIndicatorVisible = visible;
-            if (visible)
-            {
-                _overlays.PauseIndicator.Show();
-                _overlays.PauseIndicator.RaiseToTop();
-            }
-            else
-            {
-                _overlays.PauseIndicator.Hide();
-            }
-        });
+            ApplyPauseIndicatorCommand();
+            return;
+        }
+
+        _dispatcher.BeginInvoke(ApplyPauseIndicatorCommand);
     }
+
+    /// <summary>
+    /// Hides the strip INSIDE the state change that leaves Paused (sticky owner's condition 1).
+    /// <see cref="InteractionManager.StateChanged"/> is raised synchronously by <c>SetState</c>, and
+    /// the only way out of Paused is <c>TogglePause</c>, which runs on the UI thread — so this hides
+    /// the strip before <c>TogglePause</c> even returns: no dispatcher item, no gaze sample delivered
+    /// to the notes and no frame can come between the note gate opening and the strip going away.
+    /// <c>StateChangedMessage</c> alone cannot promise that: <c>GazeEngineAdapter</c> POSTS it, so
+    /// samples already queued would reach an open note gate with the strip still up. The message's
+    /// own command then finds the strip already commanded hidden and does nothing.
+    /// <para>
+    /// Gaze-thread transitions (FreeLook/Fixation/RepeatMode) never involve Paused and fail the
+    /// thread check cheaply; entering Paused is left to the message path (the show is posted anyway).
+    /// </para>
+    /// </summary>
+    internal void TrackLeavingPause(InteractionManager interactionManager) =>
+        interactionManager.StateChanged += OnInteractionStateChanged;
+
+    /// <summary>Undoes <see cref="TrackLeavingPause"/>.</summary>
+    internal void StopTrackingLeavingPause(InteractionManager interactionManager) =>
+        interactionManager.StateChanged -= OnInteractionStateChanged;
+
+    private void OnInteractionStateChanged(InteractionState state)
+    {
+        if (state == InteractionState.Paused || !_dispatcher.CheckAccess()) return;
+        SetPauseIndicator(false);
+    }
+
+    /// <summary>
+    /// Brings the strip to the LATEST command. Reading the command here rather than capturing it
+    /// is what makes the inline hide safe: a show still queued behind an inline hide finds the
+    /// command already false and does nothing, instead of showing the strip outside Paused. The
+    /// mirror check is the edge guard (StateChangedMessage fires per gaze flip).
+    /// </summary>
+    private void ApplyPauseIndicatorCommand()
+    {
+        var visible = _commandedPauseIndicator;
+        if (_pauseIndicatorVisible == visible) return;
+        _pauseIndicatorVisible = visible;
+        if (visible)
+        {
+            _overlays.PauseIndicator.Show();
+            // Re-asserted on every show (sticky owner's condition 2): above the band, and above
+            // every NoteWindow, so a note card can never cover the Resume target.
+            _overlays.PauseIndicator.RaiseToTop();
+        }
+        else
+        {
+            _overlays.PauseIndicator.Hide();
+        }
+    }
+
+    /// <summary>
+    /// Hands the band's rest rectangle (physical px — the auto-hide controller's own rect) to the
+    /// strip, which places its Resume target clear of it. UI thread only: the coordinator calls it
+    /// from inside its Loaded-priority capture.
+    /// </summary>
+    internal void PublishBandBounds(PhysicalRect bounds) => _overlays.PauseIndicator.SetBandBounds(bounds);
 
     public void ShowToolbar() => _dispatcher.BeginInvoke(() =>
     {

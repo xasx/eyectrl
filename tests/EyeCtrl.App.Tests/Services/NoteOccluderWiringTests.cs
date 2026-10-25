@@ -204,8 +204,10 @@ public class NoteOccluderWiringTests
 
             for (long t = 0; t <= 1_500_000; t += 100_000)
                 manager.OnGazeMoved(closeCenter, t);
-            Check.WithCustomMessage("the wired banner-slot source must occlude ✕ beneath the live occupant")
-                .That(manager.ActiveNotes).HasSize(1);
+            Check.WithCustomMessage(
+                    "the wired banner-slot source must occlude ✕ beneath the live occupant: a fired ✕ " +
+                    "enters the chip (PendingUndo) and the note count alone cannot tell the two apart")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
             // Control: the occupant closes and the slot empties; after the leave-before-arm the
             // same held gaze reaches ✕ (into the chip, P2 D5). An always-on source would hold it.

@@ -162,15 +162,15 @@ public class ControlStatusModelTests
     {
         var (model, time, published) = NewModel();
 
+        // Polls at the 1 s observation limit: a larger gap is unobserved time and restarts the
+        // clock (review 01 F3), so the boundary below must be reached by observed polls.
         model.Poll(false);
-        AdvanceMs(time, 9_999);
-        model.OnGazeSample(true);       // keep the STATE Normal: the flag is independent of it
-        model.Poll(false);
-        Check.That(model.Current.Disconnected).IsFalse();
-
-        AdvanceMs(time, 1);
-        model.OnGazeSample(true);
-        model.Poll(false);
+        for (int second = 0; second < 10; second++)
+        {
+            AdvanceMs(time, 1_000);
+            model.OnGazeSample(true);       // keep the STATE Normal: the flag is independent of it
+            model.Poll(false);
+        }
         Check.That(model.Current.Disconnected).IsFalse();   // exactly 10.0 s is not "more than"
 
         AdvanceMs(time, 1);
@@ -188,12 +188,19 @@ public class ControlStatusModelTests
         model.OnGazeSample(true);
 
         model.Poll(false);
-        AdvanceMs(time, 9_000);
+        for (int second = 0; second < 9; second++)
+        {
+            AdvanceMs(time, 1_000);
+            model.Poll(false);
+        }
         model.Poll(true);          // one connected observation resets "continuously"
         model.OnGazeSample(true);
         model.Poll(false);
-        AdvanceMs(time, 9_000);
-        model.Poll(false);
+        for (int second = 0; second < 9; second++)
+        {
+            AdvanceMs(time, 1_000);
+            model.Poll(false);
+        }
 
         Check.That(model.Current.Disconnected).IsFalse();
         Check.That(published).ContainsOnlyElementsThatMatch(s => !s.Disconnected);
@@ -205,7 +212,12 @@ public class ControlStatusModelTests
         var (model, time, _) = NewModel();
 
         model.Poll(false);
-        AdvanceMs(time, 10_500);
+        for (int second = 0; second < 10; second++)
+        {
+            AdvanceMs(time, 1_000);
+            model.Poll(false);
+        }
+        AdvanceMs(time, 100);
         model.Poll(false);
         Check.That(model.Current.Disconnected).IsTrue();
 
@@ -244,23 +256,16 @@ public class ControlStatusModelTests
     }
 
     [Fact]
-    public void StateExitDebounce_HoldsTheStateForThreeHundredMilliseconds()
+    public void Resuming_IsImmediate_NoStateExitDebounce()
     {
-        var (model, time, published) = NewModel();
+        // B1 fixup-01 (review 01 F2): the 300 ms Paused-exit debounce is deleted. The strip hides
+        // on CurrentState; the status must follow the resume on the same edge.
+        var (model, _, published) = NewModel();
 
         model.SetPaused(true);
         Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
 
-        AdvanceMs(time, 100);
-        model.SetPaused(false);          // the unpaused condition starts its debounce window now
-        Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
-
-        AdvanceMs(time, 299);            // 299 ms since the unpause
-        model.Poll(true);
-        Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
-
-        AdvanceMs(time, 1);              // 300 ms since the unpause
-        model.Poll(true);
+        model.SetPaused(false);
         Check.That(model.Current.State).IsEqualTo(ControlState.Normal);
 
         Check.That(published).HasSize(2);

@@ -22,14 +22,14 @@ using EyeCtrl.Core.Enums;
 /// observation resets the clock, so the storm's 0.1 s connected windows keep it false forever.
 /// </para>
 /// <para>
-/// <b>State-exit debounce (300 ms).</b> The ticket's "debounce state exits by about 300 ms" is
-/// applied where a state can exit on a transient condition: LEAVING Paused for Normal requires the
-/// unpaused condition to hold for 300 ms, so a pause/unpause/repause sequence cannot flicker the
-/// strip. Entries are never delayed (a pause shows at once), and an exit to a MORE URGENT state is
-/// never delayed either (priority beats the debounce). <see cref="ControlState.TrackingLost"/> is
-/// deliberately exempt on its way back to Normal: the ticket's explicit rule — "it clears on the
-/// first valid sample" — wins, and the 3 s entry threshold is already a far stronger debounce than
-/// 300 ms.
+/// <b>No exit debounce (B1 fixup-01 / review F2).</b> The original ticket's "debounce state exits
+/// by about 300 ms" was implemented on leaving Paused and then deleted by the coordinator: Pause is
+/// a deliberate edge, the walk-away storm never touches Paused, and the extra 300–400 ms was pure
+/// lag on the strip. The 3 s Lost-gaze entry threshold IS the state debounce (and the 10 s
+/// continuous bound is the flag's). Every state transition after its condition is therefore
+/// immediate. B2a/B2b's paused strip hides on the interaction state machine's
+/// <c>InteractionManager.CurrentState</c>, never on this mirrored status — see
+/// <see cref="ControlStatus.State"/>.
 /// </para>
 /// <para>
 /// Thread safety: samples arrive on the gaze thread, pause transitions on the UI thread and the
@@ -54,11 +54,12 @@ public sealed class ControlStatusModel
     public const int DisconnectAfterMs = 10_000;
 
     /// <summary>
-    /// How long the unpaused condition must hold before the state may leave
-    /// <see cref="ControlState.Paused"/> for <see cref="ControlState.Normal"/> — the anti-flicker
-    /// debounce the ticket calls "debounce state exits by about 300 ms".
+    /// The longest gap between two connectivity polls that still counts as observation. If more than
+    /// this elapses (timer starvation, suspend/resume), the interval in between was never observed,
+    /// so it is NOT evidence of a continuous disconnect and the false-since clock restarts at the new
+    /// poll (B1 review 01 F3).
     /// </summary>
-    public const int StateExitDebounceMs = 300;
+    public const int MaxPollGapMs = 1_000;
 
     private readonly TimeProvider _time;
     private readonly bool _eyeTrackerProvider;
@@ -71,7 +72,7 @@ public sealed class ControlStatusModel
     private long _lastValidSampleTimestamp;
     private bool _paused;
     private long? _disconnectedSince;
-    private long? _pausedExitSince;
+    private long? _lastPollTimestamp;
     private ControlState _state;
     private bool _disconnected;
     private ControlStatus _published;
@@ -138,7 +139,7 @@ public sealed class ControlStatusModel
             long now = _time.GetTimestamp();
             _lastValidSampleTimestamp = now;
             _disconnectedSince = null;
-            _pausedExitSince = null;
+            _lastPollTimestamp = null;
             _disconnected = false;
             _state = InitialState();
             _published = new ControlStatus(_state, Disconnected: false);
@@ -183,6 +184,11 @@ public sealed class ControlStatusModel
     /// The periodic tick: pass the provider's live <c>IsConnected</c> value. Call it on a regular
     /// cadence (the service polls at 10 Hz); this is what detects both the 3 s lost-gaze threshold
     /// and the continuous 10 s disconnect.
+    /// <para>
+    /// An interval longer than <see cref="MaxPollGapMs"/> is treated as unobserved: the false-since
+    /// clock restarts at this poll, because two false observations either side of a sleep are not
+    /// evidence that the tracker was down the whole time (review 01 F3).
+    /// </para>
     /// </summary>
     /// <param name="isConnected">The provider's <c>IGazeProvider.IsConnected</c> value right now.</param>
     public void Poll(bool isConnected)
@@ -190,6 +196,14 @@ public sealed class ControlStatusModel
         lock (_gate)
         {
             long now = _time.GetTimestamp();
+
+            if (_lastPollTimestamp is { } previous
+                && _time.GetElapsedTime(previous, now) > TimeSpan.FromMilliseconds(MaxPollGapMs))
+            {
+                _disconnectedSince = null;
+            }
+            _lastPollTimestamp = now;
+
             if (isConnected)
             {
                 _disconnectedSince = null;
@@ -216,30 +230,9 @@ public sealed class ControlStatusModel
         _disconnected = _disconnectedSince is { } since
             && _time.GetElapsedTime(since, now) > TimeSpan.FromMilliseconds(DisconnectAfterMs);
 
-        ControlState desired = DesiredState(now);
-        if (desired == _state)
-        {
-            _pausedExitSince = null;
-        }
-        else if (desired == ControlState.Normal && _state == ControlState.Paused)
-        {
-            // The one transient exit: resuming. Hold Paused until "not paused" has been true for
-            // the debounce window, so a rapid pause/unpause/repause does not blink the strip.
-            _pausedExitSince ??= now;
-            if (_time.GetElapsedTime(_pausedExitSince.Value, now)
-                >= TimeSpan.FromMilliseconds(StateExitDebounceMs))
-            {
-                _state = desired;
-                _pausedExitSince = null;
-            }
-        }
-        else
-        {
-            // Entries, priority promotions (Paused -> Lost) and the explicit Lost-clear-on-the-first-
-            // valid-sample rule are all immediate.
-            _state = desired;
-            _pausedExitSince = null;
-        }
+        // No exit debounce (review 01 F2): every transition is immediate once its condition holds.
+        // The 3 s Lost threshold and the 10 s continuous-disconnect bound are the debounces.
+        _state = DesiredState(now);
 
         _published = new ControlStatus(_state, _disconnected);
     }
@@ -253,6 +246,27 @@ public sealed class ControlStatusModel
             return ControlState.TrackingLost;
 
         return _paused ? ControlState.Paused : ControlState.Normal;
+    }
+
+    /// <summary>
+    /// Re-raises <see cref="Current"/> through the same ordered gate as a change. The runtime adapter
+    /// calls this once when it starts, so its initial publish is serialized with any status change
+    /// that raced the event subscription (review 01 F5): a newer change can never be followed by the
+    /// older initial value. Always raises once; if a change already published in the race window the
+    /// duplicate carries the NEWER value, never a stale one.
+    /// </summary>
+    public void PublishCurrent()
+    {
+        lock (_notifyGate)
+        {
+            ControlStatus status;
+            lock (_gate)
+            {
+                _lastNotified = _published;
+                status = _published;
+            }
+            StatusChanged?.Invoke(status);
+        }
     }
 
     private void PublishIfChanged()

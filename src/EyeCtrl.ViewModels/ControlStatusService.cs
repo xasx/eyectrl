@@ -38,7 +38,10 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public sealed class ControlStatusService : IControlStatus, IDisposable
 {
-    /// <summary>How often <c>IsConnected</c> is polled. 10 Hz makes the 300 ms exit debounce real.</summary>
+    /// <summary>
+    /// How often <c>IsConnected</c> and <c>CurrentState</c> are polled. 10 Hz keeps the 3 s and
+    /// 10 s thresholds within ±100 ms and re-syncs any lost state notification quickly.
+    /// </summary>
     public const int PollIntervalMs = 100;
 
     private readonly IGazeProvider _provider;
@@ -121,7 +124,9 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
             dueTime: TimeSpan.FromMilliseconds(PollIntervalMs),
             period: TimeSpan.FromMilliseconds(PollIntervalMs));
 
-        Publish(_model.Current);
+        // Through the model's ordered gate, not a direct send: a change that raced the subscription
+        // above must never be followed by this older initial value (review 01 F5).
+        _model.PublishCurrent();
     }
 
     /// <summary>
@@ -157,13 +162,29 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
         }
     }
 
-    private void OnInteractionStateChanged(InteractionState state) =>
-        _model.SetPaused(state == InteractionState.Paused);
+    // StateChanged fires from the dispatcher (pause) AND the gaze thread (fixation edges) with no
+    // lock around the commit/publish pair, so the ARGUMENT can be stale by the time it arrives
+    // (review 01 F1). Always read the committed CurrentState instead. Contain faults here too: this
+    // is the only entry that can run on the gaze thread without a guard.
+    private void OnInteractionStateChanged(InteractionState _)
+    {
+        try
+        {
+            _model.SetPaused(_interaction.CurrentState == InteractionState.Paused);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Control-status state handling failed; the status is unchanged");
+        }
+    }
 
     private void Poll()
     {
         try
         {
+            // Re-sync the paused mirror on every tick: any residual read/commit race from the
+            // notification path self-heals within one poll (review 01 F1).
+            _model.SetPaused(_interaction.CurrentState == InteractionState.Paused);
             _model.Poll(_provider.IsConnected);
         }
         catch (Exception ex)

@@ -208,8 +208,10 @@ public class ControlStatusServiceTests
     }
 
     [Fact]
-    public void Pause_IsPublishedImmediately_AndResumeIsDebouncedByTheStateExitRule()
+    public void Pause_AndResume_ArePublishedImmediately()
     {
+        // B1 fixup-01 (review 01 F2): no Paused-exit debounce. The strip hides on CurrentState and
+        // the published status follows the same edge with no 300-400 ms lag.
         var service = NewService();
         service.Start();
 
@@ -217,18 +219,31 @@ public class ControlStatusServiceTests
         Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
         Check.That(_messages[^1].State).IsEqualTo(ControlState.Paused);
 
-        AdvancePolls(_time, 1);              // poll at 100 ms
-        _interaction.TogglePause();          // Paused -> FreeLook, only 100 ms after the pause
-        Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
-
-        AdvancePolls(_time, 2);              // 200 ms of "not paused": still debounced
-        Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
-
-        AdvancePolls(_time, 1);              // 300 ms of "not paused": the exit is allowed
+        _interaction.TogglePause();          // Paused -> FreeLook
         Check.That(service.Current.State).IsEqualTo(ControlState.Normal);
 
         Check.That(_messages.Select(m => m.State))
             .ContainsExactly(ControlState.Normal, ControlState.Paused, ControlState.Normal);
+
+        service.Dispose();
+    }
+
+    [Fact]
+    public void EnteringFixationOrDwelling_DoesNotReadAsPaused()
+    {
+        // Review 01 S5: the mirror is "CurrentState == Paused", not "CurrentState != FreeLook". In
+        // production the gaze thread flips FreeLook <-> Fixation every few hundred ms, so a
+        // non-FreeLook-reads-as-paused mutant would publish Paused constantly.
+        var service = NewService();
+        service.Start();
+
+        _interaction.OnFixationStarted(new PhysicalPoint(500, 400));
+        Check.That(_interaction.CurrentState).IsEqualTo(InteractionState.Fixation);
+        Check.That(service.Current.State).IsEqualTo(ControlState.Normal);
+
+        AdvancePolls(_time, 3);
+        Check.That(service.Current.State).IsEqualTo(ControlState.Normal);
+        Check.That(_messages.Select(m => m.State)).ContainsExactly(ControlState.Normal);
 
         service.Dispose();
     }

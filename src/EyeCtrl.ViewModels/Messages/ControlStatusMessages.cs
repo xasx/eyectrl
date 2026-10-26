@@ -17,6 +17,12 @@ using EyeCtrl.Core.Enums;
 /// Sent on the UI thread in the running app (the service posts through the dispatcher). The payload
 /// is the whole status, so a recipient never has to pair it with a separately read current value.
 /// </para>
+/// <para>
+/// <b>The paused strip does not key off <see cref="State"/>.</b> B2a/B2b's paused strip hides on
+/// <c>InteractionManager.CurrentState</c> directly (B1 fixup-01 / review F2): the status is a
+/// mirror for the strip states that have no direct source (Lost, NoTracker) and for the chime's
+/// <see cref="Disconnected"/> flag, never the pause visibility rule.
+/// </para>
 /// </summary>
 /// <param name="State">The committed control state, by the documented priority.</param>
 /// <param name="Disconnected">True only for a continuous tracker disconnect of more than 10 s.</param>

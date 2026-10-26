@@ -11,9 +11,11 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
@@ -329,5 +331,97 @@ public class RestartNoticePlacementTests
             .IsEqualTo(1040 - gap - 300);
         // Chrome that fills the screen leaves nowhere clear: the card falls back to the top.
         Check.That(RestartNoticePlacement.Place(area, card, [new Rect(0, 0, 1920, 1152)]).Top).IsEqualTo(0);
+    }
+
+    // B4: the bottom-centre banner slot's live occupant is part of the card's keep-clear set, so a
+    // drift notice or caregiver alert sharing the resting spot never ends up underneath the card
+    // (whose close button would then be dwelled over the banner, and hide it).
+    [StaFact]
+    public void WithALiveBannerSlotOccupant_TheCardAndItsButtonStayClearOfIt()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var banner = BannerAtRestingPlace();
+        var slot = new BannerSlot();
+        slot.Enqueue(new RestartBannerOccupant(Physical(banner)));
+        var card = new RestartNoticeWindow(keepClear: () => RestartNoticePlacement.ToDip(slot.LiveBoundsOrEmpty()));
+        try
+        {
+            card.SetText(GermanRefusal);
+            card.Prepare(WorkArea);
+            card.Measure(new Size(card.Width, card.Height));
+            card.Arrange(new Rect(0, 0, card.Width, card.Height));
+            card.UpdateLayout();
+
+            var cardRect = new Rect(card.Left, card.Top, card.Width, card.Height);
+            Check.WithCustomMessage($"the card {cardRect} covers the live banner {banner}")
+                .That(cardRect.IntersectsWith(banner)).IsFalse();
+            Check.WithCustomMessage($"the button {ButtonRect(card)} covers the live banner {banner}")
+                .That(ButtonRect(card).IntersectsWith(banner)).IsFalse();
+            Check.That(WorkArea.Contains(cardRect)).IsTrue();
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
+    [StaFact]
+    public void TheCardFollowsALiveBanner_WhenItTakesTheSlotAndWhenItLeaves()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var banner = BannerAtRestingPlace();
+        var slot = new BannerSlot();
+        var card = new RestartNoticeWindow(keepClear: () => RestartNoticePlacement.ToDip(slot.LiveBoundsOrEmpty()));
+        try
+        {
+            card.SetText(GermanRefusal);
+            card.Prepare(WorkArea);
+            var bottomTop = card.Top;
+
+            var occupant = new RestartBannerOccupant(Physical(banner));
+            slot.Enqueue(occupant);
+            Check.WithCustomMessage("a banner taking the slot must move the card")
+                .That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+            Check.WithCustomMessage("the card must rise clear of the live banner")
+                .That(card.Top + card.Height).IsEqualTo(banner.Top - RestartNoticePlacement.KeepClearGapDip);
+            Check.That(new Rect(card.Left, card.Top, card.Width, card.Height).IntersectsWith(banner)).IsFalse();
+
+            occupant.Close();
+            Check.WithCustomMessage("the card returns to the bottom when the banner is gone")
+                .That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+            Check.That(card.Top).IsEqualTo(bottomTop);
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
+    /// <summary>The drift notice's resting place: 560 x 72 DIP, centred, 48 DIP above the bottom.</summary>
+    private static Rect BannerAtRestingPlace() =>
+        new((WorkArea.Width - 560) / 2, WorkArea.Bottom - 72 - RestartNoticePlacement.MarginDip, 560, 72);
+
+    /// <summary>The work area is DIP; the slot publishes physical pixels, so convert at the live scale.</summary>
+    private static PhysicalRect Physical(Rect dip) => new(
+        EyeCtrl.Core.Services.DpiHelper.LogicalToPhysicalX(dip.X),
+        EyeCtrl.Core.Services.DpiHelper.LogicalToPhysicalY(dip.Y),
+        EyeCtrl.Core.Services.DpiHelper.LogicalToPhysicalX(dip.Width),
+        EyeCtrl.Core.Services.DpiHelper.LogicalToPhysicalY(dip.Height));
+
+    private sealed class RestartBannerOccupant(PhysicalRect bounds) : IBannerSlotOccupant
+    {
+        public event EventHandler? Closed;
+
+        public void ShowInSlot() { }
+
+        public void HideFromSlot() { }
+
+        public bool TryGetVisibleBounds(out PhysicalRect actual)
+        {
+            actual = bounds;
+            return true;
+        }
+
+        public void Close() => Closed?.Invoke(this, EventArgs.Empty);
     }
 }

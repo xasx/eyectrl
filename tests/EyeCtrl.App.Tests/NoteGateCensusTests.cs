@@ -49,9 +49,9 @@ public class NoteGateCensusTests
 
         // ── occluders: their visible rects make note targets ineligible, read directly (P2 D3) ──
         ["EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs"] = (
-            "occluder", "visible bounds via ICaregiverAlertPresenter.TryGetVisibleBounds"),
+            "occluder", "visible bounds via the banner slot (B4: the caregiver alert is shown only as the slot's live occupant)"),
         ["EyeCtrl.App/Overlays/DriftNoticeWindow.xaml.cs"] = (
-            "occluder", "visible bounds via IDriftNoticePresenter.TryGetVisibleBounds"),
+            "occluder", "visible bounds via the banner slot (B4: the drift notice is shown only as the slot's live occupant)"),
         ["EyeCtrl.App/Overlays/EdgeButtonBarWindow.xaml.cs"] = (
             "occluder", "the KEYBOARD instance's button rects ride the keyboard probe (IKeyboardProbe.Rects); the action-menu MODIFIER-bar instance is safe because it shows only with the action menu, a suspending state (review 01 m3)"),
         ["EyeCtrl.App/Overlays/NoteNoticeWindow.cs"] = (

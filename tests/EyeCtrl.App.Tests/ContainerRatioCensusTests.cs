@@ -100,8 +100,9 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs"] =
             [
-                ("Dominant", 1, "the 44px close button, whose entire content is one glyph with no "
-                    + "label beside it. Also pinned exactly by GlyphSizeCouplingTests."),
+                ("Dominant", 1, "the close button, whose entire content is one glyph with no "
+                    + "label beside it (44px when the bucket was recorded; 100px = its r50 hit "
+                    + "area after B8). Also pinned exactly by GlyphSizeCouplingTests."),
                 ("Small", 1, "TileIconSize — the tile icon has its action label underneath it. "
                     + "Also pinned exactly by GlyphSizeCouplingTests."),
             ],

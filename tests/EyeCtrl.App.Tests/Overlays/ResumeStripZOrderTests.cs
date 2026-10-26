@@ -39,8 +39,11 @@ public class ResumeStripZOrderTests
         Check.WithCustomMessage($"strip Z={ZIndexOf(rig.Strip)}, note Z={ZIndexOf(rig.Note)} (lower = in front)")
             .That(ZIndexOf(rig.Strip)).IsStrictlyLessThan(ZIndexOf(rig.Note));
 
-        // Resume, a note re-raised while running, then pause again. A re-shown window keeps its old
-        // Z slot (SW_SHOWNA), so only the explicit raise puts the strip back in front.
+        // Resume, a note re-raised while running, then pause again: the strip must be back in front.
+        // This does NOT pin the explicit raise on show — measured (review 01 R4, implementer M8): a
+        // re-shown Topmost window already lands in front here, so the outcome holds without it. The
+        // raise itself is pinned by the call-order test
+        // ToolbarVisibilityAdapterHeadlessTests.SetPauseIndicator_True_ShowsAndRaises.
         rig.Adapter.SetPauseIndicator(false);
         rig.Note.RaiseToTop();
         rig.Adapter.SetPauseIndicator(true);

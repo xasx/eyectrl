@@ -53,6 +53,15 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
     /// </summary>
     internal const long ArmLeaveMicroseconds = 150 * MathConstants.MicrosecondsPerMillisecond;
 
+    /// <summary>
+    /// The most pause grace the Resume target ever gets, in ms (owner decision, B2a fixup-01: "shorter
+    /// grace on Resume"). The disc sits over content for the whole pause, so with A1's full 500 ms
+    /// grace short glances that brush it while reading added up to a resume (review 01 F1: 400/300
+    /// and 250/250 ms on/off resumed in 2–3 s). 200 ms still forgives a normal blink. Every other
+    /// surface, the toolbar band included, keeps the full <see cref="DwellSettings.DwellPauseGraceMs"/>.
+    /// </summary>
+    public const int MaxPauseGraceMs = 200;
+
     private readonly DwellSettings _dwell;
 
     private bool _stripShown;
@@ -69,7 +78,7 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
     /// <summary>True while the dwell is grace-held (the gaze stepped off mid-dwell). Display only.</summary>
     [ObservableProperty] private bool _isDwellPaused;
 
-    /// <param name="settings">The live settings: the dwell rule and A1's pause grace follow them.</param>
+    /// <param name="settings">The live settings: the dwell rule and the (capped) pause grace follow them.</param>
     /// <param name="messenger">The app messenger: gaze in, <see cref="PauseToggledMessage"/> out.</param>
     /// <param name="sink">Struggle telemetry, under the toolbar's context — Resume is toolbar Play's
     /// twin. Deliberately NO <see cref="IDwellDetectorRegistry"/>: the dwell router rewrites a
@@ -77,11 +86,21 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
     /// the <c>max(ResumeDwellMs, toolbar + 200)</c> floor below.</param>
     public ResumeStripViewModel(EyeCtrlSettings settings, IMessenger messenger, IStruggleTelemetrySink? sink = null)
         : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink,
-            dwellRegistry: null, pauseGraceSettings: settings.Dwell)
+            dwellRegistry: null, pauseGraceSettings: null)
     {
+        // The base is handed NO grace settings on purpose: it would follow the full
+        // DwellPauseGraceMs. This surface applies the capped value itself and re-applies it on change.
         _dwell = settings.Dwell;
+        DwellDetector.SetPauseGrace(EffectivePauseGraceMs(_dwell));
         _dwell.PropertyChanged += OnDwellSettingChanged;
     }
+
+    /// <summary>
+    /// The pause grace the Resume target uses: <c>min(DwellPauseGraceMs, 200)</c>. A grace of 0
+    /// (reset-on-leave) stays 0.
+    /// </summary>
+    public static int EffectivePauseGraceMs(DwellSettings dwell) =>
+        Math.Min(dwell.DwellPauseGraceMs, MaxPauseGraceMs);
 
     /// <summary>
     /// The dwell the Resume target uses: <c>max(ResumeDwellMs, ToolbarButtonDwellMs + 200)</c>, so
@@ -138,6 +157,8 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
 
     private void OnDwellSettingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is null or "" or nameof(DwellSettings.DwellPauseGraceMs))
+            DwellDetector.SetPauseGrace(EffectivePauseGraceMs(_dwell));
         if (e.PropertyName is null or "" or nameof(DwellSettings.ResumeDwellMs)
             or nameof(DwellSettings.ToolbarButtonDwellMs))
             Register();

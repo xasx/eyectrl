@@ -33,7 +33,7 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     // flight, because the pipeline then already ends in the commanded state — comparing against
     // the EXECUTED mirror instead would wrongly skip a real
     // transition (true→false arriving while the true is still queued would skip the false and
-    // strand the strip shown; that exact sequence is Unpause_WhileBandVisible_HidesStrip).
+    // strand the strip shown; that exact sequence is APauseUnpauseBeforeThePump_NeverShowsTheStrip).
     // No synchronisation needed because every command arrives on the UI thread: the only sender
     // of StateChangedMessage marshals the send onto the dispatcher (GazeEngineAdapter.OnStateChanged),
     // and the B2a leave-pause hook acts only when it is already there (round-1 review N1 — the
@@ -99,8 +99,12 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     /// samples already queued would reach an open note gate with the strip still up. The message's
     /// own command then finds the strip already commanded hidden and does nothing.
     /// <para>
-    /// Gaze-thread transitions (FreeLook/Fixation/RepeatMode) never involve Paused and fail the
-    /// thread check cheaply; entering Paused is left to the message path (the show is posted anyway).
+    /// Gaze-thread transitions (FreeLook/Fixation/RepeatMode) fail the thread check cheaply;
+    /// entering Paused is left to the message path (the show is posted anyway). The one gaze-thread
+    /// way out of Paused is the documented lost-pause race (GazeEngineAdapter.SendCursorMovedSafe: a
+    /// gaze-thread OnFixationStarted that read FreeLook overwrites Paused with Fixation). It is
+    /// covered too: the posted StateChangedMessage hides the strip one dispatcher hop later, and the
+    /// Resume target cannot fire meanwhile because it acts only on paused samples.
     /// </para>
     /// </summary>
     internal void TrackLeavingPause(InteractionManager interactionManager) =>

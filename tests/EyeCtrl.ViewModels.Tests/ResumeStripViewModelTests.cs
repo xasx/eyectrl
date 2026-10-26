@@ -38,6 +38,13 @@ public class ResumeStripViewModelTests
                 Messenger.Send(new GazeCursorMovedMessage(new GazeFrame(at, Now, gap)) { IsPaused = paused });
             }
         }
+
+        /// <summary>One paused sample at exactly <paramref name="timestampUs"/>.</summary>
+        public void At(PhysicalPoint at, long timestampUs)
+        {
+            Now = timestampUs;
+            Messenger.Send(new GazeCursorMovedMessage(new GazeFrame(at, Now, IsInGap: false)) { IsPaused = true });
+        }
     }
 
     private static Rig Build(int toolbarDwellMs = 700, int resumeDwellMs = 1000, bool shown = true)
@@ -120,8 +127,9 @@ public class ResumeStripViewModelTests
         Arm(rig);
 
         rig.Hold(Centre, 500_000);
-        // 200 ms away, inside A1's 500 ms grace: the dwell holds its progress and resumes.
-        rig.Hold(Away, 200_000);
+        // 150 ms away (166 ms until the gaze is back), inside the Resume target's 200 ms grace: the
+        // dwell holds its progress and resumes.
+        rig.Hold(Away, 150_000);
         Check.That(rig.Vm.IsDwellPaused).IsTrue();
         rig.Hold(Centre, 600_000);
 
@@ -138,7 +146,9 @@ public class ResumeStripViewModelTests
         Arm(rig);
 
         rig.Hold(Centre, 400_000);
-        rig.Hold(Centre, 150_000, gap: true); // the eyes closed: gap-held samples, never fed
+        // The eyes closed for 150 ms (166 ms between real samples): gap-held samples, never fed. A
+        // blink of up to the 200 ms Resume grace is forgiven.
+        rig.Hold(Centre, 150_000, gap: true);
         rig.Hold(Centre, 700_000);
 
         Check.That(rig.Toggles).IsEqualTo(1);
@@ -223,6 +233,149 @@ public class ResumeStripViewModelTests
         rig.Hold(Away, 300_000, paused: false);
         rig.Hold(Centre, 1_500_000, paused: false);
         Check.That(rig.Toggles).IsEqualTo(0);
+    }
+
+    // ── B2a fixup-01 F1 (owner: "shorter grace on Resume") ──
+
+    // The owner's geometry at 3840×2400 @ 200 %: the disc at (1920, 404) px, r = 100 px; each look
+    // away lands 60 px past the disc's edge (review 01, probe P8).
+    private static readonly PhysicalPoint OwnerDisc = new(1920, 404);
+    private static readonly PhysicalPoint OwnerLookAway = new(1920, 404 + 100 + 60);
+
+    /// <summary>
+    /// Review 01 F1: with A1's full 500 ms grace, short visits while reading near the disc added up to
+    /// a resume (400/300 ms in 1.8 s, 250/250 ms in 2.75 s). With the Resume grace capped at 200 ms,
+    /// every look away of 250 ms or more drops the dwell, so reading stays Paused. Mutation: the full
+    /// grace again → resumes within 3 s → red.
+    /// </summary>
+    [Theory]
+    [InlineData(400_000, 300_000)]
+    [InlineData(250_000, 250_000)]
+    public void ShortVisitsWhileReading_DoNotAddUpToAResume_For20Seconds(long onUs, long offUs)
+    {
+        var rig = Build();
+        rig.Vm.PlaceTarget(OwnerDisc, Radius);
+        rig.Hold(OwnerLookAway, ResumeStripViewModel.ArmLeaveMicroseconds + Step);
+        Check.That(rig.Vm.IsArmed).IsTrue();
+
+        var end = rig.Now + 20_000_000;
+        while (rig.Now < end)
+        {
+            rig.Hold(OwnerDisc, onUs);
+            rig.Hold(OwnerLookAway, offUs);
+        }
+
+        Check.WithCustomMessage($"visits of {onUs / 1000} ms on / {offUs / 1000} ms away resumed the pause")
+            .That(rig.Toggles).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ThePauseGrace_IsCappedAt200_AndFollowsTheSetting()
+    {
+        var rig = Build();
+        Check.WithCustomMessage("the default 500 ms grace is capped to 200 on Resume")
+            .That(rig.Vm.DetectorForTest.PauseGraceMs).IsEqualTo(ResumeStripViewModel.MaxPauseGraceMs);
+        Check.That(ResumeStripViewModel.MaxPauseGraceMs).IsEqualTo(200);
+
+        rig.Settings.Dwell.DwellPauseGraceMs = 100;
+        Check.That(rig.Vm.DetectorForTest.PauseGraceMs).IsEqualTo(100);
+
+        rig.Settings.Dwell.DwellPauseGraceMs = 0;
+        Check.WithCustomMessage("a grace of 0 (reset-on-leave) stays 0")
+            .That(rig.Vm.DetectorForTest.PauseGraceMs).IsEqualTo(0);
+
+        rig.Settings.Dwell.DwellPauseGraceMs = 1000;
+        Check.That(rig.Vm.DetectorForTest.PauseGraceMs).IsEqualTo(200);
+    }
+
+    [Fact]
+    public void AZeroGraceSetting_StartsAtZero()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.DwellPauseGraceMs = 0;
+        var vm = new ResumeStripViewModel(settings, new WeakReferenceMessenger());
+        Check.That(vm.DetectorForTest.PauseGraceMs).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void TheToolbarBandAndTheEdgeBar_KeepTheFullGrace()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var resume = new ResumeStripViewModel(settings, messenger);
+        var toolbar = new ToolbarViewModel(settings, messenger);
+        var edgeBar = new EdgeButtonBarViewModel(settings, messenger);
+
+        Check.That(settings.Dwell.DwellPauseGraceMs).IsEqualTo(500);
+        Check.That(toolbar.DetectorForTest.PauseGraceMs).IsEqualTo(500);
+        Check.That(edgeBar.DetectorForTest.PauseGraceMs).IsEqualTo(500);
+        Check.That(resume.DetectorForTest.PauseGraceMs).IsEqualTo(200);
+
+        settings.Dwell.DwellPauseGraceMs = 300;
+        Check.That(toolbar.DetectorForTest.PauseGraceMs).IsEqualTo(300);
+        Check.That(resume.DetectorForTest.PauseGraceMs).IsEqualTo(200);
+    }
+
+    // ── B2a fixup-01 F2/F3: the leave-before-arm, pinned ──
+
+    /// <summary>
+    /// F2: a target that moves while visible starts disarmed again — a gaze already resting where the
+    /// moved disc lands (a display or DPI change, a band-rect refresh) must look away first.
+    /// Mutation: drop the Disarm in PlaceTarget → fires → red.
+    /// </summary>
+    [Fact]
+    public void AMovedTarget_UnderARestingGaze_DoesNotFire_WithoutALookAway()
+    {
+        var rig = Build();
+        Arm(rig);
+        var moved = new PhysicalPoint(Centre.X, Centre.Y + 300);
+        rig.Hold(moved, 100_000); // the gaze already rests where the disc is about to land
+
+        rig.Vm.PlaceTarget(moved, Radius);
+        Check.That(rig.Vm.IsVisible).IsTrue();
+        rig.Hold(moved, 3_000_000);
+
+        Check.WithCustomMessage("a moved disc fired under a gaze that never looked away")
+            .That(rig.Toggles).IsEqualTo(0);
+        Check.That(rig.Vm.IsArmed).IsFalse();
+    }
+
+    /// <summary>
+    /// F3, length: the look away arms only after 150 ms continuously outside — 140 ms is not enough,
+    /// 150 ms is. Samples at exact times, so the boundary is the threshold itself. Mutation: 100 ms
+    /// (arms at 140) or 160 ms (does not arm at 150) → red.
+    /// </summary>
+    [Fact]
+    public void TheLookAway_ArmsAt150Ms_NotAt140()
+    {
+        var rig = Build();
+        var t = rig.Now + 1_000_000;
+        rig.At(Centre, t);
+        rig.At(Away, t + 10_000);              // the outside clock starts here
+        rig.At(Away, t + 10_000 + 140_000);
+        Check.WithCustomMessage("armed after only 140 ms away").That(rig.Vm.IsArmed).IsFalse();
+
+        rig.At(Away, t + 10_000 + 150_000);
+        Check.WithCustomMessage("not armed after 150 ms away").That(rig.Vm.IsArmed).IsTrue();
+    }
+
+    /// <summary>
+    /// F3, continuity: 100 ms away, back on the disc, 100 ms away again is not a 150 ms look away —
+    /// coming back restarts the clock. Mutation: keep the clock running across the return → armed → red.
+    /// </summary>
+    [Fact]
+    public void TwoShortLookAways_DoNotAddUp()
+    {
+        var rig = Build();
+        var t = rig.Now + 1_000_000;
+        rig.At(Away, t);
+        rig.At(Away, t + 100_000);
+        rig.At(Centre, t + 110_000);           // back on the disc
+        rig.At(Away, t + 120_000);
+        rig.At(Away, t + 220_000);
+
+        Check.WithCustomMessage("two 100 ms look aways added up to an arm")
+            .That(rig.Vm.IsArmed).IsFalse();
     }
 
     [Fact]

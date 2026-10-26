@@ -534,6 +534,14 @@
     "text": "Rückgängig",
     "src": "6bc7bbf8"
   },
+  "overlays.pause.label": {
+    "text": "Pausiert",
+    "src": "ce72e3d0"
+  },
+  "overlays.pause.resume": {
+    "text": "Fortsetzen",
+    "src": "9184cc1d"
+  },
   "overlays.pause.title": {
     "text": "EyeCtrl pausiert",
     "src": "f2e84b2e"

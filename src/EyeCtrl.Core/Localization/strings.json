@@ -996,6 +996,22 @@
     "fit": "row",
     "args": []
   },
+  "overlays.pause.label": {
+    "text": "Paused",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal170",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.pause.resume": {
+    "text": "Resume",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
   "overlays.pause.title": {
     "text": "EyeCtrl paused",
     "who": "user",

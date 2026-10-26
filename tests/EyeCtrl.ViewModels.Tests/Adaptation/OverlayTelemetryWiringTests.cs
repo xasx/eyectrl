@@ -71,6 +71,8 @@ public class OverlayTelemetryWiringTests
             [nameof(ManualSelectionOverlayViewModel)] = DwellContext.ManualSelection,
             [nameof(ModesMenuViewModel)] = DwellContext.Toolbar,
             [nameof(QuickActionsGridViewModel)] = DwellContext.QuickActions,
+            // B2a: toolbar Play's twin on the paused strip.
+            [nameof(ResumeStripViewModel)] = DwellContext.Toolbar,
             [nameof(ScrollOverlayViewModel)] = DwellContext.Scroll,
             [nameof(TaskSwitcherViewModel)] = DwellContext.TaskSwitcher,
             [nameof(ToolbarViewModel)] = DwellContext.Toolbar,
@@ -103,6 +105,11 @@ public class OverlayTelemetryWiringTests
         // deliberate edit rather than an oversight.
         var exempt = new HashSet<string> { nameof(ScrollOverlayViewModel) };
 
+        // B2a: the Resume strip takes the sink but deliberately NOT the dwell registry — the router
+        // rewrites a registered detector's dwell from the adaptation layer, which would undo the
+        // max(ResumeDwellMs, toolbar + 200) floor. Listed so routing it is a deliberate edit.
+        var registryExempt = new HashSet<string> { nameof(ResumeStripViewModel) };
+
         var subclasses = typeof(DwellOverlayViewModelBase).Assembly.GetTypes()
             .Where(t => !t.IsAbstract && typeof(DwellOverlayViewModelBase).IsAssignableFrom(t))
             .Where(t => !exempt.Contains(t.Name))
@@ -118,6 +125,14 @@ public class OverlayTelemetryWiringTests
             Check.WithCustomMessage($"{type.Name} must accept IStruggleTelemetrySink so DI can inject it")
                 .That(ctors[0].GetParameters().Any(p => p.ParameterType == typeof(IStruggleTelemetrySink)))
                 .IsTrue();
+            if (registryExempt.Contains(type.Name))
+            {
+                Check.WithCustomMessage($"{type.Name} is registry-exempt and must not take IDwellDetectorRegistry")
+                    .That(ctors[0].GetParameters().Any(p => p.ParameterType == typeof(IDwellDetectorRegistry)))
+                    .IsFalse();
+                continue;
+            }
+
             Check.WithCustomMessage($"{type.Name} must accept IDwellDetectorRegistry so DI can inject it")
                 .That(ctors[0].GetParameters().Any(p => p.ParameterType == typeof(IDwellDetectorRegistry)))
                 .IsTrue();

@@ -163,6 +163,10 @@ public class ShippedGermanSwitchOnTests
             .That(surfaces.ToList()).IsEqualTo(new List<string>
             {
                 "app-tray", "caregiver-alert", "drift-notice", "language-recovery",
+                // Gaze UX Wave B, B2a (coordinator decision, 2026-10-25): the paused strip's label and
+                // Resume name are crisis text — "you have no control" states. The overlays surface
+                // already ships German (Step 3), so this adds keys to a switched-on surface.
+                "overlays",
                 "startup-error", "supervisor", "track-status"
             });
     }

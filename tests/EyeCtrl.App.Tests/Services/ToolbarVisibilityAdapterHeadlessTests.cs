@@ -106,6 +106,8 @@ public class ToolbarVisibilityAdapterHeadlessTests
         public void Hide() { Visible = false; _log.Add("Indicator.Hide"); }
         public void RaiseToTop() => _log.Add("Indicator.RaiseToTop");
         public void SetEdge(string edge) { Edge = edge; _log.Add("Indicator.SetEdge"); }
+        public void SetBandVisible(bool visible) => _log.Add($"Indicator.SetBandVisible({visible})");
+        public void SetBandBounds(PhysicalRect bounds) => _log.Add("Indicator.SetBandBounds");
     }
 
     private static (ToolbarVisibilityAdapter Adapter, List<string> Log,
@@ -216,12 +218,103 @@ public class ToolbarVisibilityAdapterHeadlessTests
     [Fact]
     public void Unpause_WhileBandVisible_HidesStrip()
     {
-        var (adapter, log, _, _) = Build();
+        var (adapter, log, _, indicator) = Build();
         adapter.SetPauseIndicator(true);
+        Pump();
         adapter.SetPauseIndicator(false); // the H1 row: nothing else would dismiss the strip
         Pump();
         Check.That(log).Contains("Indicator.Hide");
         Check.That(log.Count(t => t == "Indicator.Hide")).IsEqualTo(1);
+        Check.That(indicator.Visible).IsFalse();
+    }
+
+    /// <summary>
+    /// B2a (sticky owner's condition 1): the hide runs INLINE when the command arrives on the UI
+    /// thread — the strip is gone before SetPauseIndicator returns, with no dispatcher item between
+    /// the state leaving Paused and the strip going. Mutation: post the hide like the show → red.
+    /// </summary>
+    [Fact]
+    public void Unpause_OnTheUiThread_HidesTheStripInline_WithoutAPump()
+    {
+        var (adapter, log, _, indicator) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();
+        Check.That(indicator.Visible).IsTrue();
+
+        adapter.SetPauseIndicator(false);
+
+        Check.WithCustomMessage("the strip must be hidden inside the unpause command, not one dispatcher hop later")
+            .That(indicator.Visible).IsFalse();
+        Check.That(log.Count(t => t == "Indicator.Hide")).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// The inline hide's hazard: a show still QUEUED behind it. The applying lambda reads the latest
+    /// command, so the queued show finds "hidden" and does nothing — the strip is never shown outside
+    /// Paused. Mutation: capture the command in the lambda again → the queued show runs → red.
+    /// </summary>
+    [Fact]
+    public void APauseUnpauseBeforeThePump_NeverShowsTheStrip()
+    {
+        var (adapter, log, _, indicator) = Build();
+        adapter.SetPauseIndicator(true);  // posted
+        adapter.SetPauseIndicator(false); // inline: nothing to hide yet
+        Pump();                           // the queued show must find the command already false
+
+        Check.That(indicator.Visible).IsFalse();
+        Check.That(log).Not.Contains("Indicator.Show");
+    }
+
+    /// <summary>
+    /// B2a, end to end through the REAL state machine: <c>TogglePause</c> out of Paused hides the
+    /// strip before it returns (the adapter listens to <c>InteractionManager.StateChanged</c>, which
+    /// SetState raises synchronously). GazeEngineAdapter POSTS its StateChangedMessage, so without
+    /// this hook gaze samples already queued would reach an open note gate with the strip still up.
+    /// Mutation: drop the TrackLeavingPause subscription → the strip is still visible → red.
+    /// </summary>
+    [Fact]
+    public void TogglePause_OutOfPaused_HidesTheStripInsideTheCall()
+    {
+        var (adapter, _, _, indicator) = Build();
+        using var engine = new EyeCtrl.Core.GazeEngine(
+            new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), new EyeCtrlSettings());
+        var im = engine.InteractionManager;
+        adapter.TrackLeavingPause(im);
+        try
+        {
+            im.TogglePause();
+            adapter.SetPauseIndicator(true); // what the StateChangedMessage(Paused) delivers
+            Pump();
+            Check.That(indicator.Visible).IsTrue();
+
+            im.TogglePause();
+
+            Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+            Check.WithCustomMessage("TogglePause returned with the note gate open and the strip still shown")
+                .That(indicator.Visible).IsFalse();
+        }
+        finally
+        {
+            adapter.StopTrackingLeavingPause(im);
+        }
+    }
+
+    [Fact]
+    public void TheBandHiding_ShowsTheResumeTarget_AndItsSummon_HidesIt()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.HideToolbar(paused: true);
+        Pump();
+        Check.That(log).Contains("Indicator.SetBandVisible(False)");
+
+        log.Clear();
+        adapter.ShowToolbar();
+        Pump();
+        Check.That(log).Contains("Indicator.SetBandVisible(True)");
+        // After the show call but on the same dispatcher item, so no gaze sample can reach Resume
+        // while the band is coming in.
+        Check.That(log.IndexOf("Indicator.SetBandVisible(True)"))
+            .IsStrictlyGreaterThan(log.IndexOf("Toolbar.ShowThenSlideIn"));
     }
 
     [Fact]
@@ -256,7 +349,10 @@ public class ToolbarVisibilityAdapterHeadlessTests
         log.Clear();
         adapter.HideToolbar(paused: true);
         Pump();
-        Check.That(log.Where(t => t.StartsWith("Indicator."))).IsEmpty();
+        // B2a: the band's transition IS reported to the strip (its Resume target follows it); the
+        // strip's own visibility is still commanded only through SetPauseIndicator.
+        Check.That(log.Where(t => t.StartsWith("Indicator.") && !t.StartsWith("Indicator.SetBandVisible")))
+            .IsEmpty();
     }
 
     [Fact]

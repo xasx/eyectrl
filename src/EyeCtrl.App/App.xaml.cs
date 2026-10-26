@@ -227,7 +227,8 @@ public partial class App : Application
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
-                quickActionsGridVm, modesMenuVm, repeatCursorVm);
+                quickActionsGridVm, modesMenuVm, repeatCursorVm,
+                _serviceProvider.GetRequiredService<ResumeStripViewModel>());
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
             // Stage-2 UI instrument 2, attached only for a measurement session. Without the attach the

@@ -11,5 +11,31 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent">
-    <Border Background="{StaticResource BrushSurfaceDark}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+    <!-- B2a: the strip, the state label and the Resume disc share one canvas, laid out by
+         ResumeStripLayout in window coordinates. The window stays click-through: Resume is a
+         gaze dwell (its own detector in ResumeStripViewModel), never a mouse target, so nothing
+         here is hit-testable. Constant appearance, no animation (debate #5). -->
+    <Canvas x:Name="StripCanvas" IsHitTestVisible="False">
+        <!-- The strip: accent with a halo edge, so it reads on any desktop content. -->
+        <Border x:Name="StripBar"
+                Background="{StaticResource BrushAccent}"
+                BorderBrush="{StaticResource BrushStrokeHalo}"
+                BorderThickness="{StaticResource StandardBorderThickness}"/>
+
+        <!-- The state label, shown with the Resume disc. Fixed box (ResumeStripLayout.LabelWidthDip
+             x LabelHeightDip) so the fit measurer can bound it. -->
+        <Border x:Name="StateLabelCard" Visibility="Collapsed"
+                Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushAccent}"
+                BorderThickness="{StaticResource StandardBorderThickness}"
+                CornerRadius="{StaticResource StandardCornerRadius}">
+            <TextBlock x:Name="StateLabel" Text="{loc:T 'overlays.pause.label'}"
+                       Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="NoWrap"/>
+        </Border>
+
+        <!-- The Resume disc: an icon-only DwellArcButton (play glyph) built in code at the layout's
+             centre, with its UIA name on the button's automation anchor. -->
+        <Canvas x:Name="ResumeLayer" Visibility="Collapsed"/>
+    </Canvas>
 </overlay:OverlayWindow>

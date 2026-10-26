@@ -65,6 +65,8 @@ public class ToolbarPausedReturnTests
         public void Hide() { }
         public void SetEdge(string edge) { }
         public void RaiseToTop() { }
+        public void SetBandVisible(bool visible) { }
+        public void SetBandBounds(PhysicalRect bounds) { }
     }
 
     /// <summary>Runs the adapter's queued dispatcher work. No STA thread required — nothing here is a Window.</summary>

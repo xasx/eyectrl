@@ -56,8 +56,10 @@ public static class ContainerRatio
     public const double Solo = 0.58;
 
     /// <summary>
-    /// A 40–50px chrome affordance whose entire content is one glyph, with no label beside
-    /// it. Observed: <c>QuickActionsGridWindow</c>'s 44px close button at 20/44 = 0.455.
+    /// A chrome affordance whose entire content is one glyph, with no label beside it.
+    /// Observed: <c>QuickActionsGridWindow</c>'s close button — recorded at 20/44 = 0.455 when it
+    /// was a 44px disc, and still Dominant after B8 grew the disc to its r50 hit area: 45/100 =
+    /// 0.45. The ratio, not the disc size, is what the bucket names.
     /// </summary>
     public const double Dominant = 0.45;
 

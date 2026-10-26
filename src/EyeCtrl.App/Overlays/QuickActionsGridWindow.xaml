@@ -19,9 +19,12 @@
                 </Grid.RowDefinitions>
                 <!-- Close button — a gaze dwell target (registered + positioned in code-behind).
                      NOT a WPF Button: gaze produces no mouse clicks, and there is no
-                     DwellButtonStyle resource in this app. Dwell progress binds to CloseDwellProgress. -->
+                     DwellButtonStyle resource in this app. Dwell progress binds to CloseDwellProgress.
+                     The disc is 2 × the shared r50 hit radius (B8), so what is drawn IS what the
+                     detector hit-tests; the header row's height keeps it clear of the tile band.
+                     Keep width == height == QuickActionsGridWindow.CloseButtonSize. -->
                 <Border x:Name="CloseButton" Grid.Row="0"
-                        Width="44" Height="44" HorizontalAlignment="Right"
+                        Width="100" Height="100" HorizontalAlignment="Right"
                         CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
                         BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
                     <Grid>
@@ -41,8 +44,11 @@
                                      Opacity="{Binding CloseDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
                     </Grid>
                 </Border>
-                <!-- Action tiles -->
-                <ItemsControl x:Name="TilesControl" Grid.Row="1" Margin="0,8,0,0">
+                <!-- Action tiles. The ItemsSource binding was missing (the control was never
+                     populated — tiles were sized into the window but never rendered); B8's gap is
+                     measured against these tiles, so the meant layout has to be the real one. -->
+                <ItemsControl x:Name="TilesControl" Grid.Row="1" Margin="0,8,0,0"
+                              ItemsSource="{Binding Tiles}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <!-- Rows omitted (defaults to 0 = auto-compute from Columns + item count).

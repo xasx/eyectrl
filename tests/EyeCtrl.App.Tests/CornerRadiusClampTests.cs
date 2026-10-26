@@ -21,8 +21,8 @@ using Xunit;
 /// over-large CornerRadius clamps to an inscribed ellipse.
 ///
 /// On a SQUARE element that is a circle, rendering pixel-identically to size / 2 — which is
-/// what makes the token size-independent, and what lets QuickActionsGridWindow's 44x44 close
-/// button drop its literal 22. On a non-square element it is an ellipse, NOT a stadium, which
+/// what makes the token size-independent, and what lets QuickActionsGridWindow's square close
+/// button drop its literal radius. On a non-square element it is an ellipse, NOT a stadium, which
 /// is why the token is named Circle rather than Pill.
 ///
 /// Renders to a RenderTargetBitmap on an STA thread. No window is shown and no input is
@@ -256,8 +256,8 @@ public class CornerRadiusClampTests
 
             // Border.Width/Height default to NaN when unset, and NFluent's structural equality
             // routes through Equals, where double.NaN.Equals(double.NaN) is true — so the
-            // IsEqualTo(button.Height) check two lines down would stay green even if
-            // Width="44" Height="44" were deleted from the XAML entirely, leaving an
+            // IsEqualTo(button.Height) check two lines down would stay green even if the
+            // explicit Width/Height were deleted from the XAML entirely, leaving an
             // auto-sized (and therefore almost never square) Border. On such a Border,
             // CornerRadiusCircle still renders — just as a pill, not a circle, which is the
             // exact defect this test exists to catch. This assertion closes that gap.

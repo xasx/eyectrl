@@ -424,14 +424,18 @@ public partial class App : Application
             // The restart notices when no Settings window is open (a Supervisor-initiated language
             // restart): the same text and keys the Settings window shows, in the same target
             // language. The open window shows its own modal, so the notice never appears twice.
+            // B4: the card keeps clear of the bottom-centre banner slot's live occupant as well.
+            var bannerSlot = _serviceProvider.GetRequiredService<BannerSlot>();
             _restartNoticeHost = new RestartNoticeHost(
                 messenger,
                 new RestartNoticeWindow(
                     settings.Dwell.ActivationButtonDwellMs, messenger,
                     // The chrome the activation offer already keeps clear of: the keyboard, a docked
-                    // toolbar, an open menu. The card never covers it.
+                    // toolbar, an open menu — PLUS the live banner (B4). The card has a dwell button,
+                    // so it must never cover a bottom-centre banner either.
                     keepClear: () => RestartNoticePlacement.ToDip(
-                        EyeCtrl.App.Services.Coordinators.ActivationChromeZones.CollectFromProduction(coordinationContext))),
+                        EyeCtrl.App.Services.Coordinators.ActivationChromeZones.CollectFromProduction(coordinationContext)
+                            .Concat(bannerSlot.LiveBoundsOrEmpty()))),
                 isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                 isProbeOpen: () => _eventCoordinator.IsProbeOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),

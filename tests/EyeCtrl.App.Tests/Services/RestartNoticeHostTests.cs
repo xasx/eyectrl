@@ -203,7 +203,15 @@ public class RestartNoticeHostTests
         Check.WithCustomMessage("the card is no longer given the chrome zones, so it could cover the keys or the toolbar")
             .That(System.Text.RegularExpressions.Regex.IsMatch(
                 arguments,
-                @"keepClear\s*:\s*\(\)\s*=>\s*RestartNoticePlacement\s*\.\s*ToDip\s*\(\s*(?:EyeCtrl\s*\.\s*App\s*\.\s*Services\s*\.\s*Coordinators\s*\.\s*)?ActivationChromeZones\s*\.\s*CollectFromProduction\s*\(\s*coordinationContext\s*\)\s*\)"))
+                @"keepClear\s*:\s*\(\)\s*=>\s*RestartNoticePlacement\s*\.\s*ToDip\s*\(\s*(?:EyeCtrl\s*\.\s*App\s*\.\s*Services\s*\.\s*Coordinators\s*\.\s*)?ActivationChromeZones\s*\.\s*CollectFromProduction\s*\(\s*coordinationContext\s*\)"))
+            .IsTrue();
+        // B4: the card keeps clear of the bottom-centre banner slot's live occupant too. Without this
+        // the card's close button would sit over a drift notice or caregiver alert.
+        Check.WithCustomMessage(
+                "the card is no longer told where the live banner is (B4), so it could cover it")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                arguments,
+                @"\.\s*Concat\s*\(\s*bannerSlot\s*\.\s*LiveBoundsOrEmpty\s*\(\s*\)\s*\)"))
             .IsTrue();
         // Settings opening over a card that is up takes it down (review R3).
         Check.WithCustomMessage("App.xaml.cs no longer takes the card down when Settings opens")

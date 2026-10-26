@@ -387,12 +387,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
-      "Literal": "\"caregiver alert\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
-      "Literal": "\"drift notice\"",
+      "Literal": "\"banner slot\"",
       "Count": 1
     },
     {

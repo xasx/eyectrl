@@ -20,7 +20,7 @@ using Serilog;
 /// dwell targets — zero mis-activation surface) and is not baked into the magnifier / action-menu
 /// capture. The chime plays once per onset (D3).
 /// </summary>
-public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresenter
+public partial class CaregiverAlertWindow : OverlayWindow
 {
     /// <summary>The gap between the banner's bottom edge and the work area's bottom, in DIP.</summary>
     internal const double MarginDip = 48;
@@ -44,7 +44,8 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
         SizeChanged += (_, e) => Anchor(SystemParameters.WorkArea, e.NewSize.Height);
     }
 
-    /// <inheritdoc />
+    /// <summary>Shows the alert for one condition (and plays the attention chime). Only the banner
+    /// slot's presenter calls this: the window itself is never shown outside it (B4).</summary>
     public void ShowCaregiverAlert(CaregiverAlertCondition condition)
     {
         Prepare(MessageFor(StringTable.Current, condition), SystemParameters.WorkArea);
@@ -79,19 +80,28 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
             ? strings.T("caregiver-alert.poor-tracking")
             : strings.T("caregiver-alert.struggling");
 
-    /// <inheritdoc />
+    /// <summary>Begins the short fade-out used when the condition naturally clears (D2). The fade's
+    /// completion raises <see cref="Hidden"/>, which is how the banner slot advances.</summary>
     public void FadeOutCaregiverAlert()
     {
         var fade = new DoubleAnimation(1.0, 0.0, FadeOut) { FillBehavior = FillBehavior.Stop };
-        fade.Completed += (_, _) =>
-        {
-            Hide();
-            Hidden?.Invoke(this, EventArgs.Empty);
-        };
+        fade.Completed += OnFadeCompleted;
         Banner.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// The fade has finished, so the alert is off the screen. Named and <c>internal</c> so the
+    /// banner slot's natural-closure path is pinnable headless (B4 fixup-01 M1): without this raise
+    /// the slot keeps an invisible alert as its live occupant, and every later drift notice queues
+    /// behind it forever.
+    /// </summary>
+    internal void OnFadeCompleted(object? sender, EventArgs e)
+    {
+        Hide();
+        Hidden?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Takes the banner down at once — suppression (§8.10), feature-off, or teardown.</summary>
     public void HideCaregiverAlert()
     {
         Banner.BeginAnimation(UIElement.OpacityProperty, null); // cancel any in-flight fade — down AT ONCE
@@ -99,7 +109,10 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
         Hidden?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <inheritdoc />
+    /// <summary>The banner's visible bounds in physical pixels while it is on screen (the banner
+    /// slot's aggregate occluder source and the restart notice's keep-clear). False (and
+    /// <paramref name="bounds"/> default) when it is not showing — the fade-out tail keeps reporting
+    /// true until the window hides, which is the conservative reading.</summary>
     public bool TryGetVisibleBounds(out PhysicalRect bounds)
     {
         bounds = default;

@@ -66,7 +66,7 @@ public class BannerSlotWiringTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var slot = new RecordingSlot();
         var window = InvisibleTestWindow.Prepare(new DriftNoticeWindow());
-        var presenter = new SlotDriftNoticePresenter(slot, window);
+        var presenter = new SlotDriftNoticePresenter(slot, window, canShow: static () => true);
         try
         {
             presenter.ShowDriftNotice();
@@ -107,7 +107,7 @@ public class BannerSlotWiringTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = InvisibleTestWindow.Prepare(new DriftNoticeWindow());
-        var presenter = new SlotDriftNoticePresenter(new BannerSlot(), window);
+        var presenter = new SlotDriftNoticePresenter(new BannerSlot(), window, canShow: static () => true);
         var closed = 0;
         presenter.Closed += (_, _) => closed++;
         try
@@ -136,6 +136,62 @@ public class BannerSlotWiringTests
                 .That(closed).IsEqualTo(1);
         }
         finally { window.Close(); }
+    }
+
+    // B4 fixup-01 M1 (kills K9): the drift banner's ONLY natural closure is the fade completing.
+    // Without its Hidden raise the slot keeps an invisible notice as live, and the next caregiver
+    // alert displaces and re-shows that stale notice afterwards.
+    [StaFact]
+    public void TheDriftWindowsFadeCompletion_RaisesHidden()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.Prepare(new DriftNoticeWindow());
+        var hidden = 0;
+        window.Hidden += (_, _) => hidden++;
+        try
+        {
+            window.OnFadeCompleted(null, EventArgs.Empty);
+
+            Check.WithCustomMessage("the fade completing must take the notice out of the slot")
+                .That(hidden).IsEqualTo(1);
+            Check.That(window.IsVisible).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    // B4 fixup-01 M1 (kills K10): without the caregiver fade's Hidden raise the slot keeps an
+    // invisible alert as live, and every later drift notice queues behind it forever.
+    [StaFact]
+    public void TheCaregiverWindowsFadeCompletion_RaisesHidden()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.Prepare(new CaregiverAlertWindow());
+        var hidden = 0;
+        window.Hidden += (_, _) => hidden++;
+        try
+        {
+            window.OnFadeCompleted(null, EventArgs.Empty);
+
+            Check.WithCustomMessage("the fade completing must take the alert out of the slot")
+                .That(hidden).IsEqualTo(1);
+            Check.That(window.IsVisible).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    // B4 fixup-01 L2: condition (a) now holds by construction — the windows no longer implement the
+    // presenter interfaces, so nothing can resolve one as its presenter and bypass the slot.
+    [Fact]
+    public void TheBannerWindows_DoNotImplementThePresenterInterfaces()
+    {
+        Check.WithCustomMessage("DriftNoticeWindow must not be usable as IDriftNoticePresenter")
+            .That(typeof(IDriftNoticePresenter).IsAssignableFrom(typeof(DriftNoticeWindow))).IsFalse();
+        Check.WithCustomMessage("CaregiverAlertWindow must not be usable as ICaregiverAlertPresenter")
+            .That(typeof(ICaregiverAlertPresenter).IsAssignableFrom(typeof(CaregiverAlertWindow))).IsFalse();
+        Check.WithCustomMessage("the slot-routed wrapper is the presenter")
+            .That(typeof(IDriftNoticePresenter).IsAssignableFrom(typeof(SlotDriftNoticePresenter))).IsTrue();
+        Check.WithCustomMessage("the slot-routed wrapper is the presenter")
+            .That(typeof(ICaregiverAlertPresenter).IsAssignableFrom(typeof(SlotCaregiverAlertPresenter))).IsTrue();
     }
 
     [Fact]

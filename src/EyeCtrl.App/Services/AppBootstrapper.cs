@@ -654,7 +654,11 @@ public class AppBootstrapper
         services.AddSingleton<IBannerSlot>(sp => sp.GetRequiredService<BannerSlot>());
         services.AddSingleton<DriftNoticeWindow>();
         services.AddSingleton<IDriftNoticePresenter>(sp => new SlotDriftNoticePresenter(
-            sp.GetRequiredService<IBannerSlot>(), sp.GetRequiredService<DriftNoticeWindow>()));
+            sp.GetRequiredService<IBannerSlot>(),
+            sp.GetRequiredService<DriftNoticeWindow>(),
+            // Re-validated when the slot reaches a queued notice (B4 fixup-01 H1): resolving the
+            // service lazily keeps the presenter → service → presenter construction acyclic.
+            canShow: () => sp.GetRequiredService<DriftNoticeService>().CanShowNotice));
         services.AddSingleton(sp => new DriftNoticeService(
             sp.GetRequiredService<IFeedbackGate>(),
             sp.GetRequiredService<IDriftNoticePresenter>()));

@@ -15,7 +15,7 @@ using EyeCtrl.Core.Services;
 /// baked into the magnifier / action-menu capture. It only ever *shows a message* — it never modifies
 /// calibration.
 /// </summary>
-public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
+public partial class DriftNoticeWindow : OverlayWindow
 {
     private const double MarginDip = 48;
     private static readonly TimeSpan HoldTime = TimeSpan.FromSeconds(8);
@@ -38,7 +38,8 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
         InitializeComponent();
     }
 
-    /// <inheritdoc />
+    /// <summary>Shows the notice for its 8 s hold (and restarts the hold if it is already up). Only
+    /// the banner slot's presenter calls this: the window itself is never shown outside it (B4).</summary>
     public void ShowDriftNotice()
     {
         EnsurePositioned();
@@ -78,12 +79,19 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
     {
         _hideTimer?.Stop();
         var fade = new DoubleAnimation(1.0, 0.0, FadeOut) { FillBehavior = FillBehavior.Stop };
-        fade.Completed += (_, _) =>
-        {
-            Hide();
-            Hidden?.Invoke(this, EventArgs.Empty);
-        };
+        fade.Completed += OnFadeCompleted;
         Banner.BeginAnimation(UIElement.OpacityProperty, fade);
+    }
+
+    /// <summary>
+    /// The fade has finished, so the banner is off the screen. Named and <c>internal</c> so the
+    /// banner slot's natural-closure path is pinnable headless (B4 fixup-01 M1): without this raise
+    /// the slot keeps an invisible notice as its live occupant.
+    /// </summary>
+    internal void OnFadeCompleted(object? sender, EventArgs e)
+    {
+        Hide();
+        Hidden?.Invoke(this, EventArgs.Empty);
     }
 
     private void EnsurePositioned()
@@ -96,7 +104,10 @@ public partial class DriftNoticeWindow : OverlayWindow, IDriftNoticePresenter
         _positioned = true;
     }
 
-    /// <inheritdoc />
+    /// <summary>The banner's visible bounds in physical pixels while it is on screen (the banner
+    /// slot's aggregate occluder source and the restart notice's keep-clear). False (and
+    /// <paramref name="bounds"/> default) when it is not showing — the fade-out tail keeps reporting
+    /// true until the window hides, which is the conservative reading.</summary>
     public bool TryGetVisibleBounds(out PhysicalRect bounds)
     {
         bounds = default;

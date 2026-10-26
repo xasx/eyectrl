@@ -32,6 +32,9 @@ public class BannerSlotTests
         {
             Hides++;
             Visible = false;
+            // The occupant contract (B4 fixup-01 M2): a hide raises Closed. Without this the slot's
+            // pre-emption re-entrancy defence is never exercised.
+            Closed?.Invoke(this, EventArgs.Empty);
         }
 
         public bool TryGetVisibleBounds(out PhysicalRect bounds)
@@ -231,5 +234,119 @@ public class BannerSlotTests
 
         drift.Close();
         Check.That(slot.Live).IsNull();
+    }
+
+    // B4 fixup-01 M2 (kills the K1 ordering mutant): with THREE occupants — drift live, a status
+    // card queued, then a caregiver pre-empt — the displaced drift's Closed must not advance the
+    // queue. If Preempt hid the drift before becoming live, the card would be shown and then
+    // overwritten by the caregiver: two banners up, one tracked.
+    [Fact]
+    public void APreempt_WithABannerQueued_ShowsThePreemptor_AndNeverTheQueuedCardFirst()
+    {
+        var slot = new BannerSlot();
+        var drift = new RecordingBanner("drift");
+        var card = new RecordingBanner("card");
+        var caregiver = new RecordingBanner("caregiver");
+
+        slot.Enqueue(drift);     // live
+        slot.Enqueue(card);      // waiting
+        slot.Preempt(caregiver);
+
+        Check.WithCustomMessage("the caregiver takes the slot")
+            .That(slot.Live).IsSameReferenceAs(caregiver);
+        Check.WithCustomMessage(
+                "the queued card must not appear while the caregiver is live: the displaced banner's "
+                + "Closed must not advance the queue")
+            .That(card.Shows).IsEqualTo(0);
+        Check.That(card.Visible).IsFalse();
+
+        caregiver.Close();
+        Check.WithCustomMessage("the displaced drift notice resumes at the FRONT of the queue")
+            .That(slot.Live).IsSameReferenceAs(drift);
+        Check.That(drift.Shows).IsEqualTo(2);
+
+        drift.Close();
+        Check.That(slot.Live).IsSameReferenceAs(card);
+    }
+
+    // B4 fixup-01 L1: a banner that cannot show must not leave the slot stalled with an invisible
+    // live occupant — drop it and continue with the next queued banner.
+    [Fact]
+    public void AThrowingShowInSlot_DropsThatBanner_AndTheNextQueuedBannerShows()
+    {
+        var slot = new BannerSlot();
+        var blocker = new RecordingBanner("blocker");
+        var faulty = new FaultyBanner("faulty") { ThrowOnShow = true };
+        var next = new RecordingBanner("next");
+
+        slot.Enqueue(blocker);
+        slot.Enqueue(faulty);
+        slot.Enqueue(next);
+
+        Check.ThatCode(blocker.Close).DoesNotThrow();
+
+        Check.WithCustomMessage("the throwing banner must not stay live")
+            .That(slot.Live).IsSameReferenceAs(next);
+        Check.WithCustomMessage("the next queued banner must show")
+            .That(next.Visible).IsTrue();
+        Check.That(next.Shows).IsEqualTo(1);
+    }
+
+    // B4 fixup-01 L1: a faulting displaced hide must never stop the pre-emptor (the safety channel)
+    // from taking the slot.
+    [Fact]
+    public void AThrowingDisplacedHide_DoesNotStopThePreemptor()
+    {
+        var slot = new BannerSlot();
+        var faulty = new FaultyBanner("faulty") { ThrowOnHide = true };
+        var caregiver = new RecordingBanner("caregiver");
+
+        slot.Enqueue(faulty);
+        Check.ThatCode(() => slot.Preempt(caregiver)).DoesNotThrow();
+
+        Check.WithCustomMessage("the caregiver alert takes the slot even though the hide threw")
+            .That(slot.Live).IsSameReferenceAs(caregiver);
+        Check.That(caregiver.Visible).IsTrue();
+        Check.That(faulty.Hides).IsEqualTo(1);
+
+        caregiver.Close();
+        Check.WithCustomMessage("the displaced banner still returns to the front of the queue")
+            .That(slot.Live).IsSameReferenceAs(faulty);
+    }
+
+    /// <summary>A banner that can be told to throw from ShowInSlot / HideFromSlot.</summary>
+    private sealed class FaultyBanner(string name) : IBannerSlotOccupant
+    {
+        public string Name { get; } = name;
+        public bool ThrowOnShow { get; init; }
+        public bool ThrowOnHide { get; init; }
+        public int Shows { get; private set; }
+        public int Hides { get; private set; }
+        public bool Visible { get; private set; }
+
+        public event EventHandler? Closed;
+
+        public void ShowInSlot()
+        {
+            Shows++;
+            if (ThrowOnShow)
+                throw new InvalidOperationException($"{Name} cannot show");
+            Visible = true;
+        }
+
+        public void HideFromSlot()
+        {
+            Hides++;
+            if (ThrowOnHide)
+                throw new InvalidOperationException($"{Name} cannot hide");
+            Visible = false;
+            Closed?.Invoke(this, EventArgs.Empty);
+        }
+
+        public bool TryGetVisibleBounds(out PhysicalRect bounds)
+        {
+            bounds = new PhysicalRect(0, 0, 10, 10);
+            return Visible;
+        }
     }
 }

@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using EyeCtrl.Core.Models;
+using Serilog;
 
 /// <summary>
 /// The one bottom-centre banner slot (B4): exactly one banner is on screen at a time, and the
@@ -68,7 +69,16 @@ public sealed class BannerSlot : IBannerSlot
             // The pre-emptor becomes live BEFORE the displaced banner is hidden, so the Closed that
             // HideFromSlot raises cannot advance the queue out from under the pre-emptor.
             _live = banner;
-            displaced.HideFromSlot();
+            try
+            {
+                displaced.HideFromSlot();
+            }
+            catch (Exception ex)
+            {
+                // Exception safety on the safety channel (B4 fixup-01 L1): a faulting displaced
+                // banner must never stop the caregiver alert from taking the slot.
+                Log.Error(ex, "A pre-empted banner failed to hide; the pre-emptor still takes the slot.");
+            }
             _queue.Insert(0, displaced);
         }
 
@@ -123,7 +133,19 @@ public sealed class BannerSlot : IBannerSlot
         _live = banner;
         banner.Closed -= OnClosed;
         banner.Closed += OnClosed;
-        banner.ShowInSlot();
+        try
+        {
+            banner.ShowInSlot();
+        }
+        catch (Exception ex)
+        {
+            // Exception safety (B4 fixup-01 L1): a banner that cannot show must not stall the slot
+            // with an invisible live occupant — drop it and move on to the next queued banner.
+            Log.Error(ex, "A banner failed to show; the slot drops it and moves on to the next queued banner.");
+            _live = null;
+            banner.Closed -= OnClosed;
+            ShowNextIfFree();
+        }
     }
 
     private void OnClosed(object? sender, EventArgs e)

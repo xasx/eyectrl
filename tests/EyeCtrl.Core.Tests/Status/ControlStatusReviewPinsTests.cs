@@ -5,9 +5,11 @@ using EyeCtrl.Core.Status;
 using Microsoft.Extensions.Time.Testing;
 
 /// <summary>
-/// Pins adopted from review 01's probes (the probes themselves were reviewer-only in
-/// <c>C:\t\gxb1rvm</c>; this file is a renamed copy, never an edit of that pin). The debounce probe
-/// is deliberately absent — the Paused-exit debounce it guarded was deleted by fixup-01 (F2).
+/// Pins adopted from review 01's probes (reviewer-only in <c>C:\t\gxb1rvm</c>) and review 02's
+/// (reviewer-only in <c>C:\t\gxb1rv2m</c>); every one is a renamed copy, never an edit of the pin.
+/// The debounce probe is deliberately absent — the Paused-exit debounce it guarded was deleted by
+/// fixup-01 (F2). Review 02's 900 ms / 1.1 s starvation-cadence probes are left out by the
+/// coordinator's instruction (they document the trade-off rather than guard a behaviour).
 /// </summary>
 public class ControlStatusReviewPinsTests
 {
@@ -54,5 +56,30 @@ public class ControlStatusReviewPinsTests
         model.Start();
 
         Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
+    }
+
+    [Fact]
+    public void OneOnePointFiveSecondGap_RestartsTheDisconnectClock()
+    {
+        // Review 02: the 1 s MaxPollGapMs upper bound. One 1.5 s gap inside an 11 s unplug restarts
+        // the false-since clock, so the unobserved interval is not counted as continuous. A mutant
+        // that widens MaxPollGapMs to 5 s turns this red.
+        var time = new FakeTimeProvider();
+        var model = new ControlStatusModel(GazeProviderType.StreamEngine, time);
+        model.Start();
+
+        for (int i = 0; i < 50; i++)
+        {
+            model.Poll(false);
+            AdvanceMs(time, 100);
+        }
+        AdvanceMs(time, 1_400);            // the poll-to-poll gap is 1.5 s
+        for (int i = 0; i < 50; i++)
+        {
+            model.Poll(false);
+            AdvanceMs(time, 100);
+        }
+
+        Check.That(model.Current.Disconnected).IsFalse();
     }
 }

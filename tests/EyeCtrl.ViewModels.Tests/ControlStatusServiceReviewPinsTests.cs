@@ -9,9 +9,9 @@ using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Time.Testing;
 
 /// <summary>
-/// Pins adopted from review 01's probes (reviewer-only in <c>C:\t\gxb1rvm</c>; this file is a
-/// renamed copy, never an edit of that pin). None of these depends on the Paused-exit debounce the
-/// fixup deleted.
+/// Pins adopted from review 01's probes (reviewer-only in <c>C:\t\gxb1rvm</c>) and review 02's
+/// (reviewer-only in <c>C:\t\gxb1rv2m</c>); every one is a renamed copy, never an edit of the pin.
+/// None of these depends on the Paused-exit debounce the fixup deleted.
 /// </summary>
 public class ControlStatusServiceReviewPinsTests
 {
@@ -75,6 +75,27 @@ public class ControlStatusServiceReviewPinsTests
 
         AdvancePolls(5);
         Check.That(_interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+        Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
+        service.Dispose();
+    }
+
+    [Fact]
+    public void AThrowingEarlierSubscriber_IsHealedByThePollResync()
+    {
+        // Review 02: a multicast StateChanged stops at the first throwing subscriber, so a fault in
+        // an EARLIER subscriber means this service never hears the pause at all. Only the 10 Hz poll
+        // re-sync can bring the status to Paused; removing the re-sync turns this red.
+        _interaction.StateChanged += _ => throw new InvalidOperationException("earlier subscriber fault");
+        var service = NewService();
+        service.Start();
+
+        try { _interaction.TogglePause(); }
+        catch (InvalidOperationException) { }
+
+        Check.That(_interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+
+        _time.Advance(TimeSpan.FromMilliseconds(ControlStatusService.PollIntervalMs));
+
         Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
         service.Dispose();
     }

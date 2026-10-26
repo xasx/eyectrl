@@ -335,6 +335,13 @@ public partial class App : Application
 
             gazeEngine.Start();
 
+            // ── Control status (Wave B B1) ──
+            // Started AFTER the stream: the model's 3 s lost-gaze clock is seeded here, so a slow
+            // splash/boot cannot report tracking lost before the tracker had a chance to deliver.
+            // Its changes are posted to this dispatcher and published as
+            // ControlStatusChangedMessage; the strip (B2b) and the chime (B3) are separate tickets.
+            _serviceProvider.GetRequiredService<ControlStatusService>().Start();
+
             // ── Display / resolution / DPI change ──
             // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the
             // first notification arrives, and after gazeEngine.Start() because the provider is what

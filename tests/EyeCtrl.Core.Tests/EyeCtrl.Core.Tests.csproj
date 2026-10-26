@@ -12,6 +12,17 @@
 
   <ItemGroup>
     <!--
+      FakeTimeProvider: the control-status model runs on an injected TimeProvider so the 3 s lost
+      window, the 10 s continuous-disconnect requirement and the 300 ms state-exit debounce are
+      exact instead of racing a loaded runner's wall clock. Microsoft's own implementation, not a
+      hand-rolled fake (same package and reasoning as EyeCtrl.ViewModels.Tests): production uses
+      TimeProvider.CreateTimer, and the fake must implement the real timer contract.
+    -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
       The synthetic gaze streams the replay analyzer validates against, shared with the benchmark
       suite as a LINK rather than a copy: two drifting definitions of "a fixation stream" would make
       analyzer results and benchmark results quietly incomparable. Linked rather than referenced

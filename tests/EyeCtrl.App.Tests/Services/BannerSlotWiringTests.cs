@@ -2,10 +2,14 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
 /// B4's composition pins: both banners reach the screen ONLY through the one bottom-centre slot,
@@ -15,13 +19,23 @@ using EyeCtrl.Core.Models;
 /// <para>
 /// The routing tests drive the production presenters over a recording slot, so no window is shown
 /// (the recording slot never calls ShowInSlot). The windows are constructed only for their Hidden
-/// event and are prepared invisible first; the composition-root checks are source pins, the
-/// A3/A7 pattern for App wiring that cannot be composed headlessly.
+/// event and are prepared invisible first; the composition-root checks are source pins and one
+/// real-container test, the A3/A7 pattern for App wiring that cannot be composed headlessly.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
 public class BannerSlotWiringTests
 {
+    private static readonly string AppData = TestAppDataDir.Create("banner-slot-wiring");
+
+    private static ServiceProvider BuildProvider() =>
+        AppBootstrapper.BuildServiceProvider(
+            new EyeCtrlSettings(),
+            settingsFilePath: Path.Combine(AppData, "settings.json"),
+            dispatcher: Dispatcher.CurrentDispatcher,
+            isTestMode: true,
+            appDataDir: AppData);
+
     /// <summary>A slot that records the calls, without showing anything.</summary>
     private sealed class RecordingSlot : IBannerSlot
     {
@@ -192,6 +206,54 @@ public class BannerSlotWiringTests
             .That(typeof(IDriftNoticePresenter).IsAssignableFrom(typeof(SlotDriftNoticePresenter))).IsTrue();
         Check.WithCustomMessage("the slot-routed wrapper is the presenter")
             .That(typeof(ICaregiverAlertPresenter).IsAssignableFrom(typeof(SlotCaregiverAlertPresenter))).IsTrue();
+    }
+
+    // B4 fixup-02 M1 (kills N10): the PRODUCTION canShow lambda, on the real container. With no
+    // drift episode raised, ShowInSlot must raise Closed and leave the window hidden. A
+    // `canShow: () => true` regression is review 01's H1 again; the prepared window would become
+    // visible while the slot believed nothing was up.
+    [StaFact]
+    public void TheContainersPresenter_RefusesAnEpisodeLessNotice_WithoutShowingTheWindow()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+
+        // Prepare the container's singleton window BEFORE the presenter is resolved.
+        var window = InvisibleTestWindow.Prepare(sp.GetRequiredService<DriftNoticeWindow>());
+        var occupant = (IBannerSlotOccupant)sp.GetRequiredService<IDriftNoticePresenter>();
+        var closed = 0;
+        occupant.Closed += (_, _) => closed++;
+        try
+        {
+            occupant.ShowInSlot(); // no drift episode has been raised
+
+            Check.WithCustomMessage("the production canShow must refuse a notice with no current episode")
+                .That(closed).IsEqualTo(1);
+            Check.WithCustomMessage("the refused notice must not have shown the prepared window")
+                .That(window.IsVisible).IsFalse();
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // B4 fixup-02 L1 (kills K9b/K10b): the handlers themselves are pinned above, but only the
+    // SUBSCRIPTION wires a real fade to them. Dropping it strands an invisible occupant as live.
+    [Fact]
+    public void BothWindows_SubscribeTheirFadeCompletion_ToTheNamedHandler()
+    {
+        var drift = Source("src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml.cs");
+        Check.WithCustomMessage(
+                "DriftNoticeWindow's fade no longer subscribes OnFadeCompleted: the slot would keep " +
+                "an invisible notice live and the next alert would re-show it")
+            .That(Regex.IsMatch(drift, @"fade\s*\.\s*Completed\s*\+=\s*OnFadeCompleted\s*;")).IsTrue();
+
+        var caregiver = Source("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs");
+        Check.WithCustomMessage(
+                "CaregiverAlertWindow's fade no longer subscribes OnFadeCompleted: every later drift " +
+                "notice would queue behind an invisible alert forever")
+            .That(Regex.IsMatch(caregiver, @"fade\s*\.\s*Completed\s*\+=\s*OnFadeCompleted\s*;")).IsTrue();
     }
 
     [Fact]

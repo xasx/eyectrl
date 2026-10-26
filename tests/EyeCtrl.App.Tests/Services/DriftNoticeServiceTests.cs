@@ -3,6 +3,8 @@ namespace EyeCtrl.App.Tests.Services;
 using System;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using NFluent;
 
 public class DriftNoticeServiceTests
@@ -40,6 +42,19 @@ public class DriftNoticeServiceTests
         var gate = new FakeFeedbackGate();
         var presenter = new FakeDriftNoticePresenter();
         return (new DriftNoticeService(gate, presenter), gate, presenter);
+    }
+
+    /// <summary>A minimal real coordinator: <see cref="DriftNoticeService.Start"/> only subscribes to
+    /// its assessment stream, and the runtime edge is what the tests drive.</summary>
+    private static AdaptationCoordinator MakeCoordinator()
+    {
+        var settings = new EyeCtrlSettings();
+        var provider = new EffectiveSettingsProvider(settings.Adaptation);
+        return new AdaptationCoordinator(
+            new StruggleMonitor(new BufferingTelemetrySink(capacity: 16), settings.EyeCare),
+            new AdaptationController(provider, settings.Adaptation),
+            new AdaptationLearner(provider, settings.Adaptation),
+            settings.Adaptation, new TestFakes.FakeGazeProvider(), new InteractionManager());
     }
 
     [Fact]
@@ -150,6 +165,49 @@ public class DriftNoticeServiceTests
         // the stopped flag is the guard, independent of the per-episode state.
         svc.OnAssessment(Drift(gated: true));
         Check.WithCustomMessage("a stopped runtime must stay closed even if a late assessment arrives")
+            .That(svc.CanShowNotice).IsFalse();
+    }
+
+    // B4 fixup-02 M2 (kills N6): Start must reopen the runtime it closed in Dispose. Without the
+    // reset, every drift notice for the rest of the session is silently dropped after one off→on.
+    [Fact]
+    public void ReEnable_AfterDispose_ShowsAFreshEpisodeAgain()
+    {
+        var (svc, _, presenter) = Make();
+        var coordinator = MakeCoordinator();
+        svc.Start(coordinator);
+
+        Check.That(svc.OnAssessment(Drift(gated: true))).IsTrue();
+        Check.That(svc.CanShowNotice).IsTrue();
+
+        svc.Dispose();
+        Check.WithCustomMessage("disabled").That(svc.CanShowNotice).IsFalse();
+
+        svc.Start(coordinator);
+        Check.WithCustomMessage("a re-enable alone is not an episode").That(svc.CanShowNotice).IsFalse();
+
+        Check.WithCustomMessage("a fresh episode after the re-enable must show again")
+            .That(svc.OnAssessment(Drift(gated: true))).IsTrue();
+        Check.WithCustomMessage("the reopened runtime must let the notice through")
+            .That(svc.CanShowNotice).IsTrue();
+        Check.That(presenter.ShowCalls).IsEqualTo(2);
+    }
+
+    // B4 fixup-02 L2 (kills N5): Dispose ENDS the drift episode as well as stopping the runtime, so
+    // a re-enable alone cannot revive the old episode's notice.
+    [Fact]
+    public void Dispose_EndsTheEpisode_SoAReEnableAloneDoesNotReviveIt()
+    {
+        var (svc, _, _) = Make();
+        var coordinator = MakeCoordinator();
+        svc.Start(coordinator);
+        svc.OnAssessment(Drift(gated: true));
+        Check.That(svc.CanShowNotice).IsTrue();
+
+        svc.Dispose();
+        svc.Start(coordinator); // runtime back on, but the disable ended the episode
+
+        Check.WithCustomMessage("the disable must end the episode, not leave it to be revived by Start")
             .That(svc.CanShowNotice).IsFalse();
     }
 }

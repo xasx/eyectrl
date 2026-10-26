@@ -1458,13 +1458,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
-      "Literal": "\"drift notice\"",
-      "Category": "log",
-      "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
-      "Literal": "\"caregiver alert\"",
+      "Literal": "\"banner slot\"",
       "Category": "log",
       "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."
     },

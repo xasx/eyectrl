@@ -13,6 +13,13 @@ public interface IDriftNoticePresenter
     void ShowDriftNotice();
 
     /// <summary>
+    /// Takes the notice out of the bottom-centre banner slot without re-queueing it — the service's
+    /// teardown (adaptation switched off or the app exiting). A queued notice is dropped; a live
+    /// one is hidden at once. No-op when the notice is not in the slot.
+    /// </summary>
+    void WithdrawDriftNotice();
+
+    /// <summary>
     /// The banner's visible bounds in physical pixels while it is on screen (P2 D3): the note
     /// gate's occluder source. False (and <paramref name="bounds"/> default) when it is not
     /// showing — the fade-out tail keeps reporting true until the window hides, which is the

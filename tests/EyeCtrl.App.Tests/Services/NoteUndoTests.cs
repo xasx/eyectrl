@@ -744,7 +744,7 @@ public class NoteUndoTests
             var undo = UndoCentre(anchor);
             ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
 
-            manager.SetOccluderSources(driftNoticeBounds: () =>
+            manager.SetOccluderSources(slotOccupantBounds: () =>
                 new PhysicalRect(undo.X - 300, undo.Y - 300, 600, 600));
             long tUs = 2_000_000;
             for (int i = 0; i < 90; i++)
@@ -754,7 +754,7 @@ public class NoteUndoTests
 
             // Control: the notice is gone and the gaze is off every target, so ONLY the clock
             // runs — the same ticks expire the chip.
-            manager.SetOccluderSources(driftNoticeBounds: () => null);
+            manager.SetOccluderSources(slotOccupantBounds: () => null);
             for (int i = 0; i < 80; i++)
                 Tick(manager, clock, timer, ref tUs);
             Check.That(manager.ActiveNotes).IsEmpty();

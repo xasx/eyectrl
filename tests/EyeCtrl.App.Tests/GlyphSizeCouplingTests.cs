@@ -82,13 +82,14 @@ public class GlyphSizeCouplingTests
             Check.WithCustomMessage("QuickActionsGridWindow has no TextBlock named CloseGlyph.")
                 .That(glyph).IsNotNull();
 
-            // Half two: the RATIO CHOICE. Dominant is the bucket for a 40-50px chrome affordance
-            // whose entire content is one glyph, which is exactly what this button is. Any other
+            // Half two: the RATIO CHOICE. Dominant is the bucket for a chrome affordance whose
+            // entire content is one glyph, which is exactly what this button is — it stayed
+            // Dominant when B8 grew the disc from 44 to its 100 DIP r50 hit area. Any other
             // ratio is token-backed and passes RawGeometryLiteralTests, so this is the only thing
             // that says Dominant rather than Small or Large.
             Check.WithCustomMessage(
                     "CloseGlyph must be CloseButtonSize x ContainerRatio.Dominant — Dominant is "
-                    + "the bucket for a lone glyph filling a 40-50px chrome affordance (spec "
+                    + "the bucket for a lone glyph filling its chrome affordance (spec "
                     + $"§8.5). Expected {QuickActionsGridWindow.CloseButtonSize * ContainerRatio.Dominant} "
                     + $"but found {glyph!.FontSize}.")
                 .That(glyph.FontSize)

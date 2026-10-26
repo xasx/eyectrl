@@ -135,4 +135,5 @@ public record OverlayViewModels(
     TaskSwitcherViewModel TaskSwitcher,
     QuickActionsGridViewModel QuickActionsGrid,
     ModesMenuViewModel ModesMenu,
-    RepeatCursorViewModel RepeatCursor);
+    RepeatCursorViewModel RepeatCursor,
+    ResumeStripViewModel? ResumeStrip = null);

@@ -89,9 +89,12 @@ internal static class AppFitMeasurers
             ["B114"] = (_, text) => QuickActionTile(text),
             ["B260x2"] = (_, text) => SettingsButton(text, SettingsButtonBox("B260x2")),
             ["C-alert"] = CaregiverAlert,
-            ["modal170"] = (key, text) => key == "calibration.window.cancelDwell"
-                ? CalibrationCancelLabel(text)
-                : ModalButton(text, wide: false),
+            ["modal170"] = (key, text) => key switch
+            {
+                "calibration.window.cancelDwell" => CalibrationCancelLabel(text),
+                "overlays.pause.label" => PauseStateLabel(text),
+                _ => ModalButton(text, wide: false),
+            },
             ["modal460"] = (_, text) => ModalButton(text, wide: true),
             ["PV1"] = PreviewRowFit.Measure,
             ["btn360x100"] = (_, text) => SettingsButton(text, SettingsButtonBox("btn360x100")),
@@ -593,6 +596,27 @@ internal static class AppFitMeasurers
         var room = window.CancelDwellButton.Width - 16;
         return OneLine(label, text, room,
             $"Cancel disc {FitText.Dip(window.CancelDwellButton.Width)} − 16");
+    }
+
+    /// <summary>
+    /// modal170's paused-strip member (B2a): the one-line state label, measured in the production
+    /// card (<c>PauseIndicatorWindow.StateLabelCard</c>), whose width ResumeStripLayout fixes. The
+    /// card's own width less a 16 DIP inset is the bound — tighter than the class's nominal 170 − 8
+    /// would be for a wider card, and the real one if the card ever shrinks.
+    /// </summary>
+    private static FitVerdict PauseStateLabel(string text)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new PauseIndicatorWindow();
+        var card = window.StateLabelCard;
+        window.StateLabel.Text = text;
+
+        // The card is a child of the strip's edge-wide canvas; lift it into the fit host alone, so
+        // this measurement does not depend on the primary display's size.
+        ((Canvas)card.Parent).Children.Remove(card);
+        using var host = FitHost.Open(card, inheritFrom: window);
+        var room = card.Width - 16;
+        return OneLine(window.StateLabel, text, room, $"Paused card {FitText.Dip(card.Width)} − 16");
     }
 
     // ────── Class C: growing windows ──────

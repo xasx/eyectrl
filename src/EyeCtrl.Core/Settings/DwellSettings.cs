@@ -60,6 +60,21 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private int _dwellPauseGraceMs = Processing.FixationDetector.GapAbortMs;
 
+    /// <summary>
+    /// Dwell time in milliseconds for the paused strip's Resume target (B2a). The dwell actually used
+    /// is <c>max(ResumeDwellMs, ToolbarButtonDwellMs + 200)</c>, so Resume is never quicker than the
+    /// toolbar: a glance that crosses it on the way to the edge must not end a pause. Valid range:
+    /// 500–3000. A new property, so an existing file picks up the default from the initializer.
+    /// </summary>
+    [ObservableProperty] private int _resumeDwellMs = 1000;
+
+    partial void OnResumeDwellMsChanging(int value)
+    {
+        if (value < 500 || value > 3000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(ResumeDwellMs)} must be between 500 and 3000");
+    }
+
     partial void OnDwellPauseGraceMsChanging(int value)
     {
         if (value < 0 || value > 1000)
@@ -228,7 +243,8 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(ScrollStopButtonDwellMs, 200, 2000, nameof(ScrollStopButtonDwellMs)),
             ValidationHelper.ValidateRange(ManualSelectionSideButtonDwellMs, 200, 2000, nameof(ManualSelectionSideButtonDwellMs)),
             ValidationHelper.ValidateRange(BackdropHideButtonDwellMs, 200, 2000, nameof(BackdropHideButtonDwellMs)),
-            ValidationHelper.ValidateRange(DwellPauseGraceMs, 0, 1000, nameof(DwellPauseGraceMs))
+            ValidationHelper.ValidateRange(DwellPauseGraceMs, 0, 1000, nameof(DwellPauseGraceMs)),
+            ValidationHelper.ValidateRange(ResumeDwellMs, 500, 3000, nameof(ResumeDwellMs))
         );
     }
 }

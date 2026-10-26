@@ -208,6 +208,25 @@ public class ToolbarLifecycleCoordinatorTests
         c.RefreshToolbarRect();
     }
 
+    /// <summary>
+    /// B2a (sticky owner's condition 1): the coordinator hands the REAL InteractionManager to the
+    /// adapter's leave-pause hook, which hides the strip inside TogglePause. The hook's behaviour is
+    /// pinned headlessly (ToolbarVisibilityAdapterHeadlessTests.TogglePause_OutOfPaused_...); this
+    /// pins that production subscribes it, and unsubscribes it on dispose, and that the band rect
+    /// reaches the strip from both capture paths.
+    /// </summary>
+    [Fact]
+    public void ResumeStripWiring_TracksLeavingPause_AndPublishesTheBandRect()
+    {
+        var root = SourceScanner.RepoRoot().FullName;
+        var coordinator = SourceScanner.StripComments(File.ReadAllText(Path.Combine(root,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs")));
+
+        Check.That(coordinator.Contains("vis.TrackLeavingPause(Context.InteractionManager);")).IsTrue();
+        Check.That(coordinator.Contains("_visibility?.StopTrackingLeavingPause(Context!.InteractionManager);")).IsTrue();
+        Check.That(Regex.Matches(coordinator, @"_visibility\?\.PublishBandBounds\(rect\);").Count).IsEqualTo(2);
+    }
+
     [Fact]
     public void PauseIndicatorWiring_MirrorCommandsStrip_AndStartupPushStaysAfterShowOverlays()
     {

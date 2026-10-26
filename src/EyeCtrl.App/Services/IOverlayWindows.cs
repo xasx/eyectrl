@@ -215,7 +215,7 @@ public interface IToolbarOverlay
     PhysicalRect GetPhysicalBounds();
 }
 
-/// <summary>The paused-state edge indicator shown while the toolbar is hidden.</summary>
+/// <summary>The paused-state edge strip, with its Resume target while the toolbar is hidden (B2a).</summary>
 public interface IPauseIndicatorOverlay
 {
     void Show();
@@ -225,6 +225,14 @@ public interface IPauseIndicatorOverlay
     /// <summary>Re-asserts this window above sibling topmost overlays shown after it
     /// (OverlayWindow.RaiseToTop: SetWindowPos HWND_TOPMOST | SWP_NOACTIVATE).</summary>
     void RaiseToTop();
+
+    /// <summary>The toolbar band became visible or hidden: the Resume target hides while the band
+    /// (which has its own Play) is up.</summary>
+    void SetBandVisible(bool visible);
+
+    /// <summary>The toolbar band's rest rectangle in physical pixels; the Resume target is placed
+    /// clear of it.</summary>
+    void SetBandBounds(PhysicalRect bounds);
 }
 
 /// <summary>The manual-selection gaze dot.</summary>

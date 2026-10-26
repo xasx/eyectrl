@@ -227,7 +227,8 @@ public partial class App : Application
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
-                quickActionsGridVm, modesMenuVm, repeatCursorVm);
+                quickActionsGridVm, modesMenuVm, repeatCursorVm,
+                _serviceProvider.GetRequiredService<ResumeStripViewModel>());
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
             // Stage-2 UI instrument 2, attached only for a measurement session. Without the attach the
@@ -334,6 +335,13 @@ public partial class App : Application
                 line => Log.Information("{PauseState}", line));
 
             gazeEngine.Start();
+
+            // ── Control status (Wave B B1) ──
+            // Started AFTER the stream: the model's 3 s lost-gaze clock is seeded here, so a slow
+            // splash/boot cannot report tracking lost before the tracker had a chance to deliver.
+            // Its changes are posted to this dispatcher and published as
+            // ControlStatusChangedMessage; the strip (B2b) and the chime (B3) are separate tickets.
+            _serviceProvider.GetRequiredService<ControlStatusService>().Start();
 
             // ── Display / resolution / DPI change ──
             // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the

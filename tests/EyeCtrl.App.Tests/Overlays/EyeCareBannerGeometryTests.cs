@@ -6,7 +6,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.App.Overlays;
-using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Core.Localization;
@@ -17,9 +16,9 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// The eye-care banner's geometry (B7): the rings' arithmetic — r50, a ≥ 20 DIP dead gap, fully
-/// inset and clear of the toolbar band, at DPI 1 and 2 — and, on the real window, that the drawn
-/// circles sit on the registered dwell targets and the captions fit the window.
+/// The eye-care banner's geometry (B7 + fixup-01 F2): the rings' arithmetic — r50, a ≥ 20 DIP dead
+/// gap, fully inset and clear of the toolbar's REAL band for all four docks — and, on the real
+/// window, that the drawn circles sit on the registered dwell targets and the captions fit.
 ///
 /// <para>
 /// The layout gate activates the shipped German and restores English, so the class sits in the
@@ -30,19 +29,26 @@ using Xunit;
 [Collection("StringTable Tests (App)")]
 public class EyeCareBannerGeometryTests
 {
-    private static readonly double Toolbar = new ToolbarSettings().Size;
+    private static ToolbarSettings TopToolbar(double size = 120) =>
+        new() { IsDocked = true, DockedEdge = "Top", Size = size };
+
+    private static ToolbarSettings DockedAt(string edge, double size = 120) =>
+        new() { IsDocked = true, DockedEdge = edge, Size = size };
 
     [Fact]
     public void ComputeDwellGeometry_At100Percent_MatchesTheShippedLayout()
     {
+        var toolbar = TopToolbar();
         var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth: 1920, toolbarSizeDip: Toolbar, scaleX: 1.0, scaleY: 1.0);
+            screenDipWidth: 1920, toolbar, scaleX: 1.0, scaleY: 1.0);
 
         // Start is the right-hand disc: 20 DIP inset + its r50. Snooze is one 124 DIP pitch away.
         Check.That(g.Start.X).IsCloseTo(1920 - 70, 0.001);
         Check.That(g.Snooze.X).IsCloseTo(1920 - 194, 0.001);
-        // Below the toolbar band (size + 40) plus an 8 DIP gap, then its own radius.
-        Check.That(g.Start.Y).IsCloseTo(120 + 40 + 8 + 50, 0.001);
+        // Below the real toolbar window (size + band margins + padding) plus an 8 DIP gap, then
+        // its own radius.
+        Check.That(g.Start.Y).IsCloseTo(
+            EyeCarePlacement.ToolbarWindowThicknessDip(120) + 8 + 50, 0.001);
         Check.That(g.Snooze.Y).IsCloseTo(g.Start.Y, 0.001);
         Check.That(g.Radius).IsCloseTo(50, 0.001);
     }
@@ -50,65 +56,107 @@ public class EyeCareBannerGeometryTests
     [Fact]
     public void ComputeDwellGeometry_At200Percent_ScalesEverything()
     {
+        var toolbar = TopToolbar(108);
         var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth: 1920, toolbarSizeDip: 108, scaleX: 2.0, scaleY: 2.0);
+            screenDipWidth: 1920, toolbar, scaleX: 2.0, scaleY: 2.0);
 
         Check.That(g.Start.X).IsCloseTo((1920 - 70) * 2, 0.001);
         Check.That(g.Snooze.X).IsCloseTo((1920 - 194) * 2, 0.001);
-        Check.That(g.Start.Y).IsCloseTo((108 + 40 + 8 + 50) * 2, 0.001);
+        Check.That(g.Start.Y).IsCloseTo(
+            (EyeCarePlacement.ToolbarWindowThicknessDip(108) + 8 + 50) * 2, 0.001);
         Check.That(g.Radius).IsCloseTo(100, 0.001);
     }
 
     /// <summary>
-    /// B7's three geometric requirements, at both DPIs and at a small screen with the largest
-    /// toolbar: both hit circles fully on-screen, their TOP clear of the toolbar band, and a dead
-    /// gap of at least 20 DIP between the two different actions.
+    /// The placement's band arithmetic against the REAL toolbar window: the band extent is the
+    /// rendered button row, the window thickness adds the strip's 4 DIP padding on each side.
+    /// The window is only measured, never shown (this file is headless-listed).
     /// </summary>
-    [Theory]
-    [InlineData(1920.0, 1200.0, 120.0, 1.0)]
-    [InlineData(1920.0, 1200.0, 108.0, 2.0)]
-    [InlineData(1366.0, 768.0, 200.0, 1.0)]
-    [InlineData(1366.0, 768.0, 120.0, 2.0)]
-    public void TheRings_AreFullyInset_ClearOfTheBand_AndAtLeast20DipApart(
-        double screenDipWidth, double screenDipHeight, double toolbarSizeDip, double scale)
+    [StaFact]
+    public void TheCodedBand_MatchesTheRealToolbarWindow()
     {
-        var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth, toolbarSizeDip, scale, scale);
-        var screenWidthPx = screenDipWidth * scale;
-        var screenHeightPx = screenDipHeight * scale;
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        foreach (var size in new[] { 108.0, 120.0, 200.0 })
+        {
+            var toolbar = new ToolbarWindow();
+            toolbar.Initialize(size, 700, includeReset: true);
 
-        // The dead gap between the two HIT circles (what the user aims at).
-        var gap = Math.Abs(g.Start.X - g.Snooze.X) - 2 * g.Radius;
-        Check.WithCustomMessage($"the two rings are only {gap:0.#} physical px apart")
-            .That(gap).IsGreaterOrEqualThan(20 * scale);
+            var band = toolbar.ButtonCanvasForTest.Height;
+            var padding = toolbar.StripRoot.Padding.Top + toolbar.StripRoot.Padding.Bottom;
 
-        // Fully on-screen: neither circle crosses an edge.
-        Check.That(g.Start.X + g.Radius).IsLessOrEqualThan(screenWidthPx);
-        Check.That(g.Snooze.X - g.Radius).IsGreaterOrEqualThan(0);
-        Check.That(g.Start.Y - g.Radius).IsGreaterOrEqualThan(0);
-        Check.That(g.Start.Y + g.Radius).IsLessOrEqualThan(screenHeightPx);
-
-        // Fully below the toolbar band (toolbar size + 40 DIP), not merely off the top edge.
-        Check.WithCustomMessage("a ring's top edge is inside the toolbar band")
-            .That(g.Start.Y - g.Radius).IsGreaterOrEqualThan((toolbarSizeDip + 40) * scale);
+            Check.WithCustomMessage($"the coded band extent drifted from the real Canvas at size {size}.")
+                .That(EyeCarePlacement.ToolbarBandExtentDip(size)).IsCloseTo(band, 0.001);
+            Check.WithCustomMessage($"the coded window thickness drifted from Canvas + padding at size {size}.")
+                .That(EyeCarePlacement.ToolbarWindowThicknessDip(size)).IsCloseTo(band + padding, 0.001);
+            Check.That(ToolbarWindow.BandPaddingDip)
+                .IsCloseTo(toolbar.StripRoot.Padding.Top, 0.001);
+            Check.That(toolbar.StripRoot.Padding.Left).IsCloseTo(toolbar.StripRoot.Padding.Top, 0.001);
+        }
     }
 
     /// <summary>
-    /// The band above the rings is the app's real toolbar band, not a number of ours that drifted:
-    /// <see cref="RepeatModeController.BuildToolbarBandRect"/> is the same rect repeat mode uses to
-    /// suppress the toolbar row. (The theory above pins the arithmetic at DPI 1 and 2; this pins
-    /// the shared value at the machine's real DPI, read-only.)
+    /// B7 fixup-01 F2: for EVERY dock, both r50 hit circles are fully on-screen, ≥ 20 DIP apart,
+    /// and outside the toolbar's occupied band (top/bottom: a horizontal strip; left/right: a
+    /// vertical one). At both DPIs and on a small screen.
     /// </summary>
-    [Fact]
-    public void TheRingsTop_ClearsTheRealToolbarBandRect()
+    [Theory]
+    [InlineData("Top", 1920.0, 1200.0, 120.0, 1.0)]
+    [InlineData("Top", 1920.0, 1200.0, 108.0, 2.0)]
+    [InlineData("Bottom", 1920.0, 1200.0, 108.0, 2.0)]
+    [InlineData("Left", 1920.0, 1200.0, 120.0, 1.0)]
+    [InlineData("Right", 1920.0, 1200.0, 108.0, 2.0)]
+    [InlineData("Right", 1366.0, 768.0, 200.0, 1.0)]
+    [InlineData("Bottom", 1366.0, 768.0, 120.0, 2.0)]
+    public void TheRings_ClearTheToolbarsRealBand_ForEveryDock(
+        string edge, double screenDipWidth, double screenDipHeight, double toolbarSize, double scale)
     {
-        var band = RepeatModeController.BuildToolbarBandRect(Toolbar);
+        var toolbar = DockedAt(edge, toolbarSize);
         var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            SystemParameters.PrimaryScreenWidth, Toolbar, DpiHelper.ScaleX, DpiHelper.ScaleY);
+            screenDipWidth, toolbar, scale, scale);
+        var w = screenDipWidth;
+        var h = screenDipHeight;
+        var thickness = EyeCarePlacement.ToolbarWindowThicknessDip(toolbarSize);
 
-        Check.WithCustomMessage(
-                $"the ring top is {g.Start.Y - g.Radius:0.#} px, inside the {band.Height:0.#} px toolbar band")
-            .That(g.Start.Y - g.Radius).IsGreaterOrEqualThan(band.Height);
+        // The dead gap between the two HIT circles (what the user aims at).
+        var gap = Math.Abs(g.Start.X - g.Snooze.X) / scale - 2 * EyeCareBannerWindow.HitRadiusDip;
+        Check.WithCustomMessage($"the two rings are only {gap:0.#} DIP apart")
+            .That(gap).IsGreaterOrEqualThan(20);
+
+        // Fully on-screen: neither circle crosses an edge.
+        Check.That(g.Start.X / scale + EyeCareBannerWindow.HitRadiusDip).IsLessOrEqualThan(w);
+        Check.That(g.Snooze.X / scale - EyeCareBannerWindow.HitRadiusDip).IsGreaterOrEqualThan(0);
+        Check.That(g.Start.Y / scale - EyeCareBannerWindow.HitRadiusDip).IsGreaterOrEqualThan(0);
+        Check.That(g.Start.Y / scale + EyeCareBannerWindow.HitRadiusDip).IsLessOrEqualThan(h);
+
+        // Outside the toolbar's occupied band for this dock.
+        var start = new Point(g.Start.X / scale, g.Start.Y / scale);
+        var snooze = new Point(g.Snooze.X / scale, g.Snooze.Y / scale);
+        var bands = new (string Name, Rect Rect)[]
+        {
+            ("top", new Rect(0, 0, w, thickness)),
+            ("bottom", new Rect(0, h - thickness, w, thickness)),
+            ("left", new Rect(0, 0, thickness, h)),
+            ("right", new Rect(w - thickness, 0, thickness, h)),
+        };
+        var occupied = bands.Single(b => b.Name == edge.ToLowerInvariant()).Rect;
+        foreach (var (name, centre) in new[] { ("start", start), ("snooze", snooze) })
+        {
+            var dx = Math.Max(0, Math.Max(occupied.Left - centre.X, centre.X - occupied.Right));
+            var dy = Math.Max(0, Math.Max(occupied.Top - centre.Y, centre.Y - occupied.Bottom));
+            var distance = Math.Sqrt(dx * dx + dy * dy);
+            Check.WithCustomMessage(
+                    $"the {name} ring (centre {centre.X:0.#},{centre.Y:0.#}) overlaps the {edge}-docked "
+                    + $"toolbar's {thickness:0.#} DIP band [{occupied}]")
+                .That(distance).IsGreaterOrEqualThan(EyeCareBannerWindow.HitRadiusDip);
+        }
+
+        // A right-docked toolbar pushes the panel to the left, where no band sits.
+        if (edge == "Right")
+        {
+            Check.WithCustomMessage("a right-docked toolbar must move the rings off the right edge")
+                .That(g.Start.X / scale).IsStrictlyLessThan(w / 2);
+            Check.That(g.Snooze.X).IsStrictlyLessThan(g.Start.X);
+        }
     }
 
     [StaFact]
@@ -127,7 +175,8 @@ public class EyeCareBannerGeometryTests
 
     private static void AssertRingsOnTargetsAndCaptionsFit(string language)
     {
-        var window = new EyeCareBannerWindow();
+        var toolbar = TopToolbar();
+        var window = new EyeCareBannerWindow(dwellSettings: new DwellSettings(), toolbarSettings: toolbar);
         var root = (FrameworkElement)window.Content;
         window.Content = null;
         using var host = FitHost.Open(root, width: 1920, height: window.Height, inheritFrom: window);
@@ -136,8 +185,7 @@ public class EyeCareBannerGeometryTests
         var strip = ((Grid)root).Children.OfType<Border>().Single();
         Check.That(strip.ActualHeight).IsCloseTo(96, 0.01);
 
-        var targets = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth: 1920, toolbarSizeDip: Toolbar, scaleX: 1.0, scaleY: 1.0);
+        var targets = EyeCareBannerWindow.ComputeDwellGeometry(1920, toolbar, 1.0, 1.0);
         foreach (var (name, ring, target) in new[]
                  {
                      ("snooze", (FrameworkElement)window.SnoozeRing, targets.Snooze),

@@ -33,10 +33,6 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
     /// </summary>
     internal const double SkipHitRadiusDip = 50;
 
-    /// <summary>Gap between the Skip disc and the bottom edge, in DIP: fully on-screen and clear of
-    /// the 3 DIP progress bar at the very bottom.</summary>
-    internal const double SkipBottomInsetDip = 8;
-
     /// <summary>
     /// Continuous time the gaze must be OUTSIDE the Skip target before it can arm, in ms — the same
     /// 150 ms NoteManager uses. The exercise is shown under wherever the gaze already rests, so a
@@ -52,6 +48,7 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
     private Action<PhysicalPoint, long>? _recordGaze;  // (gaze point, ELAPSED µs)
 
     private readonly DwellSettings _dwellSettings;
+    private readonly ToolbarSettings _toolbarSettings;
     private readonly IMessenger _messenger;
     private readonly DwellDetector _skipDwell;
     private readonly DwellOutlineOverlay _skipOutline;
@@ -64,9 +61,11 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
     private static readonly Func<DwellTarget, bool> SkipDisarmed = _ => false;
 
     public EyeCareExerciseWindow(DwellSettings? dwellSettings = null, IMessenger? messenger = null,
-        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null,
+        ToolbarSettings? toolbarSettings = null)
     {
         _dwellSettings = dwellSettings ?? new DwellSettings();
+        _toolbarSettings = toolbarSettings ?? new ToolbarSettings();
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         InitializeComponent();
         IsClickThrough = true;                 // set here, not in XAML (see banner note)
@@ -94,20 +93,21 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
     }
 
     /// <summary>
-    /// The Skip target's hit circle in physical pixels: centred horizontally (mid-edge, never a
-    /// corner) and <see cref="SkipBottomInsetDip"/> + its radius above the bottom edge, so the whole
-    /// circle is on-screen. Pure, so the headless tests pin DPI 1 and 2 without a display.
+    /// The Skip target's hit circle in physical pixels: mid-right edge, vertically centred — or
+    /// mid-left when the toolbar is docked Right, so the exit never sits on the toolbar's own
+    /// buttons. Fully on-screen, mid-edge and never a corner; away from the bottom-centre band the
+    /// keyboard and the banners share. Pure, so the headless tests pin every dock and DPI 1/2.
     /// </summary>
     /// <param name="screenDipWidth">The screen's width in DIP.</param>
     /// <param name="screenDipHeight">The screen's height in DIP.</param>
+    /// <param name="toolbar">The live toolbar settings (dock and edge).</param>
     /// <param name="scaleX">Physical pixels per DIP, horizontally.</param>
     /// <param name="scaleY">Physical pixels per DIP, vertically.</param>
     /// <returns>The hit circle's centre (physical px) and radius (physical px).</returns>
     public static (PhysicalPoint Center, double Radius) ComputeSkipGeometry(
-        double screenDipWidth, double screenDipHeight, double scaleX, double scaleY) =>
-        (new PhysicalPoint(
-             screenDipWidth / 2 * scaleX,
-             (screenDipHeight - SkipBottomInsetDip - SkipHitRadiusDip) * scaleY),
+        double screenDipWidth, double screenDipHeight, ToolbarSettings toolbar,
+        double scaleX, double scaleY) =>
+        (EyeCarePlacement.SkipCenter(screenDipWidth, screenDipHeight, toolbar, scaleX, scaleY),
          SkipHitRadiusDip * scaleX);
 
     /// <summary>The Skip exit's detector — the test seam for its target, grace and activation.</summary>
@@ -118,6 +118,9 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
 
     /// <summary>Whether the Skip target has armed (the gaze has been away since the run started).</summary>
     internal bool SkipArmedForTest => _skipArmed;
+
+    /// <summary>The live toolbar settings object — pinning the composition root's wiring.</summary>
+    internal ToolbarSettings ToolbarSettingsForTest => _toolbarSettings;
 
     // ONE wall clock for both the visible animation and gaze recording, so the dot the user
     // follows and the target used for scoring share a single 0-based elapsed timeline.
@@ -174,7 +177,15 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
         var screenWidth = ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth;
         var screenHeight = ActualHeight > 0 ? ActualHeight : SystemParameters.PrimaryScreenHeight;
         var (center, radius) = ComputeSkipGeometry(
-            screenWidth, screenHeight, DpiHelper.ScaleX, DpiHelper.ScaleY);
+            screenWidth, screenHeight, _toolbarSettings, DpiHelper.ScaleX, DpiHelper.ScaleY);
+
+        // The drawn disc follows the same centre the target is registered at (F3: mid-right, or
+        // mid-left for a right-docked toolbar), so a dock edit between runs moves both together.
+        Canvas.SetLeft(SkipTarget,
+            DpiHelper.PhysicalToLogicalX(center.X) - SkipHitRadiusDip);
+        Canvas.SetTop(SkipTarget,
+            DpiHelper.PhysicalToLogicalY(center.Y) - SkipHitRadiusDip);
+        SkipTarget.Visibility = Visibility.Visible;
 
         _skipDwell.ClearTargets();
         _skipDwell.AddTarget(new DwellTarget(
@@ -232,6 +243,9 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
         _frameTimer?.Stop();
         _frameTimer = null;
         Stage.Visibility = Visibility.Collapsed;
+        // F5: no dead disc during the 3 s summary — a gaze user must not rest on an exit that no
+        // longer responds. RunAsync shows it again for the next run.
+        SkipTarget.Visibility = Visibility.Collapsed;
         _skipDwell.ClearTargets();
         _skipOutline.SetProgress(0);
         // Hand control back to EyeCareService, which scores (exercise.Complete) then calls ShowSummaryAsync.
@@ -249,6 +263,7 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
         _frameTimer?.Stop();
         _frameTimer = null;
         _recordGaze = null;
+        SkipTarget.Visibility = Visibility.Collapsed;
         _skipDwell.ClearTargets();
         _skipOutline.SetProgress(0);
         SummaryCard.Visibility = Visibility.Collapsed;

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services.Coordinators;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
@@ -36,6 +37,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     // the first gaze sample. Private: AttachSettingsUi is the only writer, SetupGazeRouting the only
     // reader — nothing outside this class touches the field.
     private SettingsUiCoordinator? _settingsUi;
+    // B7 fixup-01 F1: true while an eye-care exercise runs. The exercise window is full-screen
+    // and opaque, so the keyboard beneath it is invisible input; withholding its samples is the
+    // same rule as probeOpen (and the pause/gap terms). Written from the eye-care service's
+    // message thread (gaze thread or a thread-pool continuation), read inside the dispatcher
+    // action, hence volatile.
+    private volatile bool _exerciseActive;
     public ToolbarLifecycleCoordinator(ModalInteractionState modal) =>
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
 
@@ -71,6 +78,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             // see the comment at App.xaml.cs.
             _visibility?.SetPauseIndicator(paused);
         });
+
+        // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1): the full-screen,
+        // opaque exercise window hides an open keyboard, and the user is told to rest on the
+        // Skip disc — a sample credited under it would type into the foreground app.
+        context.Messenger.Register<ToolbarLifecycleCoordinator, EyeCareExerciseActiveMessage>(this,
+            (_, message) => _exerciseActive = message.Active);
 
         // The screen changed size or scale. Both of this controller's geometry values were captured
         // once at startup and could never be updated — the summon region, which is the escape
@@ -143,7 +156,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // geometry-only
                 // (target placement) and are fed regardless. Paused samples are skipped for the same
                 // reason: input must not leave EyeCtrl while the user believes pause released it.
-                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen))
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen, _exerciseActive))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
@@ -158,12 +171,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// <summary>
     /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
     /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
-    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND the probe
-    /// does not own the screen (build plan C9). Review found the inline version had zero test
-    /// coverage — neutralizing it broke no test.
+    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND neither the
+    /// probe nor an eye-care exercise owns the screen (build plan C9; B7 fixup-01 F1).
+    /// Review found the inline version had zero test coverage — neutralizing it broke no test.
     /// </summary>
-    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen) =>
-        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen;
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen, bool exerciseActive) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive;
 
     /// <summary>
     /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or

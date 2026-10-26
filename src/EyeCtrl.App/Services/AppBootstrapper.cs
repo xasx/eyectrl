@@ -533,7 +533,8 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>().Dwell,
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
-            sp.GetRequiredService<IDwellDetectorRegistry>()));
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Toolbar));
         services.AddSingleton<ExerciseRunner>(sp =>
         {
             var screen = new PhysicalPoint(

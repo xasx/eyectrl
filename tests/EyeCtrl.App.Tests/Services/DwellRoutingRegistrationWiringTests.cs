@@ -56,9 +56,9 @@ public class DwellRoutingRegistrationWiringTests
     // resolution loads, and can rewrite, calibration.json. See TestAppDataDir.
     private static readonly string AppData = TestAppDataDir.Create("dwell-routing");
 
-    private static ServiceProvider BuildProvider() =>
+    private static ServiceProvider BuildProvider(EyeCtrlSettings? settings = null) =>
         AppBootstrapper.BuildServiceProvider(
-            new EyeCtrlSettings(),
+            settings ?? new EyeCtrlSettings(),
             settingsFilePath: Path.Combine(AppData, "settings.json"),
             dispatcher: Dispatcher.CurrentDispatcher,
             isTestMode: true,
@@ -164,6 +164,33 @@ public class DwellRoutingRegistrationWiringTests
 
         CheckSingleEntry(registry.Registrations, DwellContext.EyeCare,
             AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs);
+    }
+
+    [StaFact]
+    public void EyeCareWindows_ResolvedFromContainer_FollowTheLiveSettingsObjects()
+    {
+        // B7 fixup-01 M7/M8: both factory lambdas pass the LIVE DwellSettings and ToolbarSettings
+        // (the same objects Settings edits). Dropping either argument leaves the optional parameter
+        // null, and the window silently falls back to a private default — the banner's grace, ring
+        // top and ring dwell, and the exercise's dock, would stop following the owner's settings.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.DwellPauseGraceMs = 350;
+        settings.Toolbar.Size = 200;
+        settings.Toolbar.DockedEdge = "Right";
+        using var sp = BuildProvider(settings);
+
+        var banner = sp.GetRequiredService<EyeCareBannerWindow>();
+        Check.That(banner.DwellSettingsForTest).IsSameReferenceAs(settings.Dwell);
+        Check.That(banner.ToolbarSettingsForTest).IsSameReferenceAs(settings.Toolbar);
+        Check.That(banner.DwellForTest.PauseGraceMs).IsEqualTo(350);
+        Check.That(banner.RingTopForTest)
+            .IsEqualTo(EyeCareBannerWindow.RingsTopDip(settings.Toolbar));
+
+        var exercise = sp.GetRequiredService<EyeCareExerciseWindow>();
+        Check.WithCustomMessage("the exercise window lost the live ToolbarSettings (a right-docked "
+                + "toolbar would then leave Skip on the toolbar's own edge)")
+            .That(exercise.ToolbarSettingsForTest).IsSameReferenceAs(settings.Toolbar);
     }
 
     [StaFact]

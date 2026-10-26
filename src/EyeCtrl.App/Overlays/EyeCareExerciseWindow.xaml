@@ -11,26 +11,27 @@
                      Left="0" Top="0">
 
     <Grid>
-        <!-- Skip dwell target: a 100 DIP disc (r50) on the BOTTOM edge, MID-edge — never a corner,
-             where tracking is worst — and clear of every exercise's dot path (the bottom-centre
-             band no exercise reaches). Centred alignment is the same arithmetic
-             EyeCareExerciseWindow.ComputeSkipGeometry does in physical pixels; the disc's fill,
-             the Button above it and the dwell outline share this one box. Declared BEFORE Stage
-             so the live gaze ring draws over it — the user must still see where their gaze is
-             while dwelling the exit. -->
-        <Border x:Name="SkipTarget"
-                Width="100" Height="100"
-                HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,8"
-                Background="{StaticResource BrushSurfaceLight}"
-                BorderBrush="{StaticResource BrushBorderSubtle}"
-                BorderThickness="{StaticResource StandardBorderThickness}"
-                CornerRadius="{StaticResource CircleCornerRadius}">
-            <Button x:Name="SkipButton" Content="{loc:T 'eye-care.exercise.skip'}"
-                    Focusable="False"
-                    Foreground="{StaticResource BrushTextSecondary}" Background="Transparent"
-                    BorderThickness="0" BorderBrush="Transparent"
-                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-        </Border>
+        <!-- Skip dwell target: a 100 DIP disc (r50) on the MID-RIGHT edge, vertically centred —
+             or mid-left when the toolbar is docked Right — never a corner, and away from the
+             bottom-centre band the keyboard, the B4 slot, the caregiver alert and the restart
+             notice share. Code places the disc at the exact DIP its registered dwell target maps
+             to (EyeCareExerciseWindow.ComputeSkipGeometry), so the circle the user aims at is the
+             circle gaze is tested against. Declared BEFORE Stage so the live gaze ring draws over
+             it — the user must still see where their gaze is while dwelling the exit. -->
+        <Canvas x:Name="SkipLayer">
+            <Border x:Name="SkipTarget"
+                    Width="100" Height="100"
+                    Background="{StaticResource BrushSurfaceLight}"
+                    BorderBrush="{StaticResource BrushBorderSubtle}"
+                    BorderThickness="{StaticResource StandardBorderThickness}"
+                    CornerRadius="{StaticResource CircleCornerRadius}">
+                <Button x:Name="SkipButton" Content="{loc:T 'eye-care.exercise.skip'}"
+                        Focusable="False"
+                        Foreground="{StaticResource BrushTextSecondary}" Background="Transparent"
+                        BorderThickness="0" BorderBrush="Transparent"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            </Border>
+        </Canvas>
 
         <Canvas x:Name="Stage">
             <!-- Target dot -->

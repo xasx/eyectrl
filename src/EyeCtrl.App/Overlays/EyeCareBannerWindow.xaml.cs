@@ -38,20 +38,6 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     /// </summary>
     internal const double RingPitchDip = RingSize + 24;
 
-    /// <summary>DIP from the screen's right edge to the Start disc's drawn edge.</summary>
-    internal const double RightInsetDip = 20;
-
-    /// <summary>DIP between the toolbar band's bottom and the rings' top edge.</summary>
-    internal const double RingTopGapDip = 8;
-
-    /// <summary>
-    /// The toolbar band's height above the rings: <c>RepeatModeController.BuildToolbarBandRect</c>'s
-    /// own formula (toolbar size + 40). Duplicated rather than referenced because that band is a
-    /// repeat-mode suppression zone, not a placement primitive; <c>EyeCareBannerGeometryTests</c>
-    /// pins the rings clear of the real band rect at DPI 1 and 2, so a drift fails there.
-    /// </summary>
-    internal const double ToolbarBandExtraDip = 40;
-
     /// <summary>Room below the discs for their captions (16 DIP offset + one body line + padding).</summary>
     internal const double CaptionBandDip = 44;
 
@@ -63,6 +49,9 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 
     private readonly DwellDetector _dwell;
     private readonly int _dwellMs;
+    // Set only when no live settings object was supplied: tests build the banner with a tiny
+    // dwell and no settings. Production always supplies one, so RingDwellMs follows it.
+    private readonly int? _fallbackDwellMs;
     private readonly DwellSettings _dwellSettings;
     private readonly ToolbarSettings _toolbarSettings;
     // Dwell-completion cue trigger. Optional-trailing so no caller changes; the fallback IS the
@@ -82,6 +71,7 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
         DwellSettings? dwellSettings = null, ToolbarSettings? toolbarSettings = null)
     {
         _dwellSettings = dwellSettings ?? new DwellSettings();
+        _fallbackDwellMs = dwellSettings is null ? dwellMs : null;
         _toolbarSettings = toolbarSettings ?? new ToolbarSettings();
         InitializeComponent();
 
@@ -123,56 +113,89 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     /// <summary>The detector — the test seam for the rings' grace and their progress.</summary>
     internal DwellDetector DwellForTest => _dwell;
 
+    /// <summary>The live dwell settings object — pinning the composition root's wiring (M7).</summary>
+    internal DwellSettings DwellSettingsForTest => _dwellSettings;
+
+    /// <summary>The live toolbar settings object — pinning the composition root's wiring (M8).</summary>
+    internal ToolbarSettings ToolbarSettingsForTest => _toolbarSettings;
+
+    /// <summary>The rings' top edge for the current settings — the dock-clearance test seam.</summary>
+    internal double RingTopForTest => RingsTopDip(_toolbarSettings);
+
+    /// <summary>The dwell time ShowAsync will register — the live-setting test seam (F6).</summary>
+    internal int RingDwellMsForTest => RingDwellMs;
+
     /// <summary>
-    /// The two dwell circles' centres and hit radius in physical pixels. The rings are inset from
-    /// the TOP by the toolbar band (so they never sit on the top edge where tracking is worst) and
-    /// from the RIGHT by <see cref="RightInsetDip"/>; the Start disc is the right-hand one. Pure,
-    /// so the headless tests pin DPI 1 and 2 without a display.
+    /// Two rings' centres and hit radius in physical pixels for the CURRENT toolbar dock. A
+    /// top-docked toolbar is a ceiling the rings start below; a right-docked one occupies the
+    /// right edge, so the panel moves to the LEFT and Start becomes the inner disc. Pure, so the
+    /// headless tests pin all four docks and DPI 1 and 2 without a display.
     /// </summary>
     /// <param name="screenDipWidth">The screen's width in DIP.</param>
-    /// <param name="toolbarSizeDip">The docked toolbar's button size in DIP — the band it draws
-    /// above the rings is <c>toolbarSizeDip + 40</c>.</param>
+    /// <param name="toolbar">The live toolbar settings (dock, edge, button size).</param>
     /// <param name="scaleX">Physical pixels per DIP, horizontally.</param>
     /// <param name="scaleY">Physical pixels per DIP, vertically.</param>
     /// <returns>The Start and Snooze centres (physical px) and the hit radius (physical px).</returns>
     public static (PhysicalPoint Start, PhysicalPoint Snooze, double Radius) ComputeDwellGeometry(
-        double screenDipWidth, double toolbarSizeDip, double scaleX, double scaleY)
+        double screenDipWidth, ToolbarSettings toolbar, double scaleX, double scaleY)
     {
-        var screenPhysWidth = screenDipWidth * scaleX;
-        var physTop = (RingTopDip(toolbarSizeDip) + HitRadiusDip) * scaleY;
-        var start = new PhysicalPoint(
-            screenPhysWidth - (RightInsetDip + HitRadiusDip) * scaleX, physTop);
-        var snooze = new PhysicalPoint(start.X - RingPitchDip * scaleX, physTop);
-        return (start, snooze, HitRadiusDip * scaleX);
+        var radius = HitRadiusDip * scaleX;
+        var y = (RingsTopDip(toolbar) + HitRadiusDip) * scaleY;
+        var pitch = RingPitchDip * scaleX;
+
+        if (EyeCarePlacement.DockedAtRight(toolbar))
+        {
+            // Left-anchored: the panel's left edge is inset, so Snooze is the leftmost disc and
+            // Start the inner one (the XAML panel order).
+            var snoozeX = (EyeCarePlacement.RingSideInsetDip + HitRadiusDip) * scaleX;
+            return (new PhysicalPoint(snoozeX + pitch, y), new PhysicalPoint(snoozeX, y), radius);
+        }
+
+        var startX = screenDipWidth * scaleX
+            - (EyeCarePlacement.RingSideInsetDip + HitRadiusDip) * scaleX;
+        return (new PhysicalPoint(startX, y), new PhysicalPoint(startX - pitch, y), radius);
     }
 
-    /// <summary>The rings' top edge in DIP: clear of the toolbar band, plus a small gap.</summary>
-    internal static double RingTopDip(double toolbarSizeDip) =>
-        toolbarSizeDip + ToolbarBandExtraDip + RingTopGapDip;
+    /// <summary>The rings' top edge in DIP — below a top-docked toolbar's real band, never above
+    /// the message strip.</summary>
+    internal static double RingsTopDip(ToolbarSettings toolbar) =>
+        EyeCarePlacement.RingsTopDip(toolbar);
 
     /// <summary>The window height the rings and their captions need, in DIP.</summary>
-    internal static double WindowHeightDip(double toolbarSizeDip) =>
-        RingTopDip(toolbarSizeDip) + RingSize + CaptionBandDip;
+    internal static double WindowHeightDip(ToolbarSettings toolbar) =>
+        RingsTopDip(toolbar) + RingSize + CaptionBandDip;
 
     /// <summary>
-    /// Places both discs for the CURRENT toolbar size (the panel's top margin, below the toolbar
-    /// band, and the window height around the captions) and registers nothing — a target is added
-    /// only while showing. The horizontal placement is the XAML's right-anchored panel, whose
-    /// <see cref="RightInsetDip"/> margin and 100 + 24 DIP boxes are the same constants
+    /// Places the ring panel for the CURRENT dock (side anchor, top margin, window height) and
+    /// records the physical centres ShowAsync registers. The horizontal placement is the XAML
+    /// panel's own side margin and its 100 + 24 DIP boxes — the same constants
     /// <see cref="ComputeDwellGeometry"/> uses.
     /// </summary>
     private void ApplyGeometry()
     {
-        var toolbarSize = _toolbarSettings.Size;
-        RingLayer.Margin = new Thickness(0, RingTopDip(toolbarSize), RightInsetDip, 0);
-        Height = WindowHeightDip(toolbarSize);
+        var toolbar = _toolbarSettings;
+        var right = EyeCarePlacement.DockedAtRight(toolbar);
+        RingLayer.HorizontalAlignment = right ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        RingLayer.Margin = new Thickness(
+            right ? EyeCarePlacement.RingSideInsetDip : 0,
+            RingsTopDip(toolbar),
+            right ? 0 : EyeCarePlacement.RingSideInsetDip,
+            0);
+        Height = WindowHeightDip(toolbar);
 
         var screenWidth = ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth;
         var geometry = ComputeDwellGeometry(
-            screenWidth, toolbarSize, DpiHelper.ScaleX, DpiHelper.ScaleY);
+            screenWidth, toolbar, DpiHelper.ScaleX, DpiHelper.ScaleY);
         _startCenter = geometry.Start;
         _snoozeCenter = geometry.Snooze;
     }
+
+    /// <summary>
+    /// The rings' dwell time: the LIVE <c>ActivationButtonDwellMs</c> when the composition root
+    /// supplied the settings object (F6 — the banner is a startup singleton), and the
+    /// constructor's value only for the tests that build it without settings.
+    /// </summary>
+    private int RingDwellMs => _fallbackDwellMs ?? _dwellSettings.ActivationButtonDwellMs;
 
     /// <summary>Shows the banner and resolves to true=accept, false=snooze/auto-dismiss.</summary>
     public Task<bool> ShowAsync(string message, PhysicalPoint screenCenter, int autoSnoozeSeconds)
@@ -187,8 +210,8 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 
         var radius = HitRadiusDip * DpiHelper.ScaleX;
         _dwell.ClearTargets();
-        _dwell.AddTarget(new DwellTarget("start", _startCenter, radius, dwellTimeMs: _dwellMs));
-        _dwell.AddTarget(new DwellTarget("snooze", _snoozeCenter, radius, dwellTimeMs: _dwellMs));
+        _dwell.AddTarget(new DwellTarget("start", _startCenter, radius, dwellTimeMs: RingDwellMs));
+        _dwell.AddTarget(new DwellTarget("snooze", _snoozeCenter, radius, dwellTimeMs: RingDwellMs));
         ResetRingProgress();
 
         WorkDim.Visibility = Visibility.Visible;

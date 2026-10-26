@@ -250,21 +250,15 @@ public class NoteGateTests
     // ── gate row 4: the occluders (P2 D3) ──
 
     [Fact]
-    public void DriftNoticeOverClose_NeverFiresTheNote()
+    public void BannerSlotOccupantOverClose_NeverFiresTheNote()
     {
+        // B4: the drift notice and the caregiver alert are shown ONLY through the one bottom-centre
+        // banner slot, so ONE aggregate source gates whichever banner is live — no per-banner
+        // delegates on the manager any more.
         OccluderOverClose_NeverFires(
             (manager, rect) => manager.SetOccluderSources(
-                driftNoticeBounds: () => rect()),
-            "the drift notice's banner must occlude ✕ beneath it");
-    }
-
-    [Fact]
-    public void CaregiverAlertOverClose_NeverFiresTheNote()
-    {
-        OccluderOverClose_NeverFires(
-            (manager, rect) => manager.SetOccluderSources(
-                caregiverAlertBounds: () => rect()),
-            "the caregiver alert's banner must occlude ✕ beneath it");
+                slotOccupantBounds: () => rect()),
+            "the bottom-centre banner slot's live occupant must occlude ✕ beneath it");
     }
 
     [Fact]

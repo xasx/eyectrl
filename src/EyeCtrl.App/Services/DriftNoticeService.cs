@@ -18,6 +18,9 @@ public sealed class DriftNoticeService : IDisposable
     private readonly IDriftNoticePresenter _presenter;
     private AdaptationCoordinator? _coordinator; // retained to unsubscribe in Dispose
     private bool _driftEpisodeActive;
+    // True from Dispose until the next Start. A queued notice may outlive the runtime (B4 fixup-01
+    // H1): the slot can reach it after adaptation was switched off, and it must not show then.
+    private bool _runtimeStopped;
 
     /// <summary>Initializes the service over the suppression seam and the notice presenter.</summary>
     /// <param name="feedbackGate">The suppression seam (§8.10); when suppressing, no visible notice is shown.</param>
@@ -27,6 +30,17 @@ public sealed class DriftNoticeService : IDisposable
         _feedbackGate = feedbackGate;
         _presenter = presenter;
     }
+
+    /// <summary>
+    /// Whether a notice the slot is holding may still be shown when the slot reaches it (B4
+    /// fixup-01 H1). The slot can hold a notice for an unbounded time (a caregiver alert stays up
+    /// as long as its condition is sustained), so the once-per-episode decision taken at the onset
+    /// is re-validated: the runtime is still running, feedback is not suppressed, and the drift
+    /// episode that raised the notice is still current. False drops the queued notice — never pop
+    /// it late in a sensitive context, after the disable, or minutes after the drift cleared.
+    /// </summary>
+    internal bool CanShowNotice =>
+        !_runtimeStopped && _driftEpisodeActive && !_feedbackGate.IsFeedbackSuppressed;
 
     /// <summary>
     /// Shows the drift notice on the leading edge of a drift-gated episode (once per episode), unless
@@ -65,6 +79,7 @@ public sealed class DriftNoticeService : IDisposable
     /// <param name="coordinator">The coordinator whose <c>AssessmentUpdated</c> event drives the notice.</param>
     public void Start(AdaptationCoordinator coordinator)
     {
+        _runtimeStopped = false;
         if (_coordinator is not null)
             return;
         _coordinator = coordinator;
@@ -73,13 +88,30 @@ public sealed class DriftNoticeService : IDisposable
 
     private void OnAssessmentEvent(StruggleAssessment assessment) => OnAssessment(assessment);
 
-    /// <summary>Unsubscribes from the coordinator's assessment stream.</summary>
+    /// <summary>
+    /// Unsubscribes from the coordinator's assessment stream and takes this service's notice out of
+    /// the banner slot (B4 fixup-01 H1): a notice that was waiting behind a caregiver alert must not
+    /// appear after adaptation was switched off — including during App exit, which deactivates the
+    /// runtime too. The episode state resets, so a later re-enable starts a fresh episode.
+    /// </summary>
     public void Dispose()
     {
         if (_coordinator is not null)
         {
             _coordinator.AssessmentUpdated -= OnAssessmentEvent;
             _coordinator = null;
+        }
+        _runtimeStopped = true;
+        _driftEpisodeActive = false;
+        try
+        {
+            _presenter.WithdrawDriftNotice();
+        }
+        catch (Exception ex)
+        {
+            // Teardown touches a WPF window (the live notice). A throw must not abort the rest of
+            // the disable path — the caregiver service's Dispose and the UIA hook stop follow.
+            Log.Warning(ex, "Failed to withdraw the drift notice from the banner slot during teardown.");
         }
     }
 }

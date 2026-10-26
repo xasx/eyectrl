@@ -646,17 +646,30 @@ public class AppBootstrapper
             sp.GetRequiredService<IFeedbackGate>(),
             sp.GetRequiredService<EffectiveSettingsProvider>(),
             Path.Combine(appDataDir, "adaptation-log.jsonl")));
+        // B4: the ONE bottom-centre banner slot. Both banners below are shown through it (the drift
+        // notice enqueues FIFO, the caregiver alert pre-empts), so neither window can reach the
+        // screen outside the slot; the note gate's aggregate occluder source and the restart
+        // notice's keep-clear both read this same object.
+        services.AddSingleton<BannerSlot>();
+        services.AddSingleton<IBannerSlot>(sp => sp.GetRequiredService<BannerSlot>());
         services.AddSingleton<DriftNoticeWindow>();
-        services.AddSingleton<IDriftNoticePresenter>(sp => sp.GetRequiredService<DriftNoticeWindow>());
+        services.AddSingleton<IDriftNoticePresenter>(sp => new SlotDriftNoticePresenter(
+            sp.GetRequiredService<IBannerSlot>(),
+            sp.GetRequiredService<DriftNoticeWindow>(),
+            // Re-validated when the slot reaches a queued notice (B4 fixup-01 H1): resolving the
+            // service lazily keeps the presenter → service → presenter construction acyclic.
+            canShow: () => sp.GetRequiredService<DriftNoticeService>().CanShowNotice));
         services.AddSingleton(sp => new DriftNoticeService(
             sp.GetRequiredService<IFeedbackGate>(),
             sp.GetRequiredService<IDriftNoticePresenter>()));
         // Phase-3 caregiver alert (§10 resolution): the app-owned banner + chime. Same pattern as the
         // drift notice — the window is a DI singleton (constructed lazily on the first Enabled edge,
-        // never while disabled) and doubles as the presenter; the service is the pure decision layer
-        // started/stopped by AdaptationActivation. The log callback is the JSONL hook (D8).
+        // never while disabled), and its slot-routed presenter pre-empts the slot. The service is
+        // the pure decision layer started/stopped by AdaptationActivation. The log callback is the
+        // JSONL hook (D8).
         services.AddSingleton<CaregiverAlertWindow>();
-        services.AddSingleton<ICaregiverAlertPresenter>(sp => sp.GetRequiredService<CaregiverAlertWindow>());
+        services.AddSingleton<ICaregiverAlertPresenter>(sp => new SlotCaregiverAlertPresenter(
+            sp.GetRequiredService<IBannerSlot>(), sp.GetRequiredService<CaregiverAlertWindow>()));
         services.AddSingleton(sp => new CaregiverAlertService(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<IFeedbackGate>(),

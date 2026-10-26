@@ -70,11 +70,16 @@ public class DwellPauseGraceWiringTests
         return data;
     }
 
-    /// <summary>Surfaces whose items expose the paused flag (the ones with a visible dwell indicator).</summary>
+    /// <summary>
+    /// Surfaces whose items expose the paused flag (the ones with a visible dwell indicator).
+    /// ResumeStrip joined with B2a: its grace is deliberately capped at 200 ms (the strip sits over
+    /// content for the whole pause), so it is in this family but NOT in <see cref="WiredNames"/>'s
+    /// full-grace theories.
+    /// </summary>
     public static TheoryData<string> WithItems()
     {
         var data = new TheoryData<string>();
-        foreach (var name in new[] { "Toolbar", "ModesMenu", "ActionMenu", "EdgeBar", "TaskSwitcher", "QuickActions" })
+        foreach (var name in new[] { "Toolbar", "ModesMenu", "ActionMenu", "EdgeBar", "TaskSwitcher", "QuickActions", "ResumeStrip" })
             data.Add(name);
         return data;
     }
@@ -149,6 +154,16 @@ public class DwellPauseGraceWiringTests
                 var item = vm.Tiles.Single();
                 return new Surface(name, vm, DetectorOf(vm), "act1", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }
+            case "ResumeStrip":
+            {
+                // B2a's Resume target: a base surface like the rest (its own capped grace and its
+                // own leave-before-arm are orthogonal to the exercise hold). The family test marks
+                // it visible; the target is registered here.
+                var vm = new ResumeStripViewModel(settings, messenger);
+                vm.PlaceTarget(On, 40);
+                return new Surface(name, vm, DetectorOf(vm), ResumeStripViewModel.ResumeTargetId,
+                    () => vm.IsDwellPaused, () => vm.DwellProgress) { Messenger = messenger };
+            }
             default:
                 throw new ArgumentOutOfRangeException(nameof(name), name, null);
         }
@@ -169,6 +184,13 @@ public class DwellPauseGraceWiringTests
         var center = s.Detector.Targets.Single(t => t.Id == s.TargetId).Center;
         for (var t = fromMs; t <= toMs; t += 30)
             s.Messenger!.Send(new GazeCursorMovedMessage(center, t * 1000));
+    }
+
+    /// <summary>The same route at an arbitrary point (a look-away run for leave-before-arm).</summary>
+    private static void HoldThroughVmAt(Surface s, PhysicalPoint point, long fromMs, long toMs)
+    {
+        for (var t = fromMs; t <= toMs; t += 30)
+            s.Messenger!.Send(new GazeCursorMovedMessage(point, t * 1000));
     }
 
     // ------------------------------------------------------------------ (a) the setting reaches each detector
@@ -485,7 +507,11 @@ public class DwellPauseGraceWiringTests
             var activations = 0;
             surface.Detector.TargetActivated += _ => activations++;
             surface.Messenger!.Send(new ExerciseScreenHoldMessage(true));
-            HoldThroughVm(surface, 0, 2000);
+            // An outside run first, then the centre: the Resume strip's own leave-before-arm arms
+            // on it, so without the hold the following rest WOULD activate — the case this test
+            // must catch. For the other surfaces the outside run is inert.
+            HoldThroughVmAt(surface, Off, 0, 300);
+            HoldThroughVm(surface, 330, 2000);
             Check.WithCustomMessage($"{name}: dwell activated under the exercise hold")
                 .That(activations).IsEqualTo(0);
             Check.WithCustomMessage($"{name}: dwell accumulated under the exercise hold")
@@ -494,7 +520,10 @@ public class DwellPauseGraceWiringTests
                 .That(surface.Detector.GetProgress(surface.TargetId)).IsEqualTo(0.0);
 
             surface.Messenger.Send(new ExerciseScreenHoldMessage(false));
-            HoldThroughVm(surface, 2030, 6000);
+            // A short look away first: the Resume strip's own leave-before-arm needs it; for the
+            // other surfaces it is harmless (their dwell simply restarts on the return).
+            HoldThroughVmAt(surface, Off, 2030, 2230);
+            HoldThroughVm(surface, 2260, 4000);
             Check.WithCustomMessage($"{name}: the surface did not dwell again after the exercise")
                 .That(activations).IsStrictlyGreaterThan(0);
         }

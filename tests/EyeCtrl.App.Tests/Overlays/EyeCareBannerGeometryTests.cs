@@ -40,7 +40,7 @@ public class EyeCareBannerGeometryTests
     {
         var toolbar = TopToolbar();
         var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth: 1920, toolbar, scaleX: 1.0, scaleY: 1.0);
+            screenDipWidth: 1920, toolbar, workAreaTopDip: 0, scaleX: 1.0, scaleY: 1.0);
 
         // Start is the right-hand disc: 20 DIP inset + its r50. Snooze is one 124 DIP pitch away.
         Check.That(g.Start.X).IsCloseTo(1920 - 70, 0.001);
@@ -58,7 +58,7 @@ public class EyeCareBannerGeometryTests
     {
         var toolbar = TopToolbar(108);
         var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth: 1920, toolbar, scaleX: 2.0, scaleY: 2.0);
+            screenDipWidth: 1920, toolbar, workAreaTopDip: 0, scaleX: 2.0, scaleY: 2.0);
 
         Check.That(g.Start.X).IsCloseTo((1920 - 70) * 2, 0.001);
         Check.That(g.Snooze.X).IsCloseTo((1920 - 194) * 2, 0.001);
@@ -100,19 +100,23 @@ public class EyeCareBannerGeometryTests
     /// vertical one). At both DPIs and on a small screen.
     /// </summary>
     [Theory]
-    [InlineData("Top", 1920.0, 1200.0, 120.0, 1.0)]
-    [InlineData("Top", 1920.0, 1200.0, 108.0, 2.0)]
-    [InlineData("Bottom", 1920.0, 1200.0, 108.0, 2.0)]
-    [InlineData("Left", 1920.0, 1200.0, 120.0, 1.0)]
-    [InlineData("Right", 1920.0, 1200.0, 108.0, 2.0)]
-    [InlineData("Right", 1366.0, 768.0, 200.0, 1.0)]
-    [InlineData("Bottom", 1366.0, 768.0, 120.0, 2.0)]
+    [InlineData("Top", 1920.0, 1200.0, 120.0, 1.0, 0.0)]
+    [InlineData("Top", 1920.0, 1200.0, 108.0, 2.0, 0.0)]
+    [InlineData("Bottom", 1920.0, 1200.0, 108.0, 2.0, 0.0)]
+    [InlineData("Left", 1920.0, 1200.0, 120.0, 1.0, 0.0)]
+    [InlineData("Right", 1920.0, 1200.0, 108.0, 2.0, 0.0)]
+    [InlineData("Right", 1366.0, 768.0, 200.0, 1.0, 0.0)]
+    [InlineData("Bottom", 1366.0, 768.0, 120.0, 2.0, 0.0)]
+    // R2: a top taskbar (48 DIP) moves the docked toolbar down; the rings must move with it.
+    [InlineData("Top", 1920.0, 1200.0, 200.0, 1.0, 48.0)]
+    [InlineData("Top", 1920.0, 1200.0, 200.0, 2.0, 48.0)]
     public void TheRings_ClearTheToolbarsRealBand_ForEveryDock(
-        string edge, double screenDipWidth, double screenDipHeight, double toolbarSize, double scale)
+        string edge, double screenDipWidth, double screenDipHeight, double toolbarSize, double scale,
+        double workAreaTopDip)
     {
         var toolbar = DockedAt(edge, toolbarSize);
         var g = EyeCareBannerWindow.ComputeDwellGeometry(
-            screenDipWidth, toolbar, scale, scale);
+            screenDipWidth, toolbar, workAreaTopDip, scale, scale);
         var w = screenDipWidth;
         var h = screenDipHeight;
         var thickness = EyeCarePlacement.ToolbarWindowThicknessDip(toolbarSize);
@@ -133,7 +137,7 @@ public class EyeCareBannerGeometryTests
         var snooze = new Point(g.Snooze.X / scale, g.Snooze.Y / scale);
         var bands = new (string Name, Rect Rect)[]
         {
-            ("top", new Rect(0, 0, w, thickness)),
+            ("top", new Rect(0, workAreaTopDip, w, thickness)),
             ("bottom", new Rect(0, h - thickness, w, thickness)),
             ("left", new Rect(0, 0, thickness, h)),
             ("right", new Rect(w - thickness, 0, thickness, h)),
@@ -177,6 +181,7 @@ public class EyeCareBannerGeometryTests
     {
         var toolbar = TopToolbar();
         var window = new EyeCareBannerWindow(dwellSettings: new DwellSettings(), toolbarSettings: toolbar);
+        window.WorkAreaTopProvider = () => 0;   // the fit-host comparison passes 0; keep both sides equal
         var root = (FrameworkElement)window.Content;
         window.Content = null;
         using var host = FitHost.Open(root, width: 1920, height: window.Height, inheritFrom: window);
@@ -185,7 +190,7 @@ public class EyeCareBannerGeometryTests
         var strip = ((Grid)root).Children.OfType<Border>().Single();
         Check.That(strip.ActualHeight).IsCloseTo(96, 0.01);
 
-        var targets = EyeCareBannerWindow.ComputeDwellGeometry(1920, toolbar, 1.0, 1.0);
+        var targets = EyeCareBannerWindow.ComputeDwellGeometry(1920, toolbar, 0, 1.0, 1.0);
         foreach (var (name, ring, target) in new[]
                  {
                      ("snooze", (FrameworkElement)window.SnoozeRing, targets.Snooze),

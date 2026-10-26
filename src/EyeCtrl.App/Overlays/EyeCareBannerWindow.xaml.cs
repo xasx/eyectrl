@@ -120,7 +120,12 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     internal ToolbarSettings ToolbarSettingsForTest => _toolbarSettings;
 
     /// <summary>The rings' top edge for the current settings — the dock-clearance test seam.</summary>
-    internal double RingTopForTest => RingsTopDip(_toolbarSettings);
+    internal double RingTopForTest => RingsTopDip(_toolbarSettings, WorkAreaTopDip);
+
+    /// <summary>The work area's top, in DIP — a seam so a top-taskbar case can be pinned headless.</summary>
+    internal Func<double> WorkAreaTopProvider { get; set; } = () => SystemParameters.WorkArea.Top;
+
+    private double WorkAreaTopDip => WorkAreaTopProvider();
 
     /// <summary>The dwell time ShowAsync will register — the live-setting test seam (F6).</summary>
     internal int RingDwellMsForTest => RingDwellMs;
@@ -137,10 +142,10 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     /// <param name="scaleY">Physical pixels per DIP, vertically.</param>
     /// <returns>The Start and Snooze centres (physical px) and the hit radius (physical px).</returns>
     public static (PhysicalPoint Start, PhysicalPoint Snooze, double Radius) ComputeDwellGeometry(
-        double screenDipWidth, ToolbarSettings toolbar, double scaleX, double scaleY)
+        double screenDipWidth, ToolbarSettings toolbar, double workAreaTopDip, double scaleX, double scaleY)
     {
         var radius = HitRadiusDip * scaleX;
-        var y = (RingsTopDip(toolbar) + HitRadiusDip) * scaleY;
+        var y = (RingsTopDip(toolbar, workAreaTopDip) + HitRadiusDip) * scaleY;
         var pitch = RingPitchDip * scaleX;
 
         if (EyeCarePlacement.DockedAtRight(toolbar))
@@ -158,12 +163,12 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 
     /// <summary>The rings' top edge in DIP — below a top-docked toolbar's real band, never above
     /// the message strip.</summary>
-    internal static double RingsTopDip(ToolbarSettings toolbar) =>
-        EyeCarePlacement.RingsTopDip(toolbar);
+    internal static double RingsTopDip(ToolbarSettings toolbar, double workAreaTopDip) =>
+        EyeCarePlacement.RingsTopDip(toolbar, workAreaTopDip);
 
     /// <summary>The window height the rings and their captions need, in DIP.</summary>
-    internal static double WindowHeightDip(ToolbarSettings toolbar) =>
-        RingsTopDip(toolbar) + RingSize + CaptionBandDip;
+    internal static double WindowHeightDip(ToolbarSettings toolbar, double workAreaTopDip) =>
+        RingsTopDip(toolbar, workAreaTopDip) + RingSize + CaptionBandDip;
 
     /// <summary>
     /// Places the ring panel for the CURRENT dock (side anchor, top margin, window height) and
@@ -176,16 +181,17 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
         var toolbar = _toolbarSettings;
         var right = EyeCarePlacement.DockedAtRight(toolbar);
         RingLayer.HorizontalAlignment = right ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        var workAreaTop = WorkAreaTopDip;
         RingLayer.Margin = new Thickness(
             right ? EyeCarePlacement.RingSideInsetDip : 0,
-            RingsTopDip(toolbar),
+            RingsTopDip(toolbar, workAreaTop),
             right ? 0 : EyeCarePlacement.RingSideInsetDip,
             0);
-        Height = WindowHeightDip(toolbar);
+        Height = WindowHeightDip(toolbar, workAreaTop);
 
         var screenWidth = ActualWidth > 0 ? ActualWidth : SystemParameters.PrimaryScreenWidth;
         var geometry = ComputeDwellGeometry(
-            screenWidth, toolbar, DpiHelper.ScaleX, DpiHelper.ScaleY);
+            screenWidth, toolbar, workAreaTop, DpiHelper.ScaleX, DpiHelper.ScaleY);
         _startCenter = geometry.Start;
         _snoozeCenter = geometry.Snooze;
     }

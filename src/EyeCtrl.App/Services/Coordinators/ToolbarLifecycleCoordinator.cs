@@ -79,23 +79,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             _visibility?.SetPauseIndicator(paused);
         });
 
-        // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1) and the toolbar's
-        // own dwell (fixup-02): the full-screen, opaque exercise window hides an open keyboard and
-        // toolbar, and the user is told to rest on the Skip disc — a sample credited under it
-        // would type into the foreground app or fire an invisible button.
+        // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1) and the Settings
+        // window's gaze feed (fixup-03): the full-screen, opaque exercise window hides an open
+        // keyboard and Settings window, and the user is told to rest on the Skip disc — a sample
+        // credited under it would type into the foreground app or answer an invisible control.
+        // Every DwellOverlayViewModelBase surface (the keyboard's edge-bar pair, task switcher,
+        // quick actions, modes menu, toolbar) is gated by the shared ExerciseScreenHoldMessage
+        // instead; see EventCoordinator's publisher.
         context.Messenger.Register<ToolbarLifecycleCoordinator, EyeCareExerciseActiveMessage>(this,
-            (_, message) =>
-            {
-                _exerciseActive = message.Active;
-                // B7 fixup-02: a VM-level suspension, not SetActive — the auto-hide adapter owns
-                // _dwellingActive and re-asserts it on every show/hide, so a past-edge summon
-                // under the exercise could re-enable dwell. Clearing this flag restores exactly
-                // the adapter's state (a hidden toolbar stays hidden; nothing is force-shown).
-                // Marshalled to the UI thread: the service sends the flag from the gaze thread or
-                // a thread-pool continuation.
-                context.Dispatcher.BeginInvoke(
-                    () => context.ToolbarVM.SetExerciseSuspended(message.Active));
-            });
+            (_, message) => _exerciseActive = message.Active);
 
         // The screen changed size or scale. Both of this controller's geometry values were captured
         // once at startup and could never be updated — the summon region, which is the escape
@@ -173,7 +165,10 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
                 // inside UpdateSettingsGazeIfVisible, which is a no-op when no window is constructed).
-                _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
+                // B7 fixup-03: an exercise owns the screen, so the Settings window's own detectors
+                // (tabs/controls/pages/modals — not DwellOverlayViewModelBase) get no samples.
+                if (ShouldFeedSettingsSample(_exerciseActive))
+                    _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
             });
         };
 
@@ -189,6 +184,16 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// </summary>
     internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen, bool exerciseActive) =>
         !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive;
+
+    /// <summary>
+    /// The Settings window's per-sample feed gate (B7 fixup-03). The Settings VM keeps its own four
+    /// detectors (tabs, controls, pagination, modals), so the shared DwellOverlayViewModelBase hold
+    /// cannot reach them; while an eye-care exercise owns the opaque full-screen window, no sample
+    /// may be forwarded. Pure, so the gate is pinned headlessly; the call site passes
+    /// <c>_exerciseActive</c> and is pinned at source in
+    /// <c>ToolbarLifecycleCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource</c>.
+    /// </summary>
+    internal static bool ShouldFeedSettingsSample(bool exerciseActive) => !exerciseActive;
 
     /// <summary>
     /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or

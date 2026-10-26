@@ -40,13 +40,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     // state is true — the toolbar starts visible and dwellable.
     private bool _dwellingActive = true;
 
-    // B7 fixup-02: an exercise holds the screen. Independent of _dwellingActive because the
-    // auto-hide adapter owns that flag and re-asserts it on every show/hide — see
-    // SetExerciseSuspended.
-    private bool _exerciseSuspended;
-
-    // Both gates must be open for the toolbar to accumulate dwell.
-    private bool DwellEnabled => _dwellingActive && !_exerciseSuspended;
+    // B7 fixup-03: the exercise hold is the shared DwellOverlayViewModelBase gate
+    // (ExerciseScreenHeld); the toolbar's own gate is the auto-hide adapter's _dwellingActive.
+    // Both must be open for the toolbar to accumulate dwell or offer a drag exit.
+    private bool DwellEnabled => _dwellingActive && !ExerciseScreenHeld;
 
     /// <summary>The Pause toggle's target id, used by the leave-before-re-arm gate.</summary>
     private const string PauseTargetId = "Pause";
@@ -412,33 +409,6 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             // Propagate and the arc falls naturally — the reverse order would hit the still-live
             // freeze and Hold it at the engaged value. The engine's own Reset also retracts a
             // shown panel (a hidden toolbar must not leave one floating).
-            _previewEngine.Reset();
-            DwellDetector.ResetAllState();
-        }
-    }
-
-    /// <summary>
-    /// B7 fixup-02: while an eye-care exercise owns the screen the toolbar takes no dwell — it is
-    /// hidden under an opaque, full-screen window the owner cannot see, and the exercise asks for
-    /// a deliberate 0.7 s rest on its own Skip disc.
-    ///
-    /// <para>
-    /// A separate flag from <see cref="_dwellingActive"/>, deliberately: the auto-hide adapter
-    /// re-asserts <see cref="SetActive"/> on every show/hide transition, so a past-edge summon
-    /// under the exercise would otherwise re-enable dwell. Clearing this flag restores exactly
-    /// what the adapter says — a hidden toolbar stays hidden (no force-show), and a visible one
-    /// dwells again.
-    /// </para>
-    /// </summary>
-    /// <param name="suspended">True while an exercise (or its summary) is up.</param>
-    public void SetExerciseSuspended(bool suspended)
-    {
-        if (_exerciseSuspended == suspended) return;
-        _exerciseSuspended = suspended;
-        if (suspended)
-        {
-            // Drop any in-progress dwell and the preview engagement exactly as a hide does, so a
-            // rest that began before the exercise cannot resume across it.
             _previewEngine.Reset();
             DwellDetector.ResetAllState();
         }

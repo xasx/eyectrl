@@ -306,11 +306,22 @@ public class ToolbarLifecycleCoordinatorTests
                 "The EyeCareExerciseActiveMessage registration is gone — the keyboard gate's exercise flag "
                 + "would stay false for the whole session (B7 fixup-01 F1).")
             .That(source.Contains(
-                "Register<ToolbarLifecycleCoordinator,EyeCareExerciseActiveMessage>(this,(_,message)=>{_exerciseActive=message.Active;")).IsTrue();
+                "Register<ToolbarLifecycleCoordinator,EyeCareExerciseActiveMessage>(this,(_,message)=>_exerciseActive=message.Active);")).IsTrue();
         Check.WithCustomMessage(
-                "The exercise no longer suspends the toolbar's own dwell — the hidden band would stay "
-                + "dwellable under the opaque exercise window for up to its auto-hide delay (B7 fixup-02).")
-            .That(source.Contains("context.ToolbarVM.SetExerciseSuspended(message.Active)")).IsTrue();
+                "The Settings gaze feed is no longer gated while an exercise owns the screen — its own "
+                + "detectors (not DwellOverlayViewModelBase) would answer an invisible Settings window (B7 fixup-03).")
+            .That(source.Contains(
+                "if(ShouldFeedSettingsSample(_exerciseActive))_settingsUi?.UpdateSettingsGazeIfVisible(point,timestamp);")).IsTrue();
+    }
+
+    [Fact]
+    public void ShouldFeedSettingsSample_IsFalse_WhileAnEyeCareExerciseRuns()
+    {
+        // B7 fixup-03: the Settings window keeps its own four detectors, so the shared overlay
+        // hold cannot reach them — the per-sample feed is the gate. Mutation: the predicate
+        // returns true (or the call site drops the `if`) -> the Settings feed test/pin goes red.
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedSettingsSample(exerciseActive: true)).IsFalse();
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedSettingsSample(exerciseActive: false)).IsTrue();
     }
 
     private static ToolbarAutoHideController NewAutoHide() => new(

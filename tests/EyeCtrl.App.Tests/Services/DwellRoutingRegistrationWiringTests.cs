@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using System.Reflection;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -185,7 +186,7 @@ public class DwellRoutingRegistrationWiringTests
         Check.That(banner.ToolbarSettingsForTest).IsSameReferenceAs(settings.Toolbar);
         Check.That(banner.DwellForTest.PauseGraceMs).IsEqualTo(350);
         Check.That(banner.RingTopForTest)
-            .IsEqualTo(EyeCareBannerWindow.RingsTopDip(settings.Toolbar));
+            .IsEqualTo(EyeCareBannerWindow.RingsTopDip(settings.Toolbar, SystemParameters.WorkArea.Top));
 
         var exercise = sp.GetRequiredService<EyeCareExerciseWindow>();
         Check.WithCustomMessage("the exercise window lost the live ToolbarSettings (a right-docked "

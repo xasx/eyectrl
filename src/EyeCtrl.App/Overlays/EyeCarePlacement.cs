@@ -56,15 +56,19 @@ internal static class EyeCarePlacement
     internal static bool DockedAtRight(ToolbarSettings toolbar) => DockedAt(toolbar, "Right");
 
     /// <summary>
-    /// The banner rings' top edge in DIP. A top-docked toolbar is a ceiling: the rings start below
-    /// its real window thickness plus the standard gap. Every other dock leaves the top free, so
-    /// the rings only clear the message strip.
+    /// The banner rings' top edge in DIP, measured in SCREEN coordinates (the banner window's
+    /// origin). A top-docked toolbar is a ceiling: the toolbar docks at the WORK AREA's top, so
+    /// with a top taskbar it starts below screen y 0 — the rings must start below
+    /// <paramref name="workAreaTopDip"/> + its real window thickness + the standard gap. Every
+    /// other dock leaves the top free, so the rings only clear the message strip.
     /// </summary>
-    internal static double RingsTopDip(ToolbarSettings toolbar) =>
+    /// <param name="toolbar">The live toolbar settings (dock and edge).</param>
+    /// <param name="workAreaTopDip">The work area's top in DIP (<c>SystemParameters.WorkArea.Top</c>).</param>
+    internal static double RingsTopDip(ToolbarSettings toolbar, double workAreaTopDip) =>
         Math.Max(
             MinimumRingTopDip,
             DockedAt(toolbar, "Top")
-                ? ToolbarWindowThicknessDip(toolbar.Size) + RingEdgeGapDip
+                ? workAreaTopDip + ToolbarWindowThicknessDip(toolbar.Size) + RingEdgeGapDip
                 : 0);
 
     /// <summary>

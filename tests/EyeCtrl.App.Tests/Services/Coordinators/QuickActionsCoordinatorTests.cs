@@ -128,4 +128,31 @@ public class QuickActionsCoordinatorTests
             .That(source.Contains(
                 "calibrationActive:()=>SummonGateClosed(_modal.ProbeOpen,Context.CalibrationService.IsSessionActive));")).IsTrue();
     }
+
+    /// <summary>
+    /// B7 fixup-03: the hot-edge summon is App-side, not a <c>DwellOverlayViewModelBase</c> surface,
+    /// so its exercise gate lives in the composition root's <c>EyeCareExerciseActiveMessage</c>
+    /// handler (together with the shared dwell hold). Publicly traceable only at source: the
+    /// coordinator's Initialize needs the live grid VM and gaze engine. Mutation: drop either call
+    /// from the registration -> this goes red (and the summon would fire over the exercise, right
+    /// over the Skip disc on a right-docked toolbar).
+    /// </summary>
+    [Fact]
+    public void ExerciseHold_Wiring_IsPinnedInTheCompositionRoot()
+    {
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "EventCoordinator no longer publishes the shared exercise dwell hold — every overlay "
+                + "beneath the exercise would stay dwellable.")
+            .That(source.Contains(
+                "context.Messenger.Send(newExerciseScreenHoldMessage(message.Active));")).IsTrue();
+        Check.WithCustomMessage(
+                "EventCoordinator no longer suspends the hot-edge Quick Actions summon during an exercise.")
+            .That(source.Contains("_quickActions?.SetSummonSuspended(message.Active);")).IsTrue();
+    }
 }

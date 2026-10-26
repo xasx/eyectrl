@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -474,7 +475,7 @@ public class EyeCareDwellTests
             Check.WithCustomMessage("a live toolbar-size edit did not move the rings down")
                 .That(after).IsStrictlyGreaterThan(before);
             Check.That(after / EyeCtrl.Core.Services.DpiHelper.ScaleY).IsCloseTo(
-                EyeCareBannerWindow.RingsTopDip(toolbar) + EyeCareBannerWindow.HitRadiusDip, 1.0);
+                EyeCareBannerWindow.RingsTopDip(toolbar, SystemParameters.WorkArea.Top) + EyeCareBannerWindow.HitRadiusDip, 1.0);
         }
         finally
         {
@@ -482,6 +483,35 @@ public class EyeCareDwellTests
         }
     }
 
+    [StaFact]
+    public void ATopTaskbar_PushesTheBannerRingsDown_ByTheWorkAreaTop()
+    {
+        // R2 (review 02): the toolbar docks at the WORK AREA's top, so with a top taskbar it
+        // starts below screen y 0 and the rings must move with it. Pinned through the window's
+        // work-area seam (the real WorkArea.Top on this box is 0).
+        // Mutation (R2): drop `workAreaTopDip +` from EyeCarePlacement.RingsTopDip -> 48 DIP high.
+        var toolbar = Toolbar(size: 200);
+        var window = NewBanner(FastDwell(), toolbar);
+        window.WorkAreaTopProvider = () => 48;
+        try
+        {
+            _ = window.ShowAsync("msg", new PhysicalPoint(960, 600), autoSnoozeSeconds: 60);
+            var start = window.DwellForTest.Targets.Single(t => t.Id == "start");
+            var scaleY = EyeCtrl.Core.Services.DpiHelper.ScaleY;
+            var expected = 48 + EyeCarePlacement.ToolbarWindowThicknessDip(200) + 8
+                + EyeCareBannerWindow.HitRadiusDip;
+
+            Check.WithCustomMessage("the rings ignored a top taskbar's work-area offset")
+                .That(start.Center.Y / scaleY).IsCloseTo(expected, 1.0);
+            Check.That(start.Center.Y / scaleY).IsStrictlyGreaterThan(
+                EyeCarePlacement.ToolbarWindowThicknessDip(200) + 8
+                + EyeCareBannerWindow.HitRadiusDip);
+        }
+        finally
+        {
+            Close(window);
+        }
+    }
     [StaFact]
     public void TheBannerRingDwellTime_FollowsTheLiveSetting()
     {
@@ -705,11 +735,12 @@ public class EyeCareDwellTests
             dwell, messenger, toolbarSettings: toolbar));
     }
 
-    private static EyeCareBannerWindow NewBanner(DwellSettings dwell, ToolbarSettings? toolbar = null)
+    private static EyeCareBannerWindow NewBanner(
+        DwellSettings dwell, ToolbarSettings? toolbar = null, IMessenger? messenger = null)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         return InvisibleTestWindow.Prepare(new EyeCareBannerWindow(
-            dwell.ActivationButtonDwellMs, messenger: new WeakReferenceMessenger(),
+            dwell.ActivationButtonDwellMs, messenger: messenger ?? new WeakReferenceMessenger(),
             dwellSettings: dwell, toolbarSettings: toolbar));
     }
 
@@ -734,5 +765,90 @@ public class EyeCareDwellTests
         if (window is EyeCareExerciseWindow exercise) exercise.Cancel();
         if (window is EyeCareBannerWindow banner) banner.Cancel();
         window.Close();
+    }
+
+    // ─────────────────────────────────────────────── the exempt list (fixup-03)
+
+    /// <summary>
+    /// B7 fixup-03's explicit exempt list: the eye-care targets are NOT DwellOverlayViewModelBase
+    /// surfaces, so the App's shared ExerciseScreenHoldMessage must not stop them — Skip and the
+    /// banner rings are exactly the targets the exercise asks the user to dwell. Mutant: route an
+    /// eye-care target through the shared hold (or gate its detector) -> this goes red.
+    /// </summary>
+    [StaFact]
+    public void TheEyeCareTargets_AreExemptFromTheExerciseScreenHold()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var cues = new CueProbe(messenger);
+        var window = NewExercise(FastDwell(), messenger);
+        try
+        {
+            messenger.Send(new ExerciseScreenHoldMessage(true));
+
+            var run = window.RunAsync("Test", 60_000_000, _ => Off, (_, _) => { });
+            var center = window.SkipDwellDetector.Targets.Single().Center;
+            Feed(window, Off, 0, 200);          // leave-before-arm
+            Feed(window, center, 230, 500);
+
+            Check.WithCustomMessage("the hold gated the exercise's own Skip target")
+                .That(run.IsCompleted).IsTrue();
+            Check.That(cues.Count).IsEqualTo(1);
+        }
+        finally
+        {
+            Close(window);
+        }
+
+        var bannerMessenger = new WeakReferenceMessenger();
+        var banner = NewBanner(FastDwell(), messenger: bannerMessenger);
+        try
+        {
+            bannerMessenger.Send(new ExerciseScreenHoldMessage(true));
+
+            var shown = banner.ShowAsync("msg", new PhysicalPoint(960, 600), autoSnoozeSeconds: 60);
+            var start = banner.DwellForTest.Targets.Single(t => t.Id == "start");
+            for (var t = 0L; t <= 240_000; t += 30_000)
+                banner.OnGaze(start.Center, t);
+
+            Check.WithCustomMessage("the hold gated the banner's own Start ring")
+                .That(shown.IsCompleted).IsTrue();
+            Check.That(shown.Result).IsTrue();
+        }
+        finally
+        {
+            Close(banner);
+        }
+    }
+
+    /// <summary>
+    /// The exempt list is explicit and pinned: only the two eye-care windows are outside the shared
+    /// gate, and they must not read the hold message (that would make the exercise's own targets
+    /// undwellable). The one gate itself lives in the base, as a single term.
+    /// </summary>
+    [Fact]
+    public void TheExemptList_IsExactlyTheEyeCareWindows_AndTheyDoNotReadTheHold()
+    {
+        var root = SourceScanner.RepoRoot().FullName;
+        string[] exempt =
+        [
+            Path.Combine(root, "src", "EyeCtrl.App", "Overlays", "EyeCareExerciseWindow.xaml.cs"),
+            Path.Combine(root, "src", "EyeCtrl.App", "Overlays", "EyeCareBannerWindow.xaml.cs"),
+        ];
+        foreach (var path in exempt)
+        {
+            Check.That(File.Exists(path)).IsTrue();
+            Check.WithCustomMessage(
+                    $"{Path.GetFileName(path)} reads ExerciseScreenHoldMessage — the eye-care targets "
+                    + "are the explicit exempt list and must keep dwelling during the hold.")
+                .That(SourceScanner.StripComments(File.ReadAllText(path))
+                    .Contains("ExerciseScreenHoldMessage")).IsFalse();
+        }
+
+        var baseSource = SourceScanner.StripComments(File.ReadAllText(
+            Path.Combine(root, "src", "EyeCtrl.ViewModels", "DwellOverlayViewModelBase.cs")));
+        Check.WithCustomMessage("the shared overlay gate lost its exercise-hold term")
+            .That(baseSource.Contains("!_exerciseScreenHeld")).IsTrue();
+        Check.WithCustomMessage("the gate is not delivered — the base no longer takes the hold message")
+            .That(baseSource.Contains("IRecipient<ExerciseScreenHoldMessage>")).IsTrue();
     }
 }

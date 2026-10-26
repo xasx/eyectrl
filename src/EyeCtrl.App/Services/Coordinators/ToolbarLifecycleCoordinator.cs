@@ -79,11 +79,23 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             _visibility?.SetPauseIndicator(paused);
         });
 
-        // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1): the full-screen,
-        // opaque exercise window hides an open keyboard, and the user is told to rest on the
-        // Skip disc — a sample credited under it would type into the foreground app.
+        // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1) and the toolbar's
+        // own dwell (fixup-02): the full-screen, opaque exercise window hides an open keyboard and
+        // toolbar, and the user is told to rest on the Skip disc — a sample credited under it
+        // would type into the foreground app or fire an invisible button.
         context.Messenger.Register<ToolbarLifecycleCoordinator, EyeCareExerciseActiveMessage>(this,
-            (_, message) => _exerciseActive = message.Active);
+            (_, message) =>
+            {
+                _exerciseActive = message.Active;
+                // B7 fixup-02: a VM-level suspension, not SetActive — the auto-hide adapter owns
+                // _dwellingActive and re-asserts it on every show/hide, so a past-edge summon
+                // under the exercise could re-enable dwell. Clearing this flag restores exactly
+                // the adapter's state (a hidden toolbar stays hidden; nothing is force-shown).
+                // Marshalled to the UI thread: the service sends the flag from the gaze thread or
+                // a thread-pool continuation.
+                context.Dispatcher.BeginInvoke(
+                    () => context.ToolbarVM.SetExerciseSuspended(message.Active));
+            });
 
         // The screen changed size or scale. Both of this controller's geometry values were captured
         // once at startup and could never be updated — the summon region, which is the escape

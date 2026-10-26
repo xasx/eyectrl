@@ -306,7 +306,11 @@ public class ToolbarLifecycleCoordinatorTests
                 "The EyeCareExerciseActiveMessage registration is gone — the keyboard gate's exercise flag "
                 + "would stay false for the whole session (B7 fixup-01 F1).")
             .That(source.Contains(
-                "context.Messenger.Register<ToolbarLifecycleCoordinator,EyeCareExerciseActiveMessage>(this,(_,message)=>_exerciseActive=message.Active);")).IsTrue();
+                "Register<ToolbarLifecycleCoordinator,EyeCareExerciseActiveMessage>(this,(_,message)=>{_exerciseActive=message.Active;")).IsTrue();
+        Check.WithCustomMessage(
+                "The exercise no longer suspends the toolbar's own dwell — the hidden band would stay "
+                + "dwellable under the opaque exercise window for up to its auto-hide delay (B7 fixup-02).")
+            .That(source.Contains("context.ToolbarVM.SetExerciseSuspended(message.Active)")).IsTrue();
     }
 
     private static ToolbarAutoHideController NewAutoHide() => new(

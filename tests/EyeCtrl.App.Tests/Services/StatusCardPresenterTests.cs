@@ -37,6 +37,13 @@ public class StatusCardPresenterTests
             Changed?.Invoke(Current);
         }
 
+        /// <summary>Raises a whole status, e.g. the same state with Disconnected flipped.</summary>
+        public void Raise(ControlStatus status)
+        {
+            Current = status;
+            Changed?.Invoke(Current);
+        }
+
         /// <summary>Changes the current state without a Changed (a change still in flight).</summary>
         public void SetSilently(ControlState state) => Current = new ControlStatus(state, Disconnected: false);
     }
@@ -187,6 +194,33 @@ public class StatusCardPresenterTests
                 .That(window.IsVisible).IsFalse();
             Check.WithCustomMessage("the slot must be free again").That(slot.Live).IsNull();
             Check.That(closed).IsEqualTo(1);
+        }
+        finally { window.Close(); }
+    }
+
+    // Review-02 N1: Changed also fires with the SAME state — B1's Disconnected flag flips true about
+    // 10 s into TrackingLost. That is no state exit, so the live card must stay.
+    [StaFact]
+    public void ALiveCard_Stays_WhenChangedFiresWithTheSameState()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        var closed = 0;
+        presenter.Closed += (_, _) => closed++;
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.TrackingLost);
+            Check.That(window.IsVisible).IsTrue();
+
+            status.Raise(new ControlStatus(ControlState.TrackingLost, Disconnected: true));
+
+            Check.WithCustomMessage("a same-state change (Disconnected flipping) must not take the live card down")
+                .That(window.IsVisible).IsTrue();
+            Check.That(slot.IsLive(presenter)).IsTrue();
+            Check.That(closed).IsEqualTo(0);
         }
         finally { window.Close(); }
     }

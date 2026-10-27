@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels;
@@ -39,6 +40,10 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     // and the B2a leave-pause hook acts only when it is already there (round-1 review N1 — the
     // call-site count was the wrong reason).
     private bool _commandedPauseIndicator;
+
+    // B1's committed control state (B2b), mirrored for the strip's TrackingLost/NoTracker labels.
+    // Written and read on the UI thread only (ControlStatusChangedMessage is posted there).
+    private ControlState _controlState = ControlState.Normal;
 
     /// <summary>
     /// Fires once per real show/hide transition, ON the UI thread (inside each dispatcher
@@ -128,7 +133,12 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     /// </summary>
     private void ApplyPauseIndicatorCommand()
     {
-        var visible = _commandedPauseIndicator;
+        var paused = _commandedPauseIndicator;
+        // B2b: the window is up while paused OR while a status label is due; the paused input and
+        // the state reach the strip first, so the Resume target stops before a hide.
+        _overlays.PauseIndicator.SetControlState(_controlState);
+        _overlays.PauseIndicator.SetPaused(paused);
+        var visible = paused || ShowsStatusLabel(_controlState);
         if (_pauseIndicatorVisible == visible) return;
         _pauseIndicatorVisible = visible;
         if (visible)
@@ -143,6 +153,26 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
             _overlays.PauseIndicator.Hide();
         }
     }
+
+    /// <summary>
+    /// B1's committed control state (B2b): TrackingLost and NoTracker show the strip with their own
+    /// label, Paused or not. This never decides the PAUSED strip — that stays on the paused command
+    /// and its inline leave-Paused hide. Applied inline on the UI thread (where the status message
+    /// arrives), so leaving TrackingLost hides its label at once.
+    /// </summary>
+    internal void SetControlState(ControlState state)
+    {
+        if (_controlState == state) return;
+        _controlState = state;
+        if (_dispatcher.CheckAccess())
+            ApplyPauseIndicatorCommand();
+        else
+            _dispatcher.BeginInvoke(ApplyPauseIndicatorCommand);
+    }
+
+    /// <summary>The control states that show the strip on their own (B2b).</summary>
+    internal static bool ShowsStatusLabel(ControlState state) =>
+        state is ControlState.TrackingLost or ControlState.NoTracker;
 
     /// <summary>
     /// Hands the band's rest rectangle (physical px — the auto-hide controller's own rect) to the

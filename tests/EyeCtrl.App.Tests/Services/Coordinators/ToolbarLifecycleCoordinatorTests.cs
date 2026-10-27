@@ -199,6 +199,22 @@ public class ToolbarLifecycleCoordinatorTests
     /// pins that production subscribes it, and unsubscribes it on dispose, and that the band rect
     /// reaches the strip from both capture paths.
     /// </summary>
+    /// <summary>
+    /// B2b: the coordinator routes B1's ControlStatusChangedMessage into the strip — the only
+    /// production path that shows the TrackingLost/NoTracker labels. The adapter's behaviour is pinned
+    /// headlessly; this pins that production subscribes it.
+    /// </summary>
+    [Fact]
+    public void StatusStripWiring_RoutesTheControlStatusIntoTheStrip()
+    {
+        var root = SourceScanner.RepoRoot().FullName;
+        var coordinator = SourceScanner.StripComments(File.ReadAllText(Path.Combine(root,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs")));
+
+        Check.That(coordinator.Contains("Register<ToolbarLifecycleCoordinator, ControlStatusChangedMessage>")).IsTrue();
+        Check.That(coordinator.Contains("_visibility?.SetControlState(msg.State)")).IsTrue();
+    }
+
     [Fact]
     public void ResumeStripWiring_TracksLeavingPause_AndPublishesTheBandRect()
     {

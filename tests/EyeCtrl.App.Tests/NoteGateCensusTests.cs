@@ -77,7 +77,7 @@ public class NoteGateCensusTests
         ["EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml.cs"] = (
             "exempt", "the gaze indicator — follows the gaze inside the magnifier's suspending state"),
         ["EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml"] = (
-            "exempt", "the dwellable Resume strip (B2a) — shows only while paused (ToolbarVisibilityAdapter), and paused is gate row 2: every note sample is dropped, the notes are frozen (review 01 M1); it hides inline in the state-change handler that leaves Paused, so it is never up while the gate is open; its Resume target is fed by the strip's own detector (ResumeStripViewModel), never the note detector"),
+            "occluder", "B2b: visible bounds via the status-strip source (the label card, NoteManager.KnownOccluderSources.StatusStrip) in every state; while paused the source is moot (gate row 2 drops the sample before occluders are read), so B2a's paused behaviour is unchanged. Was exempt in B2a as the dwellable Resume strip (B2a) — shows only while paused (ToolbarVisibilityAdapter), and paused is gate row 2: every note sample is dropped, the notes are frozen (review 01 M1); it hides inline in the state-change handler that leaves Paused, so it is never up while the gate is open; its Resume target is fed by the strip's own detector (ResumeStripViewModel), never the note detector"),
         ["EyeCtrl.App/Overlays/RepeatCursorWindow.xaml.cs"] = (
             "exempt", "the repeat cursor — only up during RepeatMode, a suspending state, at the live gaze"),
         ["EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml.cs"] = (

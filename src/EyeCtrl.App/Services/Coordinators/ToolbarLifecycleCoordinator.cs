@@ -74,6 +74,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             _visibility?.SetPauseIndicator(paused);
         });
 
+        // B2b: B1's committed control state drives the strip's TrackingLost/NoTracker labels. The
+        // service posts its initial status when it starts (after this registration), so startup is
+        // covered; the PAUSED strip stays on the StateChanged command above, never on this message.
+        context.Messenger.Register<ToolbarLifecycleCoordinator, ControlStatusChangedMessage>(this, (_, msg) =>
+            _visibility?.SetControlState(msg.State));
+
         // The screen changed size or scale. Both of this controller's geometry values were captured
         // once at startup and could never be updated — the summon region, which is the escape
         // hatch, was being measured against a screen that no longer existed.

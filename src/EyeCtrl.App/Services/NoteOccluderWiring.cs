@@ -43,6 +43,10 @@ internal static class NoteOccluderWiring
             // visible bounds through the manager seam so the notice gates notes exactly like
             // every other occluder.
             noteNoticeBounds: () =>
-                ((NoteManager)noteManager).TryGetNoticeVisibleBounds(out var notice) ? notice : null);
+                ((NoteManager)noteManager).TryGetNoticeVisibleBounds(out var notice) ? notice : null,
+            // B2b: the status strip's label card (paused / tracking lost / no tracker) whenever the
+            // window is up. Like the track-status card, the window belongs to the overlay manager.
+            statusStripBounds: () =>
+                context.OverlayManager.PauseIndicator.TryGetVisibleBounds(out var strip) ? strip : null);
     }
 }

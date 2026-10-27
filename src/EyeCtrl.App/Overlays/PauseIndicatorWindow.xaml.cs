@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
@@ -61,21 +62,41 @@ public partial class PauseIndicatorWindow : OverlayWindow, IPauseIndicatorOverla
     }
 
     /// <summary>
-    /// Shows the strip: the window first, then the Resume target may appear. Explicit so the
-    /// adapter's command reaches the view model; <c>Window.Show</c> on the concrete type does not.
+    /// The paused state from the strip's own command. B2b: the window is also shown for TrackingLost
+    /// and NoTracker, so Show/Hide no longer imply it; the adapter sets it before showing and before
+    /// hiding, so the Resume target stops dwelling before the window goes.
     /// </summary>
-    void IPauseIndicatorOverlay.Show()
+    public void SetPaused(bool paused) => _viewModel?.SetStripShown(paused);
+
+    /// <summary>B1's committed control state (B2b): picks the label; only Paused keeps the disc.</summary>
+    public void SetControlState(ControlState state) => _viewModel?.SetControlState(state);
+
+    /// <summary>
+    /// The label card's bounds in physical pixels while the window AND the card are shown (B2b: the
+    /// note gate's "status strip" occluder). The card only — the window spans the whole edge and
+    /// is transparent and click-through everywhere else. Read per gaze sample on the UI thread.
+    /// </summary>
+    public bool TryGetVisibleBounds(out PhysicalRect bounds)
     {
-        Show();
-        _viewModel?.SetStripShown(true);
+        bounds = default;
+        if (!IsVisible || StateLabelCard.Visibility != Visibility.Visible || LastLayout is not { } layout)
+            return false;
+
+        var card = layout.Label;
+        bounds = new PhysicalRect(
+            DpiHelper.LogicalToPhysicalX(card.X), DpiHelper.LogicalToPhysicalY(card.Y),
+            DpiHelper.LogicalToPhysicalX(card.Width), DpiHelper.LogicalToPhysicalY(card.Height));
+        return true;
     }
 
-    /// <summary>Hides the strip: the Resume target stops dwelling first, then the window goes.</summary>
-    void IPauseIndicatorOverlay.Hide()
+    /// <summary>The label text for each strip state (B2b). Crisis text: the "you have no control"
+    /// states.</summary>
+    internal static string LabelTextFor(ResumeStripLabel label) => label switch
     {
-        _viewModel?.SetStripShown(false);
-        Hide();
-    }
+        ResumeStripLabel.TrackingLost => StringTable.Current.T("overlays.status.trackingLost"),
+        ResumeStripLabel.NoTracker => StringTable.Current.T("overlays.status.noTracker"),
+        _ => StringTable.Current.T("overlays.pause.label"),
+    };
 
     /// <summary>
     /// The toolbar band became visible or hidden. While it is visible the Resume disc and label are
@@ -168,6 +189,8 @@ public partial class PauseIndicatorWindow : OverlayWindow, IPauseIndicatorOverla
         switch (e.PropertyName)
         {
             case nameof(ResumeStripViewModel.IsVisible):
+            case nameof(ResumeStripViewModel.IsLabelVisible):
+            case nameof(ResumeStripViewModel.Label):
                 ApplyResumeVisibility();
                 break;
             case nameof(ResumeStripViewModel.DwellProgress):
@@ -181,8 +204,8 @@ public partial class PauseIndicatorWindow : OverlayWindow, IPauseIndicatorOverla
 
     private void ApplyResumeVisibility()
     {
-        var visible = _viewModel?.IsVisible == true ? Visibility.Visible : Visibility.Collapsed;
-        ResumeLayer.Visibility = visible;
-        StateLabelCard.Visibility = visible;
+        ResumeLayer.Visibility = _viewModel?.IsVisible == true ? Visibility.Visible : Visibility.Collapsed;
+        StateLabelCard.Visibility = _viewModel?.IsLabelVisible == true ? Visibility.Visible : Visibility.Collapsed;
+        StateLabel.Text = LabelTextFor(_viewModel?.Label ?? ResumeStripLabel.Paused);
     }
 }

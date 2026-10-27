@@ -333,6 +333,59 @@ public class NoteCapacityNoticeTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    // B2b: the status strip's label card over a pending chip STOPS its countdown — the RECT read
+    // path (AnyOccluderIntersects) of the new "status strip" source.
+    [Fact]
+    public void AStatusStripOverAChip_StopsItsClock()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var clock = new SurvivorsFakeClock();
+        var timer = new SurvivorsFakeUndoTimer();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            clockMs: clock.Read, undoTimer: timer, workAreaDip: NoteTestBench.WorkAreaProvider);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The scale FIRST, then the targets: the dwell cells register in physical px at the
+            // live scale (the scale-1.0 registration is exactly what silently broke the first
+            // draft of this test).
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = manager.AddNoteTargetsForTest(anchor);
+            var tUs = 0L;
+            void TickAt(PhysicalPoint sampleAt)
+            {
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(sampleAt, tUs, IsInGap: false)));
+                clock.Advance(100);
+                timer.RaiseTick();
+                tUs += 100_000;
+            }
+
+            var close = NoteTestBench.CellCentre(manager, id, 3);
+            for (var t = 0L; t <= 200_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(new PhysicalPoint(close.X + 10_000, close.Y), t, IsInGap: false)));
+            for (var t = 300_000L; t <= 1_500_000; t += 100_000)
+                manager.Receive(new GazeCursorMovedMessage(new GazeFrame(close, t, IsInGap: false)));
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+            var undo = NoteTestBench.CellCentre(manager, id, 0);
+
+            // A notice over the Undo cell: no reachable time accumulates (the clock condition 4).
+            // The tick samples park BESIDE the chip (valid + fresh, off every cell), so the dwell
+            // never fires Undo while the countdown is under test.
+            var parked = new PhysicalPoint(close.X + 10_000, close.Y);
+            manager.SetOccluderSources(statusStripBounds: () => new PhysicalRect(undo.X - 400, undo.Y - 200, 800, 400));
+            for (var i = 0; i < 100; i++) TickAt(parked);
+            Check.WithCustomMessage("the status strip's card over the chip must stop its countdown (the chip survives)")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            // The notice gone: the countdown completes and the Removed chip expires (gone).
+            manager.SetOccluderSources(statusStripBounds: () => null);
+            for (var i = 0; i < 90; i++) TickAt(parked);
+            Check.WithCustomMessage("with the strip's card gone the chip clock completes (the Removed chip expires)")
+                .That(manager.ActiveNotes).IsEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     // Review-01 survivor: the 3 s hold is real - fully shown just before, fading after.
     [StaFact]
     public void TheNoticeHolds_ThenFades()

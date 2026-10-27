@@ -28,6 +28,7 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     private readonly IControlStatus _status;
     private readonly HashSet<ControlState> _entered = new();
     private ControlState? _pending;
+    private readonly bool _noTrackerIsFallback;
     private bool _started;
 
     /// <summary>Wraps the card window for the slot.</summary>
@@ -35,11 +36,16 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     /// <param name="window">The card window (a DI singleton).</param>
     /// <param name="status">The B1 control status: its changes trigger cards, and its current
     /// value re-validates a card when the slot reaches it.</param>
-    public StatusCardPresenter(IBannerSlot slot, StatusCardWindow window, IControlStatus status)
+    /// <param name="noTrackerIsFallback">Whether the mouse provider is a FALLBACK (the splash
+    /// sentence's predicate, <see cref="SplashWindow.ShowsNoTrackerSentence"/>). The NoTracker card
+    /// says "no eye tracker found", which is false when the mouse was chosen on purpose, so it
+    /// shows only on a fallback (B5 review-01 L2).</param>
+    public StatusCardPresenter(IBannerSlot slot, StatusCardWindow window, IControlStatus status, bool noTrackerIsFallback)
     {
         _slot = slot;
         _window = window;
         _status = status;
+        _noTrackerIsFallback = noTrackerIsFallback;
         _window.Hidden += OnHidden;
     }
 
@@ -74,11 +80,20 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     internal static bool HasCard(ControlState state) =>
         state is ControlState.Paused or ControlState.TrackingLost or ControlState.NoTracker;
 
-    /// <summary>A status change: the first entry into a carded state this session queues its card.</summary>
+    /// <summary>
+    /// A status change. A LIVE card whose state has just been left is withdrawn at once (B5
+    /// review-01 M1): the card explains a state, and must not stay up for the rest of its hold
+    /// after the state ended. Then the first entry into a carded state this session queues its card.
+    /// </summary>
     internal void OnStatusChanged(ControlStatus status)
     {
+        if (_pending is { } pending && status.State != pending && _slot.IsLive(this))
+            _slot.Withdraw(this); // an immediate hide; a merely queued card is dropped by CanShow instead
+
         if (!HasCard(status.State) || !_entered.Add(status.State))
             return; // no card for this state, or it was already entered this session
+        if (status.State == ControlState.NoTracker && !_noTrackerIsFallback)
+            return; // the mouse was chosen on purpose: "no eye tracker found" would be false
 
         _pending = status.State;
         _slot.Enqueue(this); // a live card is refreshed with the new state; a queued one keeps its place

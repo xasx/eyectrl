@@ -135,7 +135,7 @@ public class ShippedGermanSwitchOnTests
 
         // B5: the status cards and the splash's no-tracker sentence (overlays, already switched on).
         Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.Paused))
-            .IsEqualTo("Pausiert. Zum Fortsetzen oben auf ▶ schauen.");
+            .IsEqualTo("Pausiert. Zum Fortsetzen auf ▶ schauen.");
         Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.TrackingLost))
             .IsEqualTo("Blickverfolgung unterbrochen. Auf den Bildschirm schauen.");
         Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.NoTracker))

@@ -62,7 +62,7 @@ public class CrisisOverlayTextTests
     {
         var english = StringTable.EmbeddedEnglish;
         Check.That(StatusCardWindow.MessageFor(english, EyeCtrl.Core.Enums.ControlState.Paused))
-            .IsEqualTo("Paused. Look at ▶ at the top to resume.");
+            .IsEqualTo("Paused. Look at ▶ to resume.");
         Check.That(StatusCardWindow.MessageFor(english, EyeCtrl.Core.Enums.ControlState.TrackingLost))
             .IsEqualTo("Eye tracking lost. Look at the screen to continue.");
         Check.That(StatusCardWindow.MessageFor(english, EyeCtrl.Core.Enums.ControlState.NoTracker))

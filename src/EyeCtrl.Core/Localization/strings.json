@@ -1309,7 +1309,7 @@
     "crisis": true
   },
   "overlays.statusCard.paused": {
-    "text": "Paused. Look at ▶ at the top to resume.",
+    "text": "Paused. Look at ▶ to resume.",
     "who": "user",
     "where": "overlays",
     "fit": "row",

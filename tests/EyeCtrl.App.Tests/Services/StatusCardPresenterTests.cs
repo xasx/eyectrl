@@ -77,7 +77,7 @@ public class StatusCardPresenterTests
         var window = HiddenCardWindow();
         var slot = new CountingSlot();
         var status = new FakeStatus();
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
         try
         {
             presenter.Start(); // Normal: no card
@@ -122,14 +122,96 @@ public class StatusCardPresenterTests
         var slot = new CountingSlot();
         var status = new FakeStatus();
         status.SetSilently(ControlState.NoTracker);
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
         try
         {
             presenter.Start();
+
+            // Review-01 L5: Start() itself counts the current state — a synchronous status hook would
+            // never re-deliver it, so the card must already be queued here.
+            Check.WithCustomMessage("Start() must queue the card for the state the session starts in")
+                .That(slot.Enqueued.Count).IsEqualTo(1);
+
             status.Enter(ControlState.NoTracker); // the status service's own initial publish
 
             Check.WithCustomMessage("a session that starts without a tracker gets ONE NoTracker card")
                 .That(slot.Enqueued.Count).IsEqualTo(1);
+        }
+        finally { window.Close(); }
+    }
+
+    // Review-01 L2: "No eye tracker found" is false when the mouse was chosen on purpose.
+    [StaTheory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public void TheNoTrackerCard_ShowsOnlyOnAFallback(bool noTrackerIsFallback, int cards)
+    {
+        var window = HiddenCardWindow();
+        var slot = new CountingSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback);
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.NoTracker);
+
+            Check.That(slot.Enqueued.Count).IsEqualTo(cards);
+
+            status.Enter(ControlState.Paused); // the other cards are unaffected
+            Check.That(slot.Enqueued.Count).IsEqualTo(cards + 1);
+        }
+        finally { window.Close(); }
+    }
+
+    // Review-01 M1: the owner pauses, then resumes 2 s later — the Paused card must leave AT ONCE,
+    // not stay up for the rest of its 8 s hold while gaze control is live again.
+    [StaFact]
+    public void ALiveCard_LeavesAtOnce_WhenItsStateEnds()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        var closed = 0;
+        presenter.Closed += (_, _) => closed++;
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.Paused);
+            Check.That(window.IsVisible).IsTrue();
+            Check.That(slot.IsLive(presenter)).IsTrue();
+
+            status.Enter(ControlState.Normal); // resumed (2 s later; the card's 8 s hold is still running)
+
+            Check.WithCustomMessage("the Paused card must leave the screen when the pause ends")
+                .That(window.IsVisible).IsFalse();
+            Check.WithCustomMessage("the slot must be free again").That(slot.Live).IsNull();
+            Check.That(closed).IsEqualTo(1);
+        }
+        finally { window.Close(); }
+    }
+
+    [StaFact]
+    public void ALiveCard_GivesWayToTheNextStatesCard()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.Paused);
+            status.Enter(ControlState.TrackingLost); // first entry: its own card replaces the Paused one
+
+            Check.That(window.IsVisible).IsTrue();
+            Check.That(slot.IsLive(presenter)).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.TrackingLost));
+
+            status.Enter(ControlState.Paused); // a repeat: no card, and the TrackingLost card leaves
+            Check.That(window.IsVisible).IsFalse();
+            Check.That(slot.Live).IsNull();
         }
         finally { window.Close(); }
     }
@@ -140,7 +222,7 @@ public class StatusCardPresenterTests
         var window = HiddenCardWindow();
         var slot = new BannerSlot();
         var status = new FakeStatus();
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
         var alert = new FakeAlert();
         var closed = 0;
         presenter.Closed += (_, _) => closed++;
@@ -168,7 +250,7 @@ public class StatusCardPresenterTests
         var window = HiddenCardWindow();
         var slot = new BannerSlot();
         var status = new FakeStatus();
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
         var alert = new FakeAlert();
         try
         {
@@ -197,7 +279,7 @@ public class StatusCardPresenterTests
         var window = HiddenCardWindow();
         var slot = new BannerSlot();
         var status = new FakeStatus();
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
         var closed = 0;
         presenter.Closed += (_, _) => closed++;
         try
@@ -227,7 +309,7 @@ public class StatusCardPresenterTests
         var slot = new BannerSlot();
         var status = new FakeStatus();
         var driftPresenter = new SlotDriftNoticePresenter(slot, drift, canShow: static () => true);
-        using var presenter = new StatusCardPresenter(slot, card, status);
+        using var presenter = new StatusCardPresenter(slot, card, status, noTrackerIsFallback: true);
         try
         {
             presenter.Start();
@@ -267,7 +349,7 @@ public class StatusCardPresenterTests
         var window = HiddenCardWindow();
         var slot = new BannerSlot();
         var status = new FakeStatus();
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
         var closed = 0;
         presenter.Closed += (_, _) => closed++;
         try
@@ -308,7 +390,7 @@ public class StatusCardPresenterTests
     public void TheCardWindowsFadeCompletion_ReachesTheSlotAsClosed()
     {
         var window = HiddenCardWindow();
-        using var presenter = new StatusCardPresenter(new BannerSlot(), window, new FakeStatus());
+        using var presenter = new StatusCardPresenter(new BannerSlot(), window, new FakeStatus(), noTrackerIsFallback: true);
         var closed = 0;
         presenter.Closed += (_, _) => closed++;
         try
@@ -339,6 +421,17 @@ public class StatusCardPresenterTests
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
             .ToList();
         string Rel(string f) => f[(src.Length + 1)..].Replace('\\', '/');
+
+        // Review-01 L4: the strictest form — no other source file even NAMES the window type, so no
+        // DI-built class can take it as a constructor parameter and show it outside the slot.
+        var mentions = files.Where(f => Regex.IsMatch(File.ReadAllText(f), @"\bStatusCardWindow\b")).Select(Rel)
+            .OrderBy(f => f, StringComparer.Ordinal).ToList();
+        Check.WithCustomMessage("a source file outside the window, its presenter and the composition root names StatusCardWindow: "
+                                + string.Join(", ", mentions))
+            .That(mentions).ContainsExactly(
+                "EyeCtrl.App/Overlays/StatusCardWindow.xaml.cs",
+                "EyeCtrl.App/Services/AppBootstrapper.cs",
+                "EyeCtrl.App/Services/StatusCardPresenter.cs");
 
         var showers = files.Where(f => Regex.IsMatch(File.ReadAllText(f), @"\.\s*ShowCard\s*\(")).Select(Rel).ToList();
         Check.WithCustomMessage("ShowCard is called outside the slot presenter: " + string.Join(", ", showers))

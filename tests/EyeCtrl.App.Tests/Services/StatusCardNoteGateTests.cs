@@ -23,7 +23,7 @@ public class StatusCardNoteGateTests
         var window = StatusCardPresenterTests.HiddenCardWindow();
         var slot = new BannerSlot();
         var status = new StatusCardPresenterTests.FakeStatus();
-        using var presenter = new StatusCardPresenter(slot, window, status);
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
 
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);

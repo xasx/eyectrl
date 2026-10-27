@@ -711,8 +711,8 @@
     "src": "2fa9b89d"
   },
   "overlays.statusCard.paused": {
-    "text": "Pausiert. Zum Fortsetzen oben auf ▶ schauen.",
-    "src": "75dba2e6"
+    "text": "Pausiert. Zum Fortsetzen auf ▶ schauen.",
+    "src": "702c479c"
   },
   "overlays.statusCard.trackingLost": {
     "text": "Blickverfolgung unterbrochen. Auf den Bildschirm schauen.",

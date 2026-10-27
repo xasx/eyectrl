@@ -704,7 +704,12 @@ public class AppBootstrapper
         services.AddSingleton(sp => new StatusCardPresenter(
             sp.GetRequiredService<IBannerSlot>(),
             sp.GetRequiredService<StatusCardWindow>(),
-            sp.GetRequiredService<IControlStatus>()));
+            sp.GetRequiredService<IControlStatus>(),
+            // The splash sentence's predicate: a NoTracker card only when the mouse is a FALLBACK.
+            noTrackerIsFallback: SplashWindow.ShowsNoTrackerSentence(
+                settings.General.GazeProviderType,
+                GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()),
+                isTestMode)));
 
         // Task 10/11 — the adaptation preview panel (spec §3.6-3/4). The window is a DI singleton (the
         // CueOverlayWindow precedent) but is constructed ONLY on the first adaptation enable: the

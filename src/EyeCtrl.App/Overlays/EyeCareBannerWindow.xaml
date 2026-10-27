@@ -7,16 +7,16 @@
                      Topmost="True" ShowInTaskbar="False"
                      Background="Transparent"
                      Width="{x:Static SystemParameters.PrimaryScreenWidth}"
-                     Height="120"
+                     Height="312"
                      Left="0" Top="0">
 
     <Grid>
         <!-- Dim the work area below the banner (click-through) -->
         <Rectangle x:Name="WorkDim" Fill="{StaticResource BrushModalBackdrop}" Visibility="Collapsed"/>
 
-        <!-- Top banner strip. 96, not 80 (user decision, T13 fixup-03): the circle captions below
-             the rings end at ~88 DIP, so at 80 they hung ~7.5 DIP below the strip. 96 gives them
-             the same 8 DIP bottom padding the rings have above them. The window stays 120. -->
+        <!-- The message strip. 96 since T13 fixup-03 (it held the ring captions at 80); it stays
+             the top band now that B7 moved the rings out of it, because the height is a decided
+             part of the banner's look and nothing below depends on it. -->
         <Border VerticalAlignment="Top" Height="96" Background="{StaticResource BrushSurfaceDark}"
                 BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="0,0,0,1">
             <Grid Margin="20,0">
@@ -26,29 +26,32 @@
                     <TextBlock x:Name="SubText" Text="{loc:T 'eye-care.banner.subtext'}"
                                Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}" Margin="0,2,0,0"/>
                 </StackPanel>
-                <!-- Top-anchored at the rings' original 8 DIP offset, NOT centred: at 96 a centred
-                     panel would move both ring centres to 48 DIP, but ButtonCenterFromTopDip (40) is
-                     the dwell-target line the user aims at. The captions keep their -16 offset. -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,0,0">
-                    <!-- Two large dwell circles: Start (accept) and Snooze. The ✕/▶ glyph sizes
-                         are set in the constructor as a ratio of the 64px ring — XAML cannot
-                         express the multiplication. -->
-                    <Grid Margin="0,0,16,0" Width="64" Height="64">
-                        <Ellipse x:Name="SnoozeRing" Stroke="{StaticResource BrushTextDim}" StrokeThickness="2" StrokeDashArray="3 3"/>
-                        <TextBlock x:Name="SnoozeGlyph" Text="✕" Foreground="{StaticResource BrushTextSecondary}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="SnoozeLabel" Text="{loc:T 'eye-care.banner.snooze'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
-                    </Grid>
-                    <Grid Width="64" Height="64">
-                        <Ellipse x:Name="StartRing" Stroke="{StaticResource BrushAccent}" StrokeThickness="2" StrokeDashArray="3 3"/>
-                        <TextBlock x:Name="StartGlyph" Text="▶" Foreground="{StaticResource BrushAccent}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="StartLabel" Text="{loc:T 'eye-care.banner.start'}" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeBody}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
-                    </Grid>
-                </StackPanel>
             </Grid>
         </Border>
+
+        <!-- The two dwell discs. They sit BELOW the toolbar band (code sets RingLayer's top
+             margin: RingTopDip) and fully inset from the right edge, so neither hugs the top edge
+             where tracking is worst. Laid out, not Canvas-positioned: the right-anchored panel
+             turns the same constants (right inset, 100 DIP disc, 24 DIP gap) into DIP, so the
+             drawn circle is the registered r50 hit circle at whatever the window's width is. The
+             ✕/▶ glyph sizes are set in the constructor as a ratio of the 100 DIP ring — XAML
+             cannot express the multiplication. -->
+        <StackPanel x:Name="RingLayer" Orientation="Horizontal"
+                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,160,20,0">
+            <Grid x:Name="SnoozeRingBox" Width="100" Height="100" Margin="0,0,24,0">
+                <Ellipse x:Name="SnoozeRing" Stroke="{StaticResource BrushTextDim}" StrokeThickness="2" StrokeDashArray="3 3" Opacity="0.7"/>
+                <TextBlock x:Name="SnoozeGlyph" Text="✕" Foreground="{StaticResource BrushTextSecondary}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <TextBlock x:Name="SnoozeLabel" Text="{loc:T 'eye-care.banner.snooze'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
+            </Grid>
+            <Grid x:Name="StartRingBox" Width="100" Height="100">
+                <Ellipse x:Name="StartRing" Stroke="{StaticResource BrushAccent}" StrokeThickness="2" StrokeDashArray="3 3" Opacity="0.7"/>
+                <TextBlock x:Name="StartGlyph" Text="▶" Foreground="{StaticResource BrushAccent}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <TextBlock x:Name="StartLabel" Text="{loc:T 'eye-care.banner.start'}" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeBody}"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
+            </Grid>
+        </StackPanel>
     </Grid>
 </local:OverlayWindow>

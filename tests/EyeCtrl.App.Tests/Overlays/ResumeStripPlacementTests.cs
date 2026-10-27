@@ -202,6 +202,70 @@ public class ResumeStripPlacementTests : IDisposable
         }
     }
 
+    [StaTheory]
+    [InlineData(EyeCtrl.Core.Enums.ControlState.TrackingLost, "overlays.status.trackingLost")]
+    [InlineData(EyeCtrl.Core.Enums.ControlState.NoTracker, "overlays.status.noTracker")]
+    public void AStatusState_DrawsItsLabel_WithNoDisc_EvenWithTheBandUp(EyeCtrl.Core.Enums.ControlState state, string key)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var vm = new ResumeStripViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var window = InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
+        try
+        {
+            window.SetViewModel(vm);
+            window.SetPaused(true);
+            window.SetControlState(state); // the band is up (the seed): a status label shows anyway
+
+            Check.That(window.StateLabelCard.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(window.StateLabel.Text).IsEqualTo(StringTable.Current.T(key));
+            Check.WithCustomMessage("only Paused has the disc")
+                .That(window.ResumeLayer.Visibility).IsEqualTo(Visibility.Collapsed);
+
+            window.SetControlState(EyeCtrl.Core.Enums.ControlState.Paused);
+            window.SetBandVisible(false);
+            Check.That(window.StateLabel.Text).IsEqualTo(StringTable.Current.T("overlays.pause.label"));
+            Check.That(window.ResumeLayer.Visibility).IsEqualTo(Visibility.Visible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// B2b: the NoTracker label never overlaps the band. With the Mouse provider the band never
+    /// auto-hides, so the label sits below it at every edge and both scales.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void TheStatusLabel_StaysClearOfTheBand_AtThisScale(double scale)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(scale, scale);
+        var vm = new ResumeStripViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var window = InvisibleTestWindow.Prepare(new PauseIndicatorWindow());
+        try
+        {
+            window.SetViewModel(vm);
+            window.SetEdge("Top");
+            var workArea = SystemParameters.WorkArea;
+            var bandLogical = new Rect(workArea.Left + workArea.Width / 2 - 450, workArea.Top, 900, 144);
+            window.SetBandBounds(new PhysicalRect(
+                bandLogical.X * scale, bandLogical.Y * scale, bandLogical.Width * scale, bandLogical.Height * scale));
+            window.SetControlState(EyeCtrl.Core.Enums.ControlState.NoTracker);
+
+            var label = window.LastLayout!.Value.Label;
+            Check.WithCustomMessage($"label {label} overlaps the band {bandLogical}")
+                .That(label.IntersectsWith(bandLogical)).IsFalse();
+            Check.That(workArea.Contains(label)).IsTrue();
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     /// <summary>
     /// The window draws what the view model says: disc and label up while paused with the band gone,
     /// collapsed while the band shows. Driven through the window's own band seam (what the adapter

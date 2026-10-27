@@ -129,9 +129,11 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
             // full-screen window stays shown between FinishRun and ShowSummaryAsync, so a flag
             // scoped to the run alone would drop for that gap; the finally also covers
             // CancelActive (the awaits complete or fault into the catch below either way).
-            _messenger?.Send(new EyeCareExerciseActiveMessage(true));
             try
             {
+                // B7 fixup-04 L3: INSIDE the try, so a throwing subscriber cannot skip the
+                // finally's (false) and strand the whole app under a stuck exercise hold.
+                _messenger?.Send(new EyeCareExerciseActiveMessage(true));
                 await _hooks.ShowExerciseAsync(
                     exercise.Name,
                     _settings.ExerciseDurationSeconds * 1_000_000L,

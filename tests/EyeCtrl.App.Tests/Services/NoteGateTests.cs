@@ -281,6 +281,16 @@ public class NoteGateTests
             "the track-status card must occlude ✕ beneath it");
     }
 
+    [Fact]
+    public void StatusStripCardOverClose_NeverFiresTheNote()
+    {
+        // B2b (sticky owner 0664e3e2): the strip's label card is an occluder in every state — a
+        // NoTracker label can stay up indefinitely over a note's ✕.
+        OccluderOverClose_NeverFires(
+            (manager, rect) => manager.SetOccluderSources(statusStripBounds: rect),
+            "the status strip's label card must occlude ✕ beneath it");
+    }
+
     private static void OccluderOverClose_NeverFires(
         Action<NoteManager, Func<PhysicalRect?>> wire, string because)
     {

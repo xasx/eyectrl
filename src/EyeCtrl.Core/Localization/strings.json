@@ -1292,6 +1292,22 @@
     "fit": "row",
     "args": []
   },
+  "overlays.status.noTracker": {
+    "text": "No eye tracker",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal170",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.status.trackingLost": {
+    "text": "Eye tracking lost",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal170",
+    "args": [],
+    "crisis": true
+  },
   "overlays.subpixel.answer_one": {
     "text": "1",
     "who": "user",

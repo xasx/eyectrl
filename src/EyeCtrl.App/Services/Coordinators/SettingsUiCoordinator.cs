@@ -208,7 +208,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         _modal.SettingsOpen = true;
         _modal.SettingsOpenChanged?.Invoke(true);
         _toolbar.SetAutoHideSuspended("settings", true);
-        _quickActions.SetSummonSuspended(true);
+        _quickActions.SetSummonSuspended("settings", true);
         context.OverlayManager.CursorCircle.Hide();
 
         try
@@ -254,7 +254,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             // Window construction threw before Show() — OnSettingsWindowClosed will never fire, so
             // undo the suspend we set alongside _modal.SettingsOpen = true above.
             _toolbar.SetAutoHideSuspended("settings", false);
-            _quickActions.SetSummonSuspended(false);
+            _quickActions.SetSummonSuspended("settings", false);
             if (context.CursorVM.IsVisible)
                 context.OverlayManager.CursorCircle.Show();
             throw;
@@ -350,13 +350,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         _modal.SettingsOpen = false;
         _modal.SettingsOpenChanged?.Invoke(false);
         _toolbar.SetAutoHideSuspended("settings", false);
-        // While the probe is open, Settings closing must not un-suspend the summon or re-show the
-        // ring over the probe window (build plan C9): the probe suspended/ended both, and its own
-        // Restore is the only place that may undo them. The summon gate is invisible here anyway
-        // (QuickActionsSummonController refuses gaze while ProbeOpen), so the gate protects the
-        // end state the post-probe Restore computes from, not the live screen.
-        if (!_modal.ProbeOpen)
-            _quickActions.SetSummonSuspended(false);
+        // B7 fixup-05 L-b: release Settings' own summon claim UNCONDITIONALLY. Under named claims
+        // the probe holds (and releases) its own "probe" claim, so guarding this on ProbeOpen
+        // could leak "settings" until Settings is opened and closed again. (Before claims, this
+        // guard existed because the probe's Restore resumed the shared bool for everyone.)
+        _quickActions.SetSummonSuspended("settings", false);
         if (Context.CursorVM.IsVisible && !_modal.ProbeOpen)
             Context.OverlayManager.CursorCircle.Show();
     }

@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
@@ -376,6 +377,84 @@ public class ResumeStripViewModelTests
 
         Check.WithCustomMessage("two 100 ms look aways added up to an arm")
             .That(rig.Vm.IsArmed).IsFalse();
+    }
+
+    // ── B2b: the strip's states ──
+
+    [Theory]
+    [InlineData(ControlState.Normal, false, ResumeStripLabel.None)]
+    [InlineData(ControlState.Normal, true, ResumeStripLabel.Paused)]
+    [InlineData(ControlState.Paused, true, ResumeStripLabel.Paused)]
+    [InlineData(ControlState.Paused, false, ResumeStripLabel.None)]
+    [InlineData(ControlState.TrackingLost, false, ResumeStripLabel.TrackingLost)]
+    [InlineData(ControlState.TrackingLost, true, ResumeStripLabel.TrackingLost)]
+    [InlineData(ControlState.NoTracker, false, ResumeStripLabel.NoTracker)]
+    [InlineData(ControlState.NoTracker, true, ResumeStripLabel.NoTracker)]
+    public void TheLabel_FollowsB1sPriority(ControlState state, bool paused, ResumeStripLabel expected)
+    {
+        // NoTracker > TrackingLost > Paused; the paused input alone (never the status) makes Paused.
+        Check.That(ResumeStripViewModel.LabelFor(state, paused)).IsEqualTo(expected);
+    }
+
+    [Theory]
+    [InlineData(ControlState.TrackingLost)]
+    [InlineData(ControlState.NoTracker)]
+    public void AStatusState_OverPaused_ShowsItsLabel_AndNoDisc_AndNeverFires(ControlState state)
+    {
+        var rig = Build();
+        Arm(rig);
+        rig.Vm.SetControlState(state);
+
+        Check.That(rig.Vm.Label).IsEqualTo(state == ControlState.NoTracker ? ResumeStripLabel.NoTracker : ResumeStripLabel.TrackingLost);
+        Check.WithCustomMessage("only Paused has the Resume disc").That(rig.Vm.IsVisible).IsFalse();
+        Check.That(rig.Vm.IsLabelVisible).IsTrue();
+
+        rig.Hold(Away, 300_000);
+        rig.Hold(Centre, 3_000_000);
+        Check.WithCustomMessage("the disc must never fire in a status state").That(rig.Toggles).IsEqualTo(0);
+        Check.That(rig.Vm.IsArmed).IsFalse();
+    }
+
+    [Fact]
+    public void AStatusLabel_ShowsEvenWhileTheBandIsVisible()
+    {
+        // With the Mouse provider the band never auto-hides: the NoTracker label must still show.
+        var rig = Build(shown: false);
+        rig.Vm.SetBandVisible(true);
+        rig.Vm.SetControlState(ControlState.NoTracker);
+        Check.That(rig.Vm.IsLabelVisible).IsTrue();
+        Check.That(rig.Vm.IsVisible).IsFalse();
+
+        // Paused with the band up shows neither label nor disc (the band has Play).
+        rig.Vm.SetControlState(ControlState.Normal);
+        rig.Vm.SetStripShown(true);
+        Check.That(rig.Vm.IsLabelVisible).IsFalse();
+    }
+
+    [Fact]
+    public void TrackingBackWhileStillPaused_ReturnsToThePausedStrip_Disarmed()
+    {
+        var rig = Build();
+        Arm(rig);
+        rig.Vm.SetControlState(ControlState.TrackingLost);
+        rig.Vm.SetControlState(ControlState.Paused); // B1: the first valid sample, still paused
+
+        Check.That(rig.Vm.Label).IsEqualTo(ResumeStripLabel.Paused);
+        Check.That(rig.Vm.IsVisible).IsTrue();
+        Check.WithCustomMessage("the disc comes back disarmed: a look away first").That(rig.Vm.IsArmed).IsFalse();
+        rig.Hold(Centre, 2_000_000);
+        Check.That(rig.Toggles).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void LeavingTrackingLost_WithoutPause_DropsTheLabelAtOnce()
+    {
+        var rig = Build(shown: false);
+        rig.Vm.SetControlState(ControlState.TrackingLost);
+        Check.That(rig.Vm.IsLabelVisible).IsTrue();
+        rig.Vm.SetControlState(ControlState.Normal);
+        Check.That(rig.Vm.Label).IsEqualTo(ResumeStripLabel.None);
+        Check.That(rig.Vm.IsLabelVisible).IsFalse();
     }
 
     [Fact]

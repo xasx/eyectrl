@@ -550,11 +550,21 @@ public class AppBootstrapper
             sp.GetRequiredService<IDwellDetectorRegistry>()));
 
         // Eye-care
+        // B7: both surfaces carry A1's pause grace and read the live DwellSettings at session
+        // entry; the banner also places its rings clear of the live toolbar band.
         services.AddSingleton(sp => new EyeCareBannerWindow(
             sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs,
             sp.GetRequiredService<IStruggleTelemetrySink>(),
-            sp.GetRequiredService<IDwellDetectorRegistry>()));
-        services.AddSingleton<EyeCareExerciseWindow>();
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell,
+            sp.GetRequiredService<EyeCtrlSettings>().Toolbar));
+        services.AddSingleton(sp => new EyeCareExerciseWindow(
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell,
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<IStruggleTelemetrySink>(),
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Toolbar));
         services.AddSingleton<ExerciseRunner>(sp =>
         {
             var screen = new PhysicalPoint(
@@ -815,7 +825,11 @@ public class AppBootstrapper
             ResumeStrip: sp.GetRequiredService<ResumeStripViewModel>());
     }
 
-    private static IExercise[] BuildExercisePool(PhysicalPoint center)
+    /// <summary>
+    /// The five exercises, laid out around <paramref name="center"/>. <c>internal</c> so
+    /// <c>EyeCareDwellTests</c> can sample every dot path and pin the Skip exit clear of it.
+    /// </summary>
+    internal static IExercise[] BuildExercisePool(PhysicalPoint center)
     {
         return new IExercise[]
         {

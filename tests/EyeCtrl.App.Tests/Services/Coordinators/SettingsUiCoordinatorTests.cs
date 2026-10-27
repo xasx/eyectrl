@@ -305,8 +305,14 @@ public class SettingsUiCoordinatorTests
     // the :263/:265 gates keep them inert. Killed mutations: drop the summon gate → the summon
     // resumes; drop the ring gate → Show() runs.
 
+    // B7 fixup-05 L-b: with named claims, Settings' close must release ONLY its own claim and do
+    // so unconditionally — the probe holds (and releases) its own "probe" claim, so the old
+    // `if (!ProbeOpen)` guard could leak "settings" and keep the hot-edge summon dead after the
+    // probe closed. The ring keeps its ProbeOpen guard (it is a live-screen concern).
+    // Mutation (L-b): restore `if (!_modal.ProbeOpen)` around the summon release -> the final
+    // "summon is live" assertion goes red.
     [Fact]
-    public void WhenProbeOpen_SettingsCloseLeavesTheSummonSuspended_AndDoesNotShowTheRing()
+    public void WhenProbeOpen_SettingsCloseReleasesItsOwnClaim_AndTheProbeStillHolds()
     {
         var modal = new ModalInteractionState { ProbeOpen = true };
         var quickActions = new QuickActionsCoordinator(modal);
@@ -329,22 +335,27 @@ public class SettingsUiCoordinatorTests
         };
         coordinator.Initialize(context);
         quickActions.Initialize(context);
-        // The probe's BeginStart suspended the summon before the probe window appeared.
-        quickActions.SetSummonSuspended(true);
+        // The probe's BeginStart holds "probe"; Settings is open and holds "settings".
+        quickActions.SetSummonSuspended("probe", true);
+        quickActions.SetSummonSuspended("settings", true);
         Check.That(quickActions.IsSummonSuspended).IsTrue();
 
         coordinator.OnSettingsWindowClosed(null, EventArgs.Empty);
 
-        Check.WithCustomMessage("The :263 summon gate is gone: Settings' close resumed the probe's summon")
+        Check.WithCustomMessage("Settings' close released the probe's claim too")
             .That(quickActions.IsSummonSuspended).IsTrue();
-        Check.WithCustomMessage("The :265 ring gate is gone: the ring was re-shown over the probe")
+        Check.WithCustomMessage("the ring was re-shown over the probe")
             .That(ring.ShowCalls).IsEqualTo(0);
 
-        // Negative control: with the probe down, the same close resumes the summon and shows the ring.
+        // The probe closes on its own claim; "settings" must already be gone, or the summon stays
+        // dead until Settings is opened and closed again (L-b).
+        quickActions.SetSummonSuspended("probe", false);
+        Check.WithCustomMessage("the settings claim leaked past the probe: the summon stayed suspended")
+            .That(quickActions.IsSummonSuspended).IsFalse();
+
+        // With the probe down, a later close still shows the ring.
         modal.ProbeOpen = false;
         coordinator.OnSettingsWindowClosed(null, EventArgs.Empty);
-
-        Check.That(quickActions.IsSummonSuspended).IsFalse();
         Check.That(ring.ShowCalls).IsEqualTo(1);
 
         coordinator.Dispose();

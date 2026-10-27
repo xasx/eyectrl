@@ -12,6 +12,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
@@ -182,6 +183,40 @@ public class ActivationOfferCoordinatorTests
         s.Messenger.Send(new KeyboardEdgeToggledMessage());
         Pump();
         Check.That(collected).IsEqualTo(8);
+    }
+
+    /// <summary>
+    /// B7 fixup-01 F1: the eye-care exercise is the banner's successor — a full-screen, opaque,
+    /// click-through window. While it runs no offer may be made (a taken offer's click would land
+    /// on the app beneath), and the exercise flag reaches the recompute through the dispatcher
+    /// because the service sends it off the UI thread.
+    /// Mutation: drop the <c>EyeCareExerciseActiveMessage</c> registration → the settle under the
+    /// exercise offers.
+    /// </summary>
+    [StaFact]
+    public void TheEyeCareExercise_SuspendsOffers_WhileItRuns()
+    {
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(Settle(s, 500, 500)).IsNotNull();
+
+        s.Messenger.Send(new EyeCareExerciseActiveMessage(true));
+        Pump();
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("the exercise starting must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        Check.WithCustomMessage("the exercise reason must set ModalSuspended")
+            .That(s.Coordinator.ModalSuspended).IsTrue();
+        Check.WithCustomMessage("no offer may be made while the exercise runs")
+            .That(Settle(s, 600, 600)).IsNull();
+
+        s.Messenger.Send(new EyeCareExerciseActiveMessage(false));
+        Pump();
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("offers resume once the exercise ends")
+            .That(Settle(s, 700, 700)).IsNotNull();
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
     }
 
     [StaFact]

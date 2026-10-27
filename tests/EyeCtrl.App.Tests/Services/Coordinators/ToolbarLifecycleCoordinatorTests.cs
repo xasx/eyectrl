@@ -43,30 +43,30 @@ public class ToolbarLifecycleCoordinatorTests
     public void ShouldFeedKeyboardSample_IsFalse_WhilePaused()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: true, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsFalse();
+            paused: true, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false, exerciseActive: false)).IsFalse();
     }
 
     [Fact]
     public void ShouldFeedKeyboardSample_IsFalse_WhenModalStateOrWindowClosed()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: false, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsFalse();
+            paused: false, modalKeyboardVisible: false, keyboardIsVisible: true, isInGap: false, probeOpen: false, exerciseActive: false)).IsFalse();
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: false, isInGap: false, probeOpen: false)).IsFalse();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: false, isInGap: false, probeOpen: false, exerciseActive: false)).IsFalse();
     }
 
     [Fact]
     public void ShouldFeedKeyboardSample_IsFalse_ForGapHeldSamples()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: true, probeOpen: false)).IsFalse();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: true, probeOpen: false, exerciseActive: false)).IsFalse();
     }
 
     [Fact]
     public void ShouldFeedKeyboardSample_IsTrue_OnlyWhenEveryGateIsOpen()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsTrue();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false, exerciseActive: false)).IsTrue();
     }
 
     // W5(a) (build plan): the probe term in isolation. With every other gate open, an open probe
@@ -77,10 +77,26 @@ public class ToolbarLifecycleCoordinatorTests
     public void ShouldFeedKeyboardSample_IsFalse_WhileProbeOpen()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: true)).IsFalse();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: true, exerciseActive: false)).IsFalse();
         // Negative control: the probe term is the only difference, so the gate is open without it.
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsTrue();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false, exerciseActive: false)).IsTrue();
+    }
+
+    // B7 fixup-01 F1: the exercise term in isolation. An eye-care exercise is a full-screen,
+    // opaque window over a still-open keyboard, and the user is told to rest on its Skip disc for
+    // ~700 ms — longer than a key dwell, so an unfed gate types the key hidden under it.
+    // Mutation: drop the `!exerciseActive` term → the first assertion goes red.
+    [Fact]
+    public void ShouldFeedKeyboardSample_IsFalse_WhileAnEyeCareExerciseRuns()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false,
+            probeOpen: false, exerciseActive: true)).IsFalse();
+        // Negative control: the exercise term is the only difference.
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false,
+            probeOpen: false, exerciseActive: false)).IsTrue();
     }
 
     // W4 (build plan): the REAL auto-hide controller driven through the production gate. While the
@@ -199,6 +215,22 @@ public class ToolbarLifecycleCoordinatorTests
     /// pins that production subscribes it, and unsubscribes it on dispose, and that the band rect
     /// reaches the strip from both capture paths.
     /// </summary>
+    /// <summary>
+    /// B2b: the coordinator routes B1's ControlStatusChangedMessage into the strip — the only
+    /// production path that shows the TrackingLost/NoTracker labels. The adapter's behaviour is pinned
+    /// headlessly; this pins that production subscribes it.
+    /// </summary>
+    [Fact]
+    public void StatusStripWiring_RoutesTheControlStatusIntoTheStrip()
+    {
+        var root = SourceScanner.RepoRoot().FullName;
+        var coordinator = SourceScanner.StripComments(File.ReadAllText(Path.Combine(root,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs")));
+
+        Check.That(coordinator.Contains("Register<ToolbarLifecycleCoordinator, ControlStatusChangedMessage>")).IsTrue();
+        Check.That(coordinator.Contains("_visibility?.SetControlState(msg.State)")).IsTrue();
+    }
+
     [Fact]
     public void ResumeStripWiring_TracksLeavingPause_AndPublishesTheBandRect()
     {
@@ -299,7 +331,32 @@ public class ToolbarLifecycleCoordinatorTests
                 "calibrationActive:()=>AutoHideGateClosed(_modal.ProbeOpen,Context.CalibrationService.IsSessionActive),")).IsTrue();
         Check.WithCustomMessage("SetupGazeRouting no longer passes _modal.ProbeOpen into ShouldFeedKeyboardSample.")
             .That(source.Contains(
-                "ShouldFeedKeyboardSample(keyboardGated,_modal.KeyboardVisible,keyboard.IsVisible,frame.IsInGap,_modal.ProbeOpen)")).IsTrue();
+                "ShouldFeedKeyboardSample(keyboardGated,_modal.KeyboardVisible,keyboard.IsVisible,frame.IsInGap,_modal.ProbeOpen,")).IsTrue();
+        Check.WithCustomMessage(
+                "SetupGazeRouting no longer passes _exerciseActive into ShouldFeedKeyboardSample — the hidden "
+                + "keyboard would type under the exercise's full-screen window (B7 fixup-01 F1).")
+            .That(source.Contains(
+                "ShouldFeedKeyboardSample(keyboardGated,_modal.KeyboardVisible,keyboard.IsVisible,frame.IsInGap,_modal.ProbeOpen,_exerciseActive)")).IsTrue();
+        Check.WithCustomMessage(
+                "The EyeCareExerciseActiveMessage registration is gone — the keyboard gate's exercise flag "
+                + "would stay false for the whole session (B7 fixup-01 F1).")
+            .That(source.Contains(
+                "Register<ToolbarLifecycleCoordinator,EyeCareExerciseActiveMessage>(this,(_,message)=>_exerciseActive=message.Active);")).IsTrue();
+        Check.WithCustomMessage(
+                "The Settings gaze feed is no longer gated while an exercise owns the screen — its own "
+                + "detectors (not DwellOverlayViewModelBase) would answer an invisible Settings window (B7 fixup-03).")
+            .That(source.Contains(
+                "if(ShouldFeedSettingsSample(_exerciseActive))_settingsUi?.UpdateSettingsGazeIfVisible(point,timestamp);")).IsTrue();
+    }
+
+    [Fact]
+    public void ShouldFeedSettingsSample_IsFalse_WhileAnEyeCareExerciseRuns()
+    {
+        // B7 fixup-03: the Settings window keeps its own four detectors, so the shared overlay
+        // hold cannot reach them — the per-sample feed is the gate. Mutation: the predicate
+        // returns true (or the call site drops the `if`) -> the Settings feed test/pin goes red.
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedSettingsSample(exerciseActive: true)).IsFalse();
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedSettingsSample(exerciseActive: false)).IsTrue();
     }
 
     private static ToolbarAutoHideController NewAutoHide() => new(

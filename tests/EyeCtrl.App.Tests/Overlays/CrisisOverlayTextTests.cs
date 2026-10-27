@@ -55,4 +55,18 @@ public class CrisisOverlayTextTests
             window.Close();
         }
     }
+
+    /// <summary>B5: each status card's message, and the splash's no-tracker sentence.</summary>
+    [StaFact]
+    public void TheStatusCards_ShowTheirEnglishMessages()
+    {
+        var english = StringTable.EmbeddedEnglish;
+        Check.That(StatusCardWindow.MessageFor(english, EyeCtrl.Core.Enums.ControlState.Paused))
+            .IsEqualTo("Paused. Look at ▶ at the top to resume.");
+        Check.That(StatusCardWindow.MessageFor(english, EyeCtrl.Core.Enums.ControlState.TrackingLost))
+            .IsEqualTo("Eye tracking lost. Look at the screen to continue.");
+        Check.That(StatusCardWindow.MessageFor(english, EyeCtrl.Core.Enums.ControlState.NoTracker))
+            .IsEqualTo("No eye tracker found. EyeCtrl is using the mouse.");
+        Check.That(english.T("overlays.splash.noTracker")).IsEqualTo("No eye tracker found — using the mouse.");
+    }
 }

@@ -1292,6 +1292,38 @@
     "fit": "row",
     "args": []
   },
+  "overlays.splash.noTracker": {
+    "text": "No eye tracker found — using the mouse.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.statusCard.noTracker": {
+    "text": "No eye tracker found. EyeCtrl is using the mouse.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.statusCard.paused": {
+    "text": "Paused. Look at ▶ at the top to resume.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.statusCard.trackingLost": {
+    "text": "Eye tracking lost. Look at the screen to continue.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
   "overlays.subpixel.answer_one": {
     "text": "1",
     "who": "user",

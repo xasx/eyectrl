@@ -106,6 +106,8 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/StatusCardWindow.xaml.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/SplashWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml", ["overlays"]),

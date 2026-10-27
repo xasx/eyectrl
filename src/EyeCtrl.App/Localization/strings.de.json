@@ -702,6 +702,22 @@
     "text": "Scroll-Anzeige",
     "src": "ebaf748d"
   },
+  "overlays.splash.noTracker": {
+    "text": "Kein Eyetracker gefunden – die Maus wird verwendet.",
+    "src": "8322f856"
+  },
+  "overlays.statusCard.noTracker": {
+    "text": "Kein Eyetracker gefunden. EyeCtrl verwendet die Maus.",
+    "src": "2fa9b89d"
+  },
+  "overlays.statusCard.paused": {
+    "text": "Pausiert. Zum Fortsetzen oben auf ▶ schauen.",
+    "src": "75dba2e6"
+  },
+  "overlays.statusCard.trackingLost": {
+    "text": "Blickverfolgung unterbrochen. Auf den Bildschirm schauen.",
+    "src": "02eb47d2"
+  },
   "overlays.subpixel.answer_one": {
     "text": "1",
     "src": "c35c447f"

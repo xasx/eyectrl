@@ -52,6 +52,8 @@ public class NoteGateCensusTests
             "occluder", "visible bounds via the banner slot (B4: the caregiver alert is shown only as the slot's live occupant)"),
         ["EyeCtrl.App/Overlays/DriftNoticeWindow.xaml.cs"] = (
             "occluder", "visible bounds via the banner slot (B4: the drift notice is shown only as the slot's live occupant)"),
+        ["EyeCtrl.App/Overlays/StatusCardWindow.xaml.cs"] = (
+            "occluder", "visible bounds via the banner slot (B5, agreed with the sticky owner 27.10: the status card is shown only as the slot's live occupant — StatusCardPresenterTests pins (a) slot-only reachability, (b) the immediate hide raising Closed, (c) bounds through the fade tail; StatusCardNoteGateTests pins (d))"),
         ["EyeCtrl.App/Overlays/EdgeButtonBarWindow.xaml.cs"] = (
             "occluder", "the KEYBOARD instance's button rects ride the keyboard probe (IKeyboardProbe.Rects); the action-menu MODIFIER-bar instance is safe because it shows only with the action menu, a suspending state (review 01 m3)"),
         ["EyeCtrl.App/Overlays/NoteNoticeWindow.cs"] = (

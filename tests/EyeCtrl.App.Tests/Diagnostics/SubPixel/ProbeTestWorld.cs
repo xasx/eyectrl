@@ -92,7 +92,7 @@ internal sealed class ProbeTestWorld : IDisposable
             Summon = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
             QuickActions.InjectSummonForTesting(Summon);
             QuickActions.Initialize(context);
-            QuickActions.SetSummonSuspended(false);
+            QuickActions.SetSummonSuspended("probe", false);
             Check.That(QuickActions.IsSummonSuspended).IsFalse();
         }
 
@@ -115,7 +115,7 @@ internal sealed class ProbeTestWorld : IDisposable
                 return vm;
             },
             SummonSink = withQuickActions
-                ? suspended => QuickActions!.SetSummonSuspended(suspended)
+                ? suspended => QuickActions!.SetSummonSuspended("probe", suspended)
                 : null,
         };
 

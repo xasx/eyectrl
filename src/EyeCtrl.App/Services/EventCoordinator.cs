@@ -9,6 +9,8 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.EyeCare;
+using EyeCtrl.ViewModels.Messages;
 using CommunityToolkit.Mvvm.Messaging;
 
 /// <summary>
@@ -186,6 +188,19 @@ public class EventCoordinator : IEventCoordinator
         _overlayMessage.Initialize(context);
         _quickActions = new QuickActionsCoordinator(_modal);
         _quickActions.Initialize(context);
+
+        // B7 fixup-03: the eye-care exercise owns the screen. ONE altitude gate for dwell: every
+        // DwellOverlayViewModelBase surface stops taking samples (the keyboard's edge-bar Close/
+        // Flip, the task switcher, quick actions, the modes menu, the toolbar, the action menu…),
+        // and the hot-edge Quick Actions summon cannot fire — on a right-docked toolbar its grid
+        // would open over the exercise, right over the Skip disc. The eye-care targets themselves
+        // are not that base and stay live (the explicit exempt list). The keyboard-key and
+        // Settings feeds are gated in the toolbar coordinator.
+        context.Messenger.Register<EventCoordinator, EyeCareExerciseActiveMessage>(this, (_, message) =>
+        {
+            context.Messenger.Send(new ExerciseScreenHoldMessage(message.Active));
+            _quickActions?.SetSummonSuspended("exercise", message.Active);
+        });
         _keyboard = new KeyboardCoordinator(_modal, _quickActions, _toolbar);
         _keyboard.Initialize(context);
         _dragCoordinator = new DragCoordinator();
@@ -278,6 +293,10 @@ public class EventCoordinator : IEventCoordinator
     public void Dispose()
     {
         if (_disposed) return;
+
+        // B7 fixup-03: this coordinator's own exercise registration (the shared dwell hold and the
+        // summon suspension). Its owner is this instance, not a sub-coordinator.
+        _context?.Messenger.Unregister<EyeCareExerciseActiveMessage>(this);
 
         // Dispose the settings sub-coordinator FIRST: it closes the settings window (if open) with
         // its Closed handler detached first, so OnSettingsWindowClosed does NOT re-fire and touch the

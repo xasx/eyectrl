@@ -11,6 +11,28 @@
                      Left="0" Top="0">
 
     <Grid>
+        <!-- Skip dwell target: a 100 DIP disc (r50) on the MID-RIGHT edge, vertically centred —
+             or mid-left when the toolbar is docked Right — never a corner, and away from the
+             bottom-centre band the keyboard, the B4 slot, the caregiver alert and the restart
+             notice share. Code places the disc at the exact DIP its registered dwell target maps
+             to (EyeCareExerciseWindow.ComputeSkipGeometry), so the circle the user aims at is the
+             circle gaze is tested against. Declared BEFORE Stage so the live gaze ring draws over
+             it — the user must still see where their gaze is while dwelling the exit. -->
+        <Canvas x:Name="SkipLayer">
+            <Border x:Name="SkipTarget"
+                    Width="100" Height="100"
+                    Background="{StaticResource BrushSurfaceLight}"
+                    BorderBrush="{StaticResource BrushBorderSubtle}"
+                    BorderThickness="{StaticResource StandardBorderThickness}"
+                    CornerRadius="{StaticResource CircleCornerRadius}">
+                <Button x:Name="SkipButton" Content="{loc:T 'eye-care.exercise.skip'}"
+                        Focusable="False"
+                        Foreground="{StaticResource BrushTextSecondary}" Background="Transparent"
+                        BorderThickness="0" BorderBrush="Transparent"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+            </Border>
+        </Canvas>
+
         <Canvas x:Name="Stage">
             <!-- Target dot -->
             <Ellipse x:Name="TargetDot" Width="36" Height="36" Fill="{StaticResource BrushAccent}" Opacity="0.9"/>
@@ -25,11 +47,6 @@
             <TextBlock x:Name="Countdown" Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}"
                        HorizontalAlignment="Center" Margin="0,4,0,0"/>
         </StackPanel>
-
-        <!-- Skip button (corner) -->
-        <Button x:Name="SkipButton" Content="{loc:T 'eye-care.exercise.skip'}" Width="60" Height="32"
-                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20"
-                Foreground="{StaticResource BrushTextDim}" Background="Transparent" BorderBrush="{StaticResource BrushBorderSubtle}"/>
 
         <!-- Progress bar -->
         <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Minimum="0" Maximum="100"/>

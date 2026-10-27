@@ -626,13 +626,13 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     {
         if (visible)
         {
-            _quickActions.SetSummonSuspended(true);
+            _quickActions.SetSummonSuspended("keyboard", true);
             _modal.KeyboardVisible = true;
         }
         else
         {
             _modal.KeyboardVisible = false;
-            _quickActions.SetSummonSuspended(false);
+            _quickActions.SetSummonSuspended("keyboard", false);
         }
     }
 

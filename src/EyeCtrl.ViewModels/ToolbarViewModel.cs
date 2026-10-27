@@ -40,6 +40,11 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     // state is true — the toolbar starts visible and dwellable.
     private bool _dwellingActive = true;
 
+    // B7 fixup-03: the exercise hold is the shared DwellOverlayViewModelBase gate
+    // (ExerciseScreenHeld); the toolbar's own gate is the auto-hide adapter's _dwellingActive.
+    // Both must be open for the toolbar to accumulate dwell or offer a drag exit.
+    private bool DwellEnabled => _dwellingActive && !ExerciseScreenHeld;
+
     /// <summary>The Pause toggle's target id, used by the leave-before-re-arm gate.</summary>
     private const string PauseTargetId = "Pause";
 
@@ -140,7 +145,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// </para>
     /// </summary>
     internal DragExitZone? PauseDragExitZone =>
-        _dwellingActive && _lastCenters.TryGetValue(PauseTargetId, out var center)
+        DwellEnabled && _lastCenters.TryGetValue(PauseTargetId, out var center)
             ? new DragExitZone(center, _buttonDwellRadiusPhysical)
             : null;
 
@@ -232,7 +237,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // The pause term routes through the shared gate (round-2 finding 2): this override used to
         // reimplement the checks, silently bypassing DwellActiveWhilePaused below and leaving the
         // toolbar's unpause opt-in as dead code.
-        if (!_dwellingActive || !SampleMayDwell(message)) return;
+        if (!DwellEnabled || !SampleMayDwell(message)) return;
 
         // Leave-before-re-arm for the pause toggle: while gaze still rests on the toggle that just
         // fired, do not feed the detector at all. Without this, the shared cooldown alone re-arms at

@@ -30,7 +30,11 @@ public class DwellPauseGraceWiringTests
         DwellDetector Detector,
         string TargetId,
         Func<bool>? ItemPaused,
-        Func<double>? ItemProgress);
+        Func<double>? ItemProgress)
+    {
+        /// <summary>The bus the VM was built with (fixup-03's hold message is sent here).</summary>
+        public WeakReferenceMessenger? Messenger { get; init; }
+    }
 
     private sealed class OneWindowManager : IWindowManager
     {
@@ -66,11 +70,16 @@ public class DwellPauseGraceWiringTests
         return data;
     }
 
-    /// <summary>Surfaces whose items expose the paused flag (the ones with a visible dwell indicator).</summary>
+    /// <summary>
+    /// Surfaces whose items expose the paused flag (the ones with a visible dwell indicator).
+    /// ResumeStrip joined with B2a: its grace is deliberately capped at 200 ms (the strip sits over
+    /// content for the whole pause), so it is in this family but NOT in <see cref="WiredNames"/>'s
+    /// full-grace theories.
+    /// </summary>
     public static TheoryData<string> WithItems()
     {
         var data = new TheoryData<string>();
-        foreach (var name in new[] { "Toolbar", "ModesMenu", "ActionMenu", "EdgeBar", "TaskSwitcher", "QuickActions" })
+        foreach (var name in new[] { "Toolbar", "ModesMenu", "ActionMenu", "EdgeBar", "TaskSwitcher", "QuickActions", "ResumeStrip" })
             data.Add(name);
         return data;
     }
@@ -85,14 +94,14 @@ public class DwellPauseGraceWiringTests
                 var vm = new ToolbarViewModel(settings, messenger);
                 vm.UpdateButtonScreenPosition("Pause", On);
                 var item = vm.Buttons.Single(b => b.Id == "Pause");
-                return new Surface(name, vm, DetectorOf(vm), "Pause", () => item.IsDwellPaused, () => item.DwellProgress);
+                return new Surface(name, vm, DetectorOf(vm), "Pause", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }
             case "ModesMenu":
             {
                 var vm = new ModesMenuViewModel(settings, messenger);
                 vm.SetRowScreenPositions([("modes_left", On, 40)]);
                 var item = vm.Buttons.Single(b => b.Id == "modes_left");
-                return new Surface(name, vm, DetectorOf(vm), "modes_left", () => item.IsDwellPaused, () => item.DwellProgress);
+                return new Surface(name, vm, DetectorOf(vm), "modes_left", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }
             case "ActionMenu":
             {
@@ -101,18 +110,18 @@ public class DwellPauseGraceWiringTests
                     new PhysicalPoint(500, 500), [InteractionAction.LeftClick, InteractionAction.RightClick],
                     false, 600, new PhysicalPoint(500, 500)));
                 var item = vm.Items[0];
-                return new Surface(name, vm, DetectorOf(vm), item.Id, () => item.IsDwellPaused, () => item.DwellProgress);
+                return new Surface(name, vm, DetectorOf(vm), item.Id, () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }
             case "ManualSelection":
             {
                 var vm = new ManualSelectionOverlayViewModel(settings, messenger);
-                return new Surface(name, vm, DetectorOf(vm), "", null, null);
+                return new Surface(name, vm, DetectorOf(vm), "", null, null) { Messenger = messenger };
             }
             case "GlassBackdrop":
             {
                 var vm = new GlassBackdropViewModel(settings, messenger);
                 messenger.Send(new ShowBackdropMessage(On));
-                return new Surface(name, vm, DetectorOf(vm), "backdrop_hide", null, () => vm.HideButtonProgress);
+                return new Surface(name, vm, DetectorOf(vm), "backdrop_hide", null, () => vm.HideButtonProgress) { Messenger = messenger };
             }
             case "EdgeBar":
             {
@@ -121,12 +130,12 @@ public class DwellPauseGraceWiringTests
                     [new EdgeButtonDefinition("Drag_cancel", "✕", 700, m => m.Send(new DragCancelMessage()), 30)],
                     new PhysicalPoint(1000, 500));
                 var item = vm.Buttons.Single(b => b.Id == "Drag_cancel");
-                return new Surface(name, vm, DetectorOf(vm), "Drag_cancel", () => item.IsDwellPaused, () => item.DwellProgress);
+                return new Surface(name, vm, DetectorOf(vm), "Drag_cancel", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }
             case "DragTrail":
             {
                 var vm = new DragTrailViewModel(settings, messenger);
-                return new Surface(name, vm, DetectorOf(vm), "", null, null);
+                return new Surface(name, vm, DetectorOf(vm), "", null, null) { Messenger = messenger };
             }
             case "TaskSwitcher":
             {
@@ -134,7 +143,7 @@ public class DwellPauseGraceWiringTests
                 vm.Receive(new TaskSwitcherToggledMessage());
                 vm.UpdateTilePosition(new IntPtr(4242), On);
                 var item = vm.Tiles.Single();
-                return new Surface(name, vm, DetectorOf(vm), "4242", () => item.IsDwellPaused, () => item.DwellProgress);
+                return new Surface(name, vm, DetectorOf(vm), "4242", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }
             case "QuickActions":
             {
@@ -143,7 +152,17 @@ public class DwellPauseGraceWiringTests
                 vm.Receive(new QuickActionsToggledMessage());
                 vm.UpdateTilePosition("act1", On);
                 var item = vm.Tiles.Single();
-                return new Surface(name, vm, DetectorOf(vm), "act1", () => item.IsDwellPaused, () => item.DwellProgress);
+                return new Surface(name, vm, DetectorOf(vm), "act1", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
+            }
+            case "ResumeStrip":
+            {
+                // B2a's Resume target: a base surface like the rest (its own capped grace and its
+                // own leave-before-arm are orthogonal to the exercise hold). The family test marks
+                // it visible; the target is registered here.
+                var vm = new ResumeStripViewModel(settings, messenger);
+                vm.PlaceTarget(On, 40);
+                return new Surface(name, vm, DetectorOf(vm), ResumeStripViewModel.ResumeTargetId,
+                    () => vm.IsDwellPaused, () => vm.DwellProgress) { Messenger = messenger };
             }
             default:
                 throw new ArgumentOutOfRangeException(nameof(name), name, null);
@@ -157,6 +176,21 @@ public class DwellPauseGraceWiringTests
         var center = s.Detector.Targets.Single(t => t.Id == s.TargetId).Center;
         for (var t = fromMs; t <= toMs; t += 30)
             s.Detector.Update(center, t * Ms);
+    }
+
+    /// <summary>Drives the VM's public per-sample route (base Receive -> SampleMayDwell -> detector).</summary>
+    private static void HoldThroughVm(Surface s, long fromMs, long toMs)
+    {
+        var center = s.Detector.Targets.Single(t => t.Id == s.TargetId).Center;
+        for (var t = fromMs; t <= toMs; t += 30)
+            s.Messenger!.Send(new GazeCursorMovedMessage(center, t * 1000));
+    }
+
+    /// <summary>The same route at an arbitrary point (a look-away run for leave-before-arm).</summary>
+    private static void HoldThroughVmAt(Surface s, PhysicalPoint point, long fromMs, long toMs)
+    {
+        for (var t = fromMs; t <= toMs; t += 30)
+            s.Messenger!.Send(new GazeCursorMovedMessage(point, t * 1000));
     }
 
     // ------------------------------------------------------------------ (a) the setting reaches each detector
@@ -449,4 +483,52 @@ public class DwellPauseGraceWiringTests
         Check.That(vm.CloseDwellPaused).IsFalse();
         Check.That(vm.CloseDwellProgress).IsEqualTo(0.0);
     }
+    // ------------------------------------------------------------------ (e) the exercise screen hold
+
+    /// <summary>
+    /// B7 fixup-03: ONE altitude gate for every <see cref="DwellOverlayViewModelBase"/> surface.
+    /// While the App's <see cref="ExerciseScreenHoldMessage"/> is active (an eye-care exercise owns
+    /// the opaque full-screen window), a rest on any surface accumulates nothing; releasing it
+    /// resumes the dwell. This is the family test behind the keyboard's edge-bar Close/Flip, the
+    /// task switcher, the Quick Actions grid, the Modes menu and the toolbar.
+    /// Mutation: drop the hold term from <c>SampleMayDwell</c> (or stop registering the message) ->
+    /// the gated rest completes and this goes red.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(WithItems))]
+    public void AnExerciseScreenHold_StopsTheSurface_AndReleasingItResumes(string name)
+    {
+        var surface = Build(name, new EyeCtrlSettings());
+        using (surface.Vm)
+        {
+            // Drive the VM's own per-sample route (the detector-direct Hold would bypass the
+            // gate). Every surface must be visible for its Receive to run at all.
+            ((DwellOverlayViewModelBase)surface.Vm).IsVisible = true;
+            var activations = 0;
+            surface.Detector.TargetActivated += _ => activations++;
+            surface.Messenger!.Send(new ExerciseScreenHoldMessage(true));
+            // An outside run first, then the centre: the Resume strip's own leave-before-arm arms
+            // on it, so without the hold the following rest WOULD activate — the case this test
+            // must catch. For the other surfaces the outside run is inert.
+            HoldThroughVmAt(surface, Off, 0, 300);
+            HoldThroughVm(surface, 330, 2000);
+            Check.WithCustomMessage($"{name}: dwell activated under the exercise hold")
+                .That(activations).IsEqualTo(0);
+            Check.WithCustomMessage($"{name}: dwell accumulated under the exercise hold")
+                .That(surface.ItemProgress!()).IsEqualTo(0.0);
+            Check.WithCustomMessage($"{name}: the detector accumulated progress under the hold")
+                .That(surface.Detector.GetProgress(surface.TargetId)).IsEqualTo(0.0);
+
+            surface.Messenger.Send(new ExerciseScreenHoldMessage(false));
+            // A short look away first: the Resume strip's own leave-before-arm needs it; for the
+            // other surfaces it is harmless (their dwell simply restarts on the return).
+            HoldThroughVmAt(surface, Off, 2030, 2230);
+            HoldThroughVm(surface, 2260, 4000);
+            Check.WithCustomMessage($"{name}: the surface did not dwell again after the exercise")
+                .That(activations).IsStrictlyGreaterThan(0);
+        }
+    }
+
+    // Mutation (B7-f3-s1): remove `!_exerciseScreenHeld` from SampleMayDwell -> every case red.
+    // Mutation (B7-f3-s2): drop the IRecipient<ExerciseScreenHoldMessage> interface (no delivery) -> every case red.
 }

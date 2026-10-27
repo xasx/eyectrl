@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services.Coordinators;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
@@ -36,6 +37,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     // the first gaze sample. Private: AttachSettingsUi is the only writer, SetupGazeRouting the only
     // reader — nothing outside this class touches the field.
     private SettingsUiCoordinator? _settingsUi;
+    // B7 fixup-01 F1: true while an eye-care exercise runs. The exercise window is full-screen
+    // and opaque, so the keyboard beneath it is invisible input; withholding its samples is the
+    // same rule as probeOpen (and the pause/gap terms). Written from the eye-care service's
+    // message thread (gaze thread or a thread-pool continuation), read inside the dispatcher
+    // action, hence volatile.
+    private volatile bool _exerciseActive;
     public ToolbarLifecycleCoordinator(ModalInteractionState modal) =>
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
 
@@ -79,6 +86,16 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         // covered; the PAUSED strip stays on the StateChanged command above, never on this message.
         context.Messenger.Register<ToolbarLifecycleCoordinator, ControlStatusChangedMessage>(this, (_, msg) =>
             _visibility?.SetControlState(msg.State));
+
+        // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1) and the Settings
+        // window's gaze feed (fixup-03): the full-screen, opaque exercise window hides an open
+        // keyboard and Settings window, and the user is told to rest on the Skip disc — a sample
+        // credited under it would type into the foreground app or answer an invisible control.
+        // Every DwellOverlayViewModelBase surface (the keyboard's edge-bar pair, task switcher,
+        // quick actions, modes menu, toolbar) is gated by the shared ExerciseScreenHoldMessage
+        // instead; see EventCoordinator's publisher.
+        context.Messenger.Register<ToolbarLifecycleCoordinator, EyeCareExerciseActiveMessage>(this,
+            (_, message) => _exerciseActive = message.Active);
 
         // The screen changed size or scale. Both of this controller's geometry values were captured
         // once at startup and could never be updated — the summon region, which is the escape
@@ -151,12 +168,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // geometry-only
                 // (target placement) and are fed regardless. Paused samples are skipped for the same
                 // reason: input must not leave EyeCtrl while the user believes pause released it.
-                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen))
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen, _exerciseActive))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
                 // inside UpdateSettingsGazeIfVisible, which is a no-op when no window is constructed).
-                _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
+                // B7 fixup-03: an exercise owns the screen, so the Settings window's own detectors
+                // (tabs/controls/pages/modals — not DwellOverlayViewModelBase) get no samples.
+                if (ShouldFeedSettingsSample(_exerciseActive))
+                    _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
             });
         };
 
@@ -166,12 +186,22 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// <summary>
     /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
     /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
-    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND the probe
-    /// does not own the screen (build plan C9). Review found the inline version had zero test
-    /// coverage — neutralizing it broke no test.
+    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND neither the
+    /// probe nor an eye-care exercise owns the screen (build plan C9; B7 fixup-01 F1).
+    /// Review found the inline version had zero test coverage — neutralizing it broke no test.
     /// </summary>
-    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen) =>
-        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen;
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen, bool exerciseActive) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive;
+
+    /// <summary>
+    /// The Settings window's per-sample feed gate (B7 fixup-03). The Settings VM keeps its own four
+    /// detectors (tabs, controls, pagination, modals), so the shared DwellOverlayViewModelBase hold
+    /// cannot reach them; while an eye-care exercise owns the opaque full-screen window, no sample
+    /// may be forwarded. Pure, so the gate is pinned headlessly; the call site passes
+    /// <c>_exerciseActive</c> and is pinned at source in
+    /// <c>ToolbarLifecycleCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource</c>.
+    /// </summary>
+    internal static bool ShouldFeedSettingsSample(bool exerciseActive) => !exerciseActive;
 
     /// <summary>
     /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or

@@ -107,10 +107,10 @@ internal sealed class ProbeHost : IProbeHost
     public void RestoreKeyboard(bool wasVisible) => _keyboard.RestoreAfterProbe(wasVisible);
 
     /// <inheritdoc/>
-    public void SuspendSummon() => _quickActions.SetSummonSuspended(true);
+    public void SuspendSummon() => _quickActions.SetSummonSuspended("probe", true);
 
     /// <inheritdoc/>
-    public void ResumeSummon() => _quickActions.SetSummonSuspended(false);
+    public void ResumeSummon() => _quickActions.SetSummonSuspended("probe", false);
 
     /// <inheritdoc/>
     public bool AnyMenuVisible =>

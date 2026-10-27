@@ -70,6 +70,11 @@ public sealed class ExternalDwellService : IDisposable
 
     private string? _feedbackId;
     private PhysicalRect _feedbackRect;
+    // B7 fixup-04 L2: true while an eye-care exercise (and its summary) owns the screen. The
+    // exercise window is click-through, so a registered SDK target under it would otherwise
+    // activate on an invisible rest. Written by the shared hold message (gaze thread or a
+    // thread-pool continuation), read per frame on the gaze thread — volatile.
+    private volatile bool _exerciseHeld;
     private bool _suppressing;
     private string? _frameProgressId;
     private double _frameProgress;
@@ -124,6 +129,8 @@ public sealed class ExternalDwellService : IDisposable
         };
         _settings.PropertyChanged += _settingsChangedHandler;
         _gazeEngine.CursorMoved += OnCursorMoved;
+        _messenger.Register<ExternalDwellService, ExerciseScreenHoldMessage>(this,
+            (_, message) => _exerciseHeld = message.Active);
 
         // The PipeConnection IS this channel's per-connection state: the server hands it back to
         // every line handler and to teardown, so nothing here has to map a pipe to its writer.
@@ -212,7 +219,8 @@ public sealed class ExternalDwellService : IDisposable
     private void OnCursorMoved(GazeFrame frame)
     {
         if (!_settings.Enabled
-            || _gazeEngine.InteractionManager.CurrentState == InteractionState.Paused)
+            || _gazeEngine.InteractionManager.CurrentState == InteractionState.Paused
+            || _exerciseHeld)
         {
             ReleaseSuppression();
             SetFeedback(null, default, 0);
@@ -490,6 +498,7 @@ public sealed class ExternalDwellService : IDisposable
         if (_disposed) return;
         _disposed = true;
         _gazeEngine.CursorMoved -= OnCursorMoved;
+        _messenger.Unregister<ExerciseScreenHoldMessage>(this);
         _settings.PropertyChanged -= _settingsChangedHandler;
         ReleaseSuppression();
         // Unregister BEFORE further teardown: the registry entry holds this detector through its

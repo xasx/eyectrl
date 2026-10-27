@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using System.Reflection;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -16,14 +17,14 @@ using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
-/// Guards the registry arguments of the five factory lambdas in <c>AppBootstrapper</c>
+/// Guards the registry arguments of the six factory lambdas in <c>AppBootstrapper</c>
 /// (ManualSelectionDwellService, ExternalDwellService, NoteManager, OverlayManager,
-/// EyeCareBannerWindow). Every one of them feeds an OPTIONAL constructor parameter
-/// (<c>IDwellDetectorRegistry? dwellRegistry = null</c>), so deleting the argument neither fails
-/// the build nor throws at resolution — the app just silently stops routing adaptation to that
+/// EyeCareBannerWindow, EyeCareExerciseWindow). Every one of them feeds an OPTIONAL constructor
+/// parameter (<c>IDwellDetectorRegistry? dwellRegistry = null</c>), so deleting the argument neither
+/// fails the build nor throws at resolution — the app just silently stops routing adaptation to that
 /// surface. An implementation-review mutation confirmed the suite stays green across all five
-/// deletions; these facts make each one loud by resolving the owner from a real provider and
-/// asserting the registry entry its factory must land.
+/// original deletions; these facts make each one loud by resolving the owner from a real provider
+/// and asserting the registry entry its factory must land.
 /// </summary>
 /// <remarks>
 /// Mirrors <see cref="TelemetrySinkRegistrationTests"/>: builds the real container and never
@@ -33,15 +34,15 @@ using Microsoft.Extensions.DependencyInjection;
 /// fact disposes its provider, and ServiceProvider disposal disposes both singletons — whose
 /// Dispose unregisters them from the messenger — so nothing leaks.
 ///
-/// The two window-constructing facts (ExternalDwellService builds a DwellFeedbackOverlay,
-/// EyeCareBannerWindow's XAML reads theme tokens) need [StaFact] plus
+/// The three window-constructing facts (ExternalDwellService builds a DwellFeedbackOverlay, and
+/// the eye-care windows' XAML reads theme tokens) need [StaFact] plus
 /// <see cref="WpfApplicationGate.EnsureApplicationWithTokens"/>. They are therefore gate callers
 /// and must never run concurrently with another one: this class sits in
 /// "DpiHelper Tests (App)", which is DisableParallelization, and xUnit v3 runs such a collection
 /// exclusively — the same reasoning <c>ExternalDwellServiceTests</c> ("ExternalDwellPipe") relies
 /// on instead of joining "WpfApplication".
 ///
-/// OverlayManager is guarded one level removed from the other four: its constructor only STORES
+/// OverlayManager is guarded one level removed from the other five: its constructor only STORES
 /// the registry — the entry lands later, in KeyboardWindow's constructor, which
 /// OverlayManager.Initialize() invokes alongside ~15 other XAML windows. Constructing that set
 /// headless is the XAML-resource flake zone, so by the same ruling that parks SetViewModel the
@@ -56,9 +57,9 @@ public class DwellRoutingRegistrationWiringTests
     // resolution loads, and can rewrite, calibration.json. See TestAppDataDir.
     private static readonly string AppData = TestAppDataDir.Create("dwell-routing");
 
-    private static ServiceProvider BuildProvider() =>
+    private static ServiceProvider BuildProvider(EyeCtrlSettings? settings = null) =>
         AppBootstrapper.BuildServiceProvider(
-            new EyeCtrlSettings(),
+            settings ?? new EyeCtrlSettings(),
             settingsFilePath: Path.Combine(AppData, "settings.json"),
             dispatcher: Dispatcher.CurrentDispatcher,
             isTestMode: true,
@@ -148,6 +149,49 @@ public class DwellRoutingRegistrationWiringTests
         // snapshot). Pins the same teardown contract the per-session owners honor.
         sp.Dispose();
         Check.That(registry.Registrations).IsEmpty();
+    }
+
+    [StaFact]
+    public void EyeCareExerciseWindow_ResolvedFromContainer_LandsItsRegistryEntry()
+    {
+        // B7 gave the exercise window its own detector (the Skip exit). Like the banner's, its
+        // registry argument is optional, so a deleted wiring would fail neither the build nor
+        // resolution — only adaptation would silently stop reaching the exit.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+
+        _ = sp.GetRequiredService<EyeCareExerciseWindow>();
+        var registry = sp.GetRequiredService<IDwellDetectorRegistry>();
+
+        CheckSingleEntry(registry.Registrations, DwellContext.EyeCare,
+            AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs);
+    }
+
+    [StaFact]
+    public void EyeCareWindows_ResolvedFromContainer_FollowTheLiveSettingsObjects()
+    {
+        // B7 fixup-01 M7/M8: both factory lambdas pass the LIVE DwellSettings and ToolbarSettings
+        // (the same objects Settings edits). Dropping either argument leaves the optional parameter
+        // null, and the window silently falls back to a private default — the banner's grace, ring
+        // top and ring dwell, and the exercise's dock, would stop following the owner's settings.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.DwellPauseGraceMs = 350;
+        settings.Toolbar.Size = 200;
+        settings.Toolbar.DockedEdge = "Right";
+        using var sp = BuildProvider(settings);
+
+        var banner = sp.GetRequiredService<EyeCareBannerWindow>();
+        Check.That(banner.DwellSettingsForTest).IsSameReferenceAs(settings.Dwell);
+        Check.That(banner.ToolbarSettingsForTest).IsSameReferenceAs(settings.Toolbar);
+        Check.That(banner.DwellForTest.PauseGraceMs).IsEqualTo(350);
+        Check.That(banner.RingTopForTest)
+            .IsEqualTo(EyeCareBannerWindow.RingsTopDip(settings.Toolbar, SystemParameters.WorkArea.Top));
+
+        var exercise = sp.GetRequiredService<EyeCareExerciseWindow>();
+        Check.WithCustomMessage("the exercise window lost the live ToolbarSettings (a right-docked "
+                + "toolbar would then leave Skip on the toolbar's own edge)")
+            .That(exercise.ToolbarSettingsForTest).IsSameReferenceAs(settings.Toolbar);
     }
 
     [StaFact]

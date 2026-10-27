@@ -13,12 +13,20 @@ using EyeCtrl.ViewModels.Messages;
 /// DwellDetector and react in OnTargetActivated / OnTargetProgress.
 /// </summary>
 public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase,
-    IRecipient<GazeCursorMovedMessage>
+    IRecipient<GazeCursorMovedMessage>, IRecipient<ExerciseScreenHoldMessage>
 {
     [ObservableProperty] private bool _isVisible;
 
     private readonly IDwellDetectorRegistry? _dwellRegistry;
     private readonly DwellSettings? _pauseGraceSettings;
+
+    // B7 fixup-03: true while an eye-care exercise (and its summary) owns the screen. The App
+    // publishes ExerciseScreenHoldMessage from EyeCareExerciseActiveMessage; this one flag gates
+    // EVERY surface below (the keyboard's edge-bar pair, task switcher, quick actions, modes menu,
+    // toolbar, action menu, drag trail …). Written on the publishing thread (gaze thread or a
+    // thread-pool continuation), read per sample on the UI thread — hence volatile. The eye-care
+    // targets are not DwellOverlayViewModelBase surfaces and are the explicit exempt list.
+    private volatile bool _exerciseScreenHeld;
 
     protected DwellDetector DwellDetector { get; }
 
@@ -121,14 +129,29 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     protected void NoteSamplePaused(bool isPaused) => LastSampleWasPaused = isPaused;
 
     /// <summary>
-    /// The shared per-sample dwell gate: a gap-held sample never accumulates, and a paused
-    /// sample accumulates only on surfaces that opted in via <see cref="DwellActiveWhilePaused"/>.
+    /// B7 fixup-03: whether an eye-care exercise currently owns the screen. Every surface inherits
+    /// the gate through <see cref="SampleMayDwell"/>; a subclass that needs it for a non-sample
+    /// decision (the toolbar's drag-exit zone) reads this.
+    /// </summary>
+    protected bool ExerciseScreenHeld => _exerciseScreenHeld;
+
+    /// <inheritdoc />
+    public void Receive(ExerciseScreenHoldMessage message) => _exerciseScreenHeld = message.Active;
+
+    /// <summary>
+    /// The shared per-sample dwell gate: a gap-held sample never accumulates, a paused sample
+    /// accumulates only on surfaces that opted in via <see cref="DwellActiveWhilePaused"/>, and
+    /// NOTHING accumulates while an eye-care exercise owns the screen (B7 fixup-03; the eye-care
+    /// targets themselves are not this base and stay live). The hold is delivered by the
+    /// <see cref="IRecipient{TMessage}"/> interface above, which <see cref="MessengerViewModelBase"/>
+    /// registers through <c>ObservableRecipient.IsActive</c>.
     /// Subclasses that override <see cref="Receive"/> MUST route through this — round-2 finding
     /// 2: three overrides reimplemented their own checks and silently bypassed the pause gate,
     /// leaving two of the opt-ins as dead code.
     /// </summary>
     protected bool SampleMayDwell(GazeCursorMovedMessage message) =>
-        !message.IsInGap && (!message.IsPaused || DwellActiveWhilePaused);
+        !_exerciseScreenHeld && !message.IsInGap
+        && (!message.IsPaused || DwellActiveWhilePaused);
 
     /// <summary>
     /// Feeds the sample to the dwell detector while visible. A gap-held sample is skipped entirely —

@@ -35,9 +35,16 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
         SetupQuickActionsSummon();
     }
 
-    /// <summary>Suspend/resume the hot-edge summon (called by Keyboard/Settings coordinators when a
-    /// modal opens). Wraps _summon.SetSuspended.</summary>
-    public void SetSummonSuspended(bool suspended) => _summon?.SetSuspended(suspended);
+    /// <summary>
+    /// Suspend/resume the hot-edge summon for ONE named claimant (keyboard, settings, exercise,
+    /// probe). The summon is live only while no claim holds (B7 fixup-04 L1).
+    /// </summary>
+    public void SetSummonSuspended(string claim, bool suspended) =>
+        _summon?.SetSuspended(claim, suspended);
+
+    // The feature toggle is a claim too: a disabled Quick Actions must not summon whatever the
+    // modal claimants say.
+    private const string FeatureDisabledClaim = nameof(QuickActionsGridViewModel);
 
     /// <summary>
     /// The summon controller's gaze gate (build plan C9): while the probe is open, no hot-edge
@@ -78,11 +85,11 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
                     if (_summon == null)
                         SetupQuickActionsSummon();
                     else
-                        _summon.SetSuspended(false);
+                        _summon.SetSuspended(FeatureDisabledClaim, false);
                 }
                 else
                 {
-                    _summon?.SetSuspended(true);
+                    _summon?.SetSuspended(FeatureDisabledClaim, true);
                 }
                 return;
             }
@@ -101,7 +108,7 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
 
         if (_summon != null)
         {
-            _summon.SetSuspended(!s.Enabled);
+            _summon.SetSuspended(FeatureDisabledClaim, !s.Enabled);
             return;
         }
 

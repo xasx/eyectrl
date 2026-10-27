@@ -147,6 +147,13 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// <summary>The button band, for tests. Layout must be measured against this, not the Window.</summary>
     internal Canvas ButtonCanvasForTest => ButtonCanvas;
 
+    /// <summary>
+    /// <c>StripRoot</c>'s Padding in DIP (the XAML Border's <c>Padding="4"</c>). The window's
+    /// thickness is the button band plus twice this; eye-care placement reads it so a ring clear
+    /// of the band is also clear of the window's own padding (<c>EyeCarePlacement</c>).
+    /// </summary>
+    internal const double BandPaddingDip = 4;
+
     public ToolbarWindow()
     {
         InitializeComponent();

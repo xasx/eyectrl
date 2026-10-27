@@ -198,6 +198,12 @@ public class RestartNoticeHostTests
         Check.That(System.Text.RegularExpressions.Regex.IsMatch(
             arguments, @"targetLanguage\s*:\s*\(\)\s*=>\s*RestartNotices\s*\.\s*TargetLanguage\s*\(")).IsTrue();
         Check.That(arguments.Contains("new RestartNoticeWindow(", StringComparison.Ordinal)).IsTrue();
+        // B6: the close target must read the LIVE DwellSettings object at each show (its
+        // RestartNoticeDwellMs, 0 = follow ActivationButtonDwellMs), not a startup snapshot.
+        Check.WithCustomMessage(
+                "the card no longer receives the live DwellSettings, so its new dwell knob cannot be read")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                arguments, @"dwellSettings\s*:\s*settings\s*\.\s*Dwell")).IsTrue();
         // The card keeps off the gaze keyboard and the toolbar only if it is told where they are: the
         // zones the activation offer already keeps clear of.
         Check.WithCustomMessage("the card is no longer given the chrome zones, so it could cover the keys or the toolbar")

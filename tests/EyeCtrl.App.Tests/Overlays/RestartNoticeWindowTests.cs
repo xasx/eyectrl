@@ -200,6 +200,43 @@ public class RestartNoticeWindowTests
         });
     }
 
+    [StaFact]
+    public void TheCloseTarget_UsesTheRestartNoticeKnob_AndFallsBackToTheLiveActivationDwell()
+    {
+        // B6: the card reads the live DwellSettings at every show. RestartNoticeDwellMs = 0
+        // follows ActivationButtonDwellMs, and a positive knob wins over it.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var dwell = new EyeCtrl.Core.Settings.DwellSettings { ActivationButtonDwellMs = 300 };
+        var card = HeadlessNoticeWith(dwell);
+        try
+        {
+            long DwellUs()
+            {
+                card.ShowNotice("Titel", "OK", TimeSpan.FromSeconds(30));
+                var us = card.DwellForTest.Targets.Single().DwellTimeMicroseconds;
+                card.HideNotice();
+                return us;
+            }
+
+            Check.That(DwellUs()).IsEqualTo(300 * 1000L);
+
+            dwell.RestartNoticeDwellMs = 800;
+            Check.That(DwellUs()).IsEqualTo(800 * 1000L);
+
+            // The knob wins, so a live activation-dwell edit does not move the card.
+            dwell.ActivationButtonDwellMs = 450;
+            Check.That(DwellUs()).IsEqualTo(800 * 1000L);
+
+            // Back to 0: the card follows the activation dwell again, with no restart.
+            dwell.RestartNoticeDwellMs = 0;
+            Check.That(DwellUs()).IsEqualTo(450 * 1000L);
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
     /// <summary>
     /// A card whose "show" is a headless layout: <see cref="RestartNoticeWindow.ShowNotice"/> runs for
     /// real (text, placement, dwell target, offer suspension, timer) except that nothing is put on
@@ -212,6 +249,18 @@ public class RestartNoticeWindowTests
             card.Arrange(new Rect(0, 0, card.Width, card.Height));
             card.UpdateLayout();
         });
+
+    /// <summary>The same headless card, wired to a live settings object (B6's live-read seam).</summary>
+    private static RestartNoticeWindow HeadlessNoticeWith(EyeCtrl.Core.Settings.DwellSettings dwell) =>
+        new(
+            messenger: new WeakReferenceMessenger(),
+            present: card =>
+            {
+                card.Measure(new Size(card.Width, card.Height));
+                card.Arrange(new Rect(0, 0, card.Width, card.Height));
+                card.UpdateLayout();
+            },
+            dwellSettings: dwell);
 
     private static void RegisterActive(IMessenger messenger, List<bool> into) =>
         messenger.Register<RestartNoticeActiveMessage>(into, (list, message) => ((List<bool>)list).Add(message.Active));

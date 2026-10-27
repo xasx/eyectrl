@@ -35,6 +35,12 @@ internal sealed class EyeCarePageSource : ISettingsPageSource
                     StringTable.Current.T("settings.eyecare.banner_snooze.label"), 5, 120, 5, 0,
                     () => s.BannerAutoSnoozeSeconds, v => { s.BannerAutoSnoozeSeconds = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.eyecare.banner_snooze.description") },
+                // 0 = follow ActivationButtonDwellMs live; the step is 200 so the 0-then-200 hole
+                // in the guard is never landed on by the stepper.
+                new SliderSpec("ec_banner_dwell",
+                    StringTable.Current.T("settings.eyecare.banner_dwell.label"), 0, 3000, 200, 0,
+                    () => _ctx.Settings.Dwell.EyeCareBannerDwellMs, v => { _ctx.Settings.Dwell.EyeCareBannerDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.eyecare.banner_dwell.description") },
                 new SliderSpec("ec_snooze",
                     StringTable.Current.T("settings.eyecare.snooze.label"), 1, 60, 1, 0,
                     () => s.SnoozeMinutes, v => { s.SnoozeMinutes = (int)v; _ctx.ApplyAndSave(); })
@@ -52,11 +58,13 @@ internal sealed class EyeCarePageSource : ISettingsPageSource
                     () => _ctx.ShowModal(StringTable.Current.T("settings.eyecare.reset.message"), () =>
                     {
                         var d = new Core.Settings.EyeCareSettings();
+                        var dw = new Core.Settings.DwellSettings();
                         s.Enabled = d.Enabled;
                         s.IntervalMinutes = d.IntervalMinutes;
                         s.NaturalBreakSeconds = d.NaturalBreakSeconds;
                         s.ExerciseDurationSeconds = d.ExerciseDurationSeconds;
                         s.BannerAutoSnoozeSeconds = d.BannerAutoSnoozeSeconds;
+                        _ctx.Settings.Dwell.EyeCareBannerDwellMs = dw.EyeCareBannerDwellMs;
                         s.SnoozeMinutes = d.SnoozeMinutes;
                         s.FatigueMonitorEnabled = d.FatigueMonitorEnabled;
                         s.FatigueThreshold = d.FatigueThreshold;

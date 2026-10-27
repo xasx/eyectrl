@@ -539,6 +539,41 @@ public class EyeCareDwellTests
     }
 
     [StaFact]
+    public void TheBannerRingDwellTime_UsesTheBannerKnob_AndFallsBackToTheLiveActivationDwell()
+    {
+        // B6: EyeCareBannerDwellMs = 0 follows ActivationButtonDwellMs live; a positive knob wins.
+        var dwell = FastDwell(); // activation 200
+        var window = NewBanner(dwell);
+        try
+        {
+            long DwellUs()
+            {
+                _ = window.ShowAsync("msg", new PhysicalPoint(960, 600), autoSnoozeSeconds: 60);
+                var us = window.DwellForTest.Targets.Single(t => t.Id == "start").DwellTimeMicroseconds;
+                window.Cancel();
+                return us;
+            }
+
+            Check.That(DwellUs()).IsEqualTo(200 * 1000L);
+
+            dwell.EyeCareBannerDwellMs = 900;
+            Check.That(DwellUs()).IsEqualTo(900 * 1000L);
+
+            // The knob wins, so a live activation-dwell edit does not move the rings.
+            dwell.ActivationButtonDwellMs = 350;
+            Check.That(DwellUs()).IsEqualTo(900 * 1000L);
+
+            // Back to 0: the rings follow the activation dwell again, with no restart.
+            dwell.EyeCareBannerDwellMs = 0;
+            Check.That(DwellUs()).IsEqualTo(350 * 1000L);
+        }
+        finally
+        {
+            Close(window);
+        }
+    }
+
+    [StaFact]
     public void TheWindow_OnARightDockedToolbar_DrawsTheRingsOnTheirLeftAnchoredTargets()
     {
         // F2's drawn half: the geometry may move the panel left, but the PANEL must follow too, or

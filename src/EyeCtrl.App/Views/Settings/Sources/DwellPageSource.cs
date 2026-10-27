@@ -16,25 +16,29 @@ internal sealed class DwellPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new SliderSpec("d_fix",
-                    StringTable.Current.T("settings.dwell.fixation.label"), 100, 500, 25, 0,
+                    StringTable.Current.T("settings.dwell.fixation.label"), 100, 1000, 25, 0,
                     () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.fixation.description") },
                 new SliderSpec("d_act",
-                    StringTable.Current.T("settings.dwell.activation.label"), 200, 1500, 50, 0,
+                    StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
                     () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.activation.description"), Simple = true },
                 new SliderSpec("d_menu",
-                    StringTable.Current.T("settings.dwell.action_menu.label"), 200, 1500, 50, 0,
+                    StringTable.Current.T("settings.dwell.action_menu.label"), 200, 2000, 50, 0,
                     () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.action_menu.description"), Simple = true },
                 new SliderSpec("d_ManualSelection",
-                    StringTable.Current.T("settings.dwell.manual_selection.label"), 200, 1500, 50, 0,
+                    StringTable.Current.T("settings.dwell.manual_selection.label"), 200, 2000, 50, 0,
                     () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.manual_selection.description") },
+                new SliderSpec("d_manual_side",
+                    StringTable.Current.T("settings.dwell.manual_selection_side.label"), 200, 2000, 50, 0,
+                    () => d.ManualSelectionSideButtonDwellMs, v => { d.ManualSelectionSideButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.manual_selection_side.description") },
             ]),
             new PageSpec([
                 new SliderSpec("d_tool",
-                    StringTable.Current.T("settings.dwell.toolbar.label"), 200, 1500, 50, 0,
+                    StringTable.Current.T("settings.dwell.toolbar.label"), 200, 2000, 50, 0,
                     () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.toolbar.description"), Simple = true },
                 // 300 is the keyboard family's blink-credit floor, shared with the Core guard and the
@@ -43,26 +47,30 @@ internal sealed class DwellPageSource : ISettingsPageSource
                 // Below it a single credited blink can complete the dwell.
                 new SliderSpec("d_key",
                     StringTable.Current.T("settings.dwell.keyboard_key.label"),
-                    Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
+                    Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1500, 25, 0,
                     () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.keyboard_key.description"), Simple = true },
                 new SliderSpec("d_pred",
                     StringTable.Current.T("settings.dwell.prediction.label"),
-                    Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
+                    Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1500, 25, 0,
                     () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.prediction.description"), Simple = true },
                 new SliderSpec("d_rad",
-                    StringTable.Current.T("settings.dwell.fixation_radius.label"), 20, 120, 5, 0,
+                    StringTable.Current.T("settings.dwell.fixation_radius.label"), 10, 200, 5, 0,
                     () => d.FixationRadiusPixels, v => { d.FixationRadiusPixels = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.fixation_radius.description"), Simple = true },
                 new SliderSpec("d_cooldown",
-                    StringTable.Current.T("settings.dwell.cooldown.label"), 100, 1000, 50, 0,
+                    StringTable.Current.T("settings.dwell.cooldown.label"), 100, 5000, 50, 0,
                     () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.cooldown.description") },
                 new SliderSpec("d_pause_grace",
                     StringTable.Current.T("settings.dwell.pause_grace.label"), 0, 1000, 50, 0,
                     () => d.DwellPauseGraceMs, v => { d.DwellPauseGraceMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.pause_grace.description"), Simple = true },
+                new SliderSpec("d_resume",
+                    StringTable.Current.T("settings.dwell.resume.label"), 500, 3000, 50, 0,
+                    () => d.ResumeDwellMs, v => { d.ResumeDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.resume.description") },
                 new ToggleSpec("d_cue_sound",
                     StringTable.Current.T("settings.dwell.cue_sound.label"),
                     () => d.CueEnabled, v => { d.CueEnabled = v; _ctx.ApplyAndSave(); })
@@ -76,12 +84,14 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         d.ActivationButtonDwellMs = def.ActivationButtonDwellMs;
                         d.ActionMenuDwellMs = def.ActionMenuDwellMs;
                         d.ManualSelectionActionMenuDwellMs = def.ManualSelectionActionMenuDwellMs;
+                        d.ManualSelectionSideButtonDwellMs = def.ManualSelectionSideButtonDwellMs;
                         d.ToolbarButtonDwellMs = def.ToolbarButtonDwellMs;
                         d.KeyboardKeyDwellMs = def.KeyboardKeyDwellMs;
                         d.KeyboardPredictionDwellMs = def.KeyboardPredictionDwellMs;
                         d.FixationRadiusPixels = def.FixationRadiusPixels;
                         d.DwellCooldownMs = def.DwellCooldownMs;
                         d.DwellPauseGraceMs = def.DwellPauseGraceMs;
+                        d.ResumeDwellMs = def.ResumeDwellMs;
                         d.CueEnabled = def.CueEnabled;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();

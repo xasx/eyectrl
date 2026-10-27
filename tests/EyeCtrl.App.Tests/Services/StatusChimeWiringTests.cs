@@ -85,4 +85,46 @@ public class StatusChimeWiringTests
                 + "singletons are lazy and the service subscribes in its ctor.")
             .That(isResolved).IsTrue();
     }
+
+    [Fact]
+    public void TobiiProvider_IncrementsTheConnectEdgeCount_OnTheSuccessBranch()
+    {
+        // Review 01 F1: this is the ONLY production producer of B3's aliasing hardening. Everything
+        // downstream is pinned (model, service, recorder), but polling is native-bound, so deleting
+        // or moving this line in a refactor would leave the hardening dead with every suite green.
+        // A source ratchet (the pattern this file already uses for ResolveEagerServices) names the
+        // exact success branch. The ORDER matters: IsConnected must become true before the count
+        // moves, or the service's "snapshot first, counter second" read could see false + an old
+        // count in the middle of a genuine connect (review 01's thread-safety note).
+        var path = Path.Combine(
+            SourceScanner.RepoRoot().FullName,
+            "src/EyeCtrl.Platform/Gaze/TobiiStreamEngineProvider.cs");
+        var source = File.ReadAllText(path);
+
+        var branch = Regex.Match(
+            source,
+            @"else if \(!IsConnected\)\s*\{(?<body>[^}]*)\}",
+            RegexOptions.Singleline);
+        Check.WithCustomMessage(
+                "TobiiStreamEngineProvider's poll loop no longer has the `else if (!IsConnected)` "
+                + "success branch the connect-edge counter lives in.")
+            .That(branch.Success).IsTrue();
+
+        var body = branch.Groups["body"].Value;
+        var connected = body.IndexOf("IsConnected = true;", StringComparison.Ordinal);
+        var increment = body.IndexOf(
+            "Interlocked.Increment(ref _connectEdgeCount);", StringComparison.Ordinal);
+
+        Check.WithCustomMessage(
+                "The `else if (!IsConnected)` success branch must set IsConnected = true (B1).")
+            .That(connected).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The success branch must increment the connect-edge count. Without it, a connect "
+                + "window between two polls never resets the continuous-disconnect clock (B1 F4).")
+            .That(increment).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "IsConnected = true must precede the increment: the service reads IsConnected before "
+                + "the counter, and the reverse order could let both reads miss a genuine connect.")
+            .That(connected).IsStrictlyLessThan(increment);
+    }
 }

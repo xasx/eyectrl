@@ -70,8 +70,9 @@ public class ResumeStripZOrderTests
     public void TheVisibleBounds_AreTheLabelCardOnly_WhileShown()
     {
         using var rig = Rig.Create();
-        // The live scale, never written here (this class is not in the DpiHelper collection); the
-        // DPI-2.0 conversion itself is pinned in ResumeStripPlacementTests and the wiring test.
+        // The live scale, never written here (this class is not in the DpiHelper collection). The
+        // DPI-2.0 conversion of these bounds is pinned on the real window by
+        // StatusStripOccluderBoundsTests (review 01 F1) — not by the wiring test, which uses a fake strip.
         var sx = EyeCtrl.Core.Services.DpiHelper.ScaleX;
         var sy = EyeCtrl.Core.Services.DpiHelper.ScaleY;
 

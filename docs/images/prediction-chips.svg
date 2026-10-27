@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" font-family="Segoe UI, system-ui, sans-serif">
+  <rect width="880" height="330" rx="14" fill="#12121F"/>
+  <text x="440" y="30" fill="#D6DEF5" font-size="16" text-anchor="middle" font-weight="600">The prediction bar — up to 5 chips across the top of the keyboard</text>
+
+  <!-- typed text line -->
+  <text x="60" y="66" fill="#9AA4C8" font-size="12.5">you typed:</text>
+  <rect x="140" y="50" width="70" height="26" rx="5" fill="#1A1A2E" stroke="#616BA0"/>
+  <text x="175" y="68" fill="#D6DEF5" font-size="13" text-anchor="middle" font-family="Consolas, monospace">hel</text>
+  <text x="228" y="68" fill="#868FB5" font-size="11.5">&#8592; the last chip press replaces from here</text>
+
+  <!-- chip row -->
+  <g font-size="13">
+    <rect x="60"  y="100" width="130" height="40" rx="9" fill="#2F5340" stroke="#616BA0"/>
+    <text x="125" y="125" fill="#D6DEF5" text-anchor="middle">hello</text>
+
+    <rect x="202" y="100" width="130" height="40" rx="9" fill="#2F5340" stroke="#616BA0"/>
+    <text x="267" y="125" fill="#D6DEF5" text-anchor="middle">help <tspan fill="#A5F3FC">&#8594;</tspan></text>
+
+    <rect x="344" y="100" width="130" height="40" rx="9" fill="#2F5340" stroke="#616BA0"/>
+    <text x="409" y="125" fill="#D6DEF5" text-anchor="middle">held <tspan fill="#A5F3FC">~</tspan></text>
+
+    <rect x="486" y="100" width="170" height="40" rx="9" fill="#2F5340" stroke="#616BA0"/>
+    <text x="571" y="125" fill="#D6DEF5" text-anchor="middle">hello there &#9734;</text>
+
+    <rect x="668" y="100" width="150" height="40" rx="9" fill="#2F5340" stroke="#616BA0"/>
+    <text x="743" y="125" fill="#D6DEF5" text-anchor="middle">helping &#10022;</text>
+  </g>
+
+  <!-- dwell hint on first chip -->
+  <path d="M 108 142 A 16 16 0 0 1 130 152" fill="none" stroke="#A5F3FC" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- legend -->
+  <g font-size="12" fill="#9AA4C8">
+    <text x="60"  y="185"><tspan fill="#A5F3FC" font-weight="600">no badge</tspan>  dictionary word</text>
+    <text x="60"  y="207"><tspan fill="#A5F3FC" font-weight="600">&#8594;</tspan>  next word (learned from you)</text>
+    <text x="60"  y="229"><tspan fill="#A5F3FC" font-weight="600">~</tspan>  typo-tolerant match</text>
+    <text x="480" y="185"><tspan fill="#A5F3FC" font-weight="600">&#9734;</tspan>  whole-sentence completion</text>
+    <text x="480" y="207"><tspan fill="#A5F3FC" font-weight="600">&#10022;</tspan>  language-model suggestion (optional download)</text>
+  </g>
+
+  <!-- suggested keyboard strip -->
+  <g fill="#2A2A3E" stroke="#616BA0">
+    <rect x="60"  y="252" width="52" height="34" rx="7"/><rect x="120" y="252" width="52" height="34" rx="7"/>
+    <rect x="180" y="252" width="52" height="34" rx="7"/><rect x="240" y="252" width="52" height="34" rx="7"/>
+    <rect x="300" y="252" width="52" height="34" rx="7"/><rect x="360" y="252" width="52" height="34" rx="7"/>
+    <rect x="420" y="252" width="52" height="34" rx="7"/><rect x="480" y="252" width="52" height="34" rx="7"/>
+  </g>
+  <text x="560" y="274" fill="#868FB5" font-size="12">&#8230; the keyboard keys below</text>
+  <text x="440" y="316" fill="#868FB5" font-size="11.5" text-anchor="middle" font-style="italic">Schematic (not a screenshot) &#8212; dwell a chip (~500 ms) to replace what you typed and add a space.</text>
+</svg>

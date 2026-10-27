@@ -122,6 +122,10 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
         // Resolve actual summon edge (avoid conflict with main toolbar)
         var actualEdge = ComputeActualSummonEdge(s.SummonEdge);
 
+        // The grid whose targets the dismiss hold watches; captured before the controller so the
+        // gaze-thread predicate reads a plain field, not a nullable Context.
+        var gridVM = Context.QuickActionsGridVM;
+
         // Match the toolbar's screen-size source (ToolbarLifecycleCoordinator.SetupToolbarAutoHide): WPF SystemParameters
         // are logical DIPs, so ×ScaleX/×ScaleY yields physical px. Do NOT use WinForms
         // Screen.Bounds — it is ALREADY physical under PerMonitorV2, so ×ScaleX double-scales
@@ -132,11 +136,14 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
             System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY,
             s.SummonThresholdMs,
             s.DismissTimeoutMs,
-            calibrationActive: () => SummonGateClosed(_modal.ProbeOpen, Context.CalibrationService.IsSessionActive));
+            calibrationActive: () => SummonGateClosed(_modal.ProbeOpen, Context.CalibrationService.IsSessionActive),
+            // B8b F1: a hot-edge grid must not auto-close while a tile/Close dwell is progressing.
+            // The VM's flag is a volatile bool written on the UI thread, so this gaze-thread read is
+            // safe and allocation-free.
+            holdDismiss: () => gridVM.HasDwellProgress);
 
         // Gaze-thread → UI-thread marshal: both events hop through the dispatcher
         // before touching the VM (mirrors ToolbarAutoHideController's visibility adapter).
-        var gridVM = Context.QuickActionsGridVM;
         // Keep the VM's effective edge in sync with the resolved edge (the controller watches the
         // resolved edge via ComputeActualSummonEdge; the grid window must anchor there too, or it
         // renders at the raw configured edge which may differ when it collides with the toolbar dock).

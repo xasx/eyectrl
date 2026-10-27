@@ -33,6 +33,11 @@ public sealed class QuickActionsSummonController
     private readonly int _summonThresholdUs;
     private readonly int _dismissTimeoutUs;
     private readonly Func<bool>? _calibrationActive;
+    // B8b F1: reports whether a grid target (tile or Close) is currently mid-dwell. While true the
+    // hot-edge dismiss countdown does not accumulate, so a tile dwell can never be cut off by the
+    // summon's own timer. Evaluated on the gaze thread, so the predicate must be a thread-safe
+    // read — QuickActionsCoordinator passes the VM's volatile HasDwellProgress.
+    private readonly Func<bool>? _holdDismiss;
 
     private int _state = (int)SummonState.Idle;
     // Written from both threads: Feed() on the gaze thread, ResetToIdleCore() (via
@@ -88,13 +93,19 @@ public sealed class QuickActionsSummonController
     /// <param name="summonThresholdMs">Dwell time past the edge before summoning.</param>
     /// <param name="dismissTimeoutMs">Gaze-away time while Summoned before dismissing.</param>
     /// <param name="calibrationActive">Optional gate; when it returns <c>true</c>, gaze is suppressed (no summon/dismiss).</param>
+    /// <param name="holdDismiss">
+    /// Optional gate; when it returns <c>true</c>, the hot-edge dismiss countdown is held (restarted
+    /// on the next sample that reports false). The Quick Actions grid passes its "a tile or the
+    /// Close disc is mid-dwell" fact here so the gaze-away timer cannot close the grid mid-attempt.
+    /// </param>
     public QuickActionsSummonController(
         string edge,
         double screenW,
         double screenH,
         int summonThresholdMs,
         int dismissTimeoutMs,
-        Func<bool>? calibrationActive = null)
+        Func<bool>? calibrationActive = null,
+        Func<bool>? holdDismiss = null)
     {
         _edgeKey = edge.ToLowerInvariant();
         _screenW = screenW;
@@ -102,6 +113,7 @@ public sealed class QuickActionsSummonController
         _summonThresholdUs = summonThresholdMs * 1000;
         _dismissTimeoutUs = dismissTimeoutMs * 1000;
         _calibrationActive = calibrationActive;
+        _holdDismiss = holdDismiss;
     }
 
     /// <summary>
@@ -164,6 +176,16 @@ public sealed class QuickActionsSummonController
             // of normal on-screen gaze, breaking the button path.
             if (!pastEdge && _summonOpened)
             {
+                // B8b F1: a tile/Close dwell in progress is not "gaze away" — hold the countdown
+                // instead of letting the grid disappear under the user's gaze mid-attempt. The
+                // anchor is cleared rather than kept, so leaving the target starts a full fresh
+                // timeout; a resumed attempt then needs no further special case.
+                if (_holdDismiss?.Invoke() == true)
+                {
+                    Volatile.Write(ref _dismissStartUs, Unseeded);
+                    return;
+                }
+
                 var dismissStart = Volatile.Read(ref _dismissStartUs);
                 if (dismissStart == Unseeded)
                 {

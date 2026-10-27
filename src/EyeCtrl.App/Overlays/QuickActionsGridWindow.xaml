@@ -58,10 +58,18 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:QuickActionTileViewModel}">
-                            <Border x:Name="TileBorder" Width="120" Height="120"
-                                    CornerRadius="{StaticResource StandardCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
+                            <!-- B8b F2: drawn = hit. The face is a 100 DIP DISC — exactly the r50
+                                 dwell circle the detector hit-tests — centred in a 128 DIP cell, so
+                                 two hit circles keep a 28 DIP dead gap (R4 needs ≥ 20). The old
+                                 120 DIP square drew a 45 % dead band outside its hit area. The
+                                 14 DIP margin is (QuickActionsGridWindow.TileCell - TileSize)/2;
+                                 keep Width == Height == QuickActionsGridWindow.TileSize (pinned
+                                 by GlyphSizeCouplingTests) or the CircleCornerRadius token renders
+                                 an ellipse. -->
+                            <Border x:Name="TileBorder" Width="100" Height="100"
+                                    CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
                                     BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"
-                                    Margin="4">
+                                    Margin="14">
                                 <Grid>
                                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                         <!-- Icon per action type. -->
@@ -69,11 +77,16 @@
                                                    FontSize="{x:Static overlays:QuickActionsGridWindow.TileIconSize}" HorizontalAlignment="Center"
                                                    Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
                                         <!-- Label comes from the tile VM, which resolves a preset tile through
-                                             the host's label function (QuickActionTileViewModel.Label). -->
+                                             the host's label function (QuickActionTileViewModel.Label).
+                                             Margin 0, not 6: the 100 DIP face leaves 98 DIP of inner
+                                             width (96 under Contrast's 2 DIP border), and the widest
+                                             shipped German preset word ("Stummschalten") measures 95 —
+                                             the German fit gate (B114) pins this. The face itself is
+                                             drawn to the r50 hit circle regardless of the text. -->
                                         <TextBlock Text="{Binding Label}"
                                                    FontSize="{StaticResource FontSizeBodyLarge}" Foreground="{StaticResource BrushTextPrimary}"
                                                    TextWrapping="Wrap" TextAlignment="Center"
-                                                   Margin="6"/>
+                                                   Margin="0"/>
                                         <ProgressBar Minimum="0" Maximum="1"
                                                      Value="{Binding DwellProgress}"
                                                      Height="4" VerticalAlignment="Bottom"

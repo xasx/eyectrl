@@ -9,10 +9,12 @@ using EyeCtrl.Tests.TestSupport;
 /// T09 review-01 D1 (the coordinator's decision): a class whose ROOM changes with the theme binds
 /// English in every theme, so the tightest — Contrast — decides. The themes differ only in
 /// <c>BorderThicknessStandard</c> (1 in Midnight and Ember, 2 in Contrast), and two classes take
-/// their room from it: the quick-actions tile (B114: a 106 DIP label under Midnight, 104 under
-/// Contrast), the caregiver alert's banner (C-alert: 670 → 668) and the eye-care summary card
-/// (its border widens the card by 2). The Settings controls use
-/// literal borders and are theme-immune. T10's German must then fit every theme as well.
+/// their room from it: the quick-actions tile (B114: a 98 DIP label under Midnight, 96 under
+/// Contrast — the face is a 100 DIP disc since B8b drew it to the r50 hit circle, and its label
+/// carries no horizontal margin so the widest German preset word still fits), the caregiver
+/// alert's banner (C-alert: 670 → 668) and the eye-care summary card (its border widens the card
+/// by 2). The Settings controls use literal borders and are theme-immune. T10's German must then
+/// fit every theme as well.
 ///
 /// <para>
 /// Switching the theme writes process-global state, so this lives in the exclusive "ActiveTheme"
@@ -54,8 +56,8 @@ public class FitClassThemeTests
 
     /// <summary>
     /// The theme switch must reach the windows the measurers build, or every theme above measures
-    /// Midnight: the same tile text gets 104 DIP of label width under Contrast and 106 under
-    /// Midnight.
+    /// Midnight: the same tile text gets 96 DIP of label width under Contrast and 98 under
+    /// Midnight (the 100 DIP face less the theme's 2/1 DIP borders).
     /// </summary>
     [StaFact]
     public void TheContrastTheme_NarrowsTheTileThePerThemeGateMeasures()
@@ -69,9 +71,9 @@ public class FitClassThemeTests
 
         _output.WriteLine($"Midnight: {midnight}");
         _output.WriteLine($"Contrast: {contrast}");
-        Check.That(midnight.Detail).Contains("label width 106");
+        Check.That(midnight.Detail).Contains("label width 98");
         Check.WithCustomMessage("Contrast measured the tile like Midnight: the theme switch is not reaching the windows.")
-            .That(contrast.Detail).Contains("label width 104");
+            .That(contrast.Detail).Contains("label width 96");
     }
 
     /// <summary>The list is complete: every class whose measurer's room moved with the theme is in it.</summary>

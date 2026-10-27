@@ -531,8 +531,10 @@ internal static class AppFitMeasurers
 
     /// <summary>
     /// B114: a quick-actions tile, through the grid window's own <c>DataTemplate</c>. Every run
-    /// fits the label's wrap width (the tile's inner width less the label's margins — 106 DIP
-    /// today), and the tile's icon + label + bar stack fits the tile's inner height.
+    /// fits the label's wrap width (the tile's inner width less the label's margins — 98 DIP under
+    /// Midnight's 1 DIP border, 96 under Contrast's 2 DIP border, since B8b drew the face to the
+    /// r50 hit circle at 100 DIP), and the tile's icon + label + bar stack fits the tile's inner
+    /// height.
     /// </summary>
     private static FitVerdict QuickActionTile(string text)
     {

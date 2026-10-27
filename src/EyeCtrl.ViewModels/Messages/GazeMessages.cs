@@ -92,3 +92,21 @@ public record RestartNoticeActiveMessage(bool Active);
 /// session must stay normal use, only the button's own corner is kept clear.
 /// </summary>
 public record LagMarkZoneMessage(PhysicalRect? Zone);
+
+/// <summary>
+/// B7 fixup-03: the eye-care exercise (definition, run and summary) owns the screen. Published by
+/// the App when <c>EyeCareExerciseActiveMessage</c> flips, it is the ONE altitude gate for dwell:
+/// every <see cref="DwellOverlayViewModelBase"/> surface stops feeding its detector while it holds,
+/// because the exercise window is opaque, full-screen and click-through, so any surface beneath it
+/// would fire invisible input (the keyboard's edge-bar Close/Flip, the task switcher, quick actions,
+/// the modes menu, the toolbar, the Settings window).
+///
+/// <para>
+/// The explicit EXEMPT list is the eye-care targets themselves: the exercise's Skip disc and the
+/// banner's Start/Snooze rings do not derive from <see cref="DwellOverlayViewModelBase"/> and keep
+/// dwelling while this holds — they are the exercise's only intended gaze targets. Pinned by
+/// <c>EyeCareDwellTests.TheExemptList_IsExactlyTheEyeCareWindows_AndTheyDoNotReadTheHold</c> and
+/// the eye-care dwell tests.
+/// </para>
+/// </summary>
+public record ExerciseScreenHoldMessage(bool Active);

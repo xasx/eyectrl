@@ -153,13 +153,130 @@ public class QuickActionsSummonControllerTests
         c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
 
-        c.SetSuspended(true);
+        c.SetSuspended("test", true);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
 
         // Should not re-summon while suspended
         c.Feed(Pt(-10, 540, 600_000), timestampUs: 600_000);
         c.Feed(Pt(-10, 540, 1_100_000), timestampUs: 1_100_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+    }
+
+    [Fact]
+    public void NamedClaims_AnExerciseEnding_CannotLiftTheKeyboardClaim()
+    {
+        // B7 fixup-04 L1: the suspension used to be ONE shared bool. The exercise is a third
+        // writer, so its (false) on break end re-enabled the hot-edge summon for the rest of a
+        // still-open keyboard session. Named claims: live only when no claim holds.
+        var c = CreateController(edge: "Left", summonMs: 400);
+        int summons = 0;
+        c.SummonRequested += () => summons++;
+
+        c.SetSuspended("keyboard", true);
+        c.SetSuspended("exercise", true);
+        c.SetSuspended("exercise", false);          // the exercise ends; the keyboard is still up
+
+        c.Feed(Pt(-10, 540, 0), timestampUs: 0);
+        c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
+        Check.WithCustomMessage("the exercise's release lifted the keyboard's claim")
+            .That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+        Check.That(summons).IsEqualTo(0);
+
+        // Releasing the keyboard resumes the summon normally.
+        c.SetSuspended("keyboard", false);
+        c.Feed(Pt(-10, 540, 600_000), timestampUs: 600_000);
+        c.Feed(Pt(-10, 540, 1_100_000), timestampUs: 1_100_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(summons).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void NamedClaims_SettingsAndExercise_AreIndependent()
+    {
+        // The older keyboard-vs-Settings race, closed by the same claims.
+        var c = CreateController();
+        c.SetSuspended("settings", true);
+        c.SetSuspended("exercise", true);
+        c.SetSuspended("settings", false);
+        Check.That(c.IsSuspended).IsTrue();
+        c.SetSuspended("exercise", false);
+        Check.That(c.IsSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void ReleasingAClaimYouDoNotHold_ChangesNothing()
+    {
+        // B7 fixup-05 L-a (review 04 K6): a release removes only the caller's own claim. Settings
+        // releases on two paths; a release that cleared the set would lift the keyboard's claim.
+        var c = CreateController();
+        c.SetSuspended("keyboard", true);
+        c.SetSuspended("settings", false);            // not held
+
+        Check.WithCustomMessage("releasing an unheld claim lifted another claimant's suspension")
+            .That(c.IsSuspended).IsTrue();
+
+        c.SetSuspended("keyboard", false);
+        Check.That(c.IsSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void ConcurrentClaims_FromTwoThreads_LeaveAConsistentState()
+    {
+        // B7 fixup-05 L-c: "exercise" is written on the eye-care thread while "keyboard"/"settings"
+        // arrive on the UI thread. The claim set is locked; the source pin below is the
+        // deterministic mutant kill (HashSet corruption is not reproducible on demand).
+        var c = CreateController();
+        var errors = new List<Exception>();
+        void Hammer(string claim)
+        {
+            try
+            {
+                for (var i = 0; i < 5000; i++)
+                {
+                    c.SetSuspended(claim, true);
+                    c.SetSuspended(claim, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (errors) errors.Add(ex);
+            }
+        }
+
+        var keyboard = new Thread(() => Hammer("keyboard"));
+        var exercise = new Thread(() => Hammer("exercise"));
+        keyboard.Start();
+        exercise.Start();
+        keyboard.Join();
+        exercise.Join();
+
+        Check.That(errors).IsEmpty();
+        Check.That(c.IsSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void SetSuspended_LocksTheClaimSet_AndRaisesTheDismissOutsideIt()
+    {
+        // B7 fixup-05 L-c's deterministic pin: the claim set must be mutated under the lock, and
+        // ResetToIdleCore (which raises DismissRequested) must sit outside it so a subscriber can
+        // never deadlock against the lock.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "QuickActionsSummonController.cs"))),
+            @"\s+", string.Empty);
+
+        var lockIndex = source.IndexOf("lock(_claimsLock)", StringComparison.Ordinal);
+        Check.WithCustomMessage("SetSuspended mutates the claim set without a lock")
+            .That(lockIndex).IsStrictlyGreaterThan(-1);
+
+        var bodyStart = source.IndexOf('{', lockIndex);
+        var bodyEnd = source.IndexOf('}', bodyStart);
+        var inLock = source[(bodyStart + 1)..bodyEnd];
+        Check.WithCustomMessage("DismissRequested is raised inside the lock")
+            .That(inLock.Contains("ResetToIdleCore")).IsFalse();
+        Check.That(source.IndexOf("ResetToIdleCore(notify:true)", lockIndex, StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(bodyEnd);
     }
 
     [Fact]

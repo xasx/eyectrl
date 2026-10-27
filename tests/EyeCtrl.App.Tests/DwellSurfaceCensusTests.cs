@@ -20,6 +20,7 @@ public class DwellSurfaceCensusTests
         ("EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", "typing", "prediction bar — click family (D1)"),
         ("EyeCtrl.App/Services/ExternalDwellService.cs", "excluded", "external apps — owner declined"),
         ("EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml.cs", "cue", "start/snooze exercise actions"),
+        ("EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", "cue", "the exercise's Skip exit (B7: post-effect cue after the run ends)"),
         ("EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs", "cue", "restart-notice close (post-effect cue, like the eye-care banner)"),
         ("EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs", "cue", "calibration gaze Cancel (post-effect cue after the session is abandoned)"),
         ("EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", "cue", "lag-mark button (post-effect cue after the mark line runs)"),
@@ -50,7 +51,7 @@ public class DwellSurfaceCensusTests
         ["ActivationButton"] = "cue — base wrapper",
         ["Backdrop"] = "cue — base wrapper",
         ["ExternalDwell"] = "excluded — owner declined",
-        ["EyeCare"] = "cue — banner",
+        ["EyeCare"] = "cue — the banner's Start/Snooze rings and the exercise's Skip",
     };
 
     [Fact]

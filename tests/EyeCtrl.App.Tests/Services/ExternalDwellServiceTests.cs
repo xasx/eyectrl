@@ -18,6 +18,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -509,6 +510,65 @@ public class ExternalDwellServiceTests
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    /// <summary>
+    /// B7 fixup-04 L2: a registered external target must not dwell under the eye-care exercise,
+    /// whose window is click-through (the root snapshot is the app beneath it). The held rest
+    /// produces no activation line; releasing the hold lets the same rest activate.
+    /// Mutation: drop `|| _exerciseHeld` from OnCursorMoved's early return -> the held phase
+    /// activates and this goes red.
+    /// </summary>
+    [Fact]
+    public void AnExerciseScreenHold_StopsExternalDwell_AndReleasingItResumes()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            var messenger = new WeakReferenceMessenger();
+            using var svc = new ExternalDwellService(
+                new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+                engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
+                messenger, _ => 7, pipeName: _pipeName);
+            svc.Start();
+            Thread.Sleep(100);
+
+            var (held, released) = RegisterHeldThenDwell(provider, messenger, _pipeName)
+                .GetAwaiter().GetResult();
+
+            Check.WithCustomMessage("an external target activated under the exercise hold")
+                .That(held).IsNull();
+            Check.WithCustomMessage("the external target did not activate after the hold was released")
+                .That(released).IsNotNull();
+            Check.That(released!).Contains("activated");
+        });
+    }
+
+    private static async Task<(string? held, string? released)> RegisterHeldThenDwell(
+        StubGazeProvider provider, IMessenger messenger, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(200);
+
+        messenger.Send(new ExerciseScreenHoldMessage(true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
+        // ONE pending read for both phases: StreamReader allows no concurrent read, and a read
+        // that timed out is still in flight. If the held phase wrongly activates, this same read
+        // completes during the first wait.
+        var read = r.ReadLineAsync();
+        var held = await Task.WhenAny(read, Task.Delay(1200)) == read ? await read : null;
+
+        messenger.Send(new ExerciseScreenHoldMessage(false));
+        RaiseHold(provider, 100, 100, 2_000_000, 2_800_000);
+        var released = await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+        return (held, released);
     }
 
     // Registers a target, accumulates dwell partway (captures suppression state), then moves the

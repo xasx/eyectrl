@@ -1735,8 +1735,8 @@
     "src": "ba2414da"
   },
   "settings.dwell.status_chime.description": {
-    "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Eine absichtliche Pause löst ihn nicht aus.",
-    "src": "9ad09706"
+    "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Wegschauen oder eine absichtliche Pause lösen ihn nicht aus.",
+    "src": "40767bec"
   },
   "settings.dwell.status_chime.label": {
     "text": "Ton bei Verbindungsverlust",

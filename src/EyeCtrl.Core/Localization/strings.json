@@ -3142,7 +3142,7 @@
     "args": []
   },
   "settings.dwell.status_chime.description": {
-    "text": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Pausing on purpose does not play it.",
+    "text": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Looking away or pausing on purpose does not play it.",
     "who": "user",
     "where": "settings",
     "fit": "prose",

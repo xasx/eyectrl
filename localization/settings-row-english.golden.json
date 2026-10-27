@@ -153,7 +153,7 @@
         {
           "Id": "d_status_chime",
           "Label": "Disconnect Chime",
-          "Description": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Pausing on purpose does not play it.",
+          "Description": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Looking away or pausing on purpose does not play it.",
           "Modal": null
         },
         {

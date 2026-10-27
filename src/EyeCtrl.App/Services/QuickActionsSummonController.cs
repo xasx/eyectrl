@@ -43,8 +43,12 @@ public sealed class QuickActionsSummonController
     private volatile bool _suspended;
     // The named claims holding the summon suspended (keyboard, settings, exercise, probe, the
     // feature toggle). Suspended iff at least one holds; a claimant releases only its own name
-    // (B7 fixup-04 L1).
+    // (B7 fixup-04 L1). The exercise claim arrives on the eye-care thread while the keyboard and
+    // Settings claims arrive on the UI thread, so mutations are serialised by _claimsLock (B7
+    // fixup-05 L-c); DismissRequested is raised AFTER the lock so a subscriber can never deadlock
+    // against it.
     private readonly HashSet<string> _suspensionClaims = new(StringComparer.Ordinal);
+    private readonly object _claimsLock = new();
     // Tracks HOW the current Summoned session began. true = hot-edge dwell (the controller
     // summoned it, so the gaze-away dismiss timer applies). false = opened via toolbar button /
     // close-button toggling / any VM-driven show (EnterSummoned path) — these stay open until
@@ -210,15 +214,24 @@ public sealed class QuickActionsSummonController
     public void SetSuspended(string claim, bool suspended)
     {
         ArgumentException.ThrowIfNullOrEmpty(claim);
-        bool changed = suspended
-            ? _suspensionClaims.Add(claim)
-            : _suspensionClaims.Remove(claim);
-        if (!changed) return;
 
-        bool nowSuspended = _suspensionClaims.Count > 0;
-        if (nowSuspended == _suspended) return;
-        _suspended = nowSuspended;
-        if (nowSuspended) ResetToIdleCore(notify: true);
+        bool becameSuspended;
+        lock (_claimsLock)
+        {
+            bool changed = suspended
+                ? _suspensionClaims.Add(claim)
+                : _suspensionClaims.Remove(claim);
+            if (!changed) return;
+
+            bool nowSuspended = _suspensionClaims.Count > 0;
+            if (nowSuspended == _suspended) return;
+            becameSuspended = nowSuspended;
+            _suspended = nowSuspended;
+        }
+
+        // Outside the lock: ResetToIdleCore raises DismissRequested, and a subscriber that touched
+        // a claim would deadlock if this ran under _claimsLock.
+        if (becameSuspended) ResetToIdleCore(notify: true);
     }
 
     /// <summary>

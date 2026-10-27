@@ -153,13 +153,54 @@ public class QuickActionsSummonControllerTests
         c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
 
-        c.SetSuspended(true);
+        c.SetSuspended("test", true);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
 
         // Should not re-summon while suspended
         c.Feed(Pt(-10, 540, 600_000), timestampUs: 600_000);
         c.Feed(Pt(-10, 540, 1_100_000), timestampUs: 1_100_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+    }
+
+    [Fact]
+    public void NamedClaims_AnExerciseEnding_CannotLiftTheKeyboardClaim()
+    {
+        // B7 fixup-04 L1: the suspension used to be ONE shared bool. The exercise is a third
+        // writer, so its (false) on break end re-enabled the hot-edge summon for the rest of a
+        // still-open keyboard session. Named claims: live only when no claim holds.
+        var c = CreateController(edge: "Left", summonMs: 400);
+        int summons = 0;
+        c.SummonRequested += () => summons++;
+
+        c.SetSuspended("keyboard", true);
+        c.SetSuspended("exercise", true);
+        c.SetSuspended("exercise", false);          // the exercise ends; the keyboard is still up
+
+        c.Feed(Pt(-10, 540, 0), timestampUs: 0);
+        c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
+        Check.WithCustomMessage("the exercise's release lifted the keyboard's claim")
+            .That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+        Check.That(summons).IsEqualTo(0);
+
+        // Releasing the keyboard resumes the summon normally.
+        c.SetSuspended("keyboard", false);
+        c.Feed(Pt(-10, 540, 600_000), timestampUs: 600_000);
+        c.Feed(Pt(-10, 540, 1_100_000), timestampUs: 1_100_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(summons).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void NamedClaims_SettingsAndExercise_AreIndependent()
+    {
+        // The older keyboard-vs-Settings race, closed by the same claims.
+        var c = CreateController();
+        c.SetSuspended("settings", true);
+        c.SetSuspended("exercise", true);
+        c.SetSuspended("settings", false);
+        Check.That(c.IsSuspended).IsTrue();
+        c.SetSuspended("exercise", false);
+        Check.That(c.IsSuspended).IsFalse();
     }
 
     [Fact]

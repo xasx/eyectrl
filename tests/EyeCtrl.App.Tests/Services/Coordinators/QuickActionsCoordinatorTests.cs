@@ -62,10 +62,28 @@ public class QuickActionsCoordinatorTests
         var coord = new QuickActionsCoordinator(new ModalInteractionState());
         coord.InjectSummonForTesting(controller);
 
-        coord.SetSummonSuspended(true);
+        coord.SetSummonSuspended("test", true);
         Check.That(coord.IsSummonSuspended).IsTrue();
 
-        coord.SetSummonSuspended(false);
+        coord.SetSummonSuspended("test", false);
+        Check.That(coord.IsSummonSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void SetSummonSuspended_NamedClaims_AreIndependent()
+    {
+        // B7 fixup-04 L1: the exercise's release must not lift the keyboard's/Settings' claim.
+        var controller = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
+        var coord = new QuickActionsCoordinator(new ModalInteractionState());
+        coord.InjectSummonForTesting(controller);
+
+        coord.SetSummonSuspended("keyboard", true);
+        coord.SetSummonSuspended("exercise", true);
+        coord.SetSummonSuspended("exercise", false);
+        Check.WithCustomMessage("the exercise's release lifted the keyboard's summon claim")
+            .That(coord.IsSummonSuspended).IsTrue();
+
+        coord.SetSummonSuspended("keyboard", false);
         Check.That(coord.IsSummonSuspended).IsFalse();
     }
 
@@ -153,6 +171,6 @@ public class QuickActionsCoordinatorTests
                 "context.Messenger.Send(newExerciseScreenHoldMessage(message.Active));")).IsTrue();
         Check.WithCustomMessage(
                 "EventCoordinator no longer suspends the hot-edge Quick Actions summon during an exercise.")
-            .That(source.Contains("_quickActions?.SetSummonSuspended(message.Active);")).IsTrue();
+            .That(source.Contains("_quickActions?.SetSummonSuspended(\"exercise\",message.Active);")).IsTrue();
     }
 }

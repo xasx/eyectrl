@@ -199,7 +199,7 @@ public class EventCoordinator : IEventCoordinator
         context.Messenger.Register<EventCoordinator, EyeCareExerciseActiveMessage>(this, (_, message) =>
         {
             context.Messenger.Send(new ExerciseScreenHoldMessage(message.Active));
-            _quickActions?.SetSummonSuspended(message.Active);
+            _quickActions?.SetSummonSuspended("exercise", message.Active);
         });
         _keyboard = new KeyboardCoordinator(_modal, _quickActions, _toolbar);
         _keyboard.Initialize(context);

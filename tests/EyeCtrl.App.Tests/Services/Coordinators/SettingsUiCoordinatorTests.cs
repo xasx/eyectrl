@@ -330,7 +330,7 @@ public class SettingsUiCoordinatorTests
         coordinator.Initialize(context);
         quickActions.Initialize(context);
         // The probe's BeginStart suspended the summon before the probe window appeared.
-        quickActions.SetSummonSuspended(true);
+        quickActions.SetSummonSuspended("settings", true);
         Check.That(quickActions.IsSummonSuspended).IsTrue();
 
         coordinator.OnSettingsWindowClosed(null, EventArgs.Empty);

@@ -286,6 +286,42 @@ public class EyeCareServiceTests
         Check.That(hooks.ActiveFlag).IsFalse();
     }
 
+    /// <summary>
+    /// B7 fixup-04 L3: the (true) send sits INSIDE the try. A throwing recipient must not escape
+    /// OnBreakDue before the finally, or the hold (and every overlay gate that reads it) would
+    /// stick until restart. Mutation: move the send back outside the try -> this goes red.
+    /// </summary>
+    [Fact]
+    public void AThrowingExerciseFlagRecipient_StillLowersTheHold()
+    {
+        var settings = new EyeCareSettings
+        {
+            Enabled = true, IntervalMinutes = 1, NaturalBreakSeconds = 30, SnoozeMinutes = 1
+        };
+        var messenger = new WeakReferenceMessenger();
+        var runner = new ExerciseRunner(new IExercise[] { new StubExercise() }, seed: 1);
+        var svc = new EyeCareService(settings, runner, new AcceptingHooks(), messenger: messenger);
+        bool sawTrue = false;
+        bool sawFalse = false;
+        messenger.Register<object, EyeCareExerciseActiveMessage>(this, (_, m) =>
+        {
+            if (m.Active)
+            {
+                sawTrue = true;
+                throw new InvalidOperationException("recipient boom");
+            }
+            sawFalse = true;
+        });
+
+        for (long t = 0; t <= 70_000_000; t += 1_000_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        Check.That(sawTrue).IsTrue();
+        Check.WithCustomMessage(
+                "the throwing (true) recipient skipped the finally — the exercise hold would stick")
+            .That(sawFalse).IsTrue();
+    }
+
     /// <summary>Accepting hooks: the banner is dwelled Start, the exercise and summary complete
     /// synchronously, and the flag value is captured at summary start.</summary>
     private sealed class AcceptingHooks : IEyeCareHooks

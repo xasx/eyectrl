@@ -41,6 +41,10 @@ public sealed class QuickActionsSummonController
     private long _runStartUs = Unseeded;
     private long _dismissStartUs = Unseeded;
     private volatile bool _suspended;
+    // The named claims holding the summon suspended (keyboard, settings, exercise, probe, the
+    // feature toggle). Suspended iff at least one holds; a claimant releases only its own name
+    // (B7 fixup-04 L1).
+    private readonly HashSet<string> _suspensionClaims = new(StringComparer.Ordinal);
     // Tracks HOW the current Summoned session began. true = hot-edge dwell (the controller
     // summoned it, so the gaze-away dismiss timer applies). false = opened via toolbar button /
     // close-button toggling / any VM-driven show (EnterSummoned path) — these stay open until
@@ -194,16 +198,27 @@ public sealed class QuickActionsSummonController
     }
 
     /// <summary>
-    /// Suspends or resumes the controller. Suspending forces the machine to Idle and fires
-    /// <see cref="DismissRequested"/> (notify:true) so the coordinator can hide the grid.
-    /// While suspended, <see cref="Feed"/> is a no-op.
+    /// Suspends or resumes ONE named claimant. The controller is suspended while ANY claim holds,
+    /// so an exercise ending cannot lift the keyboard's or Settings' claim (B7 fixup-04 L1: the
+    /// single shared bool used to let whichever writer resumed last re-enable a summon that was
+    /// still covered by another modal). Suspending forces the machine to Idle and fires
+    /// <see cref="DismissRequested"/> (notify:true) on the transition into suspended so the
+    /// coordinator can hide the grid. While suspended, <see cref="Feed"/> is a no-op.
     /// </summary>
-    /// <param name="suspended"><c>true</c> to suspend and force Idle; <c>false</c> to resume.</param>
-    public void SetSuspended(bool suspended)
+    /// <param name="claim">The claimant's name (keyboard, settings, exercise, probe, …).</param>
+    /// <param name="suspended"><c>true</c> to hold this claim, <c>false</c> to release it.</param>
+    public void SetSuspended(string claim, bool suspended)
     {
-        if (suspended == _suspended) return;
-        _suspended = suspended;
-        if (suspended) ResetToIdleCore(notify: true);
+        ArgumentException.ThrowIfNullOrEmpty(claim);
+        bool changed = suspended
+            ? _suspensionClaims.Add(claim)
+            : _suspensionClaims.Remove(claim);
+        if (!changed) return;
+
+        bool nowSuspended = _suspensionClaims.Count > 0;
+        if (nowSuspended == _suspended) return;
+        _suspended = nowSuspended;
+        if (nowSuspended) ResetToIdleCore(notify: true);
     }
 
     /// <summary>

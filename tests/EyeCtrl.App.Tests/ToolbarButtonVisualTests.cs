@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Tests;
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -633,112 +635,68 @@ public class ToolbarButtonVisualTests
             .IsEqualTo(Tokens.SurfaceLight);
     }
 
-    // Task 6: the provider indicator (an eye/mouse glyph showing where gaze comes from) must not
-    // read as a dwellable button, and setting it twice must not stack a second one. Not a live
-    // reproduction today — OverlayManager.cs:107-108 is the one real caller, and it calls
-    // Initialize once then SetProviderIndicator once, never SetProviderIndicator twice on the
-    // same window — this exercises the guard directly, as a code property.
+    // B5b: the toolbar's eye/mouse provider indicator is retired. The strip state (B2b) and the
+    // status cards (B5) carry the tracker/no-tracker signal now, so the strip must hold nothing
+    // but the button band: no glyph, no rule, no panel beside the targets. Re-adding the old
+    // AddIndicatorElement/SetProviderIndicator pair, and the OverlayManager call that fed it,
+    // turns this RED on all three counts — the strip gains a second child, the window gains a
+    // provider-taking method, and the retired provider field comes back.
     [StaFact]
-    public void TheProviderIndicator_IsNotInTheBand_AndNeverDuplicates()
+    public void TheStrip_CarriesTheButtonBandAndNoProviderChrome()
     {
         var window = NewInitialisedToolbar();
 
-        window.SetProviderIndicator(GazeProviderType.StreamEngine);
-        Check.WithCustomMessage("The indicator must not add a face to the button band.")
-            .That(Faces(window)).HasSize(7);
-        var afterOne = window.IndicatorPanel.Children.Count;
-        Check.WithCustomMessage("The indicator drew nothing at all — this test would pass even "
-                + "if AddIndicatorElement were a no-op.")
-            .That(afterOne).IsStrictlyGreaterThan(0);
+        Check.WithCustomMessage("The strip must carry exactly one child, the button band. Anything "
+                + "beside it is chrome sharing the strip's flow with the dwell targets.")
+            .That(window.StripWrapper.Children).HasSize(1);
+        Check.WithCustomMessage("The strip's only child must be the button band itself.")
+            .That(window.StripWrapper.Children[0]).IsSameReferenceAs(ButtonCanvas(window));
 
-        window.SetProviderIndicator(GazeProviderType.Mouse);
-        Check.WithCustomMessage("Setting the indicator twice appended a second one.")
-            .That(window.IndicatorPanel.Children.Count).IsEqualTo(afterOne);
+        var providerMethods = typeof(ToolbarWindow)
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+                        | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Where(m => m.GetParameters().Any(p => p.ParameterType == typeof(GazeProviderType)))
+            .Select(m => m.Name)
+            .ToList();
+        Check.WithCustomMessage("The toolbar still exposes a provider-taking method: "
+                + string.Join(", ", providerMethods))
+            .That(providerMethods).IsEmpty();
+
+        Check.WithCustomMessage("The toolbar still keeps the retired indicator's provider field.")
+            .That(typeof(ToolbarWindow).GetField("_providerType",
+                BindingFlags.NonPublic | BindingFlags.Instance)).IsNull();
     }
 
-    // The indicator must never masquerade as a dwell target: no Ellipse, ever, inside
-    // IndicatorPanel — Faces(window) staying at 6 (asserted above too) is the band-side half of
-    // this; this is the indicator-side half.
-    [StaFact]
-    public void TheIndicator_ContainsNoEllipse()
+    // The indicator's two icon keys had no other consumer, so they went with it. Pinned by name
+    // rather than only through the visual tree: a reintroduction of just the enum members —
+    // without a call site yet — is already RED here.
+    [Fact]
+    public void TheToolbarIconSet_CarriesNoProviderGlyphs()
     {
-        var window = NewInitialisedToolbar();
-        window.SetProviderIndicator(GazeProviderType.StreamEngine);
+        var names = Enum.GetNames<ToolbarIconKey>();
 
-        Check.WithCustomMessage("The indicator drew something that looks like a dwell target.")
-            .That(window.IndicatorPanel.Children.OfType<Ellipse>()).IsEmpty();
+        Check.WithCustomMessage("ProviderEye is back in ToolbarIconKey.")
+            .That(names).Not.Contains("ProviderEye");
+        Check.WithCustomMessage("ProviderMouse is back in ToolbarIconKey.")
+            .That(names).Not.Contains("ProviderMouse");
     }
 
     /// <summary>
-    /// The switch that maps a <see cref="GazeProviderType"/> to a <see cref="ToolbarIconKey"/> is
-    /// the only logic in <c>AddIndicatorElement</c>, and Task 6 rewrote it (an emoji string per
-    /// case became an icon-key lookup). <see cref="ToolbarIcons.For"/> returns a geometry from a
-    /// static, shared dictionary, so the drawn <see cref="Path.Data"/> is the SAME
-    /// <see cref="Geometry"/> instance as <see cref="ToolbarIcons.For"/> for the expected key —
-    /// reference equality proves which arm of the switch actually ran, rather than merely that
-    /// SOME icon was drawn.
-    /// </summary>
-    [StaFact]
-    public void TheProviderIndicator_DrawsTheIconMatchingItsProviderType()
-    {
-        var window = NewInitialisedToolbar();
-
-        window.SetProviderIndicator(GazeProviderType.Mouse);
-        Check.WithCustomMessage("Mouse must draw the mouse icon, not the eye.")
-            .That(window.IndicatorPanel.Children.OfType<Path>().Single().Data)
-            .IsSameReferenceAs(ToolbarIcons.For(ToolbarIconKey.ProviderMouse).Stroke);
-
-        window.SetProviderIndicator(GazeProviderType.StreamEngine);
-        Check.WithCustomMessage("StreamEngine must draw the eye icon, not the mouse.")
-            .That(window.IndicatorPanel.Children.OfType<Path>().Single().Data)
-            .IsSameReferenceAs(ToolbarIcons.For(ToolbarIconKey.ProviderEye).Stroke);
-    }
-
-    // The structural property this task exists to protect: the band's own geometry (button
-    // centres and Canvas extent) is computed entirely in LayOutBand from _buttonSize/ButtonMargin
-    // and does not depend on IndicatorPanel at all. Compared against a second, indicator-free
-    // window rather than re-pinning the same constants as ButtonCentres_AndCanvasSize_
-    // AreExactlyAsLaidOut: a shared-constants copy would fail identically on, say, a ButtonMargin
-    // edit, and neither run would point at the indicator as the thing under test.
-    [StaFact]
-    public void ButtonCentres_AndCanvasSize_AreUnaffectedByTheIndicator()
-    {
-        var withoutIndicator = NewInitialisedToolbar();
-        var withIndicator = NewInitialisedToolbar();
-        withIndicator.SetProviderIndicator(GazeProviderType.StreamEngine);
-
-        var leftsWithout = Faces(withoutIndicator).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
-        var leftsWith = Faces(withIndicator).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
-
-        Check.WithCustomMessage("Setting the provider indicator moved the button band.")
-            .That(leftsWith).ContainsExactly(leftsWithout);
-        Check.That(ButtonCanvas(withIndicator).Width).IsEqualTo(ButtonCanvas(withoutIndicator).Width);
-        Check.That(ButtonCanvas(withIndicator).Height).IsEqualTo(ButtonCanvas(withoutIndicator).Height);
-    }
-
-    /// <summary>
-    /// Task 3 gave IndicatorPanel a Margin, which offset the whole strip even with no provider
-    /// set (an empty StackPanel's CONTENT measures to zero, but a Margin on the panel itself does
-    /// not). Fixed by moving the spacing onto the indicator's own children, so an absent indicator
-    /// is genuinely zero-cost: left inset should be Border.Padding.Left (4) + IndicatorPanel's own
-    /// footprint (0, empty) + the band's ButtonMargin (12) = 16, matching the 16 on the right
-    /// (Border.Padding.Right + ButtonMargin).
+    /// The strip is symmetric: the band's leading and trailing outside margins must match, so the
+    /// row of dwell targets stays centred in the drawn strip. With the provider indicator retired
+    /// (B5b) there is no leading panel any more, so the arithmetic is the Border's Padding.Left
+    /// (4) + the band's ButtonMargin (12) = 16 on the left, and the same 16 on the right
+    /// (Padding.Right + ButtonMargin). A one-sided margin or padding — e.g. restoring the old
+    /// IndicatorPanel's <c>Margin="8,0,4,0"</c> — fails here.
     ///
-    /// Deliberately <see cref="UIElement.DesiredSize"/>, NOT <see cref="FrameworkElement.ActualWidth"/>:
-    /// ActualWidth is RenderSize, which EXCLUDES Margin, so a regression that restores
-    /// IndicatorPanel's old Margin="8,0,4,0" would still measure ActualWidth as 0 and this test
-    /// would report the strip symmetric while it visibly is not — the exact defect this test
-    /// exists to catch. DesiredSize.Width DOES include Margin (0 clean, 12 with that Margin
-    /// restored), which is what makes the assertion below actually fail on that regression.
-    ///
-    /// Read via DesiredSize/Canvas.GetLeft after a manual Measure/Arrange pass on the root Border
-    /// — NOT via TranslatePoint against the Window itself, which returns (0,0) pre-Show() per this
-    /// class's header comment. Measuring a descendant's own layout properties (unlike transforming
-    /// between two points via the unconnected Window) works fine headless, as
+    /// Read via <see cref="Canvas.GetLeft"/> after a manual Measure/Arrange pass on the root
+    /// Border — NOT via TranslatePoint against the Window itself, which returns (0,0) pre-Show()
+    /// per this class's header comment. Measuring a descendant's own layout properties (unlike
+    /// transforming between two points via the unconnected Window) works fine headless, as
     /// SettingsContentFitTests already relies on.
     /// </summary>
     [StaFact]
-    public void StripInsets_AreSymmetric_WhenNoProviderIsSet()
+    public void StripInsets_AreSymmetric()
     {
         var window = NewInitialisedToolbar();
         // window.Content is the clipping Grid that carries the slide transform; the strip itself
@@ -751,54 +709,24 @@ public class ToolbarButtonVisualTests
         var canvas = ButtonCanvas(window);
         var faces = Faces(window).OrderBy(Canvas.GetLeft).ToList();
 
-        var leftInset = root.Padding.Left + window.IndicatorPanel.DesiredSize.Width + Canvas.GetLeft(faces.First());
+        var leftInset = root.Padding.Left + Canvas.GetLeft(faces.First());
         var rightInset = root.Padding.Right + (canvas.Width - (Canvas.GetLeft(faces.Last()) + ButtonSize));
 
-        Check.WithCustomMessage($"Left inset {leftInset} != right inset {rightInset} — an empty "
-                + "IndicatorPanel is not genuinely zero-cost.")
+        Check.WithCustomMessage($"Left inset {leftInset} != right inset {rightInset} — the strip's "
+                + "outside margins are lopsided.")
             .That(leftInset).IsEqualTo(rightInset);
     }
 
-    // Orientation: the rule between the indicator's glyph and the band must read as a hairline
-    // ACROSS the axis of travel, not along it — thin-and-tall when the strip runs horizontally,
-    // wide-and-thin once SetMode docks it to a side edge and the strip turns vertical. Driving
-    // SetMode headlessly is not awkward here: BindToViewModel_ReappliesLiveState_AfterSetMode...
-    // above already exercises the same real axis-flipping call with no Show() involved.
-    [StaFact]
-    public void TheIndicatorRule_SwapsDimensions_WhenDockedVertically()
-    {
-        // Both values are named constants, not "whichever is bigger": an ordering assertion alone
-        // would pass on any (small, large) pair, e.g. (2, 1), and miss a regression that shrank or
-        // grew the wrong dimension by an arbitrary amount as long as the order held.
-        var thin = Tokens.BorderThicknessStandard;
-        var wide = ButtonSize * ContainerRatio.Dominant;
-
-        var window = NewInitialisedToolbar();
-        window.SetProviderIndicator(GazeProviderType.StreamEngine);
-
-        var ruleHorizontal = window.IndicatorPanel.Children.OfType<Border>().Single();
-        Check.WithCustomMessage("The rule should be thin-and-tall while the strip is horizontal.")
-            .That(ruleHorizontal.Width).IsEqualTo(thin);
-        Check.That(ruleHorizontal.Height).IsEqualTo(wide);
-
-        window.SetMode(isDocked: true, edge: "left");
-
-        var ruleVertical = window.IndicatorPanel.Children.OfType<Border>().Single();
-        Check.WithCustomMessage("The rule should be wide-and-thin once the strip is vertical.")
-            .That(ruleVertical.Width).IsEqualTo(wide);
-        Check.That(ruleVertical.Height).IsEqualTo(thin);
-    }
-
     /// <summary>
-    /// Both hairlines — the indicator's rule and the Reset separator's <see cref="Line"/> — must
-    /// use <see cref="Tokens.BrushBorderSubtle"/>, never <see cref="Tokens.BrushSurfaceMedium"/>.
-    /// The canonical contrast figures for this pair on <see cref="Tokens.SurfaceDark"/> — 1.23 /
-    /// 1.23 / 1.14 for SurfaceMedium, 3.35 / 3.32 / 21.00 for BorderSubtle (Midnight / Ember /
-    /// Contrast) — already live in <c>DwellToggleVisualTests.cs</c>,
-    /// <c>SliderStepperContrastTests.cs</c> and <see cref="EyeCtrl.Controls.DwellSlider"/>; not
-    /// repeated here. <see cref="EveryButton_CarriesAVisibleRim"/> above already asserts
-    /// SurfaceMedium alone is invisible as a boundary; without this guard, a future "the divider
-    /// looks too loud" cleanup could revert either site back to it with nothing to object.
+    /// The Reset separator's <see cref="Line"/> must use <see cref="Tokens.BrushBorderSubtle"/>,
+    /// never <see cref="Tokens.BrushSurfaceMedium"/>. The canonical contrast figures for this pair
+    /// on <see cref="Tokens.SurfaceDark"/> — 1.23 / 1.23 / 1.14 for SurfaceMedium, 3.35 / 3.32 /
+    /// 21.00 for BorderSubtle (Midnight / Ember / Contrast) — already live in
+    /// <c>DwellToggleVisualTests.cs</c>, <c>SliderStepperContrastTests.cs</c> and
+    /// <see cref="EyeCtrl.Controls.DwellSlider"/>; not repeated here.
+    /// <see cref="EveryButton_CarriesAVisibleRim"/> above already asserts SurfaceMedium alone is
+    /// invisible as a boundary; without this guard, a future "the divider looks too loud" cleanup
+    /// could revert the separator back to it with nothing to object.
     ///
     /// A token-identity check, not a live per-theme contrast measurement: the floor itself is
     /// already gated outside this suite, by <c>tools/palette_validate.py:358</c> ("GATE 1 —
@@ -808,17 +736,12 @@ public class ToolbarButtonVisualTests
     /// exactly what this test pins.
     /// </summary>
     [StaFact]
-    public void BothHairlines_UseBorderSubtle_NotSurfaceMedium()
+    public void TheResetSeparator_UsesBorderSubtle_NotSurfaceMedium()
     {
         var window = NewInitialisedToolbar();
-        window.SetProviderIndicator(GazeProviderType.StreamEngine);
 
         var separator = ButtonCanvas(window).Children.OfType<Line>().Single();
         Check.WithCustomMessage("The Reset separator must use BorderSubtle, not SurfaceMedium.")
             .That(((SolidColorBrush)separator.Stroke).Color).IsEqualTo(Tokens.BorderSubtle);
-
-        var rule = window.IndicatorPanel.Children.OfType<Border>().Single();
-        Check.WithCustomMessage("The indicator's rule must use BorderSubtle, not SurfaceMedium.")
-            .That(((SolidColorBrush)rule.Background).Color).IsEqualTo(Tokens.BorderSubtle);
     }
 }

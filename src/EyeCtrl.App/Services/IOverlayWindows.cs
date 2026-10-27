@@ -233,6 +233,20 @@ public interface IPauseIndicatorOverlay
     /// <summary>The toolbar band's rest rectangle in physical pixels; the Resume target is placed
     /// clear of it.</summary>
     void SetBandBounds(PhysicalRect bounds);
+
+    /// <summary>The paused state from the strip's own command (B2b split it from Show/Hide: the
+    /// window is also shown for TrackingLost and NoTracker, which have no Resume target).</summary>
+    void SetPaused(bool paused);
+
+    /// <summary>B1's committed control state (B2b): TrackingLost and NoTracker show their own label.</summary>
+    void SetControlState(ControlState state);
+
+    /// <summary>
+    /// The label card's visible bounds in physical pixels, for the note gate (B2b: the strip is an
+    /// occluder in every state). False while the window or the card is not shown. The card only,
+    /// never the edge-wide window.
+    /// </summary>
+    bool TryGetVisibleBounds(out PhysicalRect bounds);
 }
 
 /// <summary>The manual-selection gaze dot.</summary>

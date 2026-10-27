@@ -30,11 +30,15 @@ public class RecordingGazeProviderTests
         public bool HasSubscribers => GazePointReceived is not null;
 
         // Overridden deliberately. UpdateScreenBounds is a DEFAULT interface method with an empty body,
-        // so a fake that inherits it cannot tell a forwarded call from a swallowed one — which is
+        // so a fake that inherits it cannot tell a forwarded call from a swallowed one - which is
         // precisely how the decorator's missing forward went unnoticed by a passing suite.
         public List<(double Width, double Height)> ScreenBoundsUpdates { get; } = new();
         public void UpdateScreenBounds(double widthPx, double heightPx) =>
             ScreenBoundsUpdates.Add((widthPx, heightPx));
+
+        // Same trap as UpdateScreenBounds: ConnectEdgeCount is a DIM defaulting to 0, so a missing
+        // forward in the decorator is invisible unless the fake overrides it with another value.
+        public long ConnectEdgeCount { get; set; }
     }
 
     private sealed class RecordingSpy : IGazeRecordingSink
@@ -264,6 +268,21 @@ public class RecordingGazeProviderTests
         asInterface.UpdateScreenBounds(3840, 2400);
 
         Check.That(inner.ScreenBoundsUpdates).ContainsExactly((3840.0, 2400.0));
+    }
+
+    [Fact]
+    public void ConnectEdgeCount_ReachesTheRealProvider()
+    {
+        // Same silent-drop trap as UpdateScreenBounds: the counter is a DIM defaulting to 0, so a
+        // missing forward reads as "no edge observed" and B3's aliasing hardening dies exactly in
+        // the sessions a recording is made from. Through the interface, as production reads it.
+        var (provider, inner, _, _, _) = New(recording: true);
+        using var _p = provider;
+        inner.ConnectEdgeCount = 42;
+
+        IGazeProvider asInterface = provider;
+
+        Check.That(asInterface.ConnectEdgeCount).IsEqualTo(42);
     }
 
     [Fact]

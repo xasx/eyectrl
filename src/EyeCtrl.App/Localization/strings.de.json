@@ -1726,6 +1726,14 @@
     "text": "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?",
     "src": "ba2414da"
   },
+  "settings.dwell.status_chime.description": {
+    "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Eine Pause bleibt still.",
+    "src": "41b3cce8"
+  },
+  "settings.dwell.status_chime.label": {
+    "text": "Ton bei Verbindungsverlust",
+    "src": "b04cca54"
+  },
   "settings.dwell.toolbar.description": {
     "text": "Wie lange der Blick auf den Schaltflächen von EyeCtrl selbst ruhen muss.",
     "src": "f19eae37"

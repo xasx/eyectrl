@@ -151,6 +151,12 @@
           "Modal": null
         },
         {
+          "Id": "d_status_chime",
+          "Label": "Disconnect Chime",
+          "Description": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. A pause stays silent.",
+          "Modal": null
+        },
+        {
           "Id": "d_reset",
           "Label": "Reset Dwell Settings",
           "Description": null,

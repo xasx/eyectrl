@@ -3125,6 +3125,20 @@
     "fit": "prose",
     "args": []
   },
+  "settings.dwell.status_chime.description": {
+    "text": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. A pause stays silent.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.status_chime.label": {
+    "text": "Disconnect Chime",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.toolbar.description": {
     "text": "How long to rest on EyeCtrl's own buttons.",
     "who": "user",

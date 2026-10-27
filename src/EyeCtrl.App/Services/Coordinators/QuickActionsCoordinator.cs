@@ -44,7 +44,7 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
 
     // The feature toggle is a claim too: a disabled Quick Actions must not summon whatever the
     // modal claimants say.
-    private const string FeatureDisabledClaim = "quick-actions-disabled";
+    private const string FeatureDisabledClaim = nameof(QuickActionsGridViewModel);
 
     /// <summary>
     /// The summon controller's gaze gate (build plan C9): while the probe is open, no hot-edge

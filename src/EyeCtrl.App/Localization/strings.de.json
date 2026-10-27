@@ -702,6 +702,14 @@
     "text": "Scroll-Anzeige",
     "src": "ebaf748d"
   },
+  "overlays.status.noTracker": {
+    "text": "Kein Eyetracker",
+    "src": "a3661a0f"
+  },
+  "overlays.status.trackingLost": {
+    "text": "Blick nicht erkannt",
+    "src": "a369be24"
+  },
   "overlays.subpixel.answer_one": {
     "text": "1",
     "src": "c35c447f"

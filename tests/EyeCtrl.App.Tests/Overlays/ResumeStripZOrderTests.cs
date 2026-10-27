@@ -52,6 +52,45 @@ public class ResumeStripZOrderTests
             .That(ZIndexOf(rig.Strip)).IsStrictlyLessThan(ZIndexOf(rig.Note));
     }
 
+    // B2b: a status state shows the strip above a note shown before it, with no pause at all.
+    [StaFact]
+    public void AStatusState_ShowsTheStripAboveANoteShownBeforeIt()
+    {
+        using var rig = Rig.Create();
+
+        rig.Note.Show();
+        rig.Adapter.SetControlState(EyeCtrl.Core.Enums.ControlState.NoTracker);
+        Check.WithCustomMessage($"strip Z={ZIndexOf(rig.Strip)}, note Z={ZIndexOf(rig.Note)} (lower = in front)")
+            .That(ZIndexOf(rig.Strip)).IsStrictlyLessThan(ZIndexOf(rig.Note));
+    }
+
+    // B2b: the occluder source reports the LABEL CARD only, in physical pixels, while the window
+    // and the card are shown — never the edge-wide window — and nothing once the state clears.
+    [StaFact]
+    public void TheVisibleBounds_AreTheLabelCardOnly_WhileShown()
+    {
+        using var rig = Rig.Create();
+        // The live scale, never written here (this class is not in the DpiHelper collection). The
+        // DPI-2.0 conversion of these bounds is pinned on the real window by
+        // StatusStripOccluderBoundsTests (review 01 F1) — not by the wiring test, which uses a fake strip.
+        var sx = EyeCtrl.Core.Services.DpiHelper.ScaleX;
+        var sy = EyeCtrl.Core.Services.DpiHelper.ScaleY;
+
+        Check.That(rig.Strip.TryGetVisibleBounds(out _)).IsFalse();
+
+        rig.Adapter.SetControlState(EyeCtrl.Core.Enums.ControlState.TrackingLost);
+        Check.That(rig.Strip.TryGetVisibleBounds(out var card)).IsTrue();
+        var label = rig.Strip.LastLayout!.Value.Label;
+        Check.That(card).IsEqualTo(new EyeCtrl.Core.Models.PhysicalRect(
+            label.X * sx, label.Y * sy, label.Width * sx, label.Height * sy));
+        Check.WithCustomMessage("the card, never a full-width band")
+            .That(card.Width).IsStrictlyLessThan(rig.Strip.LastLayout!.Value.Window.Width * sx);
+
+        // TrackingLost clears on the first valid sample: the occlusion goes with it.
+        rig.Adapter.SetControlState(EyeCtrl.Core.Enums.ControlState.Normal);
+        Check.That(rig.Strip.TryGetVisibleBounds(out _)).IsFalse();
+    }
+
     [StaFact]
     public void TheBandLeaving_RaisesTheStripAboveANoteRaisedMeanwhile()
     {

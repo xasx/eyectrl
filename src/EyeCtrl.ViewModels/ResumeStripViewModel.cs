@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -35,6 +36,15 @@ using EyeCtrl.ViewModels.Messages;
 /// resting on the target cannot click through. The send is gated on the activating sample having
 /// been PAUSED: a toggle from an unpaused state would pause again.
 /// </para>
+///
+/// <para>
+/// <b>B2b: the strip's states.</b> The same strip also says when the user has no control for another
+/// reason — tracking lost, or no eye tracker — following B1's control status
+/// (<see cref="SetControlState"/>, priority NoTracker &gt; TrackingLost &gt; Paused). Only Paused has
+/// the Resume target: in the other states <see cref="DwellOverlayViewModelBase.IsVisible"/> stays
+/// false, so the disc never shows, arms or fires. The paused input itself still comes only from the
+/// strip's own command (InteractionManager, B2a), never from the status.
+/// </para>
 /// </summary>
 public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
 {
@@ -65,6 +75,7 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
     private readonly DwellSettings _dwell;
 
     private bool _stripShown;
+    private ControlState _controlState = ControlState.Normal;
     private bool _bandVisible = true;
     private PhysicalPoint? _centre;
     private double _radiusPhysical;
@@ -77,6 +88,14 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
 
     /// <summary>True while the dwell is grace-held (the gaze stepped off mid-dwell). Display only.</summary>
     [ObservableProperty] private bool _isDwellPaused;
+
+    /// <summary>Which label the strip shows (B2b), by B1's priority; <see cref="ResumeStripLabel.None"/>
+    /// when it shows none.</summary>
+    [ObservableProperty] private ResumeStripLabel _label;
+
+    /// <summary>Whether the label card is up: always for TrackingLost and NoTracker, and for Paused only
+    /// together with the Resume disc (while the band is hidden).</summary>
+    [ObservableProperty] private bool _isLabelVisible;
 
     /// <param name="settings">The live settings: the dwell rule and the (capped) pause grace follow them.</param>
     /// <param name="messenger">The app messenger: gaze in, <see cref="PauseToggledMessage"/> out.</param>
@@ -116,14 +135,34 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
     public PhysicalPoint? TargetCentre => _centre;
 
     /// <summary>
-    /// The strip window was shown (true) or hidden (false). The window is shown exactly while the
-    /// app is Paused, so this is the paused state as the strip sees it.
+    /// The paused state as the strip's own command sees it (true while Paused). Driven from
+    /// InteractionManager through the adapter — never from the control status — so the Paused strip
+    /// still hides inside the handler that leaves Paused (B2a).
     /// </summary>
     public void SetStripShown(bool shown)
     {
         _stripShown = shown;
         Recompute();
     }
+
+    /// <summary>
+    /// B1's committed control state (B2b). TrackingLost and NoTracker take the strip's label over
+    /// Paused (B1's priority); Normal and Paused leave it to the paused input.
+    /// </summary>
+    public void SetControlState(ControlState state)
+    {
+        _controlState = state;
+        Recompute();
+    }
+
+    /// <summary>The label a control state and the paused input show, by B1's priority
+    /// (NoTracker &gt; TrackingLost &gt; Paused).</summary>
+    public static ResumeStripLabel LabelFor(ControlState state, bool paused) => state switch
+    {
+        ControlState.NoTracker => ResumeStripLabel.NoTracker,
+        ControlState.TrackingLost => ResumeStripLabel.TrackingLost,
+        _ => paused ? ResumeStripLabel.Paused : ResumeStripLabel.None,
+    };
 
     /// <summary>The toolbar band became visible (true) or hidden (false).</summary>
     public void SetBandVisible(bool visible)
@@ -166,7 +205,16 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
 
     private void Recompute()
     {
-        var visible = _stripShown && !_bandVisible && _centre is not null;
+        var label = LabelFor(_controlState, _stripShown);
+        // Only Paused has the Resume target (B2b): another state's label replaces the disc entirely.
+        var visible = label == ResumeStripLabel.Paused && !_bandVisible && _centre is not null;
+        Label = label;
+        IsLabelVisible = label switch
+        {
+            ResumeStripLabel.None => false,
+            ResumeStripLabel.Paused => visible,
+            _ => true,
+        };
         if (visible == IsVisible) return;
 
         // Every appearance starts disarmed and every disappearance drops any progress, so a dwell

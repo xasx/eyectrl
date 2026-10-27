@@ -46,14 +46,118 @@ public class NoteOccluderWiringTests
     /// <summary>The exact production context shape the wiring reads: the manager itself plus an
     /// overlay manager carrying the track-status source.</summary>
     private static (NoteManager Manager, EventCoordinationContext Context, TestFakes.FakeTrackStatusOverlay TrackStatus)
-        MakeContext(ServiceProvider sp, NoteManager manager, TestFakes.FakeTrackStatusOverlay trackStatus)
+        MakeContext(ServiceProvider sp, NoteManager manager, TestFakes.FakeTrackStatusOverlay trackStatus,
+            FakeStatusStrip? strip = null)
     {
+        // B2b: the wiring now also reads the status strip (OverlayManager.PauseIndicator), so every
+        // wired context supplies one — hidden unless the test says otherwise.
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
-            OverlayManager = TestFakes.MakeOverlayManager(trackStatus: trackStatus),
+            OverlayManager = TestFakes.MakeOverlayManager(trackStatus: trackStatus,
+                pauseIndicator: strip ?? new FakeStatusStrip()),
             NoteManager = manager,
         };
         return (manager, context, trackStatus);
+    }
+
+    /// <summary>The status strip as the wiring sees it: only its label card's visible bounds.</summary>
+    internal sealed class FakeStatusStrip : IPauseIndicatorOverlay
+    {
+        public PhysicalRect? Card { get; set; }
+        public bool Throws { get; set; }
+
+        public void Show() { }
+        public void Hide() { }
+        public void SetEdge(string edge) { }
+        public void RaiseToTop() { }
+        public void SetBandVisible(bool visible) { }
+        public void SetBandBounds(PhysicalRect bounds) { }
+        public void SetPaused(bool paused) { }
+        public void SetControlState(EyeCtrl.Core.Enums.ControlState state) { }
+
+        public bool TryGetVisibleBounds(out PhysicalRect bounds)
+        {
+            if (Throws) throw new InvalidOperationException("strip read slip");
+            bounds = Card ?? default;
+            return Card is not null;
+        }
+    }
+
+    // B2b (sticky owner 0664e3e2): the "status strip" source must CONNECT through the production
+    // wiring on the real container at DPI 2.0 — with the label card over ✕ the destructive dwell is
+    // held, and once the card goes (TrackingLost clears on the first valid sample) the same held
+    // gaze reaches ✕. Mutation: drop statusStripBounds from Wire → ✕ fires under the card → red.
+    [StaFact]
+    public void TheWiredStatusStripSource_OccludesThroughTheRealWiring_AndClearsWithTheCard()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+        var manager = (NoteManager)sp.GetRequiredService<INoteManager>();
+        var strip = new FakeStatusStrip();
+        var (_, context, _) = MakeContext(sp, manager, new TestFakes.FakeTrackStatusOverlay(), strip);
+
+        NoteOccluderWiring.Wire(manager, sp, context);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddNoteTargetsForTest(anchor);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
+
+            strip.Card = new PhysicalRect(closeCenter.X - 200, closeCenter.Y - 44, 400, 88);
+            for (long t = 0; t <= 1_500_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("the wired status-strip source must occlude ✕ beneath the label card")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // The card goes (tracking came back): transient occlusion — the same held gaze reaches ✕.
+            strip.Card = null;
+            for (long t = 1_600_000; t <= 1_900_000; t += 100_000)
+                manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
+            for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("a hidden strip card must not keep the gate shut")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // B2b: a throwing strip read fails CLOSED as its OWN named source ("status strip").
+    [StaFact]
+    public void AThrowingStatusStripSource_FailsClosed_UnderItsOwnName()
+    {
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
+        var strip = new FakeStatusStrip { Throws = true };
+        manager.SetOccluderSources(statusStripBounds: () => strip.TryGetVisibleBounds(out var b) ? b : null);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Error().WriteTo.Sink(sink).CreateLogger();
+            try
+            {
+                var anchor = new PhysicalPoint(1600, 1000);
+                manager.AddNoteTargetsForTest(anchor);
+                var closeCenter = ButtonCentrePhysical(anchor, 3);
+                for (long t = 0; t <= 2_000_000; t += 100_000)
+                    manager.OnGazeMoved(closeCenter, t);
+
+                Check.WithCustomMessage("a throwing status-strip source must hold the note (fail closed)")
+                    .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+                var named = sink.Events
+                    .Where(e => e.MessageTemplate.Text.Contains("occluder source threw", StringComparison.Ordinal))
+                    .Select(e => e.Properties.TryGetValue("OccluderSource", out var v) && v is ScalarValue { Value: string n } ? n : null)
+                    .ToList();
+                Check.That(named).ContainsExactly(NoteManager.KnownOccluderSources.StatusStrip);
+                Check.That(NoteManager.KnownOccluderSources.StatusStrip).IsEqualTo("status strip");
+            }
+            finally { Log.Logger = previousLogger; }
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
     // R7b (reviewer probe, adopted) + review-03 M1's POSITIVE CONTROL: the exact production

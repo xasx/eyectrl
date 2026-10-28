@@ -8,11 +8,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Shapes;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
-using EyeCtrl.Controls.Theme;
-using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
@@ -46,7 +43,6 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     // a one-frame-stale read costs at most one extra dispatch.
     private volatile bool _targetsInitialized;
     private bool _vertical;
-    private GazeProviderType? _providerType;
 
     // ── Slide transition ──
     // docs/superpowers/specs/2026-09-06-toolbar-slide-transition-design.md
@@ -184,19 +180,11 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// </summary>
     private void RebuildBand()
     {
-        // No IndicatorPanel.Children.Clear() here: AddIndicatorElement below clears it itself
-        // before adding, and when _providerType is null nothing has ever added to the panel in
-        // the first place (SetProviderIndicator is IndicatorPanel's only other writer, and it
-        // sets _providerType before calling AddIndicatorElement). A clear here would be provably
-        // dead, not just redundant.
         _targetsInitialized = false;
 
         // The stored flag, not a parameter: this is the path SetMode's axis flip takes, and it
         // must rebuild at the membership the band already had (see _includeReset's doc).
         _band.Build(_buttonSize, _vertical, _includeReset);
-
-        if (_providerType.HasValue)
-            AddIndicatorElement(_providerType.Value);
 
         // Every rebuild drops the drawn state along with the old elements. Rebind so the new
         // buttons start from live view-model state rather than constructor defaults: for an
@@ -222,112 +210,6 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
             vm.SetRenderedButtons(_band.Buttons.Select(b => b.Key).ToArray());
     }
 
-    /// <summary>
-    /// Draws the gaze-provider indicator: a small glyph (eye/mouse) plus a hairline rule, sized
-    /// and coloured as chrome rather than as a sixth button — it carries no fill, no rim and no
-    /// dwell target, so it cannot be mistaken for a broken button the way the old full-size
-    /// <c>Border</c>+emoji <c>TextBlock</c> could. That is also why it lives here rather than in
-    /// <see cref="ToolbarBand"/>: it renders beside the band but is deliberately not part of it.
-    ///
-    /// <para>
-    /// Clears <see cref="IndicatorPanel"/> before adding, which is what makes a second
-    /// <see cref="SetProviderIndicator"/> call on a live window safe instead of doubling the
-    /// indicator. <c>OverlayManager.cs:107-108</c> does not call it twice today — it calls
-    /// <see cref="Initialize"/> once and <see cref="SetProviderIndicator"/> once, in that order —
-    /// so nothing exercises this guard on the current caller, but it is one line away (e.g. a
-    /// provider hot-swap) and there would be nothing else stopping
-    /// <see cref="IndicatorPanel"/> from accumulating a second icon+rule pair if that line were
-    /// added. Clearing unconditionally, rather than checking whether one already exists, also
-    /// makes an axis flip (<see cref="SetMode"/>, via <see cref="RebuildBand"/>) free to rebuild
-    /// the indicator in its new orientation without a separate "is this a rebuild or a fresh add"
-    /// branch.
-    /// </para>
-    ///
-    /// <para>
-    /// Only <see cref="IconGeometry.Stroke"/> is drawn, not <see cref="IconGeometry.Fill"/>:
-    /// <see cref="ToolbarIconKey.ProviderEye"/> and <see cref="ToolbarIconKey.ProviderMouse"/> are
-    /// both stroke-only today (<c>ToolbarIcons.cs</c>), and <see cref="IndicatorPanel"/> is a
-    /// <c>StackPanel</c>, which arranges children SIDE BY SIDE rather than stacking them — unlike
-    /// <c>DwellArcButton</c>'s <c>Canvas</c>, a second layer added as a second panel child would
-    /// not overlay the first, it would sit visibly beside it. If either geometry ever gains a
-    /// <c>Fill</c> layer, drawing it here needs a small overlay container (e.g. a <c>Grid</c>)
-    /// around both layers, not a second top-level child of this panel.
-    /// </para>
-    /// </summary>
-    private void AddIndicatorElement(GazeProviderType providerType)
-    {
-        // Idempotent — see this method's doc comment above for what that guards against.
-        IndicatorPanel.Children.Clear();
-
-        // GazeProviderType also has Auto (0), which falls through to the eye here — but it never
-        // actually reaches this switch: App.xaml.cs:160 calls
-        // GazeProviderFactory.GetProviderType(gazeProvider) on the already-constructed provider
-        // INSTANCE before handing the result to OverlayManager.Initialize (-> SetProviderIndicator
-        // at OverlayManager.cs:108), and that lookup only ever returns StreamEngine or Mouse
-        // (GazeProviderFactory.cs:50-56) — never Auto or the obsolete InteractionLib. The Auto
-        // arm here is unreachable in production; it exists so this switch is still total if a
-        // future caller ever passes the raw settings value instead.
-        var key = providerType switch
-        {
-#pragma warning disable CS0618 // Type or member is obsolete
-            GazeProviderType.InteractionLib => ToolbarIconKey.ProviderEye,
-#pragma warning restore CS0618 // Type or member is obsolete
-            GazeProviderType.Mouse => ToolbarIconKey.ProviderMouse,
-            _ => ToolbarIconKey.ProviderEye,
-        };
-
-        var size = _buttonSize * ContainerRatio.Small;
-        var geometry = ToolbarIcons.For(key);
-        var scale = size / ActionIcons.GridSize;
-
-        var icon = new Path
-        {
-            Data = geometry.Stroke,
-            Stroke = Tokens.BrushTextDim,
-            StrokeThickness = ActionIcons.GridStrokeThickness,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round,
-            StrokeLineJoin = PenLineJoin.Round,
-            // Scale on RenderTransform, not Geometry.Transform — same reasoning as
-            // DwellArcButton.Create's BuildLayer (see DwellArcButton.cs:267-269): RenderTransform
-            // scales the stroke with the path, so GridStrokeThickness stays constant at every size.
-            RenderTransform = new ScaleTransform(scale, scale),
-            Width = size,
-            Height = size,
-            VerticalAlignment = VerticalAlignment.Center,
-            IsHitTestVisible = false,
-            // The panel's own leading gap, now that IndicatorPanel carries no Margin of its own
-            // (an empty StackPanel's content measures to zero, but its Margin would not, which is
-            // what made the strip asymmetric with no provider set — see the XAML comment).
-            Margin = _vertical ? new Thickness(0, ToolbarBand.ButtonMargin, 0, 0)
-                               : new Thickness(ToolbarBand.ButtonMargin, 0, 0, 0),
-        };
-
-        // BrushBorderSubtle, not BrushSurfaceMedium — same reason as ToolbarBand.AddSeparator's
-        // Line, see that method's doc comment for the contrast figures; the two moved together and
-        // must stay together, since at different weights in one 896 px strip they would read as a
-        // bug. That they now live in two files is exactly why this note names the other one.
-        var rule = new Border
-        {
-            Width = _vertical ? _buttonSize * ContainerRatio.Dominant : Tokens.BorderThicknessStandard,
-            Height = _vertical ? Tokens.BorderThicknessStandard : _buttonSize * ContainerRatio.Dominant,
-            Background = Tokens.BrushBorderSubtle,
-            IsHitTestVisible = false,
-            Margin = _vertical ? new Thickness(0, ToolbarBand.ButtonMargin, 0, 0)
-                               : new Thickness(ToolbarBand.ButtonMargin, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        IndicatorPanel.Children.Add(icon);
-        IndicatorPanel.Children.Add(rule);
-    }
-
-    public void SetProviderIndicator(GazeProviderType providerType)
-    {
-        _providerType = providerType;
-        AddIndicatorElement(providerType);
-    }
-
     public void SetMode(bool isDocked, string edge)
     {
         // Null-tolerant, mirroring PlaceAtEdge's own `edge?.ToLowerInvariant()`. Undocked always
@@ -347,8 +229,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
         if (wantVertical != _vertical)
         {
             _vertical = wantVertical;
-            StripWrapper.Orientation = IndicatorPanel.Orientation =
-                _vertical ? Orientation.Vertical : Orientation.Horizontal;
+            StripWrapper.Orientation = _vertical ? Orientation.Vertical : Orientation.Horizontal;
             // RebuildBand rebinds itself now (see its trailing comment), so no explicit
             // BindToViewModel call is needed here.
             RebuildBand();

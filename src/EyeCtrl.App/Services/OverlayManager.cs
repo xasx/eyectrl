@@ -200,7 +200,6 @@ public class OverlayManager : IOverlayManager
         // at startup the setting is read once, here.
         _toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs,
             settings.Adaptation.Enabled);
-        _toolbar.SetProviderIndicator(providerType);
 
         // Track status overlay (click-through, top-right). Capability-gated inside the VM.
         _trackStatus = new TrackStatusWindow();

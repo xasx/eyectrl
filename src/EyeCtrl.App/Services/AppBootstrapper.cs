@@ -551,7 +551,9 @@ public class AppBootstrapper
 
         // Eye-care
         // B7: both surfaces carry A1's pause grace and read the live DwellSettings at session
-        // entry; the banner also places its rings clear of the live toolbar band.
+        // entry; the banner also places its rings clear of the live toolbar band. B6: the banner's
+        // rings follow EyeCareBannerDwellMs (0 = the live ActivationButtonDwellMs) at each show,
+        // so the first argument is only the no-settings fallback.
         services.AddSingleton(sp => new EyeCareBannerWindow(
             sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs,
             sp.GetRequiredService<IStruggleTelemetrySink>(),

@@ -12,6 +12,7 @@ using EyeCtrl.Controls;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
@@ -45,7 +46,10 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     internal const long FollowCheckIntervalMicroseconds = 250_000;
 
     private readonly DwellDetector _dwell;
-    private readonly int _dwellMs;
+    // Set only when no live settings object was supplied: tests build the card with a tiny dwell
+    // and no settings. Production always supplies one, so the close target follows it live.
+    private readonly int? _fallbackDwellMs;
+    private readonly DwellSettings _dwellSettings;
     private readonly IMessenger _messenger;
     private readonly DwellOutlineOverlay _outline;
     private readonly Func<IReadOnlyList<Rect>>? _keepClear;
@@ -56,22 +60,28 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     private DispatcherTimer? _holdTimer;
 
     /// <summary>Creates the window. Not shown until <see cref="ShowNotice"/>.</summary>
-    /// <param name="dwellMs">The close button's dwell time; the app's activation dwell, like the eye-care banner.</param>
+    /// <param name="dwellMs">The close button's dwell time, used only when no live
+    /// <paramref name="dwellSettings"/> is supplied (tests). Production passes the live settings
+    /// object and reads its knob at every show.</param>
     /// <param name="messenger">The bus the dwell-completion cue and the activation-offer suspension use; null is the app default.</param>
     /// <param name="keepClear">The rectangles, in DIP, the card must not cover: the shown keyboard,
     /// a docked toolbar, an open menu. Null means none.</param>
     /// <param name="present">How the card is put on screen; null shows it, topmost and without
     /// activating it. A seam for a headless test, which lays the card out instead: a shown overlay is
     /// the user's only input surface.</param>
+    /// <param name="dwellSettings">The live settings (B6): <c>RestartNoticeDwellMs</c> when set,
+    /// else <c>ActivationButtonDwellMs</c>. Read at every show, so a Settings edit does not wait
+    /// for a restart.</param>
     public RestartNoticeWindow(
         int dwellMs = 700, IMessenger? messenger = null, Func<IReadOnlyList<Rect>>? keepClear = null,
-        Action<RestartNoticeWindow>? present = null)
+        Action<RestartNoticeWindow>? present = null, DwellSettings? dwellSettings = null)
     {
         IsClickThrough = true; // read in OverlayWindow.OnSourceInitialized, so NOT set after init
         ExcludeFromScreenCapture = true;
         InitializeComponent();
 
-        _dwellMs = dwellMs;
+        _dwellSettings = dwellSettings ?? new DwellSettings();
+        _fallbackDwellMs = dwellSettings is null ? dwellMs : null;
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         _keepClear = keepClear;
         _present = present;
@@ -85,6 +95,16 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         _dwell.TargetActivated += OnDwellActivated;
         _dwell.TargetProgress += (_, progress) => _outline.SetProgress(progress);
     }
+
+    /// <summary>The detector — the test seam for the close target's dwell (B6's live read).</summary>
+    internal DwellDetector DwellForTest => _dwell;
+
+    /// <summary>
+    /// The close target's dwell, read live at every placement: the card's own
+    /// <c>RestartNoticeDwellMs</c> when set, else the live <c>ActivationButtonDwellMs</c> (B6;
+    /// before it, the card always borrowed the activation dwell, read once at startup).
+    /// </summary>
+    private int DwellMs => _fallbackDwellMs ?? _dwellSettings.EffectiveRestartNoticeDwellMs;
 
     /// <inheritdoc />
     public bool IsShowing => _isShowing;
@@ -287,7 +307,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         _dwell.AddTarget(new DwellTarget(
             CloseTargetId,
             CloseBounds(new Rect(Left, Top, Width, Height), inWindow, DpiHelper.ScaleX, DpiHelper.ScaleY),
-            _dwellMs));
+            DwellMs));
     }
 
     /// <summary>

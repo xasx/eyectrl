@@ -102,11 +102,12 @@ public class SettingsSliderSpanGuardTests
     public void EyeCare_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new EyeCarePageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(6);
+        Check.That(sliders).HasSize(7);
         SpanInside(sliders, "ec_interval", 1, 120);
         SpanInside(sliders, "ec_break", 5, 600);
         SpanInside(sliders, "ec_exercise", 10, 180);
         SpanInside(sliders, "ec_snooze_banner", 5, 120);
+        SpanInside(sliders, "ec_banner_dwell", 0, 3000);
         SpanInside(sliders, "ec_snooze", 1, 60);
         SpanInside(sliders, "ec_fatigue_thresh", 0.0, 1.0);
     }
@@ -129,18 +130,23 @@ public class SettingsSliderSpanGuardTests
     public void Advanced_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new AdvancedPageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(8);
+        Check.That(sliders).HasSize(13);
         // The backdrop range was widened to 0.0–0.95 ("no darkening" to "almost black") and the
         // slider, the guard and Validate share BackdropSettings' constant pair. Pinned EXACTLY, not
         // merely inside the guard: a slider left at an old literal would be silently narrower than
         // the range the setting allows (the Core bounds tests pin the constants' own values).
         Check.That(sliders["av_backdrop_opacity"].Min).IsEqualTo(BackdropSettings.OpacityMin);
         Check.That(sliders["av_backdrop_opacity"].Max).IsEqualTo(BackdropSettings.OpacityMax);
+        SpanInside(sliders, "av_backdrop_hide", 200, 2000);
         SpanInside(sliders, "av_drag_settle", 200, 2000);
+        SpanInside(sliders, "av_drag_release", 200, 2000);
+        SpanInside(sliders, "av_drag_right_edge", 200, 2000);
         SpanInside(sliders, "av_drag_radius", 10, 200);
         SpanInside(sliders, "av_drag_opacity", 0.1, 1.0);
         SpanInside(sliders, "av_scroll_sens", 0.5, 2.0);
+        SpanInside(sliders, "av_scroll_stop", 200, 2000);
         SpanInside(sliders, "av_repeat_dwell", 200, 2000);
+        SpanInside(sliders, "av_repeat_stop", 200, 2000);
         SpanInside(sliders, "av_ext_dwell", 200, 3000);
         SpanInside(sliders, "av_ext_cooldown", 0, 5000);
     }

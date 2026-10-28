@@ -17,7 +17,7 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
         Check.That(pages).HasSize(2);
         Check.That(pages[1].Rows.OfType<ButtonSpec>().Single().Id).IsEqualTo("d_reset");
         Check.That(pages[1].Rows.OfType<SliderSpec>().Select(s => s.Id))
-            .Contains(new[] { "d_tool", "d_key", "d_pred", "d_rad", "d_cooldown", "d_pause_grace" });
+            .Contains(new[] { "d_tool", "d_key", "d_pred", "d_rad", "d_cooldown", "d_pause_grace", "d_resume" });
     }
 
     [Fact]
@@ -84,12 +84,14 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
             ["d_act"] = (200, 2000),
             ["d_menu"] = (200, 2000),
             ["d_ManualSelection"] = (200, 2000),
+            ["d_manual_side"] = (200, 2000),
             ["d_tool"] = (200, 2000),
             ["d_key"] = (300, 1500),
             ["d_pred"] = (300, 1500),
             ["d_rad"] = (10, 200),
             ["d_cooldown"] = (100, 5000),
             ["d_pause_grace"] = (0, 1000),
+            ["d_resume"] = (500, 3000),
         };
 
         Check.That(sliders).HasSize(guards.Count);

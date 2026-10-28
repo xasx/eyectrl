@@ -1194,6 +1194,14 @@
     "text": "Abdunklung aktivieren",
     "src": "7344e4d7"
   },
+  "settings.advanced.backdrop_hide.description": {
+    "text": "Wie lange der Blick auf der Schaltfläche ruhen muss, die die Abdunklung ausblendet.",
+    "src": "a74a11b6"
+  },
+  "settings.advanced.backdrop_hide.label": {
+    "text": "Abdunklung ausblenden (ms)",
+    "src": "a6cf72bd"
+  },
   "settings.advanced.backdrop_opacity.description": {
     "text": "Wie dunkel die Abdunklung ist – für beide Arten; gilt ab dem nächsten Öffnen.",
     "src": "30887c0d"
@@ -1242,6 +1250,22 @@
     "text": "Toleranzradius vor dem Ziehen (px)",
     "src": "06290b71"
   },
+  "settings.advanced.drag_release.description": {
+    "text": "Wie lange der Blick auf der Schaltfläche ruhen muss, die ein Ziehen beendet.",
+    "src": "573d0796"
+  },
+  "settings.advanced.drag_release.label": {
+    "text": "Ziehen beenden (ms)",
+    "src": "47bf2c98"
+  },
+  "settings.advanced.drag_right_edge.description": {
+    "text": "Wie lange der Blick auf der Randschaltfläche ruhen muss, die ein Ziehen beendet.",
+    "src": "6483e1f8"
+  },
+  "settings.advanced.drag_right_edge.label": {
+    "text": "Ziehen am Rand beenden (ms)",
+    "src": "02721213"
+  },
   "settings.advanced.drag_settle.description": {
     "text": "Wie lange der Blick ruhig bleiben muss, bevor ein Ziehen beginnt. Gilt nach einem Neustart.",
     "src": "664bea91"
@@ -1282,6 +1306,14 @@
     "text": "Verweilzeit bei Wiederholung (ms)",
     "src": "c664482b"
   },
+  "settings.advanced.repeat_stop.description": {
+    "text": "Wie lange der Blick auf der Schaltfläche ruhen muss, die die Wiederholung beendet.",
+    "src": "0fdd77ef"
+  },
+  "settings.advanced.repeat_stop.label": {
+    "text": "Wiederholung beenden (ms)",
+    "src": "58af64cb"
+  },
   "settings.advanced.reset.label": {
     "text": "„Erweitert“ zurücksetzen",
     "src": "f84418ab"
@@ -1297,6 +1329,14 @@
   "settings.advanced.scroll_sensitivity.label": {
     "text": "Scroll-Empfindlichkeit",
     "src": "210802ff"
+  },
+  "settings.advanced.scroll_stop.description": {
+    "text": "Wie lange der Blick auf der Schaltfläche ruhen muss, die das Scrollen beendet.",
+    "src": "47ea0a1e"
+  },
+  "settings.advanced.scroll_stop.label": {
+    "text": "Scrollen beenden (ms)",
+    "src": "8e6548e1"
   },
   "settings.calibration.clear.label": {
     "text": "Kalibrierung löschen",
@@ -1726,6 +1766,14 @@
     "text": "Aktionsmenü bei manueller Auswahl (ms)",
     "src": "bd8a2ade"
   },
+  "settings.dwell.manual_selection_side.description": {
+    "text": "Wie lange der Blick auf Schließen und Neu erfassen in der manuellen Auswahl ruhen muss.",
+    "src": "959ff23f"
+  },
+  "settings.dwell.manual_selection_side.label": {
+    "text": "Schließen/Neu erfassen bei manueller Auswahl (ms)",
+    "src": "db234c82"
+  },
   "settings.dwell.pause_grace.description": {
     "text": "Wie lange das Verweilen in Menüs und auf der Symbolleiste seinen Fortschritt nach einem Blinzeln oder Wegschauen behält. Kehrt der Blick rechtzeitig zurück, geht es weiter; bei 0 beginnt es sofort neu.",
     "src": "1b86c939"
@@ -1750,6 +1798,14 @@
     "text": "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?",
     "src": "ba2414da"
   },
+  "settings.dwell.resume.description": {
+    "text": "Wie lange der Blick in der Pause auf „Fortsetzen“ ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste plus 200 ms.",
+    "src": "9b770a85"
+  },
+  "settings.dwell.resume.label": {
+    "text": "Fortsetzen in der Pause (ms)",
+    "src": "6a72f689"
+  },
   "settings.dwell.status_chime.description": {
     "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Wegschauen oder eine absichtliche Pause lösen ihn nicht aus.",
     "src": "40767bec"
@@ -1765,6 +1821,14 @@
   "settings.dwell.toolbar.label": {
     "text": "Symbolleiste / Einstellungen (ms)",
     "src": "a1d8106f"
+  },
+  "settings.eyecare.banner_dwell.description": {
+    "text": "Wie lange der Blick auf den Schaltflächen des Pausenhinweises ruhen muss. 0 = gleiche Verweilzeit wie der Aktivator.",
+    "src": "ebeb3dbb"
+  },
+  "settings.eyecare.banner_dwell.label": {
+    "text": "Schaltflächen des Pausenhinweises (ms)",
+    "src": "d90246f1"
   },
   "settings.eyecare.banner_snooze.description": {
     "text": "Wie lange ein unbeachteter Pausenhinweis wartet, bevor er sich ausblendet. Gilt nach einem Neustart.",
@@ -1893,6 +1957,14 @@
   "settings.general.restart.supervised.option": {
     "text": "↻ Mit Supervisor neu starten",
     "src": "65276443"
+  },
+  "settings.general.restart_notice.description": {
+    "text": "Wie lange der Blick auf der Schaltfläche des Neustart-Hinweises ruhen muss. 0 = gleiche Verweilzeit wie der Aktivator.",
+    "src": "765ebc12"
+  },
+  "settings.general.restart_notice.label": {
+    "text": "Neustart-Hinweis (ms)",
+    "src": "410a6cb1"
   },
   "settings.general.safety.label": {
     "text": "Sicherheitseinrichtung wiederholen",

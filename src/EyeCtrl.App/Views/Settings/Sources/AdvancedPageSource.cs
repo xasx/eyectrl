@@ -41,12 +41,24 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     0.05, 2,
                     () => backdrop.Opacity, v => { backdrop.Opacity = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.advanced.backdrop_opacity.description") },
+                new SliderSpec("av_backdrop_hide",
+                    StringTable.Current.T("settings.advanced.backdrop_hide.label"), 200, 2000, 50, 0,
+                    () => st.Dwell.BackdropHideButtonDwellMs, v => { st.Dwell.BackdropHideButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.advanced.backdrop_hide.description") },
                 new SeparatorSpec(),
                 // Drag
                 new SliderSpec("av_drag_settle",
                     StringTable.Current.T("settings.advanced.drag_settle.label"), 200, 2000, 50, 0,
                     () => drag.SettleDwellMs, v => { drag.SettleDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.advanced.drag_settle.description") },
+                new SliderSpec("av_drag_release",
+                    StringTable.Current.T("settings.advanced.drag_release.label"), 200, 2000, 50, 0,
+                    () => st.Dwell.DragReleaseButtonDwellMs, v => { st.Dwell.DragReleaseButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.advanced.drag_release.description") },
+                new SliderSpec("av_drag_right_edge",
+                    StringTable.Current.T("settings.advanced.drag_right_edge.label"), 200, 2000, 50, 0,
+                    () => st.Dwell.DragRightEdgeButtonDwellMs, v => { st.Dwell.DragRightEdgeButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.advanced.drag_right_edge.description") },
                 new SliderSpec("av_drag_radius",
                     StringTable.Current.T("settings.advanced.drag_radius.label"), 10, 200, 5, 0,
                     () => drag.SettleRadiusPixels, v => { drag.SettleRadiusPixels = (int)v; _ctx.ApplyAndSave(); })
@@ -66,12 +78,20 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.advanced.scroll_sensitivity.label"), 0.5, 2.0, 0.1, 1,
                     () => scroll.Sensitivity, v => { scroll.Sensitivity = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.advanced.scroll_sensitivity.description") },
+                new SliderSpec("av_scroll_stop",
+                    StringTable.Current.T("settings.advanced.scroll_stop.label"), 200, 2000, 50, 0,
+                    () => st.Dwell.ScrollStopButtonDwellMs, v => { st.Dwell.ScrollStopButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.advanced.scroll_stop.description") },
                 new SeparatorSpec(),
                 // Repeat
                 new SliderSpec("av_repeat_dwell",
                     StringTable.Current.T("settings.advanced.repeat_dwell.label"), 200, 2000, 50, 0,
                     () => repeat.DwellMs, v => { repeat.DwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.advanced.repeat_dwell.description") },
+                new SliderSpec("av_repeat_stop",
+                    StringTable.Current.T("settings.advanced.repeat_stop.label"), 200, 2000, 50, 0,
+                    () => repeat.StopButtonDwellMs, v => { repeat.StopButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.advanced.repeat_stop.description") },
                 new SeparatorSpec(),
                 // External Dwell
                 new ToggleSpec("av_ext_enabled",
@@ -92,18 +112,24 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     {
                         var b = new Core.Settings.BackdropSettings();
                         var d = new Core.Settings.DragSettings();
+                        var dw = new Core.Settings.DwellSettings();
                         var sc = new Core.Settings.ScrollSettings();
                         var e = new Core.Settings.ExternalDwellSettings();
                         var r = new Core.Settings.RepeatSettings();
                         st.Backdrop.Enabled = b.Enabled;
                         st.Backdrop.Type = b.Type;
                         st.Backdrop.Opacity = b.Opacity;
+                        st.Dwell.BackdropHideButtonDwellMs = dw.BackdropHideButtonDwellMs;
                         st.Drag.SettleDwellMs = d.SettleDwellMs;
+                        st.Dwell.DragReleaseButtonDwellMs = dw.DragReleaseButtonDwellMs;
+                        st.Dwell.DragRightEdgeButtonDwellMs = dw.DragRightEdgeButtonDwellMs;
                         st.Drag.SettleRadiusPixels = d.SettleRadiusPixels;
                         st.Drag.TrailColor = d.TrailColor;
                         st.Drag.TrailOpacity = d.TrailOpacity;
                         st.Scroll.Sensitivity = sc.Sensitivity;
+                        st.Dwell.ScrollStopButtonDwellMs = dw.ScrollStopButtonDwellMs;
                         st.Repeat.DwellMs = r.DwellMs;
+                        st.Repeat.StopButtonDwellMs = r.StopButtonDwellMs;
                         st.ExternalDwell.Enabled = e.Enabled;
                         st.ExternalDwell.DefaultDwellMs = e.DefaultDwellMs;
                         st.ExternalDwell.CooldownMs = e.CooldownMs;

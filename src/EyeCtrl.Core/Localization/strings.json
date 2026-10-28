@@ -2171,6 +2171,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.advanced.backdrop_hide.description": {
+    "text": "How long to rest on the button that hides the backdrop.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.backdrop_hide.label": {
+    "text": "Backdrop Hide Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.advanced.backdrop_opacity.description": {
     "text": "How dark the backdrop is — for both types; applies from the next open.",
     "who": "user",
@@ -2255,6 +2269,34 @@
     "fit": "row",
     "args": []
   },
+  "settings.advanced.drag_release.description": {
+    "text": "How long to rest on the button that ends a drag.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.drag_release.label": {
+    "text": "Drag Release Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.advanced.drag_right_edge.description": {
+    "text": "How long to rest on the edge button that ends a drag.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.drag_right_edge.label": {
+    "text": "Drag Edge Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.advanced.drag_settle.description": {
     "text": "How long gaze must hold still before a drag starts. Applies after a restart.",
     "who": "user",
@@ -2325,6 +2367,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.advanced.repeat_stop.description": {
+    "text": "How long to rest on the button that ends repeat mode.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.repeat_stop.label": {
+    "text": "Repeat Stop Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.advanced.reset.label": {
     "text": "Reset Advanced Settings",
     "who": "user",
@@ -2348,6 +2404,20 @@
   },
   "settings.advanced.scroll_sensitivity.label": {
     "text": "Scroll Sensitivity",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.advanced.scroll_stop.description": {
+    "text": "How long to rest on the button that stops scrolling.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.scroll_stop.label": {
+    "text": "Scroll Stop Button (ms)",
     "who": "user",
     "where": "settings",
     "fit": "row",
@@ -3131,6 +3201,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.manual_selection_side.description": {
+    "text": "How long to rest on the close and recapture buttons during manual selection.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.manual_selection_side.label": {
+    "text": "Manual Selection Side Buttons (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.pause_grace.description": {
     "text": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
     "who": "user",
@@ -3173,6 +3257,20 @@
     "fit": "prose",
     "args": []
   },
+  "settings.dwell.resume.description": {
+    "text": "How long to rest on the Resume target in the paused strip. It is never shorter than the toolbar dwell plus 200 ms.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.resume.label": {
+    "text": "Resume Strip (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.status_chime.description": {
     "text": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Looking away or pausing on purpose does not play it.",
     "who": "user",
@@ -3196,6 +3294,20 @@
   },
   "settings.dwell.toolbar.label": {
     "text": "Toolbar / Settings (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.eyecare.banner_dwell.description": {
+    "text": "How long to rest on the break banner's buttons. 0 = same as the activation dwell.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.eyecare.banner_dwell.label": {
+    "text": "Break Banner Buttons (ms)",
     "who": "user",
     "where": "settings",
     "fit": "row",
@@ -3423,6 +3535,20 @@
     "who": "user",
     "where": "settings",
     "fit": "modal460",
+    "args": []
+  },
+  "settings.general.restart_notice.description": {
+    "text": "How long to rest on the restart notice's button. 0 = same as the activation dwell.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.restart_notice.label": {
+    "text": "Restart Notice Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.general.safety.label": {

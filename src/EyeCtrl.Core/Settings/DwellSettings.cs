@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Settings;
 
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 /// <summary>Dwell timing settings for gaze-based click activation.</summary>
@@ -82,6 +83,52 @@ public partial class DwellSettings : ObservableObject, IValidatable
         if (value < 500 || value > 3000)
             throw new ArgumentOutOfRangeException(
                 nameof(value), value, $"{nameof(ResumeDwellMs)} must be between 500 and 3000");
+    }
+
+    /// <summary>
+    /// Dwell time in milliseconds for the restart notice's close button. 0 follows
+    /// <see cref="ActivationButtonDwellMs"/> live; otherwise valid range: 200–3000. A NEW property
+    /// (B6), so an existing settings file picks the default up from the initializer and the notice
+    /// keeps matching the activation dwell until the user sets a value.
+    /// </summary>
+    [ObservableProperty] private int _restartNoticeDwellMs;
+
+    /// <summary>
+    /// Dwell time in milliseconds for the eye-care banner's rings. 0 follows
+    /// <see cref="ActivationButtonDwellMs"/> live; otherwise valid range: 200–3000. A NEW property
+    /// (B6), so an existing settings file picks the default up from the initializer and the banner
+    /// keeps matching the activation dwell until the user sets a value.
+    /// </summary>
+    [ObservableProperty] private int _eyeCareBannerDwellMs;
+
+    /// <summary>
+    /// The restart notice's effective dwell: the knob when set, else the live activation dwell.
+    /// Derived, not a setting — ignored by the serializer so it never lands in settings.json.
+    /// </summary>
+    [JsonIgnore]
+    public int EffectiveRestartNoticeDwellMs =>
+        RestartNoticeDwellMs > 0 ? RestartNoticeDwellMs : ActivationButtonDwellMs;
+
+    /// <summary>
+    /// The eye-care banner's effective dwell: the knob when set, else the live activation dwell.
+    /// Derived, not a setting — ignored by the serializer so it never lands in settings.json.
+    /// </summary>
+    [JsonIgnore]
+    public int EffectiveEyeCareBannerDwellMs =>
+        EyeCareBannerDwellMs > 0 ? EyeCareBannerDwellMs : ActivationButtonDwellMs;
+
+    partial void OnRestartNoticeDwellMsChanging(int value)
+    {
+        if (value != 0 && (value < 200 || value > 3000))
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(RestartNoticeDwellMs)} must be 0 or between 200 and 3000");
+    }
+
+    partial void OnEyeCareBannerDwellMsChanging(int value)
+    {
+        if (value != 0 && (value < 200 || value > 3000))
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(EyeCareBannerDwellMs)} must be 0 or between 200 and 3000");
     }
 
     partial void OnDwellPauseGraceMsChanging(int value)
@@ -253,7 +300,13 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(ManualSelectionSideButtonDwellMs, 200, 2000, nameof(ManualSelectionSideButtonDwellMs)),
             ValidationHelper.ValidateRange(BackdropHideButtonDwellMs, 200, 2000, nameof(BackdropHideButtonDwellMs)),
             ValidationHelper.ValidateRange(DwellPauseGraceMs, 0, 1000, nameof(DwellPauseGraceMs)),
-            ValidationHelper.ValidateRange(ResumeDwellMs, 500, 3000, nameof(ResumeDwellMs))
+            ValidationHelper.ValidateRange(ResumeDwellMs, 500, 3000, nameof(ResumeDwellMs)),
+            RestartNoticeDwellMs == 0 || RestartNoticeDwellMs is >= 200 and <= 3000
+                ? null
+                : $"{nameof(RestartNoticeDwellMs)} must be 0 or between 200 and 3000, but was {RestartNoticeDwellMs}",
+            EyeCareBannerDwellMs == 0 || EyeCareBannerDwellMs is >= 200 and <= 3000
+                ? null
+                : $"{nameof(EyeCareBannerDwellMs)} must be 0 or between 200 and 3000, but was {EyeCareBannerDwellMs}"
         );
     }
 }

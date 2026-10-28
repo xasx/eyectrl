@@ -65,7 +65,9 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     private DispatcherTimer? _autoSnooze;
     private TaskCompletionSource<bool>? _tcs;
 
-    // Reuse the app's activation dwell time so the buttons feel consistent.
+    // The constructor's dwellMs is only the fallback for tests that build the banner without a
+    // settings object; production follows the live EyeCareBannerDwellMs (B6), which itself
+    // follows ActivationButtonDwellMs while it is 0.
     public EyeCareBannerWindow(int dwellMs = 700, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null, IMessenger? messenger = null,
         DwellSettings? dwellSettings = null, ToolbarSettings? toolbarSettings = null)
@@ -197,11 +199,13 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     }
 
     /// <summary>
-    /// The rings' dwell time: the LIVE <c>ActivationButtonDwellMs</c> when the composition root
-    /// supplied the settings object (F6 — the banner is a startup singleton), and the
-    /// constructor's value only for the tests that build it without settings.
+    /// The rings' dwell time, read live at every <see cref="ShowAsync"/>: the banner's own
+    /// <c>EyeCareBannerDwellMs</c> when set, else the live <c>ActivationButtonDwellMs</c> (B6;
+    /// before it, the banner always borrowed the activation dwell). The constructor's value is
+    /// the fallback only for the tests that build the banner without a settings object — the
+    /// composition root always supplies the live one (F6).
     /// </summary>
-    private int RingDwellMs => _fallbackDwellMs ?? _dwellSettings.ActivationButtonDwellMs;
+    private int RingDwellMs => _fallbackDwellMs ?? _dwellSettings.EffectiveEyeCareBannerDwellMs;
 
     /// <summary>Shows the banner and resolves to true=accept, false=snooze/auto-dismiss.</summary>
     public Task<bool> ShowAsync(string message, PhysicalPoint screenCenter, int autoSnoozeSeconds)

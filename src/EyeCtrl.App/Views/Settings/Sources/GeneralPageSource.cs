@@ -63,6 +63,15 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.general.track.description"), Simple = true },
                 .. SupervisionRows(),
+                // 0 = follow ActivationButtonDwellMs live; the step is 200 so the 0-then-200 hole
+                // in the guard is never landed on by the stepper. The setter snaps anything below
+                // 200 to 0 as well: DwellSlider.Adjust clamps but does not snap, so an off-grid
+                // stored value (a hand edit) minus one step would otherwise hit the guard's hole
+                // and throw on the dispatcher.
+                new SliderSpec("g_restart_notice",
+                    StringTable.Current.T("settings.general.restart_notice.label"), 0, 3000, 200, 0,
+                    () => s.Dwell.RestartNoticeDwellMs, v => { s.Dwell.RestartNoticeDwellMs = v < 200 ? 0 : (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.general.restart_notice.description") },
                 new ButtonSpec("g_safety",
                     StringTable.Current.T("settings.general.safety.label"),
                     () => _ctx.RunSafetySetup(), ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
@@ -76,8 +85,9 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     () => _ctx.ShowModal(StringTable.Current.T("settings.general.reset.message"), () =>
                     {
                         // Resets every settings row the page renders, not one section (issue
-                        // #164): the rows bind three different sub-settings objects, and the
-                        // original handler restored only the GeneralSettings pair — leaving
+                        // #164): the rows bind four different sub-settings objects (General,
+                        // Theme, TrackStatus and, since B6, the restart notice's Dwell knob), and
+                        // the original handler restored only the GeneralSettings pair — leaving
                         // the Theme and TrackStatus rows the button sits next to untouched,
                         // the exact UX expectation that filed #157.
                         var g = new Core.Settings.GeneralSettings();
@@ -87,6 +97,8 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                         s.Theme.Name = t.Name;
                         var tr = new Core.Settings.TrackStatusSettings();
                         s.TrackStatus.Enabled = tr.Enabled;
+                        var dw = new Core.Settings.DwellSettings();
+                        s.Dwell.RestartNoticeDwellMs = dw.RestartNoticeDwellMs;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

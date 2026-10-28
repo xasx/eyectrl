@@ -109,6 +109,12 @@
           "Modal": null
         },
         {
+          "Id": "d_manual_side",
+          "Label": "Manual Selection Side Buttons (ms)",
+          "Description": "How long to rest on the close and recapture buttons during manual selection.",
+          "Modal": null
+        },
+        {
           "Id": "d_tool",
           "Label": "Toolbar / Settings (ms)",
           "Description": "How long to rest on EyeCtrl's own buttons.",
@@ -142,6 +148,12 @@
           "Id": "d_pause_grace",
           "Label": "Look-Away Grace (ms)",
           "Description": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
+          "Modal": null
+        },
+        {
+          "Id": "d_resume",
+          "Label": "Resume Strip (ms)",
+          "Description": "How long to rest on the Resume target in the paused strip. It is never shorter than the toolbar dwell plus 200 ms.",
           "Modal": null
         },
         {
@@ -648,6 +660,12 @@
           "Modal": null
         },
         {
+          "Id": "ec_banner_dwell",
+          "Label": "Break Banner Buttons (ms)",
+          "Description": "How long to rest on the break banner's buttons. 0 = same as the activation dwell.",
+          "Modal": null
+        },
+        {
           "Id": "ec_snooze",
           "Label": "Snooze Length (min)",
           "Description": "How long breaks are postponed when you snooze a banner.",
@@ -823,6 +841,12 @@
           "Modal": null
         },
         {
+          "Id": "av_backdrop_hide",
+          "Label": "Backdrop Hide Button (ms)",
+          "Description": "How long to rest on the button that hides the backdrop.",
+          "Modal": null
+        },
+        {
           "Id": "",
           "Label": "",
           "Description": null,
@@ -832,6 +856,18 @@
           "Id": "av_drag_settle",
           "Label": "Drag Settle Dwell (ms)",
           "Description": "How long gaze must hold still before a drag starts. Applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_release",
+          "Label": "Drag Release Button (ms)",
+          "Description": "How long to rest on the button that ends a drag.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_right_edge",
+          "Label": "Drag Edge Button (ms)",
+          "Description": "How long to rest on the edge button that ends a drag.",
           "Modal": null
         },
         {
@@ -865,6 +901,12 @@
           "Modal": null
         },
         {
+          "Id": "av_scroll_stop",
+          "Label": "Scroll Stop Button (ms)",
+          "Description": "How long to rest on the button that stops scrolling.",
+          "Modal": null
+        },
+        {
           "Id": "",
           "Label": "",
           "Description": null,
@@ -874,6 +916,12 @@
           "Id": "av_repeat_dwell",
           "Label": "Repeat Dwell (ms)",
           "Description": "How long to hold your gaze on a target before the locked action fires there.",
+          "Modal": null
+        },
+        {
+          "Id": "av_repeat_stop",
+          "Label": "Repeat Stop Button (ms)",
+          "Description": "How long to rest on the button that ends repeat mode.",
           "Modal": null
         },
         {
@@ -1105,6 +1153,12 @@
           "Id": "",
           "Label": "Off — if EyeCtrl stops responding or crashes, it is not restarted automatically.",
           "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "g_restart_notice",
+          "Label": "Restart Notice Button (ms)",
+          "Description": "How long to rest on the restart notice's button. 0 = same as the activation dwell.",
           "Modal": null
         },
         {

@@ -21,6 +21,12 @@ public class DwellSettingsDefaultsTests
     }
 
     [Fact]
+    public void StatusChimeEnabled_DefaultsOn()
+    {
+        Check.That(new DwellSettings().StatusChimeEnabled).IsTrue();
+    }
+
+    [Fact]
     public void DwellPauseGraceMs_DefaultsToTheFixationGapAbortBound()
     {
         var dwell = new DwellSettings();

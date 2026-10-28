@@ -114,6 +114,7 @@ public class OverlayClientOriginTests
         "ScrollOverlayWindow",
         "SettingsWindow",
         "SplashWindow",
+        "StatusCardWindow",
         "SubPixelProbeWindow",
         "TargetHighlightWindow",
         "TaskSwitcherWindow",

@@ -18,6 +18,17 @@ public interface IGazeProvider : IDisposable
     bool IsConnected { get; }
 
     /// <summary>
+    /// Monotonic count of <see cref="IsConnected"/> false→true transitions since this provider was
+    /// created (Wave B ticket B3, from B1 review 01 F4). A poll-based consumer cannot see a connected
+    /// window that opens and closes entirely between two polls; a provider that observed the edge
+    /// increments here, so the consumer can reset a continuous-disconnect clock when the count moved.
+    /// Default 0: a provider that does not track edges (every fake, and any implementation that
+    /// gains nothing from it) reads as "no edge observed", which leaves the existing poll semantics
+    /// unchanged.
+    /// </summary>
+    long ConnectEdgeCount => 0;
+
+    /// <summary>
     /// Capabilities describing which optional data streams this provider can supply.
     /// Defaults to <see cref="GazeProviderCapabilities.None"/> — providers that support
     /// track-status data override this.

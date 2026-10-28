@@ -67,6 +67,13 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
 
+    // Written by the poll thread on a false→true transition, read by the control-status timer
+    // thread. Interlocked keeps the 64-bit read/write whole on every platform.
+    private long _connectEdgeCount;
+
+    /// <inheritdoc />
+    public long ConnectEdgeCount => Interlocked.Read(ref _connectEdgeCount);
+
     /// <summary>
     /// The Tobii Stream Engine supplies all three optional track-status streams
     /// (normalized eye position, head pose, user presence).
@@ -399,6 +406,7 @@ public class TobiiStreamEngineProvider : IGazeProvider
             else if (!IsConnected)
             {
                 IsConnected = true;
+                Interlocked.Increment(ref _connectEdgeCount);
                 _lastErrorMessage = null;
                 backoffMs = 500;
                 _logger.LogInformation("Connected");

@@ -22,6 +22,9 @@ public class ControlStatusServiceTests
 
         public bool IsConnected { get; set; }
 
+        /// <summary>The provider-observed false→true edges (B3/F4 hardening), settable by a test.</summary>
+        public long ConnectEdgeCount { get; set; }
+
         public void Start() => IsConnected = true;
 
         public void Stop() => IsConnected = false;
@@ -203,6 +206,29 @@ public class ControlStatusServiceTests
         Check.That(_messages).HasSize(1);   // only the initial Normal, nothing ever changed
         Check.That(_messages[0].State).IsEqualTo(ControlState.Normal);
         Check.That(_messages[0].Disconnected).IsFalse();
+
+        service.Dispose();
+    }
+
+    [Fact]
+    public void SyntheticHundredMillisecondWindows_ThatAliasEveryPoll_NeverPublishDisconnected()
+    {
+        // B1 review 01 F4 + B3: a constant 100 ms connected window with a 100 ms poll can keep every
+        // snapshot false for minutes. The provider saw each edge; the service must pass the counter
+        // through so no poll interval counts as continuously disconnected.
+        var service = NewService();
+        service.Start();
+        _provider.FireGaze();
+        _provider.IsConnected = false;
+
+        for (int cycle = 0; cycle < 150; cycle++)
+        {
+            _provider.ConnectEdgeCount++;          // window opened and closed between polls
+            AdvancePolls(_time, 1);
+        }
+
+        Check.That(service.Current.Disconnected).IsFalse();
+        Check.That(_messages).ContainsOnlyElementsThatMatch(m => !m.Disconnected);
 
         service.Dispose();
     }

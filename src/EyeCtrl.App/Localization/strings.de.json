@@ -702,6 +702,30 @@
     "text": "Scroll-Anzeige",
     "src": "ebaf748d"
   },
+  "overlays.splash.noTracker": {
+    "text": "Kein Eyetracker gefunden – die Maus wird verwendet.",
+    "src": "8322f856"
+  },
+  "overlays.status.noTracker": {
+    "text": "Kein Eyetracker",
+    "src": "a3661a0f"
+  },
+  "overlays.status.trackingLost": {
+    "text": "Blick nicht erkannt",
+    "src": "a369be24"
+  },
+  "overlays.statusCard.noTracker": {
+    "text": "Kein Eyetracker gefunden. EyeCtrl verwendet die Maus.",
+    "src": "2fa9b89d"
+  },
+  "overlays.statusCard.paused": {
+    "text": "Pausiert. Zum Fortsetzen auf ▶ schauen.",
+    "src": "702c479c"
+  },
+  "overlays.statusCard.trackingLost": {
+    "text": "Blick nicht erkannt. Auf den Bildschirm schauen.",
+    "src": "02eb47d2"
+  },
   "overlays.subpixel.answer_one": {
     "text": "1",
     "src": "c35c447f"
@@ -1781,6 +1805,14 @@
   "settings.dwell.resume.label": {
     "text": "Fortsetzen in der Pause (ms)",
     "src": "6a72f689"
+  },
+  "settings.dwell.status_chime.description": {
+    "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Wegschauen oder eine absichtliche Pause lösen ihn nicht aus.",
+    "src": "40767bec"
+  },
+  "settings.dwell.status_chime.label": {
+    "text": "Ton bei Verbindungsverlust",
+    "src": "b04cca54"
   },
   "settings.dwell.toolbar.description": {
     "text": "Wie lange der Blick auf den Schaltflächen von EyeCtrl selbst ruhen muss.",

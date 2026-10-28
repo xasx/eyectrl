@@ -217,13 +217,23 @@ public class QuickActionsCloseGeometryTests
             var vm = grid.Vm;
             var area = SystemParameters.WorkArea;
 
-            Check.WithCustomMessage("the tile cap did not trim an impossible grid")
-                .That(vm.Tiles.Count).IsStrictlyLessThan(500);
-            Check.That(vm.Tiles.Count).IsStrictlyGreaterThan(0);
+            // R3 (fixup-01): the cap must be EXACTLY the rows that fit at the full cell pitch. The
+            // old assertion (0 < count < 500) let a cap one row short silently drop three of the
+            // user's actions (review 01 M11). Derived from the window's own chrome/pitch maths, so
+            // a real geometry change moves both sides together.
+            var expectedRows = QuickActionsGridWindow.MaxRowsFor(area.Height, window.RootBorder.BorderThickness);
+            Check.WithCustomMessage(
+                    $"at DPI {scale} the cap kept {vm.Tiles.Count} tiles; {vm.GridColumns} columns x "
+                    + $"{expectedRows} rows that fit the work area is {vm.GridColumns * expectedRows}.")
+                .That(vm.Tiles.Count).IsEqualTo(vm.GridColumns * expectedRows);
+            Check.That(expectedRows).IsStrictlyGreaterThan(0);
 
             Check.WithCustomMessage("the capped grid still overflows the work-area height")
                 .That(window.Height).IsLessOrEqualThan(area.Height);
             Check.That(window.Width).IsLessOrEqualThan(area.Width);
+            Check.WithCustomMessage("a full grid must be laid out at the full cell pitch")
+                .That(window.Height).IsCloseTo((expectedRows * QuickActionsGridWindow.TileCell)
+                    + QuickActionsGridWindow.ChromeHeight(window.RootBorder.BorderThickness), 1e-6);
 
             var faces = grid.TileFaces().Select(grid.InContent).ToList();
             for (var i = 0; i < faces.Count; i++)
@@ -236,6 +246,23 @@ public class QuickActionsCloseGeometryTests
                           && rect.Right <= window.Width + 1e-6
                           && rect.Bottom <= window.Height + 1e-6)
                     .IsTrue();
+            }
+
+            // Row centres are exactly TileCell apart — the pitch the R4 gap is derived from.
+            var rowCentres = faces.Select(f => Centre(f).Y)
+                .Select(y => System.Math.Round(y, 6))
+                .Distinct()
+                .OrderBy(y => y)
+                .ToList();
+            Check.WithCustomMessage($"at DPI {scale} the grid should have {expectedRows} rows")
+                .That(rowCentres).HasSize(expectedRows);
+            for (var i = 1; i < rowCentres.Count; i++)
+            {
+                Check.WithCustomMessage(
+                        $"at DPI {scale} rows {i - 1} and {i} are {rowCentres[i] - rowCentres[i - 1]:0.###} "
+                        + $"DIP apart; the R4 pitch is {QuickActionsGridWindow.TileCell}.")
+                    .That(rowCentres[i] - rowCentres[i - 1])
+                    .IsCloseTo(QuickActionsGridWindow.TileCell, 1e-6);
             }
 
             // R4: at least 20 DIP of dead space between any two different hit circles. Two tiles

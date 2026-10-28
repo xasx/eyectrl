@@ -166,7 +166,11 @@ public class DwellPausedForwardingTests
 
     // ------------------------------------------------------------------ the three XAML bindings
 
-    private static ProgressBar RealisedBar(Window window, Func<FrameworkElement, ProgressBar> find, out FitHost host)
+    private static ProgressBar RealisedBar(Window window, Func<FrameworkElement, ProgressBar> find, out FitHost host) =>
+        Realised(window, find, out host);
+
+    private static T Realised<T>(Window window, Func<FrameworkElement, T> find, out FitHost host)
+        where T : FrameworkElement
     {
         var root = (FrameworkElement)window.Content;
         var context = window.DataContext;
@@ -199,22 +203,25 @@ public class DwellPausedForwardingTests
     // Mutation (A1-f8): the binding path typo'd (IsDwellPausedX) -> a silent binding error, red.
 
     [StaFact]
-    public void QuickActionsTile_BindsThePausedFlag_ToItsBarsOpacity()
+    public void QuickActionsTile_BindsThePausedFlag_ToItsDwellRingOpacity()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = InvisibleTestWindow.Prepare(new QuickActionsGridWindow());
         var tile = new QuickActionTileViewModel(new QuickAction { Label = "a", Type = QuickActionType.KeyboardShortcut });
         window.TilesControl.ItemsSource = new[] { tile };
 
-        var bar = RealisedBar(window,
-            r => FitText.Descendants<ProgressBar>(FitText.Descendants<Border>(r).Single(b => b.Name == "TileBorder")).Single(),
+        // B8b fixup-01 R1: the tile's dwell feedback is the rim arc, no longer a bottom bar.
+        var ring = Realised<System.Windows.Shapes.Path>(window,
+            r => FitText.Descendants<System.Windows.Shapes.Path>(
+                    FitText.Descendants<Border>(r).Single(b => b.Name == "TileBorder"))
+                .Single(p => p.Name == "DwellRing"),
             out var host);
         using (host)
         {
             tile.IsDwellPaused = true;
-            Check.That(bar.Opacity).IsEqualTo(Held);
+            Check.That(ring.Opacity).IsEqualTo(Held);
             tile.IsDwellPaused = false;
-            Check.That(bar.Opacity).IsEqualTo(1.0);
+            Check.That(ring.Opacity).IsEqualTo(1.0);
         }
     }
 

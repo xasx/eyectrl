@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 /// <summary>
 /// Overlay window that renders the Quick Actions grid. Binds to
@@ -46,6 +47,9 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
     /// pitch, not the face, is what the window sizes columns from (B8b F2/F3).
     /// </summary>
     internal const double TileCell = 128;
+
+    /// <summary>The outer grid margin around the close row and the tile band (12 DIP per side).</summary>
+    internal const double OuterPad = 24;
 
     /// <summary>
     /// Tile icon size: a ratio of the tile that bounds it (spec §8.5). Public and static
@@ -162,28 +166,48 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
     {
         if (_vm == null) return;
 
-        // Derived from the consts above rather than restated: the close row used to be written as
-        // 52, duplicating CloseButtonSize a hundred lines up in the same class, so changing either
-        // size would have left the window sized for the old one. TileCell is the pitch (face +
-        // gap), not the face.
-        const double outerPad = 24;                  // outer Grid Margin (12 per side)
-        const double closeRow = CloseButtonSize + 8; // close button + spacing
-
         var border = RootBorder.BorderThickness;
-        double chromeW = outerPad + border.Left + border.Right;
-        double chromeH = closeRow + outerPad + border.Top + border.Bottom;
+        double chromeW = OuterPad + border.Left + border.Right;
+        double chromeH = ChromeHeight(border);
 
         int cols = Math.Max(1, _vm.GridColumns);
 
         var wa = SystemParameters.WorkArea; // logical DIPs
-        int maxRows = Math.Max(0, (int)Math.Floor((wa.Height - chromeH) / TileCell));
+        int maxRows = MaxRowsFor(wa.Height, border);
+
+        // R4 (fixup-01): the cap drops the tail of the user's configured actions — silently it
+        // would read as "my action is missing". One line, only when it actually bites.
+        var configured = _vm.Tiles.Count;
         _vm.CapVisibleTiles(cols * maxRows);
+        if (_vm.Tiles.Count < configured)
+        {
+            Log.Information(
+                "Quick Actions: the work area fits {Shown} of {Configured} enabled actions at "
+                + "{Columns} columns x {Cell} DIP rows; the grid was capped to {Rows} row(s).",
+                _vm.Tiles.Count, configured, cols, TileCell, maxRows);
+        }
 
         int rows = _vm.Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)_vm.Tiles.Count / cols);
 
         Width = Math.Min(cols * TileCell + chromeW, wa.Width);
         Height = Math.Min(rows * TileCell + chromeH, wa.Height);
     }
+
+    /// <summary>
+    /// The window chrome's height in DIP: the close-button row (the disc plus the spacing above the
+    /// tile band) plus the outer grid margin and the theme's border. <c>internal</c> so the
+    /// max-count pin can derive the cap from the same expression the sizing uses, rather than
+    /// restating 24 and 8.
+    /// </summary>
+    internal static double ChromeHeight(Thickness border) =>
+        CloseButtonSize + 8 + OuterPad + border.Top + border.Bottom;
+
+    /// <summary>
+    /// How many tile rows the work area can hold at the full <see cref="TileCell"/> pitch — the
+    /// cap's row count. Zero when not even one row fits (the grid then shows only Close).
+    /// </summary>
+    internal static int MaxRowsFor(double workAreaHeight, Thickness border) =>
+        Math.Max(0, (int)Math.Floor((workAreaHeight - ChromeHeight(border)) / TileCell));
 
     /// <summary>
     /// Reads each laid-out tile container's screen centre and pushes it into the VM,

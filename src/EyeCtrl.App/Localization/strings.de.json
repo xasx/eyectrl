@@ -635,7 +635,7 @@
     "src": "150774d9"
   },
   "overlays.preset.window.maximize_restore": {
-    "text": "Maximieren / Wieder­herstellen",
+    "text": "Maximieren / Wiederher­stellen",
     "src": "42696d00"
   },
   "overlays.preset.window.minimize": {
@@ -2330,7 +2330,7 @@
     "src": "150774d9"
   },
   "settings.preset.window.maximize_restore": {
-    "text": "Maximieren / Wieder­herstellen",
+    "text": "Maximieren / Wiederher­stellen",
     "src": "42696d00"
   },
   "settings.preset.window.minimize": {

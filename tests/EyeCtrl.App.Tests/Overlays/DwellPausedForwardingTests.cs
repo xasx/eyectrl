@@ -227,6 +227,52 @@ public class DwellPausedForwardingTests
 
     // Mutation (A1-f9): the tile binding removed -> red.
 
+    /// <summary>
+    /// B8b fixup-02 N2: the dwell ring is the tile's ONLY dwell feedback, and nothing until now
+    /// pinned that the binding draws anything at all. A converter that always returned empty (no
+    /// feedback: a dead-looking tile) or always a full ring (looks finished at rest) passed every
+    /// test. This drives the realised template through the production binding — so through
+    /// <c>Convert</c>, not <c>For</c> — and reads the ring's own geometry bounds: nothing at 0, the
+    /// whole 90 × 90 ring centred on the face at 1, and only the right half at 0.5.
+    /// </summary>
+    [StaFact]
+    public void QuickActionsTile_DwellRing_DrawsTheBoundProgress()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.Prepare(new QuickActionsGridWindow());
+        var tile = new QuickActionTileViewModel(new QuickAction { Label = "Copy", Type = QuickActionType.KeyboardShortcut });
+        window.TilesControl.ItemsSource = new[] { tile };
+
+        var ring = Realised<System.Windows.Shapes.Path>(window,
+            r => FitText.Descendants<System.Windows.Shapes.Path>(
+                    FitText.Descendants<Border>(r).Single(b => b.Name == "TileBorder"))
+                .Single(p => p.Name == "DwellRing"),
+            out var host);
+        using (host)
+        {
+            tile.DwellProgress = 0;
+            Check.WithCustomMessage("progress 0 must not paint a ring (the tile would look finished)")
+                .That(ring.Data.Bounds.IsEmpty).IsTrue();
+
+            tile.DwellProgress = 1;
+            var full = ring.Data.Bounds;
+            Check.WithCustomMessage("full progress must be the 90 DIP ring (r45 + the 4 DIP stroke)")
+                .That(full.Width).IsCloseTo(90, 1e-6);
+            Check.That(full.Height).IsCloseTo(90, 1e-6);
+            Check.WithCustomMessage("the full ring must be centred on the face's (50,50)")
+                .That(full.Left + (full.Width / 2)).IsCloseTo(50, 1e-6);
+            Check.That(full.Top + (full.Height / 2)).IsCloseTo(50, 1e-6);
+
+            tile.DwellProgress = 0.5;
+            var half = ring.Data.Bounds;
+            Check.WithCustomMessage("half a dwell must paint the RIGHT half of the ring only")
+                .That(half.Left >= 50 - 1e-6).IsTrue();
+            Check.That(half.Right).IsCloseTo(95, 1e-6);
+            Check.WithCustomMessage("half a dwell must span the full diameter vertically")
+                .That(half.Height).IsCloseTo(90, 1e-6);
+        }
+    }
+
     private sealed class NoActions : IQuickActionsStore
     {
         public IReadOnlyList<QuickAction> LoadAll() => Array.Empty<QuickAction>();

@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Tests;
 
+using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 
@@ -101,5 +102,34 @@ public class DwellRingGeometryConverterTests
         const double stroke = 4;
         Check.WithCustomMessage("the painted arc's outer edge leaves the inner rim")
             .That(DwellRingGeometryConverter.RingRadius + (stroke / 2) <= 48).IsTrue();
+    }
+
+    // B8b fixup-02 N4: the binding goes through Convert, not For. Pin the edge inputs the binding
+    // can actually see: an undefined/negative/non-numeric progress must produce NO geometry (a
+    // dot or a NaN path would paint noise), and 1-or-more must be the closed ring.
+    [Fact]
+    public void Convert_PinsTheEdgeInputs()
+    {
+        var converter = DwellRingGeometryConverter.Instance;
+        Geometry Convert(object? value) =>
+            (Geometry)converter.Convert(value, typeof(Geometry), null, CultureInfo.InvariantCulture);
+
+        foreach (var value in new object?[] { double.NaN, -0.5, double.NegativeInfinity, "0.5", null })
+        {
+            var geometry = Convert(value);
+            Check.WithCustomMessage($"{value ?? "null"} must take the no-feedback path")
+                .That(geometry.Bounds.IsEmpty).IsTrue();
+            Check.WithCustomMessage($"{value ?? "null"} must not build a degenerate geometry")
+                .That(geometry.IsEmpty()).IsTrue();
+        }
+
+        foreach (var value in new object[] { 1.0, 1.5, double.PositiveInfinity })
+        {
+            var geometry = Convert(value);
+            Check.WithCustomMessage($"{value} must be the full closed ring")
+                .That(geometry.IsEmpty()).IsFalse();
+            Check.That(geometry.Bounds.Width).IsCloseTo(90, 1e-6);
+            Check.That(geometry.Bounds.Height).IsCloseTo(90, 1e-6);
+        }
     }
 }

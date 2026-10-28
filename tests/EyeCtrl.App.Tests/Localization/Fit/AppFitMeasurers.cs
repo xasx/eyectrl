@@ -543,6 +543,13 @@ internal static class AppFitMeasurers
     /// full progress so its whole circle is present, and in the tile's coordinates so a ring
     /// off-centre in the face also fails.
     /// </para>
+    /// <para>
+    /// B8b fixup-02 N1: the ink check cannot see a word WIDER than the wrap box — WPF
+    /// emergency-breaks it mid-word with no hyphen ("Stummschalt | en"), which keeps every glyph
+    /// inside the rim. So the class also requires no unbreakable run (split at spaces, hyphens and
+    /// U+00AD, the same runs the other class-B rules measure) to exceed the label's wrap width.
+    /// Long German compounds therefore need a soft hyphen, not just a small enough ink extent.
+    /// </para>
     /// </summary>
     private static FitVerdict QuickActionTile(string text)
     {
@@ -592,13 +599,21 @@ internal static class AppFitMeasurers
         var ringGeometry = ring.Data.GetFlattenedPathGeometry(0.01, ToleranceType.Absolute);
         var ringMax = FarthestPoint(ringGeometry, ringToTile, centre) + (ring.StrokeThickness / 2);
 
+        // N1: every break segment must fit the wrap box, or WPF breaks it mid-word with no hyphen.
+        var (widestRun, widestRunWidth) = FitText.WidestRun(label, text);
+        var wrapWidth = label.MaxWidth;
+
         var lines = System.Math.Max(
             1, (int)System.Math.Round(formatted.Height / (formatted.LineHeight > 0 ? formatted.LineHeight : label.FontSize * 1.33)));
-        var ok = inkMax <= innerRim && ringMax <= innerRim;
+        var ok = inkMax <= innerRim && ringMax <= innerRim && widestRunWidth <= wrapWidth;
         return new FitVerdict(ok,
             $"label ink r{FitText.Dip(inkMax)} / dwell ring r{FitText.Dip(ringMax)} "
-            + $"vs inner rim r{FitText.Dip(innerRim)} on {lines} line(s)",
-            FitText.ResolvedFace(label), System.Math.Min(innerRim - inkMax, innerRim - ringMax));
+            + $"vs inner rim r{FitText.Dip(innerRim)} on {lines} line(s); "
+            + $"widest run '{widestRun}' {FitText.Dip(widestRunWidth)} vs wrap {FitText.Dip(wrapWidth)}",
+            FitText.ResolvedFace(label),
+            System.Math.Min(
+                System.Math.Min(innerRim - inkMax, innerRim - ringMax),
+                wrapWidth - widestRunWidth));
     }
 
     /// <summary>

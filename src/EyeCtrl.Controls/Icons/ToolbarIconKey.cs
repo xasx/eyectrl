@@ -46,8 +46,4 @@ public enum ToolbarIconKey
     ModeMiddleClick,
     /// <summary>Counter-clockwise arrow — reset struggle adaptation to baseline.</summary>
     ResetAdaptation,
-    /// <summary>Eye — the gaze provider is a real tracker.</summary>
-    ProviderEye,
-    /// <summary>Mouse — the gaze provider is the mouse fallback.</summary>
-    ProviderMouse,
 }

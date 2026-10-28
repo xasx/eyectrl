@@ -81,6 +81,12 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             _visibility?.SetPauseIndicator(paused);
         });
 
+        // B2b: B1's committed control state drives the strip's TrackingLost/NoTracker labels. The
+        // service posts its initial status when it starts (after this registration), so startup is
+        // covered; the PAUSED strip stays on the StateChanged command above, never on this message.
+        context.Messenger.Register<ToolbarLifecycleCoordinator, ControlStatusChangedMessage>(this, (_, msg) =>
+            _visibility?.SetControlState(msg.State));
+
         // The exercise's active flag gates the keyboard feed (B7 fixup-01 F1) and the Settings
         // window's gaze feed (fixup-03): the full-screen, opaque exercise window hides an open
         // keyboard and Settings window, and the user is told to rest on the Skip disc — a sample

@@ -53,6 +53,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private Func<PhysicalRect?>? _slotOccupantBounds;
     private Func<PhysicalRect?>? _trackStatusBounds;
     private Func<PhysicalRect?>? _noteNoticeBounds;
+    // B2b: the status strip's label card (paused / tracking lost / no tracker), its own named source.
+    private Func<PhysicalRect?>? _statusStripBounds;
     // Gate conjunct 4's own-window half (P2 D2): target id → the HWND of the note window that
     // draws it, recorded at registration. Windowless targets (the test seams) are absent here and
     // exempt from the conjunct; the conjunct is inactive only while the tester is the named
@@ -1280,6 +1282,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 Intersects, out hit) || hit)
             return true;
 
+        if (!TryReadOccluderRects(KnownOccluderSources.StatusStrip,
+                () => _statusStripBounds?.Invoke() is { } strip
+                    ? new[] { strip }
+                    : (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
+                Intersects, out hit) || hit)
+            return true;
+
         return false;
     }
 
@@ -1905,6 +1914,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         else
             genuine |= covers;
 
+        if (!TryReadOccluder(KnownOccluderSources.StatusStrip,
+                () => _statusStripBounds is { } strip && strip.Invoke() is { } stripBounds
+                    && stripBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
         return (genuine, failed);
     }
 
@@ -1923,6 +1939,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         public const string BannerSlot = "banner slot";
         public const string TrackStatus = "track status";
         public const string NoteNotice = "note notice";
+        public const string StatusStrip = "status strip";
     }
 
     /// <summary>The logged-failure episode flags, one per source name: a failed source logs once,
@@ -2171,12 +2188,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
-        Func<PhysicalRect?>? noteNoticeBounds = null)
+        Func<PhysicalRect?>? noteNoticeBounds = null,
+        Func<PhysicalRect?>? statusStripBounds = null)
     {
         _lagMarkRects = lagMarkRects;
         _slotOccupantBounds = slotOccupantBounds;
         _trackStatusBounds = trackStatusBounds;
         _noteNoticeBounds = noteNoticeBounds;
+        _statusStripBounds = statusStripBounds;
     }
 
     /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The

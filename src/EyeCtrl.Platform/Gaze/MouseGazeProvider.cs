@@ -27,6 +27,11 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
     public event Action<GazePoint>? GazePointReceived;
     public bool IsConnected { get; private set; }
 
+    /// <inheritdoc />
+    public long ConnectEdgeCount => Interlocked.Read(ref _connectEdgeCount);
+
+    private long _connectEdgeCount;
+
     /// <summary>Initializes a new instance of the <see cref="MouseGazeProvider"/> class.</summary>
     /// <param name="pollIntervalMs">Cursor sampling interval in milliseconds.</param>
     /// <param name="logger">Optional logger for subscriber faults.</param>
@@ -41,6 +46,7 @@ public partial class MouseGazeProvider : IGazeProvider, IDisposable
 
     public void Start()
     {
+        if (!IsConnected) Interlocked.Increment(ref _connectEdgeCount);
         IsConnected = true;
         _timer = new Timer(OnTick, null, 0, Timeout.Infinite);
     }

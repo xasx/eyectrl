@@ -108,6 +108,12 @@ public class ToolbarVisibilityAdapterHeadlessTests
         public void SetEdge(string edge) { Edge = edge; _log.Add("Indicator.SetEdge"); }
         public void SetBandVisible(bool visible) => _log.Add($"Indicator.SetBandVisible({visible})");
         public void SetBandBounds(PhysicalRect bounds) => _log.Add("Indicator.SetBandBounds");
+        // B2b: recorded as state, not logged, so the existing call-order logs stay unchanged.
+        public bool Paused { get; private set; }
+        public EyeCtrl.Core.Enums.ControlState State { get; private set; }
+        public void SetPaused(bool paused) => Paused = paused;
+        public void SetControlState(EyeCtrl.Core.Enums.ControlState state) => State = state;
+        public bool TryGetVisibleBounds(out PhysicalRect bounds) { bounds = default; return false; }
     }
 
     private static (ToolbarVisibilityAdapter Adapter, List<string> Log,
@@ -297,6 +303,64 @@ public class ToolbarVisibilityAdapterHeadlessTests
         {
             adapter.StopTrackingLeavingPause(im);
         }
+    }
+
+    // ── B2b: the strip's status states ──
+
+    [Theory]
+    [InlineData(EyeCtrl.Core.Enums.ControlState.TrackingLost)]
+    [InlineData(EyeCtrl.Core.Enums.ControlState.NoTracker)]
+    public void AStatusState_ShowsTheStrip_WithoutPause_AndItsEnd_HidesItAtOnce(EyeCtrl.Core.Enums.ControlState state)
+    {
+        var (adapter, log, _, indicator) = Build();
+        adapter.SetControlState(state);
+
+        Check.WithCustomMessage("a TrackingLost/NoTracker state must show the strip on its own")
+            .That(indicator.Visible).IsTrue();
+        Check.That(indicator.State).IsEqualTo(state);
+        Check.WithCustomMessage("the status never sets the strip paused (no Resume target)")
+            .That(indicator.Paused).IsFalse();
+        Check.That(log).Contains("Indicator.RaiseToTop");
+
+        adapter.SetControlState(EyeCtrl.Core.Enums.ControlState.Normal);
+        Check.WithCustomMessage("leaving the state must hide the strip at once, without a pump")
+            .That(indicator.Visible).IsFalse();
+    }
+
+    [Theory]
+    [InlineData(EyeCtrl.Core.Enums.ControlState.Paused)]
+    [InlineData(EyeCtrl.Core.Enums.ControlState.Normal)]
+    public void ThePausedAndNormalStatus_NeverShowOrHideTheStrip(EyeCtrl.Core.Enums.ControlState state)
+    {
+        // B2b: the PAUSED strip stays on the paused command (B2a's leave-Paused hook), never on the
+        // status message — a Paused status alone shows nothing, and Normal does not hide a paused strip.
+        var (adapter, _, _, indicator) = Build();
+        adapter.SetControlState(state);
+        Pump();
+        Check.That(indicator.Visible).IsFalse();
+
+        adapter.SetPauseIndicator(true);
+        Pump();
+        adapter.SetControlState(EyeCtrl.Core.Enums.ControlState.TrackingLost);
+        adapter.SetControlState(state);
+        Check.WithCustomMessage("a status change must not hide the paused strip")
+            .That(indicator.Visible).IsTrue();
+        Check.That(indicator.Paused).IsTrue();
+    }
+
+    [Fact]
+    public void LeavingPauseWhileTrackingIsLost_KeepsTheStrip_ButDropsTheResumeTarget()
+    {
+        var (adapter, _, _, indicator) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();
+        adapter.SetControlState(EyeCtrl.Core.Enums.ControlState.TrackingLost);
+
+        adapter.SetPauseIndicator(false); // inline, as from TogglePause
+
+        Check.That(indicator.Paused).IsFalse();
+        Check.WithCustomMessage("the TrackingLost label stays after the pause ends")
+            .That(indicator.Visible).IsTrue();
     }
 
     [Fact]

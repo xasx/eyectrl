@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 34 overlay windows and 7 dwell controls — 29 with XAML (28 under
+EyeCtrl has 35 overlay windows and 7 dwell controls — 30 with XAML (29 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 4 without XAML (the
 code-only `NoteWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
@@ -73,6 +73,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **AdaptationCue** | `CueOverlayWindow` | `Transparent` + `Ellipse Fill="#FFB300"` | XAML | exempt:non-interactive cue |
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
+| **StatusCard** | `StatusCardWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token; Wave B B5) | XAML | exempt:non-interactive banner |
 | **AdaptationPreview** | `AdaptationPreviewWindow` | `Transparent` + token-bordered card (all values from `Tokens`) | XAML | exempt:it is the panel itself |
 | **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML | collision-zone |
 | **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML | collision-zone |

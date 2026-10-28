@@ -723,4 +723,25 @@ public class SettingsServiceLoadToleranceTests
         }
         finally { File.Delete(path); }
     }
+
+    // ── Status chime (Wave B B3): a pre-B3 file has no key and must pick the ON default ──────────
+
+    [Fact]
+    public void Load_AFileWithoutStatusChimeEnabled_UsesTheOnDefault()
+    {
+        var path = TempPath();
+        try
+        {
+            var service = new SettingsService(path);
+            service.Save(new EyeCtrlSettings());
+            var root = ReadRoot(path);
+            root["dwell"]!.AsObject().Remove("statusChimeEnabled");
+            File.WriteAllText(path, root.ToJsonString());
+
+            var loaded = service.Load();
+
+            Check.That(loaded.Dwell.StatusChimeEnabled).IsTrue();
+        }
+        finally { File.Delete(path); }
+    }
 }

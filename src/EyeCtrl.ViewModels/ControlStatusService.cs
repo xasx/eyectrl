@@ -185,7 +185,10 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
             // Re-sync the paused mirror on every tick: any residual read/commit race from the
             // notification path self-heals within one poll (review 01 F1).
             _model.SetPaused(_interaction.CurrentState == InteractionState.Paused);
-            _model.Poll(_provider.IsConnected);
+            // Read the snapshot FIRST, then the edge counter: an edge that happens between the two
+            // reads can only make the pair look more connected (a fresh reset), never more
+            // disconnected (B3 / review 01 F4).
+            _model.Poll(_provider.IsConnected, _provider.ConnectEdgeCount);
         }
         catch (Exception ex)
         {

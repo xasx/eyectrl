@@ -175,9 +175,11 @@ public class SimpleModeCurationTests
             "Button:c_reset"],
         // d_pause_grace joined the simple set deliberately (gaze-UX wave A, ticket A1: the forgiving
         // dwell is the one dwell control a caregiver is expected to find); it builds after d_cooldown.
+        // d_status_chime is B3's tracker-disconnect chime: Simple because the owner hears it by
+        // default and must be able to turn it off; it builds after d_cue_sound.
         "Dwell" => ["Slider:d_act", "Slider:d_menu", "Slider:d_tool", "Slider:d_key",
             "Slider:d_pred", "Slider:d_rad", "Slider:d_pause_grace", "Toggle:d_cue_sound",
-            "Button:d_reset"],
+            "Toggle:d_status_chime", "Button:d_reset"],
         "Keyboard" => ["Combo:k_layout", "Slider:k_size", "Toggle:k_pred", "Combo:k_lang",
             "Toggle:k_sound", "Button:k_reset"],
         _ => throw new ArgumentException($"Unknown simple tab {tab}")

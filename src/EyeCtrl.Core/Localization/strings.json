@@ -1292,6 +1292,54 @@
     "fit": "row",
     "args": []
   },
+  "overlays.splash.noTracker": {
+    "text": "No eye tracker found — using the mouse.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.status.noTracker": {
+    "text": "No eye tracker",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal170",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.status.trackingLost": {
+    "text": "Eye tracking lost",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal170",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.statusCard.noTracker": {
+    "text": "No eye tracker found. EyeCtrl is using the mouse.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.statusCard.paused": {
+    "text": "Paused. Look at ▶ to resume.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "overlays.statusCard.trackingLost": {
+    "text": "Eye tracking lost. Look at the screen to continue.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
   "overlays.subpixel.answer_one": {
     "text": "1",
     "who": "user",
@@ -3123,6 +3171,20 @@
     "who": "user",
     "where": "settings",
     "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.status_chime.description": {
+    "text": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Looking away or pausing on purpose does not play it.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.status_chime.label": {
+    "text": "Disconnect Chime",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.dwell.toolbar.description": {

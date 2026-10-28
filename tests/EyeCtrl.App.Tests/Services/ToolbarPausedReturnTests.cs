@@ -67,6 +67,9 @@ public class ToolbarPausedReturnTests
         public void RaiseToTop() { }
         public void SetBandVisible(bool visible) { }
         public void SetBandBounds(PhysicalRect bounds) { }
+        public void SetPaused(bool paused) { }
+        public void SetControlState(EyeCtrl.Core.Enums.ControlState state) { }
+        public bool TryGetVisibleBounds(out PhysicalRect bounds) { bounds = default; return false; }
     }
 
     /// <summary>Runs the adapter's queued dispatcher work. No STA thread required — nothing here is a Window.</summary>

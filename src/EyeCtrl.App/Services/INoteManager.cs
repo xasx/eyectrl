@@ -70,13 +70,15 @@ public interface INoteManager : INoteTextInput
     /// (B4 — ONE aggregate source replacing the old per-banner delegates; the drift notice, the
     /// caregiver alert and future status cards all show only through the slot), and the
     /// track-status card's bounds (fixup 01 M1 — opaque, click-through, up for as long as
-    /// TrackStatusSettings.Enabled).
+    /// TrackStatusSettings.Enabled). B2b added the status strip's label card (paused, tracking lost,
+    /// no tracker) as its own named source.
     /// </summary>
     void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
-        Func<PhysicalRect?>? noteNoticeBounds = null);
+        Func<PhysicalRect?>? noteNoticeBounds = null,
+        Func<PhysicalRect?>? statusStripBounds = null);
 
     /// <summary>
     /// The capacity notice (P4 D4): shown INSTEAD of creating when <see cref="IsAtCapacity"/>

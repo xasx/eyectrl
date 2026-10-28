@@ -73,6 +73,7 @@ public sealed class ControlStatusModel
     private bool _paused;
     private long? _disconnectedSince;
     private long? _lastPollTimestamp;
+    private long _lastConnectEdgeCount;
     private ControlState _state;
     private bool _disconnected;
     private ControlStatus _published;
@@ -140,6 +141,7 @@ public sealed class ControlStatusModel
             _lastValidSampleTimestamp = now;
             _disconnectedSince = null;
             _lastPollTimestamp = null;
+            _lastConnectEdgeCount = 0;
             _disconnected = false;
             _state = InitialState();
             _published = new ControlStatus(_state, Disconnected: false);
@@ -191,7 +193,13 @@ public sealed class ControlStatusModel
     /// </para>
     /// </summary>
     /// <param name="isConnected">The provider's <c>IGazeProvider.IsConnected</c> value right now.</param>
-    public void Poll(bool isConnected)
+    /// <param name="connectEdgeCount">
+    /// The provider's <c>IGazeProvider.ConnectEdgeCount</c> at the same moment (B1 review 01 F4 /
+    /// B3). A count that differs from the previous poll means a connect edge happened BETWEEN the
+    /// two polls, so the interval cannot have been continuously disconnected. Optional (default 0)
+    /// so providers and tests without the counter keep the pre-hardening semantics.
+    /// </param>
+    public void Poll(bool isConnected, long connectEdgeCount = 0)
     {
         lock (_gate)
         {
@@ -203,6 +211,15 @@ public sealed class ControlStatusModel
                 _disconnectedSince = null;
             }
             _lastPollTimestamp = now;
+
+            // A connect edge between two polls means the interval was NOT continuously disconnected,
+            // even though both snapshots read false (B1 review 01 F4: a synthetic 100 ms window
+            // aliases a fixed 10 Hz poll). The counter only resets — an edge never starts the clock.
+            if (connectEdgeCount != _lastConnectEdgeCount)
+            {
+                _lastConnectEdgeCount = connectEdgeCount;
+                _disconnectedSince = null;
+            }
 
             if (isConnected)
             {

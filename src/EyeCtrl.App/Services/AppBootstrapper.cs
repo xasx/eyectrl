@@ -335,6 +335,14 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>().Dwell,
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "dwell-cue.wav")));
 
+        // Status chime (Wave B B3): ctor-subscribes ControlStatusChangedMessage, so it is eagerly
+        // resolved below like the cue. The headless edge/gate rule lives in Core (StatusChimeGate);
+        // this singleton only carries the player and the live setting.
+        services.AddSingleton(sp => new StatusChimeService(
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell,
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "status-chime.wav")));
+
         // Core engine. The telemetry sink rides the engine since ticket 3: the activation surface's clock
         // lives in the fixation rule now, so its Activated/Abandoned outcomes are emitted from the same
         // valid-time ledger. The sink is registered below this factory, which is fine — factories are
@@ -780,6 +788,9 @@ public class AppBootstrapper
 
         // DwellCueService subscribes DwellActivationMessage in its ctor (see its class doc).
         _ = sp.GetRequiredService<DwellCueService>();
+
+        // StatusChimeService subscribes ControlStatusChangedMessage in its ctor (B3).
+        _ = sp.GetRequiredService<StatusChimeService>();
     }
 
     public static OverlayViewModels ResolveViewModels(ServiceProvider sp, EyeCtrlSettings settings)

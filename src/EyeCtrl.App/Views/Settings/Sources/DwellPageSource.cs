@@ -67,6 +67,13 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.dwell.cue_sound.label"),
                     () => d.CueEnabled, v => { d.CueEnabled = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.cue_sound.description"), Simple = true },
+                // Wave B B3: a distinct sound from d_cue_sound — a real tracker disconnect, not a
+                // completed dwell. Simple by decision (the owner hears it by default and must be
+                // able to turn it off); the curation pin below records it.
+                new ToggleSpec("d_status_chime",
+                    StringTable.Current.T("settings.dwell.status_chime.label"),
+                    () => d.StatusChimeEnabled, v => { d.StatusChimeEnabled = v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.status_chime.description"), Simple = true },
                 new ButtonSpec("d_reset",
                     StringTable.Current.T("settings.dwell.reset.label"),
                     () => _ctx.ShowModal(StringTable.Current.T("settings.dwell.reset.message"), () =>
@@ -83,6 +90,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         d.DwellCooldownMs = def.DwellCooldownMs;
                         d.DwellPauseGraceMs = def.DwellPauseGraceMs;
                         d.CueEnabled = def.CueEnabled;
+                        d.StatusChimeEnabled = def.StatusChimeEnabled;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

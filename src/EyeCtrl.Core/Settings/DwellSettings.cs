@@ -42,6 +42,15 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// surface (toolbar, menus, settings, etc.). Keys keep their own click sound. Default off
     /// (spec 2026-09-23, ledger D3).</summary>
     [ObservableProperty] private bool _cueEnabled = false;
+    /// <summary>
+    /// Whether a short chime plays when the eye tracker has really disconnected (Wave B ticket B3):
+    /// the rising edge of the published <c>Disconnected</c> flag, more than 10 s of continuous
+    /// <c>IsConnected == false</c>. It sits beside <see cref="CueEnabled"/> because both are sound
+    /// preferences and the row lives on the Dwell page; it is not a dwell setting. Default ON — the
+    /// owner wants to hear a real tracker loss. A new property, so an existing settings file picks
+    /// the default from the initializer.
+    /// </summary>
+    [ObservableProperty] private bool _statusChimeEnabled = true;
     /// <summary>Dwell time in milliseconds for the drag release button. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _dragReleaseButtonDwellMs = 600;
     /// <summary>Dwell time in milliseconds for the drag right-edge button. Valid range: 200–2000.</summary>

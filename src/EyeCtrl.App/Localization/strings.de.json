@@ -1771,7 +1771,7 @@
     "src": "959ff23f"
   },
   "settings.dwell.manual_selection_side.label": {
-    "text": "Seitentasten der manuellen Auswahl (ms)",
+    "text": "Schließen/Neu erfassen bei manueller Auswahl (ms)",
     "src": "db234c82"
   },
   "settings.dwell.pause_grace.description": {
@@ -1799,7 +1799,7 @@
     "src": "ba2414da"
   },
   "settings.dwell.resume.description": {
-    "text": "Wie lange der Blick auf „Fortsetzen“ in der Pause ruhen muss. Die Zeit ist nie kürzer als die Symbolleiste plus 200 ms.",
+    "text": "Wie lange der Blick in der Pause auf „Fortsetzen“ ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste plus 200 ms.",
     "src": "9b770a85"
   },
   "settings.dwell.resume.label": {

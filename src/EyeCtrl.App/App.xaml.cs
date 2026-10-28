@@ -190,6 +190,11 @@ public partial class App : Application
 
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
             ActiveProviderType = activeProviderType;
+            // B5: one sentence on the splash when the provider FELL BACK to the mouse (never when
+            // the mouse was chosen, never in test mode — where there is no splash anyway).
+            if (splash is not null
+                && SplashWindow.ShowsNoTrackerSentence(settings.General.GazeProviderType, activeProviderType, IsTestMode))
+                splash.ShowNoTrackerSentence();
             var version = System.Reflection.Assembly.GetExecutingAssembly()
                 .GetName().Version?.ToString() ?? "unknown";
             Log.Information("Startup: EyeCtrl v{Version}, provider={Provider}, settings={SettingsPath}",
@@ -342,6 +347,13 @@ public partial class App : Application
             // Its changes are posted to this dispatcher and published as
             // ControlStatusChangedMessage; the strip (B2b) and the chime (B3) are separate tickets.
             _serviceProvider.GetRequiredService<ControlStatusService>().Start();
+
+            // ── Status cards (Wave B B5) ──
+            // After the status starts, so the first card explains the state the session really
+            // began in (paused launch, no tracker). Not in test mode: its provider is always the
+            // mouse, and a NoTracker card on every UI-test launch would only be noise.
+            if (!IsTestMode)
+                _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
 
             // ── Display / resolution / DPI change ──
             // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the

@@ -147,6 +147,15 @@ public sealed class RecordingGazeProvider : IGazeProviderDecorator
 
     /// <inheritdoc />
     /// <remarks>
+    /// Forwarded like <see cref="UpdateScreenBounds"/>: the control-status service reads the edge
+    /// count from whatever came out of DI, which is this decorator whenever recording is on. A
+    /// missing forward would make the hidden-connected-window hardening silently dead in exactly
+    /// the sessions a diagnosis is recorded from.
+    /// </remarks>
+    public long ConnectEdgeCount => _inner.ConnectEdgeCount;
+
+    /// <inheritdoc />
+    /// <remarks>
     /// Forwarded, and the reason is worth stating: this is a DEFAULT interface method with an empty
     /// body, so omitting it here compiles, passes every test, and silently binds to the no-op. The
     /// display watcher hands its updates to whatever <c>IGazeProvider</c> came out of DI — this

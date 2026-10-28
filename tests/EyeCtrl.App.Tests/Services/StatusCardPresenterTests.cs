@@ -589,7 +589,9 @@ public class StatusCardPresenterTests
     [Fact]
     public void TheApp_StartsTheCards_AfterTheControlStatus_AndNotInTestMode()
     {
-        var app = Source("src/EyeCtrl.App/App.xaml.cs");
+        // Comment-stripped (B9 M2): a comment that merely mentions the call must not satisfy the
+        // pin, or a deletion + explanatory comment leaves every test green.
+        var app = SourceScanner.StripComments(Source("src/EyeCtrl.App/App.xaml.cs"));
         var status = app.IndexOf("GetRequiredService<ControlStatusService>().Start()", StringComparison.Ordinal);
         var cards = app.IndexOf("GetRequiredService<StatusCardPresenter>().Start()", StringComparison.Ordinal);
         // B9 M2 (MU1): each marker must be asserted PRESENT before the ordering comparison. With

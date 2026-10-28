@@ -12,6 +12,12 @@ using EyeCtrl.Core.Status;
 /// way to a caregiver alert, and is never on screen outside the one banner slot.
 ///
 /// <para>
+/// "First" means the first card the owner could actually READ (B9 M1): a card withdrawn or dropped
+/// before its hold completes is not used up, so a benign eye rest no longer spends TrackingLost for
+/// the session and a later real outage still gets its card.
+/// </para>
+///
+/// <para>
 /// A queued card may wait an unbounded time (a caregiver alert stays up as long as its condition
 /// is sustained), so its turn RE-VALIDATES (the B4 lesson): a card whose state has already ended
 /// is dropped, never shown late. When that check fails on a refresh of the LIVE card, the drop path
@@ -88,7 +94,13 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     internal void OnStatusChanged(ControlStatus status)
     {
         if (_pending is { } pending && status.State != pending && _slot.IsLive(this))
+        {
+            // B9 M1: the card leaves before its hold completes, so the state is NOT used up: the
+            // owner never got the read (a pause rest withdraws Paused, and TrackingLost leaves on
+            // the first valid sample). "First entry" means first COMPLETED card.
+            _entered.Remove(pending);
             _slot.Withdraw(this); // an immediate hide; a merely queued card is dropped by CanShow instead
+        }
 
         if (!HasCard(status.State) || !_entered.Add(status.State))
             return; // no card for this state, or it was already entered this session
@@ -107,6 +119,11 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     {
         if (!CanShow)
         {
+            // B9 M1: the card is dropped before its hold completes (the state ended while it
+            // queued, or a live refresh finds it stale), so the state is NOT used up. This covers
+            // both branches below: a queued card that was never read, and a live one taken down.
+            if (_pending is { } unheld)
+                _entered.Remove(unheld);
             if (_window.IsVisible)
             {
                 // L3: a refresh of the LIVE card whose state has ended. HideCard raises Hidden,

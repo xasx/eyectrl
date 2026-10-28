@@ -244,6 +244,33 @@ public class ToolbarLifecycleCoordinatorTests
     }
 
     [Fact]
+    public void ResumeStripWiring_HandsTheStripViewModelToTheOverlayViewModels()
+    {
+        // B9 M2 (MU2): App.OnStartup builds its own OverlayViewModels. Dropping the ResumeStrip
+        // argument used to compile (the parameter was optional) and left the strip with only its
+        // 12 DIP bar — no Resume disc, no labels — with every test green. The record now REQUIRES
+        // the parameter; this pins that production passes the DI singleton (a `null!` would still
+        // compile, so the argument's identity matters, not just its presence).
+        var root = SourceScanner.RepoRoot().FullName;
+        var app = SourceScanner.StripComments(File.ReadAllText(Path.Combine(root,
+            "src", "EyeCtrl.App", "App.xaml.cs")));
+
+        var start = app.IndexOf("new OverlayViewModels(", StringComparison.Ordinal);
+        // Assert the marker first: with only it missing, the slice below would be computed from -1.
+        Check.WithCustomMessage(
+                "App.OnStartup no longer builds OverlayViewModels. If construction moved, update this literal.")
+            .That(start).IsStrictlyGreaterThan(-1);
+        var end = app.IndexOf(';', start);
+        Check.That(end).IsStrictlyGreaterThan(start);
+
+        Check.WithCustomMessage(
+                "App.OnStartup's OverlayViewModels no longer receives the ResumeStripViewModel: the " +
+                "strip would lose its Resume disc and labels (B2a's stranding fix).")
+            .That(app[start..end].Contains("GetRequiredService<ResumeStripViewModel>()", StringComparison.Ordinal))
+            .IsTrue();
+    }
+
+    [Fact]
     public void PauseIndicatorWiring_MirrorCommandsStrip_AndStartupPushStaysAfterShowOverlays()
     {
         var root = SourceScanner.RepoRoot().FullName;

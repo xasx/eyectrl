@@ -551,7 +551,7 @@
     "src": "41335bb9"
   },
   "overlays.preset.kbd.cut": {
-    "text": "Ausschneiden",
+    "text": "Aus­schneiden",
     "src": "f383f896"
   },
   "overlays.preset.kbd.file_explorer": {
@@ -603,7 +603,7 @@
     "src": "281341dc"
   },
   "overlays.preset.media.mute": {
-    "text": "Stummschalten",
+    "text": "Stumm­schalten",
     "src": "8b0dc4e7"
   },
   "overlays.preset.media.next": {
@@ -635,7 +635,7 @@
     "src": "150774d9"
   },
   "overlays.preset.window.maximize_restore": {
-    "text": "Maximieren / Wieder­herstellen",
+    "text": "Maximieren / Wiederher­stellen",
     "src": "42696d00"
   },
   "overlays.preset.window.minimize": {
@@ -2350,7 +2350,7 @@
     "src": "41335bb9"
   },
   "settings.preset.kbd.cut": {
-    "text": "Ausschneiden",
+    "text": "Aus­schneiden",
     "src": "f383f896"
   },
   "settings.preset.kbd.file_explorer": {
@@ -2402,7 +2402,7 @@
     "src": "281341dc"
   },
   "settings.preset.media.mute": {
-    "text": "Stummschalten",
+    "text": "Stumm­schalten",
     "src": "8b0dc4e7"
   },
   "settings.preset.media.next": {
@@ -2434,7 +2434,7 @@
     "src": "150774d9"
   },
   "settings.preset.window.maximize_restore": {
-    "text": "Maximieren / Wieder­herstellen",
+    "text": "Maximieren / Wiederher­stellen",
     "src": "42696d00"
   },
   "settings.preset.window.minimize": {

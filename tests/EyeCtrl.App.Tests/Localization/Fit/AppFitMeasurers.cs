@@ -531,9 +531,25 @@ internal static class AppFitMeasurers
     }
 
     /// <summary>
-    /// B114: a quick-actions tile, through the grid window's own <c>DataTemplate</c>. Every run
-    /// fits the label's wrap width (the tile's inner width less the label's margins — 106 DIP
-    /// today), and the tile's icon + label + bar stack fits the tile's inner height.
+    /// B114: a quick-actions tile, through the grid window's own <c>DataTemplate</c>. The face is a
+    /// DISC (B8b), so the rule is not "fits the square box" but "every painted point is inside the
+    /// inner rim": the label's real glyph outlines (<see cref="FormattedText.BuildGeometry"/>) and
+    /// the dwell ring's outer edge must each lie at or within the inner rim radius (the drawn face
+    /// less its border — r49 at the default 1 DIP border, r48 under Contrast's 2 DIP border).
+    ///
+    /// <para>
+    /// B8b fixup-01 R1: the old check compared the text to the tile's square box, which let ink and
+    /// the full-width bottom bar cross the circular rim in most presets. The ring is measured at
+    /// full progress so its whole circle is present, and in the tile's coordinates so a ring
+    /// off-centre in the face also fails.
+    /// </para>
+    /// <para>
+    /// B8b fixup-02 N1: the ink check cannot see a word WIDER than the wrap box — WPF
+    /// emergency-breaks it mid-word with no hyphen ("Stummschalt | en"), which keeps every glyph
+    /// inside the rim. So the class also requires no unbreakable run (split at spaces, hyphens and
+    /// U+00AD, the same runs the other class-B rules measure) to exceed the label's wrap width.
+    /// Long German compounds therefore need a soft hyphen, not just a small enough ink extent.
+    /// </para>
     /// </summary>
     private static FitVerdict QuickActionTile(string text)
     {
@@ -546,18 +562,89 @@ internal static class AppFitMeasurers
         using var host = FitHost.Open(root, inheritFrom: window);
 
         var tile = FitText.Descendants<Border>(root).Single(b => b.Name == "TileBorder");
-        var grid = (Grid)tile.Child;
-        var stack = (StackPanel)grid.Children[0];
-        var label = FitText.Descendants<TextBlock>(stack).Single(t => t.Text == text);
-        var roomWidth = grid.ActualWidth - label.Margin.Left - label.Margin.Right;
+        var label = FitText.Descendants<TextBlock>(tile).Single(t => t.Text == text);
+        var ring = FitText.Descendants<System.Windows.Shapes.Path>(tile)
+            .Single(p => p.Name == "DwellRing");
 
-        var (run, runWidth) = FitText.WidestRun(label, text);
-        var stackHeight = FitText.NaturalHeight(host, stack, grid.ActualWidth);
-        var ok = runWidth <= roomWidth && stackHeight <= grid.ActualHeight;
+        // Full progress: the whole ring must be inside the rim, not only the current arc.
+        tileVm.DwellProgress = 1;
+        root.UpdateLayout();
+
+        var centre = new Point(tile.ActualWidth / 2, tile.ActualHeight / 2);
+        var border = System.Math.Max(
+            System.Math.Max(tile.BorderThickness.Left, tile.BorderThickness.Top),
+            System.Math.Max(tile.BorderThickness.Right, tile.BorderThickness.Bottom));
+        var innerRim = (tile.ActualWidth / 2) - border;
+
+        // The label's ink, exactly as drawn: FormattedText over the same face, at the label's real
+        // wrap width, then its farthest outline point from the disc centre.
+        var labelToTile = label.TransformToVisual(tile);
+        var formatted = new FormattedText(
+            text, CultureInfo.CurrentUICulture, label.FlowDirection,
+            new Typeface(label.FontFamily, label.FontStyle, label.FontWeight, label.FontStretch),
+            label.FontSize, Brushes.Black, 1.0)
+        {
+            MaxTextWidth = label.ActualWidth,
+            TextAlignment = label.TextAlignment,
+        };
+        // Built in the LABEL's own coordinates (origin 0,0); FarthestPoint maps each point into
+        // the tile's space exactly once.
+        var inkGeometry = formatted.BuildGeometry(new Point(0, 0))
+            .GetFlattenedPathGeometry(0.01, ToleranceType.Absolute);
+        var inkMax = FarthestPoint(inkGeometry, labelToTile, centre);
+
+        // The ring's painted outer edge: its geometry's radius plus half the centred stroke (round
+        // caps stay within the same band).
+        var ringToTile = ring.TransformToVisual(tile);
+        var ringGeometry = ring.Data.GetFlattenedPathGeometry(0.01, ToleranceType.Absolute);
+        var ringMax = FarthestPoint(ringGeometry, ringToTile, centre) + (ring.StrokeThickness / 2);
+
+        // N1: every break segment must fit the wrap box, or WPF breaks it mid-word with no hyphen.
+        var (widestRun, widestRunWidth) = FitText.WidestRun(label, text);
+        var wrapWidth = label.MaxWidth;
+
+        var lines = System.Math.Max(
+            1, (int)System.Math.Round(formatted.Height / (formatted.LineHeight > 0 ? formatted.LineHeight : label.FontSize * 1.33)));
+        var ok = inkMax <= innerRim && ringMax <= innerRim && widestRunWidth <= wrapWidth;
         return new FitVerdict(ok,
-            $"widest run '{run}' {FitText.Dip(runWidth)} vs label width {FitText.Dip(roomWidth)}; icon+label+bar "
-            + $"{FitText.Dip(stackHeight)} vs tile inner height {FitText.Dip(grid.ActualHeight)}",
-            FitText.ResolvedFace(label), Math.Min(roomWidth - runWidth, grid.ActualHeight - stackHeight));
+            $"label ink r{FitText.Dip(inkMax)} / dwell ring r{FitText.Dip(ringMax)} "
+            + $"vs inner rim r{FitText.Dip(innerRim)} on {lines} line(s); "
+            + $"widest run '{widestRun}' {FitText.Dip(widestRunWidth)} vs wrap {FitText.Dip(wrapWidth)}",
+            FitText.ResolvedFace(label),
+            System.Math.Min(
+                System.Math.Min(innerRim - inkMax, innerRim - ringMax),
+                wrapWidth - widestRunWidth));
+    }
+
+    /// <summary>
+    /// The farthest flattened point of <paramref name="geometry"/> from <paramref name="centre"/>,
+    /// after mapping it into the tile's coordinates with <paramref name="toTile"/>.
+    /// </summary>
+    private static double FarthestPoint(PathGeometry geometry, GeneralTransform toTile, Point centre)
+    {
+        static double Distance(Point a, Point b) =>
+            System.Math.Sqrt(((a.X - b.X) * (a.X - b.X)) + ((a.Y - b.Y) * (a.Y - b.Y)));
+
+        var farthest = 0.0;
+        foreach (var figure in geometry.Figures)
+        {
+            farthest = System.Math.Max(farthest, Distance(toTile.Transform(figure.StartPoint), centre));
+            foreach (var segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case PolyLineSegment polyline:
+                        foreach (var point in polyline.Points)
+                            farthest = System.Math.Max(farthest, Distance(toTile.Transform(point), centre));
+                        break;
+                    case LineSegment line:
+                        farthest = System.Math.Max(farthest, Distance(toTile.Transform(line.Point), centre));
+                        break;
+                }
+            }
+        }
+
+        return farthest;
     }
 
     /// <summary>

@@ -7,11 +7,13 @@ public class QuickActionsSummonControllerTests
 {
     private QuickActionsSummonController CreateController(
         string edge = "Left", double screenW = 1920, double screenH = 1080,
-        int summonMs = 400, int dismissMs = 5000, Func<bool>? calibrationActive = null)
+        int summonMs = 400, int dismissMs = 5000, Func<bool>? calibrationActive = null,
+        Func<bool>? holdDismiss = null)
     {
         return new QuickActionsSummonController(
             edge, screenW, screenH, summonMs, dismissMs,
-            calibrationActive: calibrationActive ?? (() => false));
+            calibrationActive: calibrationActive ?? (() => false),
+            holdDismiss: holdDismiss);
     }
 
     // NOTE: Feed takes a GazePoint (packs X, Y, TimestampMicroseconds, IsValid),
@@ -396,6 +398,56 @@ public class QuickActionsSummonControllerTests
         c.Feed(Pt(100, 540, 3_000_000, valid: false), timestampUs: 3_000_000);
         // >5s after the countdown started → dismisses
         c.Feed(Pt(100, 540, 5_700_000), timestampUs: 5_700_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
+        Check.That(dismissals).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void HoldDismiss_KeepsAHotEdgeGridOpen_WhileATileDwellProgresses()
+    {
+        // B8b F1: the gaze-away timeout may not expire while a grid target is mid-dwell. The gaze
+        // is ON the grid (inside the screen, so the timer branch runs) for far longer than
+        // DismissTimeoutMs; the hold keeps the grid up, and the countdown restarts fresh once it
+        // releases. Without the hold this is exactly the summon-and-vanish the owner hit.
+        bool holding = false;
+        var c = CreateController(edge: "Left", summonMs: 400, dismissMs: 5000,
+            holdDismiss: () => holding);
+        int dismissals = 0;
+        c.DismissRequested += () => dismissals++;
+
+        // Hot-edge summon
+        c.Feed(Pt(-10, 540, 0), timestampUs: 0);
+        c.Feed(Pt(-10, 540, 500_000), timestampUs: 500_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+
+        // Seed the dismiss anchor BEFORE the hold: the gaze returns on screen and wanders for
+        // 200 ms off the tiles. Without this, the anchor is still Unseeded when the hold begins and
+        // the restart assertion below could pass even if the hold kept the stale anchor (M1).
+        c.Feed(Pt(100, 540, 600_000), timestampUs: 600_000);
+        c.Feed(Pt(100, 540, 800_000), timestampUs: 800_000);
+
+        // A tile dwell now runs for 5.8 s — longer than the dismiss timeout.
+        holding = true;
+        for (long t = 900_000; t <= 6_600_000; t += 100_000)
+            c.Feed(Pt(100, 540, t), timestampUs: t);
+        Check.WithCustomMessage("the dismiss timeout fired while a tile dwell was in progress")
+            .That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(dismissals).IsEqualTo(0);
+
+        // The hold releases at 6.7 s: the owner must get a FRESH full timeout from there, not the
+        // 0.6 s anchor that was seeded before the attempt. One millisecond short of the timeout the
+        // grid is still open; at the timeout it closes. (M1 — keeping the old anchor — closes at
+        // the first released sample and fails the "still open" assertion.)
+        holding = false;
+        c.Feed(Pt(100, 540, 6_700_000), timestampUs: 6_700_000);
+        Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+
+        c.Feed(Pt(100, 540, 11_699_000), timestampUs: 11_699_000);
+        Check.WithCustomMessage("the restarted countdown expired early — the anchor was not cleared")
+            .That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
+        Check.That(dismissals).IsEqualTo(0);
+
+        c.Feed(Pt(100, 540, 11_700_000), timestampUs: 11_700_000);
         Check.That(c.State).IsEqualTo(QuickActionsSummonController.SummonState.Idle);
         Check.That(dismissals).IsEqualTo(1);
     }

@@ -162,4 +162,120 @@ public class QuickActionsGridViewModelTests
         Check.That(vm.IsVisible).IsFalse();
         Check.That(received).IsNull();   // close button dismisses, fires no selection
     }
+
+    // ── B8b: stale target clears after Hide/Reload (review 01 M13/M14) ──────────────────────
+
+    /// <summary>Shows the grid and registers the close + one tile target, as the view would.</summary>
+    private static QuickActionsGridViewModel ShownWithTargets(WeakReferenceMessenger messenger)
+    {
+        var action = new QuickAction
+        {
+            Label = "Copy", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+C"
+        };
+        var vm = CreateVM(messenger, new List<QuickAction> { action });
+        messenger.Send(new QuickActionsToggledMessage());
+        vm.UpdateTilePosition(action.Id, new PhysicalPoint(500, 500));
+        vm.UpdateCloseButtonPosition(new PhysicalPoint(900, 100));
+        Check.That(vm.DetectorForTest.Targets).HasSize(2);
+        return vm;
+    }
+
+    [Fact]
+    public void HideOverlay_ClearsTheDwellTargets()
+    {
+        // M13: dropping ClearTargets from HideOverlay survived the whole suite. Today the hide is
+        // also covered by the detector not being fed while hidden, which is why this is a
+        // coverage pin rather than a live defect — but the next show must never inherit targets
+        // from the previous one.
+        var vm = ShownWithTargets(new WeakReferenceMessenger());
+
+        vm.HideOverlay();
+
+        Check.WithCustomMessage("HideOverlay left dwell targets behind")
+            .That(vm.DetectorForTest.Targets).IsEmpty();
+    }
+
+    [Fact]
+    public void Reload_ClearsTheDwellTargets()
+    {
+        // M14: same gap for the reload. Reload deliberately does NOT seed (0,0) targets — the view
+        // re-registers real centres after layout — so anything left here is a stale target.
+        var vm = ShownWithTargets(new WeakReferenceMessenger());
+
+        vm.Reload();
+
+        Check.WithCustomMessage("Reload left dwell targets behind")
+            .That(vm.DetectorForTest.Targets).IsEmpty();
+    }
+
+    // ── B8b F1: the dismiss-hold flag ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void HasDwellProgress_IsTrueMidDwell_AndClearsWhenTheHoldExpires()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = ShownWithTargets(messenger);
+        var centre = new PhysicalPoint(500, 500);
+
+        Check.That(vm.HasDwellProgress).IsFalse();
+
+        // Two samples: the first enters the target, the second reports positive progress.
+        vm.Receive(new GazeCursorMovedMessage(centre, 1_000_000));
+        vm.Receive(new GazeCursorMovedMessage(centre, 1_050_000));
+        Check.WithCustomMessage("a tile mid-dwell must arm the summon's dismiss hold")
+            .That(vm.HasDwellProgress).IsTrue();
+
+        // Leaving keeps the frozen progress during the pause grace (the grid opts into DwellSettings),
+        // so the hold survives a glance away...
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 1_100_000));
+        Check.WithCustomMessage("the frozen grace progress must keep the dismiss hold armed")
+            .That(vm.HasDwellProgress).IsTrue();
+
+        // ...and expires after it, releasing the hold.
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 2_100_000));
+        Check.WithCustomMessage("the expired grace left the dismiss hold armed")
+            .That(vm.HasDwellProgress).IsFalse();
+    }
+
+    [Fact]
+    public void HideOverlay_ClearsTheDwellProgressHold()
+    {
+        // A progress value left over from a hidden session must not pin the summon's dismiss hold
+        // true for the next show: the grid would then never auto-close again.
+        var messenger = new WeakReferenceMessenger();
+        var vm = ShownWithTargets(messenger);
+        var centre = new PhysicalPoint(500, 500);
+        vm.Receive(new GazeCursorMovedMessage(centre, 1_000_000));
+        vm.Receive(new GazeCursorMovedMessage(centre, 1_050_000));
+        Check.That(vm.HasDwellProgress).IsTrue();
+
+        vm.HideOverlay();
+
+        Check.That(vm.HasDwellProgress).IsFalse();
+        Check.That(vm.CloseDwellProgress).IsEqualTo(0);
+    }
+
+    // ── B8b F3: the tile cap ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void CapVisibleTiles_TrimsTheTail_AndIsANoOpUnderTheCap()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = CreateVM(messenger, new List<QuickAction>
+        {
+            new() { Label = "A", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+A" },
+            new() { Label = "B", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+B" },
+            new() { Label = "C", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+C" },
+            new() { Label = "D", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+D" },
+        });
+        messenger.Send(new QuickActionsToggledMessage());
+
+        vm.CapVisibleTiles(10);
+        Check.WithCustomMessage("a cap above the tile count must not drop anything")
+            .That(vm.Tiles.Select(t => t.Label)).ContainsExactly("A", "B", "C", "D");
+
+        vm.CapVisibleTiles(2);
+        Check.WithCustomMessage("the cap must keep the FIRST tiles and drop the tail")
+            .That(vm.Tiles.Select(t => t.Label)).ContainsExactly("A", "B");
+    }
 }

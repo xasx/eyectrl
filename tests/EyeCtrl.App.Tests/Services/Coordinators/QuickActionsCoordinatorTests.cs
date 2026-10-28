@@ -144,7 +144,25 @@ public class QuickActionsCoordinatorTests
 
         Check.WithCustomMessage("The summon controller no longer reads _modal.ProbeOpen through SummonGateClosed.")
             .That(source.Contains(
-                "calibrationActive:()=>SummonGateClosed(_modal.ProbeOpen,Context.CalibrationService.IsSessionActive));")).IsTrue();
+                "calibrationActive:()=>SummonGateClosed(_modal.ProbeOpen,Context.CalibrationService.IsSessionActive)")).IsTrue();
+    }
+
+    [Fact]
+    public void DismissHold_Wiring_IsPinnedAtTheSource()
+    {
+        // B8b F1: the production construction site is unreachable headlessly (it needs the live
+        // grid VM and gaze engine), so the hold's wiring — the grid VM's mid-dwell flag into the
+        // controller — is pinned at source, the ProbeGateWiring precedent. Mutant: drop the
+        // holdDismiss argument (the grid then vanishes mid-dwell again) → red.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "QuickActionsCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "The summon controller no longer holds its dismiss timer while a grid target dwells.")
+            .That(source.Contains("holdDismiss:()=>gridVM.HasDwellProgress")).IsTrue();
     }
 
     /// <summary>

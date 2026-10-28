@@ -28,6 +28,13 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
 
     public ObservableCollection<QuickActionTileViewModel> Tiles { get; } = new();
 
+    // True while any tile or the close button carries non-zero dwell progress — i.e. the gaze is
+    // mid-attempt on a target. Written here on the UI thread (the GazeCursorMovedMessage feed) and
+    // read on the GAZE thread by the hot-edge summon controller's dismiss hold, hence volatile
+    // (B8b F1). A plain bool maintained at the progress callback, never recomputed from the
+    // ObservableCollection off-thread: the collection is UI-thread-owned.
+    private volatile bool _hasDwellProgress;
+
     /// <summary>
     /// The host's preset-label function for the tiles. English by default; the App shell sets the
     /// overlays-keyed function at composition (T08), the same way it sets
@@ -38,6 +45,19 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
     public int GridColumns => _settings.QuickActions.GridColumns;
     public int RowCount => Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)Tiles.Count / _settings.QuickActions.GridColumns);
     public string SummonEdge => _settings.QuickActions.SummonEdge;
+
+    /// <summary>
+    /// True while a tile or the close button is carrying dwell progress. The hot-edge summon
+    /// controller holds its gaze-away dismiss timer while this is true (B8b F1), so a summoned grid
+    /// can never vanish mid-attempt. <c>internal</c>: a VM-internal fact consumed by the App's
+    /// summon wiring (InternalsVisibleTo App), not part of the surface's public contract.
+    /// <para>
+    /// Thread-safe by construction: the field is <c>volatile</c> and is only ever assigned on the
+    /// UI thread, from <see cref="OnTargetProgress"/> and the two clears. The gaze-thread reader
+    /// therefore never touches <see cref="Tiles"/> or the close progress property.
+    /// </para>
+    /// </summary>
+    internal bool HasDwellProgress => _hasDwellProgress;
 
     /// <summary>
     /// The edge the grid should anchor to when shown. Set by EventCoordinator to the RESOLVED
@@ -92,6 +112,11 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
         IsVisible = false;
         DwellDetector.ClearTargets();
         Tiles.Clear();
+        // A bar/progress left over from the hidden session must not keep the summon's dismiss
+        // hold armed after the next show starts with a fresh detector (see HasDwellProgress).
+        CloseDwellProgress = 0;
+        CloseDwellPaused = false;
+        _hasDwellProgress = false;
     }
 
     /// <summary>
@@ -104,11 +129,37 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
     {
         Tiles.Clear();
         DwellDetector.ClearTargets();
+        CloseDwellProgress = 0;
+        CloseDwellPaused = false;
+        _hasDwellProgress = false;
         var actions = _store.LoadAll().Where(a => a.Enabled).ToList();
         foreach (var action in actions)
         {
             Tiles.Add(new QuickActionTileViewModel(action, PresetLabelFor));
         }
+    }
+
+    /// <summary>
+    /// Trims the tile list to at most <paramref name="maxTiles"/>, dropping from the END (the
+    /// least-recently-configured actions). B8b F3: the window clamps its height to the work area,
+    /// which used to squeeze the UniformGrid's rows until the r50 hit circles overlapped. The
+    /// window — the only place that can read the display geometry — computes how many tiles fit
+    /// and calls this before laying out; without scrolling, a capped grid is the only way to keep
+    /// the R4 dead gap on a gaze-only surface.
+    /// </summary>
+    /// <param name="maxTiles">The most tiles the available work area can hold. Zero hides them all.</param>
+    public void CapVisibleTiles(int maxTiles)
+    {
+        if (maxTiles < 0) maxTiles = 0;
+        if (Tiles.Count <= maxTiles) return;
+
+        while (Tiles.Count > maxTiles)
+            Tiles.RemoveAt(Tiles.Count - 1);
+
+        // A removed tile's target would otherwise linger in the detector (dwellable, but with no
+        // drawn face); the show path re-registers the survivors after layout.
+        DwellDetector.ClearTargets();
+        _hasDwellProgress = false;
     }
 
     /// <summary>
@@ -169,12 +220,22 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
         if (targetId == CloseTargetId)
         {
             CloseDwellProgress = progress;
+            RecomputeHasDwellProgress();
             return;
         }
         var tile = Tiles.FirstOrDefault(t => t.Action.Id == targetId);
         if (tile != null)
+        {
             tile.DwellProgress = progress;
+            RecomputeHasDwellProgress();
+        }
     }
+
+    // Mirrors the two surfaces' progress into the volatile flag the gaze thread reads. Tiles'
+    // values are fresh VMs per show and HideOverlay/Reload reset the close progress, so a stale
+    // bar can never pin the flag true across sessions.
+    private void RecomputeHasDwellProgress() =>
+        _hasDwellProgress = CloseDwellProgress > 0 || Tiles.Any(t => t.DwellProgress > 0);
 
     protected override void OnTargetPauseChanged(string targetId, bool paused)
     {

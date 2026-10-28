@@ -58,28 +58,56 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:QuickActionTileViewModel}">
-                            <Border x:Name="TileBorder" Width="120" Height="120"
-                                    CornerRadius="{StaticResource StandardCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
+                            <!-- B8b F2: drawn = hit. The face is a 100 DIP DISC — exactly the r50
+                                 dwell circle the detector hit-tests — centred in a 128 DIP cell, so
+                                 two hit circles keep a 28 DIP dead gap (R4 needs ≥ 20). The old
+                                 120 DIP square drew a 45 % dead band outside its hit area. The
+                                 14 DIP margin is (QuickActionsGridWindow.TileCell - TileSize)/2;
+                                 keep Width == Height == QuickActionsGridWindow.TileSize (pinned
+                                 by GlyphSizeCouplingTests) or the CircleCornerRadius token renders
+                                 an ellipse. -->
+                            <Border x:Name="TileBorder" Width="100" Height="100"
+                                    CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
                                     BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"
-                                    Margin="4">
+                                    Margin="14">
                                 <Grid>
+                                    <!-- B8b fixup-01 R1: the dwell feedback is a RIM ARC, not a
+                                         bottom bar. A straight bar spanned the label and sat 25–47
+                                         DIP below the centre, where the disc is too narrow for it
+                                         (it crossed the rim in 13 of 36 presets). The arc traces
+                                         the r50 hit circle at r45 ± the 4 DIP stroke, so it is
+                                         inside the drawn face at every theme (inner rim r49 at
+                                         border 1, r48 under Contrast) and at every DPI. The Path
+                                         is fixed at the face's 100 DIP box and centred in the
+                                         Border's smaller inner box, which puts its geometry's
+                                         (50,50) on the disc's exact centre for both border
+                                         weights. -->
+                                    <Path x:Name="DwellRing" Width="100" Height="100"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          IsHitTestVisible="False"
+                                          Data="{Binding DwellProgress, Converter={x:Static ctl:DwellRingGeometryConverter.Instance}}"
+                                          Stroke="{StaticResource BrushAccent}" StrokeThickness="4"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                          Opacity="{Binding IsDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
                                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                         <!-- Icon per action type. -->
                                         <TextBlock Text="{Binding Icon}"
                                                    FontSize="{x:Static overlays:QuickActionsGridWindow.TileIconSize}" HorizontalAlignment="Center"
                                                    Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
                                         <!-- Label comes from the tile VM, which resolves a preset tile through
-                                             the host's label function (QuickActionTileViewModel.Label). -->
+                                             the host's label function (QuickActionTileViewModel.Label).
+                                             MaxWidth, not the face's inner width: B8b fixup-01 R1 caps the
+                                             wrap at 80 DIP so a line's ink stays inside the disc's chord at
+                                             the row it is drawn on (the face is a circle, not its square
+                                             box). The German fit class B114 now measures the real ink and
+                                             the ring against the inner rim, so this number is checked, not
+                                             decorative. Long German compounds carry U+00AD (see
+                                             strings.de.json) so they can break inside the 80 DIP box. -->
                                         <TextBlock Text="{Binding Label}"
                                                    FontSize="{StaticResource FontSizeBodyLarge}" Foreground="{StaticResource BrushTextPrimary}"
                                                    TextWrapping="Wrap" TextAlignment="Center"
-                                                   Margin="6"/>
-                                        <ProgressBar Minimum="0" Maximum="1"
-                                                     Value="{Binding DwellProgress}"
-                                                     Height="4" VerticalAlignment="Bottom"
-                                                     Background="Transparent" Foreground="{StaticResource BrushAccent}"
-                                                     BorderThickness="0"
-                                                     Opacity="{Binding IsDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
+                                                   MaxWidth="80"
+                                                   Margin="0"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>

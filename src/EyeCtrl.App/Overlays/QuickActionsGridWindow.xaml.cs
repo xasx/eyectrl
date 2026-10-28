@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 /// <summary>
 /// Overlay window that renders the Quick Actions grid. Binds to
@@ -32,13 +33,26 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
     internal const double CloseButtonSize = UIConstants.ButtonRadius * 2;
 
     /// <summary>
-    /// The action tile's edge length, declared in the ItemTemplate as Width/Height 120.
+    /// The action tile's DRAWN edge length, declared in the ItemTemplate as Width/Height 100.
+    /// B8b F2: the tile is hit-tested as a circle of <see cref="UIConstants.ButtonRadius"/> = 50
+    /// DIP, so the drawn face is exactly that circle (a 100 DIP disc) — the old 120 DIP square left
+    /// its corners and edge band outside the hit area; a gaze there did nothing, with no feedback.
     /// <c>internal</c> for the same reason as <see cref="CloseButtonSize"/>.
     /// </summary>
-    internal const double TileSize = 120;
+    internal const double TileSize = UIConstants.ButtonRadius * 2;
 
     /// <summary>
-    /// Tile icon size: a ratio of the 120px tile that bounds it (spec §8.5). Public and static
+    /// One tile's cell pitch: the 100 DIP face plus the dead space that keeps the R4 gap. Two r50
+    /// hit circles 128 DIP apart leave a 28 DIP gap — the 20 DIP minimum with margin — so the
+    /// pitch, not the face, is what the window sizes columns from (B8b F2/F3).
+    /// </summary>
+    internal const double TileCell = 128;
+
+    /// <summary>The outer grid margin around the close row and the tile band (12 DIP per side).</summary>
+    internal const double OuterPad = 24;
+
+    /// <summary>
+    /// Tile icon size: a ratio of the tile that bounds it (spec §8.5). Public and static
     /// because it is consumed by {x:Static} from inside the ItemTemplate, which cannot reach an
     /// instance member. It is the ONLY glyph size that needs this — see RawGeometryLiteralTests's
     /// allow-list, which admits public static doubles on OverlayWindow subclasses for exactly
@@ -109,23 +123,42 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
 
     /// <summary>
     /// Positions the grid window on the specified screen edge, centered on that edge.
-    /// Call before Show() when IsVisible changes to true. Unknown edge values fall back to top.
+    /// Call after <see cref="ResizeToContent"/> and before Show(). Unknown edge values fall back to top.
     /// </summary>
+    /// <remarks>
+    /// B8b F4: the COMPUTED <see cref="FrameworkElement.Width"/>/<see cref="FrameworkElement.Height"/>
+    /// are used, never <c>ActualWidth</c>/<c>ActualHeight</c>. A hidden window gets no layout pass,
+    /// so on a re-show after the tile or column count grew those two still hold the PREVIOUS show's
+    /// size and a Right/Bottom grid would overhang the work area. <see cref="ResizeToContent"/>
+    /// always sets Width/Height immediately before this call — they are the fresh truth.
+    /// </remarks>
     /// <param name="edge">One of "Left", "Right", "Top", "Bottom". Unknown values fall back to top.</param>
     public void PositionOnEdge(string edge)
     {
         var workArea = SystemParameters.WorkArea; // logical DIPs
-        double gridW = ActualWidth > 0 ? ActualWidth : Width;
-        double gridH = ActualHeight > 0 ? ActualHeight : Height;
-
-        (Left, Top) = OverlayPositioning.PlaceAtEdge(workArea, edge, gridW, gridH);
+        (Left, Top) = OverlayPositioning.PlaceAtEdge(workArea, edge, Width, Height);
     }
 
     /// <summary>
     /// Sizes the window to fit every tile — columns from the VM, rows computed — plus the
-    /// close-button row, clamped to the work area. Gaze users can't scroll, so all tiles must be
-    /// visible; the previous fixed 400×600 clipped 3+ column grids and pushed extra rows off-window.
+    /// close-button row, capped so the whole grid always fits the work area. Gaze users can't
+    /// scroll, so all tiles must be visible; the previous fixed 400×600 clipped 3+ column grids
+    /// and pushed extra rows off-window.
     ///
+    /// <para>
+    /// B8b F3: past the work-area clamp the UniformGrid used to squeeze its rows, so the fixed
+    /// 120 DIP tiles overlapped and their r50 hit circles drifted together — from about ten rows
+    /// the R4 dead gap was gone. The height is no longer allowed to squeeze: the tile count is
+    /// capped to the rows that fit at the full <see cref="TileCell"/> pitch, and the excess tiles
+    /// are dropped (the grid has no scrolling, so the alternative is unreachable tiles under a
+    /// squeezing layout).
+    /// </para>
+    /// <para>
+    /// The window's own chrome (outer margin + the theme's border) is part of the size so the
+    /// INNER content is exactly <c>cols × TileCell</c>. Without it the pitch shrank by
+    /// <c>2·border/cols</c> — 127.3 DIP at the default 1 DIP border and 126.7 at Contrast's 2 DIP
+    /// border — and the drawn tile face no longer filled its cell exactly.
+    /// </para>
     /// <c>internal</c> so the headless geometry pin can lay the production content out at the
     /// exact size the show path uses, without showing a window (B8).
     /// </summary>
@@ -133,20 +166,48 @@ public partial class QuickActionsGridWindow : OverlayWindow, IQuickActionsGridOv
     {
         if (_vm == null) return;
 
-        // Derived from the two consts above rather than restated: written as 128 and 52 these
-        // duplicated TileSize and CloseButtonSize a hundred lines up in the same class, so
-        // changing either size would have left the window sized for the old one.
-        const double cell = TileSize + 8;            // tile + 4+4 tile margin
-        const double outerPad = 24;                  // outer Grid Margin (12 per side)
-        const double closeRow = CloseButtonSize + 8; // close button + spacing
+        var border = RootBorder.BorderThickness;
+        double chromeW = OuterPad + border.Left + border.Right;
+        double chromeH = ChromeHeight(border);
 
         int cols = Math.Max(1, _vm.GridColumns);
-        int rows = _vm.Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)_vm.Tiles.Count / cols);
 
         var wa = SystemParameters.WorkArea; // logical DIPs
-        Width = Math.Min(cols * cell + outerPad, wa.Width);
-        Height = Math.Min(rows * cell + closeRow + outerPad, wa.Height);
+        int maxRows = MaxRowsFor(wa.Height, border);
+
+        // R4 (fixup-01): the cap drops the tail of the user's configured actions — silently it
+        // would read as "my action is missing". One line, only when it actually bites.
+        var configured = _vm.Tiles.Count;
+        _vm.CapVisibleTiles(cols * maxRows);
+        if (_vm.Tiles.Count < configured)
+        {
+            Log.Information(
+                "Quick Actions: the work area fits {Shown} of {Configured} enabled actions at "
+                + "{Columns} columns x {Cell} DIP rows; the grid was capped to {Rows} row(s).",
+                _vm.Tiles.Count, configured, cols, TileCell, maxRows);
+        }
+
+        int rows = _vm.Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)_vm.Tiles.Count / cols);
+
+        Width = Math.Min(cols * TileCell + chromeW, wa.Width);
+        Height = Math.Min(rows * TileCell + chromeH, wa.Height);
     }
+
+    /// <summary>
+    /// The window chrome's height in DIP: the close-button row (the disc plus the spacing above the
+    /// tile band) plus the outer grid margin and the theme's border. <c>internal</c> so the
+    /// max-count pin can derive the cap from the same expression the sizing uses, rather than
+    /// restating 24 and 8.
+    /// </summary>
+    internal static double ChromeHeight(Thickness border) =>
+        CloseButtonSize + 8 + OuterPad + border.Top + border.Bottom;
+
+    /// <summary>
+    /// How many tile rows the work area can hold at the full <see cref="TileCell"/> pitch — the
+    /// cap's row count. Zero when not even one row fits (the grid then shows only Close).
+    /// </summary>
+    internal static int MaxRowsFor(double workAreaHeight, Thickness border) =>
+        Math.Max(0, (int)Math.Floor((workAreaHeight - ChromeHeight(border)) / TileCell));
 
     /// <summary>
     /// Reads each laid-out tile container's screen centre and pushes it into the VM,

@@ -702,6 +702,10 @@
     "text": "Scroll-Anzeige",
     "src": "ebaf748d"
   },
+  "overlays.splash.noTracker": {
+    "text": "Kein Eyetracker gefunden – die Maus wird verwendet.",
+    "src": "8322f856"
+  },
   "overlays.status.noTracker": {
     "text": "Kein Eyetracker",
     "src": "a3661a0f"
@@ -709,6 +713,18 @@
   "overlays.status.trackingLost": {
     "text": "Blick nicht erkannt",
     "src": "a369be24"
+  },
+  "overlays.statusCard.noTracker": {
+    "text": "Kein Eyetracker gefunden. EyeCtrl verwendet die Maus.",
+    "src": "2fa9b89d"
+  },
+  "overlays.statusCard.paused": {
+    "text": "Pausiert. Zum Fortsetzen auf ▶ schauen.",
+    "src": "702c479c"
+  },
+  "overlays.statusCard.trackingLost": {
+    "text": "Blick nicht erkannt. Auf den Bildschirm schauen.",
+    "src": "02eb47d2"
   },
   "overlays.subpixel.answer_one": {
     "text": "1",

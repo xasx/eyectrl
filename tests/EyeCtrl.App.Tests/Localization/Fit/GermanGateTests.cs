@@ -246,6 +246,92 @@ public class GermanGateTests
         Check.WithCustomMessage(german.ToString()).That(german.Fits).IsTrue();
     }
 
+    /// <summary>
+    /// Binding (B5): each status card — crisis text in the overlays surface — shows its whole
+    /// message. The card is the drift notice's 560 × 72 DIP banner with ONE unwrapped line, classed
+    /// <c>row</c>, which no T09 class measures; so the same gate as the drift notice, per key, in
+    /// English, the German draft and the shipped German. A doubled message must fail (the teeth).
+    /// </summary>
+    [StaTheory]
+    [InlineData("overlays.statusCard.paused")]
+    [InlineData("overlays.statusCard.trackingLost")]
+    [InlineData("overlays.statusCard.noTracker")]
+    public void TheStatusCard_ShowsItsWholeMessage_InEnglishAndGerman(string key)
+    {
+        var english = StatusCard(StringTable.EmbeddedEnglish.T(key));
+        var german = StatusCard(GermanDraft.Table.T(key));
+        var shipped = StatusCard(ShippedGerman.Load().T(key));
+        var overLong = StatusCard(string.Join(" ", Enumerable.Repeat(GermanDraft.Table.T(key), 2)));
+        _output.WriteLine($"English: {english}");
+        _output.WriteLine($"German: {german}");
+        Check.WithCustomMessage("The status-card gate passed a doubled message: it cannot fail.").That(overLong.Fits).IsFalse();
+        Check.WithCustomMessage(english.ToString()).That(english.Fits).IsTrue();
+        Check.WithCustomMessage(german.ToString()).That(german.Fits).IsTrue();
+        Check.WithCustomMessage(shipped.ToString()).That(shipped.Fits).IsTrue();
+    }
+
+    /// <summary>A status card's content at 2.0 in its own 560 × 72 window: the message's one line must fit the banner.</summary>
+    private static FitVerdict StatusCard(string message)
+    {
+        EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new StatusCardWindow();
+        window.Message.Text = message;
+        var root = (System.Windows.FrameworkElement)window.Content;
+        window.Content = null;
+        using var host = FitHost.Open(root, width: window.Width, height: window.Height, inheritFrom: window);
+        var banner = window.Banner;
+        var natural = FitText.NaturalWidth(window.Message, message);
+        var room = window.Width - banner.Padding.Left - banner.Padding.Right
+                   - banner.BorderThickness.Left - banner.BorderThickness.Right;
+        var shown = window.Message.ActualWidth;
+        return new FitVerdict(natural <= room && natural <= shown + 0.5,
+            $"one line {FitText.Dip(natural)} DIP; shown {FitText.Dip(shown)}; room in the {FitText.Dip(window.Width)} DIP window {FitText.Dip(room)}",
+            FitText.ResolvedFace(window.Message), room - natural);
+    }
+
+    /// <summary>
+    /// Binding (B5): the splash's no-tracker sentence is one unwrapped line in a SizeToContent
+    /// splash, so the splash grows with it; the bound is that the grown splash still fits the
+    /// 200 % work area's width with the 48 DIP margin either side. English, the German draft and the
+    /// shipped German; a sentence repeated ten times must fail (the teeth).
+    /// </summary>
+    [StaFact]
+    public void TheSplashSentence_FitsTheWorkArea_InEnglishAndGerman()
+    {
+        const string key = "overlays.splash.noTracker";
+        var english = SplashSentence(StringTable.EmbeddedEnglish.T(key));
+        var german = SplashSentence(GermanDraft.Table.T(key));
+        var shipped = SplashSentence(ShippedGerman.Load().T(key));
+        var overLong = SplashSentence(string.Join(" ", Enumerable.Repeat(GermanDraft.Table.T(key), 10)));
+        _output.WriteLine($"English: {english}");
+        _output.WriteLine($"German: {german}");
+        Check.WithCustomMessage("The splash-sentence gate passed a tenfold sentence: it cannot fail.").That(overLong.Fits).IsFalse();
+        Check.WithCustomMessage(english.ToString()).That(english.Fits).IsTrue();
+        Check.WithCustomMessage(german.ToString()).That(german.Fits).IsTrue();
+        Check.WithCustomMessage(shipped.ToString()).That(shipped.Fits).IsTrue();
+    }
+
+    /// <summary>The splash's content at 2.0 with the sentence shown: its desired width against the work area less 2 × 48 DIP.</summary>
+    private static FitVerdict SplashSentence(string sentence)
+    {
+        EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new SplashWindow();
+        try
+        {
+            window.ShowNoTrackerSentence();
+            window.NoTrackerSentence.Text = sentence;
+            var root = (System.Windows.FrameworkElement)window.Content;
+            window.Content = null;
+            root.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            var width = root.DesiredSize.Width;
+            var room = AppFitMeasurers.ReferenceWorkArea.Width - 2 * 48;
+            return new FitVerdict(width <= room,
+                $"splash {FitText.Dip(width)} DIP wide; room {FitText.Dip(room)}",
+                FitText.ResolvedFace(window.NoTrackerSentence), room - width);
+        }
+        finally { window.Close(); }
+    }
+
     /// <summary>The drift notice's content at 2.0 in its own 560 × 72 window: the message's one line must fit the banner inside it.</summary>
     private static FitVerdict DriftNotice(string message)
     {

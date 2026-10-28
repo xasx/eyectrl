@@ -132,6 +132,15 @@ public class ShippedGermanSwitchOnTests
         Check.That(TrackStatusWindow.QualityWord(table, DistanceQuality.Fair)).IsEqualTo("Mittel");
         Check.That(TrackStatusWindow.QualityWord(table, DistanceQuality.Poor)).IsEqualTo("Schlecht");
         Check.That(TrackStatusWindow.QualityWord(table, DistanceQuality.Unknown)).IsEqualTo("Unbekannt");
+
+        // B5: the status cards and the splash's no-tracker sentence (overlays, already switched on).
+        Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.Paused))
+            .IsEqualTo("Pausiert. Zum Fortsetzen auf ▶ schauen.");
+        Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.TrackingLost))
+            .IsEqualTo("Blick nicht erkannt. Auf den Bildschirm schauen.");
+        Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.NoTracker))
+            .IsEqualTo("Kein Eyetracker gefunden. EyeCtrl verwendet die Maus.");
+        Check.That(table.T("overlays.splash.noTracker")).IsEqualTo("Kein Eyetracker gefunden – die Maus wird verwendet.");
     }
 
     /// <summary>

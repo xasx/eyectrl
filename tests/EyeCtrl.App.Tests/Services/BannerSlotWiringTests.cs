@@ -238,6 +238,39 @@ public class BannerSlotWiringTests
         }
     }
 
+    // B5 review-01 L1: App.OnStartup resolves the status-card presenter only outside test mode, so
+    // no UI test ever builds it; a registration the container cannot satisfy would throw on the
+    // owner's machine only. Resolve it from the real container: it must wrap the ONE slot (the
+    // drift presenter's) and the container's card window. Nothing is started or shown.
+    [StaFact]
+    public void TheContainer_ResolvesTheStatusCardPresenter_OverTheOneSlot()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+
+        // Prepare the container's singleton window BEFORE the presenter is resolved.
+        var window = InvisibleTestWindow.PrepareCloaked(InvisibleTestWindow.Prepare(sp.GetRequiredService<StatusCardWindow>()));
+        try
+        {
+            var presenter = sp.GetRequiredService<StatusCardPresenter>();
+
+            Check.That(PrivateField(presenter, "_slot")).IsSameReferenceAs(sp.GetRequiredService<IBannerSlot>());
+            Check.That(PrivateField(presenter, "_slot")).IsSameReferenceAs(sp.GetRequiredService<BannerSlot>());
+            Check.That(PrivateField(presenter, "_window")).IsSameReferenceAs(window);
+            Check.WithCustomMessage("test mode's mouse is not a fallback: no NoTracker card")
+                .That(PrivateField(presenter, "_noTrackerIsFallback")).IsEqualTo(false);
+            Check.That(window.IsVisible).IsFalse();
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static object? PrivateField(object target, string name) =>
+        target.GetType().GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(target);
+
     // B4 fixup-02 L1 (kills K9b/K10b): the handlers themselves are pinned above, but only the
     // SUBSCRIPTION wires a real fade to them. Dropping it strands an invisible occupant as live.
     [Fact]

@@ -682,39 +682,78 @@ public class ToolbarButtonVisualTests
     }
 
     /// <summary>
-    /// The strip is symmetric: the band's leading and trailing outside margins must match, so the
-    /// row of dwell targets stays centred in the drawn strip. With the provider indicator retired
-    /// (B5b) there is no leading panel any more, so the arithmetic is the Border's Padding.Left
-    /// (4) + the band's ButtonMargin (12) = 16 on the left, and the same 16 on the right
-    /// (Padding.Right + ButtonMargin). A one-sided margin or padding — e.g. restoring the old
-    /// IndicatorPanel's <c>Margin="8,0,4,0"</c> — fails here.
+    /// The band must be centred in the strip: the gap before the first face and the gap after the
+    /// last one must match on the strip's travel axis. That is the link that puts the band at
+    /// screen centre once <c>PlaceAtEdge</c> centres the size-to-content window — B5b's whole
+    /// on-screen consequence is that the strip lost its leading provider chrome, so the band sits
+    /// 52.6 DIP closer to the strip's start (26.3 DIP on screen once the window re-centres). After
+    /// retirement there is no leading panel, so the gap is the Border's Padding plus the band's own
+    /// outer ButtonMargin — 16 DIP at 120 DIP buttons on both sides.
     ///
-    /// Read via <see cref="Canvas.GetLeft"/> after a manual Measure/Arrange pass on the root
-    /// Border — NOT via TranslatePoint against the Window itself, which returns (0,0) pre-Show()
-    /// per this class's header comment. Measuring a descendant's own layout properties (unlike
-    /// transforming between two points via the unconnected Window) works fine headless, as
-    /// SettingsContentFitTests already relies on.
+    /// Measured through <see cref="UIElement.TranslatePoint"/> from each face to
+    /// <see cref="ToolbarWindow.StripRoot"/>, NOT by re-adding Padding + Canvas.GetLeft: the
+    /// arithmetic form never reads where the band actually sits (it re-adds the same constants it
+    /// is supposed to check), so a one-sided <c>Margin</c> on the Canvas — which shifts every
+    /// dwell target by half of it on screen — sails through. This is a descendant-to-ancestor
+    /// transform, so it works headless after a manual Measure/Arrange; it is NOT the Window
+    /// transform this class's header warns about (that one needs Show()).
+    ///
+    /// Both axes: the horizontal band, and the vertical one <c>SetMode</c> docks to a side edge.
+    /// Arrange at <see cref="FrameworkElement.DesiredSize"/>, not a fixed 4000-square slot: the
+    /// root is the size-to-content strip, and stretching it to a fixed slot would leave a
+    /// trailing gap that is not the strip's.
     /// </summary>
     [StaFact]
     public void StripInsets_AreSymmetric()
     {
         var window = NewInitialisedToolbar();
+
         // window.Content is the clipping Grid that carries the slide transform; the strip itself
-        // (and its Padding, which the inset arithmetic below needs) is the named Border inside it.
+        // (and its Padding, which the measured gaps include) is the named Border inside it.
+        ArrangeStrip(window.StripRoot);
+        AssertBandIsCentred(window, horizontal: true);
+
+        window.SetMode(isDocked: true, edge: "left");
+        ArrangeStrip(window.StripRoot);
+        AssertBandIsCentred(window, horizontal: false);
+
+        static void ArrangeStrip(FrameworkElement root)
+        {
+            root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            root.Arrange(new Rect(root.DesiredSize));
+            root.UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// Compares the leading and trailing gaps around the band, in <see cref="ToolbarWindow.StripRoot"/>'s
+    /// own coordinates, along the axis the strip currently runs.
+    /// </summary>
+    private static void AssertBandIsCentred(ToolbarWindow window, bool horizontal)
+    {
         var root = window.StripRoot;
-        root.Measure(new Size(4000, 4000));
-        root.Arrange(new Rect(0, 0, 4000, 4000));
-        root.UpdateLayout();
+        var faces = Faces(window)
+            .OrderBy(f => horizontal ? Canvas.GetLeft(f) : Canvas.GetTop(f))
+            .ToList();
+        var first = faces.First();
+        var last = faces.Last();
 
-        var canvas = ButtonCanvas(window);
-        var faces = Faces(window).OrderBy(Canvas.GetLeft).ToList();
+        // Descendant-to-ancestor: positions include the Padding, any sibling chrome and the band's
+        // own margin, which is exactly the quantity the old constants-only arithmetic missed.
+        var firstOrigin = first.TranslatePoint(new Point(0, 0), root);
+        var lastOrigin = last.TranslatePoint(new Point(0, 0), root);
 
-        var leftInset = root.Padding.Left + Canvas.GetLeft(faces.First());
-        var rightInset = root.Padding.Right + (canvas.Width - (Canvas.GetLeft(faces.Last()) + ButtonSize));
+        var lead = horizontal ? firstOrigin.X : firstOrigin.Y;
+        var trailing = horizontal
+            ? root.ActualWidth - (lastOrigin.X + last.ActualWidth)
+            : root.ActualHeight - (lastOrigin.Y + last.ActualHeight);
 
-        Check.WithCustomMessage($"Left inset {leftInset} != right inset {rightInset} — the strip's "
-                + "outside margins are lopsided.")
-            .That(leftInset).IsEqualTo(rightInset);
+        Check.WithCustomMessage($"The {AxisName(horizontal)} strip is lopsided: {lead} DIP "
+                + $"before the first face, {trailing} DIP after the last — the band is not "
+                + "centred in the strip.")
+            .That(lead).IsEqualTo(trailing);
+
+        static string AxisName(bool horizontal) => horizontal ? "horizontal" : "vertical";
     }
 
     /// <summary>

@@ -54,8 +54,7 @@ public class AppLaunchTests
         // nothing ran to notice. A set assertion cannot rot that way: it names whatever was added or
         // removed. ToolbarButtonDriftTests additionally guards this headlessly.
         // Must match the ids rendered by ToolbarWindow.Initialize (AutomationId = Toolbar_Button_{id}).
-        // Order matches the View's buttons array. The optional provider indicator carries no
-        // "Toolbar_Button_" id, so it is not included. The window-action trio moved to the Quick
+        // Order matches the View's buttons array. The window-action trio moved to the Quick
         // Actions toolbar (2026-08-09 migration).
         //
         // The DEFAULT set — no Toolbar_Button_ResetAdaptation: the fixture launches with default

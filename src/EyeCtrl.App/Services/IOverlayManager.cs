@@ -139,4 +139,4 @@ public record OverlayViewModels(
     QuickActionsGridViewModel QuickActionsGrid,
     ModesMenuViewModel ModesMenu,
     RepeatCursorViewModel RepeatCursor,
-    ResumeStripViewModel? ResumeStrip = null);
+    ResumeStripViewModel ResumeStrip);

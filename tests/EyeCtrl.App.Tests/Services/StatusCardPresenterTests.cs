@@ -243,9 +243,12 @@ public class StatusCardPresenterTests
             Check.That(window.Message.Text).IsEqualTo(
                 StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.TrackingLost));
 
-            status.Enter(ControlState.Paused); // a repeat: no card, and the TrackingLost card leaves
-            Check.That(window.IsVisible).IsFalse();
-            Check.That(slot.Live).IsNull();
+            status.Enter(ControlState.Paused); // its earlier card was withdrawn before its hold ended
+            Check.WithCustomMessage("a card withdrawn unread is not used up, so the Paused card returns")
+                .That(window.IsVisible).IsTrue();
+            Check.That(slot.IsLive(presenter)).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
         }
         finally { window.Close(); }
     }
@@ -331,6 +334,110 @@ public class StatusCardPresenterTests
             Check.WithCustomMessage("the slot must be free again").That(slot.Live).IsNull();
             Check.WithCustomMessage("Closed exactly once").That(closed).IsEqualTo(1);
             Check.That(window.TryGetVisibleBounds(out _)).IsFalse();
+
+            // B9 M1: the same drop must not spend the state — the card never completed its hold.
+            status.Enter(ControlState.Paused);
+            Check.WithCustomMessage("a card dropped on a live re-validation must show again when its state returns")
+                .That(window.IsVisible).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
+        }
+        finally { window.Close(); }
+    }
+
+    // ── B9 M1: a card is used up only once it completes its hold ──
+
+    // The holistic review's HP2 timeline: pause → eyes shut long enough for TrackingLost → eyes
+    // open. The rest withdraws the Paused card unread, so the pause's card must come back (and it,
+    // not the rest's card, is the first Paused card the owner could read).
+    [StaFact]
+    public void APausedCard_WithdrawnByAnEyeRest_ShowsAgain_AndThenCountsAsUsedUp()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.Paused);
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
+
+            status.Enter(ControlState.TrackingLost); // the rest: the Paused card is withdrawn unread
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.TrackingLost));
+
+            status.Enter(ControlState.Paused); // eyes open; the pause is still on
+            Check.WithCustomMessage("a card withdrawn before its hold completed must show again")
+                .That(window.IsVisible).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
+            Check.That(slot.IsLive(presenter)).IsTrue();
+
+            window.OnFadeCompleted(null, EventArgs.Empty); // this card completes its 8 s hold
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Normal);
+            status.Enter(ControlState.Paused);
+            Check.WithCustomMessage("B5's first-entry rule is unchanged once a card completed its hold")
+                .That(window.IsVisible).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    // A card that never got to the screen (it queued behind an alert while its state ended) is
+    // dropped on re-validation; that must not spend the state for a later REAL outage either.
+    [StaFact]
+    public void ACardDroppedBeforeItEverShowed_DoesNotSpendTheState()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        var alert = new FakeAlert();
+        try
+        {
+            presenter.Start();
+            slot.Preempt(alert);
+            status.Enter(ControlState.TrackingLost); // queued behind the alert
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Normal); // ended while still queued
+            alert.Close();                    // the slot reaches the card: re-validation drops it
+            Check.That(window.IsVisible).IsFalse();
+            Check.That(slot.Live).IsNull();
+
+            status.Enter(ControlState.TrackingLost); // a real outage later in the session
+            Check.WithCustomMessage("a card dropped before it ever showed must not be used up")
+                .That(window.IsVisible).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.TrackingLost));
+            Check.That(slot.IsLive(presenter)).IsTrue();
+        }
+        finally { window.Close(); }
+    }
+
+    [StaFact]
+    public void ACardThatCompletedItsHold_IsNotShownAgainForTheSameState()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.TrackingLost);
+            Check.That(window.IsVisible).IsTrue();
+
+            window.OnFadeCompleted(null, EventArgs.Empty); // the natural end of the 8 s hold
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Normal);
+            status.Enter(ControlState.TrackingLost);
+            Check.WithCustomMessage("a card that completed its hold stays used up for the session")
+                .That(window.IsVisible).IsFalse();
         }
         finally { window.Close(); }
     }
@@ -482,9 +589,18 @@ public class StatusCardPresenterTests
     [Fact]
     public void TheApp_StartsTheCards_AfterTheControlStatus_AndNotInTestMode()
     {
-        var app = Source("src/EyeCtrl.App/App.xaml.cs");
+        // Comment-stripped (B9 M2): a comment that merely mentions the call must not satisfy the
+        // pin, or a deletion + explanatory comment leaves every test green.
+        var app = SourceScanner.StripComments(Source("src/EyeCtrl.App/App.xaml.cs"));
         var status = app.IndexOf("GetRequiredService<ControlStatusService>().Start()", StringComparison.Ordinal);
         var cards = app.IndexOf("GetRequiredService<StatusCardPresenter>().Start()", StringComparison.Ordinal);
+        // B9 M2 (MU1): each marker must be asserted PRESENT before the ordering comparison. With
+        // only one missing, IndexOf yields -1 and the ordering check would pass vacuously.
+        Check.WithCustomMessage(
+                "App.OnStartup no longer starts the ControlStatusService: there would be no " +
+                "TrackingLost/NoTracker on the strip, no chime and no card after the first. If the " +
+                "call moved or was rewritten, update this literal — do not leave -1 passing.")
+            .That(status).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage("App.OnStartup no longer starts the status cards").That(cards).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage("the cards must start after the control status").That(cards).IsStrictlyGreaterThan(status);
         Check.That(Regex.IsMatch(app,

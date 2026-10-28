@@ -127,11 +127,9 @@ public class OverlayManager : IOverlayManager
         _edgeButtonBarWindow = new EdgeButtonBarWindow();
         _actionMenuModBarWindow = new EdgeButtonBarWindow();
         _pauseIndicator = new PauseIndicatorWindow();
-        // B2a: the strip's Resume target. Optional only so a hand-built OverlayViewModels in a test
-        // still compiles; both production composition points (App.OnStartup, AppBootstrapper)
-        // pass it.
-        if (viewModels.ResumeStrip is { } resumeStrip)
-            _pauseIndicator.SetViewModel(resumeStrip);
+        // B2a: the strip's Resume target. REQUIRED on OverlayViewModels (B9 M2): a composition
+        // root that forgets it no longer compiles, so the strip can never silently lose its disc.
+        _pauseIndicator.SetViewModel(viewModels.ResumeStrip);
 
         // Configure ManualSelection indicator
         _manualSelectionIndicator.Configure(

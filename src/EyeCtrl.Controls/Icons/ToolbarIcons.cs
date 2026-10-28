@@ -81,12 +81,5 @@ public static class ToolbarIcons
         [ToolbarIconKey.ModeMiddleClick] = Icons.ActionIcons.For(Core.Models.ActionIcon.MiddleClick),
         [ToolbarIconKey.ResetAdaptation] = IconGeometry.FromPathData(
             "M3,12 A9,9 0 1 0 12,3 A9,9 0 0 0 5.26,5.74 L3,8 M3,3 L3,8 L8,8"),
-        [ToolbarIconKey.ProviderEye] = IconGeometry.FromPathData(
-            "M2,12 C5,7 8.4,6 12,6 C15.6,6 19,7 22,12 C19,17 15.6,18 12,18 C8.4,18 5,17 2,12 Z "
-            + "M12,9.2 A2.8,2.8 0 1 1 12,14.8 A2.8,2.8 0 1 1 12,9.2 Z"),
-        // Draws the same mouse ActionIcons builds its own icons from, rather than a second one at
-        // slightly different proportions: this is the fallback provider, and the app should have
-        // exactly one mouse silhouette.
-        [ToolbarIconKey.ProviderMouse] = IconGeometry.FromPathData(ActionIcons.Body + ActionIcons.Wheel),
     };
 }

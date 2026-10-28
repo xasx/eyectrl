@@ -23,8 +23,8 @@ using Xunit;
 /// break on reformatting, so that one rests on review."</i> That is no longer true:
 /// <see cref="ToolbarTestHelpers.NewBoundToolbar"/> constructs the window headlessly, and the
 /// gaze-accessibility work rewrote this method — replacing <c>ButtonPanel</c> with
-/// <c>StripWrapper</c>/<c>IndicatorPanel</c> and adding a band rebuild on the flip — so the
-/// behaviour was re-expressed by hand during a rebase and wants a guard rather than review.
+/// <c>StripWrapper</c> and adding a band rebuild on the flip — so the behaviour was re-expressed
+/// by hand during a rebase and wants a guard rather than review.
 /// </para>
 ///
 /// <para>
@@ -47,7 +47,6 @@ public class ToolbarOrientationTests
         window.SetMode(isDocked: true, edge);
 
         Check.That(window.StripWrapper.Orientation).IsEqualTo(Orientation.Vertical);
-        Check.That(window.IndicatorPanel.Orientation).IsEqualTo(Orientation.Vertical);
     }
 
     /// <summary>
@@ -66,7 +65,6 @@ public class ToolbarOrientationTests
         window.SetMode(isDocked: true, edge);
 
         Check.That(window.StripWrapper.Orientation).IsEqualTo(Orientation.Horizontal);
-        Check.That(window.IndicatorPanel.Orientation).IsEqualTo(Orientation.Horizontal);
     }
 
     /// <summary>

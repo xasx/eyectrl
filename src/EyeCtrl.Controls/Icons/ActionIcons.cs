@@ -47,17 +47,13 @@ public static class ActionIcons
     public const double GridStrokeThickness = 1.8;
 
     /// <summary>
-    /// The plain mouse outline the scroll icons draw — a 10 x 19 stadium at x=7, y=2.5. Also
-    /// shared by <see cref="ToolbarIcons"/>' <c>ProviderMouse</c>, which draws one plain mouse
-    /// rather than a second, slightly-different one. The click icons do NOT use it since
-    /// 2026-10-06: they draw the "popped" family below, whose pressed side changes the outline.
+    /// The plain mouse outline the scroll icons draw — a 10 x 19 stadium at x=7, y=2.5. The click
+    /// icons do NOT use it since 2026-10-06: they draw the "popped" family below, whose pressed
+    /// side changes the outline.
     /// </summary>
     internal const string Body = "M7,7.5 A5,5 0 0 1 17,7.5 L17,16.5 A5,5 0 0 1 7,16.5 Z";
 
-    /// <summary>
-    /// A short wheel stroke on the scroll icons' plain mouse. Also shared by
-    /// <see cref="ToolbarIcons"/>' <c>ProviderMouse</c>.
-    /// </summary>
+    /// <summary>A short wheel stroke on the scroll icons' plain mouse.</summary>
     internal const string Wheel = " M12,6 L12,9.5";
 
     // ---- The "popped" mouse family (user pick, 2026-10-06) ----

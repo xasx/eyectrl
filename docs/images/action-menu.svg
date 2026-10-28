@@ -48,7 +48,7 @@
   <text x="810" y="243" fill="#868FB5" font-size="10.5" text-anchor="middle">labels</text>
 
   <!-- Second layer -->
-  <text x="440" y="360" fill="#9AA4C8" font-size="12.5" text-anchor="middle">after dwelling <tspan fill="#A5F3FC" font-weight="600">More</tspan> &#8212; the second ring layer:</text>
+  <text x="440" y="360" fill="#9AA4C8" font-size="12.5" text-anchor="middle">after dwelling <tspan fill="#A5F3FC" font-weight="600">More</tspan> &#8212; the second layer (shown flat here; it lives on the same ring):</text>
   <g font-size="11.5" text-anchor="middle">
     <rect x="100"  y="380" width="108" height="34" rx="8" fill="#2A2A3E" stroke="#616BA0"/>
     <text x="154" y="401" fill="#D6DEF5">Drag</text>

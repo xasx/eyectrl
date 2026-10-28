@@ -64,10 +64,13 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     { Description = StringTable.Current.T("settings.general.track.description"), Simple = true },
                 .. SupervisionRows(),
                 // 0 = follow ActivationButtonDwellMs live; the step is 200 so the 0-then-200 hole
-                // in the guard is never landed on by the stepper.
+                // in the guard is never landed on by the stepper. The setter snaps anything below
+                // 200 to 0 as well: DwellSlider.Adjust clamps but does not snap, so an off-grid
+                // stored value (a hand edit) minus one step would otherwise hit the guard's hole
+                // and throw on the dispatcher.
                 new SliderSpec("g_restart_notice",
                     StringTable.Current.T("settings.general.restart_notice.label"), 0, 3000, 200, 0,
-                    () => s.Dwell.RestartNoticeDwellMs, v => { s.Dwell.RestartNoticeDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    () => s.Dwell.RestartNoticeDwellMs, v => { s.Dwell.RestartNoticeDwellMs = v < 200 ? 0 : (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.general.restart_notice.description") },
                 new ButtonSpec("g_safety",
                     StringTable.Current.T("settings.general.safety.label"),

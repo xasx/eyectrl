@@ -777,21 +777,14 @@
     "who": "user",
     "where": "overlays",
     "fit": "PV1",
-    "args": [
-      "current",
-      "baseline",
-      "unit"
-    ]
+    "args": ["current", "baseline", "unit"]
   },
   "overlays.adaptationPreview.value.band": {
     "text": "{0}% {1}",
     "who": "user",
     "where": "overlays",
     "fit": "PV1",
-    "args": [
-      "percent",
-      "direction"
-    ]
+    "args": ["percent", "direction"]
   },
   "overlays.edge.back": {
     "text": "Back",

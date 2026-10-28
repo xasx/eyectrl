@@ -123,4 +123,64 @@ public class SettingsDwellRangeEqualityTests
                 .ThatCode(() => slider.Set(value)).DoesNotThrow();
         }
     }
+
+    /// <summary>
+    /// F2 (review 01): <c>DwellSlider.Adjust</c> clamps but never snaps, so a stored value off the
+    /// step grid (a hand edit — valid, because the guard accepts every 200–3000) minus one step
+    /// can land in the 1–199 hole the two knobs' guard rejects. The row setter snaps anything
+    /// below 200 to 0, so the stepper's own arithmetic must never throw from 300 or 250 either.
+    /// </summary>
+    [Theory]
+    [InlineData("General", "g_restart_notice", 300)]
+    [InlineData("General", "g_restart_notice", 250)]
+    [InlineData("EyeCare", "ec_banner_dwell", 300)]
+    [InlineData("EyeCare", "ec_banner_dwell", 250)]
+    public void TheKnobRow_MinusFromAnOffGridStoredValue_SnapsToZero_AndNeverThrows(
+        string source, string id, int start)
+    {
+        var settings = new EyeCtrlSettings();
+        if (id == "g_restart_notice")
+            settings.Dwell.RestartNoticeDwellMs = start;
+        else
+            settings.Dwell.EyeCareBannerDwellMs = start;
+        var slider = Source(TestSettingsPageContext.Build(settings), source)
+            .Build().SelectMany(p => p.Rows).OfType<SliderSpec>().Single(s => s.Id == id);
+
+        // The exact arithmetic DwellSlider.Adjust runs, through the row's own Set.
+        var minus = Math.Round(Math.Clamp(slider.Get() - slider.Step, slider.Min, slider.Max), slider.Decimals);
+
+        Check.ThatCode(() => slider.Set(minus)).DoesNotThrow();
+        Check.That(slider.Get()).IsEqualTo(0);
+        Check.That(id == "g_restart_notice"
+                ? settings.Dwell.EffectiveRestartNoticeDwellMs
+                : settings.Dwell.EffectiveEyeCareBannerDwellMs)
+            .IsEqualTo(settings.Dwell.ActivationButtonDwellMs);
+    }
+
+    /// <summary>
+    /// F2's sweep, and the answer to "no other new or widened slider can produce a guard-rejected
+    /// value": from EVERY stored value in the row's span — on the grid or a hand-edited one —
+    /// one minus step must land on a value the setter accepts. For a contiguous guard this holds
+    /// by construction; for the two 0-then-200 knobs it is exactly what the setter snap buys.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void FromEveryStoredValue_OneMinusStepNeverThrows(string id)
+    {
+        var c = CaseFor(id);
+        var slider = Source(TestSettingsPageContext.Build(new EyeCtrlSettings()), c.Source)
+            .Build().SelectMany(p => p.Rows).OfType<SliderSpec>().Single(s => s.Id == id);
+
+        for (var stored = c.Min; stored <= c.Max; stored += 1)
+        {
+            slider.Set(stored);
+            var minus = Math.Round(
+                Math.Clamp(slider.Get() - slider.Step, slider.Min, slider.Max), slider.Decimals);
+            var at = stored;
+            Check.WithCustomMessage(
+                    $"{id}: from stored value {at} the minus stepper lands on {minus}, which the "
+                    + "row's Set rejects — the dispatcher catches it only as an unhandled crash.")
+                .ThatCode(() => slider.Set(minus)).DoesNotThrow();
+        }
+    }
 }

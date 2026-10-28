@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Settings;
 
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 /// <summary>Dwell timing settings for gaze-based click activation.</summary>
@@ -91,11 +92,19 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private int _eyeCareBannerDwellMs;
 
-    /// <summary>The restart notice's effective dwell: the knob when set, else the live activation dwell.</summary>
+    /// <summary>
+    /// The restart notice's effective dwell: the knob when set, else the live activation dwell.
+    /// Derived, not a setting — ignored by the serializer so it never lands in settings.json.
+    /// </summary>
+    [JsonIgnore]
     public int EffectiveRestartNoticeDwellMs =>
         RestartNoticeDwellMs > 0 ? RestartNoticeDwellMs : ActivationButtonDwellMs;
 
-    /// <summary>The eye-care banner's effective dwell: the knob when set, else the live activation dwell.</summary>
+    /// <summary>
+    /// The eye-care banner's effective dwell: the knob when set, else the live activation dwell.
+    /// Derived, not a setting — ignored by the serializer so it never lands in settings.json.
+    /// </summary>
+    [JsonIgnore]
     public int EffectiveEyeCareBannerDwellMs =>
         EyeCareBannerDwellMs > 0 ? EyeCareBannerDwellMs : ActivationButtonDwellMs;
 

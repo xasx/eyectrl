@@ -20,12 +20,9 @@ using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 ///
 /// <para>
 /// Split out of <see cref="ToolbarWindow"/>, which had grown to ~800 lines by owning this
-/// alongside four unrelated jobs — window docking and orientation, the gaze-provider indicator,
-/// view-model binding, and dwell-target placement. The seam is ownership of
-/// <see cref="ButtonCanvas"/>: everything drawn INSIDE the band lives here, and everything about
-/// the window that contains it stays there. The indicator is the clearest case of the line — it
-/// renders next to the band but deliberately is NOT part of it (it carries no fill, no rim and no
-/// dwell target, precisely so it cannot read as a sixth button), so it stayed with the window.
+/// alongside four unrelated jobs — window docking and orientation, view-model binding, and
+/// dwell-target placement. The seam is ownership of <see cref="ButtonCanvas"/>: everything drawn
+/// INSIDE the band lives here, and everything about the window that contains it stays there.
 /// </para>
 ///
 /// <para>
@@ -300,9 +297,7 @@ internal sealed class ToolbarBand
     /// Do not describe this button as protected until that ships.
     ///
     /// <para>
-    /// <see cref="Tokens.BrushBorderSubtle"/>, not <see cref="Tokens.BrushSurfaceMedium"/> (done
-    /// alongside the indicator rule in <c>ToolbarWindow.AddIndicatorElement</c> — the two must
-    /// move together, since at different weights in one 896 px strip they would read as a bug).
+    /// <see cref="Tokens.BrushBorderSubtle"/>, not <see cref="Tokens.BrushSurfaceMedium"/>.
     /// SurfaceMedium on SurfaceDark measures 1.23 / 1.23 / 1.14 (Midnight / Ember / Contrast);
     /// BorderSubtle on the same ground measures 3.35 / 3.32 / 21.00 — the canonical figures
     /// already cited in <c>DwellToggleVisualTests.cs</c>, <c>SliderStepperContrastTests.cs</c> and

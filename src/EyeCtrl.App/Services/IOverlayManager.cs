@@ -112,7 +112,10 @@ public interface IOverlayManager
     /// </summary>
     /// <param name="viewModels">Container with all ViewModels</param>
     /// <param name="settings">Application settings</param>
-    /// <param name="providerType">Active gaze provider type for toolbar indicator</param>
+    /// <param name="providerType">Active gaze provider type. No overlay reads it since the
+    /// toolbar's provider indicator was retired (B5b) — the strip state carries that signal now —
+    /// but it stays on this seam so the retirement did not churn every call site and test
+    /// double.</param>
     void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType);
 }
 

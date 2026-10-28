@@ -723,7 +723,7 @@
     "src": "702c479c"
   },
   "overlays.statusCard.trackingLost": {
-    "text": "Blickverfolgung unterbrochen. Auf den Bildschirm schauen.",
+    "text": "Blick nicht erkannt. Auf den Bildschirm schauen.",
     "src": "02eb47d2"
   },
   "overlays.subpixel.answer_one": {

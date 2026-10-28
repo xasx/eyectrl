@@ -137,7 +137,7 @@ public class ShippedGermanSwitchOnTests
         Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.Paused))
             .IsEqualTo("Pausiert. Zum Fortsetzen auf ▶ schauen.");
         Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.TrackingLost))
-            .IsEqualTo("Blickverfolgung unterbrochen. Auf den Bildschirm schauen.");
+            .IsEqualTo("Blick nicht erkannt. Auf den Bildschirm schauen.");
         Check.That(StatusCardWindow.MessageFor(table, EyeCtrl.Core.Enums.ControlState.NoTracker))
             .IsEqualTo("Kein Eyetracker gefunden. EyeCtrl verwendet die Maus.");
         Check.That(table.T("overlays.splash.noTracker")).IsEqualTo("Kein Eyetracker gefunden – die Maus wird verwendet.");

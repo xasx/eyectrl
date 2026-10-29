@@ -67,6 +67,28 @@ public class StartupHeldButtonReleaseTests
     }
 
     [Fact]
+    public void AClearFailureAfterASuccessfulSend_LogsThatTheButtonUpWasSent()
+    {
+        // Fixup-01 F5: the marker clear can fail (AV/indexer holding the file) AFTER the LEFTUP
+        // went out. The line must say the button-up was sent and only the clear failed — calling it
+        // a failed release hides that the user's button is actually up.
+        var marker = new FakeMarker { IsSet = true, ClearFailure = new IOException("the marker file is locked") };
+        var input = new RecordingInput();
+        var lines = new List<string>();
+
+        var released = StartupHeldButtonRelease.Run(marker, input, leftButtonIsDown: null, lines.Add);
+
+        Check.That(released).IsTrue();
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.That(marker.IsSet).IsTrue();                      // stale: one later inert LEFTUP at most
+        Check.That(lines).HasSize(1);
+        Check.WithCustomMessage($"the line did not report the failed clear correctly: {lines[0]}")
+             .That(lines[0]).Contains("clearing the marker failed");
+        Check.WithCustomMessage($"the line blamed the release, which succeeded: {lines[0]}")
+             .That(lines[0].Contains("the release failed", StringComparison.Ordinal)).IsFalse();
+    }
+
+    [Fact]
     public void AFailedRelease_KeepsTheMarkerAndStillLetsTheAppStart()
     {
         // The app must start anyway: the next launch (or the Supervisor's post-kill release) still
@@ -108,6 +130,8 @@ public class StartupHeldButtonReleaseTests
 
         foreach (var (marker, why) in new[]
         {
+            ("AppBootstrapper.ResolveEagerServices(", "the eager services (note manager, dwell services) already exist"),
+            ("= InitializeOverlays(", "the overlay windows are already constructed"),
             ("gazeEngine.Start();", "the gaze engine is already running"),
             ("PauseLaunchProvenance.Apply(", "the interaction state machine can already be Paused"),
             ("_eventCoordinator = new EventCoordinator();", "the overlay/note/trail windows can already exist"),
@@ -117,6 +141,16 @@ public class StartupHeldButtonReleaseTests
                     $"the startup release runs after {why} — {marker} appears before it in App.xaml.cs.")
                  .That(run).IsStrictlyLessThan(IndexOf(source, marker));
         }
+
+        // Unconditional (fixup-01 F3): an `if (!IsPausedLaunch)` around the call would silently
+        // skip the backstop for the Supervisor's FallenBack --paused retry — the launch MOST likely
+        // to follow a crash mid-drag. The preceding non-whitespace character of a bare statement is
+        // the previous statement's `;` (or the method body's `{`); a conditional leaves `)`.
+        var preceding = source[..run].TrimEnd();
+        Check.WithCustomMessage(
+                "the startup release is conditional — a --paused launch (the Supervisor's retry after "
+                + "a crash) must still release a button a killed predecessor left held.")
+             .That(preceding.Length > 0 && preceding[^1] is ';' or '{').IsTrue();
 
         // The SAME marker instance the drag writes must reach the drag coordinator via the context.
         Check.That(Occurrences(source, "HeldButtonMarker: heldButtonMarker")).HasSize(1);
@@ -145,6 +179,8 @@ public class StartupHeldButtonReleaseTests
     {
         public bool IsSet { get; set; }
 
+        public Exception? ClearFailure { get; init; }
+
         public int ClearCount { get; private set; }
 
         public void Set() => IsSet = true;
@@ -152,6 +188,7 @@ public class StartupHeldButtonReleaseTests
         public void Clear()
         {
             ClearCount++;
+            if (ClearFailure is not null) throw ClearFailure;
             IsSet = false;
         }
     }

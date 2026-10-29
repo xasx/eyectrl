@@ -1,5 +1,6 @@
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
+using System.IO;
 using EyeCtrl.Supervisor.Supervision;
 using NFluent;
 using Xunit;
@@ -244,6 +245,29 @@ public class ProcessControllerTests
         Check.That(raised).IsEqualTo(1);                    // the new binding is wired again
     }
 
+    [Fact]
+    public void TheProductionConstructor_WiresTheHeldButtonRelease()
+    {
+        // F1: this wiring is what makes the Supervisor release a drag button after a force-kill,
+        // and nothing else in the suite observes it — every other test reaches the controller
+        // through the 2/3-argument constructors, so a refactor that threaded `null` through (or a
+        // merge that restored the old 2-argument call) would leave all 472 tests green while the
+        // Supervisor hung-killed a mid-drag App and sent no button-up.
+        //
+        // Constructing is IO-free and input-free: FileHeldButtonMarker's constructor only stores a
+        // path and Win32InputSimulator's only stores a mapper. NEVER call ForceKill on this
+        // instance — it holds the production marker and the real SendInput sink.
+        Check.That(new ProcessController().HasHeldButtonRelease).IsTrue();
+    }
+
+    [Fact]
+    public void TheTestConstructors_DoNotWireTheHeldButtonRelease()
+    {
+        // The other half of the safety rule: existing tests call ForceKill, so the constructors
+        // they use must never carry the production marker + real SendInput sink.
+        Check.That(CreateController(out _).HasHeldButtonRelease).IsFalse();
+    }
+
     // ── C3: a force-kill must release a drag button the App left held ─────────────────────
     //
     // TerminateProcess runs none of the App's release paths — not even its crash handlers. So the
@@ -312,6 +336,45 @@ public class ProcessControllerTests
         Check.That(marker.IsSet).IsTrue();
     }
 
+    [Fact]
+    public void ForceKill_WhenTheMarkerClearFails_SaysTheButtonUpWasSent()
+    {
+        // Fixup-01 F5: the LEFTUP went out and only the clear failed (AV/indexer holding the file).
+        // The line must not read as a failed release — the button IS released; one later inert
+        // button-up is the entire cost.
+        var marker = new FakeMarker { IsSet = true, ClearFailure = new IOException("the marker file is locked") };
+        var input = new RecordingInput();
+        var controller = CreateControllerWithRelease(out _, marker, input);
+        var sink = new CapturingSink();
+        var previous = Serilog.Log.Logger;
+        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
+            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            Check.ThatCode(controller.ForceKill).DoesNotThrow();
+        }
+        finally
+        {
+            Serilog.Log.Logger = previous;
+        }
+
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.WithCustomMessage($"the log did not name the failed clear: {string.Join(" | ", sink.Messages)}")
+             .That(sink.Messages.Any(m => m.Contains("clearing the marker failed", StringComparison.Ordinal)))
+             .IsTrue();
+        Check.WithCustomMessage($"the log blamed the release, which succeeded: {string.Join(" | ", sink.Messages)}")
+             .That(sink.Messages.Any(m => m.Contains("release failed", StringComparison.Ordinal)))
+             .IsFalse();
+    }
+
+    /// <summary>Captures the lines written through the process-global Serilog logger.</summary>
+    private sealed class CapturingSink : Serilog.Core.ILogEventSink
+    {
+        public List<string> Messages { get; } = new();
+
+        public void Emit(Serilog.Events.LogEvent logEvent) => Messages.Add(logEvent.RenderMessage());
+    }
+
     private static ProcessController CreateControllerWithRelease(
         out FakeProcessHandle handle, FakeMarker marker, RecordingInput input, bool hasExited = false)
     {
@@ -361,6 +424,8 @@ public class ProcessControllerTests
     {
         public bool IsSet { get; set; }
 
+        public Exception? ClearFailure { get; init; }
+
         public int ClearCount { get; private set; }
 
         public void Set() => IsSet = true;
@@ -368,6 +433,7 @@ public class ProcessControllerTests
         public void Clear()
         {
             ClearCount++;
+            if (ClearFailure is not null) throw ClearFailure;
             IsSet = false;
         }
     }

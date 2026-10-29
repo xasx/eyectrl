@@ -39,6 +39,17 @@ internal static class StartupHeldButtonRelease
             if (!result.MarkerWasSet)
                 return false;
 
+            // Fixup-01 F5: a clear failure is NOT a failed release — the button-up already went
+            // out. Say exactly that, because the only consequence is one later inert button-up.
+            if (result.MarkerClearFailure is { } clearFailure)
+            {
+                log("Held-button backstop: sent one in-place button-up, but clearing the marker failed ("
+                    + $"{clearFailure.GetType().Name}: {clearFailure.Message}); a later start may send "
+                    + "one inert button-up (GetAsyncKeyState VK_LBUTTON="
+                    + $"{result.LeftButtonWasDown}).");
+                return true;
+            }
+
             log("Held-button backstop: a previous session left the left mouse button down; sent one "
                 + "in-place button-up and cleared the marker (GetAsyncKeyState VK_LBUTTON="
                 + $"{result.LeftButtonWasDown}).");

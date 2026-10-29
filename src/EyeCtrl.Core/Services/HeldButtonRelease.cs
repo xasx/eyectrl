@@ -9,10 +9,18 @@ using EyeCtrl.Core.Interfaces;
 /// <param name="LeftButtonWasDown">What the optional OS probe reported before the release, or null
 /// when no probe was supplied. Diagnostic only: the marker, never the probe, decides whether to
 /// send, because the owner may be using a second gaze mouse.</param>
-public readonly record struct HeldButtonReleaseResult(bool MarkerWasSet, bool? LeftButtonWasDown)
+/// <param name="MarkerClearFailure">The exception that stopped the marker being cleared AFTER a
+/// successful button-up, or null when the clear succeeded. The button is released either way; the
+/// stale marker only costs one later inert button-up, but the log must not call that a failed
+/// release (fixup-01 F5).</param>
+public readonly record struct HeldButtonReleaseResult(
+    bool MarkerWasSet, bool? LeftButtonWasDown, Exception? MarkerClearFailure)
 {
     /// <summary>No marker existed: nothing was sent.</summary>
-    public static HeldButtonReleaseResult NoMarker => new(false, null);
+    public static HeldButtonReleaseResult NoMarker => new(false, null, null);
+
+    /// <summary>True when a marker was found, a button-up was sent and the marker was cleared.</summary>
+    public bool ReleasedAndCleared => MarkerWasSet && MarkerClearFailure is null;
 }
 
 /// <summary>
@@ -53,10 +61,12 @@ public sealed class HeldButtonRelease
     /// Sends exactly one in-place left-button-up when a marker exists, then clears the marker.
     /// Returns without touching input when no marker exists.
     /// </summary>
-    /// <returns>Whether a marker was found (and thus a release sent), and the probe's reading.</returns>
-    /// <exception cref="Exception">A throwing sink or marker propagates; the marker is kept when the
-    /// release did not happen, and a successful send followed by a failed clear only means the next
-    /// release path sends another (inert) button-up.</exception>
+    /// <returns>Whether a marker was found (and thus a release sent), the probe's reading, and —
+    /// when the send succeeded but the clear did not — the clear's exception.</returns>
+    /// <exception cref="Exception">A throwing sink or probe propagates and KEEPS the marker: the
+    /// release did not happen, so the next path must retry it. A throwing CLEAR does not propagate
+    /// (the button is already up); it is reported through
+    /// <see cref="HeldButtonReleaseResult.MarkerClearFailure"/>.</exception>
     public HeldButtonReleaseResult ReleaseIfMarked()
     {
         if (!_marker.IsSet)
@@ -67,7 +77,19 @@ public sealed class HeldButtonRelease
         bool? wasDown = _leftButtonIsDown?.Invoke();
 
         _input.ReleaseLeftButton();
-        _marker.Clear();
-        return new HeldButtonReleaseResult(true, wasDown);
+
+        // The send happened, so the button IS released: a failed clear must not be reported as a
+        // failed release, and must not escape (the caller's next step is only bookkeeping). It is
+        // returned instead, so the caller can log exactly what happened (fixup-01 F5).
+        try
+        {
+            _marker.Clear();
+        }
+        catch (Exception ex)
+        {
+            return new HeldButtonReleaseResult(true, wasDown, ex);
+        }
+
+        return new HeldButtonReleaseResult(true, wasDown, null);
     }
 }

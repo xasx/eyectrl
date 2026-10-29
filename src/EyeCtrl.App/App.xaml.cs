@@ -74,7 +74,14 @@ public partial class App : Application
     /// When true, the app starts in a paused state regardless of the persisted
     /// <c>StartPaused</c> setting. Activated by launching with the --paused CLI
     /// argument — used by the supervisor's paused-retry handoff so a retried
-    /// instance is inert (no SendInput) without mutating the user's setting.
+    /// instance is inert without mutating the user's setting.
+    /// <para>
+    /// <b>One deliberate exception to "inert": C3's startup release.</b> A --paused launch still
+    /// sends the single startup button-up when a previous instance left the held-button marker
+    /// (that is exactly the launch most likely to follow a kill mid-drag). It runs before the
+    /// state machine can enter Paused and before any note window exists, so the sticky
+    /// no-synthesized-input-while-paused contract holds — the release is never issued while paused.
+    /// </para>
     /// </summary>
     public static bool IsPausedLaunch { get; private set; }
 

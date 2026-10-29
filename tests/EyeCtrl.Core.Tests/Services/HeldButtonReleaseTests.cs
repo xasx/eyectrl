@@ -22,6 +22,8 @@ public class HeldButtonReleaseTests
 
         Check.That(result.MarkerWasSet).IsTrue();
         Check.That(result.LeftButtonWasDown).IsNull();          // no probe supplied
+        Check.That(result.MarkerClearFailure).IsNull();
+        Check.That(result.ReleasedAndCleared).IsTrue();
         Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
         Check.That(marker.IsSet).IsFalse();
     }
@@ -81,9 +83,33 @@ public class HeldButtonReleaseTests
         Check.That(marker.IsSet).IsTrue();                              // still owed
     }
 
+    [Fact]
+    public void AClearFailureAfterASuccessfulSend_IsReportedNotThrown()
+    {
+        // Fixup-01 F5: the SEND succeeded, so the button is up. A clear that throws (AV or the
+        // indexer holding the file without FILE_SHARE_DELETE) must not surface as a failed
+        // release — the caller's log would then hide that the button was actually released. The
+        // stale marker costs one later inert LEFTUP at most.
+        var failure = new IOException("the marker file is locked");
+        var marker = new FakeMarker { IsSet = true, ClearFailure = failure };
+        var input = new RecordingInput();
+
+        var result = default(HeldButtonReleaseResult);
+        Check.ThatCode(() => result = new HeldButtonRelease(marker, input).ReleaseIfMarked())
+             .DoesNotThrow();
+
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.That(result.MarkerWasSet).IsTrue();
+        Check.That(result.ReleasedAndCleared).IsFalse();
+        Check.That(result.MarkerClearFailure).IsSameReferenceAs(failure);
+        Check.That(marker.IsSet).IsTrue();                      // stale, not lost
+    }
+
     private sealed class FakeMarker : IHeldButtonMarker
     {
         public bool IsSet { get; set; }
+
+        public Exception? ClearFailure { get; init; }
 
         public int ClearCount { get; private set; }
 
@@ -92,6 +118,7 @@ public class HeldButtonReleaseTests
         public void Clear()
         {
             ClearCount++;
+            if (ClearFailure is not null) throw ClearFailure;
             IsSet = false;
         }
     }

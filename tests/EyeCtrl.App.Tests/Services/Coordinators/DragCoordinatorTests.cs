@@ -1001,6 +1001,37 @@ public class DragCoordinatorTests
     }
 
     [Fact]
+    public void AFailedCancelRelease_KeepsTheMarkerForTheRetry()
+    {
+        // F2 (review 01): the marker is cleared only AFTER a successful MouseUp. The shipped
+        // Win32InputSimulator cannot throw from MouseUp, but the claim is deliberately restored on
+        // a throw so quit/dispose can retry — and if the marker were cleared first (before the
+        // send), a hard kill between the failed release and the retry would leave BOTH sides
+        // believing nothing is owed: no marker for the Supervisor, no marker for the next startup.
+        var input = new ThrowOnFirstReleaseSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(9, 9));
+        Check.That(marker.IsSet).IsTrue();
+
+        c.OnDragCancel();   // the first MouseUp throws; OnDragCancel logs and continues
+
+        Check.That(input.MouseUpCount).IsEqualTo(0);   // attempted, did not happen
+        Check.WithCustomMessage("the marker was cleared although no release was sent.")
+             .That(marker.IsSet).IsTrue();
+        Check.That(marker.ClearCount).IsEqualTo(0);
+
+        c.Dispose();        // the restored claim retries, and only THEN may the marker go
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(marker.ClearCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
     public void ASetupFailureBeforeThePress_NeverWritesTheMarker()
     {
         // The marker must describe the OS state: no press, no marker. Otherwise the next startup

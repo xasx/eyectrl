@@ -45,6 +45,16 @@ public sealed class ProcessController
     /// </summary>
     private readonly HeldButtonRelease? _heldButtonRelease;
 
+    /// <summary>
+    /// C3 (fixup-01 F1): true when this controller is wired to release a held drag button. The
+    /// production binding used to be observable only by sending input, so a refactor that passed
+    /// null through the constructor chain stayed green. This is the pin: constructing the
+    /// parameterless controller is IO-free and input-free (the marker stores a path, the simulator
+    /// stores a mapper), and a test asserts this is true WITHOUT ever calling
+    /// <see cref="ForceKill"/> on that instance.
+    /// </summary>
+    internal bool HasHeldButtonRelease => _heldButtonRelease is not null;
+
     public ProcessController()
         // Process.Start is documented to return null when no new process was started; the null-tolerant
         // factory signature keeps that out of Launch rather than turning it into a NullReferenceException.
@@ -186,11 +196,24 @@ public sealed class ProcessController
         try
         {
             var result = _heldButtonRelease.ReleaseIfMarked();
-            if (result.MarkerWasSet)
-                Serilog.Log.Information(
-                    "ForceKill: a drag button was held, so sent one in-place left-button-up and cleared the marker "
-                    + "(GetAsyncKeyState VK_LBUTTON={LeftButtonWasDown}).",
-                    result.LeftButtonWasDown);
+            if (!result.MarkerWasSet)
+                return;
+
+            // Fixup-01 F5: a clear failure is not a failed release — the button-up was sent. The
+            // stale marker only means a later startup may send one more, inert button-up.
+            if (result.MarkerClearFailure is { } clearFailure)
+            {
+                Serilog.Log.Warning(
+                    "ForceKill: sent one in-place left-button-up, but clearing the marker failed ({ClearFailure}); "
+                    + "a later startup may send one inert button-up (GetAsyncKeyState VK_LBUTTON={LeftButtonWasDown}).",
+                    clearFailure.GetType().Name, result.LeftButtonWasDown);
+                return;
+            }
+
+            Serilog.Log.Information(
+                "ForceKill: a drag button was held, so sent one in-place left-button-up and cleared the marker "
+                + "(GetAsyncKeyState VK_LBUTTON={LeftButtonWasDown}).",
+                result.LeftButtonWasDown);
         }
         catch (Exception ex)
         {

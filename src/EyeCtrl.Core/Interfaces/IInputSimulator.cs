@@ -35,6 +35,15 @@ public interface IInputSimulator
     /// <param name="point">Target position in physical screen pixels.</param>
     void MouseUp(PhysicalPoint point);
     /// <summary>
+    /// Releases the left mouse button AT THE CURRENT CURSOR POSITION, without moving it — the
+    /// recovery path for a button a killed process left held. Distinct from
+    /// <see cref="MouseUp"/>: that one carries an absolute move, and recovery has no meaningful
+    /// point (moving the pointer to an invented one would jump the user's cursor). A default
+    /// interface method that throws rather than no-ops, like the extended overloads below, so a
+    /// simulator that claims the interface without really implementing it fails loudly.
+    /// </summary>
+    void ReleaseLeftButton() => throw new NotSupportedException("This input simulator does not implement in-place left button releases.");
+    /// <summary>
     /// Sends mouse wheel notches at the CURRENT cursor. The OS routes a wheel to the window under
     /// the pointer, and this method does not move it: <paramref name="point"/> is carried only as
     /// the intended target (recorded by fakes), not used for hit-testing. Use

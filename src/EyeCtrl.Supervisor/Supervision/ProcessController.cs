@@ -4,6 +4,8 @@ using System;
 using System.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Services;
+using EyeCtrl.Platform.Input;
 
 public sealed class ProcessController
 {
@@ -35,6 +37,14 @@ public sealed class ProcessController
     private readonly Func<ProcessStartInfo, IProcessHandle?> _processFactory;
     private readonly Func<int, IProcessHandle?> _adoptFactory;
 
+    /// <summary>
+    /// C3: releases a drag button the killed App left held. Null in the test constructor on
+    /// purpose — these tests call <see cref="ForceKill"/>, and a default that touched the real
+    /// marker and <c>SendInput</c> would let a fake-driven unit test release the owner's physical
+    /// mouse. Production binds the real marker + sink in the parameterless constructor.
+    /// </summary>
+    private readonly HeldButtonRelease? _heldButtonRelease;
+
     public ProcessController()
         // Process.Start is documented to return null when no new process was started; the null-tolerant
         // factory signature keeps that out of Launch rather than turning it into a NullReferenceException.
@@ -43,14 +53,33 @@ public sealed class ProcessController
                {
                    try { return new RealProcessHandle(Process.GetProcessById(pid)); }
                    catch { return null; }
-               })
+               },
+               // C3: the SAME marker file the App's DragCoordinator writes and its startup backstop
+               // reads. A force-kill is the one path that runs none of the App's release code.
+               new HeldButtonRelease(
+                   new FileHeldButtonMarker(),
+                   new Win32InputSimulator(new MouseCoordinateMapper()),
+                   LeftButtonProbe.IsLeftButtonDown))
     {
     }
 
     public ProcessController(Func<ProcessStartInfo, IProcessHandle?> processFactory, Func<int, IProcessHandle?> adoptFactory)
+        // No held-button recovery: see _heldButtonRelease. Production uses the constructor above;
+        // tests inject one with fakes through the three-argument overload.
+        : this(processFactory, adoptFactory, heldButtonRelease: null)
+    {
+    }
+
+    /// <summary>The full constructor: lets tests observe the held-button recovery with a fake marker
+    /// and a recording input sink (never <c>SendInput</c>).</summary>
+    public ProcessController(
+        Func<ProcessStartInfo, IProcessHandle?> processFactory,
+        Func<int, IProcessHandle?> adoptFactory,
+        HeldButtonRelease? heldButtonRelease)
     {
         _processFactory = processFactory;
         _adoptFactory = adoptFactory;
+        _heldButtonRelease = heldButtonRelease;
     }
 
     /// <summary>Starts the App and binds it.</summary>
@@ -132,6 +161,41 @@ public sealed class ProcessController
                 // next strike) — unreachable for a same-user child in practice.
                 Serilog.Log.Error(ex, "ForceKill: Process.Kill threw (raced natural exit or access denied).");
             }
+        }
+
+        ReleaseHeldButtonAfterKill();
+    }
+
+    /// <summary>
+    /// C3: a force-kill is <c>TerminateProcess</c>-fast — the App's drop/cancel/dispose/fatal-exit
+    /// releases, and even the crash handlers, never run — so a drag in progress leaves the OS left
+    /// button down. If the cross-process marker the App writes on press is still there, the killed
+    /// process owed exactly one button-up: send it in place, clear the marker, and log one line.
+    /// Runs even when the process had already exited on its own (<see cref="KillInitiated"/> still
+    /// marks this as the recovery path) — a hard crash stranded the button the same way.
+    /// <para>
+    /// Never throws into the supervisor's dispatcher: a failed release leaves the marker for the
+    /// App's startup backstop, which runs moments later on the relaunch.
+    /// </para>
+    /// </summary>
+    private void ReleaseHeldButtonAfterKill()
+    {
+        if (_heldButtonRelease is null)
+            return;
+
+        try
+        {
+            var result = _heldButtonRelease.ReleaseIfMarked();
+            if (result.MarkerWasSet)
+                Serilog.Log.Information(
+                    "ForceKill: a drag button was held, so sent one in-place left-button-up and cleared the marker "
+                    + "(GetAsyncKeyState VK_LBUTTON={LeftButtonWasDown}).",
+                    result.LeftButtonWasDown);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex,
+                "ForceKill: the held-drag-button release failed; the marker is kept for the App's startup backstop.");
         }
     }
 

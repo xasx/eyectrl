@@ -170,6 +170,24 @@ public partial class App : Application
             var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
 
+            // ── Held-button backstop (C3) ──
+            // A hard kill mid-drag (the Supervisor's hang-kill, Task Manager, a native crash) runs
+            // none of DragCoordinator's release paths and leaves the OS left button down: every
+            // later "click" then drags. The drag writes a marker on press and clears it on release;
+            // a marker here belongs to a previous instance that never got to. Release it now, and
+            // ONLY now: after the single-instance guard (a duplicate that exits immediately must
+            // not release the running primary's drag button) and BEFORE the gaze engine starts,
+            // before the state machine can enter Paused and before any overlay or note window
+            // exists — NoteInputPolicy forbids synthesized input while paused, and this is the one
+            // startup SendInput. The same marker instance goes to the drag below, so press/release
+            // and this backstop read one file.
+            var heldButtonMarker = new FileHeldButtonMarker();
+            StartupHeldButtonRelease.Run(
+                heldButtonMarker,
+                inputSimulator,
+                LeftButtonProbe.IsLeftButtonDown,
+                line => Log.Information("{HeldButton}", line));
+
             // Reconcile auto-launch registration with the persisted setting.
             // In supervised mode the supervisor is MEANT to own launch-at-logon via a Scheduled
             // Task, and self-registering as well would double-launch at next logon. But the task
@@ -279,7 +297,8 @@ public partial class App : Application
                 modesMenuVm,
                 repeatCursorVm,
                 _serviceProvider.GetRequiredService<IGlobalEscapeHatch>(),
-                _serviceProvider.GetRequiredService<UserDictionaryService>());
+                _serviceProvider.GetRequiredService<UserDictionaryService>(),
+                HeldButtonMarker: heldButtonMarker);
             _eventCoordinator.Initialize(coordinationContext);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in

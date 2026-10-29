@@ -244,6 +244,85 @@ public class ProcessControllerTests
         Check.That(raised).IsEqualTo(1);                    // the new binding is wired again
     }
 
+    // ── C3: a force-kill must release a drag button the App left held ─────────────────────
+    //
+    // TerminateProcess runs none of the App's release paths — not even its crash handlers. So the
+    // marker the App writes on press is the ONLY way the Supervisor can know one button-up is
+    // owed, and these tests pin that it is sent exactly once, in place (not MouseUp, whose absolute
+    // move would jump the pointer), and never when no marker exists.
+
+    [Fact]
+    public void ForceKill_WithAHeldButtonMarker_SendsOneInPlaceReleaseAndClearsIt()
+    {
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput();
+        var controller = CreateControllerWithRelease(out var handle, marker, input);
+        controller.Launch("test.exe", paused: false);
+
+        controller.ForceKill();
+
+        Check.That(handle.KillCalled).IsTrue();
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void ForceKill_WithoutAMarker_SendsNoInputAtAll()
+    {
+        // The owner may be holding a physical mouse; an unconditional button-up here would
+        // release a button EyeCtrl never pressed.
+        var marker = new FakeMarker { IsSet = false };
+        var input = new RecordingInput();
+        var controller = CreateControllerWithRelease(out _, marker, input);
+
+        controller.ForceKill();
+
+        Check.That(input.Calls).IsEmpty();
+        Check.That(marker.ClearCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ForceKill_AfterTheProcessAlreadyExited_StillReleases()
+    {
+        // A native crash stranded the button exactly like a kill: recovery must release it even
+        // though the kill itself is skipped (HasExited). The relaunch follows immediately.
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput();
+        var controller = CreateControllerWithRelease(out var handle, marker, input, hasExited: true);
+        controller.Launch("test.exe", paused: false);
+
+        controller.ForceKill();
+
+        Check.That(handle.KillCalled).IsFalse();
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+    }
+
+    [Fact]
+    public void ForceKill_WhenTheReleaseThrows_DoesNotEscapeIntoTheDispatcher()
+    {
+        // ForceKill runs on the supervisor's dispatcher, where an escaping exception kills the
+        // WATCHDOG exactly when it is recovering the App. A failed release keeps the marker, and
+        // the App's startup backstop retries it moments later on the relaunch.
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput { ThrowOnRelease = true };
+        var controller = CreateControllerWithRelease(out _, marker, input);
+
+        Check.ThatCode(controller.ForceKill).DoesNotThrow();
+
+        Check.That(marker.IsSet).IsTrue();
+    }
+
+    private static ProcessController CreateControllerWithRelease(
+        out FakeProcessHandle handle, FakeMarker marker, RecordingInput input, bool hasExited = false)
+    {
+        handle = new FakeProcessHandle(12345, hasExited);
+        var process = handle;
+        return new ProcessController(
+            _ => process,
+            _ => process,
+            new EyeCtrl.Core.Services.HeldButtonRelease(marker, input));
+    }
+
     private static ProcessController CreateController(out FakeProcessHandle handle, bool hasExited = false, FakeProcessHandle? adoptResult = null)
     {
         handle = new FakeProcessHandle(12345, hasExited);
@@ -275,5 +354,49 @@ public class ProcessControllerTests
         public void Dispose() => DisposeCalled = true;
 
         public void RaiseExited() => Exited?.Invoke();
+    }
+
+    /// <summary>C3's cross-process marker, recorded instead of written (never the real app-data file).</summary>
+    private sealed class FakeMarker : EyeCtrl.Core.Services.IHeldButtonMarker
+    {
+        public bool IsSet { get; set; }
+
+        public int ClearCount { get; private set; }
+
+        public void Set() => IsSet = true;
+
+        public void Clear()
+        {
+            ClearCount++;
+            IsSet = false;
+        }
+    }
+
+    /// <summary>Records the in-place release; no real <c>SendInput</c> anywhere.</summary>
+    private sealed class RecordingInput : EyeCtrl.Core.Interfaces.IInputSimulator
+    {
+        public List<string> Calls { get; } = new();
+
+        public bool ThrowOnRelease { get; init; }
+
+        public void ReleaseLeftButton()
+        {
+            Calls.Add("ReleaseLeftButton");
+            if (ThrowOnRelease)
+                throw new InvalidOperationException("SendInput refused the release");
+        }
+
+        public void MoveCursor(EyeCtrl.Core.Models.PhysicalPoint point) => Calls.Add("MoveCursor");
+        public void LeftClick(EyeCtrl.Core.Models.PhysicalPoint point) => Calls.Add("LeftClick");
+        public void RightClick(EyeCtrl.Core.Models.PhysicalPoint point) => Calls.Add("RightClick");
+        public void DoubleClick(EyeCtrl.Core.Models.PhysicalPoint point) => Calls.Add("DoubleClick");
+        public void MouseDown(EyeCtrl.Core.Models.PhysicalPoint point) => Calls.Add("MouseDown");
+        public void MouseUp(EyeCtrl.Core.Models.PhysicalPoint point) => Calls.Add("MouseUp");
+        public void Scroll(EyeCtrl.Core.Models.PhysicalPoint point, int deltaX, int deltaY) => Calls.Add("Scroll");
+        public void SendKeyPress(ushort virtualKeyCode) { }
+        public void SendKeyDown(ushort virtualKeyCode) { }
+        public void SendKeyUp(ushort virtualKeyCode) { }
+        public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<EyeCtrl.Core.Keyboard.ModifierKey> modifiers, ushort virtualKeyCode) { }
     }
 }

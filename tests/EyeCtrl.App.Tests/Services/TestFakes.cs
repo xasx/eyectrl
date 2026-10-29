@@ -10,6 +10,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
@@ -120,6 +121,15 @@ internal static class TestFakes
     /// </remarks>
     internal static (EventCoordinationContext Context, FakeEdgeButtonBar Bar) MakeDragContextWithBar(
         IInputSimulator input)
+        => MakeDragContextWithBar(input, marker: null);
+
+    /// <summary>
+    /// As above, with C3's held-button marker supplied: a fake records what the drag wrote and
+    /// cleared, so no test touches the real app-data file. Passing null keeps the pre-C3 contexts
+    /// byte-identical (no marker IO at all).
+    /// </summary>
+    internal static (EventCoordinationContext Context, FakeEdgeButtonBar Bar) MakeDragContextWithBar(
+        IInputSimulator input, IHeldButtonMarker? marker)
     {
         var bar = new FakeEdgeButtonBar();
         // The glass backdrop is supplied because OnDragStarted now completes the backdrop's pending
@@ -128,8 +138,44 @@ internal static class TestFakes
         var ctx = MakeDragContext(input) with
         {
             OverlayManager = MakeOverlayManager(edgeButtonBar: bar, glassBackdrop: new FakeGlassBackdropOverlay()),
+            HeldButtonMarker = marker,
         };
         return (ctx, bar);
+    }
+
+    /// <summary>
+    /// C3's cross-process marker, recorded instead of written: production's is a file under
+    /// <c>%APPDATA%</c>, which tests must never touch (the owner may be running the real App).
+    /// </summary>
+    internal sealed class FakeHeldButtonMarker : IHeldButtonMarker
+    {
+        public bool IsSet { get; set; }
+
+        public int SetCount { get; private set; }
+
+        public int ClearCount { get; private set; }
+
+        /// <summary>When set, <see cref="Set"/> throws it AFTER recording — models the marker
+        /// file being unwritable while the button is genuinely pressed.</summary>
+        public Exception? SetFailure { get; set; }
+
+        /// <summary>When set, <see cref="Clear"/> throws it AFTER recording — models a stale
+        /// marker left behind by a successful release.</summary>
+        public Exception? ClearFailure { get; set; }
+
+        public void Set()
+        {
+            SetCount++;
+            IsSet = true;
+            if (SetFailure is not null) throw SetFailure;
+        }
+
+        public void Clear()
+        {
+            ClearCount++;
+            IsSet = false;
+            if (ClearFailure is not null) throw ClearFailure;
+        }
     }
 
     /// <summary>

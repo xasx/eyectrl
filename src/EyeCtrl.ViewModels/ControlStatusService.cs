@@ -94,6 +94,7 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
         _time = timeProvider ?? TimeProvider.System;
         _postToUi = postToUi;
         _logger = logger;
+        MouseIsFallback = mouseIsFallback;
 
         _model = new ControlStatusModel(
             providerType,
@@ -102,6 +103,12 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
             mouseIsFallback);
         _model.StatusChanged += OnStatusChanged;
     }
+
+    /// <summary>
+    /// Whether the Mouse provider in use is a real tracker-to-mouse FALLBACK. The status cards reuse
+    /// this reading so the splash predicate is evaluated once in the composition root (C5 fixup-01).
+    /// </summary>
+    public bool MouseIsFallback { get; }
 
     /// <summary>The current status. Safe to read from any thread.</summary>
     public ControlStatus Current => _model.Current;

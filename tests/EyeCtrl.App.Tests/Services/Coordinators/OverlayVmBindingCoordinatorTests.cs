@@ -114,8 +114,6 @@ public class OverlayVmBindingCoordinatorTests
         var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
             ManualSelectionVM = vm,
-            // The show path now also re-applies the backdrop's held-dwell look (C5 H3).
-            BackdropVM = new GlassBackdropViewModel(settings, messenger),
             InteractionManager = new EyeCtrl.Core.Processing.InteractionManager(),
             Settings = settings,
             Messenger = messenger,
@@ -189,8 +187,6 @@ public class OverlayVmBindingCoordinatorTests
             ManualSelectionVM = manualSelectionVm,
             // The hide branch reads the state for its Pause fallback (the "closed by" log).
             InteractionManager = new EyeCtrl.Core.Processing.InteractionManager(),
-            // The show path also re-applies the backdrop's held-dwell look (C5 H3).
-            BackdropVM = new GlassBackdropViewModel(settings, messenger),
             Settings = settings,
             Messenger = messenger,
             OverlayManager = TestFakes.MakeOverlayManager(
@@ -225,8 +221,6 @@ public class OverlayVmBindingCoordinatorTests
         var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
             ManualSelectionVM = manualSelectionVm,
-            // The show path also re-applies the backdrop's held-dwell look (C5 H3).
-            BackdropVM = new GlassBackdropViewModel(settings, messenger),
             Settings = settings,
             Messenger = messenger,
             OverlayManager = TestFakes.MakeOverlayManager(
@@ -422,10 +416,12 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(activationButton.Calls).ContainsExactly("ShowAt", "Show");
     }
 
-    // C5 H3: the backdrop VM's held-dwell flag reaches the window, and a show — which redraws the ✕
-    // — re-applies the current value to the button DrawHideButton just rebuilt.
+    // C5 H3: the backdrop VM's held-dwell flag reaches the window. The window's own remembered
+    // value (GlassBackdropWindow.SetHideButtonPaused / DrawHideButton) carries it across a redraw;
+    // the show path needs no re-apply because the ShowBackdropMessage resets the VM in the same
+    // synchronous call (review-01 L2).
     [Fact]
-    public void BackdropPausedCue_IsForwarded_AndReappliedWhenTheShowRedrawsTheButton()
+    public void BackdropPausedCue_IsForwardedToTheWindow()
     {
         var glassBackdrop = new TestFakes.FakeGlassBackdropOverlay();
         var messenger = new WeakReferenceMessenger();
@@ -446,17 +442,12 @@ public class OverlayVmBindingCoordinatorTests
 
         backdropVm.IsDwellPaused = true;
         InvokeBackdropHandler(coordinator, nameof(GlassBackdropViewModel.IsDwellPaused));
-
         Check.WithCustomMessage("the VM's held-dwell flag did not reach the window")
             .That(glassBackdrop.HideButtonPaused).IsTrue();
 
-        // Watch only what the SHOW does: the forwarding above already recorded one call.
-        int beforeShow = glassBackdrop.HideButtonPausedHistory.Count;
-        InvokeShowBackdropIfEnabled(coordinator);
-
-        Check.That(glassBackdrop.Calls).Contains("ShowBackdrop");
-        Check.WithCustomMessage("the show redrew the ✕ without re-applying the held look")
-            .That(glassBackdrop.HideButtonPausedHistory.Skip(beforeShow).First()).IsTrue();
+        backdropVm.IsDwellPaused = false;
+        InvokeBackdropHandler(coordinator, nameof(GlassBackdropViewModel.IsDwellPaused));
+        Check.That(glassBackdrop.HideButtonPaused).IsFalse();
     }
 
     private static void InvokeBackdropHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
@@ -464,13 +455,6 @@ public class OverlayVmBindingCoordinatorTests
         var method = typeof(OverlayVmBindingCoordinator)
             .GetMethod("OnBackdropVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
         method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
-    }
-
-    private static void InvokeShowBackdropIfEnabled(OverlayVmBindingCoordinator coordinator)
-    {
-        var method = typeof(OverlayVmBindingCoordinator)
-            .GetMethod("ShowBackdropIfEnabled", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        method.Invoke(coordinator, null);
     }
 
     private static void InvokeCursorHandler(OverlayVmBindingCoordinator coordinator, string propertyName)

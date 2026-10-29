@@ -506,6 +506,71 @@ public class StatusCardPresenterTests
         finally { window.Close(); }
     }
 
+    // Review-01 M1 (C5 fixup-01): the same-state guard `replaced != status.State` is load-bearing.
+    // A queued card whose state ends is dropped stale (which un-uses it) and _pending keeps that
+    // state; on re-entry the Add above has just re-used it, so the H2 overwrite must NOT remove it
+    // again — otherwise the re-shown card can be read and then shown a THIRD time.
+    [StaFact]
+    public void ACardDroppedStaleThenReEnteredAndRead_IsNotShownAgain()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        var alert = new FakeAlert();
+        try
+        {
+            presenter.Start();
+            slot.Preempt(alert);
+            status.Enter(ControlState.Paused);   // queued behind the alert
+            status.Enter(ControlState.Normal);   // ended while queued
+            alert.Close();                       // the slot reaches it: dropped stale
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Paused);   // re-entered: shows now
+            Check.That(window.IsVisible).IsTrue();
+            window.OnFadeCompleted(null, EventArgs.Empty); // read in full
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Normal);
+            status.Enter(ControlState.Paused);
+            Check.WithCustomMessage("a read card was shown a second time")
+                .That(window.IsVisible).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
+    // Review-01 M2 (C5 fixup-01): only the card's OWN fade spends the state. A pre-empted card
+    // (HideCard, unread) is put back at the front of the queue; if that immediate hide counted as a
+    // read, a newer first entry overwriting it would lose the Paused card for the whole session.
+    [StaFact]
+    public void APreemptedCardOverwrittenInTheQueue_IsStillShownLater()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        var alert = new FakeAlert();
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.Paused);       // live
+            Check.That(window.IsVisible).IsTrue();
+            slot.Preempt(alert);                     // HideCard: unread, re-queued at the front
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.TrackingLost); // overwrites the queued Paused card
+            status.Enter(ControlState.Paused);       // back
+            alert.Close();
+
+            Check.WithCustomMessage("a pre-empted, never-read Paused card was lost")
+                .That(window.IsVisible).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
+        }
+        finally { window.Close(); }
+    }
+
     [StaFact]
     public void CardsAndDriftNotices_TakeFifoTurns_NeverOverlapping()
     {

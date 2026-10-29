@@ -65,7 +65,7 @@ public class ControlStatusModelTests
         model.SetPaused(true);
         Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
 
-        // No samples for a minute and a disconnected provider: neither condition touches the state.
+        // No samples for a minute while connected: the lost-gaze clock must not touch the state.
         AdvanceMs(time, 60_000);
         model.Poll(true);
         Check.That(model.Current.State).IsEqualTo(ControlState.Paused);

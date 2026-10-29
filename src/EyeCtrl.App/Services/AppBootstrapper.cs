@@ -737,11 +737,9 @@ public class AppBootstrapper
             sp.GetRequiredService<IBannerSlot>(),
             sp.GetRequiredService<StatusCardWindow>(),
             sp.GetRequiredService<IControlStatus>(),
-            // The splash sentence's predicate: a NoTracker card only when the mouse is a FALLBACK.
-            noTrackerIsFallback: SplashWindow.ShowsNoTrackerSentence(
-                settings.General.GazeProviderType,
-                GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()),
-                isTestMode)));
+            // The SAME fallback reading the control status already made (C5 fixup-01): the splash
+            // predicate is evaluated once in the composition root, never re-probed here.
+            noTrackerIsFallback: sp.GetRequiredService<ControlStatusService>().MouseIsFallback));
 
         // Task 10/11 — the adaptation preview panel (spec §3.6-3/4). The window is a DI singleton (the
         // CueOverlayWindow precedent) but is constructed ONLY on the first adaptation enable: the

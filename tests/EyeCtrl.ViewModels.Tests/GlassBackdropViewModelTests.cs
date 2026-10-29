@@ -124,4 +124,71 @@ public class GlassBackdropViewModelTests
 
         Check.That(vm.HideButtonProgress > 0.4 && vm.HideButtonProgress < 0.6).IsTrue();
     }
+
+    // C5 H3: the hide button follows the edge-bar/DwellArcButton pattern — a look-away inside the
+    // pause grace holds the progress AND marks the hold paused, so the window can dim the arc.
+    [Fact]
+    public void LeavingTheHideButtonMidDwell_MarksTheHoldPaused_AndReturningClearsIt()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+        var buttonCenter = new PhysicalPoint(1860, 40);
+        var farAway = new PhysicalPoint(1, 1);
+        messenger.Send(new ShowBackdropMessage(buttonCenter));
+
+        long now = 1_000_000;
+        long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
+        DwellDrive.Hold(messenger, buttonCenter, now, now + halfDwellUs);
+        Check.That(vm.IsDwellPaused).IsFalse();
+
+        messenger.Send(new GazeCursorMovedMessage(farAway, now + halfDwellUs + 1));
+        Check.WithCustomMessage("a look-away inside the grace must mark the hide button's hold paused")
+            .That(vm.IsDwellPaused).IsTrue();
+        Check.That(vm.HideButtonProgress).IsStrictlyGreaterThan(0.0);
+
+        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs + 31));
+        Check.That(vm.IsDwellPaused).IsFalse();
+    }
+
+    [Fact]
+    public void AnExpiredHideButtonHold_ClearsThePausedCue()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+        var buttonCenter = new PhysicalPoint(1860, 40);
+        var farAway = new PhysicalPoint(1, 1);
+        messenger.Send(new ShowBackdropMessage(buttonCenter));
+
+        long now = 1_000_000;
+        long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
+        DwellDrive.Hold(messenger, buttonCenter, now, now + halfDwellUs);
+        long leftAt = now + halfDwellUs + 1;
+        messenger.Send(new GazeCursorMovedMessage(farAway, leftAt));
+        Check.That(vm.IsDwellPaused).IsTrue();
+
+        // Past the default 500 ms grace: the hold is gone, so the cue must clear.
+        messenger.Send(new GazeCursorMovedMessage(farAway, leftAt + 600 * MathConstants.MicrosecondsPerMillisecond));
+
+        Check.That(vm.IsDwellPaused).IsFalse();
+        Check.That(vm.HideButtonProgress).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ShowAndHideBackdropMessages_ClearThePausedCue()
+    {
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GlassBackdropViewModel(settings, messenger);
+        var buttonCenter = new PhysicalPoint(1860, 40);
+
+        vm.IsDwellPaused = true;
+        messenger.Send(new HideBackdropMessage());
+        Check.WithCustomMessage("hiding the backdrop must clear a held look").That(vm.IsDwellPaused).IsFalse();
+
+        vm.IsDwellPaused = true;
+        messenger.Send(new ShowBackdropMessage(buttonCenter));
+        Check.WithCustomMessage("a fresh show must start undimmed").That(vm.IsDwellPaused).IsFalse();
+    }
 }

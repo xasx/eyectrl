@@ -301,6 +301,13 @@ public interface IGlassBackdropOverlay
     void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0);
     void UpdateHideButtonProgress(double progress);
 
+    /// <summary>
+    /// Shows or clears the held-dwell look on the hide button (<c>DwellArcButton.SetPaused</c>): the
+    /// progress arc dims while the gaze left the button inside the pause grace (C5 H3). Display
+    /// only; a redraw re-applies the last value.
+    /// </summary>
+    void SetHideButtonPaused(bool paused);
+
     /// <summary>Shows the "Press Esc to exit" hint — the caregiver-facing signage for manual selection.</summary>
     void ShowEscapeHint();
 

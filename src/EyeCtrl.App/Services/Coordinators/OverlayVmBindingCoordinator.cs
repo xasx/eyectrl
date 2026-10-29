@@ -124,6 +124,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         // One call, prepared while hidden: show-then-apply put a bare or glass-only first frame on
         // screen (the owner's flicker).
         _glassBackdrop.ShowBackdrop(settings, hideButtonCenter);
+        // DrawHideButton rebuilt the ✕, so the held-dwell look must be re-applied to the new button
+        // (C5 H3). This is the same edge-bar rebuild rule: a redraw never clears a paused cue.
+        _glassBackdrop.SetHideButtonPaused(Context.BackdropVM.IsDwellPaused);
         Context.Messenger.Send(new ShowBackdropMessage(hideButtonCenter));
     }
 
@@ -447,6 +450,8 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         if (_glassBackdrop == null) return;
         if (e.PropertyName == nameof(GlassBackdropViewModel.HideButtonProgress))
             _glassBackdrop.UpdateHideButtonProgress(Context!.BackdropVM.HideButtonProgress);
+        else if (e.PropertyName == nameof(GlassBackdropViewModel.IsDwellPaused))
+            _glassBackdrop.SetHideButtonPaused(Context!.BackdropVM.IsDwellPaused);
     }
 
     private void OnRepeatCursorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

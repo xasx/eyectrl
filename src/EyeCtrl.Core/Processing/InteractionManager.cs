@@ -204,10 +204,10 @@ public class InteractionManager
     public event Action? CancelDragForPause;
 
     // Locked-action dwell-to-act (design D23–D28). Timing is sample-clock driven: a fixation
-    // ARMS the dwell at its start point; only VALID gaze samples advance it; one fire per
-    // fixation. Liveness also comes from raw validity (review PR #139 finding 1 — every filtered
-    // view of a lost-eyes gap looks like a valid frozen point), so NoteGazeSample is the one
-    // place "eyes actually present" is still observable.
+    // ARMS the dwell at its start point; only VALID gaze samples advance it, and only while their
+    // filtered position is on-screen (C4); one fire per fixation. Liveness comes from raw validity
+    // (review PR #139 finding 1 — every filtered view of a lost-eyes gap looks like a valid frozen
+    // point), so NoteGazeSample is the one place "eyes actually present" is still observable.
     /// <summary>Sustained gaze loss (µs) that ends a locked mode — repeat itself, drag and scroll via
     /// <see cref="LockedModeGazeLost"/>. The App's no-frames check uses the same span.</summary>
     public const long LostGazeExitThresholdUs = 2_000_000;
@@ -661,9 +661,7 @@ public class InteractionManager
         {
             // Gaze moved off the target: the armed dwell cancels (D25) — the action must be
             // re-aimed with a fresh fixation, never inherited from a stale one.
-            _repeatDwellPoint = null;
-            _repeatDwellFired = false;
-            RepeatDwellProgressChanged?.Invoke(0);
+            DisarmRepeatDwell();
             return;
         }
 
@@ -967,9 +965,10 @@ public class InteractionManager
     /// Latches raw gaze-stream liveness: called by <see cref="GazeEngine"/> for EVERY sample,
     /// before calibration or gap interpolation — every downstream view of a lost-eyes gap looks
     /// like a valid frozen point, so this is the only spot where "eyes actually present" is
-    /// still observable. Drives the locked-action dwell: only VALID samples advance it, and
-    /// sustained lost gaze (past <see cref="LostGazeExitThresholdUs"/>) ends the mode — the
-    /// user cannot dwell the stop button while their eyes are away.
+    /// still observable. Drives the locked-action dwell's liveness: sustained lost gaze (past
+    /// <see cref="LostGazeExitThresholdUs"/>) ends the mode — the user cannot dwell the stop
+    /// button while their eyes are away. The dwell itself ADVANCES on
+    /// <see cref="NoteRepeatGazeSample"/>, which carries the sample's calibrated, filtered position.
     /// </summary>
     public void NoteGazeSample(bool isValid, long timestampUs)
     {
@@ -1004,10 +1003,38 @@ public class InteractionManager
             ExitRepeatMode();
             return;
         }
+    }
 
-        // D25: advance the armed dwell on valid samples only — invalid gaze freezes the dwell
-        // (and its cursor feedback) rather than firing at a stale point.
-        if (!isValid || _repeatDwellPoint is not { } target || _repeatDwellFired) return;
+    /// <summary>
+    /// Feeds one VALID, calibrated and filtered sample's position to the armed repeat dwell. Called
+    /// by <see cref="GazeEngine"/> with the same point the fixation detector sees, BEFORE the
+    /// detector update, so the sample that ends a fixation is judged on its own position (C4).
+    /// <para>
+    /// A position outside the published screen bounds plus the tolerance does not advance the dwell
+    /// and cannot fire it: the run is DISARMED (progress back to 0, the target cleared), so it must
+    /// re-arm on a fresh on-screen fixation — the same rule A5 fixup-03 applies to an off-screen
+    /// arm, and the same cancel <see cref="OnFixationEnded"/> already performs. Pausing instead
+    /// would resume, on the user's return, the very click their glide past the edge was not asking
+    /// for (a toolbar summon the OS clamps onto the screen edge). A run that already fired keeps
+    /// its contracted cursor until the run ends (round 3 finding 6). With no bounds published
+    /// (tests, pre-fix wiring) every position is allowed, exactly as for the arm gate.
+    /// </para>
+    /// </summary>
+    /// <param name="point">The sample's calibrated, filtered position, in physical screen pixels.</param>
+    /// <param name="timestampUs">The sample's timestamp in microseconds.</param>
+    public void NoteRepeatGazeSample(PhysicalPoint point, long timestampUs)
+    {
+        if (CurrentState != InteractionState.RepeatMode) return;
+        if (_repeatDwellPoint is not { } target) return;   // nothing armed: nothing to judge
+
+        if (!IsOnRepeatScreen(point))
+        {
+            if (_repeatDwellFired) return;   // spent: stays contracted until the run ends
+            DisarmRepeatDwell();
+            return;
+        }
+
+        if (_repeatDwellFired) return;
 
         var dwellUs = RepeatDwellMs * 1000L;
         var elapsedUs = timestampUs - _repeatDwellStartedUs;
@@ -1029,6 +1056,18 @@ public class InteractionManager
     }
 
     /// <summary>
+    /// Cancels the armed repeat dwell: the run must be re-aimed with a fresh on-screen fixation,
+    /// never fired at a target the gaze has left (C4's disarm). Shared by the off-screen glide and
+    /// the state machine's own cancels.
+    /// </summary>
+    private void DisarmRepeatDwell()
+    {
+        _repeatDwellPoint = null;
+        _repeatDwellFired = false;
+        RepeatDwellProgressChanged?.Invoke(0);
+    }
+
+    /// <summary>
     /// Chrome rects the locked-action dwell must never fire inside (D26): the toolbar band (incl.
     /// the modes-menu area) and the stop-button zone. Set by the app-side repeat controller from
     /// screen geometry; Core keeps them as plain data so the gaze thread never calls back into UI.
@@ -1040,8 +1079,9 @@ public class InteractionManager
     /// The on-screen area the repeat dwell may ARM in, in physical px, set by the app-side repeat
     /// controller at mode entry (A5 fixup-03 H2). A fixation outside it is the toolbar/Quick-Actions
     /// summon gesture; a repeat click there would be clamped by the OS onto the screen edge (a tab
-    /// strip or title bar). Only the ARM is refused — a run already armed on-screen keeps its
-    /// target. Null (the default) keeps the pre-fix behaviour.
+    /// strip or title bar). The same bounds gate every armed sample's own position (C4): a valid
+    /// sample outside them disarms the run, so a glide past the edge cannot fire the stale target.
+    /// Null (the default) keeps the pre-fix behaviour.
     /// </summary>
     public void SetRepeatScreenBounds(PhysicalRect? bounds, double tolerancePhysical = 0)
     {

@@ -189,6 +189,104 @@ public class GazeFlowTests
     }
 
     [Fact]
+    public void RepeatMode_HeldOnScreen_WithBoundsPublished_StillFires()
+    {
+        // C4 control: the new off-screen gate must not refuse a legitimate on-screen run. The
+        // dwell fires at the same point and time as before the gate existed.
+        var h = new GazeFlowHarness(SelectionMode.None);
+        h.Interaction.RepeatDwellMs = 400;
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // back to FreeLook
+        h.Interaction.EnterRepeatMode(InteractionAction.RightClick);
+        h.Interaction.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var baseline = h.ActionsRequested.Count;
+
+        h.Hold(800, 600, durationMs: 1100);
+
+        Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);
+        var fired = h.ActionsRequested.Skip(baseline).ToList();
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].Action).IsEqualTo(InteractionAction.RightClick);
+        Check.That(fired[0].Point.X).IsCloseTo(800, 60);
+        Check.That(fired[0].Point.Y).IsCloseTo(600, 60);
+    }
+
+    [Theory]
+    [InlineData(960, 1080, 960, 1120)]   // 40 px past the bottom edge
+    [InlineData(0, 540, -40, 540)]       // 40 px past the left edge
+    [InlineData(1920, 540, 1960, 540)]   // 40 px past the right edge
+    public void RepeatMode_GlidePastABandLessEdge_DoesNotFire(
+        double armX, double armY, double glideX, double glideY)
+    {
+        // C4 end-to-end through the real fixation detector: the ~40 px glide leaves the fixation
+        // alive (radius 75 px), so a click at the stale on-screen arm point would fire. The dwell
+        // must instead be disarmed by the sample's own filtered position.
+        var h = new GazeFlowHarness(SelectionMode.None);
+        h.Interaction.RepeatDwellMs = 400;
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // back to FreeLook
+        h.Interaction.EnterRepeatMode(InteractionAction.RightClick);
+        h.Interaction.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var baseline = h.ActionsRequested.Count;
+
+        h.Hold(armX, armY, durationMs: 450);        // fixation onset ~300 ms arms the dwell
+        h.Hold(glideX, glideY, durationMs: 1100);   // 40 px past the edge, well past the dwell
+
+        Check.WithCustomMessage("an armed repeat run clicked after a glide past the edge.")
+             .That(h.ActionsRequested.Skip(baseline)).IsEmpty();
+        Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);   // the mode itself survives
+    }
+
+    [Fact]
+    public void RepeatMode_GlideOffScreenAndBack_DoesNotRefire_UntilAFreshFixation()
+    {
+        // C4's chosen rule is DISARM, not pause: the glided-away run must be re-aimed with a
+        // fresh fixation. Coming back on-screen inside the same fixation does not re-fire.
+        var h = new GazeFlowHarness(SelectionMode.None);
+        h.Interaction.RepeatDwellMs = 400;
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);
+        h.Interaction.EnterRepeatMode(InteractionAction.RightClick);
+        h.Interaction.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var baseline = h.ActionsRequested.Count;
+
+        h.Hold(960, 1080, durationMs: 450);   // arm at the bottom edge
+        h.Hold(960, 1120, durationMs: 500);   // glide 40 px past: disarm
+        h.Hold(960, 1080, durationMs: 900);   // back on-screen, same fixation: no re-arm
+
+        Check.WithCustomMessage("the disarmed run re-fired when the gaze returned on-screen.")
+             .That(h.ActionsRequested.Skip(baseline)).IsEmpty();
+
+        h.Hold(500, 500, durationMs: 1200);   // the gaze leaves: a fresh fixation arms and fires
+
+        var fired = h.ActionsRequested.Skip(baseline).ToList();
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].Point.X).IsCloseTo(500, 60);
+        Check.That(fired[0].Point.Y).IsCloseTo(500, 60);
+    }
+
+    [Fact]
+    public void RepeatMode_InvalidSamples_DoNotAdvanceTheDwell()
+    {
+        // The held position of a lost-eyes gap is not evidence of where the user looks, so it
+        // must neither advance nor fire the repeat dwell (the 2 s auto-exit is a separate path).
+        var h = new GazeFlowHarness(SelectionMode.None);
+        h.Interaction.RepeatDwellMs = 400;
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);
+        h.Interaction.EnterRepeatMode(InteractionAction.RightClick);
+        h.Interaction.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var baseline = h.ActionsRequested.Count;
+
+        h.Hold(800, 600, durationMs: 450);          // arms
+        h.HoldInvalid(800, 600, durationMs: 700);   // eyes lost, well past the dwell, below the 2 s exit
+
+        Check.WithCustomMessage("an invalid (held-position) sample advanced the repeat dwell.")
+             .That(h.ActionsRequested.Skip(baseline)).IsEmpty();
+        Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);
+    }
+
+    [Fact]
     public void Pause_SuppressesCursorMovement_AndTogglesBack()
     {
         var h = new GazeFlowHarness();

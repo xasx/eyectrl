@@ -27,7 +27,41 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         // default state, so without this the window would keep WPF's full-opacity default until the
         // first transition — i.e. the ring would read as "pinned" on launch.
         Opacity = FreeLookQuietOpacity;
+
+        _firedFlash = new FiredFlash(FiredFlashBand);
+        // A ring hidden mid-flash comes back at rest: the flash belongs to the fire, never to the
+        // next time the ring reappears.
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible) _firedFlash.End();
+        };
     }
+
+    private readonly FiredFlash _firedFlash;
+
+    /// <summary>
+    /// One brief luminance step confirming a dwell fired (Wave C C1). Only a ring that is on screen
+    /// flashes: a fire while the window is hidden is dropped, never queued for its reappearance.
+    /// Touches neither the bands nor <see cref="Window.Opacity"/>, so the quiet and pinned looks and
+    /// the per-band rest values are exactly as they were once the step ends.
+    /// </summary>
+    public void FlashFired()
+    {
+        if (!IsVisible) return;
+        _firedFlash.Start();
+    }
+
+    /// <summary>True while the fired flash is showing.</summary>
+    internal bool IsFiredFlashLit => _firedFlash.IsLit;
+
+    /// <summary>True while the flash's end is scheduled.</summary>
+    internal bool IsFiredFlashEndScheduled => _firedFlash.IsEndScheduled;
+
+    /// <summary>The flash's scheduled length.</summary>
+    internal TimeSpan FiredFlashInterval => _firedFlash.Interval;
+
+    /// <summary>Ends the flash now: what the timer's tick does (a pumpless test cannot tick it).</summary>
+    internal void EndFiredFlash() => _firedFlash.End();
 
     /// <summary>
     /// Window opacity in FreeLook: the quiet look. The ring follows gaze but reads as a faint hint
@@ -198,6 +232,12 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         Circle.Height = size;
         CircleHalo.Width = size;
         CircleHalo.Height = size;
+
+        // The flash covers the whole stroke: as wide as the widest band (the outer one, or both
+        // when they are equal as in BiTonalSegments), so no band edge shows through the step.
+        FiredFlashBand.Width = size;
+        FiredFlashBand.Height = size;
+        FiredFlashBand.StrokeThickness = Math.Max(stack.Outer.Thickness, stack.Core.Thickness);
     }
 
     /// <summary>

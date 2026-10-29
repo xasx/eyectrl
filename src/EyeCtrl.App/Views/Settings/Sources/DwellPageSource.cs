@@ -75,6 +75,12 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.dwell.cue_sound.label"),
                     () => d.CueEnabled, v => { d.CueEnabled = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.cue_sound.description"), Simple = true },
+                // Wave C C1: the visual sibling of d_cue_sound, on the same announcement. All mode
+                // only (not Simple): it is on by default and needs no curation.
+                new ToggleSpec("d_ring_flash",
+                    StringTable.Current.T("settings.dwell.ring_flash.label"),
+                    () => d.RingFiredFlashEnabled, v => { d.RingFiredFlashEnabled = v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.ring_flash.description") },
                 // Wave B B3: a distinct sound from d_cue_sound — a real tracker disconnect, not a
                 // completed dwell. Simple by decision (the owner hears it by default and must be
                 // able to turn it off); the curation pin below records it.
@@ -100,6 +106,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         d.DwellPauseGraceMs = def.DwellPauseGraceMs;
                         d.ResumeDwellMs = def.ResumeDwellMs;
                         d.CueEnabled = def.CueEnabled;
+                        d.RingFiredFlashEnabled = def.RingFiredFlashEnabled;
                         d.StatusChimeEnabled = def.StatusChimeEnabled;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();

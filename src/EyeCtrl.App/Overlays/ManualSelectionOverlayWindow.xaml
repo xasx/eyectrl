@@ -22,5 +22,10 @@
                  StrokeThickness="4" IsHitTestVisible="False"/>
         <Ellipse x:Name="Rim" Stroke="{StaticResource BrushTextPrimary}"
                  StrokeThickness="2" IsHitTestVisible="False"/>
+        <!-- Wave C C1: the rim's "fired" flash when the magnifier opens from an accepted offer.
+             Collapsed at rest; as wide as RimHalo and painted over both rim ellipses, which the
+             flash never writes. -->
+        <Ellipse x:Name="RimFlash" Visibility="Collapsed"
+                 StrokeThickness="4" IsHitTestVisible="False"/>
     </Grid>
 </overlays:OverlayWindow>

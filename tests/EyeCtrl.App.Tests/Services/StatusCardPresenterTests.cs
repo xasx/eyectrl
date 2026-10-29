@@ -281,6 +281,70 @@ public class StatusCardPresenterTests
         finally { window.Close(); }
     }
 
+    // C5 H2: the Paused card queues behind the alert; TrackingLost's own first entry then replaces
+    // it before it ever reached the screen. The replaced Paused card was never read, so the later
+    // pause (the acceptance sequence's "back") must still get it — the queued overwrite must not
+    // spend the state.
+    [StaFact]
+    public void AQueuedCard_OverwrittenByANewerFirstEntry_IsNotUsedUp()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        var alert = new FakeAlert();
+        try
+        {
+            presenter.Start();
+            slot.Preempt(alert);
+            status.Enter(ControlState.Paused);       // queued behind the alert, never shown
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.TrackingLost); // a newer first entry overwrites the pending card
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Paused);       // back to Paused while the alert still holds
+            alert.Close();                           // the slot reaches the card now
+
+            Check.WithCustomMessage("the Paused card overwritten while queued must still be read later")
+                .That(window.IsVisible).IsTrue();
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
+            Check.That(slot.IsLive(presenter)).IsTrue();
+        }
+        finally { window.Close(); }
+    }
+
+    // The other half of B9's rule under the same overwrite path: a card that COMPLETED its hold is
+    // used up, so a later state change must not put it back in play.
+    [StaFact]
+    public void ACompletedCard_OverwrittenByANewerFirstEntry_StaysUsedUp()
+    {
+        var window = HiddenCardWindow();
+        var slot = new BannerSlot();
+        var status = new FakeStatus();
+        using var presenter = new StatusCardPresenter(slot, window, status, noTrackerIsFallback: true);
+        try
+        {
+            presenter.Start();
+            status.Enter(ControlState.TrackingLost);
+            Check.That(window.IsVisible).IsTrue();
+
+            window.OnFadeCompleted(null, EventArgs.Empty); // the 8 s hold completed: a real read
+            Check.That(window.IsVisible).IsFalse();
+
+            status.Enter(ControlState.Paused);   // a newer first entry replaces _pending
+            Check.That(window.Message.Text).IsEqualTo(
+                StatusCardWindow.MessageFor(EyeCtrl.Core.Localization.StringTable.Current, ControlState.Paused));
+            status.Enter(ControlState.Normal);   // that pause ends before its own hold completes
+            status.Enter(ControlState.TrackingLost);
+
+            Check.WithCustomMessage("a card that completed its hold must stay used up across an overwrite")
+                .That(window.IsVisible).IsFalse();
+        }
+        finally { window.Close(); }
+    }
+
     [StaFact]
     public void ACardQueuedBehindAnAlert_WhoseStateHolds_ShowsWhenTheAlertCloses()
     {

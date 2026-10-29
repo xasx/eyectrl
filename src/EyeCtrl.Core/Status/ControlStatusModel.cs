@@ -63,6 +63,7 @@ public sealed class ControlStatusModel
 
     private readonly TimeProvider _time;
     private readonly bool _eyeTrackerProvider;
+    private readonly bool _noTracker;
 
     // Two locks, never nested in the opposite order: _gate owns the status, _notifyGate serializes
     // handler delivery so a late publisher cannot deliver an older status after a newer one.
@@ -86,21 +87,30 @@ public sealed class ControlStatusModel
     /// </summary>
     /// <param name="providerType">
     /// The RESOLVED provider type (the app passes <c>GazeProviderFactory.GetProviderType</c>'s answer,
-    /// which unwraps decorators). <see cref="GazeProviderType.Mouse"/> is the no-tracker case; every
-    /// other value is treated as an eye tracker.
+    /// which unwraps decorators). Every non-Mouse value is treated as an eye tracker.
     /// </param>
     /// <param name="timeProvider">The clock. Defaults to <see cref="TimeProvider.System"/>.</param>
     /// <param name="initiallyPaused">
     /// The interaction state at construction — <c>true</c> for a <c>--paused</c>/<c>StartPaused</c>
     /// launch, so the first published status is already Paused.
     /// </param>
+    /// <param name="mouseIsFallback">
+    /// Whether the Mouse provider is a real TRACKER-TO-MOUSE fallback rather than a deliberate
+    /// choice (the splash sentence's predicate, <c>SplashWindow.ShowsNoTrackerSentence</c>). Only a
+    /// fallback reports <see cref="ControlState.NoTracker"/>; a deliberate Mouse provider — the
+    /// owner's explicit setting, or <c>--test-mode</c> — reports only Paused or Normal, and its
+    /// TrackingLost clock is skipped entirely (Wave C ticket C5 H1). Defaults to false: the safe
+    /// reading is that a Mouse provider was chosen on purpose.
+    /// </param>
     public ControlStatusModel(
         GazeProviderType providerType,
         TimeProvider? timeProvider = null,
-        bool initiallyPaused = false)
+        bool initiallyPaused = false,
+        bool mouseIsFallback = false)
     {
         _time = timeProvider ?? TimeProvider.System;
         _eyeTrackerProvider = providerType != GazeProviderType.Mouse;
+        _noTracker = !_eyeTrackerProvider && mouseIsFallback;
         _paused = initiallyPaused;
 
         long now = _time.GetTimestamp();
@@ -236,7 +246,7 @@ public sealed class ControlStatusModel
     }
 
     private ControlState InitialState() =>
-        !_eyeTrackerProvider ? ControlState.NoTracker
+        _noTracker ? ControlState.NoTracker
         : _paused ? ControlState.Paused
         : ControlState.Normal;
 
@@ -256,10 +266,13 @@ public sealed class ControlStatusModel
 
     private ControlState DesiredState(long now)
     {
-        if (!_eyeTrackerProvider)
+        if (_noTracker)
             return ControlState.NoTracker;
 
-        if (_time.GetElapsedTime(_lastValidSampleTimestamp, now) >= TimeSpan.FromMilliseconds(TrackingLostAfterMs))
+        // Only an eye tracker can lose tracking: a deliberate Mouse provider has no gaze stream to
+        // lose, so the 3 s clock is skipped and it can only be Paused or Normal (C5 H1).
+        if (_eyeTrackerProvider
+            && _time.GetElapsedTime(_lastValidSampleTimestamp, now) >= TimeSpan.FromMilliseconds(TrackingLostAfterMs))
             return ControlState.TrackingLost;
 
         return _paused ? ControlState.Paused : ControlState.Normal;

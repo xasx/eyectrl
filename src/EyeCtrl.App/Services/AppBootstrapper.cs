@@ -363,16 +363,28 @@ public class AppBootstrapper
         // so the 3 s lost-gaze clock begins with the stream, not with boot.
         //
         // The provider type is the RESOLVED one (GazeProviderFactory.GetProviderType unwraps the
-        // recording decorator): Mouse means NoTracker. Resolving GazeEngine here is fine - this
-        // factory is evaluated lazily, after the engine's own registration.
-        services.AddSingleton(sp => new ControlStatusService(
-            sp.GetRequiredService<IGazeProvider>(),
-            sp.GetRequiredService<GazeEngine>().InteractionManager,
-            GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()),
-            sp.GetRequiredService<IMessenger>(),
-            sp.GetRequiredService<TimeProvider>(),
-            work => dispatcher.BeginInvoke(work),
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<ControlStatusService>()));
+        // recording decorator). Resolving GazeEngine here is fine - this factory is evaluated
+        // lazily, after the engine's own registration.
+        //
+        // A Mouse provider is only NoTracker when it is a FALLBACK (C5 H1): the splash sentence's
+        // predicate separates a tracker-to-mouse fallback from a deliberate choice (and --test-mode).
+        // A deliberate mouse reports only Paused or Normal, so a pause in Mouse mode is not hidden
+        // behind a permanent "No eye tracker" strip.
+        services.AddSingleton(sp =>
+        {
+            var provider = sp.GetRequiredService<IGazeProvider>();
+            var providerType = GazeProviderFactory.GetProviderType(provider);
+            return new ControlStatusService(
+                provider,
+                sp.GetRequiredService<GazeEngine>().InteractionManager,
+                providerType,
+                sp.GetRequiredService<IMessenger>(),
+                sp.GetRequiredService<TimeProvider>(),
+                work => dispatcher.BeginInvoke(work),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<ControlStatusService>(),
+                mouseIsFallback: SplashWindow.ShowsNoTrackerSentence(
+                    settings.General.GazeProviderType, providerType, isTestMode));
+        });
         services.AddSingleton<IControlStatus>(sp => sp.GetRequiredService<ControlStatusService>());
 
         // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.

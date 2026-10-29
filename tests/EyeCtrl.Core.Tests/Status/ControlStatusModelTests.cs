@@ -12,10 +12,11 @@ using Microsoft.Extensions.Time.Testing;
 public class ControlStatusModelTests
 {
     private static (ControlStatusModel Model, FakeTimeProvider Time, List<ControlStatus> Published)
-        NewModel(GazeProviderType provider = GazeProviderType.StreamEngine, bool initiallyPaused = false)
+        NewModel(GazeProviderType provider = GazeProviderType.StreamEngine, bool initiallyPaused = false,
+            bool mouseIsFallback = false)
     {
         var time = new FakeTimeProvider();
-        var model = new ControlStatusModel(provider, time, initiallyPaused);
+        var model = new ControlStatusModel(provider, time, initiallyPaused, mouseIsFallback);
         var published = new List<ControlStatus>();
         model.StatusChanged += published.Add;
         model.Start();
@@ -36,9 +37,9 @@ public class ControlStatusModelTests
     }
 
     [Fact]
-    public void AMouseProvider_IsNoTracker_AndStaysThereUnderEveryOtherCondition()
+    public void AFallbackMouseProvider_IsNoTracker_AndStaysThereUnderEveryOtherCondition()
     {
-        var (model, time, published) = NewModel(GazeProviderType.Mouse);
+        var (model, time, published) = NewModel(GazeProviderType.Mouse, mouseIsFallback: true);
 
         Check.That(model.Current.State).IsEqualTo(ControlState.NoTracker);
 
@@ -50,6 +51,35 @@ public class ControlStatusModelTests
 
         Check.That(model.Current.State).IsEqualTo(ControlState.NoTracker);
         Check.That(published).IsEmpty();
+    }
+
+    [Fact]
+    public void ADeliberateMouseProvider_IsOnlyPausedOrNormal_NeverNoTrackerOrTrackingLost()
+    {
+        // C5 H1: the mouse was chosen on purpose (or the app runs --test-mode), so "no eye tracker"
+        // would be false and the 3 s lost-gaze clock must not apply.
+        var (model, time, published) = NewModel(GazeProviderType.Mouse);
+
+        Check.That(model.Current.State).IsEqualTo(ControlState.Normal);
+
+        model.SetPaused(true);
+        Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
+
+        // No samples for a minute and a disconnected provider: neither condition touches the state.
+        AdvanceMs(time, 60_000);
+        model.Poll(true);
+        Check.That(model.Current.State).IsEqualTo(ControlState.Paused);
+
+        model.SetPaused(false);
+        Check.That(model.Current.State).IsEqualTo(ControlState.Normal);
+
+        AdvanceMs(time, 60_000);
+        model.Poll(true);
+        Check.That(model.Current.State).IsEqualTo(ControlState.Normal);
+
+        Check.That(published).ContainsOnlyElementsThatMatch(
+            s => s.State is ControlState.Paused or ControlState.Normal);
+        Check.That(published).HasSize(2);
     }
 
     [Fact]
@@ -149,7 +179,8 @@ public class ControlStatusModelTests
     [Fact]
     public void NoTracker_OutranksTrackingLostAndPaused()
     {
-        var (model, time, _) = NewModel(GazeProviderType.Mouse, initiallyPaused: true);
+        var (model, time, _) = NewModel(
+            GazeProviderType.Mouse, initiallyPaused: true, mouseIsFallback: true);
 
         AdvanceMs(time, 60_000);
         model.Poll(false);

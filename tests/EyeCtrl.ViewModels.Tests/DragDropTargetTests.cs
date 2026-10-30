@@ -576,6 +576,80 @@ public class DragDropTargetTests
         });
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AnArmingCreep_DropsAtTheArmedRest_NotTowardsTheMenuSpot(double scale)
+    {
+        // Fixup-02 T2 (armed only): the latch arms by a slow creep away from the menu spot, with
+        // no spot restart on the way (0.2 R a sample; the one crossing re-centres within 1.5 R).
+        // The disarmed creep samples are inside the disc but were never credited, so they must
+        // not pull the drop back towards the menu. Mutant: disarmed inside samples enter the
+        // centroid.
+        WithDpi(scale, () =>
+        {
+            using var world = new World(arm: false);
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var menu = new PhysicalPoint(1300, 1000);
+            var t = 0L;
+            for (var k = 0; k <= 8; k++, t += StepUs)
+                world.Send(new PhysicalPoint(menu.X + (k * 0.2 * r), menu.Y), t);
+            var rest = new PhysicalPoint(menu.X + (1.6 * r), menu.Y);
+            for (var k = 0; k < 30 && world.Drops == 0; k++, t += StepUs)
+                world.Send(rest, t);
+
+            Check.That(world.Drops).IsEqualTo(1);
+            Check.WithCustomMessage($"DPI {scale}: dropped at {world.DropPoint}, pulled from the armed rest {rest} towards the menu.")
+                .That(world.DropPoint!.Value.DistanceTo(rest)).IsLessOrEqualThan(1e-6);
+        });
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ASampleOutsideTheDiscDuringAGracePause_DoesNotMoveTheDropPoint(double scale)
+    {
+        // Fixup-02 T2 (inside only): the rest walks out in 0.3 R steps and crosses the edge once.
+        // That crossing sample is outside the disc as drawn — held by the grace, never credited —
+        // so it is not part of the rest the drop lands on. Mutant: every armed sample enters the
+        // centroid.
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var sent = new List<PhysicalPoint>();
+            var crossing = -1;
+            var t = 0L;
+            void Send(PhysicalPoint at)
+            {
+                sent.Add(at);
+                world.Send(at, t);
+                t += StepUs;
+            }
+
+            for (var k = 0; k < 8; k++)
+                Send(spot);
+            for (var k = 1; k <= 3; k++)
+                Send(new PhysicalPoint(spot.X + (k * 0.3 * r), spot.Y));
+            crossing = sent.Count;
+            var across = new PhysicalPoint(spot.X + (1.2 * r), spot.Y);
+            Send(across);
+            Check.That(world.Trail.IsReleasePaused).IsTrue();
+            for (var k = 0; k < 30 && world.Drops == 0; k++)
+                Send(across);
+
+            Check.That(world.Drops).IsEqualTo(1);
+            var credited = sent.Where((_, i) => i != crossing).ToList();
+            var expected = new PhysicalPoint(credited.Average(p => p.X), credited.Average(p => p.Y));
+            var withCrossing = new PhysicalPoint(sent.Average(p => p.X), sent.Average(p => p.Y));
+            Check.WithCustomMessage("the scenario must tell the two centroids apart.")
+                .That(expected.DistanceTo(withCrossing)).IsStrictlyGreaterThan(1.0);
+            Check.WithCustomMessage($"DPI {scale}: the paused crossing sample moved the drop to {world.DropPoint} (expected {expected}).")
+                .That(world.DropPoint!.Value.DistanceTo(expected)).IsLessOrEqualThan(1e-6);
+        });
+    }
+
     // ── fixup-01 R5: a visit to an exit re-anchors the spot ───────────────────
 
     [Fact]

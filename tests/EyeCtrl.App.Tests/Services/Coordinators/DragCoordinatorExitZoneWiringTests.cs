@@ -92,6 +92,13 @@ public class DragCoordinatorExitZoneWiringTests
             drag.OnDragStarted(new PhysicalPoint(300, 300));
             Check.That(drag.LastSetupFailure).IsNull();
 
+            // C2 fixup-02 T3: the drop arms only once the gaze has left the spot of the first
+            // sample after the start (the hidden Drag menu item). One saccade from far away
+            // first, or the no-drop rows below would pass by never arming the release target.
+            var anchor = DragCoordinator.ExitAnchorPhysical;
+            context.Messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(anchor.X - 1600, anchor.Y), -30_000));
+
             // 900 ms at 30 Hz: past the 500 ms settle and the 600 ms release dwell.
             for (long t = 0; t <= 900_000; t += 30_000)
                 context.Messenger.Send(new GazeCursorMovedMessage(at, t));

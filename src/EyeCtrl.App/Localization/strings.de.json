@@ -1811,8 +1811,8 @@
     "src": "fbe720b0"
   },
   "settings.dwell.ring_flash.label": {
-    "text": "Aufleuchten bei Auslösung",
-    "src": "8ce2021a"
+    "text": "Hervorheben bei Auslösung",
+    "src": "6632534d"
   },
   "settings.dwell.status_chime.description": {
     "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Wegschauen oder eine absichtliche Pause lösen ihn nicht aus.",

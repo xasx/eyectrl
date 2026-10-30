@@ -3279,7 +3279,7 @@
     "args": []
   },
   "settings.dwell.ring_flash.label": {
-    "text": "Dwell Completion Flash",
+    "text": "Dwell Completion Highlight",
     "who": "user",
     "where": "settings",
     "fit": "row",

@@ -44,6 +44,14 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// (spec 2026-09-23, ledger D3).</summary>
     [ObservableProperty] private bool _cueEnabled = false;
     /// <summary>
+    /// Whether the cursor ring makes one brief weight step (bolder, never recoloured) when a dwell
+    /// fires while the ring is visible (Wave C ticket C1): the visual sibling of
+    /// <see cref="CueEnabled"/>, on the same announcement, so keys (which never announce) do not
+    /// flash. An accepted activation offer flashes the magnifier's rim instead. Default ON. A new property, so an existing settings
+    /// file picks the default from the initializer.
+    /// </summary>
+    [ObservableProperty] private bool _ringFiredFlashEnabled = true;
+    /// <summary>
     /// Whether a short chime plays when the eye tracker has really disconnected (Wave B ticket B3):
     /// the rising edge of the published <c>Disconnected</c> flag, more than 10 s of continuous
     /// <c>IsConnected == false</c>. It sits beside <see cref="CueEnabled"/> because both are sound

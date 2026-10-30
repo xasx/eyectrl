@@ -86,6 +86,13 @@ public interface ICursorCircleOverlay
     /// (reduced emphasis) in FreeLook; the pin is what makes stillness the "you're holding" signal.
     /// </summary>
     void SetPinned(bool pinned);
+
+    /// <summary>
+    /// One brief weight step confirming a dwell fired (Wave C C1); a no-op while the ring is
+    /// hidden. Display only: no position, pin or visibility change. A default no-op so the many
+    /// overlay fakes that never observe it need no member; the real window implements it.
+    /// </summary>
+    void FlashFired() { }
 }
 
 /// <summary>The activation button's dwell feedback, drawn where the dwell is counted.</summary>
@@ -130,6 +137,13 @@ public interface IManualSelectionOverlay
     /// point; every mapping between the magnified view and real screen coordinates reads it.
     /// </summary>
     PhysicalPoint EffectiveCaptureCenter { get; }
+
+    /// <summary>
+    /// One brief weight step on the rim (Wave C C1), for a magnifier opened by an accepted
+    /// activation offer. Rim only: capture, zoom and recapture are untouched. A default no-op for
+    /// the fakes, like <see cref="ICursorCircleOverlay.FlashFired"/>.
+    /// </summary>
+    void FlashRim() { }
 }
 
 /// <summary>The radial action menu.</summary>

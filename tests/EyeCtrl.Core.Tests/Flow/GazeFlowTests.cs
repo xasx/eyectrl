@@ -1,7 +1,9 @@
 namespace EyeCtrl.Core.Tests.Flow;
 
 using System.Linq;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// End-to-end interaction-flow tests driven entirely by synthetic gaze through the real
@@ -284,6 +286,108 @@ public class GazeFlowTests
         Check.WithCustomMessage("an invalid (held-position) sample advanced the repeat dwell.")
              .That(h.ActionsRequested.Skip(baseline)).IsEmpty();
         Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);
+    }
+
+    [Fact]
+    public void RepeatMode_TheDwellCompletingSampleThatLeavesTheFixation_StillFires()
+    {
+        // F2 (review 01): the repeat call must run BEFORE _fixationDetector.Update. A sample that
+        // completes the dwell AND leaves the 75 px fixation radius on-screen still fires at the
+        // arm point, because the dwell advances before OnFixationEnded. Mutation: move the call
+        // after the detector update → RED (the fixation end disarms the run first).
+        var h = new GazeFlowHarness(SelectionMode.None);
+        h.Interaction.RepeatDwellMs = 400;
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // back to FreeLook
+        h.Interaction.EnterRepeatMode(InteractionAction.RightClick);
+        h.Interaction.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        var baseline = h.ActionsRequested.Count;
+
+        h.Hold(800, 600, durationMs: 450);   // onset ~330 ms arms at (800,600), ~100 ms of dwell
+        h.Hold(800, 600, durationMs: 250);   // ~360 ms of dwell: one sample short
+        Check.WithCustomMessage("the dwell fired before the completing sample.")
+             .That(h.ActionsRequested.Skip(baseline)).IsEmpty();
+
+        h.Gaze(1000, 600, dtMs: 60);         // >75 px jump; its timestamp crosses the 400 ms dwell
+
+        var fired = h.ActionsRequested.Skip(baseline).ToList();
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].Action).IsEqualTo(InteractionAction.RightClick);
+        Check.That(fired[0].Point.X).IsCloseTo(800, 60);
+        Check.That(fired[0].Point.Y).IsCloseTo(600, 60);
+    }
+
+    [Fact]
+    public void RepeatMode_TheGlideGateSeesTheCalibratedFilteredPoint()
+    {
+        // F3 (review 01): the gate must judge the point the fixation detector sees — calibrated
+        // and filtered — not the raw sample. Here the raw sample is 180 px past the right edge and
+        // the calibrated one 80 px past it, while the EMA-lagged filtered point is still on-screen:
+        // only the filtered point fires. Mutants: feed `corrected` (calibrated, unfiltered) or the
+        // raw `gaze` → both judge a point past the disarm band and never fire → RED.
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Smoothed;
+        settings.Cursor.SmoothingFactor = 0.2;
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(
+            provider,
+            new RecordingInputSimulator(),
+            settings,
+            CalibrationWithOffset(dx: 100, dy: 0));
+        engine.Start();
+        var im = engine.InteractionManager;
+        im.RepeatDwellMs = 600;
+        im.SetRepeatScreenBounds(new PhysicalRect(0, 0, 1920, 1080), tolerancePhysical: 10);
+        im.EnterRepeatMode(InteractionAction.LeftClick);
+        var fired = new List<PhysicalPoint>();
+        im.ActionRequested += (_, p, _) => fired.Add(p);
+
+        // Raw (1820, 540) calibrates to (1720, 540); the EMA output is 1720 (constant input).
+        long ts = FeedValidRaw(provider, 1820, 540, fromUs: 0, samples: 14);   // 450 ms, onset ~330
+        Check.That(fired).IsEmpty();
+
+        // One sample: raw (2100,540) → corrected (2000,540, past +30) but filtered 1776 (on-screen).
+        // The 520 ms jump crosses the 600 ms dwell on this sample.
+        provider.Push(new GazePoint(2100, 540, ts + 520_000, true));
+
+        Check.WithCustomMessage("the gate judged the raw or unfiltered point, not the filtered one.")
+             .That(fired).HasSize(1);
+        Check.That(fired[0].X).IsCloseTo(1720, 0.5);
+        Check.That(fired[0].Y).IsCloseTo(540, 0.5);
+    }
+
+    /// <summary>
+    /// A calibration service whose fitted transform maps raw gaze to the screen by subtracting the
+    /// given offset (targets are fed as raw = target + offset).
+    /// </summary>
+    private static CalibrationService CalibrationWithOffset(double dx, double dy)
+    {
+        var screen = new PhysicalPoint(1920, 1080);
+        var service = new CalibrationService();
+        service.StartSession(4, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(4, screen);
+        for (int i = 0; i < targets.Count; i++)
+        {
+            service.BeginTarget(i, settleWindowMs: 0);
+            for (int j = 0; j < 10; j++)
+                service.AddRawSample(new PhysicalPoint(targets[i].X + dx, targets[i].Y + dy));
+            service.EndTarget();
+        }
+        Check.That(service.CompleteSession(screen, "DISPLAY1")).IsNotNull();
+        return service;
+    }
+
+    /// <summary>Pushes <paramref name="samples"/> valid raw samples 33 ms apart; returns the last timestamp.</summary>
+    private static long FeedValidRaw(
+        ScriptedGazeProvider provider, double x, double y, long fromUs, int samples, int stepUs = 33_000)
+    {
+        long ts = fromUs;
+        for (int i = 0; i < samples; i++)
+        {
+            ts += stepUs;
+            provider.Push(new GazePoint(x, y, ts, true));
+        }
+        return ts;
     }
 
     [Fact]

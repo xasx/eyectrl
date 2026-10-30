@@ -216,6 +216,17 @@ public class InteractionManager
     // Whether LockedModeGazeLost already fired for the current lost-gaze episode. Gaze thread only.
     private bool _lockedModeGazeLostRaised;
     private PhysicalRect[] _repeatSuppressionZones = Array.Empty<PhysicalRect>();
+    // C4 fixup-01 (review 01 F1): the glide gate has TWO bands. The injected tolerance is the no-fire
+    // edge — a sample past it neither advances nor fires, so ordinary hold wander on a target hugging
+    // an edge cannot kill the dwell. Only past this margin does the run disarm: on the owner's
+    // recording one stray sample past bounds + 10 px lost 26–34 % of dwells on targets 10–15 px
+    // inside an edge (0 % before C4), while a 40 px glide (the ticket's case) still disarms here.
+    /// <summary>
+    /// How far past the published screen bounds a valid sample must lie before the armed repeat run
+    /// DISARMS, in physical px. Between the tolerance (the arm/no-fire edge, normally 10 px) and this
+    /// margin the dwell neither advances nor fires; it continues when the gaze is back on-screen.
+    /// </summary>
+    public const double RepeatDisarmMarginPhysical = 30;
     // The on-screen arm gate for the repeat dwell (A5 fixup-03 H2): the App publishes the primary
     // screen at mode entry. Null keeps the pre-fix behaviour (every point may arm).
     private PhysicalRect? _repeatScreenBounds;
@@ -1010,14 +1021,16 @@ public class InteractionManager
     /// by <see cref="GazeEngine"/> with the same point the fixation detector sees, BEFORE the
     /// detector update, so the sample that ends a fixation is judged on its own position (C4).
     /// <para>
-    /// A position outside the published screen bounds plus the tolerance does not advance the dwell
-    /// and cannot fire it: the run is DISARMED (progress back to 0, the target cleared), so it must
-    /// re-arm on a fresh on-screen fixation — the same rule A5 fixup-03 applies to an off-screen
-    /// arm, and the same cancel <see cref="OnFixationEnded"/> already performs. Pausing instead
-    /// would resume, on the user's return, the very click their glide past the edge was not asking
-    /// for (a toolbar summon the OS clamps onto the screen edge). A run that already fired keeps
-    /// its contracted cursor until the run ends (round 3 finding 6). With no bounds published
-    /// (tests, pre-fix wiring) every position is allowed, exactly as for the arm gate.
+    /// Two bands past the published screen bounds (C4 fixup-01, review 01 F1): a sample past the
+    /// tolerance and inside <see cref="RepeatDisarmMarginPhysical"/> only stops the dwell for that
+    /// sample — it cannot advance it and cannot fire it, and the run continues (same start time) on
+    /// the next on-screen sample. Ordinary hold wander on a target 10–15 px inside an edge lives
+    /// here; disarming on it lost 26–34 % of such dwells. Past
+    /// <see cref="RepeatDisarmMarginPhysical"/> the run is DISARMED (progress back to 0, the target
+    /// cleared), so a real glide past the edge must re-arm on a fresh on-screen fixation — the same
+    /// rule A5 fixup-03 applies to an off-screen arm. A run that already fired keeps its contracted
+    /// cursor until the run ends (round 3 finding 6). With no bounds published (tests, pre-fix
+    /// wiring) every position is allowed, exactly as for the arm gate.
     /// </para>
     /// </summary>
     /// <param name="point">The sample's calibrated, filtered position, in physical screen pixels.</param>
@@ -1027,12 +1040,16 @@ public class InteractionManager
         if (CurrentState != InteractionState.RepeatMode) return;
         if (_repeatDwellPoint is not { } target) return;   // nothing armed: nothing to judge
 
-        if (!IsOnRepeatScreen(point))
+        if (!IsWithinRepeatScreen(point, RepeatDisarmEdgePhysical))
         {
             if (_repeatDwellFired) return;   // spent: stays contracted until the run ends
             DisarmRepeatDwell();
             return;
         }
+
+        // No-fire band: no advance, no fire, no reset. The timestamp-based elapsed still runs, so
+        // the click lands on the first on-screen sample after the wander.
+        if (!IsOnRepeatScreen(point)) return;
 
         if (_repeatDwellFired) return;
 
@@ -1079,9 +1096,10 @@ public class InteractionManager
     /// The on-screen area the repeat dwell may ARM in, in physical px, set by the app-side repeat
     /// controller at mode entry (A5 fixup-03 H2). A fixation outside it is the toolbar/Quick-Actions
     /// summon gesture; a repeat click there would be clamped by the OS onto the screen edge (a tab
-    /// strip or title bar). The same bounds gate every armed sample's own position (C4): a valid
-    /// sample outside them disarms the run, so a glide past the edge cannot fire the stale target.
-    /// Null (the default) keeps the pre-fix behaviour.
+    /// strip or title bar). The same bounds gate every armed sample's own position (C4): past them
+    /// the dwell only pauses for that sample, and past them plus
+    /// <see cref="RepeatDisarmMarginPhysical"/> the run disarms. Null (the default) keeps the
+    /// pre-fix behaviour.
     /// </summary>
     public void SetRepeatScreenBounds(PhysicalRect? bounds, double tolerancePhysical = 0)
     {
@@ -1101,9 +1119,24 @@ public class InteractionManager
     /// bounds inflated by the tolerance. With no bounds published, everything is allowed.
     /// </summary>
     private bool IsOnRepeatScreen(PhysicalPoint point)
+        => IsWithinRepeatScreen(point, _repeatScreenTolerancePhysical);
+
+    /// <summary>
+    /// The disarm edge, in physical px past the published bounds: the wider of the published
+    /// tolerance and <see cref="RepeatDisarmMarginPhysical"/>. A sample past it disarms; between the
+    /// tolerance and it the dwell only pauses for that sample.
+    /// </summary>
+    private double RepeatDisarmEdgePhysical
+        => Math.Max(_repeatScreenTolerancePhysical, RepeatDisarmMarginPhysical);
+
+    /// <summary>
+    /// Whether <paramref name="point"/> is inside the published screen bounds inflated by
+    /// <paramref name="marginPhysical"/>. With no bounds published, everything is inside.
+    /// </summary>
+    private bool IsWithinRepeatScreen(PhysicalPoint point, double marginPhysical)
     {
         if (_repeatScreenBounds is not { } screen) return true;
-        var tol = _repeatScreenTolerancePhysical;
+        var tol = marginPhysical;
         return point.X >= screen.X - tol && point.X <= screen.X + screen.Width + tol
             && point.Y >= screen.Y - tol && point.Y <= screen.Y + screen.Height + tol;
     }

@@ -280,6 +280,111 @@ public class InteractionManagerRepeatModeTests
         Check.That(fired).IsEqualTo(1);
     }
 
+    [Fact]
+    public void AnEdgeHuggingArm_SurvivesWanderingPastTheTolerance_AndFires()
+    {
+        // C4 fixup-01 (review 01 F1): on the owner's recording, disarming on one sample past +10 px
+        // lost 26–34 % of dwells on targets 10–15 px inside an edge (34 % at 10 px, 26 % at 15 px,
+        // 20 % at 20 px), against 0 % before C4. A scrollbar sits ~17 px inside.
+        // The no-fire band must absorb that wander: the run keeps its start time and fires at the
+        // arm point once the gaze is back inside. Mutation: make the no-fire band disarm → RED.
+        var im = WithScreenBounds(InteractionAction.LeftClick);
+        var fired = new List<PhysicalPoint>();
+        var progress = new List<double>();
+        im.ActionRequested += (_, p, _) => fired.Add(p);
+        im.RepeatDwellProgressChanged += progress.Add;
+
+        var arm = new PhysicalPoint(1920 - 15, 540);   // 15 px inside the right edge
+        im.OnFixationStarted(arm);
+        im.NoteRepeatGazeSample(arm, 10 * Ms + 200 * Ms);   // building
+
+        // Wander up to 15 px PAST the edge: past the 10 px tolerance, inside the 30 px margin.
+        im.NoteRepeatGazeSample(new PhysicalPoint(1933, 540), 10 * Ms + 400 * Ms);
+        im.NoteRepeatGazeSample(new PhysicalPoint(1937, 545), 10 * Ms + 500 * Ms);
+        im.NoteRepeatGazeSample(new PhysicalPoint(1935, 535), 10 * Ms + 700 * Ms);   // past the dwell
+
+        Check.WithCustomMessage("the edge wander fired the repeat click.")
+             .That(fired).IsEmpty();
+        Check.WithCustomMessage("a no-fire-band sample advanced the dwell.")
+             .That(progress).HasSize(1);
+        Check.That(progress[0]).IsCloseTo(1.0 / 3.0, 0.01);
+
+        im.NoteRepeatGazeSample(arm, 10 * Ms + 800 * Ms);   // back inside: the run continues
+
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].X).IsCloseTo(arm.X, 1e-6);
+        Check.That(fired[0].Y).IsCloseTo(arm.Y, 1e-6);
+    }
+
+    [Fact]
+    public void TheNoFireBand_NeitherAdvancesNorFires_AndTheRunContinues()
+    {
+        // C4 fixup-01 F1: between bounds + tolerance and bounds + margin the sample may not advance
+        // the dwell and may not fire it; the run survives with its start time, and the click waits
+        // for the first on-screen sample. Mutation: let the band sample fire → RED.
+        var im = WithScreenBounds(InteractionAction.LeftClick);
+        var fired = new List<PhysicalPoint>();
+        var progress = new List<double>();
+        im.ActionRequested += (_, p, _) => fired.Add(p);
+        im.RepeatDwellProgressChanged += progress.Add;
+
+        var arm = new PhysicalPoint(960, 540);
+        im.OnFixationStarted(arm);
+        im.NoteRepeatGazeSample(arm, 10 * Ms + 300 * Ms);   // half-way
+        Check.That(progress.Last()).IsCloseTo(0.5, 0.01);
+
+        var inBand = new PhysicalPoint(960, 1080 + 15);     // 15 px past the bottom edge
+        im.NoteRepeatGazeSample(inBand, 10 * Ms + 900 * Ms);   // past the dwell, in the band
+
+        Check.WithCustomMessage("a sample in the no-fire band fired the repeat click.")
+             .That(fired).IsEmpty();
+        Check.WithCustomMessage("a sample in the no-fire band advanced the dwell's feedback.")
+             .That(progress).HasSize(1);
+
+        im.NoteRepeatGazeSample(arm, 10 * Ms + 1_000 * Ms);   // back inside: the run continues
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].X).IsCloseTo(arm.X, 1e-6);
+        Check.That(fired[0].Y).IsCloseTo(arm.Y, 1e-6);
+    }
+
+    [Fact]
+    public void PastTheDisarmBand_DisarmsTheRun()
+    {
+        // C4 fixup-01 F1: past bounds + tolerance + RepeatDisarmMarginPhysical the run disarms, as
+        // C4 itself did, and a fresh fixation is needed. Mutation: pause instead of disarm → RED.
+        var im = WithScreenBounds(InteractionAction.LeftClick);
+        var fired = new List<PhysicalPoint>();
+        var progress = new List<double>();
+        im.ActionRequested += (_, p, _) => fired.Add(p);
+        im.RepeatDwellProgressChanged += progress.Add;
+
+        var arm = new PhysicalPoint(960, 540);
+        im.OnFixationStarted(arm);
+        im.NoteRepeatGazeSample(arm, 10 * Ms + 300 * Ms);   // half-way
+
+        var pastDisarm = new PhysicalPoint(
+            960, 1080 + InteractionManager.RepeatDisarmMarginPhysical + 1);
+        im.NoteRepeatGazeSample(pastDisarm, 10 * Ms + 900 * Ms);
+
+        Check.WithCustomMessage("a sample past the disarm band fired the repeat click.")
+             .That(fired).IsEmpty();
+        Check.WithCustomMessage("a sample past the disarm band must reset the cursor to ready.")
+             .That(progress.Last()).IsEqualTo(0);
+
+        // Disarmed: coming back inside the same fixation does not re-fire.
+        im.NoteRepeatGazeSample(arm, 10 * Ms + 1_600 * Ms);
+        Check.WithCustomMessage("the disarmed run re-fired when the gaze came back.")
+             .That(fired).IsEmpty();
+
+        // A fresh fixation re-arms.
+        im.OnFixationEnded();
+        im.OnFixationStarted(new PhysicalPoint(700, 500));
+        im.NoteRepeatGazeSample(new PhysicalPoint(700, 500), 10 * Ms + 2_000 * Ms);
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].X).IsCloseTo(700, 1e-6);
+        Check.That(fired[0].Y).IsCloseTo(500, 1e-6);
+    }
+
     [Theory]
     [InlineData(960, 1080, 960, 1120)]   // 40 px past the bottom edge
     [InlineData(0, 540, -40, 540)]       // 40 px past the left edge

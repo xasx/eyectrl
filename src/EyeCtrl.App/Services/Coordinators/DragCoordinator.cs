@@ -534,8 +534,12 @@ internal sealed class DragCoordinator : CoordinatorBase
             case nameof(DragTrailViewModel.CursorPosition):
             case nameof(DragTrailViewModel.SettleProgress):
             case nameof(DragTrailViewModel.ReleaseButtonCenter):
+            // C2: the drop disc's size, progress and grace-paused look reach the overlay too.
+            case nameof(DragTrailViewModel.ReleaseRadiusPhysical):
+            case nameof(DragTrailViewModel.ReleaseProgress):
+            case nameof(DragTrailViewModel.IsReleasePaused):
                 _dragTrailOverlay.Update(
-                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseButtonCenter);
+                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseDisc);
                 break;
             case nameof(DragTrailViewModel.ShowBack):
                 var bar = Context.OverlayManager.EdgeButtonBar;
@@ -549,7 +553,7 @@ internal sealed class DragCoordinator : CoordinatorBase
                     bar.RemoveButton("Drag_back");
                 }
                 _dragTrailOverlay.Update(
-                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseButtonCenter);
+                    vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseDisc);
                 break;
         }
     }

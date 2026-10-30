@@ -49,8 +49,30 @@ public static class UIConstants
     /// </summary>
     public const double BackdropHideButtonOffset = 53.0;
 
+    /// <summary>
+    /// The edge bar's default button radius (<c>EdgeButtonDefinition</c>). Despite the name it is
+    /// NOT the drag's drop target any more: that is <see cref="DragDropTargetMinRadius"/> (C2).
+    /// </summary>
     public const double DragButtonRadius = 20.0;
-    public const double DragReleaseButtonOffset = 14.0;
+
+    /// <summary>
+    /// The floor of the drag's gaze-following drop target radius in DIP: an r50 disc like every
+    /// other gaze button (C2). The hit radius is the larger of this, converted to physical px, and
+    /// the user's fixation radius (<c>DwellSettings.FixationRadiusPixels</c>), capped at
+    /// <see cref="DragDropTargetMaxRadius"/>. The old target was r20 (<see cref="DragButtonRadius"/>,
+    /// which the edge bar still shares and which therefore must not change) placed at cursor −
+    /// (14, 14) DIP, so the cursor sat 0.2 DIP inside its down-right edge.
+    /// </summary>
+    public const double DragDropTargetMinRadius = ButtonRadius;
+
+    /// <summary>
+    /// The cap of the drop target radius in DIP (C2). It binds only for a large fixation-radius
+    /// setting at a low scale (the setting reaches 200 px; at 100 % that would be a 400 DIP disc
+    /// over the very spot being dropped on). It cannot keep the disc itself clear of Cancel/Back —
+    /// the disc follows the gaze — and does not need to: the exit-zone filter withholds every
+    /// sample inside Cancel, Back or Pause from the drop dwell whatever the radius.
+    /// </summary>
+    public const double DragDropTargetMaxRadius = 100.0;
 
     /// <summary>
     /// Distance in logical pixels from the shared right-edge anchor to the fixed exit ("out")

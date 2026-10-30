@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels;
 
 /// <summary>
 /// The drag-trail overlay seam: the full-screen mark layer a drag draws between the grab point and
@@ -34,9 +35,13 @@ internal interface IDragTrailOverlay
     /// <summary>Puts the overlay on screen. The only member that creates an HWND.</summary>
     void Show();
 
-    /// <summary>Redraws the trail, the grab glyph and the release button at these positions.</summary>
+    /// <summary>
+    /// Redraws the trail and the grab glyph at these positions, and the drop disc as
+    /// <paramref name="release"/> describes it: sized to its hit circle, with its dwell progress
+    /// as an arc that dims while the pause grace holds it (C2).
+    /// </summary>
     void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
-        PhysicalPoint releasePos);
+        DragReleaseDisc release);
 
     /// <summary>Takes the overlay off screen and releases the window.</summary>
     void Close();

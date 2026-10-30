@@ -882,6 +882,14 @@ public class GazeEngine : IDisposable
         }
         var (filtered, isInGap) = _gapInterpolator.Process(corrected);
 
+        // C4: the repeat dwell is judged on this sample's own calibrated, filtered position — the
+        // same point the fixation detector sees below — and BEFORE that detector update, so the
+        // sample that ends a fixation is still judged (an armed run glided past a band-less edge
+        // must not fire at its stale on-screen point). A gap-held position carries no evidence
+        // about where the user looks, so it is excluded, as for the detector.
+        if (!isInGap)
+            InteractionManager.NoteRepeatGazeSample(filtered, gaze.TimestampMicroseconds);
+
         // Gap-held samples are excluded: the interpolator hands back the frozen last valid position with a
         // real dt, so they enter the tracker as zero-displacement (speed-0) points — deflating
         // LastFixationJitter exactly when tracking is worst, and biasing StableCentroid toward the freeze.

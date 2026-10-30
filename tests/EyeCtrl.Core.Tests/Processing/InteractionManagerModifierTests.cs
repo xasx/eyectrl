@@ -62,7 +62,7 @@ public class InteractionManagerModifierTests
         im.EnterRepeatMode(InteractionAction.LeftClick);
         im.RepeatDwellMs = 0;
         im.OnFixationStarted(Point);           // arms the locked-action dwell at the point
-        im.NoteGazeSample(isValid: true, timestampUs: 11_000); // elapsed 1 ms ≥ 0 ⇒ fires
+        im.NoteRepeatGazeSample(Point, 11_000); // elapsed 1 ms ≥ 0 ⇒ fires
 
         Check.That(fired).IsTrue();           // the tick really fired — no vacuous pass
         Check.That(raised).IsNull();          // repeat ticks carry null — never a modifier set

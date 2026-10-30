@@ -85,9 +85,21 @@ public class RingFiredFlashContrastTests
         return best;
     }
 
-    private static CursorRingStack RestStack(ITheme theme, CursorRingStyle style, double thickness) =>
-        CursorRingStacks.For(style, 200, thickness, 1.0,
+    private static CursorRingStack RestStack(ITheme theme, CursorRingStyle style, double thickness,
+        double size = 200) =>
+        CursorRingStacks.For(style, size, thickness, 1.0,
             Hex(theme.Accent), Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
+
+    /// <summary>
+    /// (size, thickness) rows: the owner's ring and the default thickness at 200, plus SMALL, THICK
+    /// rings that the Settings sliders reach (size 10–500, thickness 1–10), where the peak runs out
+    /// of room and must share it (ring review r02 N1: 20/3.5, 30/5 and worse).
+    /// </summary>
+    private static readonly (double Size, double Thickness)[] Rings =
+    [
+        (200, 1.5), (200, 1.0),
+        (20, 3.5), (20, 5), (20, 10), (30, 5), (30, 10), (12, 2),
+    ];
 
     public static TheoryData<string, CursorRingStyle> ThemesAndStyles()
     {
@@ -102,15 +114,16 @@ public class RingFiredFlashContrastTests
     [MemberData(nameof(ThemesAndStyles))]
     public void AtThePeak_TheRingIsNeverLessVisibleThanAtRest(string themeName, CursorRingStyle style)
     {
-        // Every theme x style x backdrop x look, at the owner's thickness and the default one.
-        // Mutation: a peak that recolours either band (the e93aa0a1 colour swap) → RED on light
-        // backdrops; a peak core as wide as the outer band (hides the light band) → RED on dark ones.
+        // Every theme x style x backdrop x look x ring (the owner's, the default, and small thick
+        // ones). Mutation: a peak that recolours either band (the e93aa0a1 colour swap) → RED on
+        // light backdrops; a peak core as wide as the outer band (the r02 N1 cap: it hides the light
+        // band on a small thick ring) → RED on dark ones.
         var theme = ThemeRegistry.All.Single(t => t.Name == themeName);
 
-        foreach (var thickness in new[] { 1.5, 1.0 })
+        foreach (var (size, thickness) in Rings)
         {
-            var rest = RestStack(theme, style, thickness);
-            var peak = FiredFlash.PeakStack(rest, 200);
+            var rest = RestStack(theme, style, thickness, size);
+            var peak = FiredFlash.PeakStack(rest, size);
             foreach (var alpha in WindowOpacities)
                 foreach (var hex in Backdrops)
                 {
@@ -118,7 +131,7 @@ public class RingFiredFlashContrastTests
                     var atRest = Visibility(rest, backdrop, alpha);
                     var atPeak = Visibility(peak, backdrop, alpha);
                     Check.WithCustomMessage(
-                            $"{themeName} {style} t={thickness} on {hex} at {alpha}: the ring is {atPeak:F2}:1 "
+                            $"{themeName} {style} {size}/{thickness} on {hex} at {alpha}: the ring is {atPeak:F2}:1 "
                             + $"at the peak, less visible than {atRest:F2}:1 at rest.")
                         .That(atPeak).IsGreaterOrEqualThan(atRest - 1e-9);
                 }
@@ -163,13 +176,47 @@ public class RingFiredFlashContrastTests
     }
 
     [Fact]
-    public void ThePeak_IsCappedAtHalfTheRing()
+    public void OnEveryRingTheSlidersReach_NeitherBandIsThinnerAtThePeak_AndTheOuterBandStaysExposed()
     {
-        var rest = CursorRingStacks.For(CursorRingStyle.AchromaticReticle, 20, 10, 1.0, "#112233", "#000000", "#FFFFFF");
+        // r02 N1: on a small, thick ring the peak runs out of room (half the ring's size). The room
+        // is shared so that the core never shrinks below its rest width AND the outer band's exposed
+        // part never shrinks below ITS rest width; a ring that fits at rest fits at the peak too.
+        // Mutation: the old cap (core = min(3t, room), outer = min(core + 2e, room)) → the outer band
+        // loses its exposed width (e.g. 30/5: exposed 4 → 0) → RED.
+        foreach (var style in Styles)
+            for (var size = 10.0; size <= 60; size += 2)
+                for (var thickness = 1.0; thickness <= 10; thickness += 0.5)
+                {
+                    var rest = CursorRingStacks.For(style, size, thickness, 1.0, "#112233", "#000000", "#FFFFFF");
+                    var peak = FiredFlash.PeakStack(rest, size);
+                    var restExposed = Math.Max(0, rest.Outer.Thickness - rest.Core.Thickness);
+                    var peakExposed = peak.Outer.Thickness - peak.Core.Thickness;
+                    var where = $"{style} {size}/{thickness}";
 
-        var peak = FiredFlash.PeakStack(rest, 20);
+                    Check.WithCustomMessage($"{where}: the core is thinner at the peak ({peak.Core.Thickness} < {rest.Core.Thickness}).")
+                        .That(peak.Core.Thickness).IsGreaterOrEqualThan(rest.Core.Thickness - 1e-9);
+                    Check.WithCustomMessage($"{where}: the outer band's exposed width shrank at the peak ({peakExposed} < {restExposed}).")
+                        .That(peakExposed).IsGreaterOrEqualThan(restExposed - 1e-9);
+                    if (rest.Outer.Thickness <= size / 2)
+                        Check.WithCustomMessage($"{where}: a ring that fits at rest overflows its room at the peak ({peak.Outer.Thickness} > {size / 2}).")
+                            .That(peak.Outer.Thickness).IsLessOrEqualThan(size / 2 + 1e-9);
+                }
+    }
 
-        Check.That(peak.Core.Thickness).IsEqualTo(10.0);
-        Check.That(peak.Outer.Thickness).IsEqualTo(10.0);
+    [Theory]
+    [InlineData(30, 5, 7, 15)]
+    [InlineData(20, 3.5, 3.5, 10)]
+    [InlineData(20, 10, 10, 14)]
+    public void ASmallThickRing_SharesTheRoom(double size, double thickness, double peakCore, double peakOuter)
+    {
+        // 30/5: room 15, exposed 4 → 8, so the core grows only to 7 (not 15). 20/3.5: no room for
+        // the core to grow; the light band takes 4 → 6.5. 20/10 already overflows at rest (14 > 10)
+        // and keeps its rest widths.
+        var rest = CursorRingStacks.For(CursorRingStyle.AchromaticReticle, size, thickness, 1.0, "#112233", "#000000", "#FFFFFF");
+
+        var peak = FiredFlash.PeakStack(rest, size);
+
+        Check.That(peak.Core.Thickness).IsCloseTo(peakCore, 1e-9);
+        Check.That(peak.Outer.Thickness).IsCloseTo(peakOuter, 1e-9);
     }
 }

@@ -113,17 +113,28 @@ internal sealed class FiredFlash
     /// band shows only past it. At the peak the core is <see cref="PeakCoreFactor"/>× as wide and the
     /// outer band's exposed part is <see cref="PeakOuterExposedFactor"/>× as wide: for the owner's
     /// AchromaticReticle at 1.5 that is a 1.5 → 4.5 DIP dark line and a 4 → 8 DIP light band.
-    /// BiTonalSegments (equal widths, interleaved dashes) triples both. Capped at half the ring's
-    /// size, where a stroke fills the disc.
+    /// BiTonalSegments (equal widths, interleaved dashes) triples both.
+    /// <para>
+    /// Half the ring's size is the room a stroke has (it then fills the disc). On a small, thick
+    /// ring the growth is shared out inside that room so that NEITHER band ends up thinner than at
+    /// rest (ring review r02 N1): the core grows only as far as the room left after the outer
+    /// band's grown exposed part, and never shrinks below its rest width; the outer band's exposed
+    /// part then takes what remains, and never shrinks below ITS rest width. Capping the core alone
+    /// let it reach the outer band's width on e.g. a 30/5 ring, which hid the light band at the
+    /// peak (Midnight on black: 5.69 → 1.04:1). A ring whose rest stroke already overflows the room
+    /// keeps its rest widths at the peak.
+    /// </para>
     /// </summary>
     internal static CursorRingStack PeakStack(CursorRingStack rest, double size)
     {
-        var cap = size / 2;
-        var core = Math.Min(rest.Core.Thickness * PeakCoreFactor, cap);
+        var room = size / 2;
         var exposed = Math.Max(0, rest.Outer.Thickness - rest.Core.Thickness);
-        var outer = Math.Min(core + exposed * PeakOuterExposedFactor, cap);
+        var grownExposed = exposed * PeakOuterExposedFactor;
+        var core = Math.Min(rest.Core.Thickness * PeakCoreFactor,
+            Math.Max(rest.Core.Thickness, room - grownExposed));
+        var peakExposed = Math.Max(exposed, Math.Min(grownExposed, room - core));
         return new CursorRingStack(
-            rest.Outer with { Thickness = outer },
+            rest.Outer with { Thickness = core + peakExposed },
             rest.Core with { Thickness = core });
     }
 }

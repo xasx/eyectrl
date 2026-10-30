@@ -221,6 +221,8 @@ public class InteractionManager
     // an edge cannot kill the dwell. Only past this margin does the run disarm: on the owner's
     // recording one stray sample past bounds + 10 px lost 26–34 % of dwells on targets 10–15 px
     // inside an edge (0 % before C4), while a 40 px glide (the ticket's case) still disarms here.
+    // With the two bands the after-fix measurement is about 14 % lost at 17 px inside, down from
+    // about 24 %.
     /// <summary>
     /// How far past the published screen bounds a valid sample must lie before the armed repeat run
     /// DISARMS, in physical px. Between the tolerance (the arm/no-fire edge, normally 10 px) and this

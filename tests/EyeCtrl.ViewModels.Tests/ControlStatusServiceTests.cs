@@ -43,7 +43,8 @@ public class ControlStatusServiceTests
 
     private ControlStatusService NewService(
         GazeProviderType providerType = GazeProviderType.StreamEngine,
-        Action<Action>? postToUi = null)
+        Action<Action>? postToUi = null,
+        bool mouseIsFallback = false)
     {
         // Registered BEFORE Start: the initial status is published from Start, and a surface that
         // subscribes during startup is exactly the case the initial publish exists for.
@@ -51,7 +52,8 @@ public class ControlStatusServiceTests
             _messenger, (_, message) => _messages.Add(message));
 
         return new ControlStatusService(
-            _provider, _interaction, providerType, _messenger, _time, postToUi);
+            _provider, _interaction, providerType, _messenger, _time, postToUi,
+            mouseIsFallback: mouseIsFallback);
     }
 
     private static void AdvanceMs(FakeTimeProvider time, int ms) =>
@@ -71,7 +73,7 @@ public class ControlStatusServiceTests
     [Fact]
     public void AMouseFallback_IsNoTracker_AndIsPublishedOnceAtStart()
     {
-        var service = NewService(GazeProviderType.Mouse);
+        var service = NewService(GazeProviderType.Mouse, mouseIsFallback: true);
 
         service.Start();
 
@@ -80,6 +82,34 @@ public class ControlStatusServiceTests
         Check.That(_messages).HasSize(1);
         Check.That(_messages[0]).IsEqualTo(
             new ControlStatusChangedMessage(ControlState.NoTracker, Disconnected: false));
+
+        service.Dispose();
+    }
+
+    [Fact]
+    public void ADeliberateMouseProvider_StartsNormal_AndAPauseReachesPaused()
+    {
+        // C5 H1: Mouse chosen on purpose (--test-mode is this case too) must not report NoTracker,
+        // or the strip is stuck on "No eye tracker" and never reaches Paused.
+        var service = NewService(GazeProviderType.Mouse);
+
+        service.Start();
+
+        Check.That(service.Current.State).IsEqualTo(ControlState.Normal);
+        Check.That(_messages[^1].State).IsEqualTo(ControlState.Normal);
+
+        _interaction.TogglePause();          // FreeLook -> Paused
+
+        Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
+        Check.That(_messages[^1].State).IsEqualTo(ControlState.Paused);
+
+        // The lost-gaze clock is skipped for a deliberate Mouse provider: a long silence is no
+        // TrackingLost (the mouse has no gaze stream to lose).
+        AdvanceMs(_time, 60_000);
+        Check.That(service.Current.State).IsEqualTo(ControlState.Paused);
+
+        _interaction.TogglePause();          // Paused -> FreeLook
+        Check.That(service.Current.State).IsEqualTo(ControlState.Normal);
 
         service.Dispose();
     }

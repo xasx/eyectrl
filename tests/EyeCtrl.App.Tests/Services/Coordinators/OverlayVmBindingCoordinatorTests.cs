@@ -416,6 +416,47 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(activationButton.Calls).ContainsExactly("ShowAt", "Show");
     }
 
+    // C5 H3: the backdrop VM's held-dwell flag reaches the window. The window's own remembered
+    // value (GlassBackdropWindow.SetHideButtonPaused / DrawHideButton) carries it across a redraw;
+    // the show path needs no re-apply because the ShowBackdropMessage resets the VM in the same
+    // synchronous call (review-01 L2).
+    [Fact]
+    public void BackdropPausedCue_IsForwardedToTheWindow()
+    {
+        var glassBackdrop = new TestFakes.FakeGlassBackdropOverlay();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var backdropVm = new GlassBackdropViewModel(settings, messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            BackdropVM = backdropVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(glassBackdrop: glassBackdrop),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+        typeof(OverlayVmBindingCoordinator)
+            .GetField("_glassBackdrop", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, glassBackdrop);
+
+        backdropVm.IsDwellPaused = true;
+        InvokeBackdropHandler(coordinator, nameof(GlassBackdropViewModel.IsDwellPaused));
+        Check.WithCustomMessage("the VM's held-dwell flag did not reach the window")
+            .That(glassBackdrop.HideButtonPaused).IsTrue();
+
+        backdropVm.IsDwellPaused = false;
+        InvokeBackdropHandler(coordinator, nameof(GlassBackdropViewModel.IsDwellPaused));
+        Check.That(glassBackdrop.HideButtonPaused).IsFalse();
+    }
+
+    private static void InvokeBackdropHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
+    {
+        var method = typeof(OverlayVmBindingCoordinator)
+            .GetMethod("OnBackdropVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
+    }
+
     private static void InvokeCursorHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
     {
         var method = typeof(OverlayVmBindingCoordinator)

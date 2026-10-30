@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System.IO;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -880,5 +881,219 @@ public class DragCoordinatorTests
             Check.That(input.MouseUpCount).IsEqualTo(1);
             Check.That(input.ButtonsBalanced).IsTrue();
         }
+    }
+
+    // ── C3: the cross-process held-button marker ────────────────────────────────────────────
+    //
+    // A hard kill (the Supervisor's force-kill, Task Manager, a native crash) runs NONE of the
+    // in-process release paths, so a drag in progress strands the OS left button down: every later
+    // "click" then drags, and for a gaze-only user that is the whole session. The marker is the
+    // record that lets a process which never saw this drag undo it. All marker IO in these tests
+    // is a fake — no test may touch the real %APPDATA% marker or send real input.
+
+    [Fact]
+    public void DragStarted_WritesTheHeldButtonMarker_AfterThePress()
+    {
+        // Written AFTER the press: a marker claiming a press the OS never saw would let the
+        // Supervisor/next startup send a button-up for a button EyeCtrl never pressed (and the
+        // owner may be holding a physical mouse). The probe reads INSIDE MouseDown, so it sees
+        // exactly the state at the instant of the press.
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+        input.InjectionStateProbe = () => $"markerAtPress={marker.IsSet}";
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+
+        Check.WithCustomMessage($"the marker was written before the press: {input.InjectionState}")
+             .That(input.InjectionState).IsEqualTo("markerAtPress=False");
+        Check.That(marker.SetCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsTrue();
+        Check.That(marker.ClearCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void Drop_ClearsTheHeldButtonMarker()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        c.OnDragDrop(new DragDropMessage(new PhysicalPoint(90, 90)));
+
+        Check.That(marker.ClearCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void Cancel_ClearsTheHeldButtonMarker()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        c.OnDragCancel();
+
+        Check.That(marker.ClearCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void FatalExitRelease_ClearsTheHeldButtonMarker()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        c.ReleaseHeldButtonForFatalExit();
+
+        Check.That(marker.ClearCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void Dispose_ClearsTheHeldButtonMarker()
+    {
+        // Tray Exit / Settings → Restart / Windows logoff: the in-process release that already
+        // exists must also stop the NEXT launch's backstop from sending a spurious button-up.
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        c.Dispose();
+
+        Check.That(marker.ClearCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void ReleaseAfterDrop_DoesNotClearTheMarkerTwice()
+    {
+        // Exactly-once: the claim is consumed by the drop, so the fatal-exit release (and a
+        // dispose) runs no second button-up — and must not run a second marker clear either.
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        c.OnDragDrop(new DragDropMessage(new PhysicalPoint(90, 90)));
+        c.ReleaseHeldButtonForFatalExit();
+        c.Dispose();
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(marker.ClearCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AFailedCancelRelease_KeepsTheMarkerForTheRetry()
+    {
+        // F2 (review 01): the marker is cleared only AFTER a successful MouseUp. The shipped
+        // Win32InputSimulator cannot throw from MouseUp, but the claim is deliberately restored on
+        // a throw so quit/dispose can retry — and if the marker were cleared first (before the
+        // send), a hard kill between the failed release and the retry would leave BOTH sides
+        // believing nothing is owed: no marker for the Supervisor, no marker for the next startup.
+        var input = new ThrowOnFirstReleaseSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(9, 9));
+        Check.That(marker.IsSet).IsTrue();
+
+        c.OnDragCancel();   // the first MouseUp throws; OnDragCancel logs and continues
+
+        Check.That(input.MouseUpCount).IsEqualTo(0);   // attempted, did not happen
+        Check.WithCustomMessage("the marker was cleared although no release was sent.")
+             .That(marker.IsSet).IsTrue();
+        Check.That(marker.ClearCount).IsEqualTo(0);
+
+        c.Dispose();        // the restored claim retries, and only THEN may the marker go
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(marker.ClearCount).IsEqualTo(1);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void ASetupFailureBeforeThePress_NeverWritesTheMarker()
+    {
+        // The marker must describe the OS state: no press, no marker. Otherwise the next startup
+        // would send a button-up for a drag that never started.
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker();
+        var (context, _) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = ThrowingOverlayFactory(new DragCoordinator());
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+
+        Check.That(marker.SetCount).IsEqualTo(0);
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void AThrowingMarkerWrite_DoesNotBreakADragThatIsAlreadyHoldingTheButton()
+    {
+        // The marker is bookkeeping around OS-global state that is already changed. A failed
+        // write must leave the drag fully usable (the in-process release paths still work); the
+        // cost is only that a hard kill at that instant would strand the button.
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker
+        {
+            SetFailure = new IOException("the marker file is locked"),
+        };
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input, marker);
+        var c = new DragCoordinator { CreateTrailOverlay = static () => new TestFakes.FakeDragTrailOverlay() };
+        c.Initialize(context);
+
+        Check.ThatCode(() => c.OnDragStarted(new PhysicalPoint(10, 10))).DoesNotThrow();
+
+        Check.That(c.LastSetupFailure).IsNull();
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(bar.ShownButtonIds).Contains("Drag_cancel");
+        c.OnDragDrop(new DragDropMessage(new PhysicalPoint(20, 20)));
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [Fact]
+    public void AThrowingMarkerClear_DoesNotEscapeADrop()
+    {
+        // Clear runs inside ReleaseHeldButton on the drop path, which has no catch of its own: an
+        // escaping marker error would reach DispatcherUnhandledException and kill the process
+        // AFTER a successful release. The stale marker it leaves costs one inert button-up later.
+        var input = new TestFakes.FakeInputSimulator();
+        var marker = new TestFakes.FakeHeldButtonMarker
+        {
+            ClearFailure = new IOException("the marker file is locked"),
+        };
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input, marker);
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var c = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(10, 10));
+        Check.ThatCode(() => c.OnDragDrop(new DragDropMessage(new PhysicalPoint(20, 20)))).DoesNotThrow();
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+        Check.That(bar.ShownButtonIds).IsEmpty();
+        Check.That(overlay.CloseCount).IsEqualTo(1);
     }
 }

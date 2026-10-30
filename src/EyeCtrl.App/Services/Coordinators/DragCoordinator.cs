@@ -32,6 +32,13 @@ using Serilog;
 /// before aborting rather than escaping with the button held.)
 /// </para>
 /// <para>
+/// Those five paths all run IN this process. A hard kill (the Supervisor's force-kill, Task
+/// Manager, a native crash) runs none of them, so the press is also recorded in the context's
+/// <see cref="EventCoordinationContext.HeldButtonMarker"/> — written after the press and cleared by
+/// <see cref="ReleaseHeldButton"/> after every successful release — which lets the Supervisor and
+/// the next App startup undo it from outside (C3).
+/// </para>
+/// <para>
 /// The drag-entry methods are <see langword="internal"/> so tests drive them directly, following
 /// <see cref="QuickActionDispatcher"/>'s precedent (no reflection).
 /// </para>
@@ -266,6 +273,12 @@ internal sealed class DragCoordinator : CoordinatorBase
         Context.InputSimulator.MouseDown(grabOrigin);
         Volatile.Write(ref _osButtonHeld, 1);
 
+        // C3: the press is now real OS state, so record it where a process that never runs this
+        // class's release paths can still find it. Written AFTER the press (the marker must never
+        // claim a press the OS did not see) and best-effort (a failed marker write must not abort a
+        // drag that is already holding the button).
+        MarkHeldButton();
+
         // The trail start is the ONE step that still runs AFTER the press, and it can throw: the
         // Send fans out synchronously into DragTrailViewModel.Receive, whose property setters
         // re-enter OnDragTrailVMPropertyChanged and call Update on the overlay — DPI arithmetic and
@@ -370,6 +383,51 @@ internal sealed class DragCoordinator : CoordinatorBase
             // instead of throwing); the only thrower is the tests' ThrowOnFirstReleaseSimulator.
             Volatile.Write(ref _osButtonHeld, 1);
             throw;
+        }
+
+        // C3: the release is real, so the cross-process record goes away. AFTER the send: a failed
+        // MouseUp keeps the marker, so a process that dies before the retry still tells the
+        // Supervisor/next startup that one button-up is owed. Best-effort: a failed clear only
+        // means one later (inert) button-up.
+        ClearHeldButtonMarker();
+    }
+
+    /// <summary>
+    /// C3: records the now-real press in the cross-process marker, so a hard kill that runs none
+    /// of this class's release paths still leaves the Supervisor (which sent the kill) and the
+    /// next App start able to release the button. No marker in the context (tests that do not care
+    /// about OS state) is a no-op. Marker IO is bookkeeping around OS-global state that is already
+    /// changed, so it never throws into the drag: a failed write is logged, and the ordinary
+    /// release paths still release the button.
+    /// </summary>
+    private void MarkHeldButton()
+    {
+        try
+        {
+            Context?.HeldButtonMarker?.Set();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to record the held-button marker; a hard kill would leave the left button pressed.");
+        }
+    }
+
+    /// <summary>
+    /// C3: clears the cross-process marker after a successful release, on every release path that
+    /// goes through <see cref="ReleaseHeldButton"/>. Never throws: the button has already been
+    /// released, and a throwing clear must not turn a drop into a crash (or skip the cosmetic
+    /// teardown after it). A failed clear leaves a stale marker, which only ever costs one later
+    /// button-up with no matching press — inert at the OS.
+    /// </summary>
+    private void ClearHeldButtonMarker()
+    {
+        try
+        {
+            Context?.HeldButtonMarker?.Clear();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to clear the held-button marker; a later startup may send one inert button-up.");
         }
     }
 

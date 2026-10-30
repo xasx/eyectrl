@@ -778,6 +778,24 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
+    public void Go_G4b_ATimeoutOffTheAxis_ReportsTimeout_NotLeft()
+    {
+        // F2: the keep times out while the gaze is still in the widened corridor: 90 px off the P-B axis
+        // (≤ 1.25 R = 100, 313.2 px from B: outside the 230-px zone). The window's expiry is a Timeout;
+        // the old R = 80 corridor would call the same frame a Left. Mutant: factor 1.0 → Left.
+        var rig = GoRig();
+        rig.Frame(new PhysicalPoint(1100, 1090));                 // t0: 90 px off the axis
+        rig.Gap(470_000);                                         // the next frame lands at t0 + 500 ms
+        rig.Frame(new PhysicalPoint(1100, 1090));
+
+        Check.That(rig.Releases).HasSize(1);
+        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Timeout);
+        Check.That(rig.GoEnds[0].Ms).IsCloseTo(500.0, 1e-6);
+        Check.That(rig.GoEnds[0].Off!.Value).IsCloseTo(90.0, 1e-9);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
     public void Go_G5_ALookBehindP_AlongTheAxis_ReleasesAtOnce_TheSegmentNotTheInfiniteLine()
     {
         // G5: 200 px behind P on the P-B axis is 200 px from the segment (> 1.25 R = 100): released. An infinite
@@ -820,14 +838,14 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Go_G6b_AtR80_TheCorridorBoundary_Keeps90PxOffTheAxis_AndReleases105()
+    public void Go_G6b_AtR80_TheCorridorBoundary_Keeps99PxOffTheAxis_AndReleases101()
     {
-        // The widened corridor at R = 80: 1.25 R = 100 px. A gaze 90 px off the axis (314 px from B,
-        // outside the 230-px zone) still keeps the pin; one 105 px off (318 px from B) releases. Mutant:
-        // the factor at 1.0 → the 90-px sample releases; at 1.5 → the 105-px sample keeps.
+        // The widened corridor at R = 80: 1.25 R = 100 px. A gaze 99 px off the axis (315.9 px from B,
+        // outside the 230-px zone) still keeps the pin; one 101 px off (316.5 px from B) releases.
+        // Mutant: the factor at 1.0 → the 99-px sample releases; at 1.3 → the 101-px sample keeps.
         var kept = GoRig();
         kept.Frame(new PhysicalPoint(1040, 1000));
-        kept.Frame(new PhysicalPoint(1100, 1090));                // 90 px lateral
+        kept.Frame(new PhysicalPoint(1100, 1099));                // 99 px lateral
 
         Check.That(kept.Releases).IsEmpty();
         Check.That(kept.Vm.IsPinned).IsTrue();
@@ -835,12 +853,12 @@ public class CursorCircleViewModelHybridTests
 
         var released = GoRig();
         released.Frame(new PhysicalPoint(1040, 1000));
-        released.Frame(new PhysicalPoint(1100, 1105));            // 105 px lateral
+        released.Frame(new PhysicalPoint(1100, 1101));            // 101 px lateral
 
         Check.That(released.Releases).HasSize(1);
         Check.That(released.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
         Check.That(released.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Left);
-        Check.That(released.GoEnds[0].Off!.Value).IsCloseTo(105.0, 1e-9);
+        Check.That(released.GoEnds[0].Off!.Value).IsCloseTo(101.0, 1e-9);
         Check.That(released.Vm.IsPinned).IsFalse();
     }
 
@@ -848,11 +866,18 @@ public class CursorCircleViewModelHybridTests
     public void Go_G7_WithoutTheOffersPoint_TodaysZoneOnlyBehaviourApplies()
     {
         // G7: a show message without P has no corridor: a gaze 40 px from P (360 px from B, outside the
-        // zone) releases at once, a gaze inside the zone keeps (and the log's off is unknown).
+        // zone) releases at once, a gaze inside the zone keeps (and the log's off is unknown). The
+        // widened corridor must not leak into this path: 250 px from B is outside hit + R (230) though
+        // inside hit + 1.25 R (287.5), and it releases too (mutant: the no-P zone × 1.25 → keeps).
         var outside = GoRig(withP: false);
         outside.Frame(new PhysicalPoint(1040, 1000));
         Check.That(outside.Releases).HasSize(1);
         Check.That(outside.GoStarts).IsEmpty();
+
+        var nearZone = GoRig(withP: false);
+        nearZone.Frame(new PhysicalPoint(1150, 1000));            // 250 px from B
+        Check.That(nearZone.Releases).HasSize(1);
+        Check.That(nearZone.GoStarts).IsEmpty();
 
         var inside = GoRig(withP: false);
         inside.Frame(new PhysicalPoint(1200, 1000));

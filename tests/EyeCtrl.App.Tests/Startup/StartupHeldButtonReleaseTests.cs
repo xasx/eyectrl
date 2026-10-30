@@ -142,15 +142,21 @@ public class StartupHeldButtonReleaseTests
                  .That(run).IsStrictlyLessThan(IndexOf(source, marker));
         }
 
-        // Unconditional (fixup-01 F3): an `if (!IsPausedLaunch)` around the call would silently
-        // skip the backstop for the Supervisor's FallenBack --paused retry — the launch MOST likely
-        // to follow a crash mid-drag. The preceding non-whitespace character of a bare statement is
-        // the previous statement's `;` (or the method body's `{`); a conditional leaves `)`.
+        // Unconditional (fixup-01 F3, tightened by review 02 N1): an `if (!IsPausedLaunch)`
+        // around the call would silently skip the backstop for the Supervisor's FallenBack --paused
+        // retry — the launch MOST likely to follow a crash mid-drag.
+        //
+        // Only `;` passes. That is the preceding statement's terminator (`var heldButtonMarker =
+        // new FileHeldButtonMarker();`), which can only be followed by a BARE statement. A braced
+        // conditional (`if (!IsPausedLaunch) { StartupHeldButtonRelease.Run(...); }`) leaves `{`
+        // here, so it fails too — the review-02 R3b mutant. A `{` from the method body would only
+        // arise if the block were the method's first statement, which the "after the guard"
+        // assertion above already excludes.
         var preceding = source[..run].TrimEnd();
         Check.WithCustomMessage(
                 "the startup release is conditional — a --paused launch (the Supervisor's retry after "
                 + "a crash) must still release a button a killed predecessor left held.")
-             .That(preceding.Length > 0 && preceding[^1] is ';' or '{').IsTrue();
+             .That(preceding.Length > 0 && preceding[^1] is ';').IsTrue();
 
         // The SAME marker instance the drag writes must reach the drag coordinator via the context.
         Check.That(Occurrences(source, "HeldButtonMarker: heldButtonMarker")).HasSize(1);

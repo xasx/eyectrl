@@ -24,6 +24,7 @@ public class FakeInputSimulator : IInputSimulator
     public void DoubleClick(PhysicalPoint p) => Actions.Add(("DoubleClick", p));
     public void MouseDown(PhysicalPoint p) => Actions.Add(("MouseDown", p));
     public void MouseUp(PhysicalPoint p) => Actions.Add(("MouseUp", p));
+    public void ReleaseLeftButton() => Actions.Add(("ReleaseLeftButton", default(PhysicalPoint)));
     public void Scroll(PhysicalPoint p, int dx, int dy) => Actions.Add(("Scroll", p));
     public void SendKeyPress(ushort vk) { }
     public void SendKeyDown(ushort vk) { }

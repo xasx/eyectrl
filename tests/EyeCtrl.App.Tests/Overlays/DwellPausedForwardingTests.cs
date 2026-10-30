@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;
@@ -163,6 +164,38 @@ public class DwellPausedForwardingTests
     }
 
     // Mutation (A1-f7): ActionMenuWindow's IsDwellPaused branch removed -> red.
+
+    // C5 H3: the glass backdrop's hide button follows the same rule, and its redraw rebuilds the
+    // DwellArcButton, so the held look has to survive that rebuild.
+    [StaFact]
+    public void GlassBackdrop_ForwardsThePausedFlag_AndKeepsItAcrossARedraw()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());
+        try
+        {
+            window.DrawHideButton(new PhysicalPoint(100, 100));
+            var button = HideButtonOf(window);
+
+            window.SetHideButtonPaused(true);
+            Check.That(button.ProgressPath.Opacity).IsEqualTo(Held);
+
+            window.DrawHideButton(new PhysicalPoint(100, 100)); // DrawHideButton rebuilds the ✕
+            var redrawn = HideButtonOf(window);
+            Check.That(ReferenceEquals(redrawn, button)).IsFalse();
+            Check.WithCustomMessage("the rebuilt hide button lost the held look")
+                .That(redrawn.ProgressPath.Opacity).IsEqualTo(Held);
+
+            window.SetHideButtonPaused(false);
+            Check.That(redrawn.ProgressPath.Opacity).IsEqualTo(1.0);
+        }
+        finally { window.Close(); }
+    }
+
+    private static DwellArcButton HideButtonOf(GlassBackdropWindow window) =>
+        (DwellArcButton?)typeof(GlassBackdropWindow)
+            .GetField("_hideButton", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(window)
+        ?? throw new InvalidOperationException("GlassBackdropWindow._hideButton is gone or was not drawn; repoint this read.");
 
     // ------------------------------------------------------------------ the three XAML bindings
 

@@ -40,6 +40,11 @@ public class DragDropDiscWiringTests
             Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
         };
         context.Settings.SelectionMode = SelectionMode.ManualSelection;
+        // A long release dwell, so the settle (500 ms) completes first and the drag reaches
+        // ManualSelectionActive — the owner's state, where the settle stops raising SettleProgress
+        // and so no longer redraws the overlay on every sample, masking a property the
+        // coordinator does not forward.
+        context.Settings.Dwell.DragReleaseButtonDwellMs = 2000;
         var overlay = new TestFakes.FakeDragTrailOverlay();
         var drag = new DragCoordinator { CreateTrailOverlay = () => overlay };
         drag.Initialize(context);
@@ -55,9 +60,12 @@ public class DragDropDiscWiringTests
 
             var spot = new PhysicalPoint(800, 600);
             var t = 0L;
-            for (var i = 0; i < 10; i++, t += StepUs)
+            for (var i = 0; i < 20; i++, t += StepUs)
                 context.Messenger.Send(new GazeCursorMovedMessage(spot, t));
+            Check.That(vm.DragState).IsEqualTo(DragSubState.ManualSelectionActive);
 
+            context.Messenger.Send(new GazeCursorMovedMessage(spot, t));
+            t += StepUs;
             Check.That(vm.ReleaseProgress).IsStrictlyGreaterThan(0);
             Check.WithCustomMessage("the release progress did not reach the overlay.")
                 .That(overlay.Discs[^1].Progress).IsEqualTo(vm.ReleaseProgress);

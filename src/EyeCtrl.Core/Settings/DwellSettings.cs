@@ -44,10 +44,10 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// (spec 2026-09-23, ledger D3).</summary>
     [ObservableProperty] private bool _cueEnabled = false;
     /// <summary>
-    /// Whether the cursor ring makes one brief luminance step when a dwell fires while the ring is
-    /// visible (Wave C ticket C1): the visual sibling of <see cref="CueEnabled"/>, on the same
-    /// announcement, so keys (which never announce) do not flash. An accepted activation offer
-    /// flashes the magnifier's rim instead. Default ON. A new property, so an existing settings
+    /// Whether the cursor ring makes one brief weight step (bolder, never recoloured) when a dwell
+    /// fires while the ring is visible (Wave C ticket C1): the visual sibling of
+    /// <see cref="CueEnabled"/>, on the same announcement, so keys (which never announce) do not
+    /// flash. An accepted activation offer flashes the magnifier's rim instead. Default ON. A new property, so an existing settings
     /// file picks the default from the initializer.
     /// </summary>
     [ObservableProperty] private bool _ringFiredFlashEnabled = true;

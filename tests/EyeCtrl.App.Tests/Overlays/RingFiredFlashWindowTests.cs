@@ -6,16 +6,16 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
-using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 
 /// <summary>
-/// Wave C C1, the window side of the "fired" flash: the cursor ring's one brief luminance step and
-/// the magnifier rim's. Which fires reach these methods is <c>FiredFlashCoordinatorTests</c>.
+/// Wave C C1, the window side of the "fired" flash: the cursor ring's one brief weight step and
+/// the magnifier rim's (fixup-01: the same bands, only wider; never a colour swap). Which fires reach these methods is <c>FiredFlashCoordinatorTests</c>.
 /// <para>
 /// No window here is ever visible. Every one is cloaked by DWM before its handle is shown
 /// (<see cref="InvisibleTestWindow.PrepareCloaked"/>: the ring writes its own Opacity, so the
@@ -62,8 +62,18 @@ public class RingFiredFlashWindowTests
     private static BandLook Look(Shape band) =>
         new(((SolidColorBrush)band.Stroke).Color, band.StrokeThickness, band.Opacity);
 
-    private static Color Lighter(Color a, Color b) =>
-        FiredFlash.RelativeLuminance(a) >= FiredFlash.RelativeLuminance(b) ? a : b;
+    /// <summary>
+    /// A DispatcherTimer's priority. It has no public getter, so this reads WPF's private field;
+    /// a missing field fails loudly rather than reading a default.
+    /// </summary>
+    private static DispatcherPriority TimerPriority(DispatcherTimer timer)
+    {
+        var field = typeof(DispatcherTimer).GetField(
+            "_priority", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Check.WithCustomMessage("DispatcherTimer._priority is gone; find another way to read the timer's priority.")
+            .That(field).IsNotNull();
+        return (DispatcherPriority)field!.GetValue(timer)!;
+    }
 
     /// <summary>Pumps the dispatcher for <paramref name="duration"/> of REAL time.</summary>
     private static void PumpFor(TimeSpan duration)
@@ -89,7 +99,7 @@ public class RingFiredFlashWindowTests
         var window = NewRing();
         try
         {
-            window.FlashFired();
+            ((ICursorCircleOverlay)window).FlashFired();
 
             Check.WithCustomMessage("A fire while the ring is hidden must not flash it.")
                 .That(window.IsFiredFlashLit).IsFalse();
@@ -105,12 +115,14 @@ public class RingFiredFlashWindowTests
     [StaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AVisibleRing_MakesOneStep_ThenReturnsToItsRestLook_AtBothWindowOpacities(bool pinned)
+    public void AVisibleRing_MakesOneWeightStep_ThenReturnsToItsRestLook_AtBothWindowOpacities(bool pinned)
     {
-        // The quiet look (window opacity 0.6) and the pinned look (1.0). The step covers the whole
-        // stroke in the lighter achromatic token, never writes Window.Opacity, and leaves the two
-        // bands exactly as CursorRingStacks painted them. Mutation: a FlashFired that does nothing
-        // → RED here; an End that leaves the band visible → RED here.
+        // The quiet look (window opacity 0.6) and the pinned look (1.0). The step is the ring's own
+        // two bands again, in their own colours and opacities, only wider: the dark core 3x, the
+        // light band's exposed part 2x. It never writes Window.Opacity and leaves the rest bands
+        // exactly as CursorRingStacks painted them. Called THROUGH THE INTERFACE (fixup-01 R4): the
+        // seam's default no-op must never win over the window. Mutations: a non-public FlashFired
+        // → RED; a colour swap on a flash band → RED; an End that leaves a band visible → RED.
         var window = NewRing();
         try
         {
@@ -121,30 +133,49 @@ public class RingFiredFlashWindowTests
             var outerRest = Look(window.CircleHalo);
             var coreRest = Look(window.Circle);
 
-            window.FlashFired();
+            ((ICursorCircleOverlay)window).FlashFired();
 
             Check.WithCustomMessage("A fire on a visible ring must light the step.")
                 .That(window.IsFiredFlashLit).IsTrue();
+            Check.That(window.FiredFlashOuter.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(window.FiredFlashCore.Visibility).IsEqualTo(Visibility.Visible);
             Check.WithCustomMessage("The step must not touch Window.Opacity (CursorRingRenderTests' two looks).")
                 .That(window.Opacity).IsEqualTo(restOpacity);
-            Check.WithCustomMessage("The step must cover the widest band, so no band edge shows through it.")
-                .That(window.FiredFlashBand.StrokeThickness)
-                .IsEqualTo(Math.Max(window.CircleHalo.StrokeThickness, window.Circle.StrokeThickness));
-            Check.That(window.FiredFlashBand.Width).IsEqualTo(window.CircleHalo.Width);
-            Check.WithCustomMessage("The step is drawn in the lighter of the two achromatic tokens.")
-                .That(((SolidColorBrush)window.FiredFlashBand.Stroke).Color)
-                .IsEqualTo(Lighter(Tokens.TextPrimary, Tokens.StrokeHalo));
-            Check.That(window.FiredFlashBand.Opacity).IsEqualTo(1.0);
-            Check.WithCustomMessage("The flash band must paint over both ring bands.")
-                .That(((System.Windows.Controls.Canvas)window.Content).Children.IndexOf(window.FiredFlashBand))
-                .IsStrictlyGreaterThan(((System.Windows.Controls.Canvas)window.Content).Children.IndexOf(window.Circle));
+
+            var outerPeak = Look(window.FiredFlashOuter);
+            var corePeak = Look(window.FiredFlashCore);
+            Check.WithCustomMessage("Polarity-keeping: the outer flash band is the outer band's own colour, never a swap.")
+                .That(outerPeak.Stroke).IsEqualTo(outerRest.Stroke);
+            Check.WithCustomMessage("Polarity-keeping: the core flash band is the core band's own colour, never a swap.")
+                .That(corePeak.Stroke).IsEqualTo(coreRest.Stroke);
+            Check.That(outerPeak.Opacity).IsEqualTo(outerRest.Opacity);
+            Check.That(corePeak.Opacity).IsEqualTo(coreRest.Opacity);
+            Check.WithCustomMessage("The dark core must be 3x as wide at the peak.")
+                .That(corePeak.Thickness).IsCloseTo(coreRest.Thickness * 3, 1e-9);
+            Check.WithCustomMessage("The light band's exposed part must be 2x as wide at the peak.")
+                .That(outerPeak.Thickness - corePeak.Thickness)
+                .IsCloseTo((outerRest.Thickness - coreRest.Thickness) * 2, 1e-9);
+            Check.That(window.FiredFlashOuter.Width).IsEqualTo(window.CircleHalo.Width);
+            Check.That(window.FiredFlashCore.Width).IsEqualTo(window.Circle.Width);
+
+            var canvas = (System.Windows.Controls.Canvas)window.Content;
+            Check.WithCustomMessage("The flash bands must paint over the rest bands, outer before core.")
+                .That(canvas.Children.IndexOf(window.FiredFlashOuter))
+                .IsStrictlyGreaterThan(canvas.Children.IndexOf(window.Circle));
+            Check.That(canvas.Children.IndexOf(window.FiredFlashCore))
+                .IsStrictlyGreaterThan(canvas.Children.IndexOf(window.FiredFlashOuter));
+
             Check.That(window.IsFiredFlashEndScheduled).IsTrue();
             Check.WithCustomMessage("The whole flash must end within 150 ms.")
                 .That(window.FiredFlashInterval.TotalMilliseconds).IsStrictlyGreaterThan(0).And.IsLessOrEqualThan(150);
+            Check.WithCustomMessage("The end tick must queue behind the render that draws the step (fixup-01 R5).")
+                .That(TimerPriority(window.FiredFlashTimer)).IsEqualTo(DispatcherPriority.Render);
 
             window.EndFiredFlash();
 
             Check.That(window.IsFiredFlashLit).IsFalse();
+            Check.That(window.FiredFlashOuter.Visibility).IsEqualTo(Visibility.Collapsed);
+            Check.That(window.FiredFlashCore.Visibility).IsEqualTo(Visibility.Collapsed);
             Check.That(window.IsFiredFlashEndScheduled).IsFalse();
             Check.That(window.Opacity).IsEqualTo(restOpacity);
             Check.WithCustomMessage("The outer band is not back at its rest look.")
@@ -168,7 +199,7 @@ public class RingFiredFlashWindowTests
         {
             ShowCloakedOffScreen(window);
 
-            window.FlashFired();
+            ((ICursorCircleOverlay)window).FlashFired();
             Check.That(window.IsFiredFlashLit).IsTrue();
 
             PumpFor(TimeSpan.FromMilliseconds(400));
@@ -190,7 +221,7 @@ public class RingFiredFlashWindowTests
         try
         {
             ShowCloakedOffScreen(window);
-            window.FlashFired();
+            ((ICursorCircleOverlay)window).FlashFired();
             Check.That(window.IsFiredFlashLit).IsTrue();
 
             window.Hide();
@@ -207,11 +238,11 @@ public class RingFiredFlashWindowTests
     }
 
     [StaFact]
-    public void TheMagnifierRim_MakesOneStep_ThenReturnsToRest_AndItsRimIsNeverWritten()
+    public void TheMagnifierRim_MakesOneWeightStep_ThenReturnsToRest_AndItsRimIsNeverWritten()
     {
         // The window is constructed cloaked and never shown: FlashRim needs no visibility (the
-        // coordinator calls it at the magnifier's own show). Mutation: a FlashRim that does
-        // nothing → RED.
+        // coordinator calls it at the magnifier's own show). Called through the interface
+        // (fixup-01 R4). Mutations: a no-op or non-public FlashRim → RED; a colour swap → RED.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = InvisibleTestWindow.PrepareCloaked(new ManualSelectionOverlayWindow());
         try
@@ -219,18 +250,27 @@ public class RingFiredFlashWindowTests
             var haloRest = Look(window.RimHalo);
             var rimRest = Look(window.Rim);
 
-            window.FlashRim();
+            ((IManualSelectionOverlay)window).FlashRim();
 
             Check.That(window.IsRimFlashLit).IsTrue();
-            Check.WithCustomMessage("The rim step must cover the whole rim (RimHalo's width).")
-                .That(window.RimFlash.StrokeThickness).IsEqualTo(window.RimHalo.StrokeThickness);
-            Check.That(((SolidColorBrush)window.RimFlash.Stroke).Color)
-                .IsEqualTo(Lighter(Tokens.TextPrimary, Tokens.StrokeHalo));
+            Check.That(window.RimFlashHalo.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(window.RimFlash.Visibility).IsEqualTo(Visibility.Visible);
+            Check.WithCustomMessage("Polarity-keeping: the halo flash is the halo's own colour.")
+                .That(Look(window.RimFlashHalo).Stroke).IsEqualTo(haloRest.Stroke);
+            Check.WithCustomMessage("Polarity-keeping: the rim flash is the rim's own colour.")
+                .That(Look(window.RimFlash).Stroke).IsEqualTo(rimRest.Stroke);
+            Check.WithCustomMessage("The rim must be 3x as wide at the peak.")
+                .That(window.RimFlash.StrokeThickness).IsCloseTo(rimRest.Thickness * 3, 1e-9);
+            Check.WithCustomMessage("The halo's exposed part must be 2x as wide at the peak.")
+                .That(window.RimFlashHalo.StrokeThickness - window.RimFlash.StrokeThickness)
+                .IsCloseTo((haloRest.Thickness - rimRest.Thickness) * 2, 1e-9);
             Check.That(window.RimFlashInterval.TotalMilliseconds).IsStrictlyGreaterThan(0).And.IsLessOrEqualThan(150);
 
             window.EndRimFlash();
 
             Check.That(window.IsRimFlashLit).IsFalse();
+            Check.That(window.RimFlashHalo.Visibility).IsEqualTo(Visibility.Collapsed);
+            Check.That(window.RimFlash.Visibility).IsEqualTo(Visibility.Collapsed);
             Check.That(Look(window.RimHalo)).IsEqualTo(haloRest);
             Check.That(Look(window.Rim)).IsEqualTo(rimRest);
         }

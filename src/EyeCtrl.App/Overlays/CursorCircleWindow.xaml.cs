@@ -28,7 +28,7 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         // first transition — i.e. the ring would read as "pinned" on launch.
         Opacity = FreeLookQuietOpacity;
 
-        _firedFlash = new FiredFlash(FiredFlashBand);
+        _firedFlash = new FiredFlash(FiredFlashOuter, FiredFlashCore);
         // A ring hidden mid-flash comes back at rest: the flash belongs to the fire, never to the
         // next time the ring reappears.
         IsVisibleChanged += (_, _) =>
@@ -40,10 +40,12 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     private readonly FiredFlash _firedFlash;
 
     /// <summary>
-    /// One brief luminance step confirming a dwell fired (Wave C C1). Only a ring that is on screen
-    /// flashes: a fire while the window is hidden is dropped, never queued for its reappearance.
-    /// Touches neither the bands nor <see cref="Window.Opacity"/>, so the quiet and pinned looks and
-    /// the per-band rest values are exactly as they were once the step ends.
+    /// One brief weight step confirming a dwell fired (Wave C C1): the ring's own two bands, wider
+    /// (<see cref="FiredFlash.PeakStack"/>), so it turns bolder in both polarities and never less
+    /// visible. Only a ring that is on screen flashes: a fire while the window is hidden is dropped,
+    /// never queued for its reappearance. Touches neither the bands nor <see cref="Window.Opacity"/>,
+    /// so the quiet and pinned looks and the per-band rest values are exactly as they were once the
+    /// step ends.
     /// </summary>
     public void FlashFired()
     {
@@ -59,6 +61,9 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
 
     /// <summary>The flash's scheduled length.</summary>
     internal TimeSpan FiredFlashInterval => _firedFlash.Interval;
+
+    /// <summary>The flash's end timer (tests read its priority).</summary>
+    internal System.Windows.Threading.DispatcherTimer FiredFlashTimer => _firedFlash.Timer;
 
     /// <summary>Ends the flash now: what the timer's tick does (a pumpless test cannot tick it).</summary>
     internal void EndFiredFlash() => _firedFlash.End();
@@ -233,11 +238,15 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         CircleHalo.Width = size;
         CircleHalo.Height = size;
 
-        // The flash covers the whole stroke: as wide as the widest band (the outer one, or both
-        // when they are equal as in BiTonalSegments), so no band edge shows through the step.
-        FiredFlashBand.Width = size;
-        FiredFlashBand.Height = size;
-        FiredFlashBand.StrokeThickness = Math.Max(stack.Outer.Thickness, stack.Core.Thickness);
+        // The fired flash's peak: the same two bands, same colours and opacities, only wider. Built
+        // here, with the rest look, so a flash itself writes nothing but visibility.
+        var peak = FiredFlash.PeakStack(stack, size);
+        Apply(FiredFlashOuter, peak.Outer, Tokens.BrushStrokeHalo);
+        Apply(FiredFlashCore, peak.Core, Tokens.BrushAccent);
+        FiredFlashOuter.Width = size;
+        FiredFlashOuter.Height = size;
+        FiredFlashCore.Width = size;
+        FiredFlashCore.Height = size;
     }
 
     /// <summary>

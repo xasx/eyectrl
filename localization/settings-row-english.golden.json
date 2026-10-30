@@ -165,7 +165,7 @@
         {
           "Id": "d_ring_flash",
           "Label": "Dwell Completion Flash",
-          "Description": "Briefly brightens the cursor ring when a dwell activates on any EyeCtrl surface. When the activation button opens the magnifier, the magnifier's rim flashes instead. Keys do not flash.",
+          "Description": "Briefly makes the cursor ring bolder when a dwell activates in EyeCtrl. When the activation button opens the magnifier, its rim does this instead. Keys are left out.",
           "Modal": null
         },
         {

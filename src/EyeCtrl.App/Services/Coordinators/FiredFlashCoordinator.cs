@@ -7,8 +7,8 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The "fired" flash (Wave C ticket C1): when a dwell fires, the cursor ring makes one brief
-/// luminance step; when the fire is an accepted activation offer that opens the magnifier, the
-/// magnifier's rim flashes instead. Gated by <c>DwellSettings.RingFiredFlashEnabled</c>.
+/// weight step (bolder, never recoloured); when the fire is an accepted activation offer that
+/// opens the magnifier, the magnifier's rim flashes instead. Gated by <c>DwellSettings.RingFiredFlashEnabled</c>.
 /// <para>
 /// Driven from the App layer on purpose: the ring team's hard constraint is that the flash never
 /// changes the ring VM's hold, pin, keep, position or visibility, so this coordinator holds no

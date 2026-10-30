@@ -35,6 +35,7 @@ public class HaloZOrderTests
         ("src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml", "VelocityRingHalo", "VelocityRing"),
         ("src/EyeCtrl.App/Overlays/CueOverlayWindow.xaml", "BadgeHalo", "Badge"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml", "RimHalo", "Rim"),
+        ("src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml", "RimFlashHalo", "RimFlash"),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml", "ToleranceHalo", "ToleranceRing"),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml", "ProgressHalo", "ProgressRing"),
     ];

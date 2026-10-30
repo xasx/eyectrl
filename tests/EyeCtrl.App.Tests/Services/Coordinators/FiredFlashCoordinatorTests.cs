@@ -138,6 +138,30 @@ public class FiredFlashCoordinatorTests
     }
 
     [StaFact]
+    public void AnAcceptWhileTheSettingIsOff_StillConsumesTheSkip_SoTheNextFireAfterTurningItOnFlashes()
+    {
+        // fixup-01 R3 (ring review F4): the skip is consumed BEFORE the setting gate. With the gate
+        // first, an accept made while the setting is off would leave the skip set, and the first
+        // ordinary fire after the user turned the setting back on would lose its flash. Mutation:
+        // move the setting gate above the consume → RED.
+        var rig = Make();
+        var button = new ActivationButtonViewModel(rig.Messenger);
+        var offer = Offer();
+        rig.Settings.Dwell.RingFiredFlashEnabled = false;
+
+        rig.Messenger.Send(new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx, offer.Point));
+        rig.Messenger.Send(new ActivationOfferFiredMessage(offer));
+        Check.That(rig.Ring.Flashes).IsEqualTo(0);
+
+        rig.Settings.Dwell.RingFiredFlashEnabled = true;
+        rig.Messenger.Send(new DwellActivationMessage());
+
+        Check.WithCustomMessage("The accept's skip outlived it and ate an unrelated fire's flash.")
+            .That(rig.Ring.Flashes).IsEqualTo(1);
+        GC.KeepAlive(button);
+    }
+
+    [StaFact]
     public void AFreshMagnifierEntry_FlashesTheRimOnce_ButBackFromTheMenuDoesNot()
     {
         // A fresh entry (Recapture) is raised by Core only from an accepted offer; Back from the

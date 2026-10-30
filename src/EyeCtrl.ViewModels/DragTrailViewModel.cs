@@ -26,12 +26,29 @@ public enum DragSubState
 /// </summary>
 public readonly record struct DragExitZone(PhysicalPoint Center, double RadiusPhysical);
 
+/// <summary>
+/// What the overlay draws for the drag's gaze-following drop target (C2): the hit circle itself
+/// (centre and the detector's LIVE radius, in physical px, so drawn = hit), the release dwell's
+/// progress, and whether that progress is held by the pause grace (drawn dimmed).
+/// </summary>
+public readonly record struct DragReleaseDisc(
+    PhysicalPoint Center, double RadiusPhysical, double Progress, bool Paused);
+
 public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     IRecipient<StartDragTrailMessage>,
     IRecipient<DragCancelMessage>,
     IRecipient<DragDismissManualSelectionMessage>
 {
     private const string ReleaseTargetId = "Drag_release";
+
+    /// <summary>
+    /// C2: how far, in hit radii, the gaze may wander from the spot where the current release dwell
+    /// started and still be the SAME rest. Inside it a gaze that crosses the target's edge re-centres
+    /// the target and keeps the dwell (drift and the owner's random-walk wander); beyond it the gaze
+    /// has moved to a new spot and the dwell restarts there (PX2/R4). A drift or wander covers well
+    /// under half a radius per sample, while a saccade lands more than a radius away at once.
+    /// </summary>
+    internal const double SameSpotRadii = 1.5;
 
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
@@ -41,6 +58,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private double _screenTolerancePhysical;
     private bool _inExitZone;
 
+    // C2: the spot the current release dwell belongs to — where the target was placed when the
+    // dwell last restarted. Re-centres within SameSpotRadii of it keep the dwell.
+    private PhysicalPoint _releaseSpot;
+
     [ObservableProperty] private bool _isDragActive;
     [ObservableProperty] private PhysicalPoint _grabOrigin;
     [ObservableProperty] private PhysicalPoint _cursorPosition;
@@ -48,6 +69,37 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private double _settleProgress;
     [ObservableProperty] private bool _showBack;
     [ObservableProperty] private PhysicalPoint _releaseButtonCenter;
+
+    /// <summary>The release target's live hit radius in physical px (C2: drawn = hit).</summary>
+    [ObservableProperty] private double _releaseRadiusPhysical;
+
+    /// <summary>The release dwell's progress, 0–1, from the detector (C2).</summary>
+    [ObservableProperty] private double _releaseProgress;
+
+    /// <summary>Whether the release dwell is held by the pause grace (C2: drawn dimmed).</summary>
+    [ObservableProperty] private bool _isReleasePaused;
+
+    /// <summary>The drop target as the overlay draws it (C2).</summary>
+    public DragReleaseDisc ReleaseDisc =>
+        new(ReleaseButtonCenter, ReleaseRadiusPhysical, ReleaseProgress, IsReleasePaused);
+
+    /// <summary>
+    /// C2: the drop target's hit radius in physical px — the larger of an r50 disc
+    /// (<see cref="UIConstants.DragDropTargetMinRadius"/>) and the user's fixation radius, capped
+    /// at <see cref="UIConstants.DragDropTargetMaxRadius"/>. A rest the user can hold anywhere is
+    /// at least their fixation radius wide, so a target smaller than it resets on their ordinary
+    /// wander. The fixation radius is the <c>DwellSettings.FixationRadiusPixels</c> baseline,
+    /// not <c>GazeEngine.EffectiveFixationRadiusPixels</c>: this view model has no gaze engine,
+    /// and the two differ only while adaptation's geometry routing is on — which reaches this
+    /// target anyway, as a margin on the registered radius that <see cref="ReleaseRadiusPhysical"/>
+    /// reads back live.
+    /// </summary>
+    public static double DropTargetRadiusPhysical(double fixationRadiusPixels)
+    {
+        var floor = DpiHelper.LogicalToPhysicalX(UIConstants.DragDropTargetMinRadius);
+        var cap = DpiHelper.LogicalToPhysicalX(UIConstants.DragDropTargetMaxRadius);
+        return Math.Min(Math.Max(floor, fixationRadiusPixels), cap);
+    }
 
     public DragTrailViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
@@ -103,7 +155,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         ShowBack = false;
         _inExitZone = false;
 
-        UpdateReleaseButtonPosition(message.GrabOrigin);
+        ReleaseButtonCenter = message.GrabOrigin;
         SetupDwellTargets();
     }
 
@@ -112,6 +164,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         IsDragActive = false;
         _settleDetector.Reset();
         DwellDetector.ClearTargets();
+        ReleaseProgress = 0;
         DragState = DragSubState.FreeDrag;
     }
 
@@ -174,8 +227,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             }
         }
 
-        UpdateReleaseButtonPosition(message.Position);
-        DwellDetector.UpdateTargetCenter(ReleaseTargetId, ReleaseButtonCenter);
+        // AFTER the detector: this sample was hit-tested against the circle as drawn, so a sample
+        // outside it is never credited — the pause grace holds it — even when the target then
+        // re-centres onto it and the next sample, inside, resumes.
+        FollowGaze(message.Position);
     }
 
     private bool IsInExitZone(PhysicalPoint point)
@@ -226,29 +281,63 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             DragState = DragSubState.FreeDrag;
     }
 
-    private void UpdateReleaseButtonPosition(PhysicalPoint cursorPos)
+    /// <summary>
+    /// C2: keeps the drop target under the gaze. The target is CENTRED on the gaze it re-centres
+    /// onto, which leaves a full radius of room for the wander in every direction; the old
+    /// (−14, −14) DIP offset left the cursor 0.2 DIP from the down-right edge, so any drift that
+    /// way reset the dwell forever. The owner's below-target resting bias does not argue for an
+    /// offset: the hit test runs on the reported gaze, which already contains the bias.
+    /// <para>
+    /// A gaze outside the circle re-centres it. Within <see cref="SameSpotRadii"/> of the dwell's
+    /// spot that is drift, and the dwell is KEPT: the detector already paused it on this outside
+    /// sample (the pause grace, uncredited), and the next sample inside the re-centred circle
+    /// resumes it. At grace 0 the detector reset it instead, like every other exit at grace 0.
+    /// </para>
+    /// </summary>
+    private void FollowGaze(PhysicalPoint gaze)
     {
-        var offset = DpiHelper.LogicalToPhysicalX(UIConstants.DragReleaseButtonOffset);
-        var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
+        if (!IsDragActive) return;
 
-        if (cursorPos.DistanceSquaredTo(ReleaseButtonCenter) <= btnRadius * btnRadius)
+        // The LIVE hit geometry (adaptation may route a margin onto the registered radius), so the
+        // follow decision, the detector's hit test and the drawn disc all agree.
+        ReleaseRadiusPhysical = LiveReleaseRadius();
+        if (DwellDetector.HitTest(ReleaseTargetId, gaze))
             return;
 
-        ReleaseButtonCenter = new PhysicalPoint(cursorPos.X - offset, cursorPos.Y - offset);
+        ReleaseButtonCenter = gaze;
+        DwellDetector.UpdateTargetCenter(ReleaseTargetId, gaze);
+
+        var sameSpot = SameSpotRadii * ReleaseRadiusPhysical;
+        if (gaze.DistanceSquaredTo(_releaseSpot) <= sameSpot * sameSpot)
+            return;
+
         // PX2/R4: a release dwell belongs to the SPOT it started at. A1's pause grace may hold a
-        // blink or a gap at the same spot, but when the target re-centres onto a new spot the held
+        // blink or a gap at the same spot, but when the gaze has moved to a new spot the held
         // progress must not follow it — a glance would otherwise drop the item there in a fraction
         // of a dwell.
+        _releaseSpot = gaze;
         DwellDetector.ResetAllState();
+    }
+
+    private double LiveReleaseRadius()
+    {
+        foreach (var target in DwellDetector.Targets)
+            if (target.Id == ReleaseTargetId)
+                return target.Radius;
+        return ReleaseRadiusPhysical;
     }
 
     private void SetupDwellTargets()
     {
         DwellDetector.ClearTargets();
-        var btnRadius = DpiHelper.LogicalToPhysicalX(UIConstants.DragButtonRadius);
+        _releaseSpot = ReleaseButtonCenter;
         DwellDetector.AddTarget(new DwellTarget(
-            ReleaseTargetId, ReleaseButtonCenter, btnRadius,
+            ReleaseTargetId, ReleaseButtonCenter,
+            DropTargetRadiusPhysical(_settings.Dwell.FixationRadiusPixels),
             _settings.Dwell.DragReleaseButtonDwellMs));
+        ReleaseRadiusPhysical = LiveReleaseRadius();
+        ReleaseProgress = 0;
+        IsReleasePaused = false;
     }
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
@@ -263,6 +352,14 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     protected override void OnTargetProgress(string targetId, double progress)
     {
+        if (targetId == ReleaseTargetId)
+            ReleaseProgress = progress;
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        if (targetId == ReleaseTargetId)
+            IsReleasePaused = paused;
     }
 
     private void CompleteDrag(PhysicalPoint dropPoint)
@@ -270,6 +367,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         IsDragActive = false;
         _settleDetector.Reset();
         DwellDetector.ClearTargets();
+        ReleaseProgress = 0;
         DragState = DragSubState.FreeDrag;
         Messenger.Send(new DragDropMessage(dropPoint));
     }

@@ -113,7 +113,9 @@ public class DragExitZoneTests
     public void ASaccadeToANewSpot_NeedsTheFullReleaseDwellThere()
     {
         // PX2/R4: a held release dwell must not follow a saccade. The settle is pushed out of the
-        // window so the release target is the only drop path being measured.
+        // window so the release target is the only drop path being measured. C2: Q is 500 px
+        // from P, past 1.5 radii of the drop target at any scale (≤ 300 px at the 100 DIP cap,
+        // 200 % DPI), so this is a NEW spot and the dwell restarts there.
         WithDpi(2.0, () =>
         {
             using var world = new World(s => s.Drag.SettleDwellMs = 2000);
@@ -218,9 +220,12 @@ public class DragExitZoneTests
     public void ASlideIntoBack_InsideTheReleaseTarget_NeedsAFullDwellAfterEachVisit(double scale)
     {
         // L1 (holistic probe HP1, A4 Q2): a 20 DIP slide into Back that stays INSIDE the release
-        // target's r20 — so the target never re-centres — must still be a clean break on entry, and
-        // the zone flag must clear when the gaze leaves. Two visits: neither may carry progress
-        // back to P. Mutants: the zone-entry reset removed (R4b) and the flag never cleared (R4c).
+        // target — so the target never re-centres — must still be a clean break on entry, and the
+        // zone flag must clear when the gaze leaves. Two visits: neither may carry progress back to
+        // P. Mutants: the zone-entry reset removed (R4b) and the flag never cleared (R4c).
+        // C2: the target is now at least r50 and centred on P (it was r20 at P − (14, 14) DIP), so
+        // the 20 DIP slide is even further inside it; the reset under test is still the zone
+        // entry's, never a re-centre's.
         WithDpi(scale, () =>
         {
             using var world = new World(s => s.Drag.SettleDwellMs = 2000);

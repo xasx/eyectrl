@@ -317,10 +317,14 @@ internal static class TestFakes
 
         public void Show() => Calls.Add("Show");
 
+        /// <summary>Every drop disc <see cref="Update"/> was given, in order (C2).</summary>
+        public List<DragReleaseDisc> Discs { get; } = new();
+
         public void Update(PhysicalPoint grabOrigin, PhysicalPoint cursorPos, double settleProgress,
-            PhysicalPoint releasePos)
+            DragReleaseDisc release)
         {
             Calls.Add("Update");
+            Discs.Add(release);
             if (UpdateFailure is null) return;
             if (UpdateFailureOnCall is { } only && only != UpdateCount) return;
             throw UpdateFailure;

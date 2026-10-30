@@ -181,6 +181,9 @@ public class DragTrailViewModelTests
         var vm = CreateVm();
         _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
 
+        // C2 fixup-01 R1: the drop arms only once the gaze has left its first spot after the
+        // start (the hidden Drag menu item), so a saccade from there precedes the rest.
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(900, 900), -30_000));
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 300), 0));
 
         DragDropMessage? dropMsg = null;

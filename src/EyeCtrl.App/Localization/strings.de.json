@@ -1806,6 +1806,14 @@
     "text": "Fortsetzen in der Pause (ms)",
     "src": "6a72f689"
   },
+  "settings.dwell.ring_flash.description": {
+    "text": "Lässt den Cursorring kurz kräftiger erscheinen, wenn ein Verweilen in EyeCtrl auslöst. Öffnet der Aktivator die Lupe, wird stattdessen ihr Rand kurz kräftiger. Tasten sind ausgenommen.",
+    "src": "fbe720b0"
+  },
+  "settings.dwell.ring_flash.label": {
+    "text": "Hervorheben bei Auslösung",
+    "src": "6632534d"
+  },
   "settings.dwell.status_chime.description": {
     "text": "Spielt einmal einen kurzen Ton, wenn der Eyetracker länger als zehn Sekunden nicht verbunden ist. Wegschauen oder eine absichtliche Pause lösen ihn nicht aus.",
     "src": "40767bec"

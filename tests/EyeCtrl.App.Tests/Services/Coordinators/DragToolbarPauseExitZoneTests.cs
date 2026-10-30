@@ -311,6 +311,12 @@ public class DragToolbarPauseExitZoneTests
             Interaction.OnActionSelected(InteractionAction.Drag);
             Check.That(Interaction.CurrentState).IsEqualTo(InteractionState.Dragging);
             Check.That(Drag.LastSetupFailure).IsNull();
+
+            // C2 fixup-01 R1: the drop arms only once the gaze has left the spot of the first
+            // sample after the drag starts (the hidden Drag menu item). One sample far from every
+            // spot these rows rest on, before their t = 0, is that saccade — without it a
+            // ManualSelection rest would pass by never arming, and a no-drop row would prove nothing.
+            Context.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(2000, 1500), -30_000));
         }
 
         /// <summary>Feeds gaze samples at one point through the real messenger fan-out.</summary>

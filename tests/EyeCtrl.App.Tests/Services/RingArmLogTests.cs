@@ -28,7 +28,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=R, glideOut=0) [source: default]");
+            + "go=500 ms corridor=1.25R, glideOut=0) [source: default]");
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=R, glideOut=0) [source: --ring-arm]");
+            + "go=500 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: run-only (pin=RunOnly, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=R, glideOut=0) [source: --ring-arm]");
+            + "go=0 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=R, glideOut=0) [source: --ring-arm]");
+            + "go=0 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=R, glideOut=0) [source: --ring-arm]");
+            + "go=500 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
     }
 
     [Fact]
@@ -276,8 +276,8 @@ public class RingArmLogTests
         Check.That(Go((frame, _, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
-            frame(new PhysicalPoint(1100, 1100));
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (left) ms=30 off=100");
+            frame(new PhysicalPoint(1100, 1130));                 // 130 px off the axis (> 1.25 R = 100)
+        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (left) ms=30 off=130");
 
         Check.That(Go((frame, _, _, _) =>
         {

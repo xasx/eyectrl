@@ -53,7 +53,7 @@ internal sealed class RingArmLog : IDisposable
     {
         bool hybrid = launch.Arm == RingArm.Hybrid;
         return string.Format(CultureInfo.InvariantCulture,
-            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, go={5} ms corridor=R, glideOut=0) [source: {6}]",
+            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, go={5} ms corridor={6:0.##}R, glideOut=0) [source: {7}]",
             launch.Arm switch
             {
                 RingArm.Hybrid => "hybrid",
@@ -65,6 +65,7 @@ internal sealed class RingArmLog : IDisposable
             hybrid ? CursorCircleViewModel.HybridFreezeGraceMs : 0,
             hybrid ? CursorCircleViewModel.HybridFreezeProvenMs : 0,
             hybrid ? CursorCircleViewModel.HybridFreezeApproachMs : 0,
+            CursorCircleViewModel.HybridGoCorridorFactor,
             launch.Specified ? "--ring-arm" : "default");
     }
 

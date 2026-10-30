@@ -192,8 +192,8 @@ internal static class GoingForItChains
         Add("away: run ends 40 px from P, then perpendicular 500 px", Gapped(45).Hold(near.X, near.Y, 60).Move(perp.X, perp.Y, 3).Hold(perp.X, perp.Y, 1200));
         var swerve = Pt(150, 130);
         Add("away: run ends 40 px from P, swerves 130 px off the axis", Gapped(46).Hold(near.X, near.Y, 60).Move(swerve.X, swerve.Y, 4).Hold(swerve.X, swerve.Y, 1200));
-        var sideFar = Pt(40, 100);
-        Add("away: run ends 100 px off the axis (outside the corridor)", Gapped(47).Hold(sideFar.X, sideFar.Y, 600));
+        var sideFar = Pt(40, 130);
+        Add("away: run ends 130 px off the axis (outside the corridor)", Gapped(47).Hold(sideFar.X, sideFar.Y, 600));
         list.Add(("drift: the run ends 66 px from P, then to B", Drift(DriftKind.ToButton)));
         list.Add(("drift: the run ends 66 px from P, then away", Drift(DriftKind.Away)));
         list.Add(("a corridor stop near P: the settle replaces the offer", StopNearP(null)));

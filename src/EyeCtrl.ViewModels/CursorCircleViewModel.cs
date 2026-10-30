@@ -34,6 +34,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// button's dwell survives an excursion. (Named for the approach window it widens.)</summary>
     public const int HybridFreezeApproachMs = 500;
 
+    /// <summary>The going-for-it corridor's half-width as a multiple of the engine's effective R: the
+    /// axis-offset keep reaches 1.25 R either side of the segment P-B (100 px at R = 80), so an approach
+    /// that drifts a little wide of the axis still counts as on its way to the button. Only the corridor
+    /// widens; B's no-move zone still uses R itself.</summary>
+    public const double HybridGoCorridorFactor = 1.25;
+
     /// <summary>
     /// The ring hold policy (<c>--ring-arm</c> sets it once at startup; never a setting). The class
     /// default stays <see cref="RingHoldPolicy.None"/>, the offer-following behaviour bit for bit; the
@@ -309,7 +315,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private double NoMoveZonePx => _offerHitRadiusPx + ZoneRadiusPx;
 
     /// <summary>The engine's effective fixation radius R from the show message (the baseline setting where
-    /// the message did not carry it): the no-move zone's margin and the corridor's half-width.</summary>
+    /// the message did not carry it): the no-move zone's margin, and — times
+    /// <see cref="HybridGoCorridorFactor"/> — the corridor's half-width.</summary>
     private double ZoneRadiusPx => _offerFixationRadiusPx ?? _settings.Dwell.FixationRadiusPixels;
 
     /// <summary>The distance from the gaze to the segment P-B, or null where the show message carried
@@ -317,11 +324,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private double? AxisOffsetPx(PhysicalPoint gaze) =>
         _offerPoint is { } p ? DistanceToSegment(gaze, p, _offerCenter) : null;
 
-    /// <summary>Whether the gaze is on its way to B: inside B's no-move zone, or within R of the segment
-    /// P-B (a capsule of half-width R). Without P it is today's zone test.</summary>
+    /// <summary>Whether the gaze is on its way to B: inside B's no-move zone, or within 1.25 R of the
+    /// segment P-B (a capsule of half-width <see cref="HybridGoCorridorFactor"/> × R). Without P it is
+    /// today's zone test.</summary>
     private bool InGo(PhysicalPoint gaze) =>
         gaze.DistanceTo(_offerCenter) <= NoMoveZonePx
-        || (AxisOffsetPx(gaze) is { } off && off <= ZoneRadiusPx);
+        || (AxisOffsetPx(gaze) is { } off && off <= ZoneRadiusPx * HybridGoCorridorFactor);
 
     private static double DistanceToSegment(PhysicalPoint g, PhysicalPoint a, PhysicalPoint b)
     {

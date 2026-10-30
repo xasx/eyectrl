@@ -296,8 +296,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
 
     /// <param name="GoCorridorPx">The going-for-it keep (the VM's <c>InGo</c>): 0 = the approach holds only
     /// while the gaze is inside B's no-move zone (hit + R, today's test); otherwise it also holds while the
-    /// gaze is within this many px of the segment P-B (a capsule). A negative value means R itself (the
-    /// config's fixation radius, as the VM takes the engine's R from the show message).</param>
+    /// gaze is within this many px of the segment P-B (a capsule). A negative value means
+    /// <see cref="CursorCircleViewModel.HybridGoCorridorFactor"/> × R (the VM's constant times the config's
+    /// fixation radius, as the VM takes the engine's R from the show message).</param>
     internal sealed record ArmSpec(string Name, Pinning Pinning, int GlideOutMs = 0, int GraceMs = 0, double ExitMarginPx = 0,
         HoldStyle Hold = HoldStyle.Freeze, int ApproachMs = 150, int ProvenMs = 0, double GoCorridorPx = 0);
 
@@ -322,7 +323,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
         bool hybrid = spec.Pinning == Pinning.Hybrid;
         var ledger = hybrid ? new HoldLedger() : null;
         double radiusPx = trace.Config.RadiusPx;
-        double corridorPx = spec.GoCorridorPx < 0 ? radiusPx : spec.GoCorridorPx;
+        double corridorPx = spec.GoCorridorPx < 0
+            ? radiusPx * CursorCircleViewModel.HybridGoCorridorFactor
+            : spec.GoCorridorPx;
         // The approach's space: B's no-move zone, or (going-for-it) also the capsule P-B.
         bool InGo(PhysicalPoint g, ActivationOffer o) =>
             g.DistanceTo(o.Button) <= o.HitRadiusPx + radiusPx
@@ -635,7 +638,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
     /// area spends at most one or two samples in it, a deliberate look at least three (90 ms).</summary>
     internal const int HybridProvenMs = 90;
     internal const int HybridApproachMs = 500;
-    internal const double HybridGoCorridorPx = -1;   // the corridor's half-width is R
+    internal const double HybridGoCorridorPx = -1;   // the corridor's half-width is 1.25 R (the VM's constant)
     internal static readonly ArmSpec Hybrid = new("hybrid", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx);
     internal static readonly ArmSpec HybridGlideOut = new("hybrid + glide-out", Pinning.Hybrid, GlideOutMs: GlideOutMs, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx);
 

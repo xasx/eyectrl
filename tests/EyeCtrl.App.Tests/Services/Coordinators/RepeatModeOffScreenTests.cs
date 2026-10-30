@@ -65,26 +65,44 @@ public class RepeatModeOffScreenTests
         im.NoteGazeSample(true, nowUs);
 
         // The summon gesture past the top edge: no arm, no click.
-        im.OnFixationStarted(new PhysicalPoint(bounds.X + (bounds.Width / 2), bounds.Y - 100));
-        im.NoteGazeSample(true, nowUs + (2_000 * Ms));
+        var summonPoint = new PhysicalPoint(bounds.X + (bounds.Width / 2), bounds.Y - 100);
+        im.OnFixationStarted(summonPoint);
+        im.NoteRepeatGazeSample(summonPoint, nowUs + (2_000 * Ms));
         Check.WithCustomMessage("an off-screen fixation armed the repeat dwell in production wiring.")
              .That(fired).IsEmpty();
 
         // T1: the published TOLERANCE is load-bearing. 5 px above the edge is still inside it, so
         // this fixation arms and fires (a controller that published tolerance 0 would fail here).
+        var insideTolerance = new PhysicalPoint(bounds.X + (bounds.Width / 2), bounds.Y - 5);
         im.OnFixationEnded();
-        im.OnFixationStarted(new PhysicalPoint(bounds.X + (bounds.Width / 2), bounds.Y - 5));
-        im.NoteGazeSample(true, nowUs + (6_000 * Ms));
+        im.OnFixationStarted(insideTolerance);
+        im.NoteRepeatGazeSample(insideTolerance, nowUs + (6_000 * Ms));
         Check.WithCustomMessage(
                 "a fixation 5 px past the edge (inside the published tolerance) did not arm.")
              .That(fired).HasSize(1);
 
         // The on-screen half still fires.
+        var onScreen = new PhysicalPoint(
+            bounds.X + (bounds.Width / 2), bounds.Y + (bounds.Height / 2));
         im.OnFixationEnded();
-        im.OnFixationStarted(new PhysicalPoint(
-            bounds.X + (bounds.Width / 2), bounds.Y + (bounds.Height / 2)));
-        im.NoteGazeSample(true, nowUs + (8_000 * Ms));
+        im.OnFixationStarted(onScreen);
+        im.NoteRepeatGazeSample(onScreen, nowUs + (8_000 * Ms));
         Check.That(fired).HasSize(2);
+
+        // C4: the published bounds gate the GLIDE too, not just the arm. Arm at the bottom edge
+        // and move 40 px past it: the fixation still holds (radius 75 px), so only this gate can
+        // stop the click — and it must, in the production wiring.
+        im.OnFixationEnded();
+        im.NoteGazeSample(true, nowUs + (10_000 * Ms));
+        var bottomEdge = new PhysicalPoint(
+            bounds.X + (bounds.Width / 2), bounds.Y + bounds.Height);
+        im.OnFixationStarted(bottomEdge);
+        im.NoteRepeatGazeSample(bottomEdge, nowUs + (10_200 * Ms));   // 200 ms in: still building
+        im.NoteRepeatGazeSample(
+            new PhysicalPoint(bottomEdge.X, bottomEdge.Y + 40),
+            nowUs + (11_000 * Ms));                                   // past the dwell, off-screen
+        Check.WithCustomMessage("the glide 40 px past the bottom edge fired in production wiring.")
+             .That(fired).HasSize(2);
 
         // Leaving the mode retracts the gate with the suppression zones.
         im.ExitRepeatMode();

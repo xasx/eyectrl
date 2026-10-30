@@ -37,6 +37,7 @@ public class EventCoordinator : IEventCoordinator
     private KeyboardCoordinator? _keyboard;
     private OverlayVmBindingCoordinator? _overlayVm;
     private OverlayMessageCoordinator? _overlayMessage;
+    private FiredFlashCoordinator? _firedFlash;
     private SettingsUiCoordinator? _settingsUi;
     private ActivationOfferCoordinator? _activationOffers;
     private SubPixelProbeCoordinator? _probe;
@@ -186,6 +187,10 @@ public class EventCoordinator : IEventCoordinator
         _overlayVm.Initialize(context);
         _overlayMessage = new OverlayMessageCoordinator(_toolbar, _overlayVm);
         _overlayMessage.Initialize(context);
+        // Wave C C1: the "fired" flash on the ring (and on the magnifier rim for an accepted offer).
+        // After VmBinding, so its magnifier handler runs after the window's Show.
+        _firedFlash = new FiredFlashCoordinator();
+        _firedFlash.Initialize(context);
         _quickActions = new QuickActionsCoordinator(_modal);
         _quickActions.Initialize(context);
 
@@ -335,6 +340,8 @@ public class EventCoordinator : IEventCoordinator
         // messenger handlers; VmBinding owns the glass backdrop window, so it goes last among the
         // two (and also unsubscribes the 8 overlay VMs + TaskSwitcherVM). The bindings and backdrop
         // cleanup moved here in cluster 1.
+        _firedFlash?.Dispose();
+        _firedFlash = null;
         _overlayMessage?.Dispose();
         _overlayMessage = null;
         _overlayVm?.Dispose();

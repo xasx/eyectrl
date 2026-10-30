@@ -204,10 +204,10 @@ public class InteractionManager
     public event Action? CancelDragForPause;
 
     // Locked-action dwell-to-act (design D23–D28). Timing is sample-clock driven: a fixation
-    // ARMS the dwell at its start point; only VALID gaze samples advance it; one fire per
-    // fixation. Liveness also comes from raw validity (review PR #139 finding 1 — every filtered
-    // view of a lost-eyes gap looks like a valid frozen point), so NoteGazeSample is the one
-    // place "eyes actually present" is still observable.
+    // ARMS the dwell at its start point; only VALID gaze samples advance it, and only while their
+    // filtered position is on-screen (C4); one fire per fixation. Liveness comes from raw validity
+    // (review PR #139 finding 1 — every filtered view of a lost-eyes gap looks like a valid frozen
+    // point), so NoteGazeSample is the one place "eyes actually present" is still observable.
     /// <summary>Sustained gaze loss (µs) that ends a locked mode — repeat itself, drag and scroll via
     /// <see cref="LockedModeGazeLost"/>. The App's no-frames check uses the same span.</summary>
     public const long LostGazeExitThresholdUs = 2_000_000;
@@ -216,6 +216,19 @@ public class InteractionManager
     // Whether LockedModeGazeLost already fired for the current lost-gaze episode. Gaze thread only.
     private bool _lockedModeGazeLostRaised;
     private PhysicalRect[] _repeatSuppressionZones = Array.Empty<PhysicalRect>();
+    // C4 fixup-01 (review 01 F1): the glide gate has TWO bands. The injected tolerance is the no-fire
+    // edge — a sample past it neither advances nor fires, so ordinary hold wander on a target hugging
+    // an edge cannot kill the dwell. Only past this margin does the run disarm: on the owner's
+    // recording one stray sample past bounds + 10 px lost 26–34 % of dwells on targets 10–15 px
+    // inside an edge (0 % before C4), while a 40 px glide (the ticket's case) still disarms here.
+    // With the two bands the after-fix measurement is about 14 % lost at 17 px inside, down from
+    // about 24 %.
+    /// <summary>
+    /// How far past the published screen bounds a valid sample must lie before the armed repeat run
+    /// DISARMS, in physical px. Between the tolerance (the arm/no-fire edge, normally 10 px) and this
+    /// margin the dwell neither advances nor fires; it continues when the gaze is back on-screen.
+    /// </summary>
+    public const double RepeatDisarmMarginPhysical = 30;
     // The on-screen arm gate for the repeat dwell (A5 fixup-03 H2): the App publishes the primary
     // screen at mode entry. Null keeps the pre-fix behaviour (every point may arm).
     private PhysicalRect? _repeatScreenBounds;
@@ -661,9 +674,7 @@ public class InteractionManager
         {
             // Gaze moved off the target: the armed dwell cancels (D25) — the action must be
             // re-aimed with a fresh fixation, never inherited from a stale one.
-            _repeatDwellPoint = null;
-            _repeatDwellFired = false;
-            RepeatDwellProgressChanged?.Invoke(0);
+            DisarmRepeatDwell();
             return;
         }
 
@@ -967,9 +978,10 @@ public class InteractionManager
     /// Latches raw gaze-stream liveness: called by <see cref="GazeEngine"/> for EVERY sample,
     /// before calibration or gap interpolation — every downstream view of a lost-eyes gap looks
     /// like a valid frozen point, so this is the only spot where "eyes actually present" is
-    /// still observable. Drives the locked-action dwell: only VALID samples advance it, and
-    /// sustained lost gaze (past <see cref="LostGazeExitThresholdUs"/>) ends the mode — the
-    /// user cannot dwell the stop button while their eyes are away.
+    /// still observable. Drives the locked-action dwell's liveness: sustained lost gaze (past
+    /// <see cref="LostGazeExitThresholdUs"/>) ends the mode — the user cannot dwell the stop
+    /// button while their eyes are away. The dwell itself ADVANCES on
+    /// <see cref="NoteRepeatGazeSample"/>, which carries the sample's calibrated, filtered position.
     /// </summary>
     public void NoteGazeSample(bool isValid, long timestampUs)
     {
@@ -1004,10 +1016,44 @@ public class InteractionManager
             ExitRepeatMode();
             return;
         }
+    }
 
-        // D25: advance the armed dwell on valid samples only — invalid gaze freezes the dwell
-        // (and its cursor feedback) rather than firing at a stale point.
-        if (!isValid || _repeatDwellPoint is not { } target || _repeatDwellFired) return;
+    /// <summary>
+    /// Feeds one VALID, calibrated and filtered sample's position to the armed repeat dwell. Called
+    /// by <see cref="GazeEngine"/> with the same point the fixation detector sees, BEFORE the
+    /// detector update, so the sample that ends a fixation is judged on its own position (C4).
+    /// <para>
+    /// Two bands past the published screen bounds (C4 fixup-01, review 01 F1): a sample past the
+    /// tolerance and inside <see cref="RepeatDisarmMarginPhysical"/> only stops the dwell for that
+    /// sample — it cannot advance it and cannot fire it, and the run continues (same start time) on
+    /// the next on-screen sample. Ordinary hold wander on a target 10–15 px inside an edge lives
+    /// here; disarming on it lost 26–34 % of such dwells. Past
+    /// <see cref="RepeatDisarmMarginPhysical"/> the run is DISARMED (progress back to 0, the target
+    /// cleared), so a real glide past the edge must re-arm on a fresh on-screen fixation — the same
+    /// rule A5 fixup-03 applies to an off-screen arm. A run that already fired keeps its contracted
+    /// cursor until the run ends (round 3 finding 6). With no bounds published (tests, pre-fix
+    /// wiring) every position is allowed, exactly as for the arm gate.
+    /// </para>
+    /// </summary>
+    /// <param name="point">The sample's calibrated, filtered position, in physical screen pixels.</param>
+    /// <param name="timestampUs">The sample's timestamp in microseconds.</param>
+    public void NoteRepeatGazeSample(PhysicalPoint point, long timestampUs)
+    {
+        if (CurrentState != InteractionState.RepeatMode) return;
+        if (_repeatDwellPoint is not { } target) return;   // nothing armed: nothing to judge
+
+        if (!IsWithinRepeatScreen(point, RepeatDisarmEdgePhysical))
+        {
+            if (_repeatDwellFired) return;   // spent: stays contracted until the run ends
+            DisarmRepeatDwell();
+            return;
+        }
+
+        // No-fire band: no advance, no fire, no reset. The timestamp-based elapsed still runs, so
+        // the click lands on the first on-screen sample after the wander.
+        if (!IsOnRepeatScreen(point)) return;
+
+        if (_repeatDwellFired) return;
 
         var dwellUs = RepeatDwellMs * 1000L;
         var elapsedUs = timestampUs - _repeatDwellStartedUs;
@@ -1029,6 +1075,18 @@ public class InteractionManager
     }
 
     /// <summary>
+    /// Cancels the armed repeat dwell: the run must be re-aimed with a fresh on-screen fixation,
+    /// never fired at a target the gaze has left (C4's disarm). Shared by the off-screen glide and
+    /// the state machine's own cancels.
+    /// </summary>
+    private void DisarmRepeatDwell()
+    {
+        _repeatDwellPoint = null;
+        _repeatDwellFired = false;
+        RepeatDwellProgressChanged?.Invoke(0);
+    }
+
+    /// <summary>
     /// Chrome rects the locked-action dwell must never fire inside (D26): the toolbar band (incl.
     /// the modes-menu area) and the stop-button zone. Set by the app-side repeat controller from
     /// screen geometry; Core keeps them as plain data so the gaze thread never calls back into UI.
@@ -1040,8 +1098,10 @@ public class InteractionManager
     /// The on-screen area the repeat dwell may ARM in, in physical px, set by the app-side repeat
     /// controller at mode entry (A5 fixup-03 H2). A fixation outside it is the toolbar/Quick-Actions
     /// summon gesture; a repeat click there would be clamped by the OS onto the screen edge (a tab
-    /// strip or title bar). Only the ARM is refused — a run already armed on-screen keeps its
-    /// target. Null (the default) keeps the pre-fix behaviour.
+    /// strip or title bar). The same bounds gate every armed sample's own position (C4): past them
+    /// the dwell only pauses for that sample, and past them plus
+    /// <see cref="RepeatDisarmMarginPhysical"/> the run disarms. Null (the default) keeps the
+    /// pre-fix behaviour.
     /// </summary>
     public void SetRepeatScreenBounds(PhysicalRect? bounds, double tolerancePhysical = 0)
     {
@@ -1061,9 +1121,24 @@ public class InteractionManager
     /// bounds inflated by the tolerance. With no bounds published, everything is allowed.
     /// </summary>
     private bool IsOnRepeatScreen(PhysicalPoint point)
+        => IsWithinRepeatScreen(point, _repeatScreenTolerancePhysical);
+
+    /// <summary>
+    /// The disarm edge, in physical px past the published bounds: the wider of the published
+    /// tolerance and <see cref="RepeatDisarmMarginPhysical"/>. A sample past it disarms; between the
+    /// tolerance and it the dwell only pauses for that sample.
+    /// </summary>
+    private double RepeatDisarmEdgePhysical
+        => Math.Max(_repeatScreenTolerancePhysical, RepeatDisarmMarginPhysical);
+
+    /// <summary>
+    /// Whether <paramref name="point"/> is inside the published screen bounds inflated by
+    /// <paramref name="marginPhysical"/>. With no bounds published, everything is inside.
+    /// </summary>
+    private bool IsWithinRepeatScreen(PhysicalPoint point, double marginPhysical)
     {
         if (_repeatScreenBounds is not { } screen) return true;
-        var tol = _repeatScreenTolerancePhysical;
+        var tol = marginPhysical;
         return point.X >= screen.X - tol && point.X <= screen.X + screen.Width + tol
             && point.Y >= screen.Y - tol && point.Y <= screen.Y + screen.Height + tol;
     }

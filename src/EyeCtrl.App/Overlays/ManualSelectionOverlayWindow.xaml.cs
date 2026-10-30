@@ -56,7 +56,40 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
         IsClickThrough = true;
         ExcludeFromScreenCapture = true; // the magnifier must not capture itself
         InitializeComponent();
+
+        // The rim's peak follows the ring's weight rule: the light rim 3x as wide, the dark halo's
+        // exposed part 2x. The rim never approaches the disc's half-size, so nothing caps it.
+        var peak = FiredFlash.PeakStack(
+            new CursorRingStack(
+                new RingBand(string.Empty, RimHalo.StrokeThickness, 1.0, 0, 0),
+                new RingBand(string.Empty, Rim.StrokeThickness, 1.0, 0, 0)),
+            double.PositiveInfinity);
+        RimFlashHalo.StrokeThickness = peak.Outer.Thickness;
+        RimFlash.StrokeThickness = peak.Core.Thickness;
+        _rimFlash = new FiredFlash(RimFlashHalo, RimFlash);
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible) _rimFlash.End();
+        };
     }
+
+    private readonly FiredFlash _rimFlash;
+
+    /// <summary>
+    /// One brief weight step on the rim (Wave C C1), shown when the magnifier opens from an
+    /// accepted activation offer: the confirmation the cursor ring cannot give, because it hides
+    /// in the same instant. The rim only — capture, zoom and recapture are untouched.
+    /// </summary>
+    public void FlashRim() => _rimFlash.Start();
+
+    /// <summary>True while the rim flash is showing.</summary>
+    internal bool IsRimFlashLit => _rimFlash.IsLit;
+
+    /// <summary>The rim flash's scheduled length.</summary>
+    internal TimeSpan RimFlashInterval => _rimFlash.Interval;
+
+    /// <summary>Ends the rim flash now: what the timer's tick does.</summary>
+    internal void EndRimFlash() => _rimFlash.End();
 
     public void Show(PhysicalPoint center, int radius, double magnification, PhysicalPoint? gazePoint = null, bool recapture = true)
     {

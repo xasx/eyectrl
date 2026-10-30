@@ -3271,6 +3271,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.ring_flash.description": {
+    "text": "Briefly makes the cursor ring bolder when a dwell activates in EyeCtrl. When the activation button opens the magnifier, its rim does this instead. Keys are left out.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.ring_flash.label": {
+    "text": "Dwell Completion Highlight",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.status_chime.description": {
     "text": "Plays a short chime once when the eye tracker has stayed disconnected for more than ten seconds. Looking away or pausing on purpose does not play it.",
     "who": "user",

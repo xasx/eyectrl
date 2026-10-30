@@ -19,6 +19,17 @@
                  Stroke="{StaticResource BrushAccent}" StrokeThickness="2"
                  Width="250" Height="250"
                  Canvas.Left="0" Canvas.Top="0"/>
+        <!-- Wave C C1: the "fired" flash, a weight step. Collapsed at rest; FiredFlash shows both
+             for one brief step. They are the two bands again (same colours and opacities, set in
+             UpdateAppearance), only wider, outer then core like the rest pair, so the ring turns
+             bolder in both polarities. Declared after the rest bands so they paint over them;
+             the rest bands themselves are never written by the flash. -->
+        <Ellipse x:Name="FiredFlashOuter" Visibility="Collapsed" IsHitTestVisible="False"
+                 Width="250" Height="250"
+                 Canvas.Left="0" Canvas.Top="0"/>
+        <Ellipse x:Name="FiredFlashCore" Visibility="Collapsed" IsHitTestVisible="False"
+                 Width="250" Height="250"
+                 Canvas.Left="0" Canvas.Top="0"/>
         <!-- Hidden TextBlock as UIA anchor — WPF transparent overlay windows only expose
              TextBlock (ControlType.Text) nodes in the UIA tree; Ellipse/Canvas are collapsed. -->
         <TextBlock AutomationProperties.AutomationId="CursorCircle_Ellipse_Main"

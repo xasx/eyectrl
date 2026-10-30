@@ -45,10 +45,28 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// C2: how far, in hit radii, the gaze may wander from the spot where the current release dwell
     /// started and still be the SAME rest. Inside it a gaze that crosses the target's edge re-centres
     /// the target and keeps the dwell (drift and the owner's random-walk wander); beyond it the gaze
-    /// has moved to a new spot and the dwell restarts there (PX2/R4). A drift or wander covers well
-    /// under half a radius per sample, while a saccade lands more than a radius away at once.
+    /// has moved to a new spot and the dwell restarts there (PX2/R4). A saccade is caught sooner,
+    /// by the step rule: a single-sample step of more than one radius is a new spot whatever the
+    /// distance from the spot (fixup-01 R2). The same distance arms the drop after the drag starts
+    /// (the leave-before-arm latch, fixup-01 R1).
     /// </summary>
     internal const double SameSpotRadii = 1.5;
+
+    /// <summary>
+    /// C2 fixup-01 R2: a move of more than one radius from ANY of the previous this-many
+    /// dwell-eligible samples is a saccade to a new spot, and the dwell restarts there. Not a
+    /// single-sample rule: the cursor filter spreads a re-aim over about three samples, and on the
+    /// owner's recording no re-aim inside a drop's final 600 ms was a one-sample step (82 were
+    /// 3-sample moves). Drift never trips it: a radius in 100 ms is at least 1000 px/s at 200 %.
+    /// </summary>
+    internal const int SaccadeWindowSamples = 3;
+
+    /// <summary>
+    /// A silence at least this long between two dwell-eligible samples clears the saccade history
+    /// (R2): the gaze was not reported, so the samples before it say nothing about a step. The
+    /// detector's own continuity bound (<c>DwellDetector</c>'s 150 ms credited-gap clamp).
+    /// </summary>
+    private const long HistorySilenceUs = 150_000;
 
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
@@ -61,6 +79,27 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     // C2: the spot the current release dwell belongs to — where the target was placed when the
     // dwell last restarted. Re-centres within SameSpotRadii of it keep the dwell.
     private PhysicalPoint _releaseSpot;
+
+    // C2 fixup-01 R3: the running sum of the credited (inside) samples since _releaseSpot was set.
+    // The drop lands at their centroid — the owner's hold is a random walk, so its centre is the
+    // spot they mean, not whichever sample happened to complete the dwell.
+    private double _restSumX;
+    private double _restSumY;
+    private int _restCount;
+
+    // C2 fixup-01 R1: the leave-before-arm latch. The drag starts while the gaze still rests on the
+    // radial menu's Drag item, and the forgiving target would drop the item THERE. The release
+    // dwell stays disarmed until the gaze has left SameSpotRadii radii from the FIRST sample after
+    // the start — not from the grab point, which is a menu-ring away from that gaze — and then stays
+    // armed for the rest of the drag.
+    private PhysicalPoint? _armAnchor;
+    private bool _releaseArmed;
+
+    // C2 fixup-01 R2: the last SaccadeWindowSamples dwell-eligible samples of the current rest, for
+    // the saccade rule. Cleared wherever the spot is reset and across a gap or a silence, so a
+    // resume after a look-away is never compared against samples from before it.
+    private readonly Queue<PhysicalPoint> _recentGaze = new(SaccadeWindowSamples + 1);
+    private long? _lastEligibleTimestampUs;
 
     [ObservableProperty] private bool _isDragActive;
     [ObservableProperty] private PhysicalPoint _grabOrigin;
@@ -154,6 +193,9 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         SettleProgress = 0;
         ShowBack = false;
         _inExitZone = false;
+        _armAnchor = null;
+        _releaseArmed = false;
+        _lastEligibleTimestampUs = null;
 
         ReleaseButtonCenter = message.GrabOrigin;
         SetupDwellTargets();
@@ -186,20 +228,55 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // or flipping FreeDrag→Settling on a blink. Skip the whole sample; nothing here is stale as a
         // result, because the position has not changed. The pause term routes through the shared
         // SampleMayDwell gate (round-2 finding 2) so DwellActiveWhilePaused below is actually live.
-        if (!SampleMayDwell(message)) return;
+        if (!SampleMayDwell(message))
+        {
+            // R2: a gap is a look-away; the samples before it are not this rest's recent past.
+            _recentGaze.Clear();
+            return;
+        }
 
         CursorPosition = message.Position;
+        var position = message.Position;
+        var radius = LiveReleaseRadius();
+
+        // R1: the release stays disarmed until the gaze has left the spot it rested on when the
+        // drag started (see _armAnchor). No minimum time: that would only postpone the same drop.
+        if (!_releaseArmed)
+        {
+            _armAnchor ??= position;
+            var leave = SameSpotRadii * radius;
+            if (position.DistanceSquaredTo(_armAnchor.Value) > leave * leave)
+                _releaseArmed = true;
+        }
+
+        // R2: a move of more than one radius within SaccadeWindowSamples samples is a saccade to a
+        // new spot, however close that spot is to the old one. Decided BEFORE the detector, so the
+        // old spot's dwell can neither complete on this sample nor carry over to the new one.
+        if (_lastEligibleTimestampUs is { } last && message.TimestampMicroseconds - last >= HistorySilenceUs)
+            _recentGaze.Clear();
+        _lastEligibleTimestampUs = message.TimestampMicroseconds;
+        foreach (var earlier in _recentGaze)
+        {
+            if (position.DistanceSquaredTo(earlier) > radius * radius)
+            {
+                StartNewSpot(position); // clears _recentGaze
+                break;
+            }
+        }
 
         // A rest on an edge-bar drag button belongs to that button's own dwell. Letting the settle
         // or the gaze-following release target accumulate there drops the item before the 600 ms
         // Cancel/Back dwell can fire — the owner's only exit would commit the drag instead.
-        if (IsInExitZone(message.Position))
+        if (IsInExitZone(position))
         {
             if (!_inExitZone)
             {
-                // PX2/R4: a look at an exit is a clean break — no release progress carries over.
+                // PX2/R4: a look at an exit is a clean break — no release progress carries over,
+                // and the dwell that restarts after the visit is bounded from where it restarts
+                // (fixup-01 R5), not from the spot before the visit.
                 _inExitZone = true;
                 DwellDetector.ResetAllState();
+                RestartSpot(position);
             }
 
             _settleDetector.Reset();
@@ -208,16 +285,32 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
                 DragState = DragSubState.FreeDrag;
             // Filtered to match nothing: the release target holds for the grace, then resets. It
             // never completes while the gaze is on the exit.
-            DwellDetector.Update(message.Position, message.TimestampMicroseconds, static _ => false);
+            DwellDetector.Update(position, message.TimestampMicroseconds, static _ => false);
         }
         else
         {
             _inExitZone = false;
-            DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+            if (_releaseArmed)
+            {
+                // R3: a sample inside the circle as drawn is one the detector credits to this rest.
+                // Added BEFORE the update, so the sample that completes the dwell is part of it.
+                if (DwellDetector.HitTest(ReleaseTargetId, position))
+                {
+                    _restSumX += position.X;
+                    _restSumY += position.Y;
+                    _restCount++;
+                }
+                DwellDetector.Update(position, message.TimestampMicroseconds);
+            }
+            else
+            {
+                // R1: disarmed, filtered to match nothing — exactly as on an exit zone.
+                DwellDetector.Update(position, message.TimestampMicroseconds, static _ => false);
+            }
 
             if (DragState == DragSubState.FreeDrag || DragState == DragSubState.Settling)
             {
-                _settleDetector.Update(message.Position, message.TimestampMicroseconds);
+                _settleDetector.Update(position, message.TimestampMicroseconds);
                 SettleProgress = _settleDetector.GetProgress();
 
                 if (SettleProgress > 0 && DragState == DragSubState.FreeDrag)
@@ -230,7 +323,14 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // AFTER the detector: this sample was hit-tested against the circle as drawn, so a sample
         // outside it is never credited — the pause grace holds it — even when the target then
         // re-centres onto it and the next sample, inside, resumes.
-        FollowGaze(message.Position);
+        FollowGaze(position);
+
+        // R2: recorded LAST, after every reset this sample may have made, so the history always
+        // holds this sample — the new spot's first one, if the spot was just reset — and nothing
+        // from before a reset.
+        _recentGaze.Enqueue(position);
+        while (_recentGaze.Count > SaccadeWindowSamples)
+            _recentGaze.Dequeue();
     }
 
     private bool IsInExitZone(PhysicalPoint point)
@@ -315,9 +415,32 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // blink or a gap at the same spot, but when the gaze has moved to a new spot the held
         // progress must not follow it — a glance would otherwise drop the item there in a fraction
         // of a dwell.
-        _releaseSpot = gaze;
+        RestartSpot(gaze);
         DwellDetector.ResetAllState();
     }
+
+    /// <summary>R2: a saccade lands on a new spot — the target moves there and the dwell restarts.</summary>
+    private void StartNewSpot(PhysicalPoint at)
+    {
+        ReleaseButtonCenter = at;
+        DwellDetector.UpdateTargetCenter(ReleaseTargetId, at);
+        RestartSpot(at);
+        DwellDetector.ResetAllState();
+    }
+
+    /// <summary>Re-anchors the same-spot bound at <paramref name="at"/> and starts a new rest centroid (R3).</summary>
+    private void RestartSpot(PhysicalPoint at)
+    {
+        _releaseSpot = at;
+        _restSumX = 0;
+        _restSumY = 0;
+        _restCount = 0;
+        _recentGaze.Clear();
+    }
+
+    /// <summary>R3: where the rest that completed the dwell was centred; the gaze if none was recorded.</summary>
+    private PhysicalPoint RestCentroid() =>
+        _restCount > 0 ? new PhysicalPoint(_restSumX / _restCount, _restSumY / _restCount) : CursorPosition;
 
     private double LiveReleaseRadius()
     {
@@ -330,7 +453,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private void SetupDwellTargets()
     {
         DwellDetector.ClearTargets();
-        _releaseSpot = ReleaseButtonCenter;
+        RestartSpot(ReleaseButtonCenter);
         DwellDetector.AddTarget(new DwellTarget(
             ReleaseTargetId, ReleaseButtonCenter,
             DropTargetRadiusPhysical(_settings.Dwell.FixationRadiusPixels),
@@ -347,7 +470,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     protected override void OnTargetActivated(string targetId)
     {
         if (targetId == ReleaseTargetId)
-            CompleteDrag(CursorPosition);
+            CompleteDrag(RestCentroid());
     }
 
     protected override void OnTargetProgress(string targetId, double progress)

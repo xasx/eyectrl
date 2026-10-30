@@ -59,6 +59,8 @@ public class DragDropDiscWiringTests
             Check.That(vm.ReleaseRadiusPhysical).IsStrictlyGreaterThan(0);
 
             var spot = new PhysicalPoint(800, 600);
+            // Fixup-01 R1: a saccade from the first spot after the start arms the drop.
+            context.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(2000, 1500), -StepUs));
             var t = 0L;
             for (var i = 0; i < 20; i++, t += StepUs)
                 context.Messenger.Send(new GazeCursorMovedMessage(spot, t));
@@ -70,8 +72,12 @@ public class DragDropDiscWiringTests
             Check.WithCustomMessage("the release progress did not reach the overlay.")
                 .That(overlay.Discs[^1].Progress).IsEqualTo(vm.ReleaseProgress);
 
-            // A crossing inside the spot: the hold is paused, then resumes on the next sample.
-            var across = new PhysicalPoint(spot.X + (1.2 * vm.ReleaseRadiusPhysical), spot.Y);
+            // A crossing inside the spot: the hold is paused, then resumes on the next sample. The
+            // gaze walks there in 0.3 R steps — a 1.2 R jump would be a saccade (fixup-01 R2).
+            var r = vm.ReleaseRadiusPhysical;
+            for (var k = 1; k <= 3; k++, t += StepUs)
+                context.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(spot.X + (k * 0.3 * r), spot.Y), t));
+            var across = new PhysicalPoint(spot.X + (1.2 * r), spot.Y);
             context.Messenger.Send(new GazeCursorMovedMessage(across, t));
             t += StepUs;
             Check.That(vm.IsReleasePaused).IsTrue();

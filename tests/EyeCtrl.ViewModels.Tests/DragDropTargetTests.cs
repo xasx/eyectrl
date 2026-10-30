@@ -69,7 +69,7 @@ public class DragDropTargetTests
     {
         WithDpi(scale, () =>
         {
-            using var world = new World();
+            using var world = new World(arm: false);
             Check.That(world.Trail.ReleaseButtonCenter).IsEqualTo(World.Grab);
 
             var p = new PhysicalPoint(900, 700);
@@ -136,6 +136,8 @@ public class DragDropTargetTests
     {
         // The owner's wander: a slow drift plus small re-fixations that carry the gaze across the
         // target's edge again and again while staying within 1.5 radii of where the dwell began.
+        // Fixup-01 R2: the re-fixations are 0.6 R moves, under a radius per 3-sample window, so
+        // none of them is a saccade (they were 1.2 R one-sample jumps, which R2 now restarts).
         // Each crossing re-centres the target WITHOUT a reset; the crossing sample itself is
         // outside the circle as drawn, so the pause grace holds it and it is never credited.
         // Mutants: the reset on every re-centre (never completes) and a re-centre before the hit
@@ -196,8 +198,9 @@ public class DragDropTargetTests
     {
         // Each step is 1.2 radii — inside 1.5 radii of the CURRENT centre, but the steps add up.
         // The dwell belongs to the spot it started at, so once the walk is 1.5 radii from that
-        // spot the dwell restarts (PX2/R4). Mutant: measuring 1.5 radii from the current centre
-        // instead lets the progress ride the whole walk and drops mid-walk.
+        // spot the dwell restarts (PX2/R4). Since fixup-01 R2 each 1.2 R one-sample step is
+        // itself a saccade and restarts the dwell, so this row now pins that a walk of saccades
+        // never drops mid-walk; the same-spot bound's own pin is the steady-glide row below.
         WithDpi(scale, () =>
         {
             using var world = new World();
@@ -219,7 +222,8 @@ public class DragDropTargetTests
                 world.Send(last, t);
 
             Check.That(world.Drops).IsEqualTo(1);
-            Check.That(world.DropPoint).IsEqualTo(last);
+            // The centroid of identical samples (fixup-01 R3), up to the sum's rounding.
+            Check.That(world.DropPoint!.Value.DistanceTo(last)).IsLessOrEqualThan(1e-6);
         });
     }
 
@@ -268,25 +272,30 @@ public class DragDropTargetTests
             using var world = new World();
             var r = world.Trail.ReleaseRadiusPhysical;
             var spot = new PhysicalPoint(800, 600);
-            world.Send(spot, 0);
-            for (var i = 1; i <= 10; i++)
+            for (var i = 0; i <= 10; i++)
                 world.Send(spot, i * StepUs);
 
-            // 9 credited intervals of 18.
-            Check.That(world.Trail.ReleaseProgress).IsCloseTo(9 * StepUs / (DwellMs * 1000.0), 1e-6);
+            // 10 credited intervals of 18: the saccade's landing sample is inside the target that
+            // R2 placed on it, so the dwell starts there.
+            Check.That(world.Trail.ReleaseProgress).IsCloseTo(10 * StepUs / (DwellMs * 1000.0), 1e-6);
             Check.That(world.Trail.IsReleasePaused).IsFalse();
+
+            // Out towards the edge in 0.3 R steps — under a radius per 3-sample window, so not a
+            // saccade (fixup-01 R2; this was one 1.2 R jump, which R2 now restarts).
+            for (var k = 1; k <= 3; k++)
+                world.Send(new PhysicalPoint(spot.X + (k * 0.3 * r), spot.Y), (10 + k) * StepUs);
             var held = world.Trail.ReleaseProgress;
 
             // A crossing: outside the drawn circle, inside the spot — held, not reset.
             var across = new PhysicalPoint(spot.X + (1.2 * r), spot.Y);
-            world.Send(across, 11 * StepUs);
+            world.Send(across, 14 * StepUs);
             Check.That(world.Trail.IsReleasePaused).IsTrue();
             Check.That(world.Trail.ReleaseProgress).IsCloseTo(held, 1e-9);
             Check.That(world.Trail.ReleaseDisc.Paused).IsTrue();
 
-            world.Send(across, 12 * StepUs);
+            world.Send(across, 15 * StepUs);
             Check.That(world.Trail.IsReleasePaused).IsFalse();
-            world.Send(across, 13 * StepUs);
+            world.Send(across, 16 * StepUs);
             Check.That(world.Trail.ReleaseProgress).IsStrictlyGreaterThan(held);
             Check.That(world.Trail.ReleaseDisc.Progress).IsEqualTo(world.Trail.ReleaseProgress);
         });
@@ -307,6 +316,309 @@ public class DragDropTargetTests
         });
     }
 
+    // ── fixup-01 R1: the leave-before-arm latch ───────────────────────────────
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ALingerThatWandersUnderOneAndAHalfRadii_FromTheFirstSample_NeverArms(double scale)
+    {
+        // The drag starts with the gaze on the hidden Drag menu item. The gaze creeps 1.25 R from
+        // that first sample (0.25 R a sample, never a saccade) and rests there for 2 s: still the
+        // same rest, so nothing may drop. Mutant: the latch armed at 1.0 R drops it there.
+        WithDpi(scale, () =>
+        {
+            using var world = new World(arm: false);
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var menu = new PhysicalPoint(1300, 1000);
+            var t = 0L;
+            for (var k = 0; k <= 5; k++, t += StepUs)
+                world.Send(new PhysicalPoint(menu.X + (k * 0.25 * r), menu.Y), t);
+            var rest = new PhysicalPoint(menu.X + (1.25 * r), menu.Y);
+            for (var k = 0; k < 60; k++, t += StepUs)
+                world.Send(rest, t);
+
+            Check.WithCustomMessage($"DPI {scale}: a 1.25 R creep from the menu spot armed the drop.")
+                .That(world.Drops).IsEqualTo(0);
+
+            var dest = new PhysicalPoint(2200, 1600);
+            for (var k = 0; k < 30 && world.Drops == 0; k++, t += StepUs)
+                world.Send(dest, t);
+            Check.That(world.Drops).IsEqualTo(1);
+        });
+    }
+
+    // ── fixup-01 R2: a move of more than a radius within 3 samples is a new spot ──
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AOneSampleJumpOfMoreThanARadius_NeedsTheFullDwell(double scale)
+    {
+        // Rest 400 ms, then a 1.1 R jump that stays within 1.5 R of the spot. A re-aim, not
+        // drift: the dwell restarts at the landing, so the drop needs the full dwell there —
+        // and no more (mutant: the history not cleared on the reset re-fires the rule on the next
+        // samples and delays the drop past the dwell plus two samples).
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var t = 0L;
+            for (var k = 0; k < 12; k++, t += StepUs)
+                world.Send(spot, t);
+
+            var jumpAt = t;
+            var landing = new PhysicalPoint(spot.X + (1.1 * r), spot.Y);
+            long? drop = null;
+            for (var k = 0; k < 40 && drop is null; k++, t += StepUs)
+            {
+                world.Send(landing, t);
+                if (world.Drops > 0) drop = t;
+            }
+
+            AssertFullDwellFrom(scale, jumpAt, drop);
+        });
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AMoveOfMoreThanARadiusOverThreeSamples_NeedsTheFullDwell(double scale)
+    {
+        // The cursor filter spreads a re-aim over about three samples (owner recording: 82 of the
+        // re-aims inside a drop's final 600 ms, none of them a one-sample step). 1.1 R in three
+        // 0.367 R steps is still a new spot. Mutants: a one-sample window, a 2 R threshold.
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var t = 0L;
+            for (var k = 0; k < 12; k++, t += StepUs)
+                world.Send(spot, t);
+
+            for (var k = 1; k <= 2; k++, t += StepUs)
+                world.Send(new PhysicalPoint(spot.X + (k * 1.1 * r / 3), spot.Y), t);
+
+            var landedAt = t;
+            var landing = new PhysicalPoint(spot.X + (1.1 * r), spot.Y);
+            long? drop = null;
+            for (var k = 0; k < 40 && drop is null; k++, t += StepUs)
+            {
+                world.Send(landing, t);
+                if (world.Drops > 0) drop = t;
+            }
+
+            AssertFullDwellFrom(scale, landedAt, drop);
+        });
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AJumpUnderARadius_KeepsTheProgress(double scale)
+    {
+        // A 0.9 R jump stays inside the disc as drawn (drawn = hit): the rest goes on.
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var t = 0L;
+            for (var k = 0; k < 12; k++, t += StepUs)
+                world.Send(spot, t);
+            long? drop = null;
+            for (var k = 0; k < 40 && drop is null; k++, t += StepUs)
+            {
+                world.Send(new PhysicalPoint(spot.X + (0.9 * r), spot.Y), t);
+                if (world.Drops > 0) drop = t;
+            }
+
+            Check.WithCustomMessage($"DPI {scale}: a 0.9 R jump lost the progress (drop at {drop}).")
+                .That(drop is not null && drop <= (DwellMs * 1000L) + (2 * StepUs)).IsTrue();
+        });
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AMoveOfMoreThanARadiusOverFourSamples_KeepsTheProgress(double scale)
+    {
+        // 1.2 R in four 0.3 R steps: no 3-sample window spans a radius, so it is wander. It
+        // crosses the edge once (held by the grace, re-centred) and the rest goes on. Mutant: a
+        // 6-sample window calls it a new spot and restarts the dwell.
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var t = 0L;
+            for (var k = 0; k < 12; k++, t += StepUs)
+                world.Send(spot, t);
+            for (var k = 1; k <= 3; k++, t += StepUs)
+                world.Send(new PhysicalPoint(spot.X + (k * 0.3 * r), spot.Y), t);
+            long? drop = null;
+            for (var k = 0; k < 40 && drop is null; k++, t += StepUs)
+            {
+                world.Send(new PhysicalPoint(spot.X + (1.2 * r), spot.Y), t);
+                if (world.Drops > 0) drop = t;
+            }
+
+            // The crossing costs two sample intervals; everything else counts.
+            Check.WithCustomMessage($"DPI {scale}: a 4-sample 1.2 R move lost the progress (drop at {drop}).")
+                .That(drop is not null && drop <= (DwellMs * 1000L) + (4 * StepUs)).IsTrue();
+        });
+    }
+
+    [Theory]
+    [InlineData(true, 100)]   // a blink: gap-held samples, shorter than the silence bound
+    [InlineData(false, 200)]  // a silence: no samples at all
+    public void AResumeAfterALookAway_IsNotComparedWithTheSamplesBeforeIt(bool gapSamples, int awayMs)
+    {
+        // Rest 300 ms, look away, return 1.2 R off — within the spot. The return is the start of
+        // a new run of samples, not a step from the pre-look-away ones: the grace holds the dwell,
+        // the target re-centres, and the rest resumes. Mutants: the history not cleared at the gap
+        // gate (row 1) or across a silence (row 2) call the return a saccade and restart.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var t = 0L;
+            for (var k = 0; k <= 9; k++, t += StepUs)
+                world.Send(spot, t);
+            var back = t - StepUs + (awayMs * 1000L);
+            if (gapSamples)
+            {
+                for (; t < back; t += StepUs)
+                    world.Messenger.Send(new GazeCursorMovedMessage(new GazeFrame(spot, t, IsInGap: true)));
+            }
+            t = back;
+
+            var returnAt = t;
+            long? drop = null;
+            for (var k = 0; k < 40 && drop is null; k++, t += StepUs)
+            {
+                world.Send(new PhysicalPoint(spot.X + (1.2 * r), spot.Y), t);
+                if (world.Drops > 0) drop = t;
+            }
+
+            Check.WithCustomMessage(
+                    $"the return after a {awayMs} ms look-away restarted the dwell (drop {drop! - returnAt} µs after it).")
+                .That(drop is not null && drop - returnAt < (DwellMs * 1000L) - (2 * StepUs)).IsTrue();
+        });
+    }
+
+    private static void AssertFullDwellFrom(double scale, long landedAt, long? drop)
+    {
+        Check.WithCustomMessage($"DPI {scale}: no drop after the re-aim.").That(drop).IsNotNull();
+        var after = drop!.Value - landedAt;
+        Check.WithCustomMessage($"DPI {scale}: the re-aim inherited the dwell (drop {after} µs after landing).")
+            .That(after).IsGreaterOrEqualThan((DwellMs * 1000L) - StepUs);
+        Check.WithCustomMessage($"DPI {scale}: the drop came {after} µs after landing, past the dwell plus two samples.")
+            .That(after).IsLessOrEqualThan((DwellMs * 1000L) + (2 * StepUs));
+    }
+
+    // ── fixup-01 R3: the drop lands at the centroid of the rest ───────────────
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ARestThatCompletesOnAnOffCentreSample_DropsAtTheRestsCentroid(double scale)
+    {
+        // The rest wanders ±0.3 R and the sample that completes the dwell is 0.5 R right and
+        // 0.4 R down. The owner meant the rest's centre, not that sample. Mutant: drop at the
+        // last sample.
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var r = world.Trail.ReleaseRadiusPhysical;
+            var spot = new PhysicalPoint(900, 700);
+            var sent = new List<PhysicalPoint>();
+            var t = 0L;
+            for (var k = 0; k < 40 && world.Drops == 0; k++, t += StepUs)
+            {
+                var at = k < 19
+                    ? new PhysicalPoint(spot.X + (k % 2 == 0 ? -0.3 : 0.3) * r, spot.Y)
+                    : new PhysicalPoint(spot.X + (0.5 * r), spot.Y + (0.4 * r));
+                sent.Add(at);
+                world.Send(at, t);
+            }
+
+            Check.That(world.Drops).IsEqualTo(1);
+            var centroid = new PhysicalPoint(sent.Average(p => p.X), sent.Average(p => p.Y));
+            Check.WithCustomMessage($"DPI {scale}: dropped at {world.DropPoint}, not the rest's centroid {centroid}.")
+                .That(world.DropPoint!.Value.DistanceTo(centroid)).IsLessOrEqualThan(1e-6);
+            Check.That(world.DropPoint!.Value.DistanceTo(sent[^1])).IsStrictlyGreaterThan(0.3 * r);
+        });
+    }
+
+    [Fact]
+    public void ASaccadeToANewSpot_DropsAtTheNewRestOnly()
+    {
+        // The centroid restarts with the spot: nothing from the rest before a saccade may pull the
+        // drop back towards it. Mutant: the running sum not reset on a new spot.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World();
+            var p = new PhysicalPoint(900, 700);
+            var q = new PhysicalPoint(1500, 1100);
+            var t = 0L;
+            for (var k = 0; k < 10; k++, t += StepUs)
+                world.Send(p, t);
+            for (var k = 0; k < 30 && world.Drops == 0; k++, t += StepUs)
+                world.Send(q, t);
+
+            Check.That(world.Drops).IsEqualTo(1);
+            Check.WithCustomMessage($"dropped at {world.DropPoint}, pulled from Q {q} towards the earlier rest.")
+                .That(world.DropPoint!.Value.DistanceTo(q)).IsLessOrEqualThan(1e-6);
+        });
+    }
+
+    // ── fixup-01 R5: a visit to an exit re-anchors the spot ───────────────────
+
+    [Fact]
+    public void AfterAnExitVisit_TheSpotIsBoundedFromWhereTheDwellRestarted()
+    {
+        // DPI 2, R = 100 px. Rest at P, creep right into an exit zone (r40 at P + 180 px), out of
+        // it below, rest 500 ms, then drift to X: 117 px from the zone-entry point but 242 px from
+        // P. The dwell restarted at the visit, so X is the same rest and the progress carries.
+        // Mutant: the spot left at P makes the move to X a new spot and restarts the dwell.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World();
+            var p = new PhysicalPoint(1000, 1000);
+            world.Trail.SetExitZones(new[] { new DragExitZone(new PhysicalPoint(1180, 1000), 40) });
+            var t = 0L;
+            for (var k = 0; k < 10; k++, t += StepUs)
+                world.Send(p, t);
+            foreach (var x in new[] { 1030.0, 1060, 1090, 1120, 1150 })
+            {
+                world.Send(new PhysicalPoint(x, 1000), t);
+                t += StepUs;
+            }
+
+            var leave = new PhysicalPoint(1150, 1060);
+            for (var k = 0; k < 15; k++, t += StepUs)
+                world.Send(leave, t);
+            Check.That(world.Drops).IsEqualTo(0);
+
+            long? drop = null;
+            var arrivedAt = 0L;
+            for (var k = 1; k <= 30 && drop is null; k++, t += StepUs)
+            {
+                var step = Math.Min(k, 4);
+                if (k == 4) arrivedAt = t;
+                world.Send(new PhysicalPoint(leave.X + (step * 25), leave.Y + (step * 10)), t);
+                if (world.Drops > 0) drop = t;
+            }
+
+            Check.WithCustomMessage($"the move after the exit visit restarted the dwell (drop {drop - arrivedAt} µs after arriving).")
+                .That(drop is not null && drop - arrivedAt <= 300_000).IsTrue();
+        });
+    }
+
     private static void WithDpi(double scale, Action body)
     {
         DpiHelper.Initialize(scale, scale);
@@ -321,7 +633,16 @@ public class DragDropTargetTests
     {
         internal static readonly PhysicalPoint Grab = new(100, 100);
 
-        internal World(Action<EyeCtrlSettings>? configure = null)
+        /// <summary>Where the arming sample lands: far from every spot a scenario uses.</summary>
+        internal static readonly PhysicalPoint Away = new(3000, 2000);
+
+        /// <param name="arm">
+        /// Fixup-01 R1: the release dwell arms only once the gaze has left the spot of the first
+        /// sample after the drag starts (the leave-before-arm latch). Every scenario that is not
+        /// ABOUT that latch therefore starts with one arming sample at <see cref="Away"/>, one
+        /// sample before its own t = 0 — a saccade from the menu to where the scenario rests.
+        /// </param>
+        internal World(Action<EyeCtrlSettings>? configure = null, bool arm = true)
         {
             Settings = new EyeCtrlSettings();
             Settings.SelectionMode = SelectionMode.ManualSelection;
@@ -335,6 +656,8 @@ public class DragDropTargetTests
                 DropPoint = m.DropPoint;
             });
             Messenger.Send(new StartDragTrailMessage(Grab));
+            if (arm)
+                Send(Away, -StepUs);
         }
 
         internal EyeCtrlSettings Settings { get; }
@@ -350,10 +673,12 @@ public class DragDropTargetTests
             Messenger.Send(new GazeCursorMovedMessage(at, t));
 
         /// <summary>
-        /// A saccade to a spot S, two samples of rest, then holds of six samples alternating
-        /// between S + 1.2 R and S − 0.25 R along x, while the whole pattern drifts 0.3 DIP per
-        /// sample in y. Every hold lands outside the circle the previous one left (1.2 R, then
-        /// 1.45 R away) but within 1.5 R of S, so every hold starts with a crossing.
+        /// A saccade to a spot S, three samples of rest, then 3-sample holds cycling through
+        /// S + 0.6 R, S + 1.2 R, S + 0.6 R and S along x, while the whole pattern drifts 0.3 DIP
+        /// per sample in y. Every move is 0.6 R — under a radius per 3-sample window, so it is
+        /// wander, not a saccade (fixup-01 R2). The hold at 1.2 R lands outside the circle centred
+        /// on S, and the hold back at S lands outside the circle re-centred at 1.2 R: two crossings
+        /// per cycle, all within 1.5 R of S.
         /// </summary>
         internal WanderResult DriveCrossingWander(double r, int maxSamples)
         {
@@ -372,14 +697,15 @@ public class DragDropTargetTests
                     at = spot;
                 else
                 {
-                    var hold = (i - 3) / 6;
-                    var x = hold % 2 == 0 ? 1.2 * r : -0.25 * r;
+                    var hold = (i - 3) / 3;
+                    var x = (hold % 4) switch { 0 => 0.6, 1 => 1.2, 2 => 0.6, _ => 0.0 } * r;
                     at = new PhysicalPoint(spot.X + x, spot.Y + (i * drift));
                 }
 
                 var wasCentre = Trail.ReleaseButtonCenter;
                 Send(at, t);
-                if (i == 1) dwellStart = t; // the first sample inside the placed circle
+                // The saccade's landing sample is inside the target R2 placed on it: the dwell starts there.
+                if (i == 0) dwellStart = t;
                 if (i >= 3 && wasCentre != Trail.ReleaseButtonCenter)
                 {
                     crossings++;

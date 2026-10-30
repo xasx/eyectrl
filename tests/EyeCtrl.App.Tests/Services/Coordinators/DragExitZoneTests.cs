@@ -303,6 +303,12 @@ public class DragExitZoneTests
             Messenger.Register<DragCancelMessage>(this, (_, _) => Cancels++);
             Messenger.Register<DragDismissManualSelectionMessage>(this, (_, _) => Dismisses++);
             Messenger.Send(new StartDragTrailMessage(new PhysicalPoint(100, 100)));
+
+            // C2 fixup-01 R1: the drop arms only once the gaze has left the spot of the first
+            // sample after the drag starts (the hidden Drag menu item). One sample far from every
+            // spot below, before each scenario's own t = 0, is that saccade — without it every
+            // row that rests where it starts would pass by never arming.
+            DriveRange(new PhysicalPoint(Anchor.X - 1600, Anchor.Y), -StepUs, -StepUs);
         }
 
         internal EyeCtrlSettings Settings { get; }

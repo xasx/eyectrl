@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using NFluent;
@@ -93,6 +94,76 @@ public class RingFiredFlashWindowTests
     }
 
     [StaFact]
+    public void TheEndTimer_RunsAtRenderPriority()
+    {
+        // fixup-01 R5. Never shown, so it can never skip for a missing DWM cloak (r02 G2): the
+        // timer exists from the ctor. At Render the end tick queues behind the render the step's
+        // Visibility write requested, so a UI stall cannot end the step before a frame drew it.
+        // Mutation: build the timer at Normal → RED.
+        var window = NewRing();
+        try
+        {
+            Check.WithCustomMessage("The end tick must queue behind the render that draws the step (fixup-01 R5).")
+                .That(TimerPriority(window.FiredFlashTimer)).IsEqualTo(DispatcherPriority.Render);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void ARestyleWhileTheRingIsIdle_MovesThePeakToTheNewLook()
+    {
+        // r02 G1: the peak is rebuilt with EVERY UpdateAppearance, not memoised on the first one. A
+        // restyle (style, size, thickness, colour) while no flash is live must leave the next flash
+        // drawing the NEW ring's peak. Asserted on the overlays' painted properties, which are all a
+        // flash shows (FlashFired only toggles their visibility), on a never-shown window so it
+        // cannot skip. Mutation: memoise the peak on the first UpdateAppearance → RED.
+        var window = NewRing(); // UpdateAppearance(A): the owner's AchromaticReticle 200 / 1.5
+        try
+        {
+            var restyled = new CursorSettings
+            {
+                RingStyle = CursorRingStyle.WeightedSandwich,
+                CircleSize = 150,
+                CircleThickness = 3.0,
+                CircleOpacity = 0.8,
+                CircleColor = "#112233",
+            };
+
+            window.UpdateAppearance(restyled);
+            ((ICursorCircleOverlay)window).FlashFired(); // hidden: a no-op, the peak stays as painted
+
+            var stack = CursorRingStacks.For(
+                restyled.RingStyle, restyled.CircleSize, restyled.CircleThickness, restyled.CircleOpacity,
+                restyled.CircleColor, HexOf(Tokens.StrokeHalo), HexOf(Tokens.TextPrimary));
+            var peak = FiredFlash.PeakStack(stack, restyled.CircleSize);
+
+            AssertBand(window.FiredFlashOuter, peak.Outer, restyled.CircleSize, "outer");
+            AssertBand(window.FiredFlashCore, peak.Core, restyled.CircleSize, "core");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static string HexOf(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    private static void AssertBand(Shape overlay, RingBand expected, double size, string name)
+    {
+        Check.WithCustomMessage($"The {name} flash band kept a stale thickness after the restyle.")
+            .That(overlay.StrokeThickness).IsCloseTo(expected.Thickness, 1e-9);
+        Check.WithCustomMessage($"The {name} flash band kept a stale colour after the restyle.")
+            .That(((SolidColorBrush)overlay.Stroke).Color).IsEqualTo((Color)ColorConverter.ConvertFromString(expected.Hex));
+        Check.WithCustomMessage($"The {name} flash band kept a stale opacity after the restyle.")
+            .That(overlay.Opacity).IsEqualTo(expected.Opacity);
+        Check.WithCustomMessage($"The {name} flash band kept a stale size after the restyle.")
+            .That(overlay.Width).IsEqualTo(size);
+    }
+
+    [StaFact]
     public void AHiddenRing_IgnoresAFire_AndQueuesNothing()
     {
         // Mutation: drop the IsVisible guard → the hidden ring lights → RED.
@@ -168,8 +239,6 @@ public class RingFiredFlashWindowTests
             Check.That(window.IsFiredFlashEndScheduled).IsTrue();
             Check.WithCustomMessage("The whole flash must end within 150 ms.")
                 .That(window.FiredFlashInterval.TotalMilliseconds).IsStrictlyGreaterThan(0).And.IsLessOrEqualThan(150);
-            Check.WithCustomMessage("The end tick must queue behind the render that draws the step (fixup-01 R5).")
-                .That(TimerPriority(window.FiredFlashTimer)).IsEqualTo(DispatcherPriority.Render);
 
             window.EndFiredFlash();
 

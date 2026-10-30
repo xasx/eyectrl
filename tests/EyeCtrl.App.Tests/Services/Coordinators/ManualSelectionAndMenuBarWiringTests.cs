@@ -258,6 +258,7 @@ public class ManualSelectionAndMenuBarWiringTests
         public void ApplyBackdrop(BackdropSettings settings) { }
         public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0) { }
         public void UpdateHideButtonProgress(double progress) { }
+        public void SetHideButtonPaused(bool paused) { }
         public void ShowEscapeHint() { }
         public void HideEscapeHint() { }
     }

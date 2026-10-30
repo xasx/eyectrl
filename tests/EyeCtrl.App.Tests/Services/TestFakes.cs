@@ -451,6 +451,16 @@ internal static class TestFakes
         public void ApplyBackdrop(BackdropSettings settings) => Calls.Add("ApplyBackdrop");
         public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0) => Calls.Add("DrawHideButton");
         public void UpdateHideButtonProgress(double progress) => Calls.Add("UpdateHideButtonProgress");
+
+        /// <summary>The held-dwell look last applied (C5 H3).</summary>
+        public bool HideButtonPaused { get; private set; }
+
+        public void SetHideButtonPaused(bool paused)
+        {
+            HideButtonPaused = paused;
+            Calls.Add("SetHideButtonPaused");
+        }
+
         public void ShowEscapeHint() { EscapeHintVisible = true; Calls.Add("ShowEscapeHint"); }
         public void HideEscapeHint() { EscapeHintVisible = false; Calls.Add("HideEscapeHint"); }
     }

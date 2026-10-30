@@ -92,4 +92,9 @@ public record EventCoordinationContext(
     // Dictionary management for the settings UI (prediction controls #22). Nullable: the test
     // context bag passes null and the Keyboard page builds without its dictionary page. The
     // factory inside arrives late (SetFactory at keyboard init — the SetModelServices pattern).
-    UserDictionaryService? UserDictionary = null);
+    UserDictionaryService? UserDictionary = null,
+    // C3: the cross-process record of a left button EyeCtrl pressed and has not yet released.
+    // Nullable, and null means "no marker": every existing test context (and any harness that
+    // does not care about the drag's OS button state) then does no file IO at all. Production
+    // passes the FileHeldButtonMarker the startup backstop also reads.
+    IHeldButtonMarker? HeldButtonMarker = null);

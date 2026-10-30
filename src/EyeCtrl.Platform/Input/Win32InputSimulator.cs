@@ -109,6 +109,24 @@ public class Win32InputSimulator : IInputSimulator
         SendSingleInput(input);
     }
 
+    /// <summary>
+    /// The held-button recovery: one <c>MOUSEEVENTF_LEFTUP</c> with NO move flags, so the pointer
+    /// stays exactly where the user's gaze left it. <see cref="MouseUp"/> cannot serve here — its
+    /// absolute move would need a point, and a killed drag leaves no trustworthy one (sending
+    /// (0,0) would jump the cursor to the screen corner).
+    /// </summary>
+    public void ReleaseLeftButton()
+    {
+        SendSingleInput(new NativeMethods.INPUT
+        {
+            Type = NativeMethods.INPUT_MOUSE,
+            Union = new NativeMethods.INPUTUNION
+            {
+                Mouse = new NativeMethods.MOUSEINPUT { Flags = NativeMethods.MOUSEEVENTF_LEFTUP },
+            },
+        });
+    }
+
     public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
     {
         deltaX = ClampScrollDelta(deltaX);

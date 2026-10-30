@@ -32,6 +32,13 @@ public partial class StatusCardWindow : OverlayWindow
     /// </summary>
     internal event EventHandler? Hidden;
 
+    /// <summary>
+    /// Whether the hide that raised <see cref="Hidden"/> was the card's own hold/fade completion
+    /// (true) rather than an immediate <see cref="HideCard"/> (false). A status card is "used up"
+    /// only by a completed read (C5 H2), so the presenter needs to tell the two apart.
+    /// </summary>
+    internal bool HoldCompleted { get; private set; }
+
     /// <summary>Creates the status-card window (click-through + excluded from screen capture, set before init).</summary>
     public StatusCardWindow()
     {
@@ -46,6 +53,7 @@ public partial class StatusCardWindow : OverlayWindow
     {
         Message.Text = MessageFor(StringTable.Current, state);
         EnsurePositioned();
+        HoldCompleted = false; // a re-show starts a fresh, unread hold
         // The drift banner's re-show discipline: a fade is started only by the hold-timer tick, and
         // removing a clock via BeginAnimation(dp, null) does not raise its Completed.
         Banner.BeginAnimation(UIElement.OpacityProperty, null);
@@ -67,6 +75,7 @@ public partial class StatusCardWindow : OverlayWindow
     /// <see cref="Hidden"/> (census term (b): an immediate hide that closes the slot occupant).</summary>
     public void HideCard()
     {
+        HoldCompleted = false; // taken down before the owner could finish reading it
         _hideTimer?.Stop();
         Banner.BeginAnimation(UIElement.OpacityProperty, null);
         Hide();
@@ -98,6 +107,7 @@ public partial class StatusCardWindow : OverlayWindow
     /// the slot's natural-closure path is pinnable headless (the B4 fixup-01 M1 lesson).</summary>
     internal void OnFadeCompleted(object? sender, EventArgs e)
     {
+        HoldCompleted = true; // the hold ran its full course: this read spends the state
         Hide();
         Hidden?.Invoke(this, EventArgs.Empty);
     }

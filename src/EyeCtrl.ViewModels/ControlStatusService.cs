@@ -20,7 +20,7 @@ using Microsoft.Extensions.Logging;
 /// <item>the provider's <c>GazePointReceived</c> with <c>GazePoint.IsValid</c> — the age of the last
 /// valid sample (a timer poll turns its age into TrackingLost);</item>
 /// <item>the provider's <c>IsConnected</c>, polled at 10 Hz — the separate Disconnected flag;</item>
-/// <item>the provider type — Mouse means NoTracker.</item>
+/// <item>the provider type — a Mouse provider that is a FALLBACK means NoTracker.</item>
 /// </list>
 /// </para>
 /// <para>
@@ -64,7 +64,7 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
     /// <param name="interactionManager">The state machine whose paused state is mirrored.</param>
     /// <param name="providerType">
     /// The RESOLVED provider type (<c>GazeProviderFactory.GetProviderType</c>, which unwraps
-    /// decorators). <see cref="GazeProviderType.Mouse"/> means NoTracker.
+    /// decorators).
     /// </param>
     /// <param name="messenger">Publishes <see cref="ControlStatusChangedMessage"/>.</param>
     /// <param name="timeProvider">The clock. Defaults to <see cref="TimeProvider.System"/>.</param>
@@ -73,6 +73,11 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
     /// and receive messages synchronously.
     /// </param>
     /// <param name="logger">Optional; a faulted poll/subscriber must never take the process down.</param>
+    /// <param name="mouseIsFallback">
+    /// Whether a Mouse provider is a real tracker-to-mouse FALLBACK (the splash sentence's
+    /// predicate). Only then does it mean NoTracker; a deliberate Mouse provider — including
+    /// <c>--test-mode</c> — reports only Paused or Normal (C5 H1). Defaults to false.
+    /// </param>
     public ControlStatusService(
         IGazeProvider gazeProvider,
         InteractionManager interactionManager,
@@ -80,7 +85,8 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
         IMessenger messenger,
         TimeProvider? timeProvider = null,
         Action<Action>? postToUi = null,
-        ILogger<ControlStatusService>? logger = null)
+        ILogger<ControlStatusService>? logger = null,
+        bool mouseIsFallback = false)
     {
         _provider = gazeProvider;
         _interaction = interactionManager;
@@ -88,13 +94,21 @@ public sealed class ControlStatusService : IControlStatus, IDisposable
         _time = timeProvider ?? TimeProvider.System;
         _postToUi = postToUi;
         _logger = logger;
+        MouseIsFallback = mouseIsFallback;
 
         _model = new ControlStatusModel(
             providerType,
             _time,
-            initiallyPaused: interactionManager.CurrentState == InteractionState.Paused);
+            initiallyPaused: interactionManager.CurrentState == InteractionState.Paused,
+            mouseIsFallback);
         _model.StatusChanged += OnStatusChanged;
     }
+
+    /// <summary>
+    /// Whether the Mouse provider in use is a real tracker-to-mouse FALLBACK. The status cards reuse
+    /// this reading so the splash predicate is evaluated once in the composition root (C5 fixup-01).
+    /// </summary>
+    public bool MouseIsFallback { get; }
 
     /// <summary>The current status. Safe to read from any thread.</summary>
     public ControlStatus Current => _model.Current;

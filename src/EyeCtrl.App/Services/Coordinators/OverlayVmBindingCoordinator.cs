@@ -447,6 +447,8 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         if (_glassBackdrop == null) return;
         if (e.PropertyName == nameof(GlassBackdropViewModel.HideButtonProgress))
             _glassBackdrop.UpdateHideButtonProgress(Context!.BackdropVM.HideButtonProgress);
+        else if (e.PropertyName == nameof(GlassBackdropViewModel.IsDwellPaused))
+            _glassBackdrop.SetHideButtonPaused(Context!.BackdropVM.IsDwellPaused);
     }
 
     private void OnRepeatCursorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)

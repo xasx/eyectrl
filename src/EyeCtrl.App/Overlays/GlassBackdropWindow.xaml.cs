@@ -48,6 +48,12 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     private Rectangle? _solidBackground;
     private Rectangle? _dimLayer;
     private DwellArcButton? _hideButton;
+
+    /// <summary>
+    /// The last held-dwell look asked for. Kept because <see cref="DrawHideButton"/> builds a NEW
+    /// <see cref="DwellArcButton"/> every redraw, which would otherwise lose the dim (C5 H3).
+    /// </summary>
+    private bool _hideButtonPaused;
     private bool _cloaked;
     private DispatcherTimer? _cloakFallback;
     private EventHandler? _uncloakOnRendering;
@@ -652,11 +658,25 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
         if (progress > 0)
             _hideButton.UpdateProgress(progress);
+
+        // The rebuild must keep the held look (the edge bar's SyncButtons does the same, C5 H3).
+        _hideButton.SetPaused(_hideButtonPaused);
     }
 
     public void UpdateHideButtonProgress(double progress)
     {
         _hideButton?.UpdateProgress(progress);
+    }
+
+    /// <summary>
+    /// Shows or clears the hide button's held-dwell look. The value is remembered for the next
+    /// <see cref="DrawHideButton"/>: that method rebuilds the button, and a redraw during a held
+    /// dwell must not erase the dim.
+    /// </summary>
+    public void SetHideButtonPaused(bool paused)
+    {
+        _hideButtonPaused = paused;
+        _hideButton?.SetPaused(paused);
     }
 
     private void ClearContent()

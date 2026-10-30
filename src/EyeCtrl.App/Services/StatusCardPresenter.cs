@@ -14,7 +14,8 @@ using EyeCtrl.Core.Status;
 /// <para>
 /// "First" means the first card the owner could actually READ (B9 M1): a card withdrawn or dropped
 /// before its hold completes is not used up, so a benign eye rest no longer spends TrackingLost for
-/// the session and a later real outage still gets its card.
+/// the session and a later real outage still gets its card. That includes a QUEUED card replaced by
+/// a newer first entry before it ever showed (C5 H2); only a completed hold spends the state.
 /// </para>
 ///
 /// <para>
@@ -34,6 +35,7 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     private readonly IControlStatus _status;
     private readonly HashSet<ControlState> _entered = new();
     private ControlState? _pending;
+    private bool _holdCompleted;
     private readonly bool _noTrackerIsFallback;
     private bool _started;
 
@@ -107,7 +109,17 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
         if (status.State == ControlState.NoTracker && !_noTrackerIsFallback)
             return; // the mouse was chosen on purpose: "no eye tracker found" would be false
 
+        if (_pending is { } replaced && replaced != status.State && !_holdCompleted)
+        {
+            // C5 H2: the replaced card was QUEUED (a live one was withdrawn above) and never
+            // completed its hold, so it was never read: it must not stay used up. The overwrite
+            // case is another carded first entry (Paused waiting behind the drift notice, then
+            // TrackingLost) — without this, Paused would get no card all session.
+            _entered.Remove(replaced);
+        }
+
         _pending = status.State;
+        _holdCompleted = false;
         _slot.Enqueue(this); // a live card is refreshed with the new state; a queued one keeps its place
     }
 
@@ -144,5 +156,12 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     /// <inheritdoc />
     public bool TryGetVisibleBounds(out PhysicalRect bounds) => _window.TryGetVisibleBounds(out bounds);
 
-    private void OnHidden(object? sender, EventArgs e) => Closed?.Invoke(this, EventArgs.Empty);
+    private void OnHidden(object? sender, EventArgs e)
+    {
+        // Only the card's OWN hold/fade completion spends the state; an immediate hide (withdrawal,
+        // pre-emption, a stale drop) leaves it unread and therefore not used up (C5 H2).
+        if (_window.HoldCompleted)
+            _holdCompleted = true;
+        Closed?.Invoke(this, EventArgs.Empty);
+    }
 }

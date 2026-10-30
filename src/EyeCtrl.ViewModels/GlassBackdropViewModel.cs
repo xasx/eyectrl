@@ -20,6 +20,12 @@ public partial class GlassBackdropViewModel : DwellOverlayViewModelBase,
     [ObservableProperty] private PhysicalPoint _hideButtonCenter = new(0, 0);
     [ObservableProperty] private double _hideButtonProgress;
 
+    /// <summary>
+    /// Whether the hide button's dwell is held ("paused, not reset") because the gaze left it inside
+    /// the pause grace. Display-only, like every other surface's <c>IsDwellPaused</c> (C5 H3).
+    /// </summary>
+    [ObservableProperty] private bool _isDwellPaused;
+
     public GlassBackdropViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
         : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Backdrop, sink, dwellRegistry, settings.Dwell)
@@ -31,6 +37,7 @@ public partial class GlassBackdropViewModel : DwellOverlayViewModelBase,
     {
         HideButtonCenter = message.HideButtonCenter;
         HideButtonProgress = 0;
+        IsDwellPaused = false; // a fresh dwell starts undimmed
         DwellDetector.ClearTargets();
         DwellDetector.AddTarget(new DwellTarget(
             HideTargetId,
@@ -44,7 +51,14 @@ public partial class GlassBackdropViewModel : DwellOverlayViewModelBase,
     {
         IsVisible = false;
         HideButtonProgress = 0;
+        IsDwellPaused = false;
         DwellDetector.ClearTargets();
+    }
+
+    protected override void OnTargetPauseChanged(string targetId, bool paused)
+    {
+        if (targetId == HideTargetId)
+            IsDwellPaused = paused;
     }
 
     protected override void OnTargetActivated(string targetId)

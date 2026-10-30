@@ -74,7 +74,14 @@ public partial class App : Application
     /// When true, the app starts in a paused state regardless of the persisted
     /// <c>StartPaused</c> setting. Activated by launching with the --paused CLI
     /// argument — used by the supervisor's paused-retry handoff so a retried
-    /// instance is inert (no SendInput) without mutating the user's setting.
+    /// instance is inert without mutating the user's setting.
+    /// <para>
+    /// <b>One deliberate exception to "inert": C3's startup release.</b> A --paused launch still
+    /// sends the single startup button-up when a previous instance left the held-button marker
+    /// (that is exactly the launch most likely to follow a kill mid-drag). It runs before the
+    /// state machine can enter Paused and before any note window exists, so the sticky
+    /// no-synthesized-input-while-paused contract holds — the release is never issued while paused.
+    /// </para>
     /// </summary>
     public static bool IsPausedLaunch { get; private set; }
 
@@ -169,6 +176,24 @@ public partial class App : Application
             var messenger = _serviceProvider.GetRequiredService<IMessenger>();
             var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
+
+            // ── Held-button backstop (C3) ──
+            // A hard kill mid-drag (the Supervisor's hang-kill, Task Manager, a native crash) runs
+            // none of DragCoordinator's release paths and leaves the OS left button down: every
+            // later "click" then drags. The drag writes a marker on press and clears it on release;
+            // a marker here belongs to a previous instance that never got to. Release it now, and
+            // ONLY now: after the single-instance guard (a duplicate that exits immediately must
+            // not release the running primary's drag button) and BEFORE the gaze engine starts,
+            // before the state machine can enter Paused and before any overlay or note window
+            // exists — NoteInputPolicy forbids synthesized input while paused, and this is the one
+            // startup SendInput. The same marker instance goes to the drag below, so press/release
+            // and this backstop read one file.
+            var heldButtonMarker = new FileHeldButtonMarker();
+            StartupHeldButtonRelease.Run(
+                heldButtonMarker,
+                inputSimulator,
+                LeftButtonProbe.IsLeftButtonDown,
+                line => Log.Information("{HeldButton}", line));
 
             // Reconcile auto-launch registration with the persisted setting.
             // In supervised mode the supervisor is MEANT to own launch-at-logon via a Scheduled
@@ -279,7 +304,8 @@ public partial class App : Application
                 modesMenuVm,
                 repeatCursorVm,
                 _serviceProvider.GetRequiredService<IGlobalEscapeHatch>(),
-                _serviceProvider.GetRequiredService<UserDictionaryService>());
+                _serviceProvider.GetRequiredService<UserDictionaryService>(),
+                HeldButtonMarker: heldButtonMarker);
             _eventCoordinator.Initialize(coordinationContext);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in

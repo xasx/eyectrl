@@ -45,8 +45,11 @@ internal enum ScreenSampleBand
     OnScreen,
 
     /// <summary>
-    /// Past the tolerance but inside the disarm margin: the summon gesture has not started, so the
-    /// sample neither earns credit nor breaks the rest — it is withheld (C6).
+    /// Past the tolerance but inside the disarm margin. This band may BE a summon approach: 51 of
+    /// the owner's 91 logged top-edge summon hovers sit 10–30 px past the edge (median 372 ms), and
+    /// the Left Quick Actions summon counts any x below zero. The sample is therefore withheld — it
+    /// neither earns credit nor breaks the rest — so a summon look cannot complete a drop; only a
+    /// sample past the disarm margin is the clean break (C6).
     /// </summary>
     Withheld,
 
@@ -389,12 +392,14 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// drift apart) and the drag's exit zones.
     /// <para>
     /// A sample inside the published bounds plus the tolerance is an ordinary sample. Between the
-    /// tolerance and the disarm margin past the edge it is WITHHELD: the A5 H1 summon gesture has
-    /// not started, so the rest is not broken, but the sample earns no credit and does not move
-    /// the disc (ordinary hold wander on a target hugging an edge lives there). Past the disarm
-    /// margin it IS the summon gesture — the clean break A5 H1 pins. With no bounds published
-    /// (tests, pre-fix wiring) only the explicit exit zones and the live Pause zone apply, exactly
-    /// as before C6.
+    /// tolerance and the disarm margin past the edge it is WITHHELD. This band may itself be a
+    /// summon approach: 51 of the owner's 91 logged top-edge summon hovers sit 10–30 px past the
+    /// edge (median 372 ms), and the Left Quick Actions summon counts any x below zero. Withholding
+    /// is therefore what protects A5 H1 there — the sample earns no credit, does not move the disc,
+    /// and does not break the rest (ordinary hold wander on a target hugging an edge lives there
+    /// too). Only a sample past the disarm margin is the summon proper: the clean break A5 H1 pins.
+    /// With no bounds published (tests, pre-fix wiring) only the explicit exit zones and the live
+    /// Pause zone apply, exactly as before C6.
     /// </para>
     /// </summary>
     private ScreenSampleBand ClassifyScreenBand(PhysicalPoint point)

@@ -186,6 +186,48 @@ public class DragEdgeBandsTests
                  .That(dropAt).IsNotNull();
             Check.WithCustomMessage($"DPI {scale}: the drop did not land on the rest's centroid.")
                  .That(world.DropPoint!.Value.DistanceTo(rest)).IsLessOrEqualThan(1e-9);
+            // M8: a withheld sample must not enter the saccade history. If it did, the return to
+            // the rest (865 px from the excursion) would look like a saccade and restart the
+            // dwell, pushing the drop out by a full 600 ms.
+            Check.WithCustomMessage(
+                    $"DPI {scale}: the withheld sample's far excursion restarted the dwell "
+                    + $"(drop at {dropAt!.Value} µs).")
+                 .That(dropAt.Value).IsStrictlyLessThan(800_000);
+        });
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AStraddlingHover_CreditsOnlyTheOnScreenSamples_AndNeverResets(double scale)
+    {
+        // C6 fixup-01 R2: a real summon hover straddles the 10 px line — samples at −5 px are
+        // on-screen (credited), samples at −15 px are withheld. With variant A only the −5 px
+        // samples credit the release dwell: the hover accumulates ~15 of the 18 credited intervals
+        // it would need, never resets, and never drops in 1.5 s. Variant B (the −15 px samples
+        // credited) reaches the dwell at about 600 ms and drops — that is the mutant.
+        WithDpi(scale, () =>
+        {
+            using var world = new World();
+            var onScreen = new PhysicalPoint(1920, -5);    // 5 px above the top edge: inside the 10 px tolerance
+            var withheld = new PhysicalPoint(1920, -15);   // 15 px above: withheld
+
+            var progress = new List<double>();
+            for (var i = 0; i < 45 && world.Drops == 0; i++)   // 1.5 s at 30 Hz
+            {
+                world.Send(i % 3 == 2 ? withheld : onScreen, i * StepUs);
+                if (i >= 2) progress.Add(world.Trail.ReleaseProgress);
+            }
+
+            Check.WithCustomMessage($"DPI {scale}: the straddling hover dropped the item.")
+                 .That(world.Drops).IsEqualTo(0);
+            Check.WithCustomMessage(
+                    $"DPI {scale}: the hover did not credit only its on-screen samples "
+                    + $"({world.Trail.ReleaseProgress:0.#####}).")
+                 .That(world.Trail.ReleaseProgress)
+                 .IsCloseTo(15.0 * StepUs / DwellUs, 1e-9);
+            Check.WithCustomMessage($"DPI {scale}: a withheld sample reset the hover.")
+                 .That(progress.Count(p => p <= 0.0)).IsEqualTo(0);
         });
     }
 

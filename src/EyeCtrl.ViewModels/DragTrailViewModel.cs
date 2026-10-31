@@ -35,21 +35,50 @@ public readonly record struct DragReleaseDisc(
     PhysicalPoint Center, double RadiusPhysical, double Progress, bool Paused);
 
 /// <summary>
-/// C6: how one gaze sample sits relative to the screen's off-screen bands (the same two bands C4
+/// C7: the screen edges whose 10–30 px off-screen band may be a summon approach for the whole of
+/// one drag. <c>DragCoordinator</c> publishes the set with the bounds at drag start, so the view
+/// model never reads settings itself; the sample is withheld only past an edge in this set, and
+/// credited like an on-screen sample past every other edge.
+/// </summary>
+[Flags]
+public enum DragSummonEdges
+{
+    /// <summary>No edge summons: the whole 10–30 px band is credited.</summary>
+    None = 0,
+
+    /// <summary>The toolbar is docked (and auto-hides) at the top, or Quick Actions summons there.</summary>
+    Top = 1,
+
+    /// <summary>The toolbar is docked (and auto-hides) at the bottom, or Quick Actions summons there.</summary>
+    Bottom = 2,
+
+    /// <summary>The toolbar is docked (and auto-hides) at the left, or Quick Actions summons there.</summary>
+    Left = 4,
+
+    /// <summary>The toolbar is docked (and auto-hides) at the right, or Quick Actions summons there.</summary>
+    Right = 8,
+}
+
+/// <summary>
+/// C6/C7: how one gaze sample sits relative to the screen's off-screen bands (the same two bands C4
 /// applies to the repeat dwell). <see cref="OnScreen"/> and <see cref="Withheld"/> both keep the
 /// current rest alive; only <see cref="Exit"/> is the A5 H1 clean break (reset plus restart spot).
 /// </summary>
 internal enum ScreenSampleBand
 {
-    /// <summary>Inside the published bounds plus the tolerance: an ordinary sample.</summary>
+    /// <summary>
+    /// Inside the published bounds plus the tolerance: an ordinary sample. C7 also credits the
+    /// 10–30 px band past an edge with no summon gesture, so that sample takes exactly this path.
+    /// </summary>
     OnScreen,
 
     /// <summary>
-    /// Past the tolerance but inside the disarm margin. This band may BE a summon approach: 51 of
-    /// the owner's 91 logged top-edge summon hovers sit 10–30 px past the edge (median 372 ms), and
-    /// the Left Quick Actions summon counts any x below zero. The sample is therefore withheld — it
-    /// neither earns credit nor breaks the rest — so a summon look cannot complete a drop; only a
-    /// sample past the disarm margin is the clean break (C6).
+    /// C6: past the tolerance but inside the disarm margin, and past a SUMMON edge (C7). This band
+    /// may BE a summon approach: 51 of the owner's 91 logged top-edge summon hovers sit 10–30 px
+    /// past the edge (median 372 ms), and the Left Quick Actions summon counts any x below zero. The
+    /// sample is therefore withheld — it neither earns credit nor breaks the rest — so a summon look
+    /// cannot complete a drop; only a sample past the disarm margin is the clean break. Past an edge
+    /// with no summon gesture the same band is credited instead (C7).
     /// </summary>
     Withheld,
 
@@ -97,6 +126,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private Func<DragExitZone?>? _pauseExitZone;
     private PhysicalRect? _screenBounds;
     private double _screenTolerancePhysical;
+    private DragSummonEdges _summonEdges;
     private bool _inExitZone;
 
     // C2: the spot the current release dwell belongs to — where the target was placed when the
@@ -194,20 +224,25 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     /// <summary>
     /// Supplies the on-screen rectangle in physical px, plus a small tolerance, for the two
-    /// off-screen bands (A5 fixup-03 H1, C6). A sample past the tolerance is the toolbar/Quick
+    /// off-screen bands (A5 fixup-03 H1, C6, C7). A sample past the tolerance is the toolbar/Quick
     /// Actions summon gesture and can neither settle nor release the drag; the edge row itself
     /// stays on-screen through <paramref name="tolerancePhysical"/>, so tracker jitter at the
     /// border does not suppress a legitimate drop. C6 splits the past-tolerance side in two,
     /// mirroring C4's repeat gate: up to
     /// <see cref="InteractionManager.RepeatDisarmMarginPhysical"/> past the edge the sample is
     /// WITHHELD (no credit, no reset, no re-centre — the rest survives ordinary hold wander), and
-    /// only beyond that margin is it the clean break. The coordinator sets this at drag start
-    /// from the primary screen; null (the default) keeps the pre-fix behaviour.
+    /// only beyond that margin is it the clean break. C7 makes the withheld half edge-aware:
+    /// <paramref name="summonEdges"/> names the edges whose band may be a summon approach, and only
+    /// there is the sample withheld — past every other edge it is credited like an on-screen
+    /// sample, with the drop point clamped back on-screen. Past the disarm margin every edge is the
+    /// same clean break. The coordinator sets this at drag start from the primary screen and the
+    /// live summon edges; no bounds published (the default) keeps the pre-fix behaviour.
     /// </summary>
-    public void SetScreenBounds(PhysicalRect bounds, double tolerancePhysical)
+    public void SetScreenBounds(PhysicalRect bounds, double tolerancePhysical, DragSummonEdges summonEdges)
     {
         _screenBounds = bounds;
         _screenTolerancePhysical = tolerancePhysical;
+        _summonEdges = summonEdges;
     }
 
     public void Receive(StartDragTrailMessage message)
@@ -387,17 +422,22 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>
-    /// C6: classifies one sample against the screen's two off-screen bands (C4's rule, reused from
-    /// <see cref="InteractionManager.RepeatDisarmMarginPhysical"/> so the drag and repeat cannot
-    /// drift apart) and the drag's exit zones.
+    /// C6/C7: classifies one sample against the screen's two off-screen bands (C4's rule, reused
+    /// from <see cref="InteractionManager.RepeatDisarmMarginPhysical"/> so the drag and repeat
+    /// cannot drift apart) and the drag's exit zones.
     /// <para>
     /// A sample inside the published bounds plus the tolerance is an ordinary sample. Between the
-    /// tolerance and the disarm margin past the edge it is WITHHELD. This band may itself be a
-    /// summon approach: 51 of the owner's 91 logged top-edge summon hovers sit 10–30 px past the
-    /// edge (median 372 ms), and the Left Quick Actions summon counts any x below zero. Withholding
-    /// is therefore what protects A5 H1 there — the sample earns no credit, does not move the disc,
-    /// and does not break the rest (ordinary hold wander on a target hugging an edge lives there
-    /// too). Only a sample past the disarm margin is the summon proper: the clean break A5 H1 pins.
+    /// tolerance and the disarm margin past the edge it is WITHHELD when that edge is one of
+    /// <see cref="_summonEdges"/> (C7), and CREDITED — an ordinary sample — past an edge with no
+    /// summon gesture. The withheld band may itself be a summon approach: 51 of the owner's 91
+    /// logged top-edge summon hovers sit 10–30 px past the edge (median 372 ms), and the Left Quick
+    /// Actions summon counts any x below zero. Withholding is therefore what protects A5 H1 there —
+    /// the sample earns no credit, does not move the disc, and does not break the rest (ordinary
+    /// hold wander on a target hugging an edge lives there too). Only a sample past the disarm
+    /// margin is the summon proper: the clean break A5 H1 pins, on every edge. In a corner the
+    /// stricter edge wins: one summon edge in the pair withholds the sample.
+    /// </para>
+    /// <para>
     /// With no bounds published (tests, pre-fix wiring) only the explicit exit zones and the live
     /// Pause zone apply, exactly as before C6.
     /// </para>
@@ -412,7 +452,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             var disarm = Math.Max(_screenTolerancePhysical, InteractionManager.RepeatDisarmMarginPhysical);
             if (!IsWithinScreen(point, screen, disarm))
                 return ScreenSampleBand.Exit;
-            if (!IsWithinScreen(point, screen, _screenTolerancePhysical))
+            if (!IsWithinScreen(point, screen, _screenTolerancePhysical)
+                && IsPastASummonEdge(point, screen))
                 band = ScreenSampleBand.Withheld;
         }
 
@@ -439,6 +480,25 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private static bool IsWithinScreen(PhysicalPoint point, PhysicalRect screen, double marginPhysical)
         => point.X >= screen.X - marginPhysical && point.X <= screen.X + screen.Width + marginPhysical
            && point.Y >= screen.Y - marginPhysical && point.Y <= screen.Y + screen.Height + marginPhysical;
+
+    /// <summary>
+    /// C7: whether the sample is past the tolerance on at least one SUMMON edge. In a corner the
+    /// stricter edge wins: one summon edge in the pair withholds the sample, because a summon look
+    /// there could fire. Bitwise rather than <c>Enum.HasFlag</c>: this runs per gaze sample.
+    /// </summary>
+    private bool IsPastASummonEdge(PhysicalPoint point, PhysicalRect screen)
+    {
+        if (_summonEdges == DragSummonEdges.None) return false;
+        var tolerance = _screenTolerancePhysical;
+        return ((_summonEdges & DragSummonEdges.Top) != 0
+                && point.Y < screen.Y - tolerance)
+            || ((_summonEdges & DragSummonEdges.Bottom) != 0
+                && point.Y > screen.Y + screen.Height + tolerance)
+            || ((_summonEdges & DragSummonEdges.Left) != 0
+                && point.X < screen.X - tolerance)
+            || ((_summonEdges & DragSummonEdges.Right) != 0
+                && point.X > screen.X + screen.Width + tolerance);
+    }
 
     private void OnSettleStarted(PhysicalPoint point)
     {
@@ -571,7 +631,24 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         DwellDetector.ClearTargets();
         ReleaseProgress = 0;
         DragState = DragSubState.FreeDrag;
-        Messenger.Send(new DragDropMessage(dropPoint));
+        Messenger.Send(new DragDropMessage(ClampDropPoint(dropPoint)));
+    }
+
+    /// <summary>
+    /// C7: a credited sample in a non-summon edge's 10–30 px band may pull the rest's centroid (or
+    /// an Auto Selection settle) past the screen, where the OS would clamp the point onto the edge
+    /// row anyway. Clamp it to the published bounds here so the drop lands where it is drawn, and
+    /// always inside the screen. A point still inside the tolerance keeps C6/A5's behaviour exactly
+    /// (the drag treats it as on-screen; the OS clamps the real click), so only the region C7 newly
+    /// credits is pulled back. With no bounds published (tests, pre-fix wiring) it is unchanged.
+    /// </summary>
+    private PhysicalPoint ClampDropPoint(PhysicalPoint point)
+    {
+        if (_screenBounds is not { } screen) return point;
+        if (IsWithinScreen(point, screen, _screenTolerancePhysical)) return point;
+        return new PhysicalPoint(
+            Math.Clamp(point.X, screen.X, screen.X + screen.Width),
+            Math.Clamp(point.Y, screen.Y, screen.Y + screen.Height));
     }
 
     protected override void OnDispose()

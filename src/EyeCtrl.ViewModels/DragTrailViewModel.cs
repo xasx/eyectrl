@@ -34,6 +34,26 @@ public readonly record struct DragExitZone(PhysicalPoint Center, double RadiusPh
 public readonly record struct DragReleaseDisc(
     PhysicalPoint Center, double RadiusPhysical, double Progress, bool Paused);
 
+/// <summary>
+/// C6: how one gaze sample sits relative to the screen's off-screen bands (the same two bands C4
+/// applies to the repeat dwell). <see cref="OnScreen"/> and <see cref="Withheld"/> both keep the
+/// current rest alive; only <see cref="Exit"/> is the A5 H1 clean break (reset plus restart spot).
+/// </summary>
+internal enum ScreenSampleBand
+{
+    /// <summary>Inside the published bounds plus the tolerance: an ordinary sample.</summary>
+    OnScreen,
+
+    /// <summary>
+    /// Past the tolerance but inside the disarm margin: the summon gesture has not started, so the
+    /// sample neither earns credit nor breaks the rest — it is withheld (C6).
+    /// </summary>
+    Withheld,
+
+    /// <summary>Past the disarm margin, or inside a Cancel/Back/Pause exit: a clean break.</summary>
+    Exit,
+}
+
 public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     IRecipient<StartDragTrailMessage>,
     IRecipient<DragCancelMessage>,
@@ -170,12 +190,15 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     public void SetPauseExitZoneProvider(Func<DragExitZone?>? provider) => _pauseExitZone = provider;
 
     /// <summary>
-    /// Supplies the on-screen rectangle in physical px, plus a small tolerance, as an exit zone
-    /// (A5 fixup-03 H1). A gaze sample OUTSIDE it is the toolbar/Quick-Actions summon gesture:
-    /// letting it settle or release drops the item at an off-screen point, which the OS clamps to
-    /// the screen edge (a title bar or tab strip). No settle and no release dwell there; the edge
-    /// row itself stays on-screen through <paramref name="tolerancePhysical"/>, so tracker jitter
-    /// at the border does not suppress a legitimate drop. The coordinator sets this at drag start
+    /// Supplies the on-screen rectangle in physical px, plus a small tolerance, for the two
+    /// off-screen bands (A5 fixup-03 H1, C6). A sample past the tolerance is the toolbar/Quick
+    /// Actions summon gesture and can neither settle nor release the drag; the edge row itself
+    /// stays on-screen through <paramref name="tolerancePhysical"/>, so tracker jitter at the
+    /// border does not suppress a legitimate drop. C6 splits the past-tolerance side in two,
+    /// mirroring C4's repeat gate: up to
+    /// <see cref="InteractionManager.RepeatDisarmMarginPhysical"/> past the edge the sample is
+    /// WITHHELD (no credit, no reset, no re-centre — the rest survives ordinary hold wander), and
+    /// only beyond that margin is it the clean break. The coordinator sets this at drag start
     /// from the primary screen; null (the default) keeps the pre-fix behaviour.
     /// </summary>
     public void SetScreenBounds(PhysicalRect bounds, double tolerancePhysical)
@@ -249,25 +272,33 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
                 _releaseArmed = true;
         }
 
+        // C6: classify BEFORE the saccade rule, because a withheld sample (past the tolerance,
+        // inside C4's disarm margin) may not move or restart the spot at all — not even through
+        // StartNewSpot. The band itself is decided by ClassifyScreenBand below.
+        var band = ClassifyScreenBand(position);
+
         // R2: a move of more than one radius within SaccadeWindowSamples samples is a saccade to a
         // new spot, however close that spot is to the old one. Decided BEFORE the detector, so the
         // old spot's dwell can neither complete on this sample nor carry over to the new one.
         if (_lastEligibleTimestampUs is { } last && message.TimestampMicroseconds - last >= HistorySilenceUs)
             _recentGaze.Clear();
         _lastEligibleTimestampUs = message.TimestampMicroseconds;
-        foreach (var earlier in _recentGaze)
+        if (band != ScreenSampleBand.Withheld)
         {
-            if (position.DistanceSquaredTo(earlier) > radius * radius)
+            foreach (var earlier in _recentGaze)
             {
-                StartNewSpot(position); // clears _recentGaze
-                break;
+                if (position.DistanceSquaredTo(earlier) > radius * radius)
+                {
+                    StartNewSpot(position); // clears _recentGaze
+                    break;
+                }
             }
         }
 
         // A rest on an edge-bar drag button belongs to that button's own dwell. Letting the settle
         // or the gaze-following release target accumulate there drops the item before the 600 ms
         // Cancel/Back dwell can fire — the owner's only exit would commit the drag instead.
-        if (IsInExitZone(position))
+        if (band == ScreenSampleBand.Exit)
         {
             if (!_inExitZone)
             {
@@ -285,6 +316,17 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
                 DragState = DragSubState.FreeDrag;
             // Filtered to match nothing: the release target holds for the grace, then resets. It
             // never completes while the gaze is on the exit.
+            DwellDetector.Update(position, message.TimestampMicroseconds, static _ => false);
+        }
+        else if (band == ScreenSampleBand.Withheld)
+        {
+            // C6: the withheld band, mirroring C4's no-fire band. The sample earns no credit —
+            // filtered to match nothing, so the release dwell sees it as outside and its normal
+            // pause grace holds the progress — and the settle detector is not advanced either (a
+            // withheld sample must never help a drop complete off-screen, A5 H1). Nothing is
+            // reset: not ResetAllState, not RestartSpot, not the settle. It is also not an exit,
+            // so the next exit-zone visit still gets its clean break.
+            _inExitZone = false;
             DwellDetector.Update(position, message.TimestampMicroseconds, static _ => false);
         }
         else
@@ -323,32 +365,59 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // AFTER the detector: this sample was hit-tested against the circle as drawn, so a sample
         // outside it is never credited — the pause grace holds it — even when the target then
         // re-centres onto it and the next sample, inside, resumes.
-        FollowGaze(position);
+        // C6: a withheld sample does NOT follow: the disc belongs to the rest it was on, so one
+        // stray sample past the edge cannot move it (and it never enters the rest centroid).
+        if (band != ScreenSampleBand.Withheld)
+            FollowGaze(position);
 
         // R2: recorded LAST, after every reset this sample may have made, so the history always
         // holds this sample — the new spot's first one, if the spot was just reset — and nothing
-        // from before a reset.
-        _recentGaze.Enqueue(position);
-        while (_recentGaze.Count > SaccadeWindowSamples)
-            _recentGaze.Dequeue();
+        // from before a reset. C6: a withheld sample is not a dwell-eligible rest sample, so it is
+        // neither a saccade source nor a saccade victim; the previous on-screen samples stay the
+        // history.
+        if (band != ScreenSampleBand.Withheld)
+        {
+            _recentGaze.Enqueue(position);
+            while (_recentGaze.Count > SaccadeWindowSamples)
+                _recentGaze.Dequeue();
+        }
     }
 
-    private bool IsInExitZone(PhysicalPoint point)
+    /// <summary>
+    /// C6: classifies one sample against the screen's two off-screen bands (C4's rule, reused from
+    /// <see cref="InteractionManager.RepeatDisarmMarginPhysical"/> so the drag and repeat cannot
+    /// drift apart) and the drag's exit zones.
+    /// <para>
+    /// A sample inside the published bounds plus the tolerance is an ordinary sample. Between the
+    /// tolerance and the disarm margin past the edge it is WITHHELD: the A5 H1 summon gesture has
+    /// not started, so the rest is not broken, but the sample earns no credit and does not move
+    /// the disc (ordinary hold wander on a target hugging an edge lives there). Past the disarm
+    /// margin it IS the summon gesture — the clean break A5 H1 pins. With no bounds published
+    /// (tests, pre-fix wiring) only the explicit exit zones and the live Pause zone apply, exactly
+    /// as before C6.
+    /// </para>
+    /// </summary>
+    private ScreenSampleBand ClassifyScreenBand(PhysicalPoint point)
     {
-        // H1: past the screen edge is the summon gesture, never a rest to settle or release on.
+        var band = ScreenSampleBand.OnScreen;
         if (_screenBounds is { } screen)
         {
-            var tol = _screenTolerancePhysical;
-            if (point.X < screen.X - tol || point.X > screen.X + screen.Width + tol
-                || point.Y < screen.Y - tol || point.Y > screen.Y + screen.Height + tol)
-                return true;
+            // C6 mirrors C4's Math.Max: a published tolerance wider than the margin leaves no
+            // withheld band, because the tolerance is by definition still "on screen".
+            var disarm = Math.Max(_screenTolerancePhysical, InteractionManager.RepeatDisarmMarginPhysical);
+            if (!IsWithinScreen(point, screen, disarm))
+                return ScreenSampleBand.Exit;
+            if (!IsWithinScreen(point, screen, _screenTolerancePhysical))
+                band = ScreenSampleBand.Withheld;
         }
 
+        // A real exit keeps its clean break even where the withheld band overlaps it (an exit zone
+        // could in principle straddle the border; today's zones all sit inside the screen).
         foreach (var zone in _exitZones)
         {
             var radius = zone.RadiusPhysical;
             if (point.DistanceSquaredTo(zone.Center) <= radius * radius)
-                return true;
+                return ScreenSampleBand.Exit;
         }
 
         // LIVE (G2): the toolbar Pause can move, appear or stop being dwellable while the drag
@@ -356,10 +425,15 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         if (_pauseExitZone?.Invoke() is { } pause)
         {
             var radius = pause.RadiusPhysical;
-            return point.DistanceSquaredTo(pause.Center) <= radius * radius;
+            if (point.DistanceSquaredTo(pause.Center) <= radius * radius)
+                return ScreenSampleBand.Exit;
         }
-        return false;
+        return band;
     }
+
+    private static bool IsWithinScreen(PhysicalPoint point, PhysicalRect screen, double marginPhysical)
+        => point.X >= screen.X - marginPhysical && point.X <= screen.X + screen.Width + marginPhysical
+           && point.Y >= screen.Y - marginPhysical && point.Y <= screen.Y + screen.Height + marginPhysical;
 
     private void OnSettleStarted(PhysicalPoint point)
     {

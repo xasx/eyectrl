@@ -227,6 +227,11 @@ public class InteractionManager
     /// How far past the published screen bounds a valid sample must lie before the armed repeat run
     /// DISARMS, in physical px. Between the tolerance (the arm/no-fire edge, normally 10 px) and this
     /// margin the dwell neither advances nor fires; it continues when the gaze is back on-screen.
+    /// <para>
+    /// C6 reuses this value as the drag trail's disarm margin
+    /// (<c>DragTrailViewModel.ClassifyScreenBand</c>), so the drag's withheld band and the repeat's
+    /// no-fire band cannot drift apart: changing this number moves both rules and both pin sets.
+    /// </para>
     /// </summary>
     public const double RepeatDisarmMarginPhysical = 30;
     // The on-screen arm gate for the repeat dwell (A5 fixup-03 H2): the App publishes the primary

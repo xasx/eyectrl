@@ -235,6 +235,54 @@ public class DragToolbarPauseExitZoneTests
     [InlineData(2.0, SelectionMode.AutoSelection)]
     [InlineData(1.0, SelectionMode.ManualSelection)]
     [InlineData(2.0, SelectionMode.ManualSelection)]
+    public void ARestInTheWithheldBand_NeverDrops_AndPauseAfterTheSummonCancels(
+        double scale, SelectionMode mode)
+    {
+        // C6: 10–30 px past the edge is the WITHHELD band, not yet the summon gesture. It must still
+        // never drop: the settle is not advanced there (so AutoSelection's 500 ms settle cannot
+        // complete off-screen, A5 H1) and the release dwell sees the sample as outside (so
+        // ManualSelection's release pauses and expires instead of crediting). This is the sibling
+        // the two-band rule deliberately adds: before C6 this point was covered by the single exit
+        // band; now it is covered by withholding, and the summon that follows still reaches Pause.
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            using var world = Build(mode);
+            world.Toolbar.SetActive(false);   // auto-hidden after 5 s off the band
+            world.StartDrag();
+
+            var off = new PhysicalPoint(PauseCentre.X, -25);
+            world.Rest(off, 2_000);           // held in the withheld band for 2 s
+
+            Check.WithCustomMessage($"DPI {scale}/{mode}: a withheld-band rest dropped the drag.")
+                 .That(world.Drops).IsEqualTo(0);
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.Dragging);
+            Check.WithCustomMessage("the withheld-band rest settled into the manual-selection view.")
+                 .That(world.Context.DragTrailVM.ShowBack).IsFalse();
+            Check.That(world.Input.MouseUpCount).IsEqualTo(0);
+
+            // The summon completes; Pause is now dwellable and the gaze moves to it: cancel at the
+            // grab point, then Paused.
+            world.Toolbar.SetActive(true);
+            world.Rest(PauseCentre, 800);
+
+            Check.That(world.Interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+            Check.That(world.Drops).IsEqualTo(0);
+            Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+                 .IsEqualTo(GrabOrigin);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [StaTheory]
+    [InlineData(1.0, SelectionMode.AutoSelection)]
+    [InlineData(2.0, SelectionMode.AutoSelection)]
+    [InlineData(1.0, SelectionMode.ManualSelection)]
+    [InlineData(2.0, SelectionMode.ManualSelection)]
     public void ARestOnScreenNearTheEdge_StillDrops(double scale, SelectionMode mode)
     {
         // The on-screen tolerance: the edge row itself (or a few px of tracker jitter at the

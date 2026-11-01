@@ -279,6 +279,8 @@ public class DragEdgeBandsTests
     /// C7: crediting the band must not drop into an off-screen point. A rest that sits in the
     /// non-summon right edge's band accrues its credit 27 px past the screen, so its centroid is
     /// ~25 px outside; the drop must land clamped on the border, not at the off-screen centroid.
+    /// This row pins the X clamp (and that the X clamp leaves Y alone); its bottom-edge sibling
+    /// pins the Y clamp.
     /// Mutation: no clamp → the drop point is ~3865 (RED). A point still inside the 10 px
     /// tolerance keeps C6/A5's behaviour (pinned by the App's
     /// <c>DragToolbarPauseExitZoneTests.ARestJustPastTheEdge_InsideTheTolerance_StillDrops</c>).
@@ -309,13 +311,54 @@ public class DragEdgeBandsTests
                     $"DPI {scale}: the drop landed off-screen at "
                     + $"{world.DropPoint!.Value.X:0.##} (screen width {Screen.Width:0}).")
                  .That(world.DropPoint.Value.X).IsEqualTo(Screen.X + Screen.Width);
-            Check.WithCustomMessage($"DPI {scale}: the drop's Y was clamped too.")
+            Check.WithCustomMessage($"DPI {scale}: the X clamp moved the drop's Y.")
                  .That(world.DropPoint.Value.Y).IsCloseTo(y, 1e-9);
 
             // Every sample is credited, so the dwell keeps its normal schedule: the drop is not
             // spread over twice the dwell as it would be with the band withheld.
             Check.WithCustomMessage(
                     $"DPI {scale}: the band was not credited — the drop took {dropAt} µs.")
+                 .That(dropAt!.Value).IsLessOrEqualThan(DwellUs + StepUs);
+        });
+    }
+
+    /// <summary>
+    /// C7 fixup-01 R1: the bottom-edge sibling of the clamp row. Bottom is the owner's other
+    /// credited edge (the toolbar docks Top, Quick Actions summons Left), so a band rest there
+    /// accrues its credit 27 px below the screen and the drop must land clamped on the bottom
+    /// border. Pins the Y clamp, which the X row cannot: the X row's own Y is on-screen.
+    /// Mutation N6 (the clamp applied to X only) → the drop's Y stays ~25 px below the screen (RED).
+    /// </summary>
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ACreditedBandSample_DropsClampedOnScreen_BottomEdge(double scale)
+    {
+        WithDpi(scale, () =>
+        {
+            using var world = new World(OwnerSummons);
+            const double x = 1920;
+            var anchor = new PhysicalPoint(x, Screen.Y + Screen.Height - 5);  // inside: places the disc
+            var band = new PhysicalPoint(x, Screen.Y + Screen.Height + 27);   // 27 px past, inside 30
+
+            long? dropAt = null;
+            world.Send(anchor, 0);
+            for (var i = 1; i < 40 && dropAt is null; i++)
+            {
+                world.Send(band, i * StepUs);
+                if (world.Drops > 0) dropAt = i * StepUs;
+            }
+
+            Check.WithCustomMessage($"DPI {scale}: the bottom band rest did not drop.")
+                 .That(dropAt).IsNotNull();
+            Check.WithCustomMessage(
+                    $"DPI {scale}: the drop landed below the screen at "
+                    + $"{world.DropPoint!.Value.Y:0.##} (screen height {Screen.Height:0}).")
+                 .That(world.DropPoint.Value.Y).IsEqualTo(Screen.Y + Screen.Height);
+            Check.WithCustomMessage($"DPI {scale}: the Y clamp moved the drop's X.")
+                 .That(world.DropPoint.Value.X).IsCloseTo(x, 1e-9);
+            Check.WithCustomMessage(
+                    $"DPI {scale}: the bottom band was not credited — the drop took {dropAt} µs.")
                  .That(dropAt!.Value).IsLessOrEqualThan(DwellUs + StepUs);
         });
     }

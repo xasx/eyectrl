@@ -638,7 +638,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// C7: a credited sample in a non-summon edge's 10–30 px band may pull the rest's centroid (or
     /// an Auto Selection settle) past the screen. The injector would already clamp the real click:
     /// <see cref="PhysicalPoint.ToNormalized"/> clamps every point to the primary screen in absolute
-    /// coordinates (no VIRTUALDESK), and the drop's <c>MouseUp</c> is that injector's only consumer.
+    /// coordinates (no VIRTUALDESK), and the drop point's only consumer is the drag's
+    /// <c>MouseUp</c> (DragCoordinator).
     /// This clamp exists so the VIEW MODEL's own drop point — the point carried by
     /// <see cref="DragDropMessage"/> — stays inside the published bounds and does not depend on the
     /// injector's clamp. A point still inside the tolerance keeps C6/A5's behaviour exactly (the

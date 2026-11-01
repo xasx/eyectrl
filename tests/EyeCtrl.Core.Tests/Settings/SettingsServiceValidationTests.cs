@@ -8,6 +8,11 @@ public class SettingsServiceValidationTests : IDisposable
 {
     private readonly string _testFilePath;
 
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     public SettingsServiceValidationTests()
     {
         _testFilePath = Path.Combine(Path.GetTempPath(), $"test_settings_{Guid.NewGuid()}.json");
@@ -25,7 +30,7 @@ public class SettingsServiceValidationTests : IDisposable
     public void Save_ValidSettings_ShouldSucceed()
     {
         // Arrange
-        var service = new SettingsService(_testFilePath);
+        var service = new SettingsService(_testFilePath, SettingsWriter.App, TestMutexName());
         var settings = new EyeCtrlSettings();
 
         // Act & Assert - should not throw
@@ -37,7 +42,7 @@ public class SettingsServiceValidationTests : IDisposable
     public void Save_InvalidSettings_ShouldThrowException()
     {
         // Arrange: ActiveLayout setter accepts any string, but Validate() rejects unknown layouts
-        var service = new SettingsService(_testFilePath);
+        var service = new SettingsService(_testFilePath, SettingsWriter.App, TestMutexName());
         var settings = new EyeCtrlSettings();
         settings.Keyboard.ActiveLayout = "DVORAK";
 
@@ -145,7 +150,7 @@ public class SettingsServiceValidationTests : IDisposable
     public void Load_ValidSettings_ShouldLoadCorrectly()
     {
         // Arrange
-        var service = new SettingsService(_testFilePath);
+        var service = new SettingsService(_testFilePath, SettingsWriter.App, TestMutexName());
         var originalSettings = new EyeCtrlSettings
         {
             Cursor = new CursorSettings { SmoothingFactor = 0.7 },
@@ -166,7 +171,7 @@ public class SettingsServiceValidationTests : IDisposable
     public void RoundTrip_ValidSettings_ShouldPreserveValues()
     {
         // Arrange
-        var service = new SettingsService(_testFilePath);
+        var service = new SettingsService(_testFilePath, SettingsWriter.App, TestMutexName());
         var settings = new EyeCtrlSettings
         {
             Cursor = new CursorSettings

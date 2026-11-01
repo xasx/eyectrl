@@ -135,7 +135,7 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
         var settingsPath = Path.Combine(_root, "settings.json");
         var window = new SupervisorSetupWindow(
             new EyeCtrlSettings(),
-            settingsService ?? new SettingsService(settingsPath, SettingsWriter.Supervisor),
+            settingsService ?? new SettingsService(settingsPath, SettingsWriter.Supervisor, $"Local\\EyeCtrl.Settings.Writer.Test.{Guid.NewGuid():N}"),
             _ => { },
             () => { },
             new StartOnBootSetupRow(fixture.StartOnBoot, () => false),
@@ -369,7 +369,7 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
                 new Fixture(),
                 statusText: "",
                 settingsService: new SettingsService(
-                    Path.Combine(blocked, "settings.json"), SettingsWriter.Supervisor));
+                    Path.Combine(blocked, "settings.json"), SettingsWriter.Supervisor, $"Local\\EyeCtrl.Settings.Writer.Test.{Guid.NewGuid():N}"));
             ClickButtonWithLabel(broken.DiagnosticsHost, "Save");
             Check.WithCustomMessage($"'{broken.StatusLabel.Text}' does not carry the keyed failure frame.")
                 .That(broken.StatusLabel.Text.StartsWith("Save failed: ", StringComparison.Ordinal)).IsTrue();

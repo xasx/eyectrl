@@ -14,6 +14,11 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class FixationRadiusMigrationTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void FreshSettings_DefaultTo75()
     {
@@ -49,7 +54,7 @@ public class FixationRadiusMigrationTests
               "dwell": { "fixationRadiusPixels": 90, "activationButtonDwellMs": 850 }
             }
             """);
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
 
             var loaded = service.Load();
             Check.That(loaded.Dwell.FixationRadiusPixels).IsEqualTo(90.0);          // legal legacy value loads

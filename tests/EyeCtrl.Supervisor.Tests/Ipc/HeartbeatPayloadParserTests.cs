@@ -1,5 +1,6 @@
 namespace EyeCtrl.Supervisor.Tests.Ipc;
 
+using System;
 using System.Text.Json;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Supervisor.Ipc;
@@ -8,6 +9,9 @@ using Xunit;
 
 public class HeartbeatPayloadParserTests
 {
+    private static readonly DateTime ExpectedStartedAtUtc = new(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime ExpectedLastFrameUtc = new(2025, 1, 1, 0, 0, 1, DateTimeKind.Utc);
+
     [Fact]
     public void Parse_CamelCaseJson_DeserializesCorrectly()
     {
@@ -17,6 +21,8 @@ public class HeartbeatPayloadParserTests
 
         Check.That(payload).IsNotNull();
         Check.That(payload!.Pid).IsEqualTo(1234);
+        Check.That(payload.StartedAtUtc).IsEqualTo(ExpectedStartedAtUtc);
+        Check.That(payload.LastFrameUtc).IsEqualTo(ExpectedLastFrameUtc);
         Check.That(payload.IsConnected).IsTrue();
         Check.That(payload.IsPaused).IsFalse();
         Check.That(payload.ShuttingDown).IsFalse();
@@ -32,6 +38,8 @@ public class HeartbeatPayloadParserTests
 
         Check.That(payload).IsNotNull();
         Check.That(payload!.Pid).IsEqualTo(5678);
+        Check.That(payload.StartedAtUtc).IsEqualTo(ExpectedStartedAtUtc);
+        Check.That(payload.LastFrameUtc).IsEqualTo(ExpectedLastFrameUtc);
         Check.That(payload.IsPaused).IsTrue();
         Check.That(payload.ShuttingDown).IsTrue();
         Check.That(payload.RestartRequested).IsTrue();

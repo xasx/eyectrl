@@ -25,6 +25,11 @@ public class SettingsServiceLoadToleranceTests
 {
     private string TempPath() => Path.Combine(Path.GetTempPath(), $"eyectrl_tol_{Guid.NewGuid()}.json");
 
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     private static JsonNode ReadRoot(string path) => JsonNode.Parse(File.ReadAllText(path))!.AsObject();
 
     [Fact]
@@ -39,7 +44,7 @@ public class SettingsServiceLoadToleranceTests
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
             settings.Cursor.SmoothingFactor = 0.7;
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             var root = ReadRoot(path);
@@ -73,7 +78,7 @@ public class SettingsServiceLoadToleranceTests
             settings.Keyboard.ActiveLayout = "AZERTY";
             settings.Keyboard.KeySizeMultiplier = 1.5;
             settings.Dwell.ActivationButtonDwellMs = 600;
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             var root = ReadRoot(path);
@@ -100,7 +105,7 @@ public class SettingsServiceLoadToleranceTests
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
             settings.Cursor.SmoothingFactor = 0.7;
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             var root = ReadRoot(path);
@@ -365,7 +370,7 @@ public class SettingsServiceLoadToleranceTests
             }
             """;
             File.WriteAllText(path, json);
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
 
             var loaded = service.Load();
             Check.ThatCode(() => service.Save(loaded)).DoesNotThrow();
@@ -398,7 +403,7 @@ public class SettingsServiceLoadToleranceTests
             }
             """;
             File.WriteAllText(path, json);
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
 
             var loaded = service.Load();            // repairs supervision in memory (drop-one -> default 3)
             Check.That(loaded.Supervision.MaxRetries).IsEqualTo(3);
@@ -428,7 +433,7 @@ public class SettingsServiceLoadToleranceTests
             }
             """;
             File.WriteAllText(path, json);
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
 
             var loaded = service.Load();
             loaded.Supervision.MaxRetries = 2;      // stale in-memory value, as if the supervisor wrote after we loaded
@@ -461,7 +466,7 @@ public class SettingsServiceLoadToleranceTests
             """;
             File.WriteAllText(path, json);
 
-            new SettingsService(path, SettingsWriter.App).Save(new EyeCtrlSettings());
+            new SettingsService(path, SettingsWriter.App, TestMutexName()).Save(new EyeCtrlSettings());
 
             var onDisk = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
             Check.That(onDisk["supervision"]!["enabled"]!.GetValue<bool>()).IsTrue();   // valid sibling kept
@@ -630,7 +635,7 @@ public class SettingsServiceLoadToleranceTests
             }
             """;
             File.WriteAllText(path, json);
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
 
             var loaded = service.Load();
             Check.ThatCode(() => service.Save(loaded)).DoesNotThrow();
@@ -661,7 +666,7 @@ public class SettingsServiceLoadToleranceTests
             """;
             File.WriteAllText(path, json);
 
-            new SettingsService(path, SettingsWriter.App).Save(new EyeCtrlSettings());
+            new SettingsService(path, SettingsWriter.App, TestMutexName()).Save(new EyeCtrlSettings());
 
             var onDisk = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
             Check.That((string?)onDisk["supervision"]!["futureKnob"]!).IsEqualTo("keep-me");  // unknown key kept
@@ -687,7 +692,7 @@ public class SettingsServiceLoadToleranceTests
             """;
             File.WriteAllText(path, json);
 
-            new SettingsService(path, SettingsWriter.App).Save(new EyeCtrlSettings());
+            new SettingsService(path, SettingsWriter.App, TestMutexName()).Save(new EyeCtrlSettings());
 
             var onDisk = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
             Check.That(onDisk["supervision"]).IsNotNull();
@@ -732,7 +737,7 @@ public class SettingsServiceLoadToleranceTests
         var path = TempPath();
         try
         {
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(new EyeCtrlSettings());
             var root = ReadRoot(path);
             root["dwell"]!.AsObject().Remove("statusChimeEnabled");

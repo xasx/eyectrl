@@ -353,7 +353,7 @@ public sealed class SupervisorFitTests : IDisposable
             work => work());
         return new SupervisorSetupWindow(
             new EyeCtrlSettings(),
-            new SettingsService(Path.Combine(_root, "settings.json"), SettingsWriter.Supervisor),
+            new SettingsService(Path.Combine(_root, "settings.json"), SettingsWriter.Supervisor, $"Local\\EyeCtrl.Settings.Writer.Test.{Guid.NewGuid():N}"),
             _ => { },
             () => { },
             new StartOnBootSetupRow(startOnBoot, () => false),

@@ -67,7 +67,8 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
     private void UpdateQuickActionsEffectiveEdge()
     {
         if (Context is null) return;
-        Context.QuickActionsGridVM.EffectiveSummonEdge = ComputeActualSummonEdge(Context.Settings.QuickActions.SummonEdge);
+        Context.QuickActionsGridVM.EffectiveSummonEdge = ComputeActualSummonEdge(
+            Context.Settings.QuickActions.SummonEdge, Context.Settings.Toolbar.DockedEdge);
     }
 
     private void AttachQuickActionsSettingsHandler()
@@ -120,7 +121,7 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
         if (EyeCtrl.App.App.ActiveProviderType == Core.Enums.GazeProviderType.Mouse) return;
 
         // Resolve actual summon edge (avoid conflict with main toolbar)
-        var actualEdge = ComputeActualSummonEdge(s.SummonEdge);
+        var actualEdge = ComputeActualSummonEdge(s.SummonEdge, Context!.Settings.Toolbar.DockedEdge);
 
         // The grid whose targets the dismiss hold watches; captured before the controller so the
         // gaze-thread predicate reads a plain field, not a nullable Context.
@@ -237,9 +238,15 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
         });
     }
 
-    private string ComputeActualSummonEdge(string configuredEdge)
+    /// <summary>
+    /// Resolves the edge the hot-edge summon actually watches: the configured edge, flipped to the
+    /// opposite edge when it would collide with the toolbar's dock. C7's drag band reads the same
+    /// resolution (through <see cref="DragCoordinator"/>), so the drag withholds its 10–30 px band
+    /// exactly where the Quick Actions summon can fire.
+    /// </summary>
+    internal static string ComputeActualSummonEdge(string configuredEdge, string toolbarDockedEdge)
     {
-        if (configuredEdge == Context!.Settings.Toolbar.DockedEdge)
+        if (configuredEdge == toolbarDockedEdge)
             return configuredEdge switch
             {
                 "Left" => "Right", "Right" => "Left",

@@ -10,24 +10,35 @@ public class GazeEngineFilterRecreationTests
     [Fact]
     public void RecreatesFilter_WhenFilterModeChanges()
     {
+        // Behavioral proof of the mode-switch rebuild: under Direct a step is passed through
+        // verbatim; after switching to OneEuro the same-sized step must land strictly between
+        // the previous position and the new sample (low-pass alpha is strictly inside (0,1)),
+        // because the mode change rebuilds the live interpolator (warm-started, GazeEngine
+        // design §5 R1) BEFORE the next sample is filtered.
         var settings = new EyeCtrlSettings();
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
 
         var provider = new TestGazeProvider();
         var simulator = new TestInputSimulator();
         var engine = new GazeEngine(provider, simulator, settings);
+        double lastX = 0;
+        engine.CursorMoved += f => lastX = f.Position.X;
 
-        // Change filter mode at runtime
-        settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
+        long ts = 0;
+        for (int i = 0; i < 12; i++) { provider.SimulateGaze(100, 200, ts); ts += 33_000; } // steady state
 
-        // Verify filter was recreated by sending gaze through it
-        // OneEuro filter smooths data, so after sending the same point twice,
-        // it should still work (not crash)
-        provider.SimulateGaze(100, 200);
-        provider.SimulateGaze(100, 200);
+        provider.SimulateGaze(110, 200, ts); // step under Direct — passthrough
+        Check.That(lastX).IsEqualTo(110);
 
-        // If we got here without error, the filter was successfully recreated
-        Check.That(true).IsTrue();
+        settings.Cursor.FilterMode = GazeFilterMode.OneEuro; // the runtime change under test
+
+        provider.SimulateGaze(120, 200, ts + 33_000); // first sample through the rebuilt OneEuro filter
+        Check.WithCustomMessage(
+                "After the switch the step must be smoothed: strictly past the old position and " +
+                "strictly short of the raw sample (exactly 120 means Direct never left; at or " +
+                "below 110 means the filter was not even fed).")
+            .That(lastX).IsStrictlyGreaterThan(110);
+        Check.That(lastX).IsStrictlyLessThan(120);
     }
 
     [Fact]

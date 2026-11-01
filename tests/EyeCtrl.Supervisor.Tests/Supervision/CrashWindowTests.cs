@@ -27,16 +27,22 @@ public class CrashWindowTests
     public void OldStrikes_ExpireOutOfWindow()
     {
         var w = new CrashWindow(maxRetries: 3, windowSeconds: 120);
-        for (int i = 0; i < 3; i++) w.RecordStrike(Base.AddSeconds(i * 10));
+        // 4 strikes (maxRetries + 1) — would escalate inside the window on the strike rule
+        // ALONE, so the false below can only be the ageing-out, not a short strike list.
+        for (int i = 0; i < 4; i++) w.RecordStrike(Base.AddSeconds(i * 10));
+        Check.That(w.ShouldEscalate(Base.AddSeconds(35), consecutiveFailures: 0)).IsTrue();
         // 200s later — all strikes aged out
-        Check.That(w.ShouldEscalate(Base.AddSeconds(200), consecutiveFailures: 3)).IsFalse();
+        Check.That(w.ShouldEscalate(Base.AddSeconds(200), consecutiveFailures: 0)).IsFalse();
     }
 
     [Fact]
     public void Reset_ClearsStrikes()
     {
         var w = new CrashWindow(maxRetries: 3, windowSeconds: 120);
-        w.RecordStrike(Base);
+        // 4 strikes at Base would escalate on the strike rule alone — proving the list was
+        // actually populated before Reset() is asked to clear it.
+        for (int i = 0; i < 4; i++) w.RecordStrike(Base);
+        Check.That(w.ShouldEscalate(Base, consecutiveFailures: 0)).IsTrue();
         w.Reset();
         Check.That(w.ShouldEscalate(Base, consecutiveFailures: 0)).IsFalse();
     }

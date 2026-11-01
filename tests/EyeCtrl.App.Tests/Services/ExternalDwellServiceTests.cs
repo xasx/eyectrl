@@ -186,8 +186,7 @@ public class ExternalDwellServiceTests
             using var engine = NewGazeEngine();
             using var svc = NewService(engine, _ => 7);
             svc.Start();
-            Thread.Sleep(100);
-            RunPipeClient(_pipeName).GetAwaiter().GetResult();
+            RegisterThenCloseClient(svc, _pipeName).GetAwaiter().GetResult();
         });
     }
 
@@ -242,6 +241,25 @@ public class ExternalDwellServiceTests
             if (svc.TargetCountForTests == expected) return;
             Thread.Sleep(50);
         }
+    }
+
+    // Connects a client, registers one target, and waits until the server has OBSERVED it
+    // (count 1) while the connection is still open — only then disposes the client. The
+    // server's read loop must end on the disconnect, run its onClosed teardown
+    // (TeardownConnection), and remove the connection's targets (count 0).
+    private static async Task RegisterThenCloseClient(ExternalDwellService svc, string pipeName)
+    {
+        var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using (var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true })
+        {
+            await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, WireJson.Options));
+            await WaitForTargetCountAsync(svc, 1);
+        }
+        client.Dispose(); // the disconnect under test
+
+        await WaitForTargetCountAsync(svc, 0);
     }
 
     [Fact]
@@ -357,16 +375,6 @@ public class ExternalDwellServiceTests
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(1000)) == read ? await read : null;
-    }
-
-    private static async Task RunPipeClient(string pipeName)
-    {
-        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
-        await client.ConnectAsync(2000);
-        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
-        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(100);
     }
 
     [Fact]
@@ -1005,11 +1013,12 @@ public class ExternalDwellServiceTests
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
-    // Poll observable server state (TargetCountForTests) until the batched registrations have
-    // landed — sturdier than a fixed sleep, which is the flake-shaped part under load.
+    // Poll observable server state (TargetCountForTests) until it reaches the expected value —
+    // rising (batched registrations landing) or falling (connection teardown removing targets) —
+    // sturdier than a fixed sleep, which is the flake-shaped part under load.
     private static async Task WaitForTargetCountAsync(ExternalDwellService svc, int expected)
     {
-        for (var i = 0; i < 200 && svc.TargetCountForTests < expected; i++)
+        for (var i = 0; i < 200 && svc.TargetCountForTests != expected; i++)
             await Task.Delay(25);
         Check.That(svc.TargetCountForTests).IsEqualTo(expected);
     }

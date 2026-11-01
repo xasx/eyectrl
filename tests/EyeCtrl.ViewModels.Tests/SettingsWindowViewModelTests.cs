@@ -152,22 +152,34 @@ public class SettingsWindowViewModelTests
     public void Dispose_UnregistersFromMessenger()
     {
         var vm = CreateViewModel();
+        vm.Register("Cursor", DwellCategory.Tab, 85, 600, () => { });
+        vm.UpdatePosition("Cursor", DwellCategory.Tab, new PhysicalPoint(100, 100));
+
         vm.Dispose();
 
-        // After disposal, sending messages should not affect the ViewModel
-        vm.UpdatePosition("Cursor", DwellCategory.Tab, new PhysicalPoint(100, 100));
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
+        // Disposal must unregister from the messenger (IsActive off) — the assert is
+        // direct, so deleting the unregistration fails here rather than depending on
+        // Receive's IsDisposed backstop below.
+        Check.That(vm.IsActive).IsFalse();
+        Check.That(vm.TabProgress).IsEmpty();
 
-        // Should not crash or update (verified by no exception)
+        // Gaze that would otherwise populate TabProgress (see TabDwellProgress_UpdatesOnGazeInput)
+        // no longer reaches the disposed VM.
+        for (int i = 0; i < 10; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(100, 100), i * 33000));
+        }
+
+        Check.That(vm.TabProgress).IsEmpty();
     }
-
-    #region Pagination Tests
 
     [Fact]
     public void PaginationNext_AdvancesPage()
     {
         var vm = CreateViewModel();
         vm.Settings.ShowTab("Cursor"); // Tab with multiple items
+        vm.Settings.TotalPages = 3;    // the shell owns TotalPages; a real page list has pages
         var initialPage = vm.Settings.CurrentPage;
 
         vm.Register("pag_next", DwellCategory.Pagination, 60, 600, () => { });
@@ -180,9 +192,7 @@ public class SettingsWindowViewModelTests
                 new PhysicalPoint(200, 200), i * 33000));
         }
 
-            // Page should advance if there are multiple pages
-            if (vm.Settings.TotalPages > 1)
-                Check.That(vm.Settings.CurrentPage > initialPage).IsTrue();
+        Check.That(vm.Settings.CurrentPage).IsEqualTo(initialPage + 1);
     }
 
     [Fact]
@@ -190,25 +200,23 @@ public class SettingsWindowViewModelTests
     {
         var vm = CreateViewModel();
         vm.Settings.ShowTab("Cursor");
+        vm.Settings.TotalPages = 3;
 
         // Manually go to page 1 first
-        if (vm.Settings.TotalPages > 1)
+        vm.Settings.NextPage();
+        Check.That(vm.Settings.CurrentPage).IsEqualTo(1);
+
+        vm.Register("pag_prev", DwellCategory.Pagination, 60, 600, () => { });
+        vm.UpdatePosition("pag_prev", DwellCategory.Pagination, new PhysicalPoint(150, 150));
+
+        // Simulate dwell on previous button
+        for (int i = 0; i < 20; i++)
         {
-            vm.Settings.NextPage();
-            Check.That(vm.Settings.CurrentPage).IsEqualTo(1);
-
-            vm.Register("pag_prev", DwellCategory.Pagination, 60, 600, () => { });
-            vm.UpdatePosition("pag_prev", DwellCategory.Pagination, new PhysicalPoint(150, 150));
-
-            // Simulate dwell on previous button
-            for (int i = 0; i < 20; i++)
-            {
-                _messenger.Send(new GazeCursorMovedMessage(
-                    new PhysicalPoint(150, 150), i * 33000));
-            }
-
-            Check.That(vm.Settings.CurrentPage).IsEqualTo(0);
+            _messenger.Send(new GazeCursorMovedMessage(
+                new PhysicalPoint(150, 150), i * 33000));
         }
+
+        Check.That(vm.Settings.CurrentPage).IsEqualTo(0);
     }
 
     [Fact]
@@ -261,10 +269,6 @@ public class SettingsWindowViewModelTests
         Check.That(vm.Settings.CurrentPage).IsEqualTo(0);
         Check.That(preStepActionRan).IsTrue();
     }
-
-    #endregion
-
-    #region Modal Tests
 
     [Fact]
     public void ShowModal_DisplaysCorrectMessage()
@@ -453,10 +457,6 @@ public class SettingsWindowViewModelTests
         Check.That(vm.ModalChoices).IsEmpty();
     }
 
-    #endregion
-
-    #region Control Action Tests
-
     [Fact]
     public void RegisterControlAction_StoresAction()
     {
@@ -584,10 +584,6 @@ public class SettingsWindowViewModelTests
         vm.SimulateActivated("control1", DwellCategory.Control);
         // Should not throw and should do nothing
     }
-
-    #endregion
-
-    #region IDwellRegistrar Tests
 
     [Fact]
     public void Register_Tab_CreatesDwellTarget()
@@ -727,6 +723,4 @@ public class SettingsWindowViewModelTests
     // the shared 400 ms Tab detector), so the Pagination arm's generic action lookup runs it and
     // the view's registered action carries the step and the wrap-jump. The pinning test
     // (TabPagerIds_RunRegisteredAction_AndDoNotSwitchTab) was deleted with the special case.
-
-    #endregion
 }

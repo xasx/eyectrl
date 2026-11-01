@@ -111,6 +111,18 @@ public class ModesMenuViewModelTests
             ("modes_middle", new PhysicalPoint(500, 350), 60.0),
         });
 
+        // Partial gaze onto the first row (nearest target wins): without accumulated
+        // progress the post-hide assert below would pass vacuously, so pin that the dwell
+        // actually started — 90 ms of the 700 ms row dwell, below the completion bound.
+        var left = new PhysicalPoint(500, 200);
+        for (long t = 0; t <= 90_000; t += 30_000)
+            vm.Receive(new GazeCursorMovedMessage(left, t));
+        Check.WithCustomMessage(
+                "pre-hide guard: the dwell never accumulated, so the post-hide reset " +
+                "assertion below would pass with HideOverlay's clearing deleted")
+            .That(vm.Buttons.Single(b => b.Id == "modes_left").DwellProgress)
+            .IsStrictlyGreaterThan(0.0);
+
         messenger.Send(new ModesMenuToggledMessage());
         Check.That(vm.Buttons.All(b => b.DwellProgress == 0)).IsTrue();
     }

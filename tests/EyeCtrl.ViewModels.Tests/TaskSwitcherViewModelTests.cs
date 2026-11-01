@@ -108,10 +108,11 @@ public class TaskSwitcherViewModelTests
 
         messenger.Send(new TaskSwitcherToggledMessage());
 
-        // Gaze parked at the origin (the placeholder) for well past the dwell time.
+        // Gaze parked at the origin (the placeholder) for well past the dwell time, sampled
+        // continuously — a single step past 150 ms would restart the dwell and mask a
+        // placeholder target even if one existed.
         var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1000L;
-        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), 0));
-        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), dwellUs + 1));
+        DwellDrive.Hold(messenger, new PhysicalPoint(0, 0), 0, dwellUs + 1);
 
         Check.That(anySelection).IsFalse();
         Check.That(vm.IsVisible).IsTrue();  // still showing; nothing was selected

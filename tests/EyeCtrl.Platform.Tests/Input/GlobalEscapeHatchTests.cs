@@ -72,7 +72,7 @@ public class GlobalEscapeHatchTests
         var hatch = new GlobalEscapeHatch(interop);
         hatch.Dispose();
         hatch.Dispose();
-        Check.That(interop.Calls).Contains("unhook");
+        Check.That(interop.Calls.Count(c => c == "unhook")).IsEqualTo(1);
     }
 
     [Fact]

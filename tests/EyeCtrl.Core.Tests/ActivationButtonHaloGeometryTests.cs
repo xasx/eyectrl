@@ -69,15 +69,16 @@ public class ActivationButtonHaloGeometryTests
     }
 
     [Theory]
-    [InlineData(0.0, 2.0)]
-    [InlineData(-1.0, 2.0)]
-    [InlineData(150.0, 0.0)]
-    [InlineData(150.0, -2.0)]
-    public void Radius_RejectsNonPositiveInputs(double radiusPixels, double scaleX)
+    [InlineData(0.0, 2.0, "hitRadiusPixels")]
+    [InlineData(-1.0, 2.0, "hitRadiusPixels")]
+    [InlineData(150.0, 0.0, "scaleX")]
+    [InlineData(150.0, -2.0, "scaleX")]
+    public void Radius_RejectsNonPositiveInputs(double radiusPixels, double scaleX, string expectedParamName)
     {
         ArgumentOutOfRangeException? ex = null;
         try { ActivationButtonHaloGeometry.RadiusDip(radiusPixels, scaleX, 0.5); }
         catch (ArgumentOutOfRangeException e) { ex = e; }
         Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo(expectedParamName);
     }
 }

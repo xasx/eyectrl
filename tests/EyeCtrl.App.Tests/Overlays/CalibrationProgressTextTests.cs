@@ -41,6 +41,7 @@ public class CalibrationProgressTextTests
         foreach (var state in new[]
                  {
                      CalibrationState.Idle, CalibrationState.Active, CalibrationState.Failed,
+                     CalibrationState.Cancelled,
                  })
         {
             Check.WithCustomMessage($"{state} draws no progress line")

@@ -14,15 +14,11 @@ public class DpiHelperTestCollection
 
 /// <summary>
 /// Comprehensive unit tests for the coordinate type system (LogicalPoint, PhysicalPoint, NormalizedPoint).
-/// These tests follow Test-Driven Development (TDD) - RED phase.
 ///
 /// The coordinate system prevents off-by-DPI bugs by providing strong typing for:
 /// - LogicalPoint: WPF Device-Independent Units (DIPs) - 96 DPI baseline
 /// - PhysicalPoint: Actual screen pixels - hardware resolution
 /// - NormalizedPoint: Win32 mouse input range (0-65535) - absolute coordinates
-///
-/// All tests should FAIL initially as the types don't exist yet (RED phase).
-/// Implementation will come in the GREEN phase.
 ///
 /// Note: This test class is part of a non-parallelized collection because it mutates
 /// global DpiHelper state. Running these tests in parallel would cause flaky failures.
@@ -31,8 +27,6 @@ public class DpiHelperTestCollection
 public class CoordinateTypeTests
 {
     private const double Epsilon = 0.0001; // Precision for floating-point comparisons
-
-    #region LogicalPoint to PhysicalPoint Conversion Tests
 
     /// <summary>
     /// Verifies LogicalPoint to PhysicalPoint conversion at standard 96 DPI (100% scaling).
@@ -91,10 +85,6 @@ public class CoordinateTypeTests
         Check.That(physical.Y).IsCloseTo(300.0, Epsilon);
     }
 
-    #endregion
-
-    #region PhysicalPoint to LogicalPoint Conversion Tests
-
     /// <summary>
     /// Verifies PhysicalPoint to LogicalPoint conversion at standard 96 DPI (100% scaling).
     /// At 96 DPI, logical and physical coordinates should be identical (1:1 ratio).
@@ -132,10 +122,6 @@ public class CoordinateTypeTests
         Check.That(logical.X).IsCloseTo(100.0, Epsilon);
         Check.That(logical.Y).IsCloseTo(200.0, Epsilon);
     }
-
-    #endregion
-
-    #region PhysicalPoint to NormalizedPoint Conversion Tests
 
     /// <summary>
     /// Verifies PhysicalPoint to NormalizedPoint conversion on a 1920x1080 screen.
@@ -181,10 +167,6 @@ public class CoordinateTypeTests
         Check.That(physical.Y).IsCloseTo(540.0, 1.0);
     }
 
-    #endregion
-
-    #region Round-Trip Conversion Tests
-
     /// <summary>
     /// Verifies that converting LogicalPoint → PhysicalPoint → LogicalPoint preserves the original value.
     /// This ensures no precision is lost in the conversion process.
@@ -226,10 +208,6 @@ public class CoordinateTypeTests
         Check.That(original.X).IsCloseTo(roundTrip.X, roundTripTolerance);
         Check.That(original.Y).IsCloseTo(roundTrip.Y, roundTripTolerance);
     }
-
-    #endregion
-
-    #region Equality Tests
 
     /// <summary>
     /// Verifies that two LogicalPoints with identical coordinates are considered equal.
@@ -376,10 +354,6 @@ public class CoordinateTypeTests
         Check.That(point1.GetHashCode()).IsEqualTo(point2.GetHashCode());
     }
 
-    #endregion
-
-    #region Arithmetic Operation Tests
-
     /// <summary>
     /// Verifies that adding two PhysicalPoints produces the correct result.
     /// Addition should work component-wise: (x1, y1) + (x2, y2) = (x1+x2, y1+y2).
@@ -453,10 +427,6 @@ public class CoordinateTypeTests
         Check.That(result.X).IsCloseTo(50.0, Epsilon);
         Check.That(result.Y).IsCloseTo(125.0, Epsilon);
     }
-
-    #endregion
-
-    #region Edge Case Tests
 
     /// <summary>
     /// Verifies that converting a zero LogicalPoint to PhysicalPoint produces a zero PhysicalPoint.
@@ -553,10 +523,6 @@ public class CoordinateTypeTests
         Check.That(normalized.Y).IsEqualTo(65535);
     }
 
-    #endregion
-
-    #region Type Safety Tests
-
     /// <summary>
     /// Verifies that LogicalPoint and PhysicalPoint are distinct types and cannot be
     /// accidentally assigned to each other. This is a compile-time safety check.
@@ -594,10 +560,6 @@ public class CoordinateTypeTests
         Check.That(logical.X).IsNotEqualTo(physical.X);
         Check.That(logical.Y).IsNotEqualTo(physical.Y);
     }
-
-    #endregion
-
-    #region ToString Tests
 
     /// <summary>
     /// Verifies that LogicalPoint has a meaningful ToString() representation.
@@ -650,10 +612,6 @@ public class CoordinateTypeTests
         Check.That(result).Contains("32767");
     }
 
-    #endregion
-
-    #region ScreenBounds Tests
-
     /// <summary>
     /// Verifies that ScreenBounds stores width and height correctly.
     /// ScreenBounds represents the physical dimensions of a display.
@@ -700,6 +658,4 @@ public class CoordinateTypeTests
         Check.That(bounds1 == bounds2).IsFalse();
         Check.That(bounds1 != bounds2).IsTrue();
     }
-
-    #endregion
 }

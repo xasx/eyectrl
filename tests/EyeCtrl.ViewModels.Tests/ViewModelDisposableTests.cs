@@ -355,10 +355,10 @@ public class ViewModelDisposableTests
         ((IDisposable)vm1).Dispose();
         ((IDisposable)vm3).Dispose();
 
-        // All should be disposed without errors
-        Check.That(vm1 is IDisposable).IsTrue();
-        Check.That(vm2 is IDisposable).IsTrue();
-        Check.That(vm3 is IDisposable).IsTrue();
+        // All should be unregistered after disposal
+        Check.That(vm1.IsActive).IsFalse();
+        Check.That(vm2.IsActive).IsFalse();
+        Check.That(vm3.IsActive).IsFalse();
     }
 
     [Fact]

@@ -455,8 +455,9 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
     [Fact]
     public void WriteReviewSheet()
     {
-        if (Environment.GetEnvironmentVariable("EYECTRL_WRITE_T05B_SHEET") != "1")
-            return;
+        Assert.SkipUnless(
+            Environment.GetEnvironmentVariable("EYECTRL_WRITE_T05B_SHEET") == "1",
+            "set EYECTRL_WRITE_T05B_SHEET=1 to write the T05B language-row review sheet");
 
         RunSta(() =>
         {

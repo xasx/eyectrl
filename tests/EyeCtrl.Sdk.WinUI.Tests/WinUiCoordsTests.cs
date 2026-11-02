@@ -20,6 +20,13 @@ public class WinUiCoordsTests
     }
 
     [Fact]
+    public void FractionalScale_PreservesSubPixelPrecision()
+    {
+        var r = WinUiCoords.ToScreenRect(11, 21, 81, 41, scale: 1.25, clientOriginX: 100, clientOriginY: 200);
+        Check.That(r).IsEqualTo(new SdkRect(113.75, 226.25, 101.25, 51.25));
+    }
+
+    [Fact]
     public void ClientOrigin_OffsetsPositionOnly_NotSize()
     {
         var r = WinUiCoords.ToScreenRect(10, 20, 80, 40, scale: 2.0, clientOriginX: 1000, clientOriginY: 500);

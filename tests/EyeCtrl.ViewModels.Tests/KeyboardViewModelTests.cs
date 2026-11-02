@@ -84,6 +84,7 @@ public class KeyboardViewModelTests
 
         vm.ActivateKey("c", shiftOutput: "C");
 
+        Check.That(sentKey).IsEqualTo("C");
         Check.That(vm.ActiveModifiers).IsEmpty();
     }
 
@@ -120,7 +121,6 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.Ctrl);
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
 
         vm.HandleBackspace();
 
@@ -132,7 +132,6 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.Ctrl);
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
 
         vm.HandleEnter();
 
@@ -144,7 +143,6 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.Ctrl);
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
 
         vm.HandleSpace();
 
@@ -156,7 +154,6 @@ public class KeyboardViewModelTests
     {
         var vm = CreateViewModel();
         vm.ToggleModifier(ModifierKey.Ctrl);
-        _messenger.Register<KeyActivatedMessage>(_messenger, (_, _) => { });
 
         vm.HandleTab();
 
@@ -466,14 +463,6 @@ public class KeyboardViewModelTests
     }
 
     // --- Prediction tests ---
-
-    [Fact]
-    public void GetSuggestions_DelegatesToPredictor()
-    {
-        var vm = CreateViewModel();
-        var suggestions = vm.GetSuggestions();
-        Check.That(suggestions).IsEmpty();
-    }
 
     [Fact]
     public void HandlePredictionSelected_ClearsInputAndSendsMessage()

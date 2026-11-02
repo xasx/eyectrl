@@ -70,7 +70,7 @@ public class SettingsWindowViewModelTests
 
         // ViewModel should update progress when it receives gaze messages
         Check.That(vm.TabProgress).ContainsKey("Cursor");
-        Check.That(vm.TabProgress["Cursor"] > 0).IsTrue();
+        Check.That(vm.TabProgress["Cursor"]).IsStrictlyGreaterThan(0);
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class SettingsWindowViewModelTests
 
         // Should have some progress
         Check.That(vm.TabProgress).ContainsKey("Cursor");
-        Check.That(vm.TabProgress["Cursor"] > 0).IsTrue();
+        Check.That(vm.TabProgress["Cursor"]).IsStrictlyGreaterThan(0);
     }
 
     [Fact]
@@ -234,7 +234,7 @@ public class SettingsWindowViewModelTests
         }
 
         Check.That(vm.PagProgress).ContainsKey("pag_next");
-        Check.That(vm.PagProgress["pag_next"] > 0).IsTrue();
+        Check.That(vm.PagProgress["pag_next"]).IsStrictlyGreaterThan(0);
     }
 
     // The Pagination arm must resolve the registered action BEFORE its auto-step. The step
@@ -347,7 +347,7 @@ public class SettingsWindowViewModelTests
         }
 
         Check.That(vm.ModalProgress).ContainsKey("modal_yes");
-        Check.That(vm.ModalProgress["modal_yes"] > 0).IsTrue();
+        Check.That(vm.ModalProgress["modal_yes"]).IsStrictlyGreaterThan(0);
     }
 
     [Fact]
@@ -503,7 +503,7 @@ public class SettingsWindowViewModelTests
         }
 
         Check.That(vm.ControlProgress).ContainsKey("test");
-        Check.That(vm.ControlProgress["test"] > 0).IsTrue();
+        Check.That(vm.ControlProgress["test"]).IsStrictlyGreaterThan(0);
     }
 
     [Fact]
@@ -557,9 +557,10 @@ public class SettingsWindowViewModelTests
     public void ClearControlTargets_RemovesAllControlsAndProgress()
     {
         var vm = CreateViewModel();
+        bool control1Fired = false;
 
         // Register some controls and add targets
-        vm.Register("control1", DwellCategory.Control, 50, 600, () => { });
+        vm.Register("control1", DwellCategory.Control, 50, 600, () => control1Fired = true);
         vm.Register("control2", DwellCategory.Control, 50, 600, () => { });
         vm.UpdatePosition("control1", DwellCategory.Control, new PhysicalPoint(100, 100));
         vm.UpdatePosition("control2", DwellCategory.Control, new PhysicalPoint(200, 200));
@@ -572,7 +573,7 @@ public class SettingsWindowViewModelTests
         }
 
         // Verify we have progress
-        Check.That(vm.ControlProgress.Count > 0).IsTrue();
+        Check.That(vm.ControlProgress).Not.IsEmpty();
 
         // Clear all control targets
         vm.ClearCategory(DwellCategory.Control);
@@ -582,7 +583,7 @@ public class SettingsWindowViewModelTests
 
         // Verify cleared actions don't execute
         vm.SimulateActivated("control1", DwellCategory.Control);
-        // Should not throw and should do nothing
+        Check.That(control1Fired).IsFalse();
     }
 
     [Fact]
@@ -630,7 +631,8 @@ public class SettingsWindowViewModelTests
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), i * 33000));
 
         double progress = vm.GetProgress("prog_ctrl", DwellCategory.Control);
-        Check.That(progress > 0 && progress <= 1).IsTrue();
+        Check.That(progress).IsStrictlyGreaterThan(0);
+        Check.That(progress).IsLessOrEqualThan(1);
     }
 
     [Fact]
@@ -695,7 +697,7 @@ public class SettingsWindowViewModelTests
             _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(200, 200), i * 33000));
 
         double progress = vm.GetProgress("pag_next", DwellCategory.Pagination);
-        Check.That(progress > 0).IsTrue();
+        Check.That(progress).IsStrictlyGreaterThan(0);
     }
 
     // The settings mode toggle rides the Pagination category (spec S5.5): an id that is neither

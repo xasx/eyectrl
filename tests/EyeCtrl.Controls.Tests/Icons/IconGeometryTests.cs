@@ -16,7 +16,17 @@ public class IconGeometryTests
     [Fact]
     public void FromPathData_BothNull_Throws()
     {
-        Check.ThatCode(() => IconGeometry.FromPathData(null))
-             .Throws<ArgumentException>();
+        ArgumentException? ex = null;
+        try
+        {
+            IconGeometry.FromPathData(null);
+        }
+        catch (ArgumentException e)
+        {
+            ex = e;
+        }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("stroke");
     }
 }

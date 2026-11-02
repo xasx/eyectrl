@@ -72,11 +72,17 @@ public class DwellOutlineOverlayTests
         Check.That(overlay.Halo.StrokeThickness)
             .IsStrictlyGreaterThan(overlay.Outline.StrokeThickness);
 
+        overlay.SetProgress(1.0);
+        var haloAtFull = overlay.Halo.StrokeThickness;
+        Check.That(haloAtFull).IsStrictlyGreaterThan(DwellOutlineOverlay.MaxThickness);
+
         overlay.SetProgress(2);
         Check.That(overlay.Outline.StrokeThickness).IsEqualTo(DwellOutlineOverlay.MaxThickness);
+        Check.That(overlay.Halo.StrokeThickness).IsEqualTo(haloAtFull);
 
         overlay.SetProgress(-1);
         Check.That(overlay.Outline.StrokeThickness).IsEqualTo(0.0);
+        Check.That(overlay.Halo.StrokeThickness).IsEqualTo(0.0);
     }
 
     /// <summary>

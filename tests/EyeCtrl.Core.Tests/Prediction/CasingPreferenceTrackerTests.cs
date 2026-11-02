@@ -167,8 +167,9 @@ public class CasingPreferenceTrackerTests
     {
         var tracker = new CasingPreferenceTracker();
 
-        // Should not throw
         tracker.RecordCasing(input);
+
+        Check.That(tracker.GetAllPreferences()).IsEmpty();
     }
 
     [Theory]

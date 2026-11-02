@@ -913,7 +913,7 @@ public sealed class SupervisorFitTests : IDisposable
     [Fact]
     public void ToggleAlignmentSheet_WhenAsked()
     {
-        if (Environment.GetEnvironmentVariable("EYECTRL_WRITE_T09_TOGGLE_SHEET") != "1") return;
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("EYECTRL_WRITE_T09_TOGGLE_SHEET") == "1", "set EYECTRL_WRITE_T09_TOGGLE_SHEET=1 to write the T09 toggle alignment sheet");
         RunSta(() =>
         {
             var before = FormLayout(StringTable.EmbeddedEnglish, leftAlignedCards: true, render: true);

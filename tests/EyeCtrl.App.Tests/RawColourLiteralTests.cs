@@ -78,9 +78,11 @@ public class RawColourLiteralTests
     public void NoUIFile_ContainsARawColourOutsideThePalette()
     {
         var offenders = new List<string>();
+        int scanned = 0;
 
         foreach (var (relative, text) in SourceScanner.ScannedFiles())
         {
+            scanned++;
             if (Exempt.ContainsKey(relative)) continue;
 
             var found = RawColour.Matches(text)
@@ -93,6 +95,7 @@ public class RawColourLiteralTests
                 offenders.Add($"{relative}: {string.Join(", ", found)}");
         }
 
+        Check.That(scanned).IsStrictlyGreaterThan(0);
         Check.WithCustomMessage(
                 "Raw colours found outside the palette. Migrate them onto "
                 + "EyeCtrl.Controls.Theme.Tokens, or add the file to Exempt with a specific "

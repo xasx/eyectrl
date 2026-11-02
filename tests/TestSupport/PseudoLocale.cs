@@ -119,6 +119,12 @@ internal static class PseudoLocale
                 if (c == '{')
                 {
                     var close = text.IndexOf('}', i);
+                    if (close < 0)
+                    {
+                        output.Append(c);
+                        continue;
+                    }
+
                     output.Append(text, i, close - i + 1);   // a placeholder, verbatim
                     i = close;
                     continue;

@@ -32,15 +32,17 @@ public class UiLanguageTokensTests
     }
 
     [Theory]
-    [InlineData("SYSTEM")]
-    [InlineData("German")]
-    [InlineData("DE")]
-    [InlineData("En")]
-    public void Tokens_AreCaseInsensitive(string token)
+    [InlineData("SYSTEM", UiLanguage.System, true, true)]
+    [InlineData("German", UiLanguage.German, true, false)]
+    [InlineData("DE", UiLanguage.German, false, true)]
+    [InlineData("En", UiLanguage.English, false, true)]
+    public void Tokens_AreCaseInsensitive(string token, UiLanguage expected, bool isJson, bool isCommandLine)
     {
-        Check.That(
-            UiLanguageTokens.TryFromJson(token, out _)
-            || UiLanguageTokens.TryFromCommandLine(token, out _)).IsTrue();
+        Check.That(UiLanguageTokens.TryFromJson(token, out var fromJson)).IsEqualTo(isJson);
+        if (isJson) Check.That(fromJson).IsEqualTo(expected);
+
+        Check.That(UiLanguageTokens.TryFromCommandLine(token, out var fromCmd)).IsEqualTo(isCommandLine);
+        if (isCommandLine) Check.That(fromCmd).IsEqualTo(expected);
     }
 
     [Theory]

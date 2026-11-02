@@ -187,7 +187,11 @@ public class ModelDownloadServiceTests
     [Fact]
     public void GetTokenizerUrl_EmptyUrl_Throws()
     {
-        Check.ThatCode(() => ModelDownloadService.GetTokenizerUrl("")).Throws<ArgumentException>();
+        ArgumentException? ex = null;
+        try { ModelDownloadService.GetTokenizerUrl(""); }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("modelUrl");
     }
 
     [Fact]

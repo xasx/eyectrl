@@ -23,10 +23,9 @@ using Xunit;
 /// </summary>
 public class DwellComboBoxProgressTests
 {
-    private static DwellComboBox NewCombo(FakeDwellRegistrar registrar, out string selected)
+    private static DwellComboBox NewCombo(FakeDwellRegistrar registrar)
     {
-        selected = "a";
-        var captured = selected;
+        var captured = "a";
         return new DwellComboBox(
             registrar, "cb", "Mode",
             ["Alpha", "Beta"], ["a", "b"],
@@ -38,7 +37,7 @@ public class DwellComboBoxProgressTests
     public void AnOption_SweepsItsBar()
     {
         var registrar = new FakeDwellRegistrar();
-        var combo = NewCombo(registrar, out _);
+        var combo = NewCombo(registrar);
         var option = (DwellButton)combo.Children.First();
 
         registrar.Progress = 0.5;
@@ -57,7 +56,7 @@ public class DwellComboBoxProgressTests
     public void DwellingAnOption_LeavesItsFillAndTheSelectionBorderAlone()
     {
         var registrar = new FakeDwellRegistrar();
-        var combo = NewCombo(registrar, out _);
+        var combo = NewCombo(registrar);
         var option = (DwellButton)combo.Children.First();
 
         var fillBefore = ((SolidColorBrush)option.Root.Background).Color;
@@ -85,7 +84,7 @@ public class DwellComboBoxProgressTests
     public void AnOptionsBar_SpansThePaddedBox_AndSweepsFromTheLeft()
     {
         var registrar = new FakeDwellRegistrar();
-        var combo = NewCombo(registrar, out _);
+        var combo = NewCombo(registrar);
         var option = (DwellButton)combo.Children.First();
 
         // Lay the composite out through its own Attach path — the option's Root is already the
@@ -111,5 +110,4 @@ public class DwellComboBoxProgressTests
         Check.That(swept).IsEqualTo(expected / 2);
         Check.That(option.ProgressBar.RenderTransformOrigin.X).IsEqualTo(0.0);
     }
-
 }

@@ -21,7 +21,7 @@ public class StruggleSignalsFidelityTests
         new(ts, ctx, id, OutcomeKind.Abandoned, reason, 0.5,
             new PhysicalPoint(gazeX, gazeY), new PhysicalPoint(centerX, centerY), radius, null);
 
-    // ── Accidental activation: repetition is not correction ────────────────────────────────────────
+    // ── Accidental activation: repetition is not correction ─────────────────────────────────────────
 
     [Fact]
     public void Accidental_SameKeyTypedTwice_IsNotAReversal()
@@ -78,7 +78,7 @@ public class StruggleSignalsFidelityTests
         };
 
         // The first activation finds the "k" reversal; the second finds it too (also within 1.5 s).
-        Check.That(StruggleSignals.ScoreAccidental(window).Score > 0.0).IsTrue();
+        Check.That(StruggleSignals.ScoreAccidental(window).Score).IsStrictlyGreaterThan(0.0);
     }
 
     // ── Aiming / Drift: NearMiss only measures aim for a GazeLeft abandon ──────────────────────────
@@ -146,10 +146,10 @@ public class StruggleSignalsFidelityTests
 
         SignalScore s = StruggleSignals.ScoreDrift(window);
         Check.That(s.GatePassed).IsTrue();
-        Check.That(s.Score > 0.0).IsTrue();
+        Check.That(s.Score).IsStrictlyGreaterThan(0.0);
     }
 
-    // ── Fatigue amplifier: volume-gated like every other scorer ────────────────────────────────────
+    // ── Fatigue amplifier: volume-gated like every other scorer ─────────────────────────────────────
 
     [Fact]
     public void Fatigue_BelowVolumeGate_IsNotGated()

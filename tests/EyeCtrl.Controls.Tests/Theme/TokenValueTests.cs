@@ -14,7 +14,7 @@ using Xunit;
 /// ThemeParityTests. Restating them here as well would have been a third copy.
 ///
 /// The geometry and type ramp values additionally carry a deliberate value freeze in
-/// ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType, because the validator's
+/// ThemeShapeTests.AllThemes_DeclareIdenticalGeometryAndType, because the validator's
 /// gates check only their ordering (plus a 12px floor), never the exact numbers.
 /// </summary>
 [Collection("ActiveTheme")]

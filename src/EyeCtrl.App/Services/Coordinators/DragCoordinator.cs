@@ -176,6 +176,38 @@ internal sealed class DragCoordinator : CoordinatorBase
             RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.back"));
 
+    /// <summary>
+    /// C7: the edges whose 10–30 px off-screen band may be a summon approach for THIS drag,
+    /// snapshotted with the bounds at drag start. The toolbar's docked edge counts while auto-hide
+    /// is on — there is no separate switch: with a real tracker a docked toolbar auto-hides, which
+    /// is why <see cref="ActivationOfferCoordinator"/> gates its summon band on the same
+    /// <c>Toolbar.IsDocked</c>. The Quick Actions edge counts while Quick Actions is enabled, and
+    /// is resolved through <see cref="QuickActionsCoordinator.ComputeActualSummonEdge"/> so the flip
+    /// against the toolbar's dock cannot drift from the summon itself. Every other edge (floating
+    /// toolbar, Quick Actions disabled) is a plain edge, where the drag credits the band.
+    /// </summary>
+    private DragSummonEdges SummonEdgesForThisDrag()
+    {
+        var settings = Context!.Settings;
+        var edges = DragSummonEdges.None;
+        if (settings.Toolbar.IsDocked)
+            edges |= ToSummonEdge(settings.Toolbar.DockedEdge);
+        if (settings.QuickActions.Enabled)
+            edges |= ToSummonEdge(QuickActionsCoordinator.ComputeActualSummonEdge(
+                settings.QuickActions.SummonEdge, settings.Toolbar.DockedEdge));
+        return edges;
+    }
+
+    /// <summary>The settings vocabulary ("Top"/"Bottom"/"Left"/"Right") as a C7 edge flag.</summary>
+    private static DragSummonEdges ToSummonEdge(string edge) => edge.ToLowerInvariant() switch
+    {
+        "top" => DragSummonEdges.Top,
+        "bottom" => DragSummonEdges.Bottom,
+        "left" => DragSummonEdges.Left,
+        "right" => DragSummonEdges.Right,
+        _ => DragSummonEdges.None,
+    };
+
     internal void OnDragStarted(PhysicalPoint grabOrigin)
     {
         if (Context is null) return;
@@ -253,9 +285,13 @@ internal sealed class DragCoordinator : CoordinatorBase
             // A5 fixup-03 H1: past the screen edge is the toolbar/Quick-Actions summon gesture, so
             // it must never settle or release a drag into an off-screen point the OS clamps onto the
             // edge row. The small tolerance keeps the edge row itself (and tracker jitter) usable.
+            // C7: the summon edges go with the bounds, snapshotted per drag, so the trail can credit
+            // the band on the edges where no summon can fire and keep C6's withheld band only where
+            // one can. The VM never reads settings itself.
             Context.DragTrailVM.SetScreenBounds(
                 ScreenGeometry.PrimaryScreenBoundsPhysical(),
-                ScreenGeometry.OffScreenTolerancePhysical);
+                ScreenGeometry.OffScreenTolerancePhysical,
+                SummonEdgesForThisDrag());
 
             Context.DragTrailVM.SetExitZones(zones);
         }

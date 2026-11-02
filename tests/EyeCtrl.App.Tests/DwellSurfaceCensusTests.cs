@@ -22,6 +22,7 @@ public class DwellSurfaceCensusTests
         ("EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml.cs", "cue", "start/snooze exercise actions"),
         ("EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", "cue", "the exercise's Skip exit (B7: post-effect cue after the run ends)"),
         ("EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs", "cue", "restart-notice close (post-effect cue, like the eye-care banner)"),
+        ("EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs", "cue", "blocked-input escape/dismiss (post-effect cue; C10's emergency banner)"),
         ("EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs", "cue", "calibration gaze Cancel (post-effect cue after the session is abandoned)"),
         ("EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", "cue", "lag-mark button (post-effect cue after the mark line runs)"),
         ("EyeCtrl.App/Services/NoteManager.cs", "cue", "note button actions"),

@@ -46,6 +46,8 @@ public class NoteGateCensusTests
             "suspender", "the modes menu — ModesMenuVM.IsVisible in the composed predicate"),
         ["EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs"] = (
             "suspender", "the restart card — a RecomputeSuspension reason (ModalSuspended)"),
+        ["EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs"] = (
+            "exempt", "C10's blocked-input banner — shows only while Windows is discarding EVERY injected click, so a note under it cannot receive one; its two dwell buttons are the emergency exits themselves and it hides on the first verified move"),
 
         // ── occluders: their visible rects make note targets ineligible, read directly (P2 D3) ──
         ["EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs"] = (

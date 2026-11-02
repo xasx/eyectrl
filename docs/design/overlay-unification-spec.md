@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 35 overlay windows and 7 dwell controls — 30 with XAML (29 under
+EyeCtrl has 36 overlay windows and 7 dwell controls — 31 with XAML (30 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 4 without XAML (the
 code-only `NoteWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
@@ -76,6 +76,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **StatusCard** | `StatusCardWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token; Wave B B5) | XAML | exempt:non-interactive banner |
 | **AdaptationPreview** | `AdaptationPreviewWindow` | `Transparent` + token-bordered card (all values from `Tokens`) | XAML | exempt:it is the panel itself |
 | **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML | collision-zone |
+| **BlockedInputBanner** | `BlockedInputBannerWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token; C10) | XAML | exempt:emergency banner shown only while Windows discards all injected input; its two dwell targets are its own exits and it hides on the first verified move |
 | **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML | collision-zone |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
 | **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |

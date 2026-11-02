@@ -171,6 +171,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs",
+      "Literal": "\"blocked_input_dismiss\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs",
+      "Literal": "\"blocked_input_escape\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs",
       "Literal": "\"X2\"",
       "Count": 3
@@ -299,6 +309,11 @@
       "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs",
       "Literal": "\"Top\"",
       "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs",
+      "Literal": "\"({0:F0},{1:F0})\"",
+      "Count": 1
     },
     {
       "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",

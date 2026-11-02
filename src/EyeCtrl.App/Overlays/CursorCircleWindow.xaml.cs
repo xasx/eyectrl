@@ -224,12 +224,11 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
 
         // Core owns the geometry; this method owns only WPF. The palette colours are passed
         // in as hex because EyeCtrl.Core cannot reference EyeCtrl.Controls.
-        var stack = CursorRingStacks.For(
+        _lastStack = CursorRingStacks.For(
             settings.RingStyle, size, settings.CircleThickness, settings.CircleOpacity,
             settings.CircleColor, ToHex(Tokens.StrokeHalo), ToHex(Tokens.TextPrimary));
-
-        Apply(CircleHalo, stack.Outer, Tokens.BrushStrokeHalo);
-        Apply(Circle, stack.Core, Tokens.BrushAccent);
+        var stack = _lastStack.Value;
+        ApplyStack();
 
         Width = size;
         Height = size;
@@ -247,6 +246,46 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         FiredFlashOuter.Height = size;
         FiredFlashCore.Width = size;
         FiredFlashCore.Height = size;
+    }
+
+    /// <summary>The last settings-driven look, re-applied when the blocked look ends.</summary>
+    private CursorRingStack? _lastStack;
+
+    private bool _blocked;
+
+    /// <summary>
+    /// C10's blocked look: the two bands turn dashed while Windows discards EyeCtrl's injected
+    /// input. Deliberately NOT dimmed — C1's lesson is that the owner's ring must never get harder
+    /// to see — and <see cref="Window.Opacity"/> is untouched because it is the pin/quiet channel;
+    /// no view-model state is read or written. The settings-driven look is re-applied on unblock,
+    /// so a settings change and a block cannot leave each other's pixels behind.
+    /// </summary>
+    public void SetBlocked(bool blocked)
+    {
+        if (_blocked == blocked) return;
+        _blocked = blocked;
+        ApplyStack();
+    }
+
+    /// <summary>True while the blocked look is showing (test seam).</summary>
+    internal bool IsBlockedLookOn => _blocked;
+
+    private void ApplyStack()
+    {
+        if (_lastStack is not { } stack) return;
+
+        Apply(CircleHalo, stack.Outer, Tokens.BrushStrokeHalo);
+        Apply(Circle, stack.Core, Tokens.BrushAccent);
+
+        if (!_blocked) return;
+
+        // Dash only. The band opacity and thickness stay exactly as the settings made them: a
+        // blocked ring is still the owner's pointer, and C1 established it must never get fainter.
+        Circle.StrokeDashArray = new DoubleCollection { 2, 2 };
+        Circle.StrokeDashOffset = 0;
+
+        CircleHalo.StrokeDashArray = new DoubleCollection { 2, 2 };
+        CircleHalo.StrokeDashOffset = 0;
     }
 
     /// <summary>

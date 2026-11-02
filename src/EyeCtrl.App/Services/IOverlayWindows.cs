@@ -93,6 +93,17 @@ public interface ICursorCircleOverlay
     /// overlay fakes that never observe it need no member; the real window implements it.
     /// </summary>
     void FlashFired() { }
+
+    /// <summary>
+    /// Switches the ring to its blocked look while Windows is discarding EyeCtrl's input (C10):
+    /// a dashed, dimmed ring, so the owner stops spending dwells on clicks that cannot land. It
+    /// must not touch <c>Window.Opacity</c> — that is the pin/quiet channel — and it is display
+    /// only: no position, pin, visibility or view-model state changes. A default no-op so fakes
+    /// need no member.
+    /// </summary>
+    /// <param name="blocked">True while the blocked-input banner is up; false restores the
+    /// settings-driven appearance.</param>
+    void SetBlocked(bool blocked) { }
 }
 
 /// <summary>The activation button's dwell feedback, drawn where the dwell is counted.</summary>

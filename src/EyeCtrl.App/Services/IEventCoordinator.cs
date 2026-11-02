@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
@@ -97,4 +98,9 @@ public record EventCoordinationContext(
     // Nullable, and null means "no marker": every existing test context (and any harness that
     // does not care about the drag's OS button state) then does no file IO at all. Production
     // passes the FileHeldButtonMarker the startup backstop also reads.
-    IHeldButtonMarker? HeldButtonMarker = null);
+    IHeldButtonMarker? HeldButtonMarker = null,
+    // C10: the R2 cursor read and R1 token facts the `Action:` line adds. Nullable so focused
+    // coordinator tests keep their contexts unchanged; production passes the same Platform probes
+    // the verified input decorator uses.
+    ICursorPositionProbe? CursorPositionProbe = null,
+    IInputIntegrityProbe? InputIntegrityProbe = null);

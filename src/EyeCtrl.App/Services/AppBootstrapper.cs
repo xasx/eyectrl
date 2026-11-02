@@ -8,6 +8,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -106,7 +107,26 @@ public class AppBootstrapper
 
         // Platform services
         services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
-        services.AddSingleton<IInputSimulator, Win32InputSimulator>();
+
+        // C10: the blocked-input detector's two OS seams. The cursor probe is also the one the
+        // R2 decorator reads; the integrity probe is R1's read-only token view (and the escape
+        // path's guard against targeting an elevated window).
+        services.AddSingleton<ICursorPositionProbe, Win32CursorPositionProbe>();
+        services.AddSingleton<IInputIntegrityProbe, Win32InputIntegrityProbe>();
+        services.AddSingleton(sp => new BlockedInputDetector(
+            sp.GetRequiredService<ICursorPositionProbe>(),
+            sp.GetRequiredService<IInputIntegrityProbe>(),
+            sp.GetRequiredService<ILogger<BlockedInputDetector>>()));
+
+        // The one input sink every caller resolves: R2 wraps the Win32 simulator so no click or
+        // pointed scroll can bypass verification. The decorator also feeds every FreeLook move to
+        // the sampler.
+        services.AddSingleton<IInputSimulator>(sp => new VerifiedInputSimulator(
+            new Win32InputSimulator(
+                sp.GetRequiredService<IMouseCoordinateMapper>(),
+                sp.GetRequiredService<ILogger<Win32InputSimulator>>()),
+            sp.GetRequiredService<BlockedInputDetector>(),
+            sp.GetRequiredService<ICursorPositionProbe>()));
         // Installs the WH_KEYBOARD_LL escape hatch for the process lifetime (issue #141);
         // disposed (and unhooked) with the container on shutdown.
         services.AddSingleton<IGlobalEscapeHatch, GlobalEscapeHatch>();
@@ -114,8 +134,11 @@ public class AppBootstrapper
         // Startup registration
         services.AddSingleton<IStartupRegistrar, WindowsStartupRegistrar>();
 
-        // Window management (Task Switcher)
-        services.AddSingleton<IWindowManager, Win32WindowManager>();
+        // Window management (Task Switcher) + R4's non-injecting escape path. One instance serves
+        // both seams: the escape path is the same Win32 window knowledge without the ALT-tap grant.
+        services.AddSingleton<Win32WindowManager>();
+        services.AddSingleton<IWindowManager>(sp => sp.GetRequiredService<Win32WindowManager>());
+        services.AddSingleton<IEscapeWindowService>(sp => sp.GetRequiredService<Win32WindowManager>());
         services.AddSingleton<IAppIconProvider, Win32AppIconProvider>();
 
         // Quick Actions
@@ -579,6 +602,16 @@ public class AppBootstrapper
             sp.GetRequiredService<IStruggleTelemetrySink>(),
             sp.GetRequiredService<IDwellDetectorRegistry>(),
             sp.GetRequiredService<EyeCtrlSettings>().Toolbar));
+
+        // C10's blocked-input banner. It is constructed once at startup (hidden; no HWND until its
+        // first Show) and resolved through the coordinator below.
+        services.AddSingleton(sp => new BlockedInputBannerWindow(
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell.ActivationButtonDwellMs,
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell,
+            sp.GetRequiredService<EyeCtrlSettings>().Toolbar,
+            sp.GetRequiredService<IMessenger>()));
+        services.AddSingleton<IBlockedInputBanner>(sp => sp.GetRequiredService<BlockedInputBannerWindow>());
         services.AddSingleton<ExerciseRunner>(sp =>
         {
             var screen = new PhysicalPoint(

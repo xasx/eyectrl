@@ -2,6 +2,7 @@ namespace EyeCtrl.Platform.Services;
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Input;
@@ -10,17 +11,22 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Win32-backed implementation of <see cref="IWindowManager"/> that enumerates
 /// top-level desktop windows via <c>EnumWindows</c> and activates a window with
-/// <c>SetForegroundWindow</c>. Used by the Task Switcher.
+/// <c>SetForegroundWindow</c>. Used by the Task Switcher. Also implements
+/// <see cref="IEscapeWindowService"/>, the non-injecting way out of a UIPI block.
 /// </summary>
-public class Win32WindowManager : IWindowManager
+public class Win32WindowManager : IWindowManager, IEscapeWindowService
 {
     private readonly ILogger<Win32WindowManager> _logger;
+    private readonly IInputIntegrityProbe _integrity;
 
     /// <summary>Creates the window manager.</summary>
     /// <param name="logger">Records why a switch failed — see <see cref="BringToFront"/>.</param>
-    public Win32WindowManager(ILogger<Win32WindowManager> logger)
+    /// <param name="integrity">Reads token facts, so the escape path never targets a window
+    /// above EyeCtrl's own reach.</param>
+    public Win32WindowManager(ILogger<Win32WindowManager> logger, IInputIntegrityProbe integrity)
     {
         _logger = logger;
+        _integrity = integrity;
     }
 
     /// <summary>
@@ -247,5 +253,87 @@ public class Win32WindowManager : IWindowManager
         // WM_CLOSE is graceful: DefWindowProc derives it from SC_CLOSE. For a modal dialog
         // it posts IDCANCEL (like Esc) — closes the dialog, NOT the owning app.
         return NativeMethods.PostMessage(hwnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    /// <inheritdoc />
+    public IntPtr? TryGetEscapeTarget()
+    {
+        var self = _integrity.ReadSelf();
+        IntPtr candidate = IntPtr.Zero;
+
+        NativeMethods.EnumWindows((hwnd, lParam) =>
+        {
+            // EnumWindows walks the Z-order top-down, so the first eligible window is the one
+            // directly beneath the blocking foreground — the "previous window" the owner means.
+            if (!IsCandidateWindow(hwnd, out _))
+                return true;
+
+            NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+            if (pid == (uint)Environment.ProcessId)
+                return true;
+
+            // The shell/desktop is the fallback, never the first choice.
+            if (hwnd == NativeMethods.GetShellWindow())
+                return true;
+
+            if (InputIntegrityRules.BlocksInjectedInput(_integrity.InspectWindow(hwnd), self))
+                return true; // bringing an elevated window forward would be a second blocked click
+
+            candidate = hwnd;
+            return false;
+        }, IntPtr.Zero);
+
+        if (candidate != IntPtr.Zero)
+            return candidate;
+
+        var shell = NativeMethods.GetShellWindow();
+        return shell != IntPtr.Zero && IsCandidateWindow(shell, out _) ? shell : null;
+    }
+
+    /// <inheritdoc />
+    public EscapeWindowResult TryBringToFront(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return new EscapeWindowResult(false, false, false);
+
+        // A minimized target is restored first, for the reason the task switcher documents: a bare
+        // SetForegroundWindow "succeeds" on an iconic window without un-minimizing it.
+        if (NativeMethods.IsIconic(hwnd))
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+
+        // DELIBERATELY no ALT tap: that grant is injected input, and the state this path exists to
+        // escape is one where injected input is silently dropped. SetForegroundWindow alone may be
+        // refused by the foreground lock; the ShowWindow toggle below is the non-injecting
+        // fallback the ticket asks for. Whether either works under an elevated foreground is the
+        // sitting question (unverified here).
+        var setForeground = NativeMethods.SetForegroundWindow(hwnd);
+        if (NativeMethods.GetForegroundWindow() == hwnd)
+        {
+            _logger.LogInformation(
+                "Blocked-input escape: brought window {Hwnd} ({Title}) to the foreground without injecting input.",
+                hwnd, DescribeWindow(hwnd));
+            return new EscapeWindowResult(true, setForeground, false);
+        }
+
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+        var changed = NativeMethods.GetForegroundWindow() == hwnd;
+
+        if (changed)
+        {
+            _logger.LogInformation(
+                "Blocked-input escape: SetForegroundWindow returned {SetForeground} for {Hwnd} ({Title}); "
+                + "the minimize/restore fallback brought it forward without injecting input.",
+                setForeground, hwnd, DescribeWindow(hwnd));
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Blocked-input escape: neither SetForegroundWindow ({SetForeground}) nor the "
+                + "minimize/restore fallback moved {Hwnd} ({Title}) to the foreground.",
+                setForeground, hwnd, DescribeWindow(hwnd));
+        }
+
+        return new EscapeWindowResult(changed, setForeground, true);
     }
 }

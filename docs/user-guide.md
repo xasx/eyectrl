@@ -110,9 +110,9 @@ when it completes, the control activates. A brief glance away (under about half 
 doesn't cancel a dwell — only a sustained look-away does.
 
 ![A dwell progress arc filling around a toolbar button](images/dwell-arc.png)
-*A dwell in progress: the arc fills around the button as you hold your gaze on it. The ▶
-in the first slot shows the app was paused at capture time, and the small mouse glyph left
-of the band is the gaze-provider indicator (here: the mouse fallback).*
+*A dwell in progress: the arc fills around the button as you hold your gaze on it.
+Captured on an earlier build: the ▶ shows the app was paused at capture time, and the
+small provider glyph visible left of the band has since been removed from the toolbar.*
 
 **How a click happens.** Rest your gaze where you want to act:
 
@@ -145,7 +145,10 @@ target cannot fire again — so one long look is one activation, not several.
 
 **Sound feedback.** An optional **Dwell Completion Sound** (off by default) plays a soft
 tone whenever a dwell activates on EyeCtrl's own buttons, menus, and settings. The keyboard
-has its own key click sound, on by default.
+has its own key click sound, on by default. Every activation on EyeCtrl's own surfaces also
+takes one brief **cursor-ring flash** (the **Dwell Completion Highlight**, on by default) —
+keyboard keys never flash, and inside the magnifier the rim flashes instead when an offer
+is accepted.
 
 **Pause.** Dwelling **Pause** on the toolbar (or the tray item) suspends gaze control: the
 ring disappears, and a thin strip along the docked screen edge marks that EyeCtrl is
@@ -174,7 +177,7 @@ No mode can trap you — each has several ways out:
 | If you are… | Ways out |
 |---|---|
 | Scrolling | Look back at the anchor to **stop** · dwell the ⏹ Stop button (right screen edge) or press **Esc** to **leave** scroll mode · losing gaze for ~2 s exits too |
-| Mid-drag | Hold still ~½ s to drop where you look · dwell the small release button travelling above-left of your gaze · dwell ✕ (right screen edge) or press **Esc** to **cancel** back to the grab point |
+| Mid-drag | Hold still ~½ s to drop where you look · dwell the drop disc on your gaze point · dwell ✕ (right screen edge) or press **Esc** to **cancel** back to the grab point |
 | In a repeat-click mode | Dwell the ⏹ Stop button (right screen edge) · dwell the same mode again · press Esc · losing gaze for ~2 s |
 | Action menu open | Dwell ✕ (right screen edge) · press Esc |
 | Inside the magnifier | Dwell ✕ or **Back** (right screen edge) · press Esc |
@@ -196,8 +199,8 @@ bottom, left, or right edge (Settings → Toolbar). Button size is adjustable (d
 
 ![The EyeCtrl toolbar with its buttons](images/toolbar.png)
 *The toolbar — captured on an earlier build with Adaptation enabled, hence the seventh
-(reset) button; today's default band shows six. The small mouse glyph left of the band is
-the gaze-provider indicator (here: the mouse fallback).*
+(reset) button; today's default band shows six and no longer carries the small provider
+glyph left of the band.*
 
 | Button | What it does |
 |---|---|
@@ -246,10 +249,11 @@ setting, also 600 ms by default).
 
 1. Open the action menu where you want to **grab**, and dwell **Drag**.
 2. An amber **drag trail** follows your gaze as you move — you are now holding the item. A
-   small round **release button travels just above-left of your gaze** the whole way.
+   round **drop disc rides on your gaze point** the whole way, showing the drop's dwell
+   progress.
 3. To **drop**, either hold your gaze still — resting within a small radius (default
-   40 px) for about half a second (default 500 ms) — or dwell the **release button** that
-   travels with your gaze. To **cancel** instead (the item goes back where you grabbed
+   40 px) for about half a second (default 500 ms) — or dwell the **drop disc** sitting
+   right on your gaze point. To **cancel** instead (the item goes back where you grabbed
    it), dwell the **✕ at the right screen edge** or press **Esc**. With Manual Selection
    on, holding still first opens a precise-drop view with a **Back** button.
 
@@ -302,7 +306,8 @@ mode, or Settings → Selection) magnifies before you commit:
 1. Activate **near** your target (fixate, then move your eyes onto the activation button
    that appears beside the ring, and dwell it).
 2. A **magnifier** appears — a circular window showing a zoomed picture of that screen
-   region (default zoom 4.0×, radius 100 px; adjustable).
+   region (default zoom 4.0×, radius 100 px; adjustable); its rim flashes once to mark the
+   accepted offer.
 3. Look at the exact spot inside the zoom. After a short settling moment a small **anchor**
    crosshair marks the spot; dwell it (default 600 ms) to commit.
 4. The action menu opens **centered on your precise point**, with the zoomed preview still
@@ -365,7 +370,8 @@ in Settings (Screen Edge: Bottom / Top).
   second time to cancel it before you use it. (Believing Ctrl is still latched when it
   isn't — or dwelling it again to "release" it, which re-arms it — is how an ordinary
   letter turns into a shortcut like Ctrl+W.) **Caps** stays on until you dwell it again.
-  QWERTZ and AZERTY add an accents page (**Acc**) with accented characters.
+  QWERTZ and AZERTY add an accents page with accented characters — the switch key is
+  labelled **àé** on QWERTZ, **Acc** on AZERTY.
 - **123** — numbers; **#+=** — symbols.
 - **Fn** — Esc, F1–F12, Print Screen, Home / End / PgUp / PgDn / Ins / Del, the arrow keys,
   and one-dwell shortcuts: **Copy, Paste, Cut, Undo, Redo, Select All**, and **Add Word**
@@ -543,9 +549,11 @@ Reset.
 
 ### Dwell Times
 Per-surface dwell times (see [section 3](#3-gaze-control-basics) for the list) · Resume
-disc (1000 ms) · Fixation radius (75 px — how far gaze may drift within one fixation) ·
-Dwell cooldown (400 ms) · Dwell completion sound (Off) · Disconnect Chime (On — plays once
-when the tracker has stayed disconnected for over ten seconds) · Reset.
+Strip (1000 ms) · Manual Selection Side Buttons (600 ms) · Fixation radius (75 px — how
+far gaze may drift within one fixation) · Dwell cooldown (400 ms) · Dwell completion sound
+(Off) · Dwell Completion Highlight (On — the cursor ring flashes briefly when a dwell
+fires) · Disconnect Chime (On — plays once when the tracker has stayed disconnected for
+over ten seconds) · Reset.
 
 ### Selection
 Selection mode (None) · Manual selection: circle radius (100 px), magnification (4.0×),
@@ -585,8 +593,9 @@ Calibration points (5) · Samples per point (15) · Target hold (1000 ms) · Set
 
 ### Eye Care
 Enable (Off) · Break interval (20 min) · Natural break length (30 s) · Exercise duration
-(45 s) · Banner auto-snooze (15 s) · Snooze length (5 min) · Fatigue escalation (Off) ·
-Fatigue threshold (0.75) · Reset.
+(45 s) · Break Banner Buttons (0 = follows the Activation Button dwell) · Banner
+auto-snooze (15 s) · Snooze length (5 min) · Fatigue escalation (Off) · Fatigue threshold
+(0.75) · Reset.
 
 ### Adaptation
 Enable (Off) · Posture (Conservative) · Adapt dwell time / targeting tolerance / smoothing /
@@ -600,7 +609,8 @@ tolerance 0.50, smoothing 0.50, target size 0.50 with 100 px growth cap) · Rese
 Start on Windows Boot (Off) · Start Paused (Off) · Show Track Status (Off — a small corner
 box with live tracker status) · Run Safety Setup (button — the same five questions as the
 first launch) · Automatic Crash Recovery (Off; see
-[section 24](#24-crash-recovery-and-the-supervisor)) · Restart Now · Reset General Settings ·
+[section 24](#24-crash-recovery-and-the-supervisor)) · Restart Notice Button (0 = follows
+the Activation Button dwell) · Restart Now · Reset General Settings ·
 Reset ALL Settings (advanced mode only).
 
 ### Quick Actions
@@ -611,8 +621,9 @@ app / window action), enable/disable, delete.
 ### Advanced
 Backdrop (On, Glass; Solid Darken opacity 0.3) · Drag settle dwell (500 ms) / radius
 (40 px) · Drag trail color (amber) / opacity (0.7) · Scroll sensitivity (1.0) · Repeat dwell
-(600 ms) · External dwell (On, 800 ms, 400 ms cooldown — for other apps that opt into
-EyeCtrl dwell) · Reset.
+(600 ms) · Button dwells: Backdrop Hide / Drag Release / Drag Edge / Scroll Stop /
+Repeat Stop (600 ms each) · External dwell (On, 800 ms, 400 ms cooldown — for other apps
+that opt into EyeCtrl dwell) · Reset.
 
 ### Diagnostics
 Record raw gaze (Off — opt-in trace of where you looked; stays on this PC) · Measure UI

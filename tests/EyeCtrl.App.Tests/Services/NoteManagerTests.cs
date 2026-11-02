@@ -176,6 +176,23 @@ public class NoteManagerTests
         Check.That(manager.ActiveNotes).HasSize(2);
         Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
         Check.That(manager.ActiveNotes[1].State).IsEqualTo(NoteState.Display);
+
+        // A ClearTargets anywhere in note 1's move flow would wipe note 2's column: two
+        // Display notes each register exactly ✎/↕/✕ (3 cells, 80 DIP squares).
+        Check.WithCustomMessage(
+                "moving note 1 must not unregister note 2's close/edit/move targets — " +
+                "a ClearTargets in the move flow wiped them")
+            .That(manager.LiveTargetRects()).HasSize(6);
+
+        // And functionally: dwelling note 2's ✎ cell (slot 0) still enters Edit on NOTE 2 —
+        // the registered target really belongs to it, not a stale rect.
+        var edit2 = NoteTestBench.CellCentre(manager, id2, 0);
+        for (long t = 0; t <= 800_000; t += 33_000)
+            manager.OnGazeMoved(edit2, t);
+
+        Check.WithCustomMessage("note 2's edit target no longer dwells after note 1's move")
+            .That(manager.ActiveNotes.Single(n => n.Id == id2).State).IsEqualTo(NoteState.Edit);
+        Check.That(manager.IsEditing).IsTrue();
     }
 
     [StaFact]

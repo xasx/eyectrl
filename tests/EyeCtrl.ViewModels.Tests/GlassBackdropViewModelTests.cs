@@ -101,7 +101,7 @@ public class GlassBackdropViewModelTests
         long now = 1_000_000;
         long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
         DwellDrive.Hold(messenger, buttonCenter, now, now + halfDwellUs);
-        Check.That(vm.HideButtonProgress > 0).IsTrue();
+        Check.That(vm.HideButtonProgress).IsStrictlyGreaterThan(0);
 
         // Move gaze away — progress should reset
         messenger.Send(new GazeCursorMovedMessage(farAway, now + halfDwellUs + 1));
@@ -122,7 +122,8 @@ public class GlassBackdropViewModelTests
         long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
         DwellDrive.Hold(messenger, buttonCenter, now, now + halfDwellUs);
 
-        Check.That(vm.HideButtonProgress > 0.4 && vm.HideButtonProgress < 0.6).IsTrue();
+        Check.That(vm.HideButtonProgress).IsStrictlyGreaterThan(0.4);
+        Check.That(vm.HideButtonProgress).IsStrictlyLessThan(0.6);
     }
 
     // C5 H3: the hide button follows the edge-bar/DwellArcButton pattern — a look-away inside the

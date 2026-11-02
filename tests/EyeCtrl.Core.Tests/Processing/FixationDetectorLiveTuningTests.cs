@@ -166,4 +166,21 @@ public class FixationDetectorLiveTuningTests
         Check.That(exception).IsNotNull();
         Check.That(detector.FixationTimeMs).IsEqualTo(300);
     }
+
+    [Fact]
+    public void ActivationDwellMsSetter_RejectsNegativeValue()
+    {
+        var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 300)
+        {
+            ActivationDwellMs = 400,
+        };
+
+        ArgumentOutOfRangeException? exception = null;
+        try { detector.ActivationDwellMs = -1; }
+        catch (ArgumentOutOfRangeException ex) { exception = ex; }
+
+        Check.That(exception).IsNotNull();
+        Check.That(exception!.ParamName).IsEqualTo("value");
+        Check.That(detector.ActivationDwellMs).IsEqualTo(400);
+    }
 }

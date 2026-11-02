@@ -15,8 +15,13 @@ using Xunit;
 /// StrokeHalo — and the halo differs per theme (#0A0A14 / #0E0A06 / #000000), so
 /// the gate runs per theme.
 /// </summary>
+[Collection("ActiveTheme")]
 public class ColorPickerPresetTests
 {
+    // Joins "ActiveTheme" because DefaultPresets_FollowTheActiveTheme activates a non-Midnight
+    // theme: Tokens.Current is process-global, and the collection's contract (see
+    // ActiveThemeCollection) is restore-Midnight-in-a-finally for every mutator.
+
     private static double Channel(byte c)
     {
         var v = c / 255.0;
@@ -94,7 +99,23 @@ public class ColorPickerPresetTests
     [Fact]
     public void DefaultPresets_FollowTheActiveTheme()
     {
-        Check.That(DwellColorPicker.DefaultPresets)
-             .ContainsExactly(DwellColorPicker.PresetsFor(Tokens.Current));
+        // Under the ambient Midnight this assertion passes even for a DefaultPresets hardcoded
+        // to Midnight's list — activating a DIFFERENT theme is what makes it discriminate.
+        try
+        {
+            Tokens.Activate(DaylightTheme.Instance);
+
+            Check.That(DwellColorPicker.DefaultPresets)
+                 .ContainsExactly(DwellColorPicker.PresetsFor(DaylightTheme.Instance));
+            // The Daylight list must genuinely differ from Midnight's, or the sweep above still
+            // could not tell a hardcoded Midnight list from a forwarding one. The first preset
+            // is the theme accent and the two accents are distinct palette values.
+            Check.That(DwellColorPicker.DefaultPresets)
+                 .Not.ContainsExactly(DwellColorPicker.PresetsFor(MidnightTheme.Instance));
+        }
+        finally
+        {
+            Tokens.Activate(MidnightTheme.Instance); // the collection's restore contract
+        }
     }
 }

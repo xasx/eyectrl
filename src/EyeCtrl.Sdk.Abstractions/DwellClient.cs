@@ -44,6 +44,13 @@ public sealed class DwellClient : IDisposable
     private StreamWriter? _writer;
     private CancellationTokenSource? _cts;
     private volatile bool _disposed;
+    private int _startCount;
+
+    /// <summary>
+    /// Number of times <see cref="Start"/> actually initialized the background loops.
+    /// Exposed for tests so concurrent/idempotent start guards are observable.
+    /// </summary>
+    internal int StartCountForTests => Volatile.Read(ref _startCount);
 
     /// <summary>
     /// Named pipe this client connects to. Defaults to the production <see cref="DwellPipe.Name"/>;
@@ -107,6 +114,7 @@ public sealed class DwellClient : IDisposable
             cts.Dispose();
             return;
         }
+        Interlocked.Increment(ref _startCount);
         _ = RunAsync(cts.Token);
         _ = SendLoopAsync(cts.Token);
     }

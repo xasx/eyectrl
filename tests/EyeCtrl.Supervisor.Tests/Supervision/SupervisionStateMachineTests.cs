@@ -225,7 +225,7 @@ public class SupervisionStateMachineTests
     }
 
     [Fact]
-    public void GazeStreamDead_FromSupervising_GoesRecovering_NotRevivedBySameHeartbeat()
+    public void GazeStreamDead_FromSupervising_GoesRecovering_AndCountsOneStrike()
     {
         // F4 regression: a single dead heartbeat must NOT both kill AND revive. The orchestrator
         // (Program.OnHeartbeatReceived) returns after GazeStreamDead; this test pins the machine-side

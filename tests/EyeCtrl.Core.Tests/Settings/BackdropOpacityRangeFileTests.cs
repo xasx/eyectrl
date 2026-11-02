@@ -16,6 +16,11 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class BackdropOpacityRangeFileTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Theory]
     [InlineData("0.0")]
     [InlineData("0")]      // the integer zero, the way a hand-edit writes "none"
@@ -76,7 +81,7 @@ public class BackdropOpacityRangeFileTests
             settings.General.UiLanguage = UiLanguage.German;
             settings.General.StartPaused = true;
 
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(settings);          // validates first: the widened range must pass Save too
 
             var loaded = service.Load();

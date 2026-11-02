@@ -143,8 +143,24 @@ public class GazeEngineFanOutIsolationTests
         using var _ = engine;
         engine.CursorMoved += _ => throw new InvalidOperationException("boom");
 
-        // Must not throw: the remainder of OnGazePoint (centroid tracking, fixation) still runs.
-        provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
+        int activations = 0;
+        engine.FixationActivated += _ => activations++;
+
+        // Steady gaze well past the 300 ms onset + 700 ms activation dwell (1.2 s total):
+        // fixation must run to its ACTIVATION through the throwing subscriber — onset starts
+        // centroid tracking (StableCentroid goes non-null) and the activation fires. A fault
+        // that derailed the per-sample pipeline would leave both untouched.
+        for (long t = 1_000_000; t <= 2_200_000; t += 33_000)
+            provider.SimulateGaze(new GazePoint(100, 200, t, IsValid: true));
+
+        Check.WithCustomMessage(
+                "fixation never started: the centroid tracker is empty, so the pipeline did " +
+                "not run past the throwing CursorMoved subscriber.")
+            .That(engine.StableCentroid).IsNotNull();
+        Check.WithCustomMessage(
+                "fixation started but never reached activation through the throwing " +
+                "CursorMoved subscriber.")
+            .That(activations).IsStrictlyGreaterThan(0);
     }
 
     [Fact]

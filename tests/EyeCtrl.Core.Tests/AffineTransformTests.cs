@@ -18,8 +18,8 @@ public class AffineTransformTests
         var transform = AffineTransform.Fit(points);
 
         var result = transform.Apply(new PhysicalPoint(960, 540));
-        Check.That(Math.Abs(result.X - 960) < 1.0).IsTrue();
-        Check.That(Math.Abs(result.Y - 540) < 1.0).IsTrue();
+        Check.That(result.X).IsCloseTo(960, 1.0);
+        Check.That(result.Y).IsCloseTo(540, 1.0);
     }
 
     [Fact]
@@ -37,8 +37,8 @@ public class AffineTransformTests
         // Gaze at (970, 90): transform should map it near target (960, 110)
         // Calibration: TargetY = GazeY + 20, so 90 + 20 = 110
         var result = transform.Apply(new PhysicalPoint(970, 90));
-        Check.That(Math.Abs(result.X - 960) < 1.5).IsTrue();
-        Check.That(Math.Abs(result.Y - 110) < 1.5).IsTrue();
+        Check.That(result.X).IsCloseTo(960, 1.5);
+        Check.That(result.Y).IsCloseTo(110, 1.5);
     }
 
     [Fact]

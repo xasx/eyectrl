@@ -48,29 +48,34 @@ public class GazeStreamGeneratorTests
     }
 
     [Theory]
-    [InlineData("Fixation", 42)]
-    [InlineData("Saccade", 42)]
-    [InlineData("NoisyFixation", 42)]
-    [InlineData("WithDropout", 42)]
+    [InlineData("Fixation", 99)]
+    [InlineData("Saccade", 99)]
+    [InlineData("NoisyFixation", 99)]
+    [InlineData("WithDropout", 99)]
     public void SameSeed_ProducesIdenticalStreams(string scenario, int seed)
     {
         var first = Generate(scenario, seed);
         var second = Generate(scenario, seed);
+        var defaultSeedStream = Generate(scenario, GazeStreamGenerator.DefaultSeed);
         Check.That(second.Length).IsEqualTo(first.Length);
+        bool differsFromDefault = false;
         for (int i = 0; i < first.Length; i++)
         {
             Check.That(second[i].X).IsEqualTo(first[i].X);
             Check.That(second[i].Y).IsEqualTo(first[i].Y);
             Check.That(second[i].IsValid).IsEqualTo(first[i].IsValid);
+            if (first[i].X != defaultSeedStream[i].X || first[i].Y != defaultSeedStream[i].Y)
+                differsFromDefault = true;
         }
+        Check.That(differsFromDefault).IsTrue();
     }
 
     [Fact]
     public void GenerateWithDropout_HasBothValidAndInvalidSamples()
     {
         var points = GazeStreamGenerator.GenerateWithDropout();
-        Check.That(points.Any(p => p.IsValid)).IsTrue();
-        Check.That(points.Any(p => !p.IsValid)).IsTrue();
+        Check.That(points).HasElementThatMatches(p => p.IsValid);
+        Check.That(points).HasElementThatMatches(p => !p.IsValid);
     }
 
     [Fact]
@@ -116,6 +121,7 @@ public class GazeStreamGeneratorTests
     [Theory]
     [InlineData("Fixation", 2500)]
     [InlineData("Saccade", 2500)]
+    [InlineData("Saccade", 2818)]
     [InlineData("NoisyFixation", 2500)]
     public void Generate_WithExplicitLength_ReturnsExactCount(string scenario, int length)
     {
@@ -126,6 +132,7 @@ public class GazeStreamGeneratorTests
     [Theory]
     [InlineData("Fixation", 2500)]
     [InlineData("Saccade", 2500)]
+    [InlineData("Saccade", 2818)]
     [InlineData("NoisyFixation", 2500)]
     public void Generate_WithExplicitLength_HasContinuousTimestamps(string scenario, int length)
     {
@@ -134,16 +141,6 @@ public class GazeStreamGeneratorTests
         {
             Check.That(points[i].TimestampMicroseconds).IsEqualTo(i * GazeStreamGenerator.SamplePeriodMicros);
         }
-    }
-
-    [Theory]
-    [InlineData("Fixation")]
-    [InlineData("Saccade")]
-    [InlineData("NoisyFixation")]
-    public void Generate_DefaultLength_StillSamplesPerBatch(string scenario)
-    {
-        var points = Generate(scenario);
-        Check.That(points).HasSize(GazeStreamGenerator.SamplesPerBatch);
     }
 
     private static GazePoint[] Generate(string scenario, int seed = 42, int? length = null) => scenario switch

@@ -28,7 +28,7 @@ public class KeyboardViewModelOrchestratorTests
         var orchestrator = new PredictionOrchestrator(predictor);
         vm.SetOrchestrator(orchestrator);
 
-        vm.GetType().GetProperty("CurrentInput")!.SetValue(vm, "hel");
+        vm.CurrentInput = "hel";
         var suggestions = vm.GetSuggestionsWithContext();
         Check.That(suggestions).Not.IsEmpty();
         Check.That(suggestions).HasElementThatMatches(r => r.Word == "hello");
@@ -57,10 +57,12 @@ public class KeyboardViewModelOrchestratorTests
         var orchestrator = new PredictionOrchestrator(predictor);
         vm.SetOrchestrator(orchestrator);
 
-        vm.GetType().GetProperty("CurrentInput")!.SetValue(vm, "hel");
-        vm.HandlePredictionSelected("hello");
+        vm.CurrentInput = "neww";
+        vm.HandlePredictionSelected("newword");
 
-        Check.That(vm.GetType().GetProperty("CurrentInput")!.GetValue(vm)).IsEqualTo("");
+        Check.That(vm.CurrentInput).IsEqualTo("");
+        Check.That(orchestrator.GetSuggestions("neww", context: null, maxCount: 10).Select(r => r.Word))
+            .Contains("newword");
     }
 
     [Fact]
@@ -77,7 +79,7 @@ public class KeyboardViewModelOrchestratorTests
         // A sentence completion is accepted as one string. Learning it verbatim would make
         // "thank you very much" a single key in the user's persisted dictionary, suggested back
         // whole on the next "thank" — the individual words are what the user actually typed.
-        vm.GetType().GetProperty("CurrentInput")!.SetValue(vm, "thank");
+        vm.CurrentInput = "thank";
         vm.HandlePredictionSelected("thank you very much");
 
         var suggestions = orchestrator.GetSuggestions("thank", context: null, maxCount: 10);

@@ -37,7 +37,8 @@ public class DpiHelperTests
     [Fact]
     public void DefaultScale_IsOne()
     {
-        DpiHelper.Initialize(1.0, 1.0);
+        Check.That(DpiHelper.ScaleX).IsEqualTo(1.0);
+        Check.That(DpiHelper.ScaleY).IsEqualTo(1.0);
         Check.That(DpiHelper.PhysicalToLogicalX(500.0)).IsEqualTo(500.0);
         Check.That(DpiHelper.LogicalToPhysicalX(500.0)).IsEqualTo(500.0);
     }

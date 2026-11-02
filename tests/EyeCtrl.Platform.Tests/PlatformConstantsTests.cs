@@ -24,13 +24,4 @@ public class PlatformConstantsTests
     {
         Check.That(PlatformConstants.StandardDpiScale).IsEqualTo(96);
     }
-
-    [Fact]
-    public void AllConstants_HaveExpectedValues()
-    {
-        // Verify all constants are positive
-        Check.That(PlatformConstants.Win32AbsoluteCoordinateMax > 0).IsTrue();
-        Check.That(PlatformConstants.MouseWheelDelta > 0).IsTrue();
-        Check.That(PlatformConstants.StandardDpiScale > 0).IsTrue();
-    }
 }

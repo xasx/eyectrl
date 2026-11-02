@@ -47,7 +47,7 @@ internal static class TempTestDirectory
     /// </summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromDays(1);
 
-    private static readonly ConcurrentBag<string> Created = new();
+    private static readonly ConcurrentBag<string> _created = new();
     private static int _exitHookInstalled;
 
     /// <summary>Creates a unique directory under <see cref="Root"/> and schedules it for cleanup.</summary>
@@ -61,7 +61,7 @@ internal static class TempTestDirectory
         // that keeping it costs nothing.
         var dir = Path.Combine(Root, label + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        Created.Add(dir);
+        _created.Add(dir);
         return dir;
     }
 
@@ -115,7 +115,7 @@ internal static class TempTestDirectory
     /// </summary>
     private static void DeleteCreated()
     {
-        foreach (var dir in Created)
+        foreach (var dir in _created)
         {
             try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
             catch (IOException) { }

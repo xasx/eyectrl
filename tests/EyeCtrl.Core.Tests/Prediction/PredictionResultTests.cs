@@ -32,6 +32,8 @@ public class PredictionResultTests
     [InlineData(PredictionType.FuzzyMatch)]
     [InlineData(PredictionType.NextWord)]
     [InlineData(PredictionType.Phrase)]
+    [InlineData(PredictionType.SentenceCompletion)]
+    [InlineData(PredictionType.LMSuggestion)]
     public void Constructor_AcceptsAllPredictionTypes(PredictionType type)
     {
         // Arrange & Act
@@ -65,17 +67,6 @@ public class PredictionResultTests
     }
 
     [Fact]
-    public void Properties_AreImmutable()
-    {
-        // Arrange
-        var result = new PredictionResult("original", 100.0, PredictionType.ExactPrefix, 0.9);
-
-        // Act & Assert - Should not compile if we try to modify
-        // result.Word = "modified"; // This should not compile with init
-        Check.That(result.Word).IsEqualTo("original");
-    }
-
-    [Fact]
     public void Constructor_SentenceCompletion_CreatesValidRecord()
     {
         var result = new PredictionResult("hand is worth two in the bush", 150.0, PredictionType.SentenceCompletion, 0.95);
@@ -93,23 +84,5 @@ public class PredictionResultTests
         Check.That(result.Score).IsEqualTo(80.0);
         Check.That(result.Type).IsEqualTo(PredictionType.LMSuggestion);
         Check.That(result.Confidence).IsEqualTo(0.6);
-    }
-
-    [Theory]
-    [InlineData(PredictionType.SentenceCompletion)]
-    [InlineData(PredictionType.LMSuggestion)]
-    public void NewPredictionTypes_RoundTripThroughSwitch(PredictionType type)
-    {
-        var label = type switch
-        {
-            PredictionType.ExactPrefix => "ExactPrefix",
-            PredictionType.FuzzyMatch => "FuzzyMatch",
-            PredictionType.NextWord => "NextWord",
-            PredictionType.Phrase => "Phrase",
-            PredictionType.SentenceCompletion => "SentenceCompletion",
-            PredictionType.LMSuggestion => "LMSuggestion",
-            _ => "Unknown"
-        };
-        Check.That("Unknown").IsNotEqualTo(label);
     }
 }

@@ -23,12 +23,13 @@ public class ExerciseRunnerTests
         var pool = new IExercise[] { new StubExercise("A"), new StubExercise("B"), new StubExercise("C") };
         var runner = new ExerciseRunner(pool, seed: 42);
 
-        var first = runner.NextExercise();
-        var second = runner.NextExercise();
-        var third = runner.NextExercise();
-
-        Check.That(second).IsNotEqualTo(first);
-        Check.That(third).IsNotEqualTo(second);
+        var prev = runner.NextExercise();
+        for (int i = 0; i < 20; i++)
+        {
+            var cur = runner.NextExercise();
+            Check.That(cur).IsNotEqualTo(prev);
+            prev = cur;
+        }
     }
 
     [Fact]
@@ -51,10 +52,13 @@ public class ExerciseRunnerTests
             new DirectionalSweepExercise(new(0,0), new(100,100), 500, 10),
         };
         var runner = new ExerciseRunner(pool, seed: 7);
-        for (int i = 0; i < 20; i++)
+        var seen = new HashSet<string>();
+        for (int i = 0; i < 30; i++)
         {
             var cur = runner.NextExercise();
             Check.That(cur).IsNotNull();
+            seen.Add(cur.Name);
         }
+        Check.That(seen).HasSize(5);
     }
 }

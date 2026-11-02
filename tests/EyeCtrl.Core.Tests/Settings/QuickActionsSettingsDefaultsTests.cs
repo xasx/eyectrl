@@ -25,7 +25,7 @@ public class QuickActionsSettingsDefaultsTests
     public void Validate_SummonThresholdOutOfRange_ReturnsError()
     {
         var s = new QuickActionsSettings { SummonThresholdMs = 150 };
-        Check.That(s.Validate()).Not.IsEmpty();
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(QuickActionsSettings.SummonThresholdMs)));
     }
 
     [Fact]
@@ -42,22 +42,22 @@ public class QuickActionsSettingsDefaultsTests
     public void Validate_DismissTimeoutOutOfRange_ReturnsError()
     {
         var s = new QuickActionsSettings { DismissTimeoutMs = 500 };
-        Check.That(s.Validate()).Not.IsEmpty();
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(QuickActionsSettings.DismissTimeoutMs)));
     }
 
     [Fact]
     public void Validate_GridColumnsOutOfRange_ReturnsError()
     {
         var s = new QuickActionsSettings { GridColumns = 1 };
-        Check.That(s.Validate()).Not.IsEmpty();
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(QuickActionsSettings.GridColumns)));
         s.GridColumns = 6;
-        Check.That(s.Validate()).Not.IsEmpty();
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(QuickActionsSettings.GridColumns)));
     }
 
     [Fact]
     public void Validate_InvalidSummonEdge_ReturnsError()
     {
         var s = new QuickActionsSettings { SummonEdge = "Northeast" };
-        Check.That(s.Validate()).Not.IsEmpty();
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(nameof(QuickActionsSettings.SummonEdge)));
     }
 }

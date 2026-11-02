@@ -1,5 +1,6 @@
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
+using System.Diagnostics;
 using System.IO;
 using EyeCtrl.Supervisor.Supervision;
 using NFluent;
@@ -10,23 +11,32 @@ public class ProcessControllerTests
     [Fact]
     public void Launch_ClearsKillInitiated()
     {
-        var controller = CreateController(out var handle);
+        ProcessStartInfo? capturedPsi = null;
+        var handle = new FakeProcessHandle(12345, hasExited: false);
+        var controller = new ProcessController(psi => { capturedPsi = psi; return handle; }, _ => handle);
         controller.ForceKill();
 
         controller.Launch("test.exe", paused: false);
 
         Check.That(controller.KillInitiated).IsFalse();
         Check.That(controller.BoundProcess).IsSameReferenceAs(handle);
+        Check.That(capturedPsi).IsNotNull();
+        Check.That(capturedPsi!.ArgumentList).IsEmpty();
     }
 
     [Fact]
     public void Launch_WithPaused_AddsPausedArgument()
     {
-        var controller = CreateController(out var handle);
+        ProcessStartInfo? capturedPsi = null;
+        var handle = new FakeProcessHandle(12345, hasExited: false);
+        var controller = new ProcessController(psi => { capturedPsi = psi; return handle; }, _ => handle);
 
         controller.Launch("test.exe", paused: true);
 
         Check.That(controller.BoundProcess).IsSameReferenceAs(handle);
+        Check.That(capturedPsi).IsNotNull();
+        Check.That(capturedPsi!.FileName).IsEqualTo("test.exe");
+        Check.That(capturedPsi.ArgumentList).ContainsExactly("--paused");
     }
 
     [Fact]

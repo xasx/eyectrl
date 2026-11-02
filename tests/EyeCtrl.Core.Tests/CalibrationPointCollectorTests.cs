@@ -38,10 +38,10 @@ public class CalibrationPointCollectorTests
         Check.That(point.Target.X).IsEqualTo(500);
         Check.That(point.Target.Y).IsEqualTo(500);
         Check.That(point.SampleCount).IsEqualTo(2);
-        Check.That(Math.Abs(point.MeanGaze.X - 520) < 0.1).IsTrue();
-        Check.That(Math.Abs(point.MeanGaze.Y - 505) < 0.1).IsTrue();
-        Check.That(point.StdDevX > 0).IsTrue();
-        Check.That(point.StdDevY > 0).IsTrue();
+        Check.That(point.MeanGaze.X).IsCloseTo(520, 0.1);
+        Check.That(point.MeanGaze.Y).IsCloseTo(505, 0.1);
+        Check.That(point.StdDevX).IsStrictlyGreaterThan(0);
+        Check.That(point.StdDevY).IsStrictlyGreaterThan(0);
     }
 
     [Fact]
@@ -72,8 +72,8 @@ public class CalibrationPointCollectorTests
         var point = collector.End();
 
         Check.That(point.SampleCount).IsEqualTo(2);
-        Check.That(Math.Abs(point.MeanGaze.X - 100) < 10).IsTrue();
-        Check.That(Math.Abs(point.MeanGaze.Y - 100) < 10).IsTrue();
+        Check.That(point.MeanGaze.X).IsCloseTo(100, 10);
+        Check.That(point.MeanGaze.Y).IsCloseTo(100, 10);
     }
 
     [Fact]

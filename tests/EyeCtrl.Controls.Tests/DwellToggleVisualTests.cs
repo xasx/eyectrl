@@ -179,15 +179,33 @@ public class DwellToggleVisualTests
     {
         var state = false;
 
-        Check.ThatCode(() => new DwellToggle(
+        ArgumentNullException? onEx = null;
+        try
+        {
+            _ = new DwellToggle(
                 new FakeDwellRegistrar(), "id", "Label", null!, "Off",
-                () => state, v => state = v, DwellCategory.Control, Radius, 800))
-            .Throws<ArgumentNullException>();
+                () => state, v => state = v, DwellCategory.Control, Radius, 800);
+        }
+        catch (ArgumentNullException e)
+        {
+            onEx = e;
+        }
+        Check.That(onEx).IsNotNull();
+        Check.That(onEx!.ParamName).IsEqualTo("onText");
 
-        Check.ThatCode(() => new DwellToggle(
+        ArgumentNullException? offEx = null;
+        try
+        {
+            _ = new DwellToggle(
                 new FakeDwellRegistrar(), "id", "Label", "On", null!,
-                () => state, v => state = v, DwellCategory.Control, Radius, 800))
-            .Throws<ArgumentNullException>();
+                () => state, v => state = v, DwellCategory.Control, Radius, 800);
+        }
+        catch (ArgumentNullException e)
+        {
+            offEx = e;
+        }
+        Check.That(offEx).IsNotNull();
+        Check.That(offEx!.ParamName).IsEqualTo("offText");
     }
 
     [StaFact]

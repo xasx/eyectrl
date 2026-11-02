@@ -72,7 +72,7 @@ public class GlobalEscapeHatchTests
         var hatch = new GlobalEscapeHatch(interop);
         hatch.Dispose();
         hatch.Dispose();
-        Check.That(interop.Calls).Contains("unhook");
+        Check.That(interop.Calls.Count(c => c == "unhook")).IsEqualTo(1);
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public class GlobalEscapeHatchTests
         // which CI and parallel test runs must not do. This is the automated counterpart of the
         // reviewer's probe: it exists to prove the interop declarations actually resolve and
         // the lifecycle runs — the failure it replaced was a launch crash.
-        if (Environment.GetEnvironmentVariable("EYECTRL_HATCH_SMOKE") != "1") return;
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("EYECTRL_HATCH_SMOKE") == "1", "Opt-in real hook smoke test: set EYECTRL_HATCH_SMOKE=1 to run.");
 
         using var hatch = new GlobalEscapeHatch();
         Check.That(hatch.IsActive).IsTrue();

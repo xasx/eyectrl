@@ -23,6 +23,11 @@ public class CursorFilterMigrationTests
 {
     private const double LegacySpeedNormalization = 2000.0;   // OneEuroFilter.SpeedNormalizationPixels
 
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void OldDefaults_BecomeTheNewDefaults()
     {
@@ -181,7 +186,7 @@ public class CursorFilterMigrationTests
         try
         {
             File.WriteAllText(path, Cursor(minCutoff: 5.0, legacyBeta: 0.5));
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Load();
 
             // Now the user picks a small new-units beta — a value that sits inside the OLD range.
@@ -244,7 +249,7 @@ public class CursorFilterMigrationTests
         {
             var settings = new EyeCtrlSettings();
             settings.Cursor.OneEuroBetaPerDiagonal = 33.0;
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(settings);
             string beforeLoad = File.ReadAllText(path);
 
@@ -269,7 +274,7 @@ public class CursorFilterMigrationTests
         {
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 640;
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
@@ -293,7 +298,7 @@ public class CursorFilterMigrationTests
         var path = TempFile();
         try
         {
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(new EyeCtrlSettings());
 
             var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();

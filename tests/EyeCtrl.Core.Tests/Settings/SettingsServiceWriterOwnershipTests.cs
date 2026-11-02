@@ -13,24 +13,32 @@ public class SettingsServiceWriterOwnershipTests
 {
     private static string TempPath() => Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
 
+    // Box-wide named-kernel-object rule (AGENTS.md): never take the production writer mutex.
+    // The contending instances inside one test SHARE a per-test GUID name — the exclusion they
+    // are exercising is each other's, not a live EyeCtrl's.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void AppWriter_DoesNotPersist_SupervisionSection()
     {
         var path = TempPath();
         try
         {
+            var mutexName = TestMutexName();
+
             // Supervisor wrote Enabled=true on disk.
-            var supervisor = new SettingsService(path, SettingsWriter.Supervisor);
+            var supervisor = new SettingsService(path, SettingsWriter.Supervisor, mutexName);
             var seed = new EyeCtrlSettings { Supervision = { Enabled = true } };
             supervisor.Save(seed);
 
             // App loads, then saves its own snapshot (Supervision.Enabled default false).
-            var app = new SettingsService(path, SettingsWriter.App);
+            var app = new SettingsService(path, SettingsWriter.App, mutexName);
             var loaded = app.Load();
             Check.That(loaded.Supervision.Enabled).IsTrue(); // sees supervisor's value
             app.Save(loaded); // app must not clobber it
 
-            var roundTripped = new SettingsService(path, SettingsWriter.App).Load();
+            var roundTripped = new SettingsService(path, SettingsWriter.App, mutexName).Load();
             Check.That(roundTripped.Supervision.Enabled).IsTrue(); // preserved, not reset
         }
         finally { File.Delete(path); }
@@ -43,12 +51,12 @@ public class SettingsServiceWriterOwnershipTests
         var path = TempPath();
         try
         {
-            var app = new SettingsService(path, SettingsWriter.App);
+            var app = new SettingsService(path, SettingsWriter.App, TestMutexName());
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 900;
             app.Save(settings);
 
-            var loaded = new SettingsService(path, SettingsWriter.App).Load();
+            var loaded = new SettingsService(path, SettingsWriter.App, TestMutexName()).Load();
             Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(900);
         }
         finally { File.Delete(path); }
@@ -85,7 +93,7 @@ public class SettingsServiceWriterOwnershipTests
                 "{\"supervision\":{\"enabled\":true,\"futureKey\":\"keep-me\"},\"dwell\":{\"activationButtonDwellMs\":50}}");
 
             // App saves its own (valid) snapshot — Supervision.Enabled defaults to false.
-            var app = new SettingsService(path, SettingsWriter.App);
+            var app = new SettingsService(path, SettingsWriter.App, TestMutexName());
             app.Save(new EyeCtrlSettings());
 
             // Read the persisted file RAW (a validating Load would re-default it) and assert
@@ -105,20 +113,22 @@ public class SettingsServiceWriterOwnershipTests
         var path = TempPath();
         try
         {
+            var mutexName = TestMutexName();
+
             // App wrote Dwell.ActivationButtonDwellMs=1234 on disk.
-            var app = new SettingsService(path, SettingsWriter.App);
+            var app = new SettingsService(path, SettingsWriter.App, mutexName);
             var seed = new EyeCtrlSettings();
             seed.Dwell.ActivationButtonDwellMs = 1234;
             app.Save(seed);
 
             // Supervisor loads, flips its own section, and saves.
-            var supervisor = new SettingsService(path, SettingsWriter.Supervisor);
+            var supervisor = new SettingsService(path, SettingsWriter.Supervisor, mutexName);
             var loaded = supervisor.Load();
             Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(1234); // sees app's value
             loaded.Supervision.Enabled = true;
             supervisor.Save(loaded);
 
-            var roundTripped = new SettingsService(path, SettingsWriter.Supervisor).Load();
+            var roundTripped = new SettingsService(path, SettingsWriter.Supervisor, mutexName).Load();
             Check.That(roundTripped.Supervision.Enabled).IsTrue();          // supervisor's write preserved
             Check.That(roundTripped.Dwell.ActivationButtonDwellMs).IsEqualTo(1234); // app's write preserved
         }
@@ -137,12 +147,14 @@ public class SettingsServiceWriterOwnershipTests
         var path = TempPath();
         try
         {
-            var app = new SettingsService(path, SettingsWriter.App);
+            var mutexName = TestMutexName();
+
+            var app = new SettingsService(path, SettingsWriter.App, mutexName);
             var seed = new EyeCtrlSettings();
             seed.Dwell.ActivationButtonDwellMs = 1234;
             app.Save(seed);   // an App-owned section value on disk
 
-            var supervisor = new SettingsService(path, SettingsWriter.Supervisor);
+            var supervisor = new SettingsService(path, SettingsWriter.Supervisor, mutexName);
             var sup = supervisor.Load();
             sup.Supervision.MaxRetries = 7;
             sup.Supervision.HangThresholdSeconds = 42;
@@ -153,7 +165,7 @@ public class SettingsServiceWriterOwnershipTests
             node["rootFuture"] = 42;
             File.WriteAllText(path, node.ToJsonString());
 
-            var writer = new SettingsService(path, SettingsWriter.Supervisor);
+            var writer = new SettingsService(path, SettingsWriter.Supervisor, mutexName);
             writer.SaveSupervisionEnabled(true);
 
             var raw = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
@@ -181,7 +193,7 @@ public class SettingsServiceWriterOwnershipTests
         try
         {
             InvalidOperationException? ex = null;
-            try { new SettingsService(path, SettingsWriter.App).SaveSupervisionEnabled(true); }
+            try { new SettingsService(path, SettingsWriter.App, TestMutexName()).SaveSupervisionEnabled(true); }
             catch (InvalidOperationException e) { ex = e; }
 
             Check.That(ex).IsNotNull();
@@ -204,7 +216,7 @@ public class SettingsServiceWriterOwnershipTests
                 File.WriteAllText(path, damaged);
 
                 InvalidOperationException? ex = null;
-                try { new SettingsService(path, SettingsWriter.Supervisor).SaveSupervisionEnabled(true); }
+                try { new SettingsService(path, SettingsWriter.Supervisor, TestMutexName()).SaveSupervisionEnabled(true); }
                 catch (InvalidOperationException e) { ex = e; }
 
                 Check.WithCustomMessage($"content: {damaged}").That(ex).IsNotNull();
@@ -221,9 +233,9 @@ public class SettingsServiceWriterOwnershipTests
         var path = TempPath();
         try
         {
-            new SettingsService(path, SettingsWriter.Supervisor).SaveSupervisionEnabled(true);
+            new SettingsService(path, SettingsWriter.Supervisor, TestMutexName()).SaveSupervisionEnabled(true);
 
-            Check.That(new SettingsService(path, SettingsWriter.Supervisor).Load().Supervision.Enabled).IsTrue();
+            Check.That(new SettingsService(path, SettingsWriter.Supervisor, TestMutexName()).Load().Supervision.Enabled).IsTrue();
         }
         finally { File.Delete(path); }
     }

@@ -9,13 +9,13 @@ public class ControlFinderTests
 {
     // UIA AutomationElement.FromPoint requires an interactive desktop session.
     // On non-interactive CI agents it can hang or behave unpredictably, so skip
-    // gracefully there (consistent with the project's environment-dependent test pattern).
+    // visibly there via Assert.SkipUnless.
     private static bool DesktopAvailable => Environment.UserInteractive;
 
     [Fact]
     public void FindTarget_NoWindow_ReturnsNull()
     {
-        if (!DesktopAvailable) return;
+        Assert.SkipUnless(DesktopAvailable, "UIA AutomationElement.FromPoint requires an interactive desktop session.");
 
         var finder = new ControlFinder(NullLogger<ControlFinder>.Instance, new AutoSelectionSettings());
         var result = finder.FindTarget(new PhysicalPoint(-10000, -10000));
@@ -25,7 +25,7 @@ public class ControlFinderTests
     [Fact]
     public void FindTarget_NearTaskbar_DoesNotThrow()
     {
-        if (!DesktopAvailable) return;
+        Assert.SkipUnless(DesktopAvailable, "UIA AutomationElement.FromPoint requires an interactive desktop session.");
 
         var finder = new ControlFinder(NullLogger<ControlFinder>.Instance, new AutoSelectionSettings());
         var screenH = System.Windows.SystemParameters.PrimaryScreenHeight;

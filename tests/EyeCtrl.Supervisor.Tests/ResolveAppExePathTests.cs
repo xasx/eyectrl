@@ -18,7 +18,7 @@ public class ResolveAppExePathTests : IDisposable
     [Fact]
     public void Resolve_EnvVarSetToExistingFile_ReturnsEnvVarPath()
     {
-        var tempFile = Path.Combine(Path.GetTempPath(), "EyeCtrl.App_Test.exe");
+        var tempFile = Path.Combine(Path.GetTempPath(), $"EyeCtrl.App_Test_{Guid.NewGuid():N}.exe");
         File.WriteAllText(tempFile, "test");
         try
         {

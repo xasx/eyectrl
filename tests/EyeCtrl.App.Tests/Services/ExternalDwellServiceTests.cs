@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -186,8 +187,7 @@ public class ExternalDwellServiceTests
             using var engine = NewGazeEngine();
             using var svc = NewService(engine, _ => 7);
             svc.Start();
-            Thread.Sleep(100);
-            RunPipeClient(_pipeName).GetAwaiter().GetResult();
+            RegisterThenCloseClient(svc, _pipeName).GetAwaiter().GetResult();
         });
     }
 
@@ -244,6 +244,25 @@ public class ExternalDwellServiceTests
         }
     }
 
+    // Connects a client, registers one target, and waits until the server has OBSERVED it
+    // (count 1) while the connection is still open — only then disposes the client. The
+    // server's read loop must end on the disconnect, run its onClosed teardown
+    // (TeardownConnection), and remove the connection's targets (count 0).
+    private static async Task RegisterThenCloseClient(ExternalDwellService svc, string pipeName)
+    {
+        var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using (var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true })
+        {
+            await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, WireJson.Options));
+            await WaitForTargetCountAsync(svc, 1);
+        }
+        client.Dispose(); // the disconnect under test
+
+        await WaitForTargetCountAsync(svc, 0);
+    }
+
     [Fact]
     public void NoActiveTarget_LeavesForeignSuppressFixationUntouched()
     {
@@ -278,7 +297,7 @@ public class ExternalDwellServiceTests
                 pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterToggleAndDwell(settings, provider, _pipeName).GetAwaiter().GetResult();
+            var activated = RegisterToggleAndDwell(svc, settings, provider, _pipeName).GetAwaiter().GetResult();
 
             // With the target retained across the disable/enable toggle, dwell still activates it.
             Check.That(activated).IsNotNull();
@@ -289,7 +308,8 @@ public class ExternalDwellServiceTests
 
     // Registers a target, toggles Enabled off then on, dwells over it, and returns the server's
     // activation line (or null on timeout). Used to verify re-enable does not drop the target.
-    private static async Task<string?> RegisterToggleAndDwell(ExternalDwellSettings settings, StubGazeProvider provider, string pipeName)
+    private static async Task<string?> RegisterToggleAndDwell(
+        ExternalDwellService svc, ExternalDwellSettings settings, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -298,7 +318,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200); // let the server register the target
+        await WaitForTargetCountAsync(svc, 1);
 
         // Toggle the feature off then back on — must NOT drop the registered target.
         settings.Enabled = false;
@@ -329,7 +349,7 @@ public class ExternalDwellServiceTests
                 pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterThenDwellThroughABlink(provider, _pipeName).GetAwaiter().GetResult();
+            var activated = RegisterThenDwellThroughABlink(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(activated).IsNull();
         });
@@ -337,7 +357,8 @@ public class ExternalDwellServiceTests
 
     // Registers a target, enters it with a real sample, then lets the dwell time elapse across HELD
     // samples only. Returns the server's activation line, or null if none arrived (the expectation).
-    private static async Task<string?> RegisterThenDwellThroughABlink(StubGazeProvider provider, string pipeName)
+    private static async Task<string?> RegisterThenDwellThroughABlink(
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -346,7 +367,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200); // let the server register the target
+        await WaitForTargetCountAsync(svc, 1);
 
         provider.Raise(new GazePoint(100, 100, 0, IsValid: true));          // enter the target
         // Invalid samples inside the 150 ms interpolation budget: the engine publishes the held
@@ -357,16 +378,6 @@ public class ExternalDwellServiceTests
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(1000)) == read ? await read : null;
-    }
-
-    private static async Task RunPipeClient(string pipeName)
-    {
-        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
-        await client.ConnectAsync(2000);
-        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
-        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
-            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 10, 10), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(100);
     }
 
     [Fact]
@@ -382,14 +393,14 @@ public class ExternalDwellServiceTests
                 pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterDisabledThenEnableAndDwell(settings, provider, _pipeName).GetAwaiter().GetResult();
+            var activated = RegisterDisabledThenEnableAndDwell(svc, settings, provider, _pipeName).GetAwaiter().GetResult();
             Check.That(activated).IsNotNull();
             Check.That(activated).Contains("activated");
         });
     }
 
     private static async Task<string?> RegisterDisabledThenEnableAndDwell(
-        ExternalDwellSettings settings, StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, ExternalDwellSettings settings, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -398,7 +409,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200);
+        await WaitForTargetCountAsync(svc, 1);
 
         settings.Enabled = true;
 
@@ -426,7 +437,7 @@ public class ExternalDwellServiceTests
                 new WeakReferenceMessenger(), _ => 99, pipeName: _pipeName);
             svc.Start();
 
-            var activated = RegisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+            var activated = RegisterAndDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(activated).IsNull();
             Check.That(engine.SuppressFixation).IsFalse();
@@ -444,7 +455,7 @@ public class ExternalDwellServiceTests
             svc.Start();
 
             var (afterAccumulate, afterLeave) =
-                RegisterAccumulateThenLeave(engine, provider, _pipeName).GetAwaiter().GetResult();
+                RegisterAccumulateThenLeave(svc, engine, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(afterAccumulate).IsTrue();  // mid-dwell over a gated target suppresses fixation
             Check.That(afterLeave).IsFalse();      // leaving the target releases our suppression
@@ -465,7 +476,7 @@ public class ExternalDwellServiceTests
             engine.AcquireFixationSuppression(FixationSuppressor.Keyboard); // the keyboard is up
 
             var (afterAccumulate, afterLeave) =
-                RegisterAccumulateThenLeave(engine, provider, _pipeName).GetAwaiter().GetResult();
+                RegisterAccumulateThenLeave(svc, engine, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(afterAccumulate).IsTrue();
             Check.WithCustomMessage("External dwell's release cleared the keyboard's suppression.")
@@ -486,7 +497,7 @@ public class ExternalDwellServiceTests
                 new WeakReferenceMessenger(), _ => 7, pipeName: _pipeName);
             svc.Start();
 
-            var (first, second) = RegisterActivateTwice(provider, _pipeName).GetAwaiter().GetResult();
+            var (first, second) = RegisterActivateTwice(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(first).IsNotNull();          // first dwell activates
             Check.That(first).Contains("activated");
@@ -495,7 +506,8 @@ public class ExternalDwellServiceTests
     }
 
     // Registers a target (hwnd 7) and dwells fully over it, returning the activation line or null.
-    private static async Task<string?> RegisterAndDwell(StubGazeProvider provider, string pipeName)
+    private static async Task<string?> RegisterAndDwell(
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -504,7 +516,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200);
+        await WaitForTargetCountAsync(svc, 1);
 
         RaiseHold(provider, 100, 100, 0, 800_000);
 
@@ -532,9 +544,8 @@ public class ExternalDwellServiceTests
                 engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
                 messenger, _ => 7, pipeName: _pipeName);
             svc.Start();
-            Thread.Sleep(100);
 
-            var (held, released) = RegisterHeldThenDwell(provider, messenger, _pipeName)
+            var (held, released) = RegisterHeldThenDwell(svc, provider, messenger, _pipeName)
                 .GetAwaiter().GetResult();
 
             Check.WithCustomMessage("an external target activated under the exercise hold")
@@ -546,7 +557,7 @@ public class ExternalDwellServiceTests
     }
 
     private static async Task<(string? held, string? released)> RegisterHeldThenDwell(
-        StubGazeProvider provider, IMessenger messenger, string pipeName)
+        ExternalDwellService svc, StubGazeProvider provider, IMessenger messenger, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -555,7 +566,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200);
+        await WaitForTargetCountAsync(svc, 1);
 
         messenger.Send(new ExerciseScreenHoldMessage(true));
         RaiseHold(provider, 100, 100, 0, 800_000);
@@ -574,7 +585,7 @@ public class ExternalDwellServiceTests
     // Registers a target, accumulates dwell partway (captures suppression state), then moves the
     // gaze off it (captures suppression state again). Keeps the pipe open so the target survives.
     private static async Task<(bool afterAccumulate, bool afterLeave)> RegisterAccumulateThenLeave(
-        GazeEngine engine, StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, GazeEngine engine, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -582,7 +593,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200);
+        await WaitForTargetCountAsync(svc, 1);
 
         // Enter (t=0) then accumulate (0.1s, well under the 0.8s dwell): feedback → suppression.
         provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
@@ -597,7 +608,8 @@ public class ExternalDwellServiceTests
     }
 
     // Activates the target once, then attempts a second dwell within the cooldown window.
-    private static async Task<(string? first, string? second)> RegisterActivateTwice(StubGazeProvider provider, string pipeName)
+    private static async Task<(string? first, string? second)> RegisterActivateTwice(
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -606,7 +618,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200);
+        await WaitForTargetCountAsync(svc, 1);
 
         RaiseHold(provider, 100, 100, 0, 800_000);
         var read1 = r.ReadLineAsync();
@@ -645,7 +657,7 @@ public class ExternalDwellServiceTests
             Check.That(dwellRegistry.Registrations[0].MaxDwellMs).IsEqualTo(AdaptationDwellRanges.ExternalMaxDwellMs);
 
             var activated = RegisterApplyHalvingMapAndDwell(
-                dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
+                svc, dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
 
             // 420 ms is just past the HALVED 400 ms dwell and well under the 800 ms baseline — the
             // activation can only have fired because the routed map reached the live target.
@@ -659,7 +671,7 @@ public class ExternalDwellServiceTests
     // The activation proves the map reached the detector's live target behaviourally (at the
     // baseline dwell time that timestamp would still be mid-dwell).
     private static async Task<string?> RegisterApplyHalvingMapAndDwell(
-        DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -668,7 +680,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200); // let the server register the target BEFORE applying the map
+        await WaitForTargetCountAsync(svc, 1);
 
         entry.Apply(ms => ms / 2);
 
@@ -697,7 +709,7 @@ public class ExternalDwellServiceTests
             Check.That(dwellRegistry.Registrations[0].ApplyGeometry).IsNotNull();
 
             var activated = RegisterApplyMarginMapAndDwell(
-                dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
+                svc, dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
 
             // (205, 100) is OUTSIDE the as-registered rect [0, 200] × [0, 200] and INSIDE the
             // +20-outset rect [−20, 220] — the activation can only have fired because the routed
@@ -711,7 +723,7 @@ public class ExternalDwellServiceTests
     // through the routing entry's geometry applier, then dwells at a point only the GROWN rect
     // covers — proving the applier drives the service's live target under its lock.
     private static async Task<string?> RegisterApplyMarginMapAndDwell(
-        DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -720,7 +732,7 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200); // let the server register the target BEFORE applying the map
+        await WaitForTargetCountAsync(svc, 1);
 
         entry.ApplyGeometry(ext => ext + 20); // min half-extent 100 → 120 ⇒ +20 per side
 
@@ -746,7 +758,7 @@ public class ExternalDwellServiceTests
             svc.Start();
 
             var activated = RegisterUpdateApplyIdentityAndDwell(
-                dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
+                svc, dwellRegistry.Registrations[0], provider, _pipeName).GetAwaiter().GetResult();
 
             // (30, 50) is inside the SDK's NEW 400×100 rect and outside the stale-200×200-based
             // reverted rect (x ∈ [100, 300] around the new centre) — the activation proves the
@@ -761,7 +773,7 @@ public class ExternalDwellServiceTests
     // a point only the NEW rect covers. Under the raw-write bug the null map recomputes Bounds from
     // the stale base half-extents and the point falls outside — no dwell, no activation.
     private static async Task<string?> RegisterUpdateApplyIdentityAndDwell(
-        DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, DwellRoutingRegistration entry, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -770,10 +782,10 @@ public class ExternalDwellServiceTests
 
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(200);
+        await WaitForTargetCountAsync(svc, 1);
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new UpdateMessage { Id = "btn", Rect = new SdkRect(0, 0, 400, 100) }, WireJson.Options));
-        await Task.Delay(200); // let the server rebase the target BEFORE applying the map
+        await WaitForTargetRectAsync(svc, new PhysicalRect(0, 0, 400, 100));
 
         entry.ApplyGeometry(null);
 
@@ -797,7 +809,7 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => 7);
             svc.Start();
 
-            var (ownerLine, thiefLine) = TwoClientsRegisterStealAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+            var (ownerLine, thiefLine) = TwoClientsRegisterStealAndDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(ownerLine).IsNotNull();            // owner still receives the activation
             Check.That(ownerLine).Contains("\"id\":\"btn\"");
@@ -818,7 +830,7 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => 7);
             svc.Start();
 
-            var (ownerLine, thiefLine) = RegisterForeignUnregisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+            var (ownerLine, thiefLine) = RegisterForeignUnregisterAndDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(ownerLine).IsNotNull();            // the target survived the foreign unregister
             Check.That(ownerLine).Contains("\"id\":\"btn\"");
@@ -828,7 +840,7 @@ public class ExternalDwellServiceTests
     // Owner registers "btn"; a second connection sends its own register for the same id (steal
     // attempt); dwell completes. Returns (owner's activation line, thief's first line or null).
     private static async Task<(string? ownerLine, string? thiefLine)> TwoClientsRegisterStealAndDwell(
-        StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         var (r1, w1, r2, w2, client1, client2) = await ConnectTwoClients(pipeName);
         await using (client1)
@@ -836,11 +848,13 @@ public class ExternalDwellServiceTests
         {
             await w1.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
                 new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-            await Task.Delay(200);
+            await WaitForTargetCountAsync(svc, 1);
 
             await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
                 new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-            await Task.Delay(200);
+            await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "thief_sentinel", Rect = new SdkRect(5000, 5000, 10, 10), Hwnd = 7 }, WireJson.Options));
+            await WaitForTargetCountAsync(svc, 2);
 
             RaiseHold(provider, 100, 100, 0, 800_000);
 
@@ -857,7 +871,7 @@ public class ExternalDwellServiceTests
     // Owner registers "btn"; a second connection sends an unregister for it; dwell completes.
     // Returns (owner's activation line, thief's first line or null).
     private static async Task<(string? ownerLine, string? thiefLine)> RegisterForeignUnregisterAndDwell(
-        StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         var (r1, w1, r2, w2, client1, client2) = await ConnectTwoClients(pipeName);
         await using (client1)
@@ -865,11 +879,13 @@ public class ExternalDwellServiceTests
         {
             await w1.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
                 new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-            await Task.Delay(200);
+            await WaitForTargetCountAsync(svc, 1);
 
             await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
                 new UnregisterMessage { Id = "btn" }, WireJson.Options));
-            await Task.Delay(200);
+            await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "thief_sentinel", Rect = new SdkRect(5000, 5000, 10, 10), Hwnd = 7 }, WireJson.Options));
+            await WaitForTargetCountAsync(svc, 2);
 
             RaiseHold(provider, 100, 100, 0, 800_000);
 
@@ -935,10 +951,13 @@ public class ExternalDwellServiceTests
         await w.WriteAsync(batch);
         await WaitForTargetCountAsync(svc, ExternalDwellService.MaxTargetsPerConnection);
 
-        // One past the cap, on its own far tile.
+        // One past the cap, on its own far tile, followed on the same stream by an UpdateMessage on
+        // t1 so we can deterministically wait until the server processed both lines in FIFO order.
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "t512", Rect = new SdkRect(60000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(300);
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new UpdateMessage { Id = "t1", Rect = new SdkRect(100, 200, 100, 100) }, WireJson.Options));
+        await WaitForTargetRectAsync(svc, new PhysicalRect(100, 200, 100, 100));
 
         // Dwell on t0's tile continuously, like the other dwell tests.
         RaiseHold(provider, 50, 50, 0, 800_000);
@@ -997,7 +1016,7 @@ public class ExternalDwellServiceTests
         // t0's rect refreshed to a far tile — the register that the cap used to reject.
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "t0", Rect = new SdkRect(100000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(300);
+        await WaitForTargetRectAsync(svc, new PhysicalRect(100000, 0, 100, 100));
 
         RaiseHold(provider, 100050, 50, 0, 900_000);
 
@@ -1005,13 +1024,21 @@ public class ExternalDwellServiceTests
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
-    // Poll observable server state (TargetCountForTests) until the batched registrations have
-    // landed — sturdier than a fixed sleep, which is the flake-shaped part under load.
+    // Poll observable server state (TargetCountForTests) until it reaches the expected value —
+    // rising (batched registrations landing) or falling (connection teardown removing targets) —
+    // sturdier than a fixed sleep, which is the flake-shaped part under load.
     private static async Task WaitForTargetCountAsync(ExternalDwellService svc, int expected)
     {
-        for (var i = 0; i < 200 && svc.TargetCountForTests < expected; i++)
+        for (var i = 0; i < 200 && svc.TargetCountForTests != expected; i++)
             await Task.Delay(25);
         Check.That(svc.TargetCountForTests).IsEqualTo(expected);
+    }
+
+    private static async Task WaitForTargetRectAsync(ExternalDwellService svc, PhysicalRect expected)
+    {
+        for (var i = 0; i < 200 && !svc.LiveTargetRects().Any(r => r == expected); i++)
+            await Task.Delay(25);
+        Check.That(svc.LiveTargetRects()).HasElementThatMatches(r => r == expected);
     }
 
     // --- Pipe-supplied rect sanity clamp ---

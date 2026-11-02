@@ -58,7 +58,7 @@ public class ActionMenuViewModelLabelTests
     }
 
     [Fact]
-    public void LabelsSurviveALayerChange()
+    public void Labels_SurviveALayerChange()
     {
         // Switching to More is not a reason to lose the names — the second layer is exactly where
         // a user who just asked what things are called still needs them.

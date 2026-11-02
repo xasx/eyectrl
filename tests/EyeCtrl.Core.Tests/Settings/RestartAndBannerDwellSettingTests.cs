@@ -12,6 +12,11 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class RestartAndBannerDwellSettingTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void BothKnobs_DefaultToZero_AndFollowTheActivationDwell()
     {
@@ -146,7 +151,7 @@ public class RestartAndBannerDwellSettingTests
         var path = Path.Combine(Path.GetTempPath(), $"eyectrl_b6save_{Guid.NewGuid()}.json");
         try
         {
-            new SettingsService(path).Save(new EyeCtrlSettings());
+            new SettingsService(path, SettingsWriter.App, TestMutexName()).Save(new EyeCtrlSettings());
 
             var dwell = JsonNode.Parse(File.ReadAllText(path))!["dwell"]!.AsObject();
 
@@ -172,7 +177,7 @@ public class RestartAndBannerDwellSettingTests
         var saved = Path.Combine(Path.GetTempPath(), $"eyectrl_b6out_{Guid.NewGuid()}.json");
         try
         {
-            new SettingsService(seed).Save(new EyeCtrlSettings());
+            new SettingsService(seed, SettingsWriter.App, TestMutexName()).Save(new EyeCtrlSettings());
             var oldNode = JsonNode.Parse(File.ReadAllText(seed))!.AsObject();
             var oldDwell = oldNode["dwell"]!.AsObject();
             oldDwell.Remove("restartNoticeDwellMs");
@@ -184,7 +189,7 @@ public class RestartAndBannerDwellSettingTests
             Check.That(loaded.Dwell.RestartNoticeDwellMs).IsEqualTo(0);
             Check.That(loaded.Dwell.EyeCareBannerDwellMs).IsEqualTo(0);
 
-            new SettingsService(saved).Save(loaded);
+            new SettingsService(saved, SettingsWriter.App, TestMutexName()).Save(loaded);
 
             var before = JsonNode.Parse(File.ReadAllText(old))!;
             var after = JsonNode.Parse(File.ReadAllText(saved))!;

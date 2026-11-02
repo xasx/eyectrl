@@ -23,7 +23,9 @@ public class AdvancedPageSourceTests
     public void Build_SectionOrder_BackdropDragScrollRepeatExternalDwell()
     {
         var ids = Rows().Where(r => r.Id.Length > 0).Select(r => r.Id).ToList();
-        Check.That(ids.IndexOf("av_backdrop_enabled")).IsStrictlyLessThan(ids.IndexOf("av_drag_settle"));
+        var backdropIdx = ids.IndexOf("av_backdrop_enabled");
+        Check.That(backdropIdx).IsNotEqualTo(-1);
+        Check.That(backdropIdx).IsStrictlyLessThan(ids.IndexOf("av_drag_settle"));
         Check.That(ids.IndexOf("av_drag_settle")).IsStrictlyLessThan(ids.IndexOf("av_scroll_sens"));
         Check.That(ids.IndexOf("av_scroll_sens")).IsStrictlyLessThan(ids.IndexOf("av_repeat_dwell"));
         Check.That(ids.IndexOf("av_repeat_dwell")).IsStrictlyLessThan(ids.IndexOf("av_ext_enabled"));

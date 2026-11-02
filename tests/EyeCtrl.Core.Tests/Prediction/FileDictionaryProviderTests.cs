@@ -353,9 +353,13 @@ public class FileDictionaryProviderTests : IDisposable
         _provider.Load();
         var abbreviations = _provider.Abbreviations;
 
-        // Assert - case-insensitive abbreviation matching is supported
-        Check.That(abbreviations).HasElementThatMatches(a => a.Equals("dr.", StringComparison.OrdinalIgnoreCase));
-        Check.That(abbreviations).HasElementThatMatches(a => a.Equals("DR.", StringComparison.OrdinalIgnoreCase));
+        // Assert - case-insensitive abbreviation matching is supported. The check rides the
+        // set's OWN Contains: the consumer's lookup path is what must be case-insensitive, not
+        // a test-side OrdinalIgnoreCase comparison over the members.
+        Check.That(abbreviations.Contains("dr.")).IsTrue();
+        Check.That(abbreviations.Contains("DR.")).IsTrue();
+        Check.That(abbreviations.Contains("Mr.")).IsTrue();
+        Check.That(abbreviations.Contains("MR.")).IsTrue();
     }
 
     [Fact]

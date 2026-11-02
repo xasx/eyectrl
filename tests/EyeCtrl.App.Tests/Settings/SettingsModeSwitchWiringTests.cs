@@ -39,6 +39,10 @@ public class SettingsModeSwitchWiringTests
     public void SwitchSettingsUiMode_RendersTheSidebarOnce_AfterTheSnap()
     {
         var body = ExtractMethod(WindowSource(), "private void SwitchSettingsUiMode(");
+        // IndexOf answers -1 for an absent marker, and -1 < anything passes the ordering
+        // check below — so pin both markers present first.
+        Check.That(body).Contains("ShowTab(");
+        Check.That(body).Contains("ApplySidebarLayout(");
         Check.WithCustomMessage(
                 "The ordered contract (spec §5.6): model -> snap -> ONE sidebar apply. Applying "
                 + "the sidebar before the snap renders an empty sidebar (round-3 I4).")
@@ -58,6 +62,9 @@ public class SettingsModeSwitchWiringTests
     public void SwitchSettingsUiMode_RelabelsAfterTheSidebarApply()
     {
         var body = ExtractMethod(WindowSource(), "private void SwitchSettingsUiMode(");
+        // Presence first: an absent marker's -1 would satisfy the ordering below vacuously.
+        Check.That(body).Contains("ApplySidebarLayout(");
+        Check.That(body).Contains("UpdateModeToggleLabel()");
         Check.WithCustomMessage(
                 "The switch must re-label the toggle AFTER applying the sidebar — the label names "
                 + "the mode now active (L21).")
@@ -101,6 +108,9 @@ public class SettingsModeSwitchWiringTests
     public void RebuildTabPagerChrome_ClearsBeforeItBuilds()
     {
         var body = ExtractMethod(WindowSource(), "private void RebuildTabPagerChrome(");
+        // Presence first: an absent marker's -1 would satisfy the ordering below vacuously.
+        Check.That(body).Contains("TabPagerPanel.Children.Clear()");
+        Check.That(body).Contains("BuildTabPagePager(");
         Check.WithCustomMessage(
                 "BuildTabPagePager only appends — the panel must be cleared first (round-2 I3).")
             .That(body.IndexOf("TabPagerPanel.Children.Clear()"))

@@ -76,8 +76,11 @@ public class ActionMenuWindowDimRenderTests
             // hosts means the live LeftClick item's parts sit directly on MenuCanvas.
             var hosts = window.MenuCanvas.Children.OfType<Canvas>().ToList();
             Check.That(hosts).HasSize(2); // Drag + ScrollMode
-            Check.That(hosts.All(h => Math.Abs(h.Opacity - ActionMenuRingPainter.DisabledOpacity) < 0.001)).IsTrue();
-            Check.That(hosts.All(h => h.Children.Count > 0)).IsTrue(); // the dimmed button parts ride inside
+            foreach (var host in hosts)
+            {
+                Check.That(host.Opacity).IsCloseTo(ActionMenuRingPainter.DisabledOpacity, 0.001);
+                Check.That(host.Children.Count).IsStrictlyGreaterThan(0); // the dimmed button parts ride inside
+            }
         }
         finally
         {

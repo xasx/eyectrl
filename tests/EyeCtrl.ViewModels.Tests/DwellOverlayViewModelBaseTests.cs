@@ -62,7 +62,7 @@ public class DwellOverlayViewModelBaseTests
 
         long dwellUs = 600 * MathConstants.MicrosecondsPerMillisecond;
         messenger.Send(new GazeCursorMovedMessage(center, 1_000_000));
-        messenger.Send(new GazeCursorMovedMessage(center, 1_000_000 + dwellUs));
+        Drive(messenger, center, 1_000_000, 1_000_000 + dwellUs);
 
         Check.That(vm.Activated).IsNull();
     }
@@ -85,7 +85,11 @@ public class DwellOverlayViewModelBaseTests
 
         long dwellUs = 600 * MathConstants.MicrosecondsPerMillisecond;
         messenger.Send(new GazeCursorMovedMessage(center, 1_000_000));   // enters the target
-        messenger.Send(Held(center, 1_000_000 + dwellUs));               // eyes closed, position held
+        // Eyes closed for the whole dwell, streaming: the engine keeps publishing during a
+        // blink at its own cadence, so a continuous held stream is what production feeds. A
+        // single far-apart held sample would be re-anchored by the 150 ms gap clamp and pass
+        // with the IsInGap filter deleted; this stream only the filter can stop.
+        DwellDrive.Hold(1_030_000, 1_000_000 + dwellUs, t => messenger.Send(Held(center, t)));
 
         Check.That(vm.Activated).IsNull();
     }

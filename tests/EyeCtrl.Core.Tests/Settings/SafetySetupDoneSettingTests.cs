@@ -13,6 +13,11 @@ using Xunit;
 /// </summary>
 public class SafetySetupDoneSettingTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void Default_IsFalse_SoAnExistingInstallAsksOnce() =>
         Check.That(new GeneralSettings().SafetySetupDone).IsFalse();
@@ -52,7 +57,7 @@ public class SafetySetupDoneSettingTests
         {
             var settings = new EyeCtrlSettings();
             settings.General.SafetySetupDone = true;
-            new SettingsService(path).Save(settings);
+            new SettingsService(path, SettingsWriter.App, TestMutexName()).Save(settings);
 
             var loaded = new SettingsService(path).Load();
 

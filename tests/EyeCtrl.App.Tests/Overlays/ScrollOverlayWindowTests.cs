@@ -184,7 +184,7 @@ public class ScrollOverlayWindowTests
             .GetField("EscapeHint", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(window)!;
 
-        Check.That(hint.Visibility).IsNotEqualTo(Visibility.Collapsed);
+        Check.That(hint.Visibility).IsEqualTo(Visibility.Visible);
         Check.That(hint.Text).IsNotEmpty();
     }
 }

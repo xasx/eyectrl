@@ -94,7 +94,7 @@ public class SelfRestartStrategyTests
     }
 
     [Fact]
-    public void DoesNotKillAHealthyChild()
+    public void Begin_DoesNotKillAHealthyChild()
     {
         var child = new FakeChild();
         Build(child: child).Begin();

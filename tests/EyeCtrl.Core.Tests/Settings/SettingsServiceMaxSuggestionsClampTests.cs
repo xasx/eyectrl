@@ -13,6 +13,11 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class SettingsServiceMaxSuggestionsClampTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void Load_ClampsOutOfRangeMaxSuggestions_InsteadOfResettingEverything()
     {
@@ -21,7 +26,7 @@ public class SettingsServiceMaxSuggestionsClampTests
         {
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             // Hand-edit the file the way a user would: one out-of-range count.
@@ -44,7 +49,7 @@ public class SettingsServiceMaxSuggestionsClampTests
         {
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             var root = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();

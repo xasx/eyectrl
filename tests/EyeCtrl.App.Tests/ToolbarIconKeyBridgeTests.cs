@@ -43,6 +43,14 @@ public class ToolbarIconKeyBridgeTests
     [InlineData(InteractionAction.RightClick, ToolbarIconKey.ModeRightClick)]
     [InlineData(InteractionAction.DoubleClick, ToolbarIconKey.ModeDoubleClick)]
     [InlineData(InteractionAction.MiddleClick, ToolbarIconKey.ModeMiddleClick)]
+    [InlineData(InteractionAction.Drag, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.ScrollUp, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.ScrollDown, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.ScrollLeft, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.ScrollRight, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.ScrollMode, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.PinNote, ToolbarIconKey.Modes)]
+    [InlineData(InteractionAction.Keyboard, ToolbarIconKey.Modes)]
     public void EachLockedAction_MapsToItsIntendedModeIcon(InteractionAction action, ToolbarIconKey expected)
     {
         var key = EyeCtrl.ViewModels.ModesIcons.ForAction(action);

@@ -5,26 +5,30 @@ using EyeCtrl.Sdk.Abstractions;
 
 public class DwellClientTests
 {
+    private static string TestPipeName() => $"eyectrl_dwell_test_{Guid.NewGuid():N}";
+
     [Fact]
     public async Task Start_CalledConcurrently_ThenDispose_DoesNotThrow()
     {
-        var client = new DwellClient();
+        var client = new DwellClient(TestPipeName());
         var gate = new TaskCompletionSource();
         var tasks = Enumerable.Range(0, 32)
             .Select(_ => Task.Run(async () => { await gate.Task; client.Start(); }))
             .ToArray();
         gate.SetResult();
         await Task.WhenAll(tasks);
+        Check.That(client.StartCountForTests).IsEqualTo(1);
         client.Dispose();
     }
 
     [Fact]
     public void Dispose_WhileConnectLoopInBackoffDelay_DoesNotThrow()
     {
-        var client = new DwellClient();
+        var client = new DwellClient(TestPipeName());
         client.Start();
         Thread.Sleep(100);
         client.Dispose();
+        Check.That(client.StartCountForTests).IsEqualTo(1);
     }
 
     [Fact]
@@ -35,7 +39,7 @@ public class DwellClientTests
         // With VerifyServerIdentity on (the default), a server that is not the EyeCtrl process
         // is rejected BEFORE the read loop starts, so its lines are never delivered. This test's
         // server lives in the test host — exactly a squatter by identity.
-        var pipeName = "eyectrl_dwell_test_" + Guid.NewGuid().ToString("N");
+        var pipeName = TestPipeName();
         // Explicit buffers: with the default zero-size buffers a named-pipe WRITE blocks until
         // the peer reads — and this client, by design, never reads from a squatter. The fake
         // line must land in the buffer so the server task can complete.

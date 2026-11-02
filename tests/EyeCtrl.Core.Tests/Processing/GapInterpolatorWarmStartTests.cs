@@ -27,9 +27,9 @@ public class GapInterpolatorWarmStartTests
         cold.CopyStateFrom(old);
         double coldX = cold.Process(new GazePoint(600, 500, t, true)).Position.X;
 
-        Check.That(coldX).IsEqualTo(600.0);   // cold: emits the raw point (the jump)
-        Check.That(warmX < 600.0).IsTrue();    // warm: smoothed below the raw...
-        Check.That(warmX >= 500.0).IsTrue();   // ...and no overshoot past the seed (bounded lag)
+        Check.That(coldX).IsEqualTo(600.0);               // cold: emits the raw point (the jump)
+        Check.That(warmX).IsStrictlyLessThan(600.0);      // warm: smoothed below the raw...
+        Check.That(warmX).IsGreaterOrEqualThan(500.0);    // ...and no overshoot past the seed (bounded lag)
     }
 
     [Fact]

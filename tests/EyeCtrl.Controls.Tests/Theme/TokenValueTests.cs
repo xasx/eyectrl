@@ -14,7 +14,7 @@ using Xunit;
 /// ThemeParityTests. Restating them here as well would have been a third copy.
 ///
 /// The geometry and type ramp values additionally carry a deliberate value freeze in
-/// ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType, because the validator's
+/// ThemeShapeTests.AllThemes_DeclareIdenticalGeometryAndType, because the validator's
 /// gates check only their ordering (plus a 12px floor), never the exact numbers.
 /// </summary>
 [Collection("ActiveTheme")]
@@ -57,14 +57,28 @@ public class TokenValueTests
     {
         // Tokens_ExposesEveryMemberOfITheme proves a forwarder EXISTS; this proves it
         // forwards. Without it, `=> 13.0` or `=> Current.FontSizeBodyLarge` in place of
-        // `=> Current.FontSizeBody` passes the entire suite.
-        foreach (var member in typeof(ITheme).GetProperties()
-                     .Where(p => p.Name != nameof(ITheme.Name)))
+        // `=> Current.FontSizeBody` passes the entire suite. The sweep runs across EVERY
+        // theme in ThemeRegistry.All, not just the ambient Midnight — a forwarder that
+        // hardcodes a Midnight constant passes under Midnight and fails the moment a
+        // non-Midnight theme is active.
+        try
         {
-            var forwarder = typeof(Tokens).GetProperty(member.Name);
-            Check.WithCustomMessage(
-                    $"Tokens.{member.Name} must forward Current, not restate a value.")
-                .That(forwarder!.GetValue(null)).IsEqualTo(member.GetValue(Tokens.Current));
+            foreach (var theme in ThemeRegistry.All)
+            {
+                Tokens.Activate(theme);
+                foreach (var member in typeof(ITheme).GetProperties()
+                             .Where(p => p.Name != nameof(ITheme.Name)))
+                {
+                    var forwarder = typeof(Tokens).GetProperty(member.Name);
+                    Check.WithCustomMessage(
+                            $"Tokens.{member.Name} must forward Current under theme {theme.Name}, not restate a value.")
+                        .That(forwarder!.GetValue(null)).IsEqualTo(member.GetValue(Tokens.Current));
+                }
+            }
+        }
+        finally
+        {
+            Tokens.Activate(MidnightTheme.Instance); // the collection's restore contract
         }
     }
 

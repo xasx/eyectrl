@@ -43,7 +43,7 @@ public class MlModelSizeRetirementFileTests
             }
             """);
 
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             var loaded = service.Load();
 
             // The retired id itself: kept as data, not reset to the default ("360M").
@@ -69,4 +69,9 @@ public class MlModelSizeRetirementFileTests
 
     private static string TempFile() =>
         Path.Combine(Path.GetTempPath(), $"eyectrl_mlsize_{Guid.NewGuid()}.json");
+
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
 }

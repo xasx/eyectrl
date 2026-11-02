@@ -31,6 +31,18 @@ public class AdapterGroupTrackerTests
     }
 
     [Fact]
+    public void Add_SameIdTwice_IsIdempotent_SingleRemoveInvokesCallback()
+    {
+        var called = 0;
+        var t = new AdapterGroupTracker(() => called++);
+        t.Add("a");
+        t.Add("a");
+        t.Remove("a");
+        Check.That(called).IsEqualTo(1);
+        Check.That(t.IsEmpty).IsTrue();
+    }
+
+    [Fact]
     public void Remove_NotLast_DoesNotInvoke()
     {
         var called = 0;

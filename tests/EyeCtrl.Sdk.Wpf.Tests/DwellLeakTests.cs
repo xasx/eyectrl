@@ -7,6 +7,8 @@ using EyeCtrl.Sdk.Wpf;
 
 public class DwellLeakTests
 {
+    private static string TestPipeName() => $"eyectrl_dwell_test_{Guid.NewGuid():N}";
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference CreateEnabledElement()
     {
@@ -31,6 +33,7 @@ public class DwellLeakTests
     [StaFact]
     public void EnabledElement_IsCollectable_WhenDropped()
     {
+        using var _ = Dwell.UseTestPipeForTests(TestPipeName());
         var wr = CreateEnabledElement();
 
         for (var i = 0; i < 3 && wr.IsAlive; i++)
@@ -45,6 +48,7 @@ public class DwellLeakTests
     [StaFact]
     public void LoadedThenUnloadedElement_IsCollectable_WhenDropped()
     {
+        using var _ = Dwell.UseTestPipeForTests(TestPipeName());
         var wr = CreateLoadedThenUnloadedElement();
 
         for (var i = 0; i < 3 && wr.IsAlive; i++)

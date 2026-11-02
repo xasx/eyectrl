@@ -125,7 +125,7 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(100, 900), new PhysicalPoint(100, 900), 0, 0, 30),
         };
 
-        Check.That(CalibrationValidator.MaxResidualPixels(identity, points) < 1.0).IsTrue();
+        Check.That(CalibrationValidator.MaxResidualPixels(identity, points)).IsStrictlyLessThan(1.0);
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class CalibrationValidatorTests
             new(new PhysicalPoint(1000, 1000), new PhysicalPoint(0, 0), 0, 0, 30),
         };
 
-        Check.That(CalibrationValidator.MaxResidualPixels(identity, points) > 1000.0).IsTrue();
+        Check.That(CalibrationValidator.MaxResidualPixels(identity, points)).IsStrictlyGreaterThan(1000.0);
     }
 
     [Fact]

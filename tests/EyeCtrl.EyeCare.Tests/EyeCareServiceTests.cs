@@ -142,7 +142,7 @@ public class EyeCareServiceTests
         for (long t = 0; t < 5_000_000; t += 100_000)
             svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false, canInterrupt: false);
 
-        Check.That(svc.FatigueScore > 0.0).IsTrue();
+        Check.That(svc.FatigueScore).IsStrictlyGreaterThan(0.0);
 
         settings.Enabled = false;
 

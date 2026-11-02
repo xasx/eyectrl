@@ -11,13 +11,12 @@ using EyeCtrl.ViewModels;
 /// <c>elapsed = timestampUs - _nearestKeyEnteredTimestamp</c>), so withholding samples does not
 /// stop its clock. <c>ToolbarLifecycleCoordinator.cs:118-124</c> withholds gap-held samples and
 /// its comment states the intent — "a blink over a key would otherwise type it" — but withholding
-/// is not a pause: on the first real sample after the gap, the ENTIRE gap is credited at once and
-/// the key fires, with no progress animation leading up to it.
+/// is not a pause: without a gap clamp, on the first real sample after the gap, the ENTIRE gap
+/// would be credited at once and the key would fire, with no progress animation leading up to it.
 ///
-/// <para><b>These tests are RED on today's code, by design.</b> They are the bug report. The
-/// measured behaviour they pin: dwell 450 ms, gap 449 ms → no activation (progress 1.00), gap
-/// 451 ms → activation. Any eyes-closed interval longer than the dwell time types the key under
-/// the gaze. A clamp on credited elapsed time is what turns them green.</para>
+/// <para>These tests regression-pin the clamp on credited elapsed time so that an eyes-closed
+/// interval or hidden interval exceeding <c>MaxContinuousSampleGapUs</c> (150 ms) restarts the key
+/// dwell rather than crediting the gap.</para>
 ///
 /// <para>Pure arithmetic — no WPF, no window, no DPI, 38 ms. Deliberately so: this defect is
 /// immune to the DIP/physical fixture problem that made the gate bug invisible to 3623 tests, so

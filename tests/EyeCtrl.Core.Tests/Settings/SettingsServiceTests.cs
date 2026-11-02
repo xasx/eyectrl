@@ -5,6 +5,11 @@ using EyeCtrl.Core.Settings;
 
 public class SettingsServiceTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void SaveAndLoad_RoundTrips_AllSettings()
     {
@@ -14,7 +19,7 @@ public class SettingsServiceTests
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
             settings.Cursor.SmoothingFactor = 0.7;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
             var loaded = service.Load();
             Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
@@ -170,7 +175,7 @@ public class SettingsServiceTests
         {
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             // Hand-edit the file the way a user would: one out-of-range indicator value.
@@ -193,7 +198,7 @@ public class SettingsServiceTests
         {
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             // Hand-edit the file the way a user would: an out-of-range hold radius and a stability
@@ -226,7 +231,7 @@ public class SettingsServiceTests
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
             settings.Cursor.SmoothingFactor = 0.7;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             // Hand-edit the file the way a user would: the two keyboard dwells below the floor.
@@ -260,7 +265,7 @@ public class SettingsServiceTests
         {
             var settings = new EyeCtrlSettings();
             settings.Dwell.ActivationButtonDwellMs = 600;
-            var service = new SettingsService(tempPath);
+            var service = new SettingsService(tempPath, SettingsWriter.App, TestMutexName());
             service.Save(settings);
 
             var root = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();

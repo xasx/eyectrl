@@ -27,9 +27,10 @@ public class DwellOverlayPauseGateTests
         vm.IsVisible = true;
         vm.AddTargetAt("go");
 
-        // A full dwell time of paused samples over the target's centre.
-        messenger.Send(Sample(0, paused: true));
-        messenger.Send(Sample(900_000, paused: true));
+        // A full dwell time of paused samples over the target's centre, at the tracker's
+        // cadence — a single far-apart sample would be re-anchored by the detector's 150 ms
+        // gap clamp even with the pause gate deleted.
+        DwellDrive.Hold(0, 900_000, t => messenger.Send(Sample(t, paused: true)));
 
         Check.That(vm.Activated).IsEmpty();
     }
@@ -71,8 +72,7 @@ public class DwellOverlayPauseGateTests
         vm.IsVisible = false;
         vm.AddTargetAt("go");
 
-        messenger.Send(Sample(0, paused: false));
-        messenger.Send(Sample(900_000, paused: false));
+        DwellDrive.Hold(0, 900_000, t => messenger.Send(Sample(t, paused: false)));
 
         Check.That(vm.Activated).IsEmpty();
     }

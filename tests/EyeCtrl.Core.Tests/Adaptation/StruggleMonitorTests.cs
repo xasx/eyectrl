@@ -148,7 +148,7 @@ public class StruggleMonitorTests
         var sustain = a.ForMode(FailureMode.SustainFailure);
         Check.That(sustain.HasValue).IsTrue();
         Check.That(sustain!.Value.GatePassed).IsTrue();
-        Check.That(sustain!.Value.Score > 0).IsTrue();
+        Check.That(sustain!.Value.Score).IsStrictlyGreaterThan(0);
         Check.That(sustain!.Value.Context.HasValue).IsFalse(); // global momentary response (§7.2)
         // Not misclassified as aiming (ratio 0.5) or drift (single context).
         Check.That(a.ForMode(FailureMode.Aiming).HasValue).IsFalse();
@@ -236,7 +236,7 @@ public class StruggleMonitorTests
 
         var sustain = a.ForMode(FailureMode.SustainFailure);
         Check.That(sustain.HasValue).IsTrue();
-        Check.That(sustain!.Value.Score > 0).IsTrue();
+        Check.That(sustain!.Value.Score).IsStrictlyGreaterThan(0);
         Check.That(sustain!.Value.GatePassed).IsFalse();
     }
 

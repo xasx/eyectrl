@@ -8,7 +8,6 @@ public class FatigueMonitorTests
     private static readonly EyeCareSettings Cfg = new()
     {
         FatigueMonitorEnabled = true,
-        FatigueThreshold = 0.75
     };
 
     [Fact]

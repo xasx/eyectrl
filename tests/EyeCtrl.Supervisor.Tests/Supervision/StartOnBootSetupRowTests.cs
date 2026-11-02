@@ -157,19 +157,17 @@ public sealed class StartOnBootSetupRowTests : IDisposable
     }
 
     [Fact]
-    public void TheRow_NeverWritesTheSnapshot()
+    public void TheRow_NeverWritesToDisk()
     {
         // The window no longer holds a setter into EyeCtrlSettings for this key; the row has no
-        // access to it at all. Pin the contract the window relies on: choosing leaves a snapshot
-        // the Supervisor loaded untouched, and nothing is written to disk by the Supervisor.
+        // access to it at all. Pin the contract the window relies on: choosing writes nothing to
+        // disk by the Supervisor.
         File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
-        var snapshot = new EyeCtrlSettings();
-        using var row = Open(Tracker(loadedAtStartup: snapshot.General.StartOnBoot));
+        using var row = Open(Tracker(loadedAtStartup: false));
 
         row.Choose(true);
         _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
 
-        Check.That(snapshot.General.StartOnBoot).IsFalse();
         Check.That(File.ReadAllText(_path)).IsEqualTo("""{"general":{"startOnBoot":false}}""");
     }
 

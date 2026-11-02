@@ -31,7 +31,7 @@ public class ActionMenuEdgeButtonsTests
     }
 
     [Fact]
-    public void TheyUseTheManualSelectionSlots()
+    public void Definitions_UseTheManualSelectionSlots()
     {
         // Same two slots the manual-selection close/recapture pair occupies, so the bar's layout
         // is one convention rather than one per context.

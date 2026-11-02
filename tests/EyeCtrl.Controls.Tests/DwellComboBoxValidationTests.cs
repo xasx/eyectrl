@@ -1,5 +1,6 @@
 namespace EyeCtrl.Controls.Tests;
 
+using System;
 using EyeCtrl.Core.Processing;
 using NFluent;
 using Xunit;
@@ -12,7 +13,10 @@ public class DwellComboBoxValidationTests
     [StaFact]
     public void Constructor_MismatchedArrayLengths_ThrowsArgumentException()
     {
-        Check.ThatCode(() => new DwellComboBox(
+        ArgumentException? ex = null;
+        try
+        {
+            _ = new DwellComboBox(
                 new FakeDwellRegistrar(),
                 "prefix",
                 "label",
@@ -23,8 +27,16 @@ public class DwellComboBoxValidationTests
                 DwellCategory.Control,
                 40,
                 800,
-                "⚠ {0} (not available)"))
-            .Throws<ArgumentException>();
+                "⚠ {0} (not available)");
+        }
+        catch (ArgumentException e)
+        {
+            ex = e;
+        }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.Message).Contains("displayOptions");
+        Check.That(ex.Message).Contains("codeOptions");
     }
 
     [StaFact]
@@ -53,7 +65,10 @@ public class DwellComboBoxValidationTests
     [StaFact]
     public void Constructor_NullNotAvailableFormat_ThrowsArgumentNullException()
     {
-        Check.ThatCode(() => new DwellComboBox(
+        ArgumentNullException? ex = null;
+        try
+        {
+            _ = new DwellComboBox(
                 new FakeDwellRegistrar(),
                 "prefix",
                 "label",
@@ -64,8 +79,14 @@ public class DwellComboBoxValidationTests
                 DwellCategory.Control,
                 40,
                 800,
-                null!))
-            .Throws<ArgumentNullException>();
-    }
+                null!);
+        }
+        catch (ArgumentNullException e)
+        {
+            ex = e;
+        }
 
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("notAvailableFormat");
+    }
 }

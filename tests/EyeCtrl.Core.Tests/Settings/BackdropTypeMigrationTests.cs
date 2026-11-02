@@ -25,6 +25,11 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class BackdropTypeMigrationTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): the services below persist (Load's atomic
+    // migration write-back reaches the file), so they never take the production writer mutex.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Theory]
     [InlineData("acrylic")]
     [InlineData("mica")]
@@ -176,7 +181,7 @@ public class BackdropTypeMigrationTests
         try
         {
             File.WriteAllText(path, LegacyFile("acrylic"));
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             var first = service.Load();
             string afterFirst = File.ReadAllText(path);
 
@@ -317,7 +322,7 @@ public class BackdropTypeMigrationTests
             """;
             File.WriteAllText(path, json);
 
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Load();
 
             var healed = File.ReadAllText(path);
@@ -498,7 +503,7 @@ public class BackdropTypeMigrationTests
             File.WriteAllText(path, LegacyFile("acrylic"));
             byte[] originalBytes = File.ReadAllBytes(path);
 
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Load();
 
             Check.That(File.Exists(backup)).IsTrue();

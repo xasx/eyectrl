@@ -19,6 +19,10 @@ public class MagicNumberReplacementTests
         var circleSize = 100.0;
         var expectedRadius = circleSize / 2 + UIConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
 
+        // The production formula itself must agree — asserting only the locally recomputed
+        // arithmetic would stay green no matter what RingPlan actually returned.
+        Check.That(EyeCtrl.Core.ActionMenu.RingPlan.EffectiveRingRadiusFor(circleSize))
+             .IsEqualTo(expectedRadius);
         Check.That(expectedRadius).IsEqualTo(180.0);
     }
 

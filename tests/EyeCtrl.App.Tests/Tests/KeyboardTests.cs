@@ -116,7 +116,7 @@ public class KeyboardTests
             "Keyboard_Window", TimeSpan.FromSeconds(5));
 
         var keys = _fixture.FindElements(keyboard!, "Keyboard_Key_");
-        Check.That(keys.Length > 0).IsTrue();
+        Check.That(keys).Not.IsEmpty();
 
         // Cleanup — toggle keyboard off
         toolbar = _fixture.FindWindow("Toolbar_Window");

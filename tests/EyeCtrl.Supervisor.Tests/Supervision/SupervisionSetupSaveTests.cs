@@ -13,6 +13,10 @@ public class SupervisionSetupSaveTests
 {
     private static string TempPath() =>
         Path.Combine(Path.GetTempPath(), $"eyectrl_sup_setup_{Guid.NewGuid()}.json");
+
+    private static string TestMutexName() =>
+        $"Local\\EyeCtrl.Settings.Writer.Test.{Guid.NewGuid():N}";
+
     [Fact]
     public void UntouchedToggle_AdoptsTheOnDiskValue()
     {
@@ -52,7 +56,7 @@ public class SupervisionSetupSaveTests
             .IsFalse();
     }
 
-    // ── The window's state object: open on disk, re-read on save ─────────────────────────────
+    // ── The window's state object: open on disk, re-read on save ───────────────────────────
 
     [Fact]
     public void Constructor_ReadsTheOnDiskValue_NotTheStaleSnapshot()
@@ -62,7 +66,7 @@ public class SupervisionSetupSaveTests
         var path = TempPath();
         try
         {
-            var service = new SettingsService(path, SettingsWriter.Supervisor);
+            var service = new SettingsService(path, SettingsWriter.Supervisor, TestMutexName());
             service.Save(new EyeCtrlSettings());                 // supervisor's startup snapshot: off
 
             var written = service.Load();
@@ -87,7 +91,7 @@ public class SupervisionSetupSaveTests
         var path = TempPath();
         try
         {
-            var service = new SettingsService(path, SettingsWriter.Supervisor);
+            var service = new SettingsService(path, SettingsWriter.Supervisor, TestMutexName());
             var onDisk = new EyeCtrlSettings();
             onDisk.Supervision.Enabled = true;
             service.Save(onDisk);
@@ -108,7 +112,7 @@ public class SupervisionSetupSaveTests
         var path = TempPath();
         try
         {
-            var service = new SettingsService(path, SettingsWriter.Supervisor);
+            var service = new SettingsService(path, SettingsWriter.Supervisor, TestMutexName());
             var seed = new EyeCtrlSettings();
             seed.Supervision.Enabled = true;
             service.Save(seed);
@@ -130,7 +134,7 @@ public class SupervisionSetupSaveTests
         var path = TempPath();
         try
         {
-            var service = new SettingsService(path, SettingsWriter.Supervisor);
+            var service = new SettingsService(path, SettingsWriter.Supervisor, TestMutexName());
             service.Save(new EyeCtrlSettings());                     // opens on off
 
             var state = new SupervisionSetupEnabledState(service, new EyeCtrlSettings());

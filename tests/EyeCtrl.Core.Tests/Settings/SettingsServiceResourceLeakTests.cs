@@ -1,9 +1,10 @@
 namespace EyeCtrl.Core.Tests.Settings;
 
 using EyeCtrl.Core.Settings;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
-/// Tests for SettingsService CancellationTokenSource disposal bug.
+/// Tests for SettingsService CancellationTokenSource disposal behavior.
 /// Bug: Line 19-20 in SettingsService.cs doesn't dispose the old CancellationTokenSource
 /// before creating a new one, causing a resource leak.
 /// </summary>
@@ -11,11 +12,21 @@ public class SettingsServiceResourceLeakTests : IDisposable
 {
     private readonly string _tempFile;
     private readonly SettingsService _service;
+    private readonly RecordingLogger _logger;
 
     public SettingsServiceResourceLeakTests()
     {
         _tempFile = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
-        _service = new SettingsService(_tempFile);
+        // Box-wide rule for named kernel objects (AGENTS.md): the production writer mutex
+        // (Local\EyeCtrl.Settings.Writer) is machine-global, so a test instance holding it can
+        // contend with a live EyeCtrl or a sibling worktree's suite on this box. Every test
+        // here constructs its service with a GUID-suffixed mutex name instead.
+        _logger = new RecordingLogger();
+        _service = new SettingsService(
+            _tempFile,
+            SettingsWriter.App,
+            $"Local\\EyeCtrl.Settings.Writer.Test.{Guid.NewGuid():N}",
+            _logger);
     }
 
     /// <summary>
@@ -36,11 +47,19 @@ public class SettingsServiceResourceLeakTests : IDisposable
             await Task.Delay(10, TestContext.Current.CancellationToken); // Small delay to create race condition
         }
 
-        // Wait for debounce to complete
-        await Task.Delay(1000, TestContext.Current.CancellationToken);
+        // The final state must actually land: a non-default final value (456) proves the file
+        // reflects the last SaveDebounced rather than a default-valued Load() on a missing file.
+        settings.Dwell.FixationDetectionMs = 456;
+        _service.SaveDebounced(settings);
+        var loaded = await WaitForValueAsync(456, TestContext.Current.CancellationToken);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(456);
 
-        // If we got here without exceptions, the test passes
-        Check.That(true).IsTrue();
+        // The disposal race this test guards surfaced as an ObjectDisposedException on the
+        // background save path — none of that (or any other error) may have been logged.
+        Check.WithCustomMessage(
+                "The debounce loop must complete without a single error-level log entry " +
+                "(ObjectDisposedException or otherwise).")
+            .That(_logger.Errors).IsEmpty();
     }
 
     /// <summary>
@@ -53,23 +72,26 @@ public class SettingsServiceResourceLeakTests : IDisposable
         var settings = new EyeCtrlSettings();
 
         // First call
-        settings.Dwell.FixationDetectionMs = 100;
+        settings.Dwell.FixationDetectionMs = 150;
         _service.SaveDebounced(settings);
 
         // Small delay, then second call should cancel and dispose the first CTS
         await Task.Delay(100, TestContext.Current.CancellationToken);
-        settings.Dwell.FixationDetectionMs = 200;
+        settings.Dwell.FixationDetectionMs = 250;
         _service.SaveDebounced(settings);
 
-        // Small delay, then third call should cancel and dispose the second CTS
+        // Small delay, then third call should cancel and dispose the second CTS. The final
+        // value is 350, NOT 300 — 300 is DwellSettings.FixationDetectionMs's default, so a
+        // poll for "300" could be satisfied by a default-valued Load() on a file that was
+        // never written.
         await Task.Delay(100, TestContext.Current.CancellationToken);
-        settings.Dwell.FixationDetectionMs = 300;
+        settings.Dwell.FixationDetectionMs = 350;
         _service.SaveDebounced(settings);
 
-        // Poll until the final save (300) settles rather than a fixed delay — a loaded CI runner
+        // Poll until the final save (350) settles rather than a fixed delay — a loaded CI runner
         // may run the background debounce late.
-        var loaded = await WaitForValueAsync(300, TestContext.Current.CancellationToken);
-        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(300);
+        var loaded = await WaitForValueAsync(350, TestContext.Current.CancellationToken);
+        Check.That(loaded.Dwell.FixationDetectionMs).IsEqualTo(350);
     }
 
     /// <summary>
@@ -98,7 +120,9 @@ public class SettingsServiceResourceLeakTests : IDisposable
     }
 
     // Polls until the persisted FixationDetectionMs reaches the expected final value (up to ~5s).
-    // Requires the file to exist so a default-valued Load() can't produce a false positive.
+    // Fails EXPLICITLY on timeout rather than falling back to a default-valued Load(): the old
+    // fallback could satisfy an expected value that coincides with a settings default even when
+    // the file was never written.
     private async Task<EyeCtrlSettings> WaitForValueAsync(int expected, CancellationToken ct)
     {
         for (var i = 0; i < 100; i++)
@@ -111,7 +135,11 @@ public class SettingsServiceResourceLeakTests : IDisposable
             }
             await Task.Delay(50, ct);
         }
-        return _service.Load();
+        Check.WithCustomMessage(
+                $"The debounced save never settled: expected FixationDetectionMs {expected} " +
+                "within ~5s (file missing or stuck at an earlier value).")
+            .That(File.Exists(_tempFile)).IsTrue();
+        return _service.Load(); // exists but stale — the caller's value assert fails loudly here
     }
 
     public void Dispose()
@@ -127,6 +155,25 @@ public class SettingsServiceResourceLeakTests : IDisposable
             {
                 Thread.Sleep(50);
             }
+        }
+    }
+
+    // No mocking library (AGENTS.md): a private recording ILogger that captures error-level
+    // entries so the tests can assert the background save path stayed clean.
+    private sealed class RecordingLogger : ILogger<SettingsService>
+    {
+        public List<string> Errors { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Error)
+                Errors.Add(formatter(state, exception));
         }
     }
 }

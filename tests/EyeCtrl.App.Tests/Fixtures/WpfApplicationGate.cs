@@ -85,7 +85,7 @@ internal static class WpfApplicationGate
 /// (This paragraph used to say it did; that followed from the same xUnit v2 misreading corrected
 /// above.) What remains is ordinal: it could run first, and a theme it failed to restore would
 /// still be the theme this collection's tests read. It restores Midnight in a <c>finally</c> on
-/// every test, and <c>ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType</c> (in
+/// every test, and <c>ThemeShapeTests.AllThemes_DeclareIdenticalGeometryAndType</c> (in
 /// EyeCtrl.Controls.Tests) pins <c>CornerRadiusCircle == 9999.0</c> for every registered theme, so
 /// the value this collection's tests read cannot diverge across themes without that test failing
 /// first. Say so here so nobody removes the pin thinking it is redundant with this collection.

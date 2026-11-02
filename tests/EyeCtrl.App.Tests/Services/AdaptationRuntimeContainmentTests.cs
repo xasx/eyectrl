@@ -14,10 +14,10 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class AdaptationRuntimeContainmentTests
 {
-    private static AdaptationCoordinator NewCoordinator(AdaptationSettings adaptation)
+    private static AdaptationCoordinator NewCoordinator(AdaptationSettings adaptation, BufferingTelemetrySink? sink = null)
     {
         var settings = new EyeCtrlSettings();
-        var sink = new BufferingTelemetrySink();
+        sink ??= new BufferingTelemetrySink();
         var monitor = new StruggleMonitor(sink, settings.EyeCare);
         var provider = new EffectiveSettingsProvider(adaptation);
         var controller = new AdaptationController(provider, adaptation);
@@ -33,11 +33,31 @@ public class AdaptationRuntimeContainmentTests
         // the supervisor's respawn owns recovery"), so an escaping throw costs this user control of their
         // machine. The cue/drift subscribers do WPF work and Serilog I/O — both can fail.
         var adaptation = new AdaptationSettings { Enabled = true };
-        var coordinator = NewCoordinator(adaptation);
-        coordinator.AssessmentUpdated += _ => throw new InvalidOperationException("subscriber boom");
+        var sink = new BufferingTelemetrySink();
+        var coordinator = NewCoordinator(adaptation, sink);
 
-        // A non-None assessment is needed for the raise to happen at all; drive a couple of ticks.
-        Check.ThatCode(() => { coordinator.RunTick(); coordinator.RunTick(); }).Not.ThrowsAny();
+        int invoked = 0;
+        coordinator.AssessmentUpdated += _ => { invoked++; throw new InvalidOperationException("subscriber boom"); };
+
+        // Seed the tick clock (Tick's AwaitingGaze gate reads the latest gaze timestamp) and drive the
+        // first active tick — the enable edge — which stamps the session boundary at t=0.
+        coordinator.OnGazeSample(new GazePoint(0, 0, 0, IsValid: true));
+        coordinator.RunTick();
+
+        // A non-None assessment is needed for the raise to happen at all (_lastRaisedWasNone starts
+        // true, so leading Nones are coalesced away). Six abandoned dwells gate the SustainFailure
+        // mode — the same recipe as StruggleMonitorRobustnessTests — with stamps after the t=0
+        // session boundary so the evidence window selects them.
+        for (int i = 0; i < 6; i++)
+            sink.Report(new DwellOutcome(100_000 + i * 100_000, DwellContext.ActionMenu, $"b{i}",
+                OutcomeKind.Abandoned, AbandonReason.GazeLeft, 0.9,
+                new PhysicalPoint(150, 100), new PhysicalPoint(100, 100), 30, null));
+        coordinator.OnGazeSample(new GazePoint(0, 0, 700_000, IsValid: true));
+
+        Check.ThatCode(() => coordinator.RunTick()).Not.ThrowsAny();
+
+        // The containment above is only proven if the throwing subscriber really ran.
+        Check.That(invoked).IsStrictlyGreaterThan(0);
     }
 
     [Fact]

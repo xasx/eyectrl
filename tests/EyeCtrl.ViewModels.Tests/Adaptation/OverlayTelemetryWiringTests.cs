@@ -59,7 +59,7 @@ public class OverlayTelemetryWiringTests
     public void EveryDwellOverlaySubclass_HasAnAssignedContext()
     {
         // Intended context for every concrete DwellOverlayViewModelBase subclass. ScrollOverlay's
-        // ctor wiring lands in plan 1a-③; its entry here documents intent and keeps this guard green.
+        // ctor wiring lands in plan 1a-②; its entry here documents intent and keeps this guard green.
         // ActivationButtonViewModel is deliberately absent: ticket 3 moved the activation surface's clock
         // (and its telemetry) into GazeEngine's fixation rule, so it is no longer a DwellOverlayViewModelBase.
         var expected = new Dictionary<string, DwellContext>
@@ -85,7 +85,7 @@ public class OverlayTelemetryWiringTests
 
         Check.That(subclasses).Not.IsEmpty();
         foreach (var name in subclasses)
-            Check.That(expected.ContainsKey(name)).IsTrue();
+            Check.That(expected).ContainsKey(name);
     }
 
     [Fact]

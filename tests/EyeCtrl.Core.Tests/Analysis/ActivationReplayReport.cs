@@ -707,7 +707,7 @@ public static class ActivationReplayReport
         sb.AppendLine("up after a fixation ended, so glances at a lingering button are under-represented (G3′ reads");
         sb.AppendLine("low); and it drew its decoy button at exactly the spot today's offer goes, so looks toward B");
         sb.AppendLine($"are over-represented (G3′ reads high). At R75 the single completion looks like such a look — an");
-        sb.AppendLine($"up-right saccade to B, then a hold {onButtonDistancePx:0} px from B, {r75Delay} after the hold ended. At R90");
+        sb.AppendLine($"up-right saccade to B, then a hold {onButtonDistancePx.ToString("0", ci)} px from B, {r75Delay} after the hold ended. At R90");
         sb.AppendLine($"the three completions reached B {r90Delays} after their holds ended; two are that decoy pattern,");
         sb.AppendLine("and the latest is the one a 0.75 s or shorter linger removes (3 → 2 in the linger row). Read");
         sb.AppendLine("G3′ as \"rare on this recording\"; the live check decides.");

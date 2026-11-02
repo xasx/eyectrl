@@ -28,12 +28,11 @@ public class SettingsTests
         var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
         Check.That(settingsBtn).IsNotNull();
 
-        // Act — dwell on settings button
+        // Act - dwell on settings button
         await _fixture.SimulateDwellOn(settingsBtn!);
-        await Task.Delay(500, TestContext.Current.CancellationToken); // Wait for window to appear
 
-        // Assert — settings window should appear
-        var settings = _fixture.FindWindow("Settings_Window");
+        // Assert - settings window should appear
+        var settings = await _fixture.WaitForWindowAsync("Settings_Window", TimeSpan.FromSeconds(5));
         Check.That(settings).IsNotNull();
 
         _fixture.MoveCursorAway();
@@ -42,7 +41,7 @@ public class SettingsTests
     /// <summary>
     /// The expected ids are kept in sync with <c>SettingsWindow._tabDefs</c> by
     /// <c>SettingsTabDriftTests</c>, which runs headlessly. This test only runs when UI tests are
-    /// opted in, so on its own it cannot be trusted to notice product drift — it previously expected
+    /// opted in, so on its own it cannot be trusted to notice product drift - it previously expected
     /// eight tabs including <c>ManualSelection</c> and <c>Theme</c>, neither of which still exists.
     /// </summary>
     [Fact]
@@ -55,8 +54,7 @@ public class SettingsTests
             var toolbar = _fixture.FindWindow("Toolbar_Window");
             var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
             await _fixture.SimulateDwellOn(settingsBtn!);
-            await Task.Delay(500, TestContext.Current.CancellationToken);
-            settings = _fixture.FindWindow("Settings_Window");
+            settings = await _fixture.WaitForWindowAsync("Settings_Window", TimeSpan.FromSeconds(5));
         }
         Check.That(settings).IsNotNull();
 
@@ -108,8 +106,7 @@ public class SettingsTests
             var toolbar = _fixture.FindWindow("Toolbar_Window");
             var settingsBtn = _fixture.FindElement(toolbar!, "Toolbar_Button_Settings");
             await _fixture.SimulateDwellOn(settingsBtn!);
-            await Task.Delay(500, TestContext.Current.CancellationToken);
-            settings = _fixture.FindWindow("Settings_Window");
+            settings = await _fixture.WaitForWindowAsync("Settings_Window", TimeSpan.FromSeconds(5));
         }
         Check.That(settings).IsNotNull();
 

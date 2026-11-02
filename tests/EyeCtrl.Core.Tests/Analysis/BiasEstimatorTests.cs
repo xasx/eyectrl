@@ -15,14 +15,15 @@ using EyeCtrl.Core.Models;
 /// </list>
 /// All constants are the debate's or the reviewers': no knob was tuned to make a test pass.
 /// </summary>
-public class BiasEstimatorTests
+public class BiasEstimatorTests(ITestOutputHelper output)
 {
+    private readonly ITestOutputHelper _output = output;
     private static readonly PhysicalPoint Screen = BiasStreams.Screen;
 
     /// <summary>The true bias the acceptance stream holds at every target.</summary>
     private static readonly PhysicalPoint TrueBias = new(300, 0);
 
-    // ── Acceptance ────────────────────────────────────────────────────────────
+    // ── Acceptance ──────────────────────────────────────────────────────────────
 
     [Fact]
     public void Acceptance_RecoversB300_DespiteALargerAndNearerDistractor()
@@ -645,7 +646,7 @@ public class BiasEstimatorTests
         Check.That(noTriggerBySigma[12.0]).IsGreaterOrEqualThan(95);
         // σ 15 and 20 are reported, not gated: the linkage fragments real fixations there and the
         // honest answer is Inconclusive.
-        Check.That(noTriggerBySigma[15.0] + noTriggerBySigma[20.0]).IsGreaterOrEqualThan(0);
+        _output.WriteLine($"NoTrigger at sigma 15/20: {noTriggerBySigma[15.0]}/{noTriggerBySigma[20.0]}");
     }
 
     [Theory]

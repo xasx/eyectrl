@@ -41,8 +41,8 @@ public class OneEuroFilterTests
             timestamp += 33_000;
         }
 
-        Check.That(result.X >= 495.0 && result.X <= 505.0).IsTrue();
-        Check.That(result.Y >= 495.0 && result.Y <= 505.0).IsTrue();
+        Check.That(result.X).IsCloseTo(500.0, 5.0);
+        Check.That(result.Y).IsCloseTo(500.0, 5.0);
     }
 
     [Fact]
@@ -53,8 +53,8 @@ public class OneEuroFilterTests
 
         var result = filter.Filter(new GazePoint(800.0, 800.0, 33_000, true));
 
-        Check.That(result.X > 500.0).IsTrue();
-        Check.That(result.Y > 500.0).IsTrue();
+        Check.That(result.X).IsStrictlyGreaterThan(500.0);
+        Check.That(result.Y).IsStrictlyGreaterThan(500.0);
     }
 
     [Fact]

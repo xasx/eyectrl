@@ -18,13 +18,18 @@ public class SettingsServiceNoteTextSizeClampTests
 {
     private static string TempPath() => Path.Combine(Path.GetTempPath(), $"eyectrl_note_{Guid.NewGuid()}.json");
 
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     private EyeCtrlSettings LoadWith(int textSize)
     {
         var path = TempPath();
         var settings = new EyeCtrlSettings();
         settings.Dwell.ActivationButtonDwellMs = 600;
         settings.Cursor.SmoothingFactor = 0.7;
-        var service = new SettingsService(path);
+        var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
         service.Save(settings);
 
         var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
@@ -49,7 +54,7 @@ public class SettingsServiceNoteTextSizeClampTests
         var path = TempPath();
         var settings = new EyeCtrlSettings();
         settings.Dwell.ActivationButtonDwellMs = 600;
-        new SettingsService(path).Save(settings);
+        new SettingsService(path, SettingsWriter.App, TestMutexName()).Save(settings);
         var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         root.Remove("note");
         var json = prefix + root.ToJsonString().Substring(1);

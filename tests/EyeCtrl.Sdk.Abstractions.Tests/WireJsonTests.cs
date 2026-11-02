@@ -12,6 +12,7 @@ public class WireJsonTests
         var json = JsonSerializer.Serialize(msg, WireJson.Options);
         Check.That(json).Contains("\"type\":\"register\"");
         Check.That(json).Contains("\"id\":\"a\"");
+        Check.That(json).Contains("\"rect\":{\"x\":1,\"y\":2,\"width\":3,\"height\":4,\"centerX\":2.5,\"centerY\":4}");
         Check.That(json).Contains("\"hwnd\":5");
     }
 

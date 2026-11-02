@@ -76,11 +76,11 @@ public class LegibilityFloorTests
         // and when it does this becomes the assertion that has to change — deliberately, with
         // someone reading this comment — instead of four glyph sizes changing silently.
         //
-        // Not redundant with ThemeShapeTests.AllThreeThemes_DeclareIdenticalGeometryAndType, which
+        // Not redundant with ThemeShapeTests.AllThemes_DeclareIdenticalGeometryAndType, which
         // pins FontSizeBody against a LITERAL 12. Someone raising the ramp step edits that literal
         // and moves on; this is the assertion that then puts the four clamp sites in front of
         // them. It reads the ambient Tokens rather than a concrete theme because that same test
-        // pins all three themes to one value, so whichever theme is active the expectation holds.
+        // pins all four themes to one value, so whichever theme is active the expectation holds.
         Check.WithCustomMessage(
                 "Tokens.FontSizeBody has moved off the accessibility floor. That is allowed: the "
                 + "validator and ThemeShapeTests gate it >= 12, not == 12. Nothing is broken — but "

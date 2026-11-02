@@ -10,7 +10,11 @@ public class SettingsServiceDebounceTests : IDisposable
     public SettingsServiceDebounceTests()
     {
         _tempFile = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
-        _service = new SettingsService(_tempFile);
+        // Box-wide named-kernel-object rule (AGENTS.md): SaveDebounced reaches Save, which takes
+        // the writer mutex — use a GUID-suffixed name so this never contends with a live EyeCtrl.
+        _service = new SettingsService(
+            _tempFile, SettingsWriter.App,
+            @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N"));
     }
 
     [Fact]

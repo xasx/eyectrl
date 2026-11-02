@@ -382,11 +382,12 @@ public class ToolbarViewModelTests
         messenger.Register<TaskSwitcherToggledMessage>(this, (_, _) => unrenderedButtonFired = true);
         messenger.Register<QuickActionsToggledMessage>(this, (_, _) => unrenderedButtonFired = true);
 
-        // Rest gaze on the screen origin for well beyond the toolbar dwell time.
+        // Rest gaze on the screen origin for well beyond the toolbar dwell time, sampled
+        // continuously — a single far-apart sample would be re-anchored by the detector's
+        // 150 ms gap clamp and pass even if the unrendered buttons had (0,0) targets.
         long dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
         var origin = new PhysicalPoint(0, 0);
-        vm.Receive(new GazeCursorMovedMessage(origin, 0));
-        vm.Receive(new GazeCursorMovedMessage(origin, dwellUs));
+        DwellDrive.Hold(0, dwellUs, t => vm.Receive(new GazeCursorMovedMessage(origin, t)));
 
         Check.That(unrenderedButtonFired).IsFalse();
     }
@@ -428,7 +429,11 @@ public class ToolbarViewModelTests
 
         long dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
         vm.Receive(new GazeCursorMovedMessage(center, 0));
-        vm.Receive(new GazeCursorMovedMessage(new GazeFrame(center, dwellUs, IsInGap: true)));
+        // The blink lasts the whole dwell and the engine keeps publishing, so the held
+        // stream arrives at the tracker's cadence. If the IsInGap filter were deleted the
+        // detector would accumulate straight across this continuous stream and fire.
+        DwellDrive.Hold(30_000, dwellUs,
+            t => vm.Receive(new GazeCursorMovedMessage(new GazeFrame(center, t, IsInGap: true))));
 
         Check.That(paused).IsFalse();
     }
@@ -450,8 +455,7 @@ public class ToolbarViewModelTests
         messenger.Register<PauseToggledMessage>(this, (_, _) => fired = true);
 
         var dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
-        vm.Receive(new GazeCursorMovedMessage(center, 0));
-        vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
+        DwellDrive.Hold(0, dwellUs, t => vm.Receive(new GazeCursorMovedMessage(center, t)));
 
         Check.That(fired).IsFalse();
     }
@@ -467,18 +471,20 @@ public class ToolbarViewModelTests
         var center = new PhysicalPoint(500, 500);
         vm.UpdateButtonScreenPosition("Pause", center);
 
-        // Partially dwell, then hide mid-dwell.
-        vm.Receive(new GazeCursorMovedMessage(center, 0));
-        vm.Receive(new GazeCursorMovedMessage(center, 100_000)); // partial (100ms < 700ms dwell)
+        // Partially dwell (650 of the 700 ms), then hide mid-dwell.
+        DwellDrive.Hold(0, 650_000, t => vm.Receive(new GazeCursorMovedMessage(center, t)));
         vm.SetActive(false);
         vm.SetActive(true);
 
         bool fired = false;
         messenger.Register<PauseToggledMessage>(this, (_, _) => fired = true);
 
-        // A single sample immediately after resume must NOT complete a dwell — the stale
-        // EnteredTimestamp was cleared by ResetAllState on hide.
-        vm.Receive(new GazeCursorMovedMessage(center, 200_000));
+        // Samples immediately after resume sit inside the 150 ms gap window and past the
+        // 700 ms threshold relative to t = 0, but amount to only 30 ms of post-resume hold.
+        // With the stale EnteredTimestamp = 0 that ResetAllState cleared on hide, the
+        // 710 ms sample would complete the dwell and fire.
+        vm.Receive(new GazeCursorMovedMessage(center, 680_000));
+        vm.Receive(new GazeCursorMovedMessage(center, 710_000));
         Check.That(fired).IsFalse();
     }
 

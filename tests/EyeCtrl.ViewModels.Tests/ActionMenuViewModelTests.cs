@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -43,9 +44,20 @@ public class ActionMenuViewModelTests
 
         _messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(0, 0), actions, false, 600, new PhysicalPoint(0, 0)));
 
-        // 4 items at 90-degree intervals — verify positions are distinct and equidistant from center
+        // 4 slots (3 primary + More) at 90-degree intervals: every slot sits at exactly the
+        // ring radius from the centre (0,0), read through the live DPI scale like the VM does…
+        var expectedRadius = DpiHelper.LogicalToPhysicalX(vm.EffectiveRingRadius);
         var positions = vm.Items.Select(i => i.Position).ToList();
-        Check.That(positions.Distinct().Count()).IsEqualTo(4);
+        Check.That(positions.Select(p => Math.Sqrt(p.X * p.X + p.Y * p.Y)))
+             .ContainsOnlyElementsThatMatch(d => Math.Abs(d - expectedRadius) < 1e-6);
+
+        // …and consecutive sorted angles are a quarter-turn apart, through the wrap-around.
+        var angles = positions.Select(p => Math.Atan2(p.Y, p.X)).OrderBy(a => a).ToList();
+        for (var i = 0; i < angles.Count; i++)
+        {
+            var next = i + 1 < angles.Count ? angles[i + 1] : angles[0] + 2 * Math.PI;
+            Check.That(next - angles[i]).IsCloseTo(Math.PI / 2, 1e-6);
+        }
     }
 
     [Fact]

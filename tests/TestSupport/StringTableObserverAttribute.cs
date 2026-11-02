@@ -31,7 +31,7 @@ using Xunit.v3;
 /// </summary>
 public sealed class StringTableObserverAttribute : BeforeAfterTestAttribute
 {
-    private static readonly ConcurrentDictionary<string, UiLanguage> CorruptedStarts = new();
+    private static readonly ConcurrentDictionary<string, UiLanguage> _corruptedStarts = new();
 
     /// <inheritdoc/>
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
@@ -40,13 +40,13 @@ public sealed class StringTableObserverAttribute : BeforeAfterTestAttribute
         // one included — is a leaked global, and only the embedded singleton is clean.
         if (ReferenceEquals(StringTable.Current, StringTable.EmbeddedEnglish)) return;
 
-        CorruptedStarts[test.UniqueID] = StringTable.Current.Language;
+        _corruptedStarts[test.UniqueID] = StringTable.Current.Language;
     }
 
     /// <inheritdoc/>
     public override void After(MethodInfo methodUnderTest, IXunitTest test)
     {
-        if (!CorruptedStarts.TryRemove(test.UniqueID, out var observed)) return;
+        if (!_corruptedStarts.TryRemove(test.UniqueID, out var observed)) return;
 
         // Reset before throwing: one failed restore must not fail every later test too.
         StringTable.ResetToEmbeddedEnglish();

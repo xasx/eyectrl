@@ -52,7 +52,29 @@ public static class Dwell
 
     private static readonly ConcurrentDictionary<Dispatcher, ThreadGroup> _groups = new();
 
-    private static readonly DwellHeadCore _core = new("wpf_");
+    private static DwellHeadCore _core = new("wpf_");
+
+    /// <summary>
+    /// Replaces the static <see cref="DwellHeadCore"/> with one bound to a test-private pipe name,
+    /// and disposes its client when the returned scope ends so tests never touch the production
+    /// <c>eyectrl_dwell</c> pipe or leave a reconnect loop running.
+    /// </summary>
+    internal static IDisposable UseTestPipeForTests(string pipeName)
+    {
+        var testCore = new DwellHeadCore("wpf_", pipeName);
+        var previous = Interlocked.Exchange(ref _core, testCore);
+        previous.Client.Dispose();
+        return new TestPipeScope(testCore);
+    }
+
+    private sealed class TestPipeScope(DwellHeadCore testCore) : IDisposable
+    {
+        public void Dispose()
+        {
+            testCore.Client.Dispose();
+            Interlocked.CompareExchange(ref _core, new DwellHeadCore("wpf_"), testCore);
+        }
+    }
 
     private sealed record DwellEntry(WpfElementAdapter Adapter,
                                      RoutedEventHandler Loaded, RoutedEventHandler Unloaded);

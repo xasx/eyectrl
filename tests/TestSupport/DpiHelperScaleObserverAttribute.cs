@@ -45,7 +45,7 @@ using Xunit.v3;
 /// </summary>
 public sealed class DpiHelperScaleObserverAttribute : BeforeAfterTestAttribute
 {
-    private static readonly ConcurrentDictionary<string, (double X, double Y)> CorruptedStarts = new();
+    private static readonly ConcurrentDictionary<string, (double X, double Y)> _corruptedStarts = new();
 
     /// <inheritdoc/>
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
@@ -54,13 +54,13 @@ public sealed class DpiHelperScaleObserverAttribute : BeforeAfterTestAttribute
         var y = DpiHelper.ScaleY;
         if (x == 1.0 && y == 1.0) return;
 
-        CorruptedStarts[test.UniqueID] = (x, y);
+        _corruptedStarts[test.UniqueID] = (x, y);
     }
 
     /// <inheritdoc/>
     public override void After(MethodInfo methodUnderTest, IXunitTest test)
     {
-        if (!CorruptedStarts.TryRemove(test.UniqueID, out var observed)) return;
+        if (!_corruptedStarts.TryRemove(test.UniqueID, out var observed)) return;
 
         // Reset before throwing: one failed restore must not fail every later test too.
         DpiHelper.Initialize(1.0, 1.0);

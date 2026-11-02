@@ -118,9 +118,17 @@ internal sealed class FitHost : IDisposable
 
         source.RootVisual = frame;
         var host = new FitHost(source, frame, content);
-        host.Relayout();
-        host.Guard();
-        return host;
+        try
+        {
+            host.Relayout();
+            host.Guard();
+            return host;
+        }
+        catch
+        {
+            host.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Re-runs layout over the whole frame (after a text change or a probe measure).</summary>
@@ -240,11 +248,11 @@ internal static class FitText
                     Flush();
                     break;
                 case '-':
-                case '‐':
+                case '\u2010':
                     current.Append(c);
                     Flush();
                     break;
-                case '­':
+                case '\u00ad':
                     current.Append('-');
                     Flush();
                     break;

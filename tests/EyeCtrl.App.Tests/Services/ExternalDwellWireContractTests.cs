@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -138,7 +139,7 @@ public class ExternalDwellWireContractTests
             // UpdateMessage, not a re-Register (a fresh DwellTarget would zero the accumulated dwell).
             fake.MoveTo(new SdkRect(300, 0, 200, 200));
             client.OnAdapterLayoutChanged("btn");
-            Thread.Sleep(250);   // server applies the update (no ack in the protocol; bounded settle)
+            WaitForTargetRect(svc, new PhysicalRect(300, 0, 200, 200));
 
             // Gaze follows to B's center, continuously — the gap clamp must not be what decides
             // this. 800ms since the ORIGINAL enter → must activate now. If the update never
@@ -259,7 +260,7 @@ public class ExternalDwellWireContractTests
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 });
             svc.Start();
 
-            var activated = SendGarbageThenRegisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+            var activated = SendGarbageThenRegisterAndDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(activated).IsNotNull();
             Check.That(activated).Contains("activated");
@@ -267,7 +268,8 @@ public class ExternalDwellWireContractTests
         });
     }
 
-    private static async Task<string?> SendGarbageThenRegisterAndDwell(StubGazeProvider provider, string pipeName)
+    private static async Task<string?> SendGarbageThenRegisterAndDwell(
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -285,7 +287,7 @@ public class ExternalDwellWireContractTests
         await w.WriteLineAsync("""{"type":"register","id":"trunc""");
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
-        await Task.Delay(250);   // let the server register the target
+        await WaitForTargetRectAsync(svc, new PhysicalRect(0, 0, 200, 200));
 
         RaiseHold(provider, 100, 100, 0, 800_000);
 
@@ -352,7 +354,7 @@ public class ExternalDwellWireContractTests
             client.RegisterAdapter(fake);
             client.Start();
 
-            Thread.Sleep(400);   // connect + register settle (gating means WaitUntilRegistered cannot be used)
+            WaitForTargetRect(svc, new PhysicalRect(0, 0, 200, 200));
 
             long t = 0;
             provider.Raise(new GazePoint(100, 100, t, IsValid: true));
@@ -372,7 +374,26 @@ public class ExternalDwellWireContractTests
         });
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────────────
+    // ─── Helpers ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Polls <see cref="ExternalDwellService.LiveTargetRects"/> until <paramref name="expected"/>
+    /// is observed on the server, replacing fixed post-register/post-update sleeps.
+    /// </summary>
+    private static void WaitForTargetRect(ExternalDwellService svc, PhysicalRect expected)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline && !svc.LiveTargetRects().Any(r => r == expected))
+            Thread.Sleep(20);
+        Check.That(svc.LiveTargetRects()).HasElementThatMatches(r => r == expected);
+    }
+
+    private static async Task WaitForTargetRectAsync(ExternalDwellService svc, PhysicalRect expected)
+    {
+        for (var i = 0; i < 200 && !svc.LiveTargetRects().Any(r => r == expected); i++)
+            await Task.Delay(25);
+        Check.That(svc.LiveTargetRects()).HasElementThatMatches(r => r == expected);
+    }
 
     /// <summary>
     /// Waits until the server has the target registered AND gated in, polling with a tiny 50ms

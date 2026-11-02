@@ -11,6 +11,11 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class ManualSelectionDefaultsTests
 {
+    // Box-wide named-kernel-object rule (AGENTS.md): tests that persist never take the
+    // production writer mutex — each constructs its service with a GUID-suffixed name.
+    private static string TestMutexName() =>
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
     [Fact]
     public void Defaults_AreFourTimes_WithTheOwnersCircle()
     {
@@ -41,7 +46,7 @@ public class ManualSelectionDefaultsTests
             owner.ManualSelection.HoldOutlierSkipLimit = 10;
             owner.ManualSelection.GazeIndicatorOpacity = 0.7;
 
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             service.Save(owner);
 
             var loaded = service.Load();
@@ -75,7 +80,7 @@ public class ManualSelectionDefaultsTests
             """;
             File.WriteAllText(path, json);
 
-            var service = new SettingsService(path);
+            var service = new SettingsService(path, SettingsWriter.App, TestMutexName());
             var loaded = service.Load();
             Check.That(loaded.ManualSelection.CircleRadiusPixels).IsEqualTo(150);
             Check.That(loaded.ManualSelection.MagnificationLevel).IsEqualTo(2.0);

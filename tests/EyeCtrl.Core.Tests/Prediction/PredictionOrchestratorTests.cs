@@ -58,12 +58,23 @@ public class PredictionOrchestratorTests
     public void GetSuggestions_MergePriority_NextWordFirst()
     {
         var trie = new SentenceCompletionIndex();
-        trie.Insert("hello world today", 100);
-        var words = new Dictionary<string, int> { ["hello"] = 50, ["world"] = 40, ["today"] = 30 };
+        trie.Insert("wo ist das", 100);
+        var words = new Dictionary<string, int>
+        {
+            ["hello"] = 50, ["world"] = 40, ["work"] = 45, ["wo"] = 10, ["ist"] = 20, ["das"] = 20,
+        };
         var orchestrator = CreateOrchestrator(words, trie);
+        // BigramModel requires MinFrequency >= 2 to surface a NextWord candidate.
+        orchestrator.LearnPair("hello", "world");
+        orchestrator.LearnPair("hello", "world");
+
         var results = orchestrator.GetSuggestions("wo", context: "hello", maxCount: 5);
-        var types = results.Select(r => r.Type).Distinct().ToList();
-        Check.That(types).Not.IsEmpty();
+
+        Check.That(results).Not.IsEmpty();
+        Check.That(results[0].Word).IsEqualTo("world");
+        Check.That(results[0].Type).IsEqualTo(PredictionType.NextWord);
+        Check.That(results.Select(r => r.Type)).Contains(PredictionType.ExactPrefix);
+        Check.That(results.Select(r => r.Type)).Contains(PredictionType.SentenceCompletion);
     }
 
     [Fact]
@@ -83,7 +94,7 @@ public class PredictionOrchestratorTests
         var orchestrator = CreateOrchestrator(words, trie);
         var results = orchestrator.GetSuggestions("hello", context: null, maxCount: 5);
         var helloResults = results.Where(r => r.Word.Equals("hello", StringComparison.OrdinalIgnoreCase)).ToList();
-        Check.That(helloResults.Count <= 1).IsTrue();
+        Check.That(helloResults).HasSize(1);
     }
 
     [Fact]

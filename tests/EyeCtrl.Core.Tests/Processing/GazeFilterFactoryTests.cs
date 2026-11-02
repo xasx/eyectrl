@@ -16,7 +16,7 @@ using EyeCtrl.Core.Settings;
 /// candidate answer identically and the differentials below stop distinguishing anything.
 /// </para>
 /// </summary>
-public class GazeFilterFactoryEffectiveParameterTests
+public class GazeFilterFactoryTests
 {
     [Fact]
     public void Create_OneEuro_EffectiveMinCutoff_BehavesLikeThatBaseline()

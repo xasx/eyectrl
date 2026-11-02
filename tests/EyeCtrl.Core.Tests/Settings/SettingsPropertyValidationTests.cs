@@ -10,8 +10,6 @@ using Xunit;
 /// </summary>
 public class SettingsPropertyValidationTests
 {
-    #region DwellSettings - FixationDetectionMs Validation
-
     [Fact]
     public void FixationDetectionMs_BelowMinimum_ThrowsArgumentOutOfRange()
     {
@@ -79,10 +77,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.FixationDetectionMs).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - ActivationButtonDwellMs Validation
-
     [Fact]
     public void ActivationButtonDwellMs_BelowMinimum_ThrowsArgumentOutOfRange()
     {
@@ -149,10 +143,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.ActivationButtonDwellMs).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - ActionMenuDwellMs Validation
-
     [Theory]
     [InlineData(199)]
     [InlineData(2001)]
@@ -188,10 +178,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.ActionMenuDwellMs).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - ManualSelectionActionMenuDwellMs Validation
-
     [Theory]
     [InlineData(199)]
     [InlineData(2001)]
@@ -209,10 +195,6 @@ public class SettingsPropertyValidationTests
         Check.That(ex!.ParamName).IsEqualTo("value");
     }
 
-    #endregion
-
-    #region DwellSettings - ToolbarButtonDwellMs Validation
-
     [Theory]
     [InlineData(199)]
     [InlineData(2001)]
@@ -227,10 +209,6 @@ public class SettingsPropertyValidationTests
             settings.ToolbarButtonDwellMs = value;
         }).Throws<ArgumentOutOfRangeException>();
     }
-
-    #endregion
-
-    #region DwellSettings - KeyboardKeyDwellMs Validation
 
     [Theory]
     [InlineData(99)]
@@ -262,10 +240,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.KeyboardKeyDwellMs).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - KeyboardPredictionDwellMs Validation
-
     [Theory]
     [InlineData(99)]
     [InlineData(299)] // the old 100 ms floor is now inside the blink-credit window
@@ -281,10 +255,6 @@ public class SettingsPropertyValidationTests
             settings.KeyboardPredictionDwellMs = value;
         }).Throws<ArgumentOutOfRangeException>();
     }
-
-    #endregion
-
-    #region DwellSettings - FixationRadiusPixels Validation
 
     [Theory]
     [InlineData(9.9)]
@@ -320,10 +290,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.FixationRadiusPixels).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - VelocityThresholdPxPerSec Validation
-
     [Theory]
     [InlineData(-0.1)]
     [InlineData(0)]
@@ -357,10 +323,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.VelocityThresholdPxPerSec).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - DragReleaseButtonDwellMs Validation
-
     [Theory]
     [InlineData(199)]
     [InlineData(2001)]
@@ -391,10 +353,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.DragReleaseButtonDwellMs).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region DwellSettings - DragRightEdgeButtonDwellMs Validation
-
     [Theory]
     [InlineData(199)]
     [InlineData(2001)]
@@ -424,10 +382,6 @@ public class SettingsPropertyValidationTests
 
         Check.That(settings.DragRightEdgeButtonDwellMs).IsEqualTo(value);
     }
-
-    #endregion
-
-    #region CursorSettings - SmoothingFactor Validation
 
     [Fact]
     public void SmoothingFactor_BelowZero_ThrowsArgumentOutOfRange()
@@ -480,10 +434,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.SmoothingFactor).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region CursorSettings - OneEuroMinCutoff Validation
-
     [Theory]
     [InlineData(0.05)]
     [InlineData(20.1)]
@@ -518,10 +468,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.OneEuroMinCutoff).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region CursorSettings - OneEuroBetaPerDiagonal Validation
-
     [Theory]
     [InlineData(-0.1)]
     [InlineData(60.1)]
@@ -554,10 +500,6 @@ public class SettingsPropertyValidationTests
 
         Check.That(settings.OneEuroBetaPerDiagonal).IsEqualTo(value);
     }
-
-    #endregion
-
-    #region CursorSettings - the deadband knobs are deliberately UNGUARDED
 
     [Theory]
     [InlineData(-5.0)]
@@ -592,10 +534,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.Validate()).IsEmpty();
     }
 
-    #endregion
-
-    #region AutoSelectionSettings - SnapSearchRadiusPixels Validation
-
     [Theory]
     [InlineData(15)]
     [InlineData(97)]
@@ -613,10 +551,6 @@ public class SettingsPropertyValidationTests
         Check.That(ex!.Message).Contains("16");
         Check.That(ex!.Message).Contains("96");
     }
-
-    #endregion
-
-    #region CursorSettings - CircleColor Validation
 
     [Fact]
     public void CircleColor_InvalidHex_ThrowsArgumentException()
@@ -669,10 +603,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.CircleColor).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region CursorSettings - CircleOpacity Validation
-
     [Theory]
     [InlineData(-0.1)]
     [InlineData(1.1)]
@@ -690,10 +620,6 @@ public class SettingsPropertyValidationTests
         Check.That(ex!.Message).Contains("0");
         Check.That(ex!.Message).Contains("1");
     }
-
-    #endregion
-
-    #region CursorSettings - CircleThickness Validation
 
     [Theory]
     [InlineData(0.9)]
@@ -713,10 +639,6 @@ public class SettingsPropertyValidationTests
         Check.That(ex!.Message).Contains("10");
     }
 
-    #endregion
-
-    #region CursorSettings - CircleSize Validation
-
     [Theory]
     [InlineData(9.9)]
     [InlineData(500.1)]
@@ -734,10 +656,6 @@ public class SettingsPropertyValidationTests
         Check.That(ex!.Message).Contains("10");
         Check.That(ex!.Message).Contains("500");
     }
-
-    #endregion
-
-    #region ManualSelectionSettings - CircleRadiusPixels Validation
 
     [Theory]
     [InlineData(49)]
@@ -773,10 +691,6 @@ public class SettingsPropertyValidationTests
         Check.That(settings.CircleRadiusPixels).IsEqualTo(value);
     }
 
-    #endregion
-
-    #region ManualSelectionSettings - MagnificationLevel Validation
-
     [Theory]
     [InlineData(1.4)]
     [InlineData(5.1)]
@@ -810,10 +724,6 @@ public class SettingsPropertyValidationTests
         // Assert
         Check.That(settings.MagnificationLevel).IsEqualTo(value);
     }
-
-    #endregion
-
-    #region General Validation Patterns
 
     [Fact]
     public void OnChanging_InvalidValue_DoesNotChangeProperty()
@@ -920,10 +830,6 @@ public class SettingsPropertyValidationTests
         Check.That(fireCount).IsEqualTo(1);
     }
 
-    #endregion
-
-    #region Exception Message Quality
-
     [Fact]
     public void ValidationException_ContainsPropertyName()
     {
@@ -969,41 +875,6 @@ public class SettingsPropertyValidationTests
         Check.That(ex).IsNotNull();
         Check.That(ex!.Message).Contains("5000");
     }
-
-    #endregion
-
-    #region Thread Safety and Performance
-
-    [Fact(Skip = "Performance test with hard timing threshold - can be flaky in CI")]
-    public void Validation_PerformsQuickly()
-    {
-        // Arrange - Run the test multiple times to reduce flakiness from GC/system load
-        const int iterations = 5;
-        var timings = new List<long>();
-
-        for (int run = 0; run < iterations; run++)
-        {
-            var settings = new DwellSettings();
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-            // Act - perform 1000 validations
-            for (int i = 0; i < 1000; i++)
-            {
-                settings.FixationDetectionMs = 300 + (i % 100);
-            }
-
-            stopwatch.Stop();
-            timings.Add(stopwatch.ElapsedMilliseconds);
-        }
-
-        // Assert - use median time to reduce impact of outliers (more reliable than single run)
-        var sortedTimings = timings.OrderBy(t => t).ToList();
-        var medianTime = sortedTimings[iterations / 2];
-
-        Check.That(medianTime < 100).IsTrue();
-    }
-
-    #endregion
 }
 
 public class GazeIndicatorValidationTests

@@ -7,7 +7,7 @@ using EyeCtrl.Sdk.Wpf;
 public class WpfElementAdapterTests
 {
     [StaFact]
-    public void Mode_ReflectsAttachedPropertyChanges_AfterRegistration()
+    public void Mode_ReflectsAttachedPropertyChanges()
     {
         var btn = new Button();
         Dwell.SetMode(btn, DwellMode.Focus);

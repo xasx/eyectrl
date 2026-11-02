@@ -412,8 +412,18 @@ public class ModelManagementServiceTests
             };
             var (registry, mgmt) = BuildServices(tempDir, settings, manifest, _ => Task.FromResult(NotFound()));
 
+            // Without files on disk, DeleteModel has nothing to delete and the test below
+            // says nothing about the bundled path's file-removal half. Plant them first.
+            PutModelOnDisk(registry, "135M");
+            Check.That(File.Exists(registry.GetModelPath("135M"))).IsTrue();
+            Check.That(File.Exists(registry.GetTokenizerPath("135M"))).IsTrue();
+
             mgmt.DeleteModel("135M");
 
+            // A bundled delete removes the FILES but keeps the registry entry (the page keeps
+            // listing the model, as not-downloaded).
+            Check.That(File.Exists(registry.GetModelPath("135M"))).IsFalse();
+            Check.That(File.Exists(registry.GetTokenizerPath("135M"))).IsFalse();
             Check.That(registry.Registry.ContainsKey("135M")).IsTrue();
         }
         finally

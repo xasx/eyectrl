@@ -1,6 +1,7 @@
 namespace EyeCtrl.Controls.Tests.Theme;
 
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
@@ -68,6 +69,24 @@ public class TokenDictionaryTests
         return new ResourceDictionary { Source = DictionaryUri };
     }
 
+    /// <summary>
+    /// Reads the raw XAML source file from disk rather than <see cref="Application.GetResourceStream"/>,
+    /// because WPF compiles <c>&lt;Page&gt;</c> dictionaries into binary BAML in the assembly resource stream.
+    /// </summary>
+    private static string ReadOverlayStylesXamlSource()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
+            dir = dir.Parent;
+        Check.WithCustomMessage("Could not locate EyeCtrl.slnx above AppContext.BaseDirectory")
+            .That(dir).IsNotNull();
+
+        var path = Path.Combine(dir!.FullName, "src", "EyeCtrl.Controls", "Theme", "OverlayStyles.xaml");
+        var xaml = File.ReadAllText(path);
+        Check.That(xaml).Contains("<ResourceDictionary");
+        return xaml;
+    }
+
     [StaFact]
     public void EveryTokenBrush_IsExposedAndMatches()
     {
@@ -95,10 +114,7 @@ public class TokenDictionaryTests
     {
         var dict = Load();
 
-        foreach (var property in typeof(Tokens).GetProperties(BindingFlags.Public | BindingFlags.Static)
-                     .Where(p => p.PropertyType != typeof(SolidColorBrush)
-                              && p.PropertyType != typeof(Color)
-                              && p.Name != nameof(Tokens.Current)))
+        foreach (var property in NonBrushTokenProperties())
         {
             var key = property.Name;
             Check.WithCustomMessage($"OverlayStyles.xaml is missing key '{key}'")
@@ -108,6 +124,52 @@ public class TokenDictionaryTests
                 .That(dict[key]).IsEqualTo(property.GetValue(null));
         }
     }
+
+    /// <summary>
+    /// The non-brush tokens' value equality runs under the Midnight ambient, where a restated
+    /// literal is indistinguishable from the live value (12 for FontSizeBody, 1 for
+    /// BorderThicknessStandard, "SemiBold" for FontWeightMedium). The brushes have
+    /// <see cref="Dictionary_ContainsNoRawColourLiterals"/> for exactly this drift; the
+    /// non-brush keys get the same treatment here at the SOURCE level: every key's declaring
+    /// element must reference the Tokens member it claims to expose, so a pasted literal —
+    /// which silently stops following a theme — fails even while its value still matches.
+    /// </summary>
+    [StaFact]
+    public void EveryNonBrushToken_IsDeclaredAsATokensReference()
+    {
+        var xaml = ReadOverlayStylesXamlSource();
+
+        foreach (var property in NonBrushTokenProperties())
+        {
+            var keyIndex = xaml.IndexOf($"x:Key=\"{property.Name}\"", StringComparison.Ordinal);
+            Check.WithCustomMessage($"OverlayStyles.xaml is missing key '{property.Name}'")
+                .That(keyIndex).IsStrictlyGreaterThan(-1);
+
+            // The whole declaring element: back to its opening '<', forward past its
+            // self-close "/>" or through a closing "</...>" (a restated literal's value sits
+            // in the element body, so the body must be inside the scanned range).
+            var elementStart = xaml.LastIndexOf('<', keyIndex);
+            var selfClose = xaml.IndexOf("/>", keyIndex, StringComparison.Ordinal);
+            var closing = xaml.IndexOf("</", keyIndex, StringComparison.Ordinal);
+            var end = closing < 0 || (selfClose >= 0 && selfClose < closing)
+                ? selfClose + 2
+                : xaml.IndexOf('>', closing) + 1;
+            var declaration = xaml[elementStart..end];
+
+            Check.WithCustomMessage(
+                    $"'{property.Name}' must DERIVE from Tokens.{property.Name} via "
+                    + "{x:Static} (or a Member= path) — a restated literal passes the value "
+                    + "comparison under the Midnight ambient but silently stops following a theme.")
+                .That(declaration.Contains($"theme:Tokens.{property.Name}", StringComparison.Ordinal))
+                .IsTrue();
+        }
+    }
+
+    private static System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> NonBrushTokenProperties() =>
+        typeof(Tokens).GetProperties(BindingFlags.Public | BindingFlags.Static)
+            .Where(p => p.PropertyType != typeof(SolidColorBrush)
+                     && p.PropertyType != typeof(Color)
+                     && p.Name != nameof(Tokens.Current));
 
     [StaFact]
     public void Dictionary_ExposesTheFourCornerRadiusForms()
@@ -183,9 +245,7 @@ public class TokenDictionaryTests
     [StaFact]
     public void Dictionary_ContainsNoRawColourLiterals()
     {
-        EnsurePackScheme();
-        var xaml = new System.IO.StreamReader(
-            Application.GetResourceStream(DictionaryUri)!.Stream).ReadToEnd();
+        var xaml = ReadOverlayStylesXamlSource();
 
         var literals = System.Text.RegularExpressions.Regex.Matches(xaml, @"#[0-9A-Fa-f]{6,8}\b")
             .Select(m => m.Value).Distinct().ToList();

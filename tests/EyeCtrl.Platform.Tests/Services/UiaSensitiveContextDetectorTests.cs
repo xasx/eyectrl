@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 public class UiaSensitiveContextDetectorTests
 {
     // UIA focus-changed subscription needs an interactive desktop session; on non-interactive CI agents it
-    // can hang, so skip gracefully there (matches the project's ControlFinderTests pattern).
+    // can hang, so skip visibly there via Assert.SkipUnless.
     private static bool DesktopAvailable => Environment.UserInteractive;
 
     private const int OwnPid = 1234;
@@ -20,7 +20,7 @@ public class UiaSensitiveContextDetectorTests
         // Focus moving to one of EyeCtrl's own windows/overlays must NOT clear an active sensitive context:
         // the user types passwords via the on-screen keyboard, so retaining the prior value keeps suppression
         // on until focus lands on a real foreign element. (Assert on HasValue/Value rather than comparing a
-        // bool? via NFluent's IsEqualTo — the project standardized on that after nullable-comparison traps.)
+        // bool? via NFluent's IsEqualTo - the project standardized on that after nullable-comparison traps.)
         var decision = UiaSensitiveContextDetector.EvaluateFocusedElement(OwnPid, OwnPid, isPassword: false);
         Check.That(decision.HasValue).IsFalse();
     }
@@ -58,7 +58,7 @@ public class UiaSensitiveContextDetectorTests
     [Fact]
     public void StartStopDispose_OnInteractiveDesktop_DoNotThrow()
     {
-        if (!DesktopAvailable) return;
+        Assert.SkipUnless(DesktopAvailable, "UIA focus-changed subscription requires an interactive desktop session.");
 
         // Smoke test: the real UIA add/remove path runs without throwing and Start/Stop are idempotent.
         // We deliberately do NOT assert IsSensitiveActive after Dispose: on a live desktop a stray foreign
@@ -66,7 +66,7 @@ public class UiaSensitiveContextDetectorTests
         // is a design property that cannot be asserted race-free headlessly. No-throw/idempotency is the value.
         var detector = new UiaSensitiveContextDetector(NullLogger<UiaSensitiveContextDetector>.Instance);
         detector.Start();
-        detector.Start();   // idempotent — must not double-subscribe or throw
+        detector.Start();   // idempotent - must not double-subscribe or throw
         detector.Stop();
         detector.Stop();    // idempotent
         detector.Dispose();

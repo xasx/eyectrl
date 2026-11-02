@@ -431,9 +431,11 @@ public class RawGeometryLiteralTests
     {
         var allowed = AllowedByProperty();
         var offenders = new List<string>();
+        int scanned = 0;
 
         foreach (var (relative, text) in SourceScanner.ScannedFiles())
         {
+            scanned++;
             if (Exempt.ContainsKey(relative)) continue;
 
             // Grouped by value, NOT de-duplicated: an earlier draft called .Distinct(), so two
@@ -456,6 +458,7 @@ public class RawGeometryLiteralTests
                 offenders.Add($"{relative}: {string.Join(", ", bad)}");
         }
 
+        Check.That(scanned).IsStrictlyGreaterThan(0);
         Check.WithCustomMessage(
                 "Geometry or type values written outside the tokens. Migrate them onto "
                 + "EyeCtrl.Controls.Theme.Tokens or ContainerRatio, or add the file to Exempt "

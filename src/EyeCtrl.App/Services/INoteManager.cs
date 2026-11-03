@@ -71,14 +71,27 @@ public interface INoteManager : INoteTextInput
     /// caregiver alert and future status cards all show only through the slot), and the
     /// track-status card's bounds (fixup 01 M1 — opaque, click-through, up for as long as
     /// TrackStatusSettings.Enabled). B2b added the status strip's label card (paused, tracking lost,
-    /// no tracker) as its own named source.
+    /// no tracker) as its own named source, and C10 fixup-04 added the blocked-input banner: a
+    /// note fires from EyeCtrl's OWN gaze dwell detector, so the click-through banner does NOT stop
+    /// a note beneath it - its whole visible window must occlude, and it answers null while hidden.
     /// </summary>
     void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
         Func<PhysicalRect?>? noteNoticeBounds = null,
-        Func<PhysicalRect?>? statusStripBounds = null);
+        Func<PhysicalRect?>? statusStripBounds = null,
+        Func<PhysicalRect?>? blockedBannerBounds = null);
+
+    /// <summary>
+    /// Latches every registered note target under the last gaze sample (the leave-before-arm rule:
+    /// a latched target needs 150 ms of continuous leave before it arms again). C10 fixup-04's hide
+    /// latch: an occluder that leaves the screen while the gaze still rests where it was - the
+    /// blocked-input banner hides on the first verified move, and its emergency buttons sit over a
+    /// possible note's ✕ - must not hand the held gaze a live control it never looked away from.
+    /// Called on the UI thread right after such an occluder hides.
+    /// </summary>
+    void LatchTargetsUnderTheGaze();
 
     /// <summary>
     /// The capacity notice (P4 D4): shown INSTEAD of creating when <see cref="IsAtCapacity"/>

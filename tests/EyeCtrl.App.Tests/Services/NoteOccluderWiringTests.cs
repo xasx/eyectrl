@@ -3,12 +3,15 @@ namespace EyeCtrl.App.Tests.Services;
 using EyeCtrl.App.Tests.TestSupport;
 
 using System.IO;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Services.Notes;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -159,6 +162,150 @@ public class NoteOccluderWiringTests
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
+
+    // C10 fixup-04: the blocked-input banner is an occluder, not exempt. A note fires from
+    // EyeCtrl's OWN gaze dwell (600 ms), which UIPI does not touch — so a click-through banner at
+    // the top of the screen does NOT stop the note ✕ beneath its 700 ms emergency buttons. This
+    // test uses the REAL container, the REAL banner window (prepared: Opacity 0 + DWM-cloaked, so
+    // nothing is painted) and the production wiring at the user's DPI 2.0. It pins all three
+    // behaviours the fixup names: the bounds come from the real window (and clear on hide), the
+    // escape button actually covers ✕, and the hide latch holds the held gaze until a 150 ms leave.
+    [StaFact]
+    public void TheWiredBlockedBannerSource_OccludesOverClose_ReportsItsRealBounds_AndLatchesOnHide()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var sp = BuildProvider();
+        var manager = (NoteManager)sp.GetRequiredService<INoteManager>();
+        // Prepare BEFORE the first show: the owner controls the PC by eye-tracking, so this window
+        // must paint nothing (the StatusCardNoteGateTests pattern). No test here shows a plain one.
+        var banner = InvisibleTestWindow.PrepareCloaked(
+            InvisibleTestWindow.Prepare(sp.GetRequiredService<BlockedInputBannerWindow>()));
+        var (_, context, _) = MakeContext(sp, manager, new TestFakes.FakeTrackStatusOverlay());
+
+        NoteOccluderWiring.Wire(manager, sp, context);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddNoteTargetsForTest(anchor);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var away = new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y);
+
+            banner.ShowBlocked(BlockedState);
+            Check.That(banner.IsShowingForTest).IsTrue();
+
+            // Park the REAL window so its escape button covers ✕ exactly — the defect's geometry.
+            var content = (FrameworkElement)banner.Content;
+            Rect WindowRect() => new(banner.Left, banner.Top, banner.Width, banner.Height);
+            var escape = BlockedInputBannerWindow.BoundsOf(banner.EscapeButton, content, WindowRect());
+            banner.Left += (closeCenter.X - (escape.X + escape.Width / 2)) / DpiHelper.ScaleX;
+            banner.Top += (closeCenter.Y - (escape.Y + escape.Height / 2)) / DpiHelper.ScaleY;
+            banner.UpdateLayout();
+            var parked = BlockedInputBannerWindow.BoundsOf(banner.EscapeButton, content, WindowRect());
+            Check.WithCustomMessage("the escape button must really cover ✕ for this pin")
+                .That(parked.Contains(closeCenter)).IsTrue();
+
+            // The wired source IS the real window's whole visible rect at DPI 2.0.
+            Check.That(manager.BlockedBannerBoundsForTest).IsNotNull();
+            Check.That(banner.TryGetBlockedVisibleBounds(out var expected)).IsTrue();
+            Check.That(manager.BlockedBannerBoundsForTest!().HasValue).IsTrue();
+            Check.That(manager.BlockedBannerBoundsForTest!()!.Value).IsEqualTo(expected);
+            Check.That(expected).IsEqualTo(new PhysicalRect(
+                DpiHelper.LogicalToPhysicalX(banner.Left),
+                DpiHelper.LogicalToPhysicalY(banner.Top),
+                DpiHelper.LogicalToPhysicalX(banner.Width),
+                DpiHelper.LogicalToPhysicalY(banner.Height)));
+
+            // A full hold on ✕ under the escape button never fires the note.
+            for (long t = 0; t <= 1_500_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("a note ✕ under the banner's escape button must not fire")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // Hiding the banner clears the source AND latches the held gaze's targets.
+            banner.HideBlocked();
+            Check.That(banner.TryGetBlockedVisibleBounds(out _)).IsFalse();
+            Check.That(manager.BlockedBannerBoundsForTest!().HasValue).IsFalse();
+            for (long t = 1_600_000; t <= 2_800_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage(
+                    "the banner's hide must latch ✕ under the held gaze — the owner never left the "
+                    + "spot the escape button occupied")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // Control: a SUB-150 ms leave must NOT release the latch ...
+            for (long t = 2_900_000; t <= 3_000_000; t += 100_000)
+                manager.OnGazeMoved(away, t);
+            for (long t = 3_100_000; t <= 4_100_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("a 100 ms excursion must not release the hide latch")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // ... a 200 ms one does, and the return fires ✕ (into the chip).
+            for (long t = 4_200_000; t <= 4_500_000; t += 100_000)
+                manager.OnGazeMoved(away, t);
+            for (long t = 4_600_000; t <= 5_400_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("after a 150 ms+ leave the held ✕ must fire (the latch is not always-on)")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+            banner.Close();
+        }
+    }
+
+    // C10 fixup-04: a throwing banner read fails CLOSED as its OWN named source
+    // ("blocked input banner"), exactly like the other occluders.
+    [Fact]
+    public void AThrowingBlockedBannerSource_FailsClosed_UnderItsOwnName()
+    {
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
+        manager.SetOccluderSources(blockedBannerBounds: () =>
+            throw new InvalidOperationException("banner read slip"));
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Error().WriteTo.Sink(sink).CreateLogger();
+            try
+            {
+                var anchor = new PhysicalPoint(1600, 1000);
+                manager.AddNoteTargetsForTest(anchor);
+                var closeCenter = ButtonCentrePhysical(anchor, 3);
+                for (long t = 0; t <= 2_000_000; t += 100_000)
+                    manager.OnGazeMoved(closeCenter, t);
+
+                Check.WithCustomMessage("a throwing blocked-banner source must hold the note (fail closed)")
+                    .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+                var named = sink.Events
+                    .Where(e => e.MessageTemplate.Text.Contains("occluder source threw", StringComparison.Ordinal))
+                    .Select(e => e.Properties.TryGetValue("OccluderSource", out var v) && v is ScalarValue { Value: string n } ? n : null)
+                    .ToList();
+                Check.That(named).ContainsExactly(NoteManager.KnownOccluderSources.BlockedInputBanner);
+                Check.That(NoteManager.KnownOccluderSources.BlockedInputBanner).IsEqualTo("blocked input banner");
+            }
+            finally { Log.Logger = previousLogger; }
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    /// <summary>The blocked-input state the banner shows for: an elevated foreground named in the
+    /// text, which is the shape the banner's production path receives.</summary>
+    private static readonly BlockedInputState BlockedState = new(
+        IsBlocked: true,
+        BlockedInputReason.HigherIntegrityForeground,
+        Trigger: "test",
+        TargetPoint: new PhysicalPoint(10, 10),
+        CursorBefore: new PhysicalPoint(300, 300),
+        CursorAfter: new PhysicalPoint(300, 300),
+        Foreground: new ProcessTokenFacts("Taskmgr.exe", 0x3000, true, false, false),
+        Target: ProcessTokenFacts.Unknown);
 
     // R7b (reviewer probe, adopted) + review-03 M1's POSITIVE CONTROL: the exact production
     // wiring, the real container, one Display note, the track-status card hidden — after the

@@ -118,6 +118,13 @@ public partial class BlockedInputBannerWindow : OverlayWindow, IBlockedInputBann
     /// <summary>Raised when the owner dwells the dismiss button (the window then hides itself).</summary>
     public event EventHandler? DismissRequested;
 
+    /// <summary>
+    /// Raised AFTER the banner actually left the screen (C10 fixup-04). The note gate latches the
+    /// targets under the held gaze here: the emergency buttons sat over a possible note ✕, so a
+    /// gaze that never left the spot must not reach the note's own dwell.
+    /// </summary>
+    public event EventHandler? Hidden;
+
     /// <summary>The live dwell detector (tests drive the buttons' progress through it).</summary>
     internal DwellDetector DwellForTest => _dwell;
 
@@ -187,6 +194,33 @@ public partial class BlockedInputBannerWindow : OverlayWindow, IBlockedInputBann
         _dismissOutline.SetProgress(0);
         if (IsVisible)
             Hide();
+
+        // Only a real hide reaches here: the early return above makes a repeat call silent, so
+        // the note gate's hide latch (C10 fixup-04) never fires for a banner that was not up.
+        Hidden?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// The WHOLE visible banner window in physical pixels while it is up (C10 fixup-04): the note
+    /// gate's "blocked input banner" occluder. False when the banner is hidden, so a stale rect can
+    /// never keep a note control gated after the strip is gone. Read per gaze sample on the UI
+    /// thread, like every other occluder source.
+    /// </summary>
+    public bool TryGetBlockedVisibleBounds(out PhysicalRect bounds)
+    {
+        bounds = default;
+        if (!_isShowing || !IsVisible)
+            return false;
+
+        // The window has no frame, so Left/Top/Width/Height ARE its screen rectangle in DIP; the
+        // helper scales a coordinate and a length identically. The ticket's "whole window": the
+        // message strip AND both emergency buttons.
+        bounds = new PhysicalRect(
+            DpiHelper.LogicalToPhysicalX(Left),
+            DpiHelper.LogicalToPhysicalY(Top),
+            DpiHelper.LogicalToPhysicalX(Width),
+            DpiHelper.LogicalToPhysicalY(Height));
+        return true;
     }
 
     /// <summary>Feeds the live gaze stream to the banner's dwell detector.</summary>

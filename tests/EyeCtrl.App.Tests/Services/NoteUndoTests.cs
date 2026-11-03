@@ -763,6 +763,39 @@ public class NoteUndoTests
     }
 
     [StaFact]
+    public void TheChipClock_StopsWhileTheBlockedBannerCoversUndo()
+    {
+        // C10 fixup-04's RECT path: the blocked-input banner's whole visible window must stop the
+        // chip's countdown when it covers the Undo cell — the same condition 4 the other occluders
+        // obey. Without the banner in AnyOccluderIntersects the 9 s of ticks below expire the chip.
+        var (manager, clock, timer) = MakeManager(out _);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            SavedNote(manager, "saved", anchor);
+            var undo = UndoCentre(anchor);
+            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+
+            manager.SetOccluderSources(blockedBannerBounds: () =>
+                new PhysicalRect(undo.X - 300, undo.Y - 300, 600, 600));
+            long tUs = 2_000_000;
+            for (int i = 0; i < 90; i++)
+                Tick(manager, clock, timer, ref tUs, sampleAt: undo);
+            Check.WithCustomMessage("the blocked-input banner over Undo must stop the chip clock")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+
+            // Control: the banner is hidden (its source answers null) and the gaze is off every
+            // target, so ONLY the clock runs — the same ticks expire the chip.
+            manager.SetOccluderSources(blockedBannerBounds: () => null);
+            for (int i = 0; i < 80; i++)
+                Tick(manager, clock, timer, ref tUs);
+            Check.That(manager.ActiveNotes).IsEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
     public void TheChipClock_StopsWhenAnotherNoteWindowCoversTheChip()
     {
         // Condition 4's own-window half (review-03 n-7): the chip's centre must resolve to ITS

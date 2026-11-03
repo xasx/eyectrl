@@ -146,6 +146,29 @@ public class BlockedInputBannerWindowTests
         Check.ThatCode(banner.HideBlocked).DoesNotThrow();
     }
 
+    [StaFact]
+    public void Hidden_FiresOnceForARealHide_AndNeverForARepeatedHide()
+    {
+        // C10 fixup-04: the note gate latches on this event, so a clear that had nothing to hide
+        // must stay silent — otherwise the coordinator's per-clear HideBlocked would latch the
+        // gaze's note targets for a banner that was never up.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(2.0, 2.0);
+        var banner = Headless();
+        var hides = 0;
+        banner.Hidden += (_, _) => hides++;
+
+        banner.HideBlocked(); // not showing: a no-op, and no latch
+        Check.That(hides).IsEqualTo(0);
+
+        banner.ShowBlocked(Blocked(BlockedInputReason.HigherIntegrityForeground));
+        banner.HideBlocked();
+        Check.That(hides).IsEqualTo(1);
+
+        banner.HideBlocked(); // already hidden: silent
+        Check.That(hides).IsEqualTo(1);
+    }
+
     private static void FeedDwell(BlockedInputBannerWindow banner, DwellTarget target)
     {
         var center = target.Center;

@@ -46,10 +46,10 @@ public class NoteGateCensusTests
             "suspender", "the modes menu — ModesMenuVM.IsVisible in the composed predicate"),
         ["EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs"] = (
             "suspender", "the restart card — a RecomputeSuspension reason (ModalSuspended)"),
-        ["EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs"] = (
-            "exempt", "C10's blocked-input banner — shows only while Windows is discarding EVERY injected click, so a note under it cannot receive one; its two dwell buttons are the emergency exits themselves and it hides on the first verified move"),
 
         // ── occluders: their visible rects make note targets ineligible, read directly (P2 D3) ──
+        ["EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs"] = (
+            "occluder", "C10 fixup-04: the WHOLE visible banner window via NoteManager.KnownOccluderSources.BlockedInputBanner, read in both the gaze-point and the chip-rect paths, null while hidden. It is click-through and UIPI does not stop EyeCtrl's OWN gaze dwell (notes fire at 600 ms, the banner's emergency buttons at 700 ms), so a note's close control under the escape button would otherwise fire first; its hide also latches the targets under the held gaze (NoteManager.LatchTargetsUnderTheGaze via IBlockedInputBanner.Hidden)"),
         ["EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs"] = (
             "occluder", "visible bounds via the banner slot (B4: the caregiver alert is shown only as the slot's live occupant)"),
         ["EyeCtrl.App/Overlays/DriftNoticeWindow.xaml.cs"] = (

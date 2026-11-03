@@ -27,4 +27,12 @@ internal interface IBlockedInputBanner
 
     /// <summary>Raised when the owner dwells the dismiss button.</summary>
     event EventHandler? DismissRequested;
+
+    /// <summary>
+    /// Raised AFTER the banner actually left the screen: the coordinator's clear, a dismiss dwell,
+    /// or Dispose — never for a hide that was a no-op (it was not showing). C10 fixup-04's hide
+    /// latch: the note gate latches the targets under the held gaze on this event, because the
+    /// banner's emergency buttons sat over a possible note control.
+    /// </summary>
+    event EventHandler? Hidden;
 }

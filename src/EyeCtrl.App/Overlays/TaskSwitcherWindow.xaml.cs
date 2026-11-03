@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using EyeCtrl.App.Services;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -18,12 +19,26 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 {
+    /// <summary>
+    /// The close disc's diameter: <b>2 × the shared hit radius</b>, declared in XAML as
+    /// Width/Height 100. B8: the disc must be drawn to exactly the size the dwell detector
+    /// hit-tests (<see cref="UIConstants.ButtonRadius"/> = 50 DIP), so a gaze that lands on the
+    /// visible circle always lands in its hit area — what is drawn IS what is dwell-tested.
+    /// <c>internal</c> so a size-coupling pin can assert the XAML attribute against it instead
+    /// of restating the number (QuickActionsGridWindow.CloseButtonSize precedent).
+    /// </summary>
+    internal const double CloseButtonSize = UIConstants.ButtonRadius * 2;
+
     private TaskSwitcherViewModel? _viewModel;
     private IAppIconProvider? _iconProvider;
 
     public TaskSwitcherWindow()
     {
         InitializeComponent();
+
+        // The close glyph fills the whole disc, so it takes the Dominant ratio. Assigned here
+        // rather than in XAML because XAML cannot multiply (QuickActionsGridWindow pattern).
+        CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
     }
 
     public void Configure(TaskSwitcherViewModel viewModel, IAppIconProvider iconProvider)
@@ -87,6 +102,11 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             var center = fe.PointToScreen(new Point(fe.ActualWidth / 2, fe.ActualHeight / 2));
             _viewModel.UpdateTilePosition(tile.Hwnd, new PhysicalPoint(center.X, center.Y));
         }
+
+        // Register the close disc as a dwell target too (same physical-pixel convention).
+        var closeCenter = CloseButton.PointToScreen(
+            new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
+        _viewModel.UpdateCloseButtonPosition(new PhysicalPoint(closeCenter.X, closeCenter.Y));
     }
 
     /// <summary>Called by the coordinator when the VM hides (selection or second toggle).</summary>

@@ -236,6 +236,8 @@ public class NewlineJsonPipeServerTests
             await Task.Delay(50);
 
         Check.That(received).HasSize(1);
-        Check.That(received[0]).IsEqualTo("payload\r");
+        // Ordinal on purpose: NFluent's IsEqualTo ignores a TRAILING '\r' ("payload" ≡ "payload\r"),
+        // so a plain IsEqualTo would pass even with the pending-CR append deleted (review r1 F1).
+        Check.That(string.Equals(received[0], "payload\r", StringComparison.Ordinal)).IsTrue();
     }
 }

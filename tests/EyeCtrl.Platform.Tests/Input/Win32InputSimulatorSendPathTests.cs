@@ -4,8 +4,6 @@ using System.Linq;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Platform.Input;
-using NFluent;
-using Xunit;
 
 /// <summary>
 /// The PUBLIC send paths of <see cref="Win32InputSimulator"/> — MoveCursor, the clicks, SendText,
@@ -149,6 +147,9 @@ public class Win32InputSimulatorSendPathTests
     [Fact]
     public void PartialInsert_IsFollowedByOneCompensatingSend_MouseUpFirstMaskBeforeAltUp()
     {
+        // Deliberately not NewRecordingSimulator(): this fact needs a CUSTOM return value (the
+        // first send reports only 2 events injected), which the shared helper's full-delivery
+        // recording cannot express. The override is set before any send, so nothing real fires.
         var sim = new Win32InputSimulator(new Win32InputSimulatorTestHelper.PassThroughCoordinateMapper());
         var sends = new List<(uint Count, NativeMethods.INPUT[] Inputs)>();
         var calls = 0;

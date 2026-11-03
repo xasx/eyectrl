@@ -25,9 +25,42 @@ dotnet test                                                       # all tests
 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (needs display)
 ```
 
+## Installed (UIAccess) build
+
+Dev, test and CI builds stay **unsigned with `uiAccess="false"`** (`dotnet build`, `dotnet test`, F5,
+UI tests): no test needs a certificate, and CI never publishes or signs. Only the owner's machine
+signs and installs, and only on the owner's go.
+
+- `tools/release/Publish-Signed.ps1` publishes the App (`-p:EyeCtrlUiAccess=true`), the Supervisor
+  (compressed single-file; the App is never compressed) and `EyeCtrl.Setup` when it exists, signs
+  every exe (pinned thumbprint `C1039769A2D9ED01F93CEBC78B61176EE6B12F91`, DigiCert timestamp,
+  `/fd SHA256`, `/td SHA256`), verifies the signatures and the embedded manifests (App `true`,
+  Supervisor/Setup `false`), refuses self-extraction, writes `package.json` plus a signed
+  `EyeCtrl.cat` (`New-FileCatalog` v2), and copies the result to
+  `%LOCALAPPDATA%\EyeCtrl\updates\<version>\`.
+- **The package contract (shared with `src/EyeCtrl.Setup`):** the catalog covers every file
+  recursively and `package.json` is one of its members (only `EyeCtrl.cat` is outside it), so
+  editing `package.json` makes the package fail verification. A member's tag is the **uppercase hex
+  of its SIP SHA-256** (for a PE, the Authenticode hash), with the relative path in `FilePath` —
+  look members up by hash, never by path. The inbox copy is assembled in a dot-prefixed
+  `.<version>.partial` folder and renamed into place, so consumers must ignore dot-prefixed folders.
+  "Newer" means `package.json` `created`, then version, then folder name. No loose PDBs ship
+  (symbols are embedded in the bundles, so stack traces keep file:line), and XML docs, `*.lib` and
+  `README.md` are pruned before the catalog is written.
+- **Agents never sign, never write the real inbox, never touch Program Files or HKLM, and never run
+  a built exe.** The runnable mode is
+  `Publish-Signed.ps1 -DryRun -NoSign -ScratchDir <scratch>`: it builds and packages into that
+  folder only and refuses any destination under the inbox.
+- `tools/release/Install-EyeCtrl.ps1` finds the newest inbox package and starts its
+  `EyeCtrl.Setup.exe update <dir>` with `Start-Process` (ShellExecute). Never replace that with the
+  call operator: `CreateProcess` of the launched exe is the Win32 740 trap. `-NoNewWindow` also
+  flips `Start-Process` to `CreateProcess`, and `-Wait` waits for the whole tree (the App joins it),
+  so neither may appear; the wrapper uses `-PassThru` plus `WaitForExit()` for `-UntilExit`.
+
 ## CI
 
 GitHub Actions runs on `push` to `main` and `pull_request` targeting `main`:
+
 - `build-and-test` — validates the theme palettes (`tools/palette_validate.py`), builds the
   solution, runs `dotnet test --filter "Category!=UI"` with coverage collection, runs the
   benchmark generator tests, and gates on coverage thresholds (≥50% line, ≥45% branch)
@@ -92,6 +125,7 @@ Check.That(actual).IsCloseTo(Math.PI, 1e-10);  // ±1e-10 absolute
 | `Assert.True(cond)` | `Check.That(cond).IsTrue()` | Prefer native checks (`Check.That(x).IsStrictlyLessThan(y)`) for better messages |
 | `Assert.Null(v)` | `Check.That(v).IsNull()` | |
 | `Assert.Same(a, b)` | `Check.That(b).IsSameReferenceAs(a)` | |
+| string equality involving a trailing `\r` | `IsEqualTo` IGNORES a trailing `\r` (`"payload"` ≡ `"payload\r"`) | assert ordinally: `Check.That(string.Equals(a, b, StringComparison.Ordinal)).IsTrue()` — found by the coverage-gaps review (r1 F1) |
 
 ## Architecture
 
@@ -196,6 +230,8 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 | `src/EyeCtrl.App/Services/EventCoordinator.cs` | Event coordination (dwell, zoom, action menu) |
 | `src/EyeCtrl.Core/GazeEngine.cs` | Core gaze pipeline |
 | `src/EyeCtrl.Core/Settings/SettingsService.cs` | JSON settings persistence with validation |
+| `tools/release/Publish-Signed.ps1` | Signed UIAccess package into the update inbox (owner's machine only) |
+| `tools/release/Install-EyeCtrl.ps1` | Starts the newest inbox package's Setup via ShellExecute |
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

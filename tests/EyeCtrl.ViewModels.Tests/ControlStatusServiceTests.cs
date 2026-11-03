@@ -7,6 +7,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Status;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 /// <summary>
@@ -20,7 +21,21 @@ public class ControlStatusServiceTests
     {
         public event Action<GazePoint>? GazePointReceived;
 
-        public bool IsConnected { get; set; }
+        private bool _isConnected;
+
+        /// <summary>
+        /// Connectivity-fault mode (fault containment): when set, reading <see cref="IsConnected"/>
+        /// throws, like a tracker SDK whose connectivity query blows up mid-session.
+        /// </summary>
+        public bool ThrowOnIsConnected { get; set; }
+
+        public bool IsConnected
+        {
+            get => ThrowOnIsConnected
+                ? throw new InvalidOperationException("tracker connectivity query fault (simulated)")
+                : _isConnected;
+            set => _isConnected = value;
+        }
 
         /// <summary>The provider-observed false→true edges (B3/F4 hardening), settable by a test.</summary>
         public long ConnectEdgeCount { get; set; }
@@ -35,6 +50,24 @@ public class ControlStatusServiceTests
             GazePointReceived?.Invoke(new GazePoint(100, 100, 0, isValid));
     }
 
+    /// <summary>Captures every log entry that carries an exception, with its level.</summary>
+    private sealed class CapturingLogger : ILogger<ControlStatusService>
+    {
+        public List<(LogLevel Level, string Message, Exception Exception)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null)
+                Entries.Add((logLevel, formatter(state, exception), exception));
+        }
+    }
+
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly FakeTimeProvider _time = new();
     private readonly InteractionManager _interaction = new();
@@ -44,7 +77,8 @@ public class ControlStatusServiceTests
     private ControlStatusService NewService(
         GazeProviderType providerType = GazeProviderType.StreamEngine,
         Action<Action>? postToUi = null,
-        bool mouseIsFallback = false)
+        bool mouseIsFallback = false,
+        ILogger<ControlStatusService>? logger = null)
     {
         // Registered BEFORE Start: the initial status is published from Start, and a surface that
         // subscribes during startup is exactly the case the initial publish exists for.
@@ -53,7 +87,7 @@ public class ControlStatusServiceTests
 
         return new ControlStatusService(
             _provider, _interaction, providerType, _messenger, _time, postToUi,
-            mouseIsFallback: mouseIsFallback);
+            logger, mouseIsFallback: mouseIsFallback);
     }
 
     private static void AdvanceMs(FakeTimeProvider time, int ms) =>
@@ -354,6 +388,133 @@ public class ControlStatusServiceTests
         Check.That(changed).HasSize(2);
         Check.That(changed[0]).IsEqualTo(new ControlStatus(ControlState.Normal, Disconnected: false));
         Check.That(changed[1]).IsEqualTo(new ControlStatus(ControlState.Paused, Disconnected: false));
+
+        service.Dispose();
+    }
+
+    // Fault containment, leg 1. The in-source comment at the poll's catch says it plainly: a timer
+    // callback that throws is an unhandled thread-pool exception and KILLS THE PROCESS — for the
+    // owner that costs the only input channel. A faulting IsConnected read (every 10 Hz poll) must
+    // be caught, logged, and the loop must survive it so a later Disconnected is still published.
+    [Fact]
+    public void AFaultingIsConnectedPoll_IsContainedAndLogged_AndTheLoopStaysAlive()
+    {
+        var logger = new CapturingLogger();
+        var service = NewService(logger: logger);
+        service.Start();
+        _provider.FireGaze();
+
+        _provider.ThrowOnIsConnected = true;
+        // If the poll's catch regressed, this Advance rethrows the fault out of the timer callback
+        // — here it must be contained.
+        Check.ThatCode(() => AdvancePolls(_time, 5)).DoesNotThrow();
+
+        Check.That(logger.Entries).HasSize(5);   // one warning per poll, nothing else
+        Check.That(logger.Entries).ContainsOnlyElementsThatMatch(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("Control-status poll failed")
+            && entry.Exception is InvalidOperationException);
+
+        // The loop is alive: heal the fault, let IsConnected read false past the 10 s threshold,
+        // and the Disconnected publish still arrives.
+        _provider.ThrowOnIsConnected = false;
+        _provider.IsConnected = false;
+        AdvancePolls(_time, 120);
+
+        Check.That(service.Current.Disconnected).IsTrue();
+        Check.That(_messages[^1].Disconnected).IsTrue();
+        Check.That(logger.Entries).HasSize(5);   // no further warnings once healed
+
+        service.Dispose();
+    }
+
+    // Fault containment, leg 2. Deliver invokes Changed BEFORE the messenger send; a throwing
+    // subscriber must not skip the send, or the status strip freezes on the previous state while
+    // the service keeps running.
+    [Fact]
+    public void AThrowingChangedSubscriber_DoesNotKeepTheMessageFromTheMessenger()
+    {
+        var logger = new CapturingLogger();
+        var service = NewService(logger: logger);
+        service.Changed += _ => throw new InvalidOperationException("subscriber fault (simulated)");
+
+        service.Start();
+        _interaction.TogglePause();          // FreeLook -> Paused
+
+        Check.That(_messages).HasSize(2);    // the initial Normal AND the Paused still arrive
+        Check.That(_messages[0].State).IsEqualTo(ControlState.Normal);
+        Check.That(_messages[^1].State).IsEqualTo(ControlState.Paused);
+        Check.That(logger.Entries).HasElementThatMatches(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("A control-status Changed subscriber threw")
+            && entry.Exception is InvalidOperationException);
+
+        service.Dispose();
+    }
+
+    // Fault containment, leg 2b. The messenger send has its own catch as well: a recipient that
+    // throws on Receive must not unwind into Publish's caller — a state change can originate on
+    // the gaze thread, and an unhandled throw there costs the only input channel. WeakReference-
+    // Messenger does not guarantee cross-recipient delivery order, so the faulted publish's
+    // delivery is not asserted; the pin is containment plus the healed next publish
+    // (review r1 F6: the rethrow mutant survived without this fact).
+    [Fact]
+    public void AThrowingMessageRecipient_IsContained_AndTheNextPublishStillSends()
+    {
+        var logger = new CapturingLogger();
+        var service = NewService(logger: logger);
+        var recipientFaults = true;
+        // A distinct recipient object: WeakReferenceMessenger allows one handler per (recipient,
+        // token) pair, and NewService already registered the recorder on the test instance.
+        var thrower = new object();
+        _messenger.Register<ControlStatusChangedMessage>(thrower, (_, _) =>
+        {
+            if (recipientFaults)
+                throw new InvalidOperationException("recipient fault (simulated)");
+        });
+
+        Check.ThatCode(service.Start).DoesNotThrow();   // the initial publish rides the contained fault
+        Check.That(logger.Entries).HasElementThatMatches(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("A control-status message recipient threw")
+            && entry.Exception is InvalidOperationException);
+
+        recipientFaults = false;
+        _interaction.TogglePause();
+
+        Check.That(_messages).HasElementThatMatches(m => m.State == ControlState.Paused);
+
+        service.Dispose();
+    }
+
+    // Fault containment, leg 3. The dispatcher can refuse work while shutting down; the refusal
+    // must not unwind into the gaze callback (where a state change can originate) and must not
+    // take Start down. Losing the last status then is harmless; the service must stay usable.
+    [Fact]
+    public void ARefusingPostToUi_IsLoggedAsDebug_AndTheServiceStaysUsable()
+    {
+        var logger = new CapturingLogger();
+        var hookRefuses = true;
+        var service = NewService(logger: logger, postToUi: deliver =>
+        {
+            if (hookRefuses)
+                throw new InvalidOperationException("dispatcher refused during shutdown (simulated)");
+            deliver();
+        });
+
+        Check.ThatCode(service.Start).DoesNotThrow();   // the initial publish rides the refused hook
+        Check.That(_messages).IsEmpty();                // that one status was lost — by design
+        Check.That(logger.Entries).HasElementThatMatches(entry =>
+            entry.Level == LogLevel.Debug
+            && entry.Message.Contains("Could not post a control-status change to the UI thread")
+            && entry.Exception is InvalidOperationException);
+
+        // The dispatcher is back; the next change must publish again.
+        hookRefuses = false;
+        _interaction.TogglePause();
+
+        Check.That(_messages).HasSize(1);
+        Check.That(_messages[0].State).IsEqualTo(ControlState.Paused);
 
         service.Dispose();
     }

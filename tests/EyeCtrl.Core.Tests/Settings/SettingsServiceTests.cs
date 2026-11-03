@@ -90,6 +90,59 @@ public class SettingsServiceTests
         finally { File.Delete(tempPath); }
     }
 
+    // The seed from the deprecated manualSelection.enabled flag (SettingsService.SeedSelectionMode)
+    // runs on BOTH load paths — the whole-graph fast path and the per-section repair — but no
+    // existing test reaches either: the explicit-key migration test above passes selectionMode
+    // and stays green with the seed deleted (review r1 rejection 4). A pre-SelectionMode file
+    // carries only the flag; without the seed the app boots in None instead of the user's
+    // configured manual selection.
+    [Fact]
+    public void Load_SeedsSelectionMode_FromTheDeprecatedManualSelectionFlag()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            const string json = """
+            {
+                "manualSelection": { "enabled": true },
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(tempPath, json);
+            var settings = new SettingsService(tempPath).Load();
+
+            Check.That(settings.SelectionMode).IsEqualTo(SelectionMode.ManualSelection);
+            Check.That(settings.ManualSelection.Enabled).IsTrue();
+            Check.That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(800);
+        }
+        finally { File.Delete(tempPath); }
+    }
+
+    // The repair path seeds too: a damaged sibling section routes the load through the per-section
+    // repair, and the surviving manualSelection section must still promote the mode.
+    [Fact]
+    public void Load_SeedsSelectionMode_OnTheSectionRepairPath_Too()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            const string json = """
+            {
+                "keyboard": null,
+                "manualSelection": { "enabled": true },
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(tempPath, json);
+            var settings = new SettingsService(tempPath).Load();
+
+            Check.That(settings.SelectionMode).IsEqualTo(SelectionMode.ManualSelection);
+            Check.That(settings.ManualSelection.Enabled).IsTrue();
+            Check.That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(800);
+        }
+        finally { File.Delete(tempPath); }
+    }
+
     [Fact]
     public void Load_MigrationWriteBack_IsAtomic_AndLeavesNoTempFile()
     {

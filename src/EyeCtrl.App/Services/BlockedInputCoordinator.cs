@@ -152,6 +152,10 @@ internal sealed class BlockedInputCoordinator : IDisposable
         _banner.EscapeRequested -= OnEscapeRequested;
         _banner.DismissRequested -= OnDismissRequested;
         _messenger.UnregisterAll(this);
+
+        // N2: abandon a deferred eye-care prompt BEFORE releasing the gate. Releasing first would
+        // complete ShowBannerAsync's wait and could paint the prompt on a dispatcher that is exiting.
+        _eyeCare.CancelBanner();
         _gate.Set(false);
         _banner.HideBlocked();
         _cursorCircle.SetBlocked(false);

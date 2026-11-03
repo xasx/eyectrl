@@ -82,14 +82,25 @@ public class BlockedInputReviewProbesTests
     [Fact]
     public void P3_ACursorReadThatLagsTheInjection_DoesNotBlock()
     {
+        var clock = 0L;
         var cursor = new Cursor { Position = new PhysicalPoint(2000, 1200) };
-        var det = new BlockedInputDetector(cursor, new NoIntegrity(), null, () => 0);
+        var det = new BlockedInputDetector(cursor, new NoIntegrity(), null, () => clock);
         var inner = new LaggingInner(cursor);
         var sim = new VerifiedInputSimulator(inner, det, cursor);
 
+        // The click's own read lags by a frame. The next gaze frame advances the clock past the
+        // confirmation delay, but its PRE-MOVE read sees the click's landing and drops the candidate
+        // (N1). This is the non-vacuous version of the r01 probe (the original never advanced time).
         sim.LeftClick(new PhysicalPoint(600, 2100));
-        inner.Flush(); sim.MoveCursor(new PhysicalPoint(2000, 1200)); inner.Flush(); // FreeLook resumes
+        inner.Flush(); // the click's move lands
+        clock += 30;
+        sim.MoveCursor(new PhysicalPoint(2000, 1200)); // pre-move read: (600, 2100); FreeLook returns
+        inner.Flush();
+
         sim.LeftClick(new PhysicalPoint(3000, 500));
+        inner.Flush();
+        clock += 60; // past this candidate's due time
+        sim.MoveCursor(new PhysicalPoint(2000, 1200));
         inner.Flush();
 
         Check.WithCustomMessage("every move landed, only a few microseconds late")

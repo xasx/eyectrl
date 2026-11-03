@@ -106,7 +106,7 @@ public class BlockedInputCoordinatorTests
             Escape = new FakeEscape();
             Ring = new FakeRing();
             Gate = new BlockedInputGate();
-            EyeCare = new FakeEyeCare();
+            EyeCare = new FakeEyeCare { Gate = Gate };
             Messenger = new WeakReferenceMessenger();
             Coordinator = new BlockedInputCoordinator(
                 detector, Banner, Escape, Ring, Dispatcher.CurrentDispatcher,
@@ -155,11 +155,31 @@ public class BlockedInputCoordinatorTests
         Check.That(h.EyeCare.CancelBannerCount).IsEqualTo(1); // clears do not cancel anything
     }
 
+    [Fact]
+    public void Dispose_AbandonsADeferredEyeCarePrompt_BeforeReleasingTheGate()
+    {
+        // N2: if Dispose released the gate first, the deferred ShowBannerAsync would resume and
+        // paint on a shutting-down dispatcher. CancelBanner must see the gate still blocked.
+        var h = new Harness();
+        h.Coordinator.Apply(Blocked); // one CancelBanner for the block transition
+
+        h.Coordinator.Dispose();
+
+        Check.That(h.EyeCare.CancelBannerCount).IsEqualTo(2);
+        Check.WithCustomMessage("Dispose released the gate before cancelling the deferred prompt.")
+            .That(h.EyeCare.CancelBannerSawBlocked).IsTrue();
+        Check.That(h.Gate.IsBlocked).IsFalse();
+    }
+
     /// <summary>No-op hooks; only the banner cancellation is observed.</summary>
     private sealed class FakeEyeCare : IEyeCareHooks
     {
         public int CancelBannerCount { get; private set; }
         public int CancelActiveCount { get; private set; }
+        public bool CancelBannerSawBlocked { get; set; }
+
+        /// <summary>Set by the harness so the order of Dispose's cancel and gate release is visible.</summary>
+        public BlockedInputGate? Gate { get; set; }
 
         public Task<bool> ShowBannerAsync(string message) => Task.FromResult(true);
 
@@ -172,7 +192,11 @@ public class BlockedInputCoordinatorTests
 
         public void CancelActive() => CancelActiveCount++;
 
-        public void CancelBanner() => CancelBannerCount++;
+        public void CancelBanner()
+        {
+            CancelBannerSawBlocked = Gate?.IsBlocked ?? false;
+            CancelBannerCount++;
+        }
     }
 
     private sealed class FakeBanner : IBlockedInputBanner

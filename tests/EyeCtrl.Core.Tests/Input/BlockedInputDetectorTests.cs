@@ -247,6 +247,95 @@ public class BlockedInputDetectorTests
     }
 
     [Fact]
+    public void TheConfirmationWaitsTheFullDelay()
+    {
+        // F1m: with the delay mutated to 0 both candidates are due at 39 ms and the banner appears;
+        // at the real 40 ms the two confirmations come one tick later.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+
+        // 39 ms is deliberately a literal: using the constant would shrink with the mutant and the
+        // test would stay green at delay 0. At the real 40 both are still unconfirmed here.
+        h.Clock.Advance(39);
+        h.Detector.ReportMoveCommand(stuck);
+        Check.WithCustomMessage("a miss was counted before the confirmation delay elapsed.")
+            .That(h.Detector.IsBlocked).IsFalse();
+
+        h.Clock.Advance(1);
+        h.Detector.ReportMoveCommand(stuck);
+        Check.That(h.Detector.IsBlocked).IsTrue();
+    }
+
+    [Fact]
+    public void APreMoveReadAtTheClickTarget_DropsThePendingMiss()
+    {
+        // N1: the click landed late, and the next gaze frame's PRE-move read still sees it at the
+        // target. That is positive evidence, not a drop.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: target);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void APreMoveReadStillAtTheOldSpot_KeepsThePendingMiss()
+    {
+        // N1/P9: the click was dropped; the pre-move read is still where the cursor was, so the
+        // candidate is real. Two of them block exactly as before.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+        Check.That(h.Detector.IsBlocked).IsFalse(); // one confirmed miss
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+        Check.That(h.Detector.IsBlocked).IsTrue();
+    }
+
+    [Fact]
+    public void APreMoveReadElsewhere_DropsThePendingMiss_AsAnExternalWriter()
+    {
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: new PhysicalPoint(800, 800));
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void APreMoveReadThatFailed_DropsTheDueCandidate()
+    {
+        // A supplied null is "unreadable", not "read after the move": no evidence, no miss.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: null);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
     public void OneConfirmedMiss_IsNotEnough()
     {
         // The debounce is two CONFIRMED misses (the first dropped click already did nothing); one

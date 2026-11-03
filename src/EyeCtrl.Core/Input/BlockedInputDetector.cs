@@ -44,7 +44,7 @@ public sealed record BlockedInputState(
 /// that moved somewhere other than P is an external writer: it neither raises nor clears.
 /// </item>
 /// <item>
-/// <b>FreeLook sampler</b> (<see cref="ReportMoveCommand"/>): every
+/// <b>FreeLook sampler</b> (<see cref="ReportMoveCommand(PhysicalPoint)"/>): every
 /// <see cref="SampleIntervalMilliseconds"/> of commanded moves, the cursor is read once. If EyeCtrl
 /// commanded at least one point far from the sample's starting cursor and the cursor never left
 /// its starting neighbourhood, the moves are being dropped — one hit. A cursor that reaches a
@@ -179,7 +179,7 @@ public sealed class BlockedInputDetector
         BlockedInputState? transition;
         lock (_gate)
         {
-            transition = ConfirmDueMissesLocked(now);
+            transition = ConfirmDueMissesLocked(now, cursorOverride: null, hasCursorOverride: false);
 
             var targetPoint = ClampToScreen(target);
             var before = ClampToScreen(beforeRaw);
@@ -223,13 +223,37 @@ public sealed class BlockedInputDetector
     /// a perfectly ordinary look, not a dropped move.
     /// </summary>
     /// <param name="commanded">The point EyeCtrl just asked the OS to move to.</param>
-    public void ReportMoveCommand(PhysicalPoint commanded)
+    public void ReportMoveCommand(PhysicalPoint commanded) =>
+        ReportMoveCommand(commanded, cursorBeforeMove: null, hasCursorBeforeMove: false);
+
+    /// <summary>
+    /// Reports one commanded move together with the cursor read taken BEFORE the move was written.
+    /// That read is the evidence N1 needs: a click whose <c>SendInput</c> landed after the click's
+    /// own read is visible at the next frame, while the post-move read would see only the gaze point
+    /// this call just wrote (and would call a landed click a miss when the gaze is still on the
+    /// button). The overload with no pre-move read keeps the post-move behaviour for direct callers.
+    /// </summary>
+    /// <param name="commanded">The point EyeCtrl just asked the OS to move to.</param>
+    /// <param name="cursorBeforeMove">The cursor before this move, or null when unreadable. A null
+    /// read is still a supplied observation: no due candidate may be confirmed from it.</param>
+    public void ReportMoveCommand(PhysicalPoint commanded, PhysicalPoint? cursorBeforeMove) =>
+        ReportMoveCommand(commanded, cursorBeforeMove, hasCursorBeforeMove: true);
+
+    private void ReportMoveCommand(
+        PhysicalPoint commanded, PhysicalPoint? cursorBeforeMove, bool hasCursorBeforeMove)
     {
+        commanded = ClampToScreen(commanded);
         var now = _nowMilliseconds();
         BlockedInputState? transition;
         lock (_gate)
         {
-            transition = ConfirmDueMissesLocked(now);
+            // N1: a pre-move read that has left the old spot drops the candidate. Near the commanded
+            // click target it is a delayed landing (positive evidence, clears a live block); anywhere
+            // else it is an external writer. Still at the old spot, the confirmation below decides.
+            transition = DropPendingExplainedByPreMoveLocked(cursorBeforeMove);
+
+            transition = ConfirmDueMissesLocked(
+                now, cursorBeforeMove, hasCursorBeforeMove) ?? transition;
 
             if (!_sampleWindowOpen || _sampleCursor is not { } sample)
             {
@@ -237,7 +261,6 @@ public sealed class BlockedInputDetector
             }
             else
             {
-                commanded = ClampToScreen(commanded);
                 if (commanded.DistanceTo(sample) > TargetTolerancePixels)
                     _windowHadFarCommand = true;
 
@@ -300,16 +323,66 @@ public sealed class BlockedInputDetector
     }
 
     /// <summary>
+    /// Drops candidates an EyeCtrl move already explains (N1). A pre-move read within
+    /// <see cref="StaticTolerancePixels"/> of the pending candidate's <c>Before</c> is still the old
+    /// spot and is left to the confirmation. Further away, the cursor moved for some other reason:
+    /// at the commanded click target it is a delayed landing (positive evidence, clears a live
+    /// block), elsewhere it is an external writer and no evidence of a drop. Runs under the lock.
+    /// </summary>
+    /// <param name="cursorBeforeMove">The cursor read taken before this FreeLook move, or null if
+    /// unreadable (then nothing is dropped on this evidence).</param>
+    /// <returns>A clear transition if a delayed landing ended a live block.</returns>
+    private BlockedInputState? DropPendingExplainedByPreMoveLocked(PhysicalPoint? cursorBeforeMove)
+    {
+        if (cursorBeforeMove is not { } raw)
+            return null;
+
+        var before = ClampToScreen(raw);
+        BlockedInputState? transition = null;
+
+        for (var i = _pendingMisses.Count - 1; i >= 0; i--)
+        {
+            var pending = _pendingMisses[i];
+            if (before.DistanceTo(pending.Before) <= StaticTolerancePixels)
+                continue; // still at the old spot: the confirmation must decide
+
+            _pendingMisses.RemoveAt(i);
+
+            if (before.DistanceTo(pending.Target) <= TargetTolerancePixels)
+            {
+                // The click's move landed late: it was NOT dropped.
+                _actionMisses = 0;
+                transition = ClearIfBlocked(
+                    "delayed verified action move", pending.Target, pending.Before, before) ?? transition;
+            }
+            else if (!_state.IsBlocked)
+            {
+                // Moved somewhere else: an external writer, not a drop.
+                _actionMisses = 0;
+            }
+        }
+
+        return transition;
+    }
+
+    /// <summary>
     /// Confirms every miss candidate whose re-read is due. A candidate becomes a miss only when the
     /// cursor is still within <see cref="StaticTolerancePixels"/> of where it was before the
     /// injection; a candidate whose cursor has moved is dropped (the read lagged, or an external
     /// writer moved it). Runs under the detector lock.
     /// </summary>
     /// <param name="now">The current clock reading.</param>
+    /// <param name="cursorOverride">A cursor read supplied by the caller (the pre-move read), or
+    /// null; only meaningful when <paramref name="hasCursorOverride"/> is true.</param>
+    /// <param name="hasCursorOverride">True when the caller supplied the pre-move read. A supplied
+    /// null then means "unreadable" and no candidate may be confirmed from it.</param>
     /// <returns>A block or clear transition caused by the confirmation, if any.</returns>
-    private BlockedInputState? ConfirmDueMissesLocked(long now)
+    private BlockedInputState? ConfirmDueMissesLocked(
+        long now, PhysicalPoint? cursorOverride, bool hasCursorOverride)
     {
         BlockedInputState? transition = null;
+        PhysicalPoint? rawCursor = null;
+        var hasRead = false;
 
         for (var i = _pendingMisses.Count - 1; i >= 0; i--)
         {
@@ -317,9 +390,17 @@ public sealed class BlockedInputDetector
             if (now < pending.DueAtMs)
                 continue;
 
+            // One read serves every due candidate: they all describe the same instant. The old
+            // per-candidate read was a second observer after the move, which N1 showed is wrong.
+            if (!hasRead)
+            {
+                rawCursor = hasCursorOverride ? cursorOverride : ReadCursor();
+                hasRead = true;
+            }
+
             _pendingMisses.RemoveAt(i);
 
-            if (ReadCursor() is not { } raw)
+            if (rawCursor is not { } raw)
                 continue; // unreadable: no evidence, drop the candidate
 
             var current = ClampToScreen(raw);

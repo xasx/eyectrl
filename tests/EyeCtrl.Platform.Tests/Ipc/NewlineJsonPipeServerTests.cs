@@ -184,4 +184,58 @@ public class NewlineJsonPipeServerTests
         Check.That(closed.WaitOne(PositiveWaitMs)).IsTrue();
         Check.That(received).IsEmpty();
     }
+
+    // The class doc (NewlineJsonPipeServer.cs, BoundedLineReader) promises StreamReader-compatible
+    // EOF semantics: a final line WITHOUT its terminator is still delivered as a partial line at
+    // EOF. Both consumers rely on that tail — the supervisor's heartbeat channel (the app's final
+    // ShuttingDown payload) and the SDK dwell channel — so a regression here silently drops a
+    // user's deliberate clean exit, books it as a crash strike, and relaunches an app they closed.
+    [Fact]
+    public async Task FinalPayloadWithoutTrailingNewline_IsDeliveredAsTailAtEof_ThenClosed()
+    {
+        var pipeName = PipeName();
+        var received = new List<string>();
+        using var closed = new AutoResetEvent(false);
+        using var server = NewServer(pipeName, received, closed: closed);
+        server.Start();
+
+        await using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
+        {
+            await client.ConnectAsync(PositiveWaitMs);
+            await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+            await w.WriteAsync("final-payload"); // no trailing newline
+        } // closing the pipe is what puts the reader at EOF mid-line
+
+        for (var i = 0; i < 20 && received.Count == 0; i++)
+            await Task.Delay(50);
+
+        Check.That(received).HasSize(1);
+        Check.That(received[0]).IsEqualTo("final-payload");
+        // After the tail the read loop hits EOF at a line boundary and tears down normally.
+        Check.That(closed.WaitOne(PositiveWaitMs)).IsTrue();
+    }
+
+    // A trailing lone '\r' at EOF is content too (it was held pending as a potential "\r\n" half
+    // and must be appended when EOF proves it was not): the tail is "payload\r", not "payload".
+    [Fact]
+    public async Task TrailingLoneCarriageReturn_AtEof_IsAppendedAsContent()
+    {
+        var pipeName = PipeName();
+        var received = new List<string>();
+        using var server = NewServer(pipeName, received);
+        server.Start();
+
+        await using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
+        {
+            await client.ConnectAsync(PositiveWaitMs);
+            await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+            await w.WriteAsync("payload\r"); // lone CR, no newline after it
+        } // closing the pipe puts the reader at EOF with the CR still pending
+
+        for (var i = 0; i < 20 && received.Count == 0; i++)
+            await Task.Delay(50);
+
+        Check.That(received).HasSize(1);
+        Check.That(received[0]).IsEqualTo("payload\r");
+    }
 }

@@ -206,9 +206,14 @@ public class BlockedInputCoordinatorTests
 
         public event EventHandler? EscapeRequested;
         public event EventHandler? DismissRequested;
+        public event EventHandler? Hidden;
 
         public void ShowBlocked(BlockedInputState state) => Shown.Add(state);
-        public void HideBlocked() => HideCount++;
+        public void HideBlocked()
+        {
+            HideCount++;
+            Hidden?.Invoke(this, EventArgs.Empty);
+        }
         public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds) => GazeCount++;
         public int GazeCount { get; private set; }
         public void RaiseEscape() => EscapeRequested?.Invoke(this, EventArgs.Empty);

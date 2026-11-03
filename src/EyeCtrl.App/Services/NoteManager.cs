@@ -55,6 +55,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private Func<PhysicalRect?>? _noteNoticeBounds;
     // B2b: the status strip's label card (paused / tracking lost / no tracker), its own named source.
     private Func<PhysicalRect?>? _statusStripBounds;
+    // C10 fixup-04: the blocked-input banner. Its emergency buttons are dwell targets at the top of
+    // the screen, and a note's own dwell (600 ms, below the banner's 700 ms) keeps running while
+    // UIPI discards injected clicks - so a click-through banner would let a note's ✕ beneath it fire
+    // first. The whole visible window occludes, and the source answers null once it is hidden.
+    private Func<PhysicalRect?>? _blockedBannerBounds;
     // Gate conjunct 4's own-window half (P2 D2): target id → the HWND of the note window that
     // draws it, recorded at registration. Windowless targets (the test seams) are absent here and
     // exempt from the conjunct; the conjunct is inactive only while the tester is the named
@@ -903,9 +908,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// </para>
     /// Called AFTER the registration it follows, so the scan sees the fresh targets; a held sample
     /// is by definition still inside the circles it must leave.
+    /// <para>
+    /// Also the C10 fixup-04 hide-latch seam (public through <see cref="INoteManager"/>): the
+    /// blocked-input banner leaves the screen while the gaze still rests where its emergency
+    /// buttons were, so the note targets under that spot must wait for a 150 ms leave too.
+    /// </para>
     /// </summary>
-    private void LatchTargetsUnderTheGaze()
+    public void LatchTargetsUnderTheGaze()
     {
+        if (_disposed) return;
         // Both detectors: a chip's Undo target born under a held gaze waits for a leave too
         // (P2 D4 covers every (re)registration, P2 D5's chips included).
         foreach (var target in _dwellDetector.Targets.Concat(_undoDetector.Targets))
@@ -1244,7 +1255,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>Whether any live occluder rect intersects <paramref name="rect"/> (the chip
     /// clock's condition 4). FAIL CLOSED, like the sample gate: a throwing source is no
     /// information — the chip is treated as unreachable for this tick, and the failure is logged
-    /// once per source per episode (the same episode flags the sample gate uses).</summary>
+    /// once per source per episode (the same episode flags the sample gate uses). The
+    /// blocked-input banner (C10 fixup-04) is read here too: a strip over the Undo cell stops the
+    /// countdown the same way any other occluder does.</summary>
     private bool AnyOccluderIntersects(PhysicalRect rect)
     {
         bool Intersects(PhysicalRect r) =>
@@ -1285,6 +1298,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (!TryReadOccluderRects(KnownOccluderSources.StatusStrip,
                 () => _statusStripBounds?.Invoke() is { } strip
                     ? new[] { strip }
+                    : (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
+                Intersects, out hit) || hit)
+            return true;
+
+        // C10 fixup-04: the whole blocked-input banner intersects the chip's Undo cell - the chip
+        // cannot count down while an emergency strip covers the reach it needs.
+        if (!TryReadOccluderRects(KnownOccluderSources.BlockedInputBanner,
+                () => _blockedBannerBounds?.Invoke() is { } blocked
+                    ? new[] { blocked }
                     : (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
                 Intersects, out hit) || hit)
             return true;
@@ -1363,6 +1385,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// the notice - non-null once <see cref="NoteOccluderWiring.Wire"/> ran, and the thing the
     /// note gate actually reads (so a real-container test can pin the connection).</summary>
     internal Func<PhysicalRect?>? NoticeBoundsForTest => _noteNoticeBounds;
+
+    /// <summary>Test/wiring seam (C10 fixup-04): the occluder source the composition root
+    /// registered for the blocked-input banner - non-null once <see cref="NoteOccluderWiring.Wire"/>
+    /// ran, so a real-container test pins the connection and the bounds it answers.</summary>
+    internal Func<PhysicalRect?>? BlockedBannerBoundsForTest => _blockedBannerBounds;
     /// <summary>The notice visible bounds while it shows (P2 D3) - the source the occluder
     /// wiring passes to <see cref="SetOccluderSources"/> at the composition root.</summary>
     internal bool TryGetNoticeVisibleBounds(out PhysicalRect bounds)
@@ -1861,7 +1888,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>Gate conjunct 4's occluder half (P2 D3): the keyboard window and its edge bar
     /// (through the probe), the lag mark, the bottom-centre banner slot's live occupant (B4: drift
-    /// notice, caregiver alert, future cards — one aggregate source) and the track-status card.
+    /// notice, caregiver alert, future cards - one aggregate source), the track-status card, and
+    /// (C10 fixup-04) the blocked-input banner's whole visible window.
     /// Each source is read live; nulls contribute nothing.
     /// <para>
     /// FAIL CLOSED (T2 fixup 02), with the ✓ Done exemption (T2 fixup 03 m1): a throwing source
@@ -1921,6 +1949,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         else
             genuine |= covers;
 
+        // C10 fixup-04: the blocked-input banner's whole visible window. Its buttons ARE the
+        // emergency exits; a note ✕ under one is a control the owner did not aim at, and the
+        // note's 600 ms dwell beats the banner's 700 ms.
+        if (!TryReadOccluder(KnownOccluderSources.BlockedInputBanner,
+                () => _blockedBannerBounds is { } blockedBanner
+                    && blockedBanner.Invoke() is { } blockedBannerBounds
+                    && blockedBannerBounds.Contains(gazePoint), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
         return (genuine, failed);
     }
 
@@ -1940,6 +1979,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         public const string TrackStatus = "track status";
         public const string NoteNotice = "note notice";
         public const string StatusStrip = "status strip";
+        public const string BlockedInputBanner = "blocked input banner";
     }
 
     /// <summary>The logged-failure episode flags, one per source name: a failed source logs once,
@@ -2183,19 +2223,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// invalidate, and a source attached later (the lag-mark bridge) needs no re-wire. The
     /// banner slot (B4) is ONE aggregate source for every bottom-centre banner. The track-status
     /// card joined in fixup 01 (review M1): opaque, click-through, parked top-right for as long as
-    /// TrackStatusSettings.Enabled.</summary>
+    /// TrackStatusSettings.Enabled. C10 fixup-04 added the blocked-input banner: a note fires from
+    /// its own gaze dwell, so a click-through banner does not stop one beneath it.</summary>
     public void SetOccluderSources(
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
         Func<PhysicalRect?>? noteNoticeBounds = null,
-        Func<PhysicalRect?>? statusStripBounds = null)
+        Func<PhysicalRect?>? statusStripBounds = null,
+        Func<PhysicalRect?>? blockedBannerBounds = null)
     {
         _lagMarkRects = lagMarkRects;
         _slotOccupantBounds = slotOccupantBounds;
         _trackStatusBounds = trackStatusBounds;
         _noteNoticeBounds = noteNoticeBounds;
         _statusStripBounds = statusStripBounds;
+        _blockedBannerBounds = blockedBannerBounds;
     }
 
     /// <summary>Test/DI-pin seam (fixup 01 M2): the hit tester this manager actually uses. The

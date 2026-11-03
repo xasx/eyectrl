@@ -291,6 +291,44 @@ public class NoteGateTests
             "the status strip's label card must occlude ✕ beneath it");
     }
 
+    [Fact]
+    public void BlockedInputBannerOverClose_NeverFiresTheNote()
+    {
+        // C10 fixup-04: the banner is click-through, but UIPI does NOT stop EyeCtrl's own gaze
+        // dwell — a note ✕ under its 700 ms escape button would otherwise fire first at 600 ms.
+        // Standalone (not the shared helper): the first hold must leave the note in DISPLAY, which
+        // is the half a fired ✕ hides, since the chip keeps the note alive. The real-window
+        // geometry is pinned in NoteOccluderWiringTests.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            manager.AddNoteTargetsForTest(anchor);
+            var closeCenter = ButtonCentrePhysical(anchor, 3);
+
+            PhysicalRect? strip = new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200);
+            manager.SetOccluderSources(blockedBannerBounds: () => strip);
+
+            for (long t = 0; t <= 1_500_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.WithCustomMessage("✕ under the blocked-input banner must NOT fire")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // The banner hides: the same held gaze reaches ✕ (the hide's own latch is pinned in
+            // NoteOccluderWiringTests; here the plain transient-occlusion control applies).
+            strip = null;
+            for (long t = 1_600_000; t <= 1_900_000; t += 100_000)
+                manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
+            for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
+                manager.OnGazeMoved(closeCenter, t);
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     private static void OccluderOverClose_NeverFires(
         Action<NoteManager, Func<PhysicalRect?>> wire, string because)
     {

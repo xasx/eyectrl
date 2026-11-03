@@ -1481,6 +1481,12 @@
       "Reason": "A log-only occluder source name (the status strip's label card, B2b; the fail-closed log once-per-episode), never shown; not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"blocked input banner\"",
+      "Category": "log",
+      "Reason": "A log-only occluder source name (C10 fixup-04: the blocked-input banner's fail-closed log once-per-episode), never shown; not text."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
       "Literal": "\"cursor=(?,?)\"",
       "Category": "log",

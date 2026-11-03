@@ -407,6 +407,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"blocked input banner\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"keyboard probe\"",
       "Count": 1
     },

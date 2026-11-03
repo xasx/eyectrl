@@ -43,8 +43,9 @@ signs and installs, and only on the owner's go.
   of its SIP SHA-256** (for a PE, the Authenticode hash), with the relative path in `FilePath` —
   look members up by hash, never by path. The inbox copy is assembled in a dot-prefixed
   `.<version>.partial` folder and renamed into place, so consumers must ignore dot-prefixed folders.
-  "Newer" means `package.json` `created`, then version, then folder name. PDBs, XML docs,
-  `*.lib` and `README.md` never ship; they are pruned before the catalog is written.
+  "Newer" means `package.json` `created`, then version, then folder name. No loose PDBs ship
+  (symbols are embedded in the bundles, so stack traces keep file:line), and XML docs, `*.lib` and
+  `README.md` are pruned before the catalog is written.
 - **Agents never sign, never write the real inbox, never touch Program Files or HKLM, and never run
   a built exe.** The runnable mode is
   `Publish-Signed.ps1 -DryRun -NoSign -ScratchDir <scratch>`: it builds and packages into that

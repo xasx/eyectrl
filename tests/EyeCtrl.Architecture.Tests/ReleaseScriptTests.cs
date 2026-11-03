@@ -207,18 +207,48 @@ public class ReleaseScriptTests
     [Fact]
     public void ThePublishScript_DeliversTheInboxAtomically()
     {
-        // F4: a half-copied package must never be visible under updates\<version>.
+        // F4/T1: a half-copied package must never be visible under updates\<version>, and the
+        // validation must happen BEFORE the rename that makes it visible (review-02 R3).
         var script = File.ReadAllText(PublishScriptPath);
 
         Check.WithCustomMessage("the copy must go through a dot-prefixed .partial sibling")
-            .That(script).Contains("'.' + (Split-Path -Leaf $destination) + '.partial'");
+            .That(script).Contains("$partial = Join-Path $parent ('.' + $versionName + '.partial')");
         Check.WithCustomMessage("the partial package must validate before it is renamed")
             .That(script).Contains("Assert-CatalogValid $partial");
         Check.WithCustomMessage("the rename is the publish")
-            .That(script).Contains("Rename-Item -LiteralPath $partial -NewName");
+            .That(script).Contains("Rename-Item -LiteralPath $partial -NewName $versionName");
         Check.WithCustomMessage("a wildcard -Path misreads [ and ] in the scratch path")
             .That(script).DoesNotContain("Join-Path $packageDir '*'");
         Check.That(script).Contains("Copy-PackageTree $packageDir $partial");
+
+        AssertContainsInOrder(
+            script,
+            "Assert-CatalogValid $partial",
+            "Rename-Item -LiteralPath $partial");
+    }
+
+    [Fact]
+    public void ThePublishScript_ReplacesAForceRepublishWithoutDeletingTheRealName()
+    {
+        // N1: with -Force over the same version the old folder is renamed aside, the validated
+        // partial takes the name, and only then is the old one deleted. The real name never holds
+        // a half-deleted package.
+        var script = File.ReadAllText(PublishScriptPath);
+
+        Check.That(script).Contains("$oldName = '.' + $versionName + '.old'");
+        Check.That(script).Contains("Rename-Item -LiteralPath $destination -NewName $oldName");
+        Check.WithCustomMessage("the old folder is deleted only after the new one is in place")
+            .That(script).Contains("Remove-Item -LiteralPath (Join-Path $parent ('.' + $versionName + '.old'))");
+
+        AssertContainsInOrder(
+            script,
+            "Assert-CatalogValid $partial",
+            "Rename-Item -LiteralPath $destination -NewName $oldName",
+            "Rename-Item -LiteralPath $partial -NewName $versionName",
+            "Remove-Item -LiteralPath (Join-Path $parent ('.' + $versionName + '.old'))");
+
+        Check.WithCustomMessage("nothing may delete the destination under its real name")
+            .That(script).DoesNotContain("Remove-Item -LiteralPath $destination");
     }
 
     [Fact]
@@ -229,8 +259,10 @@ public class ReleaseScriptTests
         Check.That(script).Contains("$PackageNoiseExtensions = @('.pdb', '.lib')");
         Check.That(script).Contains("$PackageNoiseNames = @('README.md')");
         Check.That(script).Contains("Remove-PackageNoise $packageDir");
-        Check.WithCustomMessage("symbols are not generated for the publish")
-            .That(script).Contains("'-p:DebugType=None'");
+        Check.WithCustomMessage("symbols stay embedded in the bundle, so stack traces keep file:line")
+            .That(script).Contains("'-p:DebugType=embedded'");
+        Check.WithCustomMessage("DebugSymbols must agree with embedded symbols")
+            .That(script).Contains("'-p:DebugSymbols=true'");
         Check.WithCustomMessage("XML docs are not generated for the publish")
             .That(script).Contains("'-p:GenerateDocumentationFile=false'");
     }

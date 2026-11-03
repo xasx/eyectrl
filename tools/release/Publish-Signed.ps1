@@ -8,8 +8,9 @@
     (single-file, self-contained, uiAccess="false", compressed) into one package folder, plus
     EyeCtrl.Setup when src/EyeCtrl.Setup exists. Each publish output keeps its loose native DLLs
     beside the single-file exe: self-extraction would load native code from a user-writable %TEMP%
-    into a High-IL process, so it is refused. Symbols, XML docs, import libraries and README files
-    are build artifacts and are pruned from the package.
+    into a High-IL process, so it is refused. Loose symbols, XML docs, import libraries and README
+    files are build artifacts and are pruned from the package; symbols stay embedded in the
+    bundles so the owner's stack traces keep file:line.
 
     With signing on, every exe is signed with the pinned self-signed certificate and the DigiCert
     timestamp, each signature is verified, each embedded manifest is read back and checked, and
@@ -373,9 +374,10 @@ function Invoke-Publish
         '-r', $Runtime,
         '--self-contained', 'true',
         '-p:PublishSingleFile=true',
-        # Symbols and XML docs are build artifacts, not installed files.
-        '-p:DebugType=None',
-        '-p:DebugSymbols=false',
+        # Embedded symbols keep file:line in the owner's stack traces inside the bundle, with no
+        # loose PDB files beside the exe. XML docs are build artifacts and are not installed.
+        '-p:DebugType=embedded',
+        '-p:DebugSymbols=true',
         '-p:GenerateDocumentationFile=false',
         '-o', $OutDir
     )
@@ -829,23 +831,21 @@ if ($destination -eq $packageDir)
 }
 else
 {
-    if (Test-Path -LiteralPath $destination)
+    $versionName = Split-Path -Leaf $destination
+    if ((Test-Path -LiteralPath $destination) -and -not $Force)
     {
-        if (-not $Force)
-        {
-            throw "$destination already exists. Bump the version, or pass -Force to replace it."
-        }
-        Remove-Item -LiteralPath $destination -Recurse -Force
+        throw "$destination already exists. Bump the version, or pass -Force to replace it."
     }
 
-    # Atomic publish: the wrapper (and Setup) must never see a half-copied package. Copy into a
-    # dot-prefixed sibling, validate the catalog there, then rename it into place.
+    # Atomic publish: the wrapper (and Setup) must never see a half-copied package, and the real
+    # name must never be missing. Copy into a dot-prefixed sibling and validate the catalog there;
+    # only then move the previous folder aside, rename the validated one into place, and delete it.
     $parent = Split-Path -Parent $destination
     if (-not (Test-Path -LiteralPath $parent))
     {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    $partial = Join-Path $parent ('.' + (Split-Path -Leaf $destination) + '.partial')
+    $partial = Join-Path $parent ('.' + $versionName + '.partial')
     if (Test-Path -LiteralPath $partial)
     {
         Remove-Item -LiteralPath $partial -Recurse -Force
@@ -853,9 +853,31 @@ else
     New-Item -ItemType Directory -Path $partial -Force | Out-Null
     Copy-PackageTree $packageDir $partial
     Assert-CatalogValid $partial
-    Rename-Item -LiteralPath $partial -NewName (Split-Path -Leaf $destination)
+
+    # -Force over the same version: the old folder is RENAMED aside, never deleted under its real
+    # name, so updates\<version> holds a complete package at every moment.
+    $replacedPrevious = $false
+    if (Test-Path -LiteralPath $destination)
+    {
+        $oldName = '.' + $versionName + '.old'
+        $oldPath = Join-Path $parent $oldName
+        if (Test-Path -LiteralPath $oldPath)
+        {
+            Remove-Item -LiteralPath $oldPath -Recurse -Force
+        }
+        Rename-Item -LiteralPath $destination -NewName $oldName
+        $replacedPrevious = $true
+    }
+
+    Rename-Item -LiteralPath $partial -NewName $versionName
     Write-Note "copied to: $destination"
     Assert-CatalogValid $destination
+
+    if ($replacedPrevious)
+    {
+        Remove-Item -LiteralPath (Join-Path $parent ('.' + $versionName + '.old')) -Recurse -Force
+        Write-Note "replaced the previous $versionName"
+    }
 }
 
 # ── Report ──────────────────────────────────────────────────────────────────────────────────

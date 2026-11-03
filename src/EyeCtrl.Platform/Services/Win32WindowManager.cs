@@ -111,6 +111,22 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     {
         if (hwnd == IntPtr.Zero) return;
 
+        // The tile snapshot is one-shot (AppWindow per ShowOverlay), so a window that closes
+        // mid-session leaves a tile whose dwell dispatches here on a dead hwnd. Today that
+        // path injects the ALT pair unconditionally — a stray ALT tap into whatever currently
+        // holds foreground (the 2026-08-25 stuck-ALT hazard) — and only the later
+        // SetForegroundWindow fails and logs. IsWindow is authoritative at the point of use;
+        // skip the grant for a target that cannot receive it (the same guard Minimize,
+        // MaximizeOrRestore and CloseWindow already carry).
+        if (!NativeMethods.IsWindow(hwnd))
+        {
+            _logger.LogWarning(
+                "Task switcher will not foreground window {Hwnd}: the window is gone (dead hwnd) — "
+                + "skipping the ALT foreground grant.",
+                hwnd);
+            return;
+        }
+
         // Minimized first (2026-08-18 field follow-up: Edge/Word/Task-Manager switched fine but
         // WhatsApp/ZCode/Claude — all iconic — did not): SetForegroundWindow "succeeds" on a
         // minimized window without un-minimizing it, so the window never visibly appears and

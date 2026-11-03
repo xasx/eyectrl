@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using EyeCtrl.App.Services;
 using NFluent;
@@ -26,12 +27,14 @@ public class SelfRestartStrategyTests
         FakeChild? child = null,
         bool launchThrows = false,
         bool readySignalled = true,
-        List<string>? launchLog = null) =>
+        List<string>? launchLog = null,
+        Action<ProcessStartInfo>? capture = null) =>
         new(
             resolveExePath: () => exePath,
-            launch: (path, args) =>
+            launch: psi =>
             {
-                launchLog?.Add($"{path} {args}");
+                capture?.Invoke(psi);
+                launchLog?.Add($"{psi.FileName} {psi.Arguments}");
                 if (launchThrows) throw new InvalidOperationException("boom");
                 return child ?? new FakeChild();
             },
@@ -41,6 +44,23 @@ public class SelfRestartStrategyTests
             // process, so the outcome is made injectable instead.
             waitForReady: (_, _) => readySignalled,
             readyWait: TimeSpan.FromSeconds(1));
+
+    [Fact]
+    public void LaunchesThroughShellExecute_WithTheSameExePathAndHandoffArgument()
+    {
+        // C9 S3: a plain CreateProcess of a uiAccess exe fails with 740 even from the UIAccess
+        // App itself (S1a). ShellExecute starts the replacement with UIAccess and still returns
+        // a usable handle, so the strategy must hand the factory a ShellExecute start info —
+        // with the exe path and the ready-handoff argument unchanged.
+        ProcessStartInfo? captured = null;
+
+        Build(capture: psi => captured = psi).Begin();
+
+        Check.That(captured).IsNotNull();
+        Check.That(captured!.UseShellExecute).IsTrue();
+        Check.That(captured.FileName).IsEqualTo(@"C:\EyeCtrl\EyeCtrl.exe");
+        Check.That(captured.Arguments).IsEqualTo(RestartHandoff.Argument);
+    }
 
     [Fact]
     public void Succeeds_WhenTheChildSignalsReady()

@@ -105,6 +105,20 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!--
+      C9 S2: the UIAccess build switch. Default false, so every ordinary build, test, CI run
+      and F5 session keeps the SDK default manifest (asInvoker, uiAccess="false"). Only an
+      installed, signed build passes -p:EyeCtrlUiAccess=true. The Supervisor never uses the
+      uiAccess manifest: its csproj sets no ApplicationManifest, and that is pinned by test.
+      app.manifest is today's embedded manifest byte for byte; app.uiaccess.manifest differs
+      only in the uiAccess attribute.
+    -->
+    <EyeCtrlUiAccess Condition="'$(EyeCtrlUiAccess)' == ''">false</EyeCtrlUiAccess>
+    <ApplicationManifest Condition="'$(EyeCtrlUiAccess)' == 'true'">app.uiaccess.manifest</ApplicationManifest>
+    <ApplicationManifest Condition="'$(EyeCtrlUiAccess)' != 'true'">app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.App.Tests" />
   </ItemGroup>

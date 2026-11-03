@@ -50,13 +50,13 @@ public enum RestartOutcome
 public sealed class SelfRestartStrategy
 {
     private readonly Func<string?> _resolveExePath;
-    private readonly Func<string, string, IRestartChild> _launch;
+    private readonly Func<ProcessStartInfo, IRestartChild> _launch;
     private readonly Func<EventWaitHandle, TimeSpan, bool> _waitForReady;
     private readonly TimeSpan _readyWait;
 
     /// <summary>Creates a strategy with explicit seams (tests supply fakes).</summary>
     /// <param name="resolveExePath">Returns the running executable's path, or null.</param>
-    /// <param name="launch">Starts a process: (exePath, arguments) => child.</param>
+    /// <param name="launch">Starts a process from the start info the strategy built.</param>
     /// <param name="waitForReady">
     /// Waits on the PARENT-OWNED ready event (created by <see cref="Begin"/> before the
     /// launch) for up to the given timeout; returns true if the child signalled. Production
@@ -65,7 +65,7 @@ public sealed class SelfRestartStrategy
     /// <param name="readyWait">How long to wait for that signal.</param>
     public SelfRestartStrategy(
         Func<string?> resolveExePath,
-        Func<string, string, IRestartChild> launch,
+        Func<ProcessStartInfo, IRestartChild> launch,
         Func<EventWaitHandle, TimeSpan, bool> waitForReady,
         TimeSpan readyWait)
     {
@@ -81,9 +81,9 @@ public sealed class SelfRestartStrategy
             // The stable single-file bundle apphost path — Assembly.Location is empty for
             // a single-file publish, which is how this app ships.
             resolveExePath: () => Environment.ProcessPath,
-            launch: (exePath, args) =>
+            launch: psi =>
             {
-                var process = Process.Start(new ProcessStartInfo(exePath, args) { UseShellExecute = false })
+                var process = Process.Start(psi)
                     ?? throw new InvalidOperationException("Process.Start returned no process.");
                 return new ProcessRestartChild(process);
             },
@@ -130,7 +130,11 @@ public sealed class SelfRestartStrategy
         IRestartChild child;
         try
         {
-            child = _launch(exePath, RestartHandoff.Argument);
+            // C9 S3: ShellExecute. S1a measured that a plain CreateProcess of the uiAccess
+            // App fails with 740 even from the UIAccess App itself; ShellExecute starts the
+            // replacement with UIAccess and returns a usable handle. The handoff argument is
+            // the same one the CreateProcess path passed.
+            child = _launch(new ProcessStartInfo(exePath, RestartHandoff.Argument) { UseShellExecute = true });
         }
         catch
         {

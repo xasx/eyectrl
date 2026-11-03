@@ -1121,6 +1121,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.Supervisor/Supervision/UiAccessLaunchFailure.cs",
+      "Literal": "\"Win32 740 (ERROR_ELEVATION_REQUIRED): a CreateProcess of the uiAccess App slipped through; the App must be started through ShellExecute\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Supervision/UiAccessLaunchFailure.cs",
+      "Literal": "\"Win32 8235 (ERROR_DS_REFERRAL): the App's signature or trust chain is broken, so a uiAccess exe cannot start\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml",
       "Literal": "\"EyeCtrl Supervisor\"",
       "Count": 1

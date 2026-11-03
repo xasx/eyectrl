@@ -1,1 +1,6 @@
 src/EyeCtrl.App/Resources/Completions/*.bin filter=lfs diff=lfs merge=lfs -text
+# C9 S2: the apphost embeds these byte for byte, and the S2 ratchet compares the embedded
+# resource to the file. Keep the BOM and CRLF exactly as the SDK default manifest ships them,
+# whatever core.autocrlf the checkout uses.
+src/EyeCtrl.App/app.manifest -text
+src/EyeCtrl.App/app.uiaccess.manifest -text

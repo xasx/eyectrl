@@ -447,12 +447,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     void ISupervisionClockHost.ClearPendingLaunch() => _pendingLaunchAt = null;
 
-    bool ISupervisionClockHost.TryLaunchPendingNow()
+    LaunchAttemptResult ISupervisionClockHost.TryLaunchPendingNow()
     {
         // This runs on the dispatcher via the clock tick, not inside HandleInput's lock. An
         // unhandled exception here (e.g. Process.Start throwing because the app exe is missing —
         // the installer-less default) would surface as a DispatcherUnhandledException and tear
-        // down the supervisor itself. Guard it: false makes Tick feed LaunchFailed, which books a
+        // down the supervisor itself. Guard it: a failure becomes LaunchFailed, which books a
         // strike and retries with backoff instead of leaving the machine waiting for a startup
         // grace that can never fire (ticket 06-C/F2). The wire-time race guard runs after Tick
         // feeds the outcome (WireLaunchedProcess, ticket 06 review F4).
@@ -466,12 +466,26 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             _languageDelivery.AppLaunched();
             _startOnBootDelivery.AppLaunched();
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
-            return true;
+            return LaunchAttemptResult.Started;
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); booking a strike and retrying with backoff.");
-            return false;
+            // C9 fixup-01: 8235/740 cannot heal on a retry. The clock escalates those to
+            // FallbackAt on this first failure; everything else keeps the strike + backoff.
+            var outcome = UiAccessLaunchFailure.ClassifyLaunchFailure(ex);
+            if (outcome == LaunchAttemptResult.FailedUnrecoverable)
+            {
+                // One line for this failure, with the distinct reason and no retry claim.
+                Log.Error(
+                    ex,
+                    "LaunchApp: {Reason}. Escalating to FallbackAt now.",
+                    UiAccessLaunchFailure.DescribeFailure(ex));
+            }
+            else
+            {
+                Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); booking a strike and retrying with backoff.");
+            }
+            return outcome;
         }
     }
 
@@ -730,7 +744,13 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 // The same Process.Start failure TryLaunchPendingNow guards against (app exe missing) applies
                 // here — at the user's most vulnerable moment. The dialog STAYS OPEN so the user can
                 // retry after the cause is fixed, instead of the exception killing the supervisor.
-                Log.Error(ex, "FallenBack retry: launch failed; dialog stays open, machine stays in FallenBack.");
+                // C9 fixup-01/F2: one line, and 8235/740 get their distinct reason. Retry is the
+                // healing path for them, so this line must not claim one.
+                var reason = UiAccessLaunchFailure.DescribeFailure(ex);
+                if (reason is not null)
+                    Log.Error(ex, "FallenBack retry: {Reason}. The dialog stays open.", reason);
+                else
+                    Log.Error(ex, "FallenBack retry: launch failed; dialog stays open, machine stays in FallenBack.");
                 return;
             }
             dialog.Close();

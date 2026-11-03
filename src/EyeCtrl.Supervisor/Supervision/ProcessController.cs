@@ -106,7 +106,10 @@ public sealed class ProcessController
         // The path we were handed IS the launched image; no need to ask the OS for it (and
         // Process.MainModule on a just-started process is one more thing that can throw).
         ExePath = exePath;
-        var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
+        // C9 S3: ShellExecute, not CreateProcess. A uiAccess exe cannot be created directly —
+        // S1a measured ERROR_ELEVATION_REQUIRED (740) even from a UIAccess parent — while
+        // ShellExecute starts it and still returns a usable handle for wait and kill.
+        var psi = new ProcessStartInfo(exePath) { UseShellExecute = true };
         if (paused) psi.ArgumentList.Add("--paused");
         if (uiLanguage is { } language)
         {
@@ -114,6 +117,9 @@ public sealed class ProcessController
             psi.ArgumentList.Add("--ui-language");
             psi.ArgumentList.Add(UiLanguageTokens.ToCommandLine(language));
         }
+        // The raw launch failure propagates: the caller classifies it with
+        // UiAccessLaunchFailure.ClassifyLaunchFailure and decides between the ordinary retry and
+        // an immediate FallbackAt (C9 fixup-01). No log here — the caller writes the one line.
         Bind(_processFactory(psi));
         StartTimeUtc = _process?.StartTime;
     }

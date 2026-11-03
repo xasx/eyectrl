@@ -26,10 +26,11 @@ internal interface ISupervisionClockHost
     /// <summary>Consumes the due pending relaunch. <see cref="SupervisionClock.Tick"/> calls this
     /// immediately before <see cref="TryLaunchPendingNow"/> as part of the relaunch contract.</summary>
     void ClearPendingLaunch();
-    /// <summary>Attempts the deferred launch. Returns true when a process started, false when the
-    /// launch threw. Tick feeds <see cref="LaunchExecuted"/>/<see cref="LaunchFailed"/> from the
-    /// result, so the outcome decision lives in tested clock code (ticket 06-F2).</summary>
-    bool TryLaunchPendingNow();
+    /// <summary>Attempts the deferred launch. The three-value result (C9 fixup-01) tells the clock
+    /// whether the process started, failed recoverably, or failed unrecoverably (Win32 8235/740)
+    /// so it can feed <see cref="LaunchExecuted"/>/<see cref="LaunchFailed"/> with the right
+    /// escalation.</summary>
+    LaunchAttemptResult TryLaunchPendingNow();
     /// <summary>Runs the host's wire-time race guard for the just-launched process, AFTER the
     /// launch outcome was fed: a process that already exited must be seen as launched-then-exited,
     /// in that order (ticket 06 review F4). Only called when the launch succeeded.</summary>
@@ -124,10 +125,19 @@ internal static class SupervisionClock
                     // deleting a feeder is a clock-level mutation covered by clock tests. F4: the
                     // wire-time race guard runs after the stamp, so an already-exited process is
                     // seen as launched-then-exited (one strike), not exit-then-stamp.
-                    var launched = host.TryLaunchPendingNow();
-                    SupervisionInput outcome = launched ? new LaunchExecuted(now) : new LaunchFailed(now);
-                    host.Handle(outcome);
-                    if (launched) host.WireLaunchedProcess();
+                    var outcome = host.TryLaunchPendingNow();
+                    if (outcome == LaunchAttemptResult.Started)
+                    {
+                        host.Handle(new LaunchExecuted(now));
+                        host.WireLaunchedProcess();
+                    }
+                    else
+                    {
+                        // C9 fixup-01: an unrecoverable launch failure (8235/740) escalates on
+                        // this first attempt; every other failure keeps the strike + backoff.
+                        host.Handle(new LaunchFailed(
+                            now, Unrecoverable: outcome == LaunchAttemptResult.FailedUnrecoverable));
+                    }
                 }
             }
         }

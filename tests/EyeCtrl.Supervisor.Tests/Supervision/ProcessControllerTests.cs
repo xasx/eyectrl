@@ -1,7 +1,9 @@
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Supervisor.Supervision;
 using NFluent;
 using Xunit;
@@ -37,6 +39,45 @@ public class ProcessControllerTests
         Check.That(capturedPsi).IsNotNull();
         Check.That(capturedPsi!.FileName).IsEqualTo("test.exe");
         Check.That(capturedPsi.ArgumentList).ContainsExactly("--paused");
+    }
+
+    [Fact]
+    public void Launch_UsesShellExecute_AndKeepsTheExePathAndArguments()
+    {
+        // C9 S3: CreateProcess (UseShellExecute=false) of a uiAccess exe fails with 740 even from
+        // a UIAccess parent (S1a), while ShellExecute starts it and still returns a usable handle
+        // for wait and kill. The factory must receive a ShellExecute start info with the same exe
+        // and the same arguments.
+        ProcessStartInfo? capturedPsi = null;
+        var handle = new FakeProcessHandle(4242, hasExited: false);
+        var controller = new ProcessController(psi => { capturedPsi = psi; return handle; }, _ => null);
+
+        controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: true, uiLanguage: UiLanguage.German);
+
+        Check.That(capturedPsi).IsNotNull();
+        Check.That(capturedPsi!.UseShellExecute).IsTrue();
+        Check.That(capturedPsi.FileName).IsEqualTo(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe");
+        Check.That(capturedPsi.ArgumentList).ContainsExactly("--paused", "--ui-language", "de");
+        Check.That(controller.BoundProcess).IsSameReferenceAs(handle);
+    }
+
+    [Fact]
+    public void Launch_WithWin32TrustFailure_PropagatesTheErrorForTheCallerToClassify()
+    {
+        // C9 fixup-01: ProcessController neither logs nor classifies the failure. The exception
+        // must reach the caller unchanged so Program's shared classifier can mark 8235/740
+        // unrecoverable (one log line, immediate FallbackAt instead of the retries).
+        var controller = new ProcessController(
+            _ => throw new Win32Exception(UiAccessLaunchFailure.SignatureOrTrustFailure),
+            _ => null);
+
+        Win32Exception? thrown = null;
+        try { controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: false); }
+        catch (Win32Exception ex) { thrown = ex; }
+
+        Check.That(thrown).IsNotNull();
+        Check.That(thrown!.NativeErrorCode).IsEqualTo(8235);
+        Check.That(controller.BoundProcess).IsNull();
     }
 
     [Fact]

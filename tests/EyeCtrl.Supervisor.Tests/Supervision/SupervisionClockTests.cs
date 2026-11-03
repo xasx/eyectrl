@@ -190,13 +190,14 @@ public class SupervisionClockTests
 
         public void ClearPendingLaunch() => PendingLaunchAt = null;
 
-        /// <summary>Models <c>DoLaunchApp</c>: true when a process started, false when it threw.</summary>
+        /// <summary>Models <c>DoLaunchApp</c>: Started when a process started, Failed when it
+        /// threw (C9 fixup-01's three-value result; ordinary failures only in this host).</summary>
         public bool LaunchFails { get; set; }
 
-        public bool TryLaunchPendingNow()
+        public LaunchAttemptResult TryLaunchPendingNow()
         {
             Actions.Add("LaunchPendingNow");
-            return !LaunchFails;
+            return LaunchFails ? LaunchAttemptResult.Failed : LaunchAttemptResult.Started;
         }
 
         public void WireLaunchedProcess() => Actions.Add("WireLaunchedProcess");

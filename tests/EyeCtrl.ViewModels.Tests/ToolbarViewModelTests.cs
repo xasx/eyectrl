@@ -47,29 +47,41 @@ public class ToolbarViewModelTests
         Check.That(received).IsTrue();
     }
 
-    // The six remaining activations are the gaze-only user's primary navigation: a case deleted
-    // from the switch, an id typo'd, or two messages swapped turns the button into a no-op (a dead
-    // Settings button locks a gaze-only user out of configuration entirely). Probes on ALL six
-    // message types pin that exactly one fires — no cross-wiring.
+    // The nine activations are the gaze-only user's primary navigation: a case deleted from the
+    // switch, an id typo'd, or two messages swapped turns the button into a no-op (a dead Settings
+    // button locks a gaze-only user out of configuration entirely). Probes on ALL nine message
+    // types pin that exactly one fires — no cross-wiring into the sibling buttons either, which
+    // the three older single-button facts below cannot see (review r1 F11).
     [Theory]
+    [InlineData("Pause")]
+    [InlineData("SelectionMode")]
     [InlineData("Keyboard")]
     [InlineData("Calibrate")]
     [InlineData("Settings")]
     [InlineData("TaskSwitcher")]
     [InlineData("Modes")]
     [InlineData("QuickActions")]
+    [InlineData("ResetAdaptation")]
     public void ActivatingAButton_SendsExactlyItsOwnMessage(string buttonId)
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        var sent = new Dictionary<string, int> { ["Keyboard"] = 0, ["Calibrate"] = 0, ["Settings"] = 0, ["TaskSwitcher"] = 0, ["Modes"] = 0, ["QuickActions"] = 0 };
+        var sent = new Dictionary<string, int>
+        {
+            ["Pause"] = 0, ["SelectionMode"] = 0, ["Keyboard"] = 0, ["Calibrate"] = 0,
+            ["Settings"] = 0, ["TaskSwitcher"] = 0, ["Modes"] = 0, ["QuickActions"] = 0,
+            ["ResetAdaptation"] = 0,
+        };
         void Count(string key) => sent[key]++;
 
+        _messenger.Register<PauseToggledMessage>(_messenger, (_, _) => Count("Pause"));
+        _messenger.Register<SelectionModeChangedMessage>(_messenger, (_, _) => Count("SelectionMode"));
         _messenger.Register<KeyboardToggledMessage>(_messenger, (_, _) => Count("Keyboard"));
         _messenger.Register<CalibrationRequestedMessage>(_messenger, (_, _) => Count("Calibrate"));
         _messenger.Register<SettingsRequestedMessage>(_messenger, (_, _) => Count("Settings"));
         _messenger.Register<TaskSwitcherToggledMessage>(_messenger, (_, _) => Count("TaskSwitcher"));
         _messenger.Register<ModesMenuToggledMessage>(_messenger, (_, _) => Count("Modes"));
         _messenger.Register<QuickActionsToggledMessage>(_messenger, (_, _) => Count("QuickActions"));
+        _messenger.Register<ResetAdaptationMessage>(_messenger, (_, _) => Count("ResetAdaptation"));
 
         vm.SimulateButtonActivated(buttonId);
 

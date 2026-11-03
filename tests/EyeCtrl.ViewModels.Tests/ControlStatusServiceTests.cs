@@ -452,6 +452,41 @@ public class ControlStatusServiceTests
         service.Dispose();
     }
 
+    // Fault containment, leg 2b. The messenger send has its own catch as well: a recipient that
+    // throws on Receive must not unwind into Publish's caller — a state change can originate on
+    // the gaze thread, and an unhandled throw there costs the only input channel. WeakReference-
+    // Messenger does not guarantee cross-recipient delivery order, so the faulted publish's
+    // delivery is not asserted; the pin is containment plus the healed next publish
+    // (review r1 F6: the rethrow mutant survived without this fact).
+    [Fact]
+    public void AThrowingMessageRecipient_IsContained_AndTheNextPublishStillSends()
+    {
+        var logger = new CapturingLogger();
+        var service = NewService(logger: logger);
+        var recipientFaults = true;
+        // A distinct recipient object: WeakReferenceMessenger allows one handler per (recipient,
+        // token) pair, and NewService already registered the recorder on the test instance.
+        var thrower = new object();
+        _messenger.Register<ControlStatusChangedMessage>(thrower, (_, _) =>
+        {
+            if (recipientFaults)
+                throw new InvalidOperationException("recipient fault (simulated)");
+        });
+
+        Check.ThatCode(service.Start).DoesNotThrow();   // the initial publish rides the contained fault
+        Check.That(logger.Entries).HasElementThatMatches(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("A control-status message recipient threw")
+            && entry.Exception is InvalidOperationException);
+
+        recipientFaults = false;
+        _interaction.TogglePause();
+
+        Check.That(_messages).HasElementThatMatches(m => m.State == ControlState.Paused);
+
+        service.Dispose();
+    }
+
     // Fault containment, leg 3. The dispatcher can refuse work while shutting down; the refusal
     // must not unwind into the gaze callback (where a state change can originate) and must not
     // take Start down. Losing the last status then is harmless; the service must stay usable.

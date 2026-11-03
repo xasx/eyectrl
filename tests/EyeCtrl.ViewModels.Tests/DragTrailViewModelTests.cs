@@ -265,6 +265,10 @@ public class DragTrailViewModelTests
         }
 
         Check.That(dropMsg).IsNotNull();
+        // A drop at/after 2 s would be the settle fallback rescuing the drag, not the release
+        // dwell: settle needs its full 2000 ms from the same t=0, so this bound is what rules the
+        // rescue out (review r1 F2 — the suppress-release-only-while-paused mutant survived without it).
+        Check.That(t).IsStrictlyLessThan(2_000_000);
         Check.That(maxProgressSeen).IsStrictlyGreaterThan(0);
         Check.That(vm.IsDragActive).IsFalse();
         Check.That(dropMsg!.DropPoint).IsEqualTo(rest);   // the rest centroid, not the grab origin

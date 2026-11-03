@@ -52,6 +52,8 @@ public sealed class SetupWorkflow
         if (MustRunMedium(SetupVerb.Update) is { } medium) return medium;
         if (Blocked(SetupVerb.Update) is { } blocked)
             return blocked;
+        if (HandOff(SetupVerb.Update, ["update", packageDirectory]) is { } handoff)
+            return handoff;
 
         var runId = _runIds.NewId();
 
@@ -102,6 +104,8 @@ public sealed class SetupWorkflow
         if (MustRunMedium(SetupVerb.Rollback) is { } medium) return medium;
         if (Blocked(SetupVerb.Rollback) is { } blocked)
             return blocked;
+        if (HandOff(SetupVerb.Rollback, ["rollback"]) is { } handoff)
+            return handoff;
 
         if (!_fileSystem.DirectoryExists(_paths.PreviousRoot))
             return Finish(SetupVerb.Rollback, SetupOutcome.NotApplied, null, null, "previousMissing");
@@ -153,6 +157,15 @@ public sealed class SetupWorkflow
         if (MustRunMedium(SetupVerb.Uninstall) is { } medium) return medium;
         if (Blocked(SetupVerb.Uninstall) is { } blocked)
             return blocked;
+        var relaunchArguments = new List<string> { "uninstall" };
+        if (quiet)
+            relaunchArguments.Add("--quiet");
+        else if (keepData is true)
+            relaunchArguments.Add("--keep");
+        else if (keepData is false)
+            relaunchArguments.Add("--delete");
+        if (HandOff(SetupVerb.Uninstall, relaunchArguments) is { } handoff)
+            return handoff;
 
         bool keep;
         if (quiet)
@@ -195,6 +208,8 @@ public sealed class SetupWorkflow
         if (MustRunMedium(SetupVerb.Repair) is { } medium) return medium;
         if (Blocked(SetupVerb.Repair) is { } blocked)
             return blocked;
+        if (HandOff(SetupVerb.Repair, ["repair"]) is { } handoff)
+            return handoff;
 
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot)
             && !_fileSystem.DirectoryExists(_paths.PreviousRoot)
@@ -244,8 +259,36 @@ public sealed class SetupWorkflow
         return Finish(verb, SetupOutcome.Failed, null, null, "mustRunMedium");
     }
 
+    /// <summary>
+    /// A medium verb started from one of the four folders a swap renames cannot survive that swap.
+    /// It prepares a verified run copy, starts the same verb from it at medium IL, and exits; the
+    /// child (now outside EyeCtrl\) does the work. This is plan §10's "Setup never runs from a
+    /// folder it renames".
+    /// </summary>
+    private SetupResult? HandOff(SetupVerb verb, IReadOnlyList<string> arguments)
+    {
+        var self = _environment.ProcessPath;
+        if (self is null || !_paths.IsInRenamedFolder(self))
+            return null;
+
+        var runId = _runIds.NewId();
+        var prepare = _broker.Run(new ElevatedRequest(
+            ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: self));
+        if (!prepare.Succeeded)
+            return FinishRefused(verb, prepare);
+
+        var runCopy = _paths.RunSetupExePath(runId);
+        var pid = _processes.Start(runCopy, arguments);
+        if (pid is null)
+            return Finish(verb, SetupOutcome.Failed, null, null, "relaunchFailed");
+
+        _log.Info($"{verb}: relaunched the medium verb from the run copy (PID {pid}).");
+        return Finish(verb, SetupOutcome.HandedOff, null, null, "relaunchedFromRunCopy");
+    }
+
     private SetupResult? Blocked(SetupVerb verb)
-    {        var policy = _policy.Read();
+    {
+        var policy = _policy.Read();
         if (policy.Allowed)
             return null;
 
@@ -326,7 +369,8 @@ public sealed class SetupWorkflow
             Detail = detail,
         };
 
-        _recorder.Write(result);
+        if (outcome != SetupOutcome.HandedOff)
+            _recorder.Write(result);
         _log.Info($"{verb}: {outcome}" + (detail is null ? string.Empty : $" ({detail})"));
         return result;
     }

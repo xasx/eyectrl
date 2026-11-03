@@ -15,6 +15,10 @@ public sealed class WindowsProcessControl : IProcessControl
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
 
+    /// <summary>Handles returned by <see cref="Start"/>, kept so later checks do not reopen a PID
+    /// that may already have been reused. Removed when the process is seen exited, killed or waited.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, Process> Started = new();
+
     /// <inheritdoc />
     public IReadOnlyList<RunningProcess> Snapshot()
     {
@@ -49,15 +53,27 @@ public sealed class WindowsProcessControl : IProcessControl
     }
 
     /// <inheritdoc />
-    public int? Start(string exePath)
+    public int? Start(string exePath, IReadOnlyList<string>? arguments = null)
     {
         try
         {
             // ShellExecute, never CreateProcess: S1a measured Win32 740 for a CreateProcess of a
             // uiAccess exe, even from a UIAccess parent, while ShellExecute starts it and returns
             // a usable handle.
-            var started = Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
-            return started?.Id;
+            var startInfo = new ProcessStartInfo(exePath) { UseShellExecute = true };
+            if (arguments is not null)
+            {
+                foreach (var argument in arguments)
+                    startInfo.ArgumentList.Add(argument);
+            }
+
+            var started = Process.Start(startInfo);
+            if (started is null)
+                return null;
+
+            var pid = started.Id;
+            Started[pid] = started;
+            return pid;
         }
         catch (Exception)
         {
@@ -73,8 +89,18 @@ public sealed class WindowsProcessControl : IProcessControl
     {
         try
         {
-            using var process = Process.GetProcessById(processId);
-            process.Kill(entireProcessTree: true);
+            // The process itself only. Never Kill(entireProcessTree: true): the App's children
+            // include the owner's Quick Action programs, and the Supervisor's include TD Control
+            // or Windows Eye Control when FallbackAt started them.
+            var process = Take(processId);
+            try
+            {
+                process.Kill();
+            }
+            finally
+            {
+                process.Dispose();
+            }
         }
         catch (Exception)
         {
@@ -88,8 +114,19 @@ public sealed class WindowsProcessControl : IProcessControl
     {
         try
         {
-            using var process = Process.GetProcessById(processId);
-            return process.WaitForExit((int)timeout.TotalMilliseconds);
+            var process = Take(processId);
+            try
+            {
+                var exited = process.WaitForExit((int)timeout.TotalMilliseconds);
+                if (!exited)
+                    Started[processId] = process;
+                return exited;
+            }
+            finally
+            {
+                if (!Started.ContainsKey(processId))
+                    process.Dispose();
+            }
         }
         catch (ArgumentException)
         {
@@ -106,13 +143,32 @@ public sealed class WindowsProcessControl : IProcessControl
     {
         try
         {
-            using var process = Process.GetProcessById(processId);
-            return !process.HasExited;
+            var process = Take(processId);
+            try
+            {
+                var alive = !process.HasExited;
+                if (alive)
+                    Started[processId] = process;
+                return alive;
+            }
+            finally
+            {
+                if (!Started.ContainsKey(processId))
+                    process.Dispose();
+            }
         }
         catch (Exception)
         {
             return false;
         }
+    }
+
+    private static Process Take(int processId)
+    {
+        if (Started.TryRemove(processId, out var cached))
+            return cached;
+
+        return Process.GetProcessById(processId);
     }
 
     /// <inheritdoc />

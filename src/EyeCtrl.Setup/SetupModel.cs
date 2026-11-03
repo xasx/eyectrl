@@ -29,6 +29,9 @@ public enum SetupOutcome
 {
     Ok,
     RolledBack,
+    /// <summary>Handed off to a medium re-launch from the private run copy. The parent exits
+    /// without writing the result record; the child writes the terminal result.</summary>
+    HandedOff,
     AllFailed,
     VerifyFailed,
     NotApplied,
@@ -87,7 +90,8 @@ public static class SetupExitCodes
     /// <summary>Maps a result outcome to the process exit code the parent maps back.</summary>
     public static int For(SetupOutcome outcome) => outcome switch
     {
-        SetupOutcome.Ok or SetupOutcome.Uninstalled or SetupOutcome.Repaired or SetupOutcome.RolledBack => Ok,
+        SetupOutcome.Ok or SetupOutcome.Uninstalled or SetupOutcome.Repaired or SetupOutcome.RolledBack
+            or SetupOutcome.HandedOff => Ok,
         SetupOutcome.Blocked => Blocked,
         SetupOutcome.VerifyFailed => VerifyFailed,
         SetupOutcome.NotApplied => NotApplied,

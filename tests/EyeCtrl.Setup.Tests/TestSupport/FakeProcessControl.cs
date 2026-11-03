@@ -52,9 +52,11 @@ public sealed class FakeProcessControl : IProcessControl
     public IReadOnlyList<RunningProcess> Snapshot() => Processes.ToList();
 
     /// <inheritdoc />
-    public int? Start(string exePath)
+    public int? Start(string exePath, IReadOnlyList<string>? arguments = null)
     {
-        Log.Add("start:" + exePath);
+        Log.Add("start:" + exePath + (arguments is { Count: > 0 }
+            ? "|" + string.Join("|", arguments)
+            : string.Empty));
         if (!StartSucceeds)
             return null;
 

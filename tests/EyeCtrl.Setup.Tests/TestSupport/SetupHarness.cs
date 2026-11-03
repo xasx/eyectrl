@@ -146,7 +146,7 @@ public sealed class SetupHarness
         Elevated = new ElevatedOperations(
             Paths, Policy, RunCopies, Staging, Stop, State, AppsAndFeatures, AppData, Logging);
         Broker = new FakeElevationBroker { Handler = Elevated.Execute };
-        Environment.ProcessPath = Paths.InstalledSetupExePath;
+        Environment.ProcessPath = @"C:\Users\test\Desktop\EyeCtrl.Setup.exe";
         Workflow = new SetupWorkflow(
             Paths, Policy, Broker, AppStart, Files, Processes, Choice, RunIds, Metadata,
             Recorder, Environment, Clock, Logging);
@@ -188,6 +188,16 @@ public sealed class SetupHarness
     public StatusService Status { get; }
     public SupervisionStartPlanner Planner { get; }
     public InboxScanner Inbox { get; }
+
+    /// <summary>Adds the running Setup process (this harness's <see cref="ISetupEnvironment.ProcessPath"/>)
+    /// to the process table, as a real launch would.</summary>
+    public void ListOwnProcess()
+    {
+        if (Environment.ProcessPath is not { } path)
+            return;
+        if (Processes.Processes.All(p => !string.Equals(p.ImagePath, path, StringComparison.OrdinalIgnoreCase)))
+            Processes.Processes.Add(new RunningProcess(40000, path));
+    }
 
     /// <summary>Seeds a full installed version (App, Supervisor, Setup, metadata, catalog).</summary>
     public void SeedInstalled(string version = "1.0.0")

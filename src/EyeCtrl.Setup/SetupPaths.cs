@@ -82,6 +82,14 @@ public sealed class SetupPaths
     public string RunSetupExePath(string runId) =>
         Path.Combine(RunFolder(runId), SetupConstants.SetupExeName);
 
+    /// <summary>True when <paramref name="path"/> is one of the four folders a swap renames. A
+    /// process running from one of these cannot remain alive while that folder is renamed.</summary>
+    public bool IsInRenamedFolder(string path) =>
+        IsUnderInstallRoot(path)
+        || IsUnder(PreviousRoot, path)
+        || IsUnder(StagingRoot, path)
+        || IsUnder(FailedRoot, path);
+
     /// <summary>True when <paramref name="path"/> is the install root or somewhere below it.</summary>
     public bool IsUnderInstallRoot(string path) => IsUnder(InstallRoot, path);
 

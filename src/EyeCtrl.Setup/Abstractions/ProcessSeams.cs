@@ -16,7 +16,7 @@ public interface IProcessControl
     IReadOnlyList<RunningProcess> Snapshot();
 
     /// <summary>Starts an exe with ShellExecute (never CreateProcess) and returns its PID, or null.</summary>
-    int? Start(string exePath);
+    int? Start(string exePath, IReadOnlyList<string>? arguments = null);
 
     /// <summary>Stops the Supervisor (a kill today: the Supervisor has no graceful stop IPC).</summary>
     void Stop(int processId);

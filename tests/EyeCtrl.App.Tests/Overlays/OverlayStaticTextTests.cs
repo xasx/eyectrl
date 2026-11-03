@@ -121,6 +121,28 @@ public class OverlayStaticTextTests
              .IsEqualTo("Close");
     }
 
+    /// <summary>
+    /// A4: the switcher surface must carry the toolbar's automation-anchor convention — a
+    /// window AutomationId (the AppFixture FlaUI anchoring pattern), a real Title (it is the
+    /// pure UIA name on a chromeless window: ShowInTaskbar=False + the unconditional
+    /// WS_EX_TOOLWINDOW of SetOverlayInteraction keep it invisible outside UIA), and a
+    /// Tiles AutomationId. No per-tile automation properties: the title TextBlock already
+    /// announces Title via WPF's default peer.
+    /// </summary>
+    [StaFact]
+    public void TaskSwitcherWindow_PublishesAutomationAnchors()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new TaskSwitcherWindow();
+
+        Check.That(System.Windows.Automation.AutomationProperties.GetAutomationId(window))
+             .IsEqualTo("TaskSwitcher_Window");
+        Check.That(window.Title).IsEqualTo("Task switcher");
+        Check.That(System.Windows.Automation.AutomationProperties.GetAutomationId(
+                (System.Windows.Controls.ItemsControl)window.FindName("TilesPanel")!))
+             .IsEqualTo("TaskSwitcher_Tiles");
+    }
+
     private static string Text(FrameworkElement window, string name) =>
         ((TextBlock)window.FindName(name)!).Text;
 

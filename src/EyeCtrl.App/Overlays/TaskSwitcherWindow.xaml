@@ -4,6 +4,8 @@
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
         xmlns:ctl="clr-namespace:EyeCtrl.Controls;assembly=EyeCtrl.Controls"
+        AutomationProperties.AutomationId="TaskSwitcher_Window"
+        Title="{loc:T 'overlays.toolbar.taskSwitcher'}"
         WindowStyle="None" AllowsTransparency="True" Background="{StaticResource BrushSurfaceDark}"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         IsClickThrough="False">
@@ -13,7 +15,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <ScrollViewer Grid.Row="0" x:Name="TilesScroll" VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center">
-            <ItemsControl x:Name="TilesPanel" ItemsSource="{Binding Tiles}">
+            <ItemsControl x:Name="TilesPanel" AutomationProperties.AutomationId="TaskSwitcher_Tiles" ItemsSource="{Binding Tiles}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <WrapPanel ItemWidth="200" ItemHeight="120"/>

@@ -68,6 +68,37 @@ public sealed class FakeElevationBroker : IElevationBroker
     }
 }
 
+/// <summary>Records every elevated launch and returns a scripted result.</summary>
+public sealed class FakeElevatedLauncher : IElevatedLauncher
+{
+    /// <summary>The launches made.</summary>
+    public List<(string ExePath, IReadOnlyList<string> Arguments)> Calls { get; } = [];
+
+    /// <summary>The scripted result.</summary>
+    public LauncherResult Result { get; set; } = new(LauncherOutcome.Exited, 0);
+
+    /// <inheritdoc />
+    public LauncherResult Launch(string exePath, IReadOnlyList<string> arguments)
+    {
+        Calls.Add((exePath, arguments.ToList()));
+        return Result;
+    }
+}
+
+/// <summary>A scripted sequence of policy readings, for the per-launch re-check.</summary>
+public sealed class SequenceElevationPolicy : IElevationPolicy
+{
+    private readonly Queue<ElevationPolicyResult> _results = new();
+
+    /// <summary>Adds one answer.</summary>
+    public void Enqueue(bool allowed) =>
+        _results.Enqueue(new ElevationPolicyResult(allowed, allowed ? 0 : 5));
+
+    /// <inheritdoc />
+    public ElevationPolicyResult Read() =>
+        _results.Count > 0 ? _results.Dequeue() : new ElevationPolicyResult(true, 0);
+}
+
 /// <summary>The whole production object graph over the in-memory seams. Workflow tests use the
 /// real elevated operations through the fake broker, so the medium and elevated halves are
 /// exercised together without an elevation, a Program Files write or a real process.</summary>

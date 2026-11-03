@@ -1,30 +1,33 @@
 namespace EyeCtrl.Setup.Windows;
 
-using System.ComponentModel;
-using System.Diagnostics;
 using EyeCtrl.Setup.Abstractions;
 
 /// <summary>
 /// The production elevation seam: the medium instance re-launches the same exe (or its verified
-/// run copy) with ShellExecute <c>runas</c> and maps the child's exit code back. A refused
-/// elevation (1223/5) becomes <see cref="ElevatedPhaseStatus.Blocked"/>; nothing waits on a UI
-/// prompt, and the policy gate has already refused when a prompt would be needed.
+/// run copy) with ShellExecute <c>runas</c> and maps the child's exit code back. Each request maps
+/// to exactly ONE child launch. The elevation policy is re-read immediately before every launch
+/// (a policy refresh mid-run must not put a prompt on the secure desktop), and the child wait is
+/// bounded.
 /// </summary>
 public sealed class ShellExecuteElevationBroker : IElevationBroker
 {
     private readonly SetupPaths _paths;
     private readonly ElevatedOperations _operations;
     private readonly ISetupEnvironment _environment;
+    private readonly IElevationPolicy _policy;
+    private readonly IElevatedLauncher _launcher;
     private readonly ISetupLog _log;
 
     /// <summary>Creates the broker.</summary>
     public ShellExecuteElevationBroker(
         SetupPaths paths, ElevatedOperations operations, ISetupEnvironment environment,
-        ISetupLog log)
+        IElevationPolicy policy, IElevatedLauncher launcher, ISetupLog log)
     {
         _paths = paths;
         _operations = operations;
         _environment = environment;
+        _policy = policy;
+        _launcher = launcher;
         _log = log;
     }
 
@@ -50,81 +53,61 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         if (IsElevated)
             return _operations.Execute(request);
 
-        return request.Job switch
+        var policy = _policy.Read();
+        if (!policy.Allowed)
         {
-            ElevatedJob.PrepareUpdate => PrepareThenApply(request),
-            ElevatedJob.ApplyUpdate => LaunchElevated(
-                _paths.RunSetupExePath(RequireRunId(request)),
-                ["--internal", "apply-update", "--run-id", RequireRunId(request)]),
-            ElevatedJob.PrepareRunCopy => LaunchElevated(
-                RequireSelfPath(),
-                ["--internal", "prepare-run-copy", "--source", request.SourceSetupExe ?? string.Empty,
-                    "--run-id", RequireRunId(request)]),
-            ElevatedJob.ApplyRollback => LaunchElevated(
-                _paths.RunSetupExePath(RequireRunId(request)),
-                ["--internal", "apply-rollback", "--run-id", RequireRunId(request)]),
-            ElevatedJob.Revert => LaunchElevated(
-                _paths.RunSetupExePath(RequireRunId(request)),
-                ["--internal", "revert", "--run-id", RequireRunId(request)]),
-            ElevatedJob.Uninstall => LaunchElevated(
-                _paths.RunSetupExePath(RequireRunId(request)),
-                ["--internal", "uninstall", request.KeepData ? "--keep" : "--delete",
-                    "--run-id", RequireRunId(request)]),
-            ElevatedJob.Repair => LaunchElevated(
-                _paths.RunSetupExePath(RequireRunId(request)),
-                ["--internal", "repair", "--run-id", RequireRunId(request)]),
-            _ => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "unknownJob"),
-        };
-    }
+            _log.Warn("Elevation policy refuses before the runas launch.");
+            return new ElevatedPhaseResult(ElevatedPhaseStatus.Blocked, "elevationPolicy");
+        }
 
-    private ElevatedPhaseResult PrepareThenApply(ElevatedRequest request)
-    {
-        var runId = RequireRunId(request);
-        var prepare = LaunchElevated(
-            RequireSelfPath(),
-            ["--internal", "prepare-update", request.PackageDirectory ?? string.Empty,
-                "--run-id", runId]);
-        if (!prepare.Succeeded)
-            return prepare;
-
-        return LaunchElevated(
-            _paths.RunSetupExePath(runId),
-            ["--internal", "apply-update", "--run-id", runId]);
-    }
-
-    private ElevatedPhaseResult LaunchElevated(string exePath, IReadOnlyList<string> arguments)
-    {
+        var (exePath, arguments) = BuildLaunch(request);
         if (string.IsNullOrWhiteSpace(exePath))
             return new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "missingExe");
 
-        var startInfo = new ProcessStartInfo(exePath)
+        var result = _launcher.Launch(exePath, arguments);
+        return result.Outcome switch
         {
-            UseShellExecute = true,
-            Verb = "runas",
+            LauncherOutcome.Exited => FromExitCode(result.ExitCode),
+            LauncherOutcome.Blocked => new ElevatedPhaseResult(ElevatedPhaseStatus.Blocked, "elevationRefused"),
+            LauncherOutcome.TimedOut => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childTimeout"),
+            _ => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, result.Detail ?? "launchFailed"),
         };
-        foreach (var argument in arguments)
-            startInfo.ArgumentList.Add(argument);
+    }
 
-        try
+    /// <summary>
+    /// The exe and argv for one request. Internal so the round-trip test can prove that every
+    /// argv the broker builds parses back through <see cref="SetupCommandLine"/> into the same job.
+    /// </summary>
+    internal (string ExePath, IReadOnlyList<string> Arguments) BuildLaunch(ElevatedRequest request)
+    {
+        var runId = RequireRunId(request);
+        return request.Job switch
         {
-            using var process = Process.Start(startInfo);
-            if (process is null)
-                return new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "startFailed");
-
-            process.WaitForExit();
-            return FromExitCode(process.ExitCode);
-        }
-        catch (Win32Exception ex) when (ex.NativeErrorCode is 1223 or 5)
-        {
-            // ERROR_CANCELLED / ERROR_ACCESS_DENIED: the owner or policy refused. Never retry.
-            _log.Warn($"Elevation refused: {ex.NativeErrorCode}.");
-            return new ElevatedPhaseResult(ElevatedPhaseStatus.Blocked, "elevationRefused");
-        }
-        catch (Exception ex)
-        {
-            _log.Error($"Elevated launch failed: {ex.GetType().Name}");
-            return new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, ex.GetType().Name);
-        }
+            ElevatedJob.PrepareUpdate => (RequireSelfPath(),
+            [
+                "--internal", "prepare-update", request.PackageDirectory ?? string.Empty,
+                "--run-id", runId,
+            ]),
+            ElevatedJob.ApplyUpdate => (_paths.RunSetupExePath(runId),
+                ["--internal", "apply-update", "--run-id", runId]),
+            ElevatedJob.PrepareRunCopy => (RequireSelfPath(),
+            [
+                "--internal", "prepare-run-copy", "--source", request.SourceSetupExe ?? string.Empty,
+                "--run-id", runId,
+            ]),
+            ElevatedJob.ApplyRollback => (_paths.RunSetupExePath(runId),
+                ["--internal", "apply-rollback", "--run-id", runId]),
+            ElevatedJob.Revert => (_paths.RunSetupExePath(runId),
+                ["--internal", "revert", "--run-id", runId]),
+            ElevatedJob.Uninstall => (_paths.RunSetupExePath(runId),
+            [
+                "--internal", "uninstall", request.KeepData ? "--keep" : "--delete",
+                "--run-id", runId,
+            ]),
+            ElevatedJob.Repair => (_paths.RunSetupExePath(runId),
+                ["--internal", "repair", "--run-id", runId]),
+            _ => (string.Empty, Array.Empty<string>()),
+        };
     }
 
     private static ElevatedPhaseResult FromExitCode(int exitCode) => exitCode switch
@@ -142,4 +125,59 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
 
     private static string RequireRunId(ElevatedRequest request) =>
         request.RunId ?? throw new InvalidOperationException("The elevated request has no run id.");
+}
+
+/// <summary>The production launcher: ShellExecute <c>runas</c>, one process, bounded wait, and a
+/// plain <c>Kill()</c> of that child only (never a tree).</summary>
+public sealed class ShellExecuteRunAsLauncher : IElevatedLauncher
+{
+    private readonly TimeSpan _timeout;
+    private readonly ISetupLog _log;
+
+    /// <summary>Creates the launcher with a ten-minute bound.</summary>
+    public ShellExecuteRunAsLauncher(ISetupLog log, TimeSpan? timeout = null)
+    {
+        _log = log;
+        _timeout = timeout ?? TimeSpan.FromMinutes(10);
+    }
+
+    /// <inheritdoc />
+    public LauncherResult Launch(string exePath, IReadOnlyList<string> arguments)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo(exePath)
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+        };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(startInfo);
+            if (process is null)
+                return new LauncherResult(LauncherOutcome.Failed, Detail: "startFailed");
+
+            if (!process.WaitForExit((int)_timeout.TotalMilliseconds))
+            {
+                // Kill the elevated child itself; its own children are unrelated programs.
+                try { process.Kill(); } catch (Exception) { /* raced exit */ }
+                process.WaitForExit((int)SetupConstants.ProcessExitWait.TotalMilliseconds);
+                _log.Error("Elevated child exceeded the wait bound.");
+                return new LauncherResult(LauncherOutcome.TimedOut, Detail: "childTimeout");
+            }
+
+            return new LauncherResult(LauncherOutcome.Exited, process.ExitCode);
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode is 1223 or 5)
+        {
+            _log.Warn($"Elevation refused: {ex.NativeErrorCode}.");
+            return new LauncherResult(LauncherOutcome.Blocked, Detail: "elevationRefused");
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"Elevated launch failed: {ex.GetType().Name}");
+            return new LauncherResult(LauncherOutcome.Failed, Detail: ex.GetType().Name);
+        }
+    }
 }

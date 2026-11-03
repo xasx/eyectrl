@@ -170,7 +170,7 @@ public static class SetupCommandLine
         if (job is null)
             return Fail($"unknown internal job '{jobName}'");
 
-        if (job is SetupJob.InternalPrepareUpdate or SetupJob.InternalApplyUpdate
+        if (job is SetupJob.InternalPrepareUpdate
             && string.IsNullOrWhiteSpace(packageDir))
         {
             return Fail($"{jobName} requires a package directory");

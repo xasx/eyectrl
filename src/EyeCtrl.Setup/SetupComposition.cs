@@ -61,7 +61,8 @@ public sealed class SetupComposition
         var appDataDeletion = new PhysicalAppDataDeletion(paths);
         var elevated = new ElevatedOperations(
             paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion, log);
-        var broker = new ShellExecuteElevationBroker(paths, elevated, environment, log);
+        var broker = new ShellExecuteElevationBroker(
+            paths, elevated, environment, policy, new ShellExecuteRunAsLauncher(log), log);
         var workflow = new SetupWorkflow(
             paths, policy, broker, appStart, fileSystem, processes, new KeepUninstallChoice(),
             new GuidRunIdGenerator(), metadata, recorder, environment, clock, log);
@@ -112,7 +113,7 @@ public sealed class SetupComposition
         return SetupExitCodes.For(result.Outcome);
     }
 
-    private static ElevatedRequest ToRequest(ParsedSetupCommand command) => command.Job switch
+    internal static ElevatedRequest ToRequest(ParsedSetupCommand command) => command.Job switch
     {
         SetupJob.InternalPrepareUpdate => new ElevatedRequest(
             ElevatedJob.PrepareUpdate, PackageDirectory: command.PackageDirectory, RunId: command.RunId),

@@ -55,6 +55,29 @@ public sealed record ElevatedPhaseResult(ElevatedPhaseStatus Status, string? Det
     public bool Succeeded => Status == ElevatedPhaseStatus.Ok;
 }
 
+/// <summary>How one elevated child launch ended.</summary>
+public enum LauncherOutcome
+{
+    Exited,
+    Blocked,
+    TimedOut,
+    Failed,
+}
+
+/// <summary>The launcher's result: an exit code, a refusal, or a bounded-wait timeout.</summary>
+public readonly record struct LauncherResult(LauncherOutcome Outcome, int ExitCode = 0, string? Detail = null);
+
+/// <summary>
+/// The one place a runas child is started. Production uses ShellExecute <c>runas</c> and waits
+/// with a bound; tests record the argv and return a scripted result, so the broker's job mapping
+/// and argv are exercised without elevation.
+/// </summary>
+public interface IElevatedLauncher
+{
+    /// <summary>Launches an elevated child and waits for it (bounded).</summary>
+    LauncherResult Launch(string exePath, IReadOnlyList<string> arguments);
+}
+
 /// <summary>
 /// The seam between the medium workflow and the elevated phases. Production launches the same exe
 /// with ShellExecute <c>runas</c>; tests execute a fake and record the requests.

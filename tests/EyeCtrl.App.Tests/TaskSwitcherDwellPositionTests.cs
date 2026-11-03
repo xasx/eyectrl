@@ -1,6 +1,10 @@
 namespace EyeCtrl.App.Tests;
 
 using System.IO;
+using System.Windows.Controls;
+using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core.Models;
 using NFluent;
 
 /// <summary>
@@ -11,6 +15,7 @@ using NFluent;
 /// and under a DPI-virtualized process the targets landed far from the tiles: tiles visible,
 /// nothing dwellable (2026-08-17 field report).
 /// </summary>
+[Collection("WpfApplication")]
 public class TaskSwitcherDwellPositionTests
 {
     [Fact]
@@ -179,5 +184,74 @@ public class TaskSwitcherDwellPositionTests
         Check.That(start).IsStrictlyGreaterThan(-1);
         var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
         return source[start..end];
+    }
+
+    /// <summary>
+    /// A5: the tiles ScrollViewer's Auto scrollbar was an affordance gaze cannot operate (no
+    /// dwell target), and a one-shot Loaded position sync would desync targets from tiles if
+    /// it ever scrolled. Disabled truly disables wheel scrolling; HorizontalScrollBarVisibility
+    /// already defaults to Hidden, so all tiles stay top-aligned in row 0.
+    /// </summary>
+    [StaFact]
+    public void TilesScroll_ScrollbarIsDisabled_GazeCannotOperateScrolling()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new TaskSwitcherWindow();
+
+        var scroll = (ScrollViewer)window.FindName("TilesScroll")!;
+        Check.That(scroll.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
+    }
+
+    /// <summary>
+    /// A5's reachability determinator: a tile registers a dwell target only if its on-screen
+    /// face overlaps the ScrollViewer's viewport. Partial overlap registers (the visible part
+    /// is real estate), a boundary touch does not (zero visible pixels — a live target there
+    /// is the hazard this filter exists for), and fully-clipped tiles get nothing.
+    /// </summary>
+    [Fact]
+    public void TileOverlapsViewport_RegistersPartialOverlap_SkipsClippedAndTouching()
+    {
+        // The viewport's physical rect, e.g. the ScrollViewer on a 1920x1264 window: row 0
+        // bottom sits ~43 DIP above the window bottom (the hint/close row).
+        var viewport = new PhysicalRect(0, 0, 1920, 1221);
+
+        // Fully below the viewport: skipped.
+        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
+                new PhysicalRect(100, 1300, 184, 104), viewport)).IsFalse();
+
+        // Fully above the viewport: skipped.
+        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
+                new PhysicalRect(100, -300, 184, 104), viewport)).IsFalse();
+
+        // Partial overlap (spans 1200..1304 against a 1221 bottom): registered.
+        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
+                new PhysicalRect(100, 1200, 184, 104), viewport)).IsTrue();
+
+        // Boundary touch (top edge exactly on the viewport bottom): skipped — zero visible area.
+        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
+                new PhysicalRect(100, 1221, 184, 104), viewport)).IsFalse();
+    }
+
+    /// <summary>
+    /// A5 companion pin: UpdateTilePositions must keep the viewport-intersection guard. The
+    /// PointToScreen path itself cannot run headless (PointToScreen needs an HWND — which is
+    /// why the existing pin is a source scan), but the guard's presence can be pinned the
+    /// same way.
+    /// </summary>
+    [Fact]
+    public void UpdateTilePositions_SkipsTilesOutsideTheScrollViewerViewport()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs"));
+        var body = ExtractMethod(source, "private void UpdateTilePositions()");
+
+        Check.WithCustomMessage(
+                "UpdateTilePositions must skip tiles whose face does not intersect the "
+                + "ScrollViewer's viewport: without the guard a fully clipped tile keeps a "
+                + "LIVE dwell target at its true on-screen position — inside the gazeable "
+                + "bottom band for a range of window heights — and gaze resting there "
+                + "silently switches windows (and, with the close disc beside it, contests "
+                + "it under nearest-hit arbitration).")
+            .That(body.Contains("TileOverlapsViewport")).IsTrue();
     }
 }

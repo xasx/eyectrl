@@ -137,8 +137,9 @@ public sealed class SetupHarness
         Recorder = new ResultRecorder(Paths, Files, Guard, Logging);
         AppsAndFeatures = new AppsAndFeaturesWriter(Paths, Registry, Guard, Logging);
         Metadata = new PackageMetadataReader(Files);
+        Journal = new InstallJournalStore(Paths, Files, Guard, Logging);
         State = new InstallStateMachine(
-            Paths, Files, Registry, Guard, AppsAndFeatures, Metadata, Logging);
+            Paths, Files, Registry, Guard, AppsAndFeatures, Metadata, Journal, Logging);
         RunCopies = new RunCopyManager(Paths, Files, Guard, Signature, Logging);
         Staging = new StagingService(Paths, Files, Guard, Catalog, Logging);
         Stop = new StopCoordinator(Paths, Processes, HeldButton, Logging);
@@ -177,6 +178,7 @@ public sealed class SetupHarness
     public ResultRecorder Recorder { get; }
     public AppsAndFeaturesWriter AppsAndFeatures { get; }
     public PackageMetadataReader Metadata { get; }
+    public InstallJournalStore Journal { get; }
     public InstallStateMachine State { get; }
     public RunCopyManager RunCopies { get; }
     public StagingService Staging { get; }

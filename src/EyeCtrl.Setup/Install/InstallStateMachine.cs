@@ -53,12 +53,14 @@ public sealed class InstallStateMachine
     private readonly PathGuard _guard;
     private readonly AppsAndFeaturesWriter _appsAndFeatures;
     private readonly IPackageMetadataReader _metadata;
+    private readonly IInstallJournalStore _journal;
     private readonly ISetupLog _log;
 
     /// <summary>Creates the state machine.</summary>
     public InstallStateMachine(
         SetupPaths paths, IFileSystem fileSystem, IRegistryStore registry, PathGuard guard,
-        AppsAndFeaturesWriter appsAndFeatures, IPackageMetadataReader metadata, ISetupLog log)
+        AppsAndFeaturesWriter appsAndFeatures, IPackageMetadataReader metadata,
+        IInstallJournalStore journal, ISetupLog log)
     {
         _paths = paths;
         _fileSystem = fileSystem;
@@ -66,6 +68,7 @@ public sealed class InstallStateMachine
         _guard = guard;
         _appsAndFeatures = appsAndFeatures;
         _metadata = metadata;
+        _journal = journal;
         _log = log;
     }
 
@@ -108,12 +111,15 @@ public sealed class InstallStateMachine
             {
                 _fileSystem.DeleteDirectory(_paths.PreviousRoot, recursive: true);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsIoFailure(ex))
             {
                 return SwapOutcome.NotApplied("previousCleanup:" + ex.GetType().Name);
             }
         }
 
+        _journal.Write(new InstallJournal(
+            InstallOperation.Update,
+            _fileSystem.DirectoryExists(_paths.InstallRoot) ? 1 : 2));
         SetRepairRunOnce(runCopyPath);
 
         var movedInstall = false;
@@ -124,30 +130,34 @@ public sealed class InstallStateMachine
                 _fileSystem.MoveDirectory(_paths.InstallRoot, _paths.PreviousRoot);
                 movedInstall = true;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsIoFailure(ex))
             {
+                _journal.Clear();
                 ClearRepairRunOnce();
                 return SwapOutcome.NotApplied("firstRename:" + ex.GetType().Name);
             }
         }
 
+        _journal.Write(new InstallJournal(InstallOperation.Update, 2));
         try
         {
             _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.InstallRoot);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsIoFailure(ex))
         {
             var undone = !movedInstall || TryUndo(_paths.PreviousRoot, _paths.InstallRoot);
             if (undone)
             {
+                _journal.Clear();
                 ClearRepairRunOnce();
                 return SwapOutcome.NotApplied("secondRename:" + ex.GetType().Name);
             }
 
-            // The undo failed too: keep RunOnce so repair can still finish at logon.
+            // The undo failed too: keep RunOnce and the journal so repair can still finish.
             return SwapOutcome.Failed("secondRenameAndUndoFailed:" + ex.GetType().Name);
         }
 
+        _journal.Clear();
         ClearRepairRunOnce();
         RegisterAppsAndFeatures();
         _log.Info("Update swapped in.");
@@ -173,33 +183,37 @@ public sealed class InstallStateMachine
             {
                 _fileSystem.DeleteDirectory(_paths.StagingRoot, recursive: true);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsIoFailure(ex))
             {
                 return SwapOutcome.NotApplied("stagingCleanup:" + ex.GetType().Name);
             }
         }
 
+        _journal.Write(new InstallJournal(InstallOperation.OwnerRollback, 1));
         SetRepairRunOnce(runCopyPath);
 
         try
         {
             _fileSystem.MoveDirectory(_paths.PreviousRoot, _paths.StagingRoot);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsIoFailure(ex))
         {
+            _journal.Clear();
             ClearRepairRunOnce();
             return SwapOutcome.NotApplied("firstRename:" + ex.GetType().Name);
         }
 
+        _journal.Write(new InstallJournal(InstallOperation.OwnerRollback, 2));
         try
         {
             _fileSystem.MoveDirectory(_paths.InstallRoot, _paths.PreviousRoot);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsIoFailure(ex))
         {
             var undone = TryUndo(_paths.StagingRoot, _paths.PreviousRoot);
             if (undone)
             {
+                _journal.Clear();
                 ClearRepairRunOnce();
                 return SwapOutcome.NotApplied("secondRename:" + ex.GetType().Name);
             }
@@ -207,11 +221,12 @@ public sealed class InstallStateMachine
             return SwapOutcome.Failed("secondRenameAndUndoFailed:" + ex.GetType().Name);
         }
 
+        _journal.Write(new InstallJournal(InstallOperation.OwnerRollback, 3));
         try
         {
             _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.InstallRoot);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsIoFailure(ex))
         {
             // Put the two versions back where they were. If even that fails, repair promotes
             // staging (the requested target) over previous.
@@ -219,6 +234,7 @@ public sealed class InstallStateMachine
             var second = first && TryUndo(_paths.StagingRoot, _paths.PreviousRoot);
             if (second)
             {
+                _journal.Clear();
                 ClearRepairRunOnce();
                 return SwapOutcome.NotApplied("thirdRename:" + ex.GetType().Name);
             }
@@ -226,6 +242,7 @@ public sealed class InstallStateMachine
             return SwapOutcome.Failed("thirdRenameAndUndoFailed:" + ex.GetType().Name);
         }
 
+        _journal.Clear();
         ClearRepairRunOnce();
         RegisterAppsAndFeatures();
         _log.Info("Previous version restored.");
@@ -250,33 +267,37 @@ public sealed class InstallStateMachine
             {
                 _fileSystem.DeleteDirectory(_paths.FailedRoot, recursive: true);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (IsIoFailure(ex))
             {
                 return SwapOutcome.NotApplied("failedCleanup:" + ex.GetType().Name);
             }
         }
 
+        _journal.Write(new InstallJournal(InstallOperation.Revert, 1));
         SetRepairRunOnce(runCopyPath);
 
         try
         {
             _fileSystem.MoveDirectory(_paths.InstallRoot, _paths.FailedRoot);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsIoFailure(ex))
         {
+            _journal.Clear();
             ClearRepairRunOnce();
             return SwapOutcome.NotApplied("firstRename:" + ex.GetType().Name);
         }
 
+        _journal.Write(new InstallJournal(InstallOperation.Revert, 2));
         try
         {
             _fileSystem.MoveDirectory(_paths.PreviousRoot, _paths.InstallRoot);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsIoFailure(ex))
         {
             var undone = TryUndo(_paths.FailedRoot, _paths.InstallRoot);
             if (undone)
             {
+                _journal.Clear();
                 ClearRepairRunOnce();
                 return SwapOutcome.NotApplied("secondRename:" + ex.GetType().Name);
             }
@@ -284,6 +305,7 @@ public sealed class InstallStateMachine
             return SwapOutcome.Failed("secondRenameAndUndoFailed:" + ex.GetType().Name);
         }
 
+        _journal.Clear();
         ClearRepairRunOnce();
         RegisterAppsAndFeatures();
         _log.Info("Failed update reverted to the previous version.");
@@ -298,6 +320,9 @@ public sealed class InstallStateMachine
     public SwapOutcome Repair(string runCopyPath)
     {
         RequireAllInstallPaths();
+        if (_journal.Read() is { } journal)
+            return RepairFromJournal(journal);
+
         var changed = false;
 
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
@@ -337,17 +362,115 @@ public sealed class InstallStateMachine
         {
             try
             {
-                _fileSystem.DeleteDirectory(_paths.StagingRoot, recursive: true);
+                if (!_fileSystem.DirectoryExists(_paths.PreviousRoot))
+                {
+                    // Without a journal this state is either an uncommitted update (its previous
+                    // was deleted) or a crashed owner rollback (staging holds the previous
+                    // version). Never discard the only fallback: keep it as previous.
+                    _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.PreviousRoot);
+                }
+                else
+                {
+                    _fileSystem.DeleteDirectory(_paths.StagingRoot, recursive: true);
+                }
             }
             catch (Exception ex)
             {
-                _log.Warn($"Repair could not discard staging: {ex.GetType().Name}");
+                _log.Warn($"Repair could not dispose of staging: {ex.GetType().Name}");
             }
         }
 
         ClearRepairRunOnce();
         RegisterAppsAndFeatures();
         _log.Info(changed ? "Repair completed an interrupted swap." : "Repair found a startable install.");
+        return SwapOutcome.Success(changed);
+    }
+
+    /// <summary>
+    /// Finishes the transition named by the journal. The distinguishing state is the rollback's
+    /// first step: <c>staging</c> holds the PREVIOUS version, not an uncommitted new one, so it is
+    /// moved back to <c>previous</c> instead of being discarded (Q9).
+    /// </summary>
+    private SwapOutcome RepairFromJournal(InstallJournal journal)
+    {
+        var changed = false;
+        try
+        {
+            switch (journal.Operation)
+            {
+                case InstallOperation.OwnerRollback:
+                    if (_fileSystem.DirectoryExists(_paths.InstallRoot)
+                        && _fileSystem.DirectoryExists(_paths.StagingRoot))
+                    {
+                        // Step 1 done: staging is the previous version. Restore the fallback.
+                        if (_fileSystem.DirectoryExists(_paths.PreviousRoot))
+                            _fileSystem.DeleteDirectory(_paths.PreviousRoot, recursive: true);
+                        _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.PreviousRoot);
+                        changed = true;
+                    }
+                    else if (!_fileSystem.DirectoryExists(_paths.InstallRoot)
+                             && _fileSystem.DirectoryExists(_paths.StagingRoot))
+                    {
+                        // Past step 2: staging is the rollback target; finish the rollback.
+                        _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.InstallRoot);
+                        changed = true;
+                    }
+                    else if (!_fileSystem.DirectoryExists(_paths.InstallRoot)
+                             && _fileSystem.DirectoryExists(_paths.PreviousRoot))
+                    {
+                        _fileSystem.MoveDirectory(_paths.PreviousRoot, _paths.InstallRoot);
+                        changed = true;
+                    }
+
+                    break;
+
+                case InstallOperation.Update:
+                    if (!_fileSystem.DirectoryExists(_paths.InstallRoot)
+                        && _fileSystem.DirectoryExists(_paths.StagingRoot))
+                    {
+                        _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.InstallRoot);
+                        changed = true;
+                    }
+                    else if (!_fileSystem.DirectoryExists(_paths.InstallRoot)
+                             && _fileSystem.DirectoryExists(_paths.PreviousRoot))
+                    {
+                        _fileSystem.MoveDirectory(_paths.PreviousRoot, _paths.InstallRoot);
+                        changed = true;
+                    }
+                    else if (_fileSystem.DirectoryExists(_paths.InstallRoot)
+                             && _fileSystem.DirectoryExists(_paths.StagingRoot))
+                    {
+                        // The update had not started its first rename; drop the uncommitted copy.
+                        _fileSystem.DeleteDirectory(_paths.StagingRoot, recursive: true);
+                        changed = true;
+                    }
+
+                    break;
+
+                case InstallOperation.Revert:
+                    if (!_fileSystem.DirectoryExists(_paths.InstallRoot)
+                        && _fileSystem.DirectoryExists(_paths.PreviousRoot))
+                    {
+                        _fileSystem.MoveDirectory(_paths.PreviousRoot, _paths.InstallRoot);
+                        changed = true;
+                    }
+
+                    break;
+            }
+        }
+        catch (Exception ex) when (IsIoFailure(ex))
+        {
+            _log.Error($"Repair from the journal failed: {ex.GetType().Name}");
+            return SwapOutcome.Failed("repairJournal:" + ex.GetType().Name);
+        }
+
+        if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
+            return SwapOutcome.Failed("nothingToRepair");
+
+        _journal.Clear();
+        ClearRepairRunOnce();
+        RegisterAppsAndFeatures();
+        _log.Info($"Repair finished the {journal.Operation} transition (step {journal.Step}).");
         return SwapOutcome.Success(changed);
     }
 
@@ -415,6 +538,11 @@ public sealed class InstallStateMachine
             return false;
         }
     }
+
+    /// <summary>Only a real file-system failure is caught around a rename; a simulated crash (or any
+    /// other exception) must escape and leave the exact on-disk state for repair.</summary>
+    private static bool IsIoFailure(Exception ex) =>
+        ex is IOException or UnauthorizedAccessException;
 
     private void RegisterAppsAndFeatures() =>
         _appsAndFeatures.Register(_metadata.Read(_paths.InstallRoot).Version);

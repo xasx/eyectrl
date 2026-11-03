@@ -268,16 +268,35 @@ public class InstallStateMachineTests
     }
 
     [Fact]
-    public void Repair_WithAnInstallAndLeftoverStaging_DiscardsStaging()
+    public void Repair_WithAnInstallAndLeftoverStaging_DiscardsStaging_WhenPreviousExists()
     {
         var harness = Harness();
         harness.SeedInstalled("1.0.0");
+        harness.SeedPrevious("0.9.0");
         harness.SeedStaging("2.0.0");
 
         var repair = harness.State.Repair(@"C:\Program Files\EyeCtrl.run\r1\EyeCtrl.Setup.exe");
 
         Check.That(repair.Ok).IsTrue();
         Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("1.0.0");
+        Check.That(harness.Metadata.Read(harness.Paths.PreviousRoot).Version).IsEqualTo("0.9.0");
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+    }
+
+    [Fact]
+    public void Repair_WithStagingButNoPrevious_KeepsItAsTheFallback()
+    {
+        // The reviewer's P3 state without a journal: install 2.0 and staging 1.0 look exactly
+        // like a rollback that crashed after moving previous -> staging. Never delete it.
+        var harness = Harness();
+        harness.SeedInstalled("2.0.0");
+        harness.SeedVersionFolder(harness.Paths.StagingRoot, "1.0.0");
+
+        var repair = harness.State.Repair(@"C:\Program Files\EyeCtrl.run\r1\EyeCtrl.Setup.exe");
+
+        Check.That(repair.Ok).IsTrue();
+        Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("2.0.0");
+        Check.That(harness.Metadata.Read(harness.Paths.PreviousRoot).Version).IsEqualTo("1.0.0");
         Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
     }
 

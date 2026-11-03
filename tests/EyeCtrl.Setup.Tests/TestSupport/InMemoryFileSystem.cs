@@ -41,6 +41,10 @@ public sealed class InMemoryFileSystem : IFileSystem
     /// <summary>A predicate over the 1-based DeleteDirectory call index.</summary>
     public Func<int, bool>? DeleteFailure { get; set; }
 
+    /// <summary>Throws <see cref="SimulatedCrashException"/> after this 1-based move COMPLETES,
+    /// leaving the exact state a power loss would leave (no undo).</summary>
+    public int? CrashAfterMoveAt { get; set; }
+
     /// <summary>Adds a file (and its parents) without logging, for test setup.</summary>
     public void AddFile(string path, string contents = "")
     {
@@ -156,6 +160,9 @@ public sealed class InMemoryFileSystem : IFileSystem
             _files[to + file.Key[from.Length..]] = file.Value;
         foreach (var zone in movingZones)
             _zoneIdentifiers.Add(to + zone[from.Length..]);
+
+        if (CrashAfterMoveAt == _moveCount)
+            throw new SimulatedCrashException($"simulated power loss after move {_moveCount}");
     }
 
     /// <inheritdoc />

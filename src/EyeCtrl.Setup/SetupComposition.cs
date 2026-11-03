@@ -54,8 +54,9 @@ public sealed class SetupComposition
         var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, log);
         var runCopies = new RunCopyManager(paths, fileSystem, guard, signature, log);
         var staging = new StagingService(paths, fileSystem, guard, catalog, log);
+        var journal = new InstallJournalStore(paths, fileSystem, guard, log);
         var state = new InstallStateMachine(
-            paths, fileSystem, registry, guard, appsAndFeatures, metadata, log);
+            paths, fileSystem, registry, guard, appsAndFeatures, metadata, journal, log);
         var stop = new StopCoordinator(paths, processes, new CoreHeldButtonRecovery(), log);
         var appStart = new AppStartService(processes, new WindowsAppLogProbe(paths), clock, log);
         var appDataDeletion = new PhysicalAppDataDeletion(paths);

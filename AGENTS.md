@@ -24,9 +24,31 @@ dotnet test                                                       # all tests
 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (needs display)
 ```
 
+## Installed (UIAccess) build
+
+Dev, test and CI builds stay **unsigned with `uiAccess="false"`** (`dotnet build`, `dotnet test`, F5,
+UI tests): no test needs a certificate, and CI never publishes or signs. Only the owner's machine
+signs and installs, and only on the owner's go.
+
+- `tools/release/Publish-Signed.ps1` publishes the App (`-p:EyeCtrlUiAccess=true`), the Supervisor
+  and `EyeCtrl.Setup` when it exists, signs every exe (pinned thumbprint
+  `C1039769A2D9ED01F93CEBC78B61176EE6B12F91`, DigiCert timestamp, `/fd SHA256`, `/td SHA256`),
+  verifies the signatures and the embedded manifests (App `true`, Supervisor/Setup `false`), refuses
+  self-extraction, writes `package.json` plus a signed `EyeCtrl.cat` (`New-FileCatalog` v2), and
+  copies the result to `%LOCALAPPDATA%\EyeCtrl\updates\<version>\`.
+- **Agents never sign, never write the real inbox, never touch Program Files or HKLM, and never run
+  a built exe.** The runnable mode is
+  `Publish-Signed.ps1 -DryRun -NoSign -ScratchDir <scratch>`: it builds and packages into that
+  folder only and refuses any destination under the inbox.
+- `tools/release/Install-EyeCtrl.ps1` finds the newest inbox package and starts its
+  `EyeCtrl.Setup.exe update <dir>` with `Start-Process` (ShellExecute). Never replace that with the
+  call operator: `CreateProcess` of the launched exe is the Win32 740 trap. `-NoNewWindow` also
+  flips `Start-Process` to `CreateProcess`, so it must not appear either.
+
 ## CI
 
 GitHub Actions runs on `push` to `main` and `pull_request` targeting `main`:
+
 - `build-and-test` — validates the theme palettes (`tools/palette_validate.py`), builds the
   solution, runs `dotnet test --filter "Category!=UI"` with coverage collection, runs the
   benchmark generator tests, and gates on coverage thresholds (≥50% line, ≥45% branch)
@@ -194,6 +216,8 @@ Serilog, initialized in `LoggingInitializer.Initialize()`. Logs to `%APPDATA%/Ey
 | `src/EyeCtrl.App/Services/EventCoordinator.cs` | Event coordination (dwell, zoom, action menu) |
 | `src/EyeCtrl.Core/GazeEngine.cs` | Core gaze pipeline |
 | `src/EyeCtrl.Core/Settings/SettingsService.cs` | JSON settings persistence with validation |
+| `tools/release/Publish-Signed.ps1` | Signed UIAccess package into the update inbox (owner's machine only) |
+| `tools/release/Install-EyeCtrl.ps1` | Starts the newest inbox package's Setup via ShellExecute |
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

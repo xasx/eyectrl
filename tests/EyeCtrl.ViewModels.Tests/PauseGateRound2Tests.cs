@@ -43,7 +43,7 @@ public class PauseGateRound2Tests
         messenger.Register(recorder);
         using var vm = NewTaskSwitcher(messenger);
         vm.Receive(new TaskSwitcherToggledMessage());
-        vm.UpdateTilePosition(new IntPtr(4242), new PhysicalPoint(50, 50));
+        vm.UpdateTilePosition(new IntPtr(4242), PhysicalRect.FromCenter(new PhysicalPoint(50, 50), 184, 104));
 
         Dwell(messenger, paused: true, 0, 900_000);
 
@@ -60,7 +60,7 @@ public class PauseGateRound2Tests
         messenger.Register(recorder);
         using var vm = NewTaskSwitcher(messenger);
         vm.Receive(new TaskSwitcherToggledMessage());
-        vm.UpdateTilePosition(new IntPtr(4242), new PhysicalPoint(50, 50));
+        vm.UpdateTilePosition(new IntPtr(4242), PhysicalRect.FromCenter(new PhysicalPoint(50, 50), 184, 104));
 
         Dwell(messenger, paused: false, 0, 900_000);
 

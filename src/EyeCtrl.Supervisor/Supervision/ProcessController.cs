@@ -1,6 +1,7 @@
 namespace EyeCtrl.Supervisor.Supervision;
 
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
@@ -106,7 +107,10 @@ public sealed class ProcessController
         // The path we were handed IS the launched image; no need to ask the OS for it (and
         // Process.MainModule on a just-started process is one more thing that can throw).
         ExePath = exePath;
-        var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
+        // C9 S3: ShellExecute, not CreateProcess. A uiAccess exe cannot be created directly —
+        // S1a measured ERROR_ELEVATION_REQUIRED (740) even from a UIAccess parent — while
+        // ShellExecute starts it and still returns a usable handle for wait and kill.
+        var psi = new ProcessStartInfo(exePath) { UseShellExecute = true };
         if (paused) psi.ArgumentList.Add("--paused");
         if (uiLanguage is { } language)
         {
@@ -114,7 +118,22 @@ public sealed class ProcessController
             psi.ArgumentList.Add("--ui-language");
             psi.ArgumentList.Add(UiLanguageTokens.ToCommandLine(language));
         }
-        Bind(_processFactory(psi));
+        try
+        {
+            Bind(_processFactory(psi));
+        }
+        catch (Win32Exception ex) when (UiAccessLaunchFailure.IsUiAccessSpecific(ex.NativeErrorCode))
+        {
+            // C9 S3: 8235 (broken signature/trust) and 740 (a CreateProcess slipped through) get
+            // their own line. The exception is rethrown so the caller's existing LaunchFailed
+            // path books the strike, retries with backoff and escalates to FallbackAt unchanged.
+            Serilog.Log.Error(
+                ex,
+                "LaunchApp: {Reason}. Launching {ExePath} still goes through the existing launch-failure path.",
+                UiAccessLaunchFailure.Describe(ex.NativeErrorCode),
+                exePath);
+            throw;
+        }
         StartTimeUtc = _process?.StartTime;
     }
 

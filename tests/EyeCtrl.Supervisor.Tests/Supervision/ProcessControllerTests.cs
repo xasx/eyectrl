@@ -1,7 +1,9 @@
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Supervisor.Supervision;
 using NFluent;
 using Xunit;
@@ -37,6 +39,92 @@ public class ProcessControllerTests
         Check.That(capturedPsi).IsNotNull();
         Check.That(capturedPsi!.FileName).IsEqualTo("test.exe");
         Check.That(capturedPsi.ArgumentList).ContainsExactly("--paused");
+    }
+
+    [Fact]
+    public void Launch_UsesShellExecute_AndKeepsTheExePathAndArguments()
+    {
+        // C9 S3: CreateProcess (UseShellExecute=false) of a uiAccess exe fails with 740 even from
+        // a UIAccess parent (S1a), while ShellExecute starts it and still returns a usable handle
+        // for wait and kill. The factory must receive a ShellExecute start info with the same exe
+        // and the same arguments.
+        ProcessStartInfo? capturedPsi = null;
+        var handle = new FakeProcessHandle(4242, hasExited: false);
+        var controller = new ProcessController(psi => { capturedPsi = psi; return handle; }, _ => null);
+
+        controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: true, uiLanguage: UiLanguage.German);
+
+        Check.That(capturedPsi).IsNotNull();
+        Check.That(capturedPsi!.UseShellExecute).IsTrue();
+        Check.That(capturedPsi.FileName).IsEqualTo(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe");
+        Check.That(capturedPsi.ArgumentList).ContainsExactly("--paused", "--ui-language", "de");
+        Check.That(controller.BoundProcess).IsSameReferenceAs(handle);
+    }
+
+    [Fact]
+    public void Launch_WithWin32TrustFailure_LogsItsOwnReason_AndPropagates()
+    {
+        // C9 S3: 8235 (ERROR_DS_REFERRAL, measured for an unsigned/untrusted uiAccess exe in
+        // Program Files) must name the cause in the log, and must still throw so the existing
+        // LaunchFailed path books the strike and eventually lands on FallbackAt.
+        var sink = new CapturingSink();
+        var previous = Serilog.Log.Logger;
+        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
+            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        Win32Exception? thrown = null;
+        try
+        {
+            var controller = new ProcessController(
+                _ => throw new Win32Exception(UiAccessLaunchFailure.SignatureOrTrustFailure),
+                _ => null);
+
+            try { controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: false); }
+            catch (Win32Exception ex) { thrown = ex; }
+        }
+        finally
+        {
+            Serilog.Log.Logger = previous;
+        }
+
+        Check.That(thrown).IsNotNull();
+        Check.That(thrown!.NativeErrorCode).IsEqualTo(8235);
+        Check.WithCustomMessage($"the launch failure was not logged distinctly: {string.Join(" | ", sink.Messages)}")
+            .That(sink.Messages.Any(m =>
+                m.Contains("8235", StringComparison.Ordinal)
+                && m.Contains("signature or trust", StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Fact]
+    public void Launch_WithWin32ElevationRequired_LogsThe740Reason_AndPropagates()
+    {
+        // C9 S3: 740 means a CreateProcess of the uiAccess exe slipped through somewhere; the
+        // line must say that, not blend into the generic launch-failure message.
+        var sink = new CapturingSink();
+        var previous = Serilog.Log.Logger;
+        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
+            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        Win32Exception? thrown = null;
+        try
+        {
+            var controller = new ProcessController(
+                _ => throw new Win32Exception(UiAccessLaunchFailure.ElevationRequired),
+                _ => null);
+
+            try { controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: false); }
+            catch (Win32Exception ex) { thrown = ex; }
+        }
+        finally
+        {
+            Serilog.Log.Logger = previous;
+        }
+
+        Check.That(thrown).IsNotNull();
+        Check.That(thrown!.NativeErrorCode).IsEqualTo(740);
+        Check.WithCustomMessage($"the launch failure was not logged distinctly: {string.Join(" | ", sink.Messages)}")
+            .That(sink.Messages.Any(m =>
+                m.Contains("740", StringComparison.Ordinal)
+                && m.Contains("CreateProcess", StringComparison.Ordinal)
+                && m.Contains("ShellExecute", StringComparison.Ordinal))).IsTrue();
     }
 
     [Fact]

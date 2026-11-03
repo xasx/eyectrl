@@ -106,6 +106,13 @@ public class ContainerRatioCensusTests
                 ("Small", 1, "TileIconSize — the tile icon has its action label underneath it. "
                     + "Also pinned exactly by GlyphSizeCouplingTests."),
             ],
+            ["src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml.cs"] =
+            [
+                ("Dominant", 1, "the close disc's glyph, whose entire content is one glyph with "
+                    + "no label beside it — the QuickActionsGridWindow close-button choice "
+                    + "transplanted with that button (2 x UIConstants.ButtonRadius disc, B8 "
+                    + "WYSIWYG: what is drawn IS what the detector hit-tests)."),
+            ],
             ["src/EyeCtrl.App/Overlays/ToolbarBand.cs"] =
             [
                 ("Dominant", 1, "the half-length of the hairline that fences off the destructive "

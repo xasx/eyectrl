@@ -1266,6 +1266,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.ViewModels/TaskSwitcherViewModel.cs",
+      "Literal": "\"__taskswitcher_close__\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.ViewModels/ToolbarViewModel.cs",
       "Literal": "\"Pause\"",
       "Count": 1

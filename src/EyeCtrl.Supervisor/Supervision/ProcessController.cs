@@ -1,7 +1,6 @@
 namespace EyeCtrl.Supervisor.Supervision;
 
 using System;
-using System.ComponentModel;
 using System.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
@@ -118,22 +117,10 @@ public sealed class ProcessController
             psi.ArgumentList.Add("--ui-language");
             psi.ArgumentList.Add(UiLanguageTokens.ToCommandLine(language));
         }
-        try
-        {
-            Bind(_processFactory(psi));
-        }
-        catch (Win32Exception ex) when (UiAccessLaunchFailure.IsUiAccessSpecific(ex.NativeErrorCode))
-        {
-            // C9 S3: 8235 (broken signature/trust) and 740 (a CreateProcess slipped through) get
-            // their own line. The exception is rethrown so the caller's existing LaunchFailed
-            // path books the strike, retries with backoff and escalates to FallbackAt unchanged.
-            Serilog.Log.Error(
-                ex,
-                "LaunchApp: {Reason}. Launching {ExePath} still goes through the existing launch-failure path.",
-                UiAccessLaunchFailure.Describe(ex.NativeErrorCode),
-                exePath);
-            throw;
-        }
+        // The raw launch failure propagates: the caller classifies it with
+        // UiAccessLaunchFailure.ClassifyLaunchFailure and decides between the ordinary retry and
+        // an immediate FallbackAt (C9 fixup-01). No log here — the caller writes the one line.
+        Bind(_processFactory(psi));
         StartTimeUtc = _process?.StartTime;
     }
 

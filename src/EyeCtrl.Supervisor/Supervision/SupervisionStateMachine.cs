@@ -196,9 +196,10 @@ public sealed class SupervisionStateMachine
                 break;
 
             // Ticket 06-C: Process.Start threw. Book the failure instead of leaving the machine
-            // waiting for a grace that can never elapse (no process ever started).
+            // waiting for a grace that can never elapse (no process ever started). C9 fixup-01:
+            // 8235/740 are marked unrecoverable and escalate on this first failure.
             case LaunchFailed lf when State is SupervisorState.Launching or SupervisorState.Recovering:
-                GoRecovering(lf.At, forceKill: false);
+                GoRecovering(lf.At, forceKill: false, escalateNow: lf.Unrecoverable);
                 break;
 
             // Ticket 06-B: supervision was switched off. Stand down without a kill or a relaunch.
@@ -224,7 +225,18 @@ public sealed class SupervisionStateMachine
         _commands.Add(SupervisorCommand.StandDown);
     }
 
-    private void GoRecovering(DateTime at, bool forceKill)
+    /// <summary>
+    /// Books a strike and chooses the recovery: a retry with backoff, or FallenBack once the crash
+    /// policy is out of patience — or immediately for an unrecoverable launch failure.
+    /// </summary>
+    /// <param name="at">When the triggering input arrived.</param>
+    /// <param name="forceKill">Kill the still-running app before handing over to the fallback AT.</param>
+    /// <param name="escalateNow">
+    /// C9 fixup-01: the failure cannot heal on a retry (Win32 8235/740), so escalate on this first
+    /// one instead of waiting for the crash budget. The supervision-disabled stand-down above is
+    /// still checked first: a disabled Supervisor never escalates.
+    /// </param>
+    private void GoRecovering(DateTime at, bool forceKill, bool escalateNow = false)
     {
         // Ticket 06-B: the on-disk enabled flag is the source of truth at every recovery decision.
         if (!_isSupervisionEnabled())
@@ -236,7 +248,7 @@ public sealed class SupervisionStateMachine
         _restartAfterExit = false;
         ConsecutiveFailures++;
         _crash.RecordStrike(at);
-        if (_crash.ShouldEscalate(at, ConsecutiveFailures))
+        if (escalateNow || _crash.ShouldEscalate(at, ConsecutiveFailures))
         {
             State = SupervisorState.FallenBack;
             // Ticket 06 review F1: a hang/gaze-death/grace escalation must kill the still-running

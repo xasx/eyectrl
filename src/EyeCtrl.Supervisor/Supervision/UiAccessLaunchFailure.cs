@@ -1,10 +1,15 @@
 namespace EyeCtrl.Supervisor.Supervision;
 
+using System;
+using System.ComponentModel;
+
 /// <summary>
-/// C9 S3: the two Win32 failures that only a uiAccess build adds to the App launch. They are
-/// deliberately just classification + prose — the launch-failure path itself is unchanged, so a
-/// 8235/740 launch books the same strike, retries with the same backoff and escalates to
-/// <c>FallbackAt</c> through <c>SupervisionStateMachine.GoRecovering</c> as any other failure.
+/// C9 S3/fixup-01: the two Win32 failures that only a uiAccess build adds to the App launch, and
+/// their classification. Neither can heal on a retry — a broken signature or trust chain (8235)
+/// and a leaked CreateProcess of the uiAccess exe (740) fail identically every time — so the
+/// supervision clock escalates to <c>FallenBack</c> on the FIRST one instead of booking the
+/// ordinary retries. The FallenBack dialog's Retry and its one 60 s auto-retry stay the healing
+/// path for a transient case.
 /// </summary>
 public static class UiAccessLaunchFailure
 {
@@ -24,6 +29,19 @@ public static class UiAccessLaunchFailure
 
     public static bool IsUiAccessSpecific(int nativeErrorCode) =>
         nativeErrorCode is SignatureOrTrustFailure or ElevationRequired;
+
+    /// <summary>
+    /// Classifies a failed launch for the supervision clock. Only the two uiAccess codes are
+    /// unrecoverable; every other failure keeps the ordinary strike + backoff path.
+    /// </summary>
+    public static LaunchAttemptResult ClassifyLaunchFailure(Exception exception) =>
+        exception is Win32Exception { NativeErrorCode: var code } && IsUiAccessSpecific(code)
+            ? LaunchAttemptResult.FailedUnrecoverable
+            : LaunchAttemptResult.Failed;
+
+    /// <summary>The distinct log reason for a failed launch, or null when it is an ordinary one.</summary>
+    public static string? DescribeFailure(Exception exception) =>
+        exception is Win32Exception { NativeErrorCode: var code } ? Describe(code) : null;
 
     /// <summary>The distinct log reason for a launch failure, or null for every other error.</summary>
     public static string? Describe(int nativeErrorCode) => nativeErrorCode switch

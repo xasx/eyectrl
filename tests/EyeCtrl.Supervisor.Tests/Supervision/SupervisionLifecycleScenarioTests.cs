@@ -148,15 +148,17 @@ public class SupervisionLifecycleScenarioTests
 
         void ISupervisionClockHost.ClearPendingLaunch() => PendingLaunchAt = null;
 
-        bool ISupervisionClockHost.TryLaunchPendingNow()
+        LaunchAttemptResult ISupervisionClockHost.TryLaunchPendingNow()
         {
             // Models DoLaunchApp's try/catch; Tick feeds LaunchExecuted/LaunchFailed from the
-            // result (ticket 06-F2), so this decision is covered by clock tests.
+            // result (ticket 06-F2), so this decision is covered by clock tests. The scenarios
+            // only model ordinary failures; C9's unrecoverable 8235/740 path is pinned by
+            // UiAccessLaunchPathTests.
             Launches++;
             KillInitiated = false;
-            if (LaunchThrows) return false;
+            if (LaunchThrows) return LaunchAttemptResult.Failed;
             Bound = true;
-            return true;
+            return LaunchAttemptResult.Started;
         }
 
         void ISupervisionClockHost.WireLaunchedProcess()

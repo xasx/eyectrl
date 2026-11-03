@@ -62,69 +62,22 @@ public class ProcessControllerTests
     }
 
     [Fact]
-    public void Launch_WithWin32TrustFailure_LogsItsOwnReason_AndPropagates()
+    public void Launch_WithWin32TrustFailure_PropagatesTheErrorForTheCallerToClassify()
     {
-        // C9 S3: 8235 (ERROR_DS_REFERRAL, measured for an unsigned/untrusted uiAccess exe in
-        // Program Files) must name the cause in the log, and must still throw so the existing
-        // LaunchFailed path books the strike and eventually lands on FallbackAt.
-        var sink = new CapturingSink();
-        var previous = Serilog.Log.Logger;
-        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
-            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
-        Win32Exception? thrown = null;
-        try
-        {
-            var controller = new ProcessController(
-                _ => throw new Win32Exception(UiAccessLaunchFailure.SignatureOrTrustFailure),
-                _ => null);
+        // C9 fixup-01: ProcessController neither logs nor classifies the failure. The exception
+        // must reach the caller unchanged so Program's shared classifier can mark 8235/740
+        // unrecoverable (one log line, immediate FallbackAt instead of the retries).
+        var controller = new ProcessController(
+            _ => throw new Win32Exception(UiAccessLaunchFailure.SignatureOrTrustFailure),
+            _ => null);
 
-            try { controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: false); }
-            catch (Win32Exception ex) { thrown = ex; }
-        }
-        finally
-        {
-            Serilog.Log.Logger = previous;
-        }
+        Win32Exception? thrown = null;
+        try { controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: false); }
+        catch (Win32Exception ex) { thrown = ex; }
 
         Check.That(thrown).IsNotNull();
         Check.That(thrown!.NativeErrorCode).IsEqualTo(8235);
-        Check.WithCustomMessage($"the launch failure was not logged distinctly: {string.Join(" | ", sink.Messages)}")
-            .That(sink.Messages.Any(m =>
-                m.Contains("8235", StringComparison.Ordinal)
-                && m.Contains("signature or trust", StringComparison.Ordinal))).IsTrue();
-    }
-
-    [Fact]
-    public void Launch_WithWin32ElevationRequired_LogsThe740Reason_AndPropagates()
-    {
-        // C9 S3: 740 means a CreateProcess of the uiAccess exe slipped through somewhere; the
-        // line must say that, not blend into the generic launch-failure message.
-        var sink = new CapturingSink();
-        var previous = Serilog.Log.Logger;
-        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
-            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
-        Win32Exception? thrown = null;
-        try
-        {
-            var controller = new ProcessController(
-                _ => throw new Win32Exception(UiAccessLaunchFailure.ElevationRequired),
-                _ => null);
-
-            try { controller.Launch(@"C:\Program Files\EyeCtrl\EyeCtrl.App.exe", paused: false); }
-            catch (Win32Exception ex) { thrown = ex; }
-        }
-        finally
-        {
-            Serilog.Log.Logger = previous;
-        }
-
-        Check.That(thrown).IsNotNull();
-        Check.That(thrown!.NativeErrorCode).IsEqualTo(740);
-        Check.WithCustomMessage($"the launch failure was not logged distinctly: {string.Join(" | ", sink.Messages)}")
-            .That(sink.Messages.Any(m =>
-                m.Contains("740", StringComparison.Ordinal)
-                && m.Contains("CreateProcess", StringComparison.Ordinal)
-                && m.Contains("ShellExecute", StringComparison.Ordinal))).IsTrue();
+        Check.That(controller.BoundProcess).IsNull();
     }
 
     [Fact]

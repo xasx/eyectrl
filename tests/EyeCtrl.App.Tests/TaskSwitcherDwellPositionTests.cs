@@ -192,9 +192,13 @@ public class TaskSwitcherDwellPositionTests
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
-        var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
+        // Comments stripped (Switcher_DeactivatesToolbarDwell pattern): the guard's own
+        // comment narrates "IsWindow is authoritative at the point of use", so a raw IndexOf
+        // would still pass with the actual NativeMethods.IsWindow guard deleted.
+        var body = SourceScanner.StripComments(
+            ExtractMethod(source, "public void BringToFront(IntPtr hwnd)"));
 
-        var isWindow = body.IndexOf("IsWindow", StringComparison.Ordinal);
+        var isWindow = body.IndexOf("NativeMethods.IsWindow", StringComparison.Ordinal);
         var sendInput = body.IndexOf("NativeMethods.SendInput", StringComparison.Ordinal);
         Check.WithCustomMessage(
                 "BringToFront must reject a dead hwnd BEFORE the ALT grant: a window that "
@@ -219,8 +223,11 @@ public class TaskSwitcherDwellPositionTests
     /// <summary>
     /// A5: the tiles ScrollViewer's Auto scrollbar was an affordance gaze cannot operate (no
     /// dwell target), and a one-shot Loaded position sync would desync targets from tiles if
-    /// it ever scrolled. Disabled truly disables wheel scrolling; HorizontalScrollBarVisibility
-    /// already defaults to Hidden, so all tiles stay top-aligned in row 0.
+    /// it ever scrolled. Disabled truly disables wheel scrolling. The horizontal axis relies
+    /// on the WPF platform default (Disabled — unlike the vertical default of Visible) and is
+    /// pinned too: it constrains the WrapPanel to the viewport width, which is what makes the
+    /// tiles wrap into rows at all, and it is what lets UpdateTilePositions treat the
+    /// ScrollViewer's whole area as its viewport (no scrollbar chrome on either axis).
     /// </summary>
     [StaFact]
     public void TilesScroll_ScrollbarIsDisabled_GazeCannotOperateScrolling()
@@ -230,6 +237,13 @@ public class TaskSwitcherDwellPositionTests
 
         var scroll = (ScrollViewer)window.FindName("TilesScroll")!;
         Check.That(scroll.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
+        Check.WithCustomMessage(
+                "TilesScroll's horizontal visibility must stay Disabled (the WPF platform "
+                + "default, pinned because UpdateTilePositions relies on it): Hidden or Auto "
+                + "would let the content exceed the viewport width — one infinite row of "
+                + "tiles, no wrapping — and the viewport-rect math would register targets "
+                + "against a geometry that is not the drawn one.")
+            .That(scroll.HorizontalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
     }
 
     /// <summary>
@@ -241,9 +255,10 @@ public class TaskSwitcherDwellPositionTests
     [Fact]
     public void TileOverlapsViewport_RegistersPartialOverlap_SkipsClippedAndTouching()
     {
-        // The viewport's physical rect, e.g. the ScrollViewer on a 1920x1264 window: row 0
-        // bottom sits ~43 DIP above the window bottom (the hint/close row).
-        var viewport = new PhysicalRect(0, 0, 1920, 1221);
+        // The viewport's physical rect, e.g. the ScrollViewer on a 1920x1264 window: the
+        // bottom row holds the centered hint plus the 100 DIP close disc with 12 DIP margins,
+        // so row 0's bottom sits ~124 DIP above the window bottom → viewport height ~1140.
+        var viewport = new PhysicalRect(0, 0, 1920, 1140);
 
         // Fully below the viewport: skipped.
         Check.That(TaskSwitcherWindow.TileOverlapsViewport(
@@ -253,13 +268,13 @@ public class TaskSwitcherDwellPositionTests
         Check.That(TaskSwitcherWindow.TileOverlapsViewport(
                 new PhysicalRect(100, -300, 184, 104), viewport)).IsFalse();
 
-        // Partial overlap (spans 1200..1304 against a 1221 bottom): registered.
+        // Partial overlap (spans 1100..1204 against a 1140 bottom): registered.
         Check.That(TaskSwitcherWindow.TileOverlapsViewport(
-                new PhysicalRect(100, 1200, 184, 104), viewport)).IsTrue();
+                new PhysicalRect(100, 1100, 184, 104), viewport)).IsTrue();
 
         // Boundary touch (top edge exactly on the viewport bottom): skipped — zero visible area.
         Check.That(TaskSwitcherWindow.TileOverlapsViewport(
-                new PhysicalRect(100, 1221, 184, 104), viewport)).IsFalse();
+                new PhysicalRect(100, 1140, 184, 104), viewport)).IsFalse();
     }
 
     /// <summary>

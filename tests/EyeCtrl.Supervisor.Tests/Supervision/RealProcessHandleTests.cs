@@ -3,8 +3,6 @@ namespace EyeCtrl.Supervisor.Tests.Supervision;
 using System.Diagnostics;
 using System.IO;
 using EyeCtrl.Supervisor.Supervision;
-using NFluent;
-using Xunit;
 
 /// <summary>
 /// <see cref="RealProcessHandle"/> against a REAL slow child process (a <c>cmd /c ping</c> that
@@ -75,13 +73,27 @@ public class RealProcessHandleTests
         return value;
     }
 
+    /// <summary>Backstop for the finally blocks: if a test body throws before its own Kill runs,
+    /// the child must not outlive the test — kill it out of band, tolerating an already-exited
+    /// process (review r1 F9: Kill sat inside the try with only Dispose in finally).</summary>
+    private static void KillLeftover(int pid)
+    {
+        try
+        {
+            using var leftover = Process.GetProcessById(pid);
+            if (!leftover.HasExited)
+                leftover.Kill(entireProcessTree: true);
+        }
+        catch { /* already gone */ }
+    }
+
     /// <summary>Kill(entireProcessTree:true) must raise Exited (on the pool, via
     /// EnableRaisingEvents) and flip HasExited. If Exited never fires, a real crash is never
     /// booked as a strike and recovery never happens.</summary>
     [Fact]
     public async Task Kill_RaisesExited_AndFlipsHasExited()
     {
-        var (handle, _) = NewSlowChild();
+        var (handle, pid) = NewSlowChild();
         var exited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         handle.Exited += () => exited.TrySetResult(true);
         try
@@ -95,6 +107,7 @@ public class RealProcessHandleTests
         }
         finally
         {
+            KillLeftover(pid);
             try { handle.Dispose(); } catch { }
         }
     }
@@ -107,7 +120,7 @@ public class RealProcessHandleTests
     [Fact]
     public void ExePath_AfterExit_DegradesToNullInsteadOfThrowing()
     {
-        var (handle, _) = NewSlowChild();
+        var (handle, pid) = NewSlowChild();
         try
         {
             handle.Kill(entireProcessTree: true);
@@ -129,6 +142,7 @@ public class RealProcessHandleTests
         }
         finally
         {
+            KillLeftover(pid);
             try { handle.Dispose(); } catch { }
         }
     }
@@ -160,6 +174,7 @@ public class RealProcessHandleTests
         }
         finally
         {
+            KillLeftover(pid);
             try { handle.Dispose(); } catch { }
         }
     }

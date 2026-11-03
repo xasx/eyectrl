@@ -115,12 +115,12 @@ public class HeartbeatPipeServerTests
         Check.That(identity).IsNotNull();
     }
 
-    // A throwing subscriber must never cost the heartbeat channel (HeartbeatPipeServer.cs
-    // contains subscriber faults so they are not misreported as unparseable lines). Multicast
-    // delegates stop at the first throw, so the poisoned handler here throws on its FIRST
-    // invocation only — like a one-time dispatcher fault in the supervisor's own handler — and
-    // the recorder subscribed AFTER it is shadowed for that line. The recorder receiving the
-    // LATER heartbeats is the contract: dispatch survives the contained fault.
+    // A throwing subscriber must never cost the heartbeat channel: dispatch survives the fault and
+    // later heartbeats still reach the recorder — that INTEGRATED contract is what this test pins.
+    // The dedicated subscriber catch in HeartbeatPipeServer.cs (:83-84) additionally keeps the
+    // fault out of NewlineJsonPipeServer's line-handler catch (a "subscriber threw" Warning instead
+    // of a misleading "unparseable line" Debug); that layering is only observable through the log
+    // and is deliberately not pinned here (review r1 F3).
     [Fact]
     public async Task ThrowingSubscriber_IsContained_AndLaterHeartbeatsStillReachTheRecorder()
     {

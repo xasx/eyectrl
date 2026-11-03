@@ -221,7 +221,11 @@ public class DwellPausedForwardingTests
         var tile = new TaskSwitcherTileViewModel(new IntPtr(4242), "target", 1234, "target", new PhysicalPoint(0, 0));
         window.TilesPanel.ItemsSource = new[] { tile };
 
-        var bar = RealisedBar(window, r => FitText.Descendants<ProgressBar>(r).Single(), out var host);
+        // The close disc (QuickActions-pattern close target) carries a second ProgressBar in
+        // the window's bottom row, so "the" bar must be disambiguated to the TILE's: its
+        // DataContext is the tile VM, the close bar's is the window DataContext.
+        var bar = RealisedBar(window, r => FitText.Descendants<ProgressBar>(r)
+            .Single(p => ReferenceEquals(p.DataContext, tile)), out var host);
         using (host)
         {
             Check.That(bar.Opacity).IsEqualTo(1.0);

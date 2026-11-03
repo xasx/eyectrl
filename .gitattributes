@@ -4,3 +4,5 @@ src/EyeCtrl.App/Resources/Completions/*.bin filter=lfs diff=lfs merge=lfs -text
 # whatever core.autocrlf the checkout uses.
 src/EyeCtrl.App/app.manifest -text
 src/EyeCtrl.App/app.uiaccess.manifest -text
+# X1's catalog fixture: the tag is the hash of these exact bytes, so git must not normalise them.
+tests/EyeCtrl.Setup.Tests/Fixtures/** -text

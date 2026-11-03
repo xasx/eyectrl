@@ -1,0 +1,2 @@
+EyeCtrl catalog fixture v2
+The SIP SHA-256 member tag is the uppercase hex of this file's Authenticode hash.

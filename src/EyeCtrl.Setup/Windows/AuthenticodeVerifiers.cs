@@ -197,6 +197,9 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
     /// <summary>Creates the verifier.</summary>
     public AuthenticodeCatalogVerifier(IFileSignatureVerifier signature) => _signature = signature;
 
+    /// <summary>The catalog member tag for a file: uppercase hex SIP SHA-256 (X1), never a path.</summary>
+    internal static string MemberTag(string filePath) => CatalogSipHash.Compute(filePath);
+
     /// <inheritdoc />
     public CatalogVerificationResult Verify(string catalogPath, string directory, string pinnedThumbprint)
     {
@@ -217,13 +220,11 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
                 }
 
                 var relative = Path.GetRelativePath(directory, file).Replace('/', '\\');
-                var result = WinTrustNative.VerifyCatalogMember(catalogPath, file, relative);
-                // New-FileCatalog records the member tag as the path it was given. A flat publish
-                // folder normally yields the bare file name; try that when the relative path does
-                // not match, so the check does not depend on which spelling the catalog used.
-                if (result != 0)
-                    result = WinTrustNative.VerifyCatalogMember(
-                        catalogPath, file, Path.GetFileName(file));
+                // X1: the catalog member tag is the uppercase hex SIP SHA-256, never the path.
+                // New-FileCatalog v2 records that value as the CTL subject identifier; package.json
+                // is a member like every other file, only EyeCtrl.cat is outside.
+                var tag = MemberTag(file);
+                var result = WinTrustNative.VerifyCatalogMember(catalogPath, file, tag);
                 if (result != 0)
                     mismatches.Add(relative);
             }

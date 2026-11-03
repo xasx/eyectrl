@@ -74,6 +74,23 @@ public class SetupManifestTests
     }
 
     [Fact]
+    public void SetupShipsNoLooseFileOfItsOwn()
+    {
+        // S6b's publish script stops when two publish outputs share a name with different bytes.
+        // Setup carries no Content/None copy items: it reads the App's data from the installed
+        // folder instead of shipping a second copy.
+        var project = XDocument.Load(ProjectPath);
+        var copied = project.Descendants()
+            .Where(e => e.Name.LocalName is "Content" or "None")
+            .Where(e => e.Attribute("CopyToOutputDirectory") is not null
+                || e.Attribute("CopyToPublishDirectory") is not null)
+            .Select(e => e.Name.LocalName + ":" + (string?)e.Attribute("Include"))
+            .ToList();
+
+        Check.That(copied).IsEmpty();
+    }
+
+    [Fact]
     public void ThePinnedThumbprint_IsThePlansValue()
     {
         Check.That(SetupConstants.PinnedThumbprint)

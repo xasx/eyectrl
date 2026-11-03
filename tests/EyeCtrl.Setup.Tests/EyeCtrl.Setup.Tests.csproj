@@ -20,4 +20,11 @@
              Link="TestSupport\StringTableObserverAttribute.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- X1's real New-FileCatalog v2 fixture: the binary .cat and the exact bytes it hashed.
+         Committed so the SIP SHA-256 tag is checked against a real catalog without signing
+         anything or touching a certificate. -->
+    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

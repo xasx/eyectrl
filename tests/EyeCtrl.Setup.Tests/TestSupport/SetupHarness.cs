@@ -121,6 +121,7 @@ public sealed class SetupHarness
             Recorder, Environment, Clock, Logging);
         Status = new StatusService(Paths, State, Processes, Policy, Recorder);
         Planner = new SupervisionStartPlanner(Settings);
+        Inbox = new InboxScanner(Paths, Files, Metadata);
     }
 
     public List<string> Log { get; }
@@ -155,6 +156,7 @@ public sealed class SetupHarness
     public SetupWorkflow Workflow { get; }
     public StatusService Status { get; }
     public SupervisionStartPlanner Planner { get; }
+    public InboxScanner Inbox { get; }
 
     /// <summary>Seeds a full installed version (App, Supervisor, Setup, metadata, catalog).</summary>
     public void SeedInstalled(string version = "1.0.0")

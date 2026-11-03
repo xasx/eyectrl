@@ -91,6 +91,7 @@ Check.That(actual).IsCloseTo(Math.PI, 1e-10);  // ±1e-10 absolute
 | `Assert.True(cond)` | `Check.That(cond).IsTrue()` | Prefer native checks (`Check.That(x).IsStrictlyLessThan(y)`) for better messages |
 | `Assert.Null(v)` | `Check.That(v).IsNull()` | |
 | `Assert.Same(a, b)` | `Check.That(b).IsSameReferenceAs(a)` | |
+| string equality involving a trailing `\r` | `IsEqualTo` IGNORES a trailing `\r` (`"payload"` ≡ `"payload\r"`) | assert ordinally: `Check.That(string.Equals(a, b, StringComparison.Ordinal)).IsTrue()` — found by the coverage-gaps review (r1 F1) |
 
 ## Architecture
 

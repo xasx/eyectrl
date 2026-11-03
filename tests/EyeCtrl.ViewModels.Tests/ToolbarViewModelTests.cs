@@ -47,6 +47,49 @@ public class ToolbarViewModelTests
         Check.That(received).IsTrue();
     }
 
+    // The nine activations are the gaze-only user's primary navigation: a case deleted from the
+    // switch, an id typo'd, or two messages swapped turns the button into a no-op (a dead Settings
+    // button locks a gaze-only user out of configuration entirely). Probes on ALL nine message
+    // types pin that exactly one fires — no cross-wiring into the sibling buttons either, which
+    // the three older single-button facts below cannot see (review r1 F11).
+    [Theory]
+    [InlineData("Pause")]
+    [InlineData("SelectionMode")]
+    [InlineData("Keyboard")]
+    [InlineData("Calibrate")]
+    [InlineData("Settings")]
+    [InlineData("TaskSwitcher")]
+    [InlineData("Modes")]
+    [InlineData("QuickActions")]
+    [InlineData("ResetAdaptation")]
+    public void ActivatingAButton_SendsExactlyItsOwnMessage(string buttonId)
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+        var sent = new Dictionary<string, int>
+        {
+            ["Pause"] = 0, ["SelectionMode"] = 0, ["Keyboard"] = 0, ["Calibrate"] = 0,
+            ["Settings"] = 0, ["TaskSwitcher"] = 0, ["Modes"] = 0, ["QuickActions"] = 0,
+            ["ResetAdaptation"] = 0,
+        };
+        void Count(string key) => sent[key]++;
+
+        _messenger.Register<PauseToggledMessage>(_messenger, (_, _) => Count("Pause"));
+        _messenger.Register<SelectionModeChangedMessage>(_messenger, (_, _) => Count("SelectionMode"));
+        _messenger.Register<KeyboardToggledMessage>(_messenger, (_, _) => Count("Keyboard"));
+        _messenger.Register<CalibrationRequestedMessage>(_messenger, (_, _) => Count("Calibrate"));
+        _messenger.Register<SettingsRequestedMessage>(_messenger, (_, _) => Count("Settings"));
+        _messenger.Register<TaskSwitcherToggledMessage>(_messenger, (_, _) => Count("TaskSwitcher"));
+        _messenger.Register<ModesMenuToggledMessage>(_messenger, (_, _) => Count("Modes"));
+        _messenger.Register<QuickActionsToggledMessage>(_messenger, (_, _) => Count("QuickActions"));
+        _messenger.Register<ResetAdaptationMessage>(_messenger, (_, _) => Count("ResetAdaptation"));
+
+        vm.SimulateButtonActivated(buttonId);
+
+        Check.That(sent[buttonId]).IsEqualTo(1);
+        foreach (var other in sent.Keys.Where(id => id != buttonId))
+            Check.That(sent[other]).IsEqualTo(0);
+    }
+
     // Paused-trap guard, check 2. On 2026-09-24 a held gaze re-armed the toggle every cooldown
     // cycle (700 ms dwell + 400 ms cooldown ≈ 1.1 s), so 3.5 s of continuous gaze toggled the app
     // three times. One look must mean one toggle: after firing, the toggle cannot fire again until

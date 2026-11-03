@@ -44,9 +44,11 @@ public class WpfElementAdapterTests
         public void Execute(object? parameter) => ExecuteCount++;
     }
 
-    // The unloaded/zero-size guard (WpfElementAdapter.TryGetScreenRect): a detached element's
-    // layout never ran, so PointToScreen would produce garbage. The dwell engine hit-tests this
-    // rect for dwell targeting — a false-yes would let dwell fire on junk geometry.
+    // TryGetScreenRect must return FALSE for a detached element: the dwell engine hit-tests this
+    // rect for dwell targeting — a false-yes would let dwell fire on junk geometry. For this
+    // input BOTH the unloaded/zero-size guard (:38) and the PointToScreen catch (:46) answer
+    // false, so the fact pins the integrated contract; separating them would need a loaded
+    // zero-size element, which a windowless STA test cannot produce (review r1 F4).
     [StaFact]
     public void TryGetScreenRect_ReturnsFalse_ForAnUnloadedElement()
     {
@@ -100,9 +102,10 @@ public class WpfElementAdapterTests
         Check.That(command.ExecuteCount).IsEqualTo(1);
     }
 
-    // WindowHandle (WpfElementAdapter.cs): an element not in a Window yields 0 on both the first
-    // read and the cached second read — an integrator app that reads it before layout must not
-    // get a bogus handle.
+    // WindowHandle (WpfElementAdapter.cs): an element not in a Window yields 0 on every read —
+    // only a NON-zero handle is cached (:22), so each read recomputes and a mutant that caches the
+    // zero is not distinguishable here. An integrator app that reads it before layout must not
+    // get a bogus handle (review r1 F10: the earlier "cached second read" phrasing was wrong).
     [StaFact]
     public void WindowHandle_IsZero_ForAnElementNotInAWindow()
     {
@@ -110,6 +113,6 @@ public class WpfElementAdapterTests
         var adapter = new WpfElementAdapter("t-hwnd", btn);
 
         Check.That(adapter.WindowHandle).IsEqualTo(0L);
-        Check.That(adapter.WindowHandle).IsEqualTo(0L); // second read goes through the cache
+        Check.That(adapter.WindowHandle).IsEqualTo(0L); // second read recomputes: zero is never cached
     }
 }

@@ -95,14 +95,15 @@ public interface ICursorCircleOverlay
     void FlashFired() { }
 
     /// <summary>
-    /// Switches the ring to its blocked look while Windows is discarding EyeCtrl's input (C10):
-    /// a dashed, dimmed ring, so the owner stops spending dwells on clicks that cannot land. It
-    /// must not touch <c>Window.Opacity</c> — that is the pin/quiet channel — and it is display
-    /// only: no position, pin, visibility or view-model state changes. A default no-op so fakes
-    /// need no member.
+    /// Switches the ring to its blocked look while the detector reports that Windows is discarding
+    /// EyeCtrl's input (C10): a PAIRED DASH per band, never a dim or a colour change, because C1's
+    /// lesson is that the owner's pointer must never get harder to see. It must not touch
+    /// <c>Window.Opacity</c> — that is the pin/quiet channel — and it is display only: no position,
+    /// pin, visibility or view-model state changes. A default no-op so fakes need no member.
     /// </summary>
-    /// <param name="blocked">True while the blocked-input banner is up; false restores the
-    /// settings-driven appearance.</param>
+    /// <param name="blocked">True while the detector reports a block. The look follows the detector,
+    /// not the banner: a dismissed banner keeps the dashed cue. False restores the settings-driven
+    /// appearance.</param>
     void SetBlocked(bool blocked) { }
 }
 

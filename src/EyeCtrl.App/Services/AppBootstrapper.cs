@@ -113,10 +113,12 @@ public class AppBootstrapper
         // path's guard against targeting an elevated window).
         services.AddSingleton<ICursorPositionProbe, Win32CursorPositionProbe>();
         services.AddSingleton<IInputIntegrityProbe, Win32InputIntegrityProbe>();
+        services.AddSingleton<BlockedInputGate>();
         services.AddSingleton(sp => new BlockedInputDetector(
             sp.GetRequiredService<ICursorPositionProbe>(),
             sp.GetRequiredService<IInputIntegrityProbe>(),
-            sp.GetRequiredService<ILogger<BlockedInputDetector>>()));
+            sp.GetRequiredService<ILogger<BlockedInputDetector>>(),
+            screenMetrics: () => Win32InputSimulator.ScreenMetrics));
 
         // The one input sink every caller resolves: R2 wraps the Win32 simulator so no click or
         // pointed scroll can bypass verification. The decorator also feeds every FreeLook move to
@@ -627,7 +629,8 @@ public class AppBootstrapper
             new PhysicalPoint(
                 System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX / 2,
                 System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY / 2),
-            sp.GetRequiredService<EyeCtrlSettings>().EyeCare.BannerAutoSnoozeSeconds));
+            sp.GetRequiredService<EyeCtrlSettings>().EyeCare.BannerAutoSnoozeSeconds,
+            sp.GetRequiredService<BlockedInputGate>()));
         services.AddSingleton<IEyeCareService, EyeCareService>(sp => new EyeCareService(
             sp.GetRequiredService<EyeCtrlSettings>().EyeCare,
             sp.GetRequiredService<ExerciseRunner>(),

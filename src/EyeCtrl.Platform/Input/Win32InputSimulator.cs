@@ -22,9 +22,9 @@ public class Win32InputSimulator : IInputSimulator
     private static int ScreenHeight => NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
 
     /// <summary>The live screen bounds the absolute normalisation uses (the same SM_CXSCREEN /
-    /// SM_CYSCREEN the shared mapper receives), so the restore-exactness gate can compute both
-    /// encodings at the real size.</summary>
-    internal static (int Width, int Height) ScreenMetrics => (ScreenWidth, ScreenHeight);
+    /// SM_CYSCREEN the shared mapper receives), so the restore-exactness gate and the blocked-input
+    /// clamp can compute both encodings at the real size.</summary>
+    public static (int Width, int Height) ScreenMetrics => (ScreenWidth, ScreenHeight);
 
     private readonly IMouseCoordinateMapper _coordinateMapper;
     private readonly ILogger<Win32InputSimulator>? _logger;

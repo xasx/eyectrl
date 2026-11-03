@@ -813,7 +813,8 @@
     "who": "user",
     "where": "overlays",
     "fit": "row",
-    "args": []
+    "args": [],
+    "crisis": true
   },
   "overlays.blocked.generic": {
     "text": "Clicks are blocked: Windows is currently discarding EyeCtrl's input.",

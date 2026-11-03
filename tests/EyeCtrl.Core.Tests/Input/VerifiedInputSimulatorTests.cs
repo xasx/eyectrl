@@ -36,6 +36,7 @@ public class VerifiedInputSimulatorTests
         Check.That(h.Detector.IsBlocked).IsFalse();
 
         h.Simulator.LeftClick(Target);
+        h.ConfirmMisses();
         Check.That(h.Detector.IsBlocked).IsTrue();
     }
 
@@ -46,6 +47,7 @@ public class VerifiedInputSimulatorTests
 
         h.Simulator.RightClick(Target);
         h.Simulator.MiddleClick(Target);
+        h.ConfirmMisses();
 
         Check.That(h.Detector.IsBlocked).IsTrue();
         Check.That(h.Inner.RightClicks).IsEqualTo(1);
@@ -61,6 +63,7 @@ public class VerifiedInputSimulatorTests
         Check.That(h.Detector.IsBlocked).IsFalse(); // one batch, one observation
 
         h.Simulator.DoubleClick(Target);
+        h.ConfirmMisses();
         Check.That(h.Detector.IsBlocked).IsTrue();
         Check.That(h.Inner.DoubleClicks).IsEqualTo(2);
     }
@@ -81,6 +84,7 @@ public class VerifiedInputSimulatorTests
 
         h.Simulator.ScrollAt(Target, 0, 1);
         h.Simulator.ScrollAt(Target, 0, 1);
+        h.ConfirmMisses();
         Check.That(h.Detector.IsBlocked).IsTrue();
     }
 
@@ -123,9 +127,8 @@ public class VerifiedInputSimulatorTests
         var mods = new HashSet<ModifierKey> { ModifierKey.Ctrl };
 
         h.Simulator.Scroll(Target, 0, 1, mods);
-        Check.That(h.Detector.IsBlocked).IsFalse();
-
         h.Simulator.Scroll(Target, 0, 1, mods);
+        h.ConfirmMisses();
         Check.That(h.Detector.IsBlocked).IsTrue();
         Check.That(h.Inner.ModifiedScrolls).IsEqualTo(2);
     }
@@ -181,6 +184,13 @@ public class VerifiedInputSimulatorTests
         public FakeClock Clock { get; }
         public BlockedInputDetector Detector { get; }
         public VerifiedInputSimulator Simulator { get; }
+
+        /// <summary>Advances past the confirmation delay and drains the pending misses.</summary>
+        public void ConfirmMisses()
+        {
+            Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+            Simulator.MoveCursor(Cursor.Position ?? Start);
+        }
     }
 
     private sealed class FakeCursor : ICursorPositionProbe

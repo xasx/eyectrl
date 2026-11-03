@@ -134,6 +134,27 @@ public class HeldButtonReleaseTests
         Check.That(marker.IsSet).IsTrue();                      // stale, not lost
     }
 
+    [Fact]
+    public void ThePostReleaseProbe_IsReadAfterASettle()
+    {
+        // F8: GetAsyncKeyState right after SendInput shares F1's timing premise. A stale "down"
+        // would keep the marker for no reason, so the re-read waits ~40 ms.
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput();
+        var ticks = new List<long>();
+        var release = new HeldButtonRelease(marker, input, leftButtonIsDown: () =>
+        {
+            ticks.Add(Environment.TickCount64);
+            return false;
+        });
+
+        release.ReleaseIfMarked();
+
+        Check.That(ticks).HasSize(2);
+        Check.WithCustomMessage("the after reading is not settled: it can observe the pre-release state.")
+            .That(ticks[1] - ticks[0]).IsGreaterOrEqualThan(HeldButtonRelease.PostReleaseSettleMilliseconds - 10);
+    }
+
     private sealed class FakeMarker : IHeldButtonMarker
     {
         public bool IsSet { get; set; }

@@ -27,16 +27,21 @@ public class Win32WindowManagerEscapeTests
                 "the escape path delegates to the injecting task-switcher path (it must not: its ALT "
                 + "grant is dropped under the block).")
             .That(body.Contains("BringToFront(")).IsFalse();
+        var shellBranch = body.IndexOf("if (isShell)", StringComparison.Ordinal);
+        var fallback = body.IndexOf("SW_MINIMIZE", StringComparison.Ordinal);
+        Check.WithCustomMessage("the shell must short-circuit BEFORE any minimize/restore fallback.")
+            .That(shellBranch).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("the shell must short-circuit BEFORE any minimize/restore fallback.")
+            .That(shellBranch < fallback).IsTrue();
     }
 
     [Fact]
-    public void TryGetEscapeTarget_NeverTargetsAWindowAboveEyeCtrlsOwnIntegrity()
+    public void TryGetEscapeTarget_UsesThePureSelectionRule_AndTheShellAsFallback()
     {
         var body = ExtractMethod(Source(), "public IntPtr? TryGetEscapeTarget()");
 
-        Check.WithCustomMessage("the escape target is chosen without the R1 integrity comparison: an "
-                + "elevated window would be a second blocked attempt.")
-            .That(body.Contains("BlocksInjectedInput")).IsTrue();
+        Check.WithCustomMessage("the escape target is chosen without the pure Z-order/own/IL rule.")
+            .That(body.Contains("EscapeTargetRules.SelectTopmost")).IsTrue();
         Check.WithCustomMessage("the desktop/shell is no longer the last-resort target.")
             .That(body.Contains("GetShellWindow")).IsTrue();
     }

@@ -7,6 +7,7 @@ using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// C10's routing: blocked → banner + ring look, cleared → hide + restore, a dismissal lasts only
@@ -104,14 +105,74 @@ public class BlockedInputCoordinatorTests
             Banner = new FakeBanner();
             Escape = new FakeEscape();
             Ring = new FakeRing();
+            Gate = new BlockedInputGate();
+            EyeCare = new FakeEyeCare();
+            Messenger = new WeakReferenceMessenger();
             Coordinator = new BlockedInputCoordinator(
-                detector, Banner, Escape, Ring, Dispatcher.CurrentDispatcher, new WeakReferenceMessenger());
+                detector, Banner, Escape, Ring, Dispatcher.CurrentDispatcher,
+                Messenger, Gate, EyeCare);
         }
 
         public FakeBanner Banner { get; }
         public FakeEscape Escape { get; }
         public FakeRing Ring { get; }
+        public BlockedInputGate Gate { get; }
+        public FakeEyeCare EyeCare { get; }
+        public WeakReferenceMessenger Messenger { get; }
         public BlockedInputCoordinator Coordinator { get; }
+    }
+
+    [Fact]
+    public void AGapFrame_DoesNotFeedTheBannerButtons()
+    {
+        // F4: a held (blink / tracking-loss) sample must not advance the banner's dwell detectors.
+        var h = new Harness();
+
+        h.Messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(new PhysicalPoint(10, 10), 1, IsInGap: true)));
+        Check.That(h.Banner.GazeCount).IsEqualTo(0);
+
+        h.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(10, 10), 2));
+        Check.That(h.Banner.GazeCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ABlockedTransition_DefersEyeCareAndTakesItsBannerDown()
+    {
+        // F3: the blocked banner wins. The gate holds a break due while blocked; a live eye-care
+        // banner is cancelled (only the banner, not a running exercise).
+        var h = new Harness();
+
+        h.Coordinator.Apply(Blocked);
+
+        Check.That(h.Gate.IsBlocked).IsTrue();
+        Check.That(h.EyeCare.CancelBannerCount).IsEqualTo(1);
+        Check.That(h.EyeCare.CancelActiveCount).IsEqualTo(0);
+
+        h.Coordinator.Apply(Cleared);
+
+        Check.That(h.Gate.IsBlocked).IsFalse();
+        Check.That(h.EyeCare.CancelBannerCount).IsEqualTo(1); // clears do not cancel anything
+    }
+
+    /// <summary>No-op hooks; only the banner cancellation is observed.</summary>
+    private sealed class FakeEyeCare : IEyeCareHooks
+    {
+        public int CancelBannerCount { get; private set; }
+        public int CancelActiveCount { get; private set; }
+
+        public Task<bool> ShowBannerAsync(string message) => Task.FromResult(true);
+
+        public Task ShowExerciseAsync(
+            string exerciseName, long durationMicroseconds,
+            Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze) =>
+            Task.CompletedTask;
+
+        public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome) => Task.CompletedTask;
+
+        public void CancelActive() => CancelActiveCount++;
+
+        public void CancelBanner() => CancelBannerCount++;
     }
 
     private sealed class FakeBanner : IBlockedInputBanner
@@ -124,7 +185,8 @@ public class BlockedInputCoordinatorTests
 
         public void ShowBlocked(BlockedInputState state) => Shown.Add(state);
         public void HideBlocked() => HideCount++;
-        public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds) { }
+        public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds) => GazeCount++;
+        public int GazeCount { get; private set; }
         public void RaiseEscape() => EscapeRequested?.Invoke(this, EventArgs.Empty);
         public void RaiseDismiss() => DismissRequested?.Invoke(this, EventArgs.Empty);
     }

@@ -31,6 +31,14 @@ public interface IEyeCareHooks
     /// <summary>Immediately dismisses any visible banner/exercise/summary overlay (e.g. when the
     /// user toggles eye-care off mid-session). Safe to call when nothing is showing.</summary>
     void CancelActive();
+
+    /// <summary>
+    /// Dismisses the eye-care BANNER only, leaving a running exercise alone (C10 fixup-01 F3:
+    /// the blocked-input banner wins while Windows discards injected input, and its buttons sit on
+    /// top of the eye-care Start/Snooze rings). Safe to call when no banner is showing; the default
+    /// no-op keeps fakes and non-App hosts source-compatible.
+    /// </summary>
+    void CancelBanner() { }
 }
 
 /// <summary>Primitive outcome of an exercise, for the summary card.

@@ -166,11 +166,91 @@ public class CursorRingStacksTests
         // weights that fail: a 2px core at 0.7 opacity is the shipped defect. Thickness is
         // 1.0, not 3.0: live testing found the ring too heavy, and the ring style setter no
         // longer writes any appearance value (not thickness, not opacity), so this default is
-        // what a fresh install actually sees — 1.0 is safe because the internal edge holds at
+        // what a fresh install actually sees - 1.0 is safe because the internal edge holds at
         // any width.
         var settings = new CursorSettings();
 
         Check.That(settings.CircleThickness).IsEqualTo(1.0);
         Check.That(settings.CircleOpacity).IsEqualTo(1.0);
     }
+
+    // ── C10 fixup-01, ring review r01 F1/F2: the blocked look ──
+
+    [Theory]
+    [InlineData(CursorRingStyle.WeightedSandwich)]
+    [InlineData(CursorRingStyle.AchromaticReticle)]
+    public void Blocked_SolidStyles_GetOnePairedAngularDash(CursorRingStyle style)
+    {
+        var rest = Build(style, size: 200, thickness: 1.5, opacity: 1.0);
+
+        var blocked = CursorRingStacks.Blocked(rest, 200);
+
+        // The same N angular segments for both bands, both starting at angle 0.
+        var expectedOuter = Math.PI * (200 - rest.Outer.Thickness) / (2.0 * CursorRingStacks.BlockedDashSegments);
+        var expectedCore = Math.PI * (200 - rest.Core.Thickness) / (2.0 * CursorRingStacks.BlockedDashSegments);
+
+        Check.That(blocked.Outer.DashPeriod).IsCloseTo(expectedOuter, 1e-9);
+        Check.That(blocked.Core.DashPeriod).IsCloseTo(expectedCore, 1e-9);
+        Check.That(blocked.Outer.DashOffset).IsEqualTo(0.0);
+        Check.That(blocked.Core.DashOffset).IsEqualTo(0.0);
+
+        // Same angular dash length => the bands break at the same angles and the pattern closes.
+        Check.That(AngularDash(blocked.Outer, 200)).IsCloseTo(AngularDash(blocked.Core, 200), 1e-9);
+
+        // C1: colours, opacity and thickness are untouched.
+        Check.That(blocked.Outer).IsEqualTo(rest.Outer with { DashPeriod = expectedOuter, DashOffset = 0 });
+        Check.That(blocked.Core).IsEqualTo(rest.Core with { DashPeriod = expectedCore, DashOffset = 0 });
+    }
+
+    [Fact]
+    public void Blocked_BiTonalKeepsTheInterleaveAtHalfThePeriod()
+    {
+        var rest = Build(CursorRingStyle.BiTonalSegments, size: 200, thickness: 1.5, opacity: 1.0);
+
+        var blocked = CursorRingStacks.Blocked(rest, 200);
+
+        Check.That(blocked.Outer.DashPeriod).IsCloseTo(rest.Outer.DashPeriod / 2, 1e-9);
+        Check.That(blocked.Core.DashPeriod).IsCloseTo(rest.Core.DashPeriod / 2, 1e-9);
+        Check.That(blocked.Outer.DashOffset).IsEqualTo(0.0);
+        Check.WithCustomMessage("the core must sit in the halo's gaps: one NEW dash, not one old cycle.")
+            .That(blocked.Core.DashOffset).IsCloseTo(blocked.Core.DashPeriod, 1e-9);
+        Check.That(blocked.Core.Hex).IsEqualTo(rest.Core.Hex);
+        Check.That(blocked.Outer.Hex).IsEqualTo(rest.Outer.Hex);
+        Check.That(blocked.Core.Opacity).IsEqualTo(rest.Core.Opacity);
+        Check.That(blocked.Outer.Opacity).IsEqualTo(rest.Outer.Opacity);
+        Check.That(blocked.Core.Thickness).IsEqualTo(rest.Core.Thickness);
+        Check.That(blocked.Outer.Thickness).IsEqualTo(rest.Outer.Thickness);
+    }
+
+    [Fact]
+    public void Blocked_PreservesEveryColourAndWeight()
+    {
+        foreach (var style in new[]
+                 {
+                     CursorRingStyle.WeightedSandwich, CursorRingStyle.AchromaticReticle,
+                     CursorRingStyle.BiTonalSegments,
+                 })
+        {
+            var rest = Build(style, size: 200, thickness: 2.5, opacity: 0.8);
+            var blocked = CursorRingStacks.Blocked(rest, 200);
+
+            Check.That(blocked.Core.Hex).IsEqualTo(rest.Core.Hex);
+            Check.That(blocked.Outer.Hex).IsEqualTo(rest.Outer.Hex);
+            Check.That(blocked.Core.Thickness).IsEqualTo(rest.Core.Thickness);
+            Check.That(blocked.Outer.Thickness).IsEqualTo(rest.Outer.Thickness);
+            Check.That(blocked.Core.Opacity).IsEqualTo(rest.Core.Opacity);
+            Check.That(blocked.Outer.Opacity).IsEqualTo(rest.Outer.Opacity);
+        }
+    }
+
+    [Fact]
+    public void Blocked_WithNoSize_ReturnsTheRestStack()
+    {
+        var rest = Build(CursorRingStyle.WeightedSandwich);
+
+        Check.That(CursorRingStacks.Blocked(rest, 0)).IsEqualTo(rest);
+    }
+
+    private static double AngularDash(RingBand band, double size) =>
+        band.DashPeriod / (Math.PI * (size - band.Thickness));
 }

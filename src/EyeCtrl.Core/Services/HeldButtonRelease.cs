@@ -13,10 +13,11 @@ using EyeCtrl.Core.Interfaces;
 /// successful button-up, or null when the clear succeeded. The button is released either way; the
 /// stale marker only costs one later inert button-up, but the log must not call that a failed
 /// release (fixup-01 F5).</param>
-/// <param name="LeftButtonStillDown">What the same probe reported AFTER the release, or null when
-/// no probe was supplied. When it reads <c>true</c> the marker is KEPT: Windows accepted the
-/// button-up call but did not deliver it (C8 F3's UIPI case), so the button is still held and the
-/// next release path must retry.</param>
+/// <param name="LeftButtonStillDown">What the same probe reported AFTER the release settled, or
+/// null when no probe was supplied. When it reads <c>true</c> the marker is KEPT: the button-up may
+/// have been dropped by Windows (C8 F3's UIPI case), or the button is genuinely held by another
+/// pointer device (a second gaze mouse, TD Control) — the two cannot be told apart, and keeping the
+/// marker costs at most one inert button-up later.</param>
 public readonly record struct HeldButtonReleaseResult(
     bool MarkerWasSet, bool? LeftButtonWasDown, Exception? MarkerClearFailure,
     bool? LeftButtonStillDown = null)
@@ -53,6 +54,13 @@ public readonly record struct HeldButtonReleaseResult(
 /// </summary>
 public sealed class HeldButtonRelease
 {
+    /// <summary>The settle time between the button-up and the live state re-read, in milliseconds.
+    /// <c>GetAsyncKeyState</c> right after <c>SendInput</c> shares F1's timing question: the call may
+    /// return before the input thread has applied the event, and a stale "down" would keep the
+    /// marker for no reason. A real UIPI block stays down for seconds, so the settle costs nothing
+    /// when it matters.</summary>
+    public const int PostReleaseSettleMilliseconds = 40;
+
     private readonly IHeldButtonMarker _marker;
     private readonly IInputSimulator _input;
     private readonly Func<bool>? _leftButtonIsDown;
@@ -94,9 +102,16 @@ public sealed class HeldButtonRelease
 
         // C8 F3: SendInput can return success and deliver nothing (UIPI drops it silently). The
         // marker is the only cross-process record that EyeCtrl owes a button-up, so keep it while
-        // the OS still says the button is down; the next release path (or the App's startup
-        // backstop) retries. A probe that throws also keeps it — "unknown" is not "up".
-        bool? stillDown = _leftButtonIsDown?.Invoke();
+        // the OS still says the button is down. Read after a short settle: a stale read shares
+        // F1's timing premise and would keep the marker for no reason. A probe that throws also
+        // keeps it — "unknown" is not "up".
+        bool? stillDown = null;
+        if (_leftButtonIsDown is { } probe)
+        {
+            Thread.Sleep(PostReleaseSettleMilliseconds);
+            stillDown = probe();
+        }
+
         if (stillDown == true)
             return new HeldButtonReleaseResult(true, wasDown, null, LeftButtonStillDown: true);
 

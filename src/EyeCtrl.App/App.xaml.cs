@@ -377,7 +377,9 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<IEscapeWindowService>(),
                 cursorCircle,
                 Dispatcher,
-                messenger);
+                messenger,
+                _serviceProvider.GetRequiredService<BlockedInputGate>(),
+                _serviceProvider.GetRequiredService<IEyeCareHooks>());
 
             // ORDER LOAD-BEARING (spec O4): this pause push must stay AFTER ShowOverlays — the
             // startup band show bypasses ToolbarVisibilityAdapter, so on --paused/startPaused

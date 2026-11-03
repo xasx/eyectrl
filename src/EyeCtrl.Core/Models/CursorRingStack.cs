@@ -65,4 +65,52 @@ public static class CursorRingStacks
             new RingBand(haloHex, thickness, 1.0, dash, 0),
             new RingBand(markHex, thickness, opacity, dash, dash));
     }
+
+    /// <summary>Angular dash segments around a solid blocked ring (N).</summary>
+    public const int BlockedDashSegments = 32;
+
+    /// <summary>
+    /// C10's blocked look, derived purely from the rest stack so the window never invents dash
+    /// geometry:
+    /// <list type="bullet">
+    /// <item>Solid styles (WeightedSandwich, AchromaticReticle): one angular DIP dash, the SAME
+    /// angular length for both bands — <c>π·(size − t_band)/(2N)</c> — so both bands break at the
+    /// same angles and the pattern closes at the wrap. <c>StrokeDashArray</c> is in multiples of
+    /// StrokeThickness, which is why the window's <c>Apply</c> gets a DIP length per band.</item>
+    /// <item>BiTonalSegments: the interleave is preserved at half the period, with the mark band
+    /// offset by exactly ONE new dash. Overwriting both with one phase would paint the mark band
+    /// over the halo band and leave a one-colour ring (ring review r01 F1).</item>
+    /// </list>
+    /// Colour, opacity and thickness are untouched: C1's lesson is that the pointer must never get
+    /// fainter, and the owner's decision is dash-only.
+    /// </summary>
+    /// <param name="rest">The settings-driven stack.</param>
+    /// <param name="size">The ring diameter in DIP (the same value the ellipses are sized to).</param>
+    /// <returns>The blocked stack.</returns>
+    public static CursorRingStack Blocked(CursorRingStack rest, double size)
+    {
+        if (size <= 0)
+            return rest;
+
+        var dashed = rest.Outer.DashPeriod > 0 || rest.Core.DashPeriod > 0;
+        if (dashed)
+        {
+            var outerPeriod = Math.Max(rest.Outer.DashPeriod / 2, 1e-6);
+            var corePeriod = Math.Max(rest.Core.DashPeriod / 2, 1e-6);
+            return new CursorRingStack(
+                rest.Outer with { DashPeriod = outerPeriod, DashOffset = 0 },
+                rest.Core with { DashPeriod = corePeriod, DashOffset = corePeriod });
+        }
+
+        return new CursorRingStack(
+            BlockedBand(rest.Outer, size),
+            BlockedBand(rest.Core, size));
+    }
+
+    private static RingBand BlockedBand(RingBand band, double size)
+    {
+        var radius = Math.Max(0, (size - band.Thickness) / 2);
+        var dash = 2 * Math.PI * radius / (2.0 * BlockedDashSegments);
+        return band with { DashPeriod = dash, DashOffset = 0 };
+    }
 }

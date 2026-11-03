@@ -77,16 +77,31 @@ public sealed class BlockedInputDetector
     /// doubles the encoding error.</summary>
     public const int TargetTolerancePixels = 14;
 
+    /// <summary>How long after a failed action the detector re-reads the cursor before counting a
+    /// miss, in milliseconds. Windows documents neither way whether <c>GetCursorPos</c> already shows
+    /// the move when <c>SendInput</c> returns, so a single immediate read would turn ordinary clicks
+    /// into false blocks. A real UIPI block leaves the cursor frozen for seconds, so this delay costs
+    /// nothing when it matters.</summary>
+    public const int MissConfirmationDelayMilliseconds = 40;
+
+    /// <summary>How many unconfirmed miss candidates may be queued (a burst of clicks).</summary>
+    private const int MaxPendingMisses = 4;
+
     private readonly ICursorPositionProbe _cursor;
     private readonly IInputIntegrityProbe _integrity;
     private readonly ILogger<BlockedInputDetector>? _logger;
     private readonly Func<long> _nowMilliseconds;
+    private readonly Func<(int Width, int Height)>? _screenMetrics;
 
     private readonly object _gate = new();
 
     // Recent commanded points, newest last. Three is one frame of lag plus slack; using the whole
     // window would let a stale point near the cursor defeat the static test.
     private readonly List<PhysicalPoint> _recentCommands = new(3);
+
+    // A miss candidate is confirmed by a re-read after MissConfirmationDelayMilliseconds. The
+    // click's own UI path is never blocked on that read; the queue is drained from the gaze stream.
+    private readonly List<PendingMiss> _pendingMisses = new(MaxPendingMisses);
 
     private int _actionMisses;
     private int _samplerMisses;
@@ -105,16 +120,21 @@ public sealed class BlockedInputDetector
     /// <param name="integrity">R1's token read; a test passes a fake.</param>
     /// <param name="logger">Receives one warning per transition.</param>
     /// <param name="nowMilliseconds">The clock seam; defaults to <see cref="Environment.TickCount64"/>.</param>
+    /// <param name="screenMetrics">The primary screen's size, so off-screen gaze/target points are
+    /// clamped exactly as the injection clamps them. Null clamps only negative coordinates (all the
+    /// top/left edge needs); production passes the live <c>SM_CXSCREEN</c>/<c>SM_CYSCREEN</c>.</param>
     public BlockedInputDetector(
         ICursorPositionProbe cursor,
         IInputIntegrityProbe integrity,
         ILogger<BlockedInputDetector>? logger = null,
-        Func<long>? nowMilliseconds = null)
+        Func<long>? nowMilliseconds = null,
+        Func<(int Width, int Height)>? screenMetrics = null)
     {
         _cursor = cursor;
         _integrity = integrity;
         _logger = logger;
         _nowMilliseconds = nowMilliseconds ?? (() => Environment.TickCount64);
+        _screenMetrics = screenMetrics;
     }
 
     /// <summary>Whether the detector currently believes injected input is being discarded.</summary>
@@ -142,35 +162,53 @@ public sealed class BlockedInputDetector
 
     /// <summary>
     /// Reports one completed click, double-click or pointed scroll: the cursor read just before the
-    /// injection and just after it. An unreadable cursor is ignored (no evidence either way).
+    /// injection and just after it. An unreadable cursor is ignored (no evidence either way). A miss
+    /// is only a CANDIDATE here: it is counted after a second read
+    /// (<see cref="MissConfirmationDelayMilliseconds"/>) shows the cursor still static, so a cursor
+    /// read that lags <c>SendInput</c> cannot raise a false block.
     /// </summary>
     /// <param name="target">The point the batch's leading absolute move aimed at.</param>
     /// <param name="cursorBefore">The cursor before the batch, or null when unreadable.</param>
     /// <param name="cursorAfter">The cursor after the batch, or null when unreadable.</param>
     public void ReportAction(PhysicalPoint target, PhysicalPoint? cursorBefore, PhysicalPoint? cursorAfter)
     {
-        if (cursorBefore is not { } before || cursorAfter is not { } after)
+        if (cursorBefore is not { } beforeRaw || cursorAfter is not { } afterRaw)
             return;
 
-        BlockedInputState? transition = null;
+        var now = _nowMilliseconds();
+        BlockedInputState? transition;
         lock (_gate)
         {
-            if (after.DistanceTo(target) <= TargetTolerancePixels)
+            transition = ConfirmDueMissesLocked(now);
+
+            var targetPoint = ClampToScreen(target);
+            var before = ClampToScreen(beforeRaw);
+            var after = ClampToScreen(afterRaw);
+            var moved = after.DistanceTo(before) > StaticTolerancePixels;
+
+            if (moved && after.DistanceTo(targetPoint) <= TargetTolerancePixels)
             {
+                // F5: a clear needs an observed move. A click that lands where the frozen cursor
+                // already sits is not evidence that input works again.
                 _actionMisses = 0;
-                transition = ClearIfBlocked("verified action move", target, before, after);
+                _pendingMisses.Clear();
+                transition = ClearIfBlocked("verified action move", targetPoint, before, after) ?? transition;
             }
-            else if (after.DistanceTo(before) <= StaticTolerancePixels
-                     && before.DistanceTo(target) > TargetTolerancePixels)
+            else if (!moved && before.DistanceTo(targetPoint) > TargetTolerancePixels)
             {
-                _actionMisses++;
-                if (!_state.IsBlocked && _actionMisses >= ActionHitsRequired)
-                    transition = Block("cursor static while a click/scroll move was commanded", target, before, after);
+                // Candidate only; the delayed re-read decides. Two candidates can queue in a burst,
+                // but a dwell-driven click is hundreds of ms apart and the first confirms first.
+                _pendingMisses.Add(new PendingMiss(targetPoint, before, now + MissConfirmationDelayMilliseconds));
+                if (_pendingMisses.Count > MaxPendingMisses)
+                    _pendingMisses.RemoveAt(0);
             }
             else if (!_state.IsBlocked)
             {
-                // The cursor moved, but not to the commanded point: an external writer, not a drop.
+                // The cursor moved but not to the commanded point: an external writer, not a drop.
+                // It also proves the pointer is not frozen, so any candidate still waiting for its
+                // confirmation is dropped rather than counted later.
                 _actionMisses = 0;
+                _pendingMisses.Clear();
             }
         }
 
@@ -180,71 +218,164 @@ public sealed class BlockedInputDetector
     /// <summary>
     /// Reports one commanded absolute cursor move (the FreeLook/gaze stream). At most one cursor
     /// read happens per <see cref="SampleIntervalMilliseconds"/>; the intervening calls only record
-    /// what EyeCtrl asked for.
+    /// what EyeCtrl asked for. Off-screen commands are clamped to the primary screen before any
+    /// comparison, because the injection clamps them the same way: a gaze 30 px above the top edge is
+    /// a perfectly ordinary look, not a dropped move.
     /// </summary>
     /// <param name="commanded">The point EyeCtrl just asked the OS to move to.</param>
     public void ReportMoveCommand(PhysicalPoint commanded)
     {
-        BlockedInputState? transition = null;
+        var now = _nowMilliseconds();
+        BlockedInputState? transition;
         lock (_gate)
         {
+            transition = ConfirmDueMissesLocked(now);
+
             if (!_sampleWindowOpen || _sampleCursor is not { } sample)
             {
                 StartSampleWindow(ReadCursor() ?? commanded);
-                return;
             }
-
-            if (commanded.DistanceTo(sample) > TargetTolerancePixels)
-                _windowHadFarCommand = true;
-
-            _recentCommands.Add(commanded);
-            if (_recentCommands.Count > 3)
-                _recentCommands.RemoveAt(0);
-
-            var now = _nowMilliseconds();
-            if (now - _sampleStartedAtMs < SampleIntervalMilliseconds)
-                return;
-
-            var cursor = ReadCursor();
-            if (cursor is not { } current)
+            else
             {
-                if (!_state.IsBlocked)
-                    _samplerMisses = 0; // a gap breaks the consecutive streak
-                StartSampleWindow(sample);
-                return;
-            }
+                commanded = ClampToScreen(commanded);
+                if (commanded.DistanceTo(sample) > TargetTolerancePixels)
+                    _windowHadFarCommand = true;
 
-            if (!_windowHadFarCommand && !_state.IsBlocked)
-                _samplerMisses = 0; // nothing was commanded away from the cursor: no evidence
+                _recentCommands.Add(commanded);
+                if (_recentCommands.Count > 3)
+                    _recentCommands.RemoveAt(0);
 
-            var staticCursor = current.DistanceTo(sample) <= StaticTolerancePixels;
-            var reached = _recentCommands.Exists(p => p.DistanceTo(current) <= TargetTolerancePixels);
-
-            if (reached)
-            {
-                _samplerMisses = 0;
-                transition = ClearIfBlocked("verified sampler move", _recentCommands[^1], sample, current);
-            }
-            else if (staticCursor && _windowHadFarCommand)
-            {
-                _samplerMisses++;
-                if (!_state.IsBlocked && _samplerMisses >= SamplerHitsRequired)
+                if (now - _sampleStartedAtMs >= SampleIntervalMilliseconds)
                 {
-                    transition = Block(
-                        "cursor static while FreeLook kept moving it", _recentCommands[^1], sample, current);
+                    var cursor = ReadCursor();
+                    if (cursor is not { } raw)
+                    {
+                        if (!_state.IsBlocked)
+                            _samplerMisses = 0; // a gap breaks the consecutive streak
+                        StartSampleWindow(sample);
+                    }
+                    else
+                    {
+                        var current = ClampToScreen(raw);
+
+                        if (!_windowHadFarCommand && !_state.IsBlocked)
+                            _samplerMisses = 0; // nothing commanded away from the cursor: no evidence
+
+                        var staticCursor = current.DistanceTo(sample) <= StaticTolerancePixels;
+                        var moved = current.DistanceTo(sample) > StaticTolerancePixels;
+                        // F5: a clear needs an OBSERVED move that lands on a commanded point. The
+                        // frozen cursor merely lying on the gaze path (P4) must not clear a real block.
+                        var reached = moved && _recentCommands.Exists(
+                            p => p.DistanceTo(current) <= TargetTolerancePixels);
+
+                        if (reached)
+                        {
+                            _samplerMisses = 0;
+                            transition = ClearIfBlocked(
+                                "verified sampler move", _recentCommands[^1], sample, current) ?? transition;
+                        }
+                        else if (staticCursor && _windowHadFarCommand)
+                        {
+                            _samplerMisses++;
+                            if (!_state.IsBlocked && _samplerMisses >= SamplerHitsRequired)
+                            {
+                                transition = Block(
+                                    "cursor static while FreeLook kept moving it",
+                                    _recentCommands[^1], sample, current) ?? transition;
+                            }
+                        }
+                        else if (!_state.IsBlocked)
+                        {
+                            // Moved but not to anything we asked for: an external writer broke it.
+                            _samplerMisses = 0;
+                        }
+
+                        StartSampleWindow(current);
+                    }
                 }
             }
-            else if (!_state.IsBlocked)
-            {
-                // Moved but not to anything we asked for: an external writer broke the streak.
-                _samplerMisses = 0;
-            }
-
-            StartSampleWindow(current);
         }
 
         Raise(transition);
     }
+
+    /// <summary>
+    /// Confirms every miss candidate whose re-read is due. A candidate becomes a miss only when the
+    /// cursor is still within <see cref="StaticTolerancePixels"/> of where it was before the
+    /// injection; a candidate whose cursor has moved is dropped (the read lagged, or an external
+    /// writer moved it). Runs under the detector lock.
+    /// </summary>
+    /// <param name="now">The current clock reading.</param>
+    /// <returns>A block or clear transition caused by the confirmation, if any.</returns>
+    private BlockedInputState? ConfirmDueMissesLocked(long now)
+    {
+        BlockedInputState? transition = null;
+
+        for (var i = _pendingMisses.Count - 1; i >= 0; i--)
+        {
+            var pending = _pendingMisses[i];
+            if (now < pending.DueAtMs)
+                continue;
+
+            _pendingMisses.RemoveAt(i);
+
+            if (ReadCursor() is not { } raw)
+                continue; // unreadable: no evidence, drop the candidate
+
+            var current = ClampToScreen(raw);
+            var stillStatic = current.DistanceTo(pending.Before) <= StaticTolerancePixels;
+
+            if (stillStatic)
+            {
+                _actionMisses++;
+                if (!_state.IsBlocked && _actionMisses >= ActionHitsRequired)
+                {
+                    transition = Block(
+                        "cursor still static after a click/scroll move (confirmed by a re-read)",
+                        pending.Target, pending.Before, current);
+                }
+            }
+            else
+            {
+                if (!_state.IsBlocked)
+                    _actionMisses = 0;
+
+                // A delayed landing after the read: the move DID happen, so a live block clears.
+                if (_state.IsBlocked
+                    && current.DistanceTo(pending.Target) <= TargetTolerancePixels)
+                {
+                    transition = ClearIfBlocked(
+                        "delayed verified action move", pending.Target, pending.Before, current);
+                }
+            }
+        }
+
+        return transition;
+    }
+
+    /// <summary>
+    /// Clamps a point to the primary screen the way the injection does. A gaze point above the top
+    /// edge (the toolbar's summon band) or beyond a corner must compare equal to the clamped cursor,
+    /// not as a 30 px miss. With no screen size supplied, the top/left edge is still known (negative
+    /// coordinates are off-screen on every display).
+    /// </summary>
+    internal PhysicalPoint ClampToScreen(PhysicalPoint point)
+    {
+        if (_screenMetrics?.Invoke() is { Width: > 0, Height: > 0 } size)
+        {
+            return new PhysicalPoint(
+                Math.Clamp(point.X, 0, size.Width - 1),
+                Math.Clamp(point.Y, 0, size.Height - 1));
+        }
+
+        return new PhysicalPoint(Math.Max(0, point.X), Math.Max(0, point.Y));
+    }
+
+    /// <summary>One failed action waiting for its confirmation re-read.</summary>
+    /// <param name="Target">The clamped point the injection aimed at.</param>
+    /// <param name="Before">The clamped cursor before the injection.</param>
+    /// <param name="DueAtMs">The clock reading at which the confirmation is due.</param>
+    private readonly record struct PendingMiss(PhysicalPoint Target, PhysicalPoint Before, long DueAtMs);
 
     private PhysicalPoint? ReadCursor()
     {
@@ -260,7 +391,7 @@ public sealed class BlockedInputDetector
 
     private void StartSampleWindow(PhysicalPoint start)
     {
-        _sampleCursor = start;
+        _sampleCursor = ClampToScreen(start);
         _sampleStartedAtMs = _nowMilliseconds();
         _sampleWindowOpen = true;
         _windowHadFarCommand = false;

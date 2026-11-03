@@ -224,10 +224,11 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
 
         // Core owns the geometry; this method owns only WPF. The palette colours are passed
         // in as hex because EyeCtrl.Core cannot reference EyeCtrl.Controls.
-        _lastStack = CursorRingStacks.For(
+        _restStack = CursorRingStacks.For(
             settings.RingStyle, size, settings.CircleThickness, settings.CircleOpacity,
             settings.CircleColor, ToHex(Tokens.StrokeHalo), ToHex(Tokens.TextPrimary));
-        var stack = _lastStack.Value;
+        _size = size;
+        var stack = _restStack.Value;
         ApplyStack();
 
         Width = size;
@@ -248,18 +249,24 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         FiredFlashCore.Height = size;
     }
 
-    /// <summary>The last settings-driven look, re-applied when the blocked look ends.</summary>
-    private CursorRingStack? _lastStack;
+    /// <summary>The last settings-driven (rest) look, the base the blocked look derives from.</summary>
+    private CursorRingStack? _restStack;
+
+    private double _size;
 
     private bool _blocked;
 
     /// <summary>
-    /// C10's blocked look: the two bands turn dashed while Windows discards EyeCtrl's injected
-    /// input. Deliberately NOT dimmed — C1's lesson is that the owner's ring must never get harder
-    /// to see — and <see cref="Window.Opacity"/> is untouched because it is the pin/quiet channel;
-    /// no view-model state is read or written. The settings-driven look is re-applied on unblock,
-    /// so a settings change and a block cannot leave each other's pixels behind.
+    /// C10's blocked look: the two bands turn dashed while the detector reports that Windows is
+    /// discarding EyeCtrl's injected input. The geometry comes from
+    /// <see cref="CursorRingStacks.Blocked"/> — paired angular dashes for the solid styles, and
+    /// BiTonal's interleave kept — so this method paints, never invents. Deliberately NOT dimmed:
+    /// C1's lesson is that the owner's ring must never get harder to see, and
+    /// <see cref="Window.Opacity"/> stays the pin/quiet channel. The rest look is re-applied on
+    /// unblock, so a settings change and a block cannot leave each other's pixels behind.
     /// </summary>
+    /// <param name="blocked">True while the detector reports a block. The look follows the detector,
+    /// not the banner: a dismissed banner keeps the dashed cue.</param>
     public void SetBlocked(bool blocked)
     {
         if (_blocked == blocked) return;
@@ -272,20 +279,11 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
 
     private void ApplyStack()
     {
-        if (_lastStack is not { } stack) return;
+        if (_restStack is not { } rest) return;
 
+        var stack = _blocked ? CursorRingStacks.Blocked(rest, _size) : rest;
         Apply(CircleHalo, stack.Outer, Tokens.BrushStrokeHalo);
         Apply(Circle, stack.Core, Tokens.BrushAccent);
-
-        if (!_blocked) return;
-
-        // Dash only. The band opacity and thickness stay exactly as the settings made them: a
-        // blocked ring is still the owner's pointer, and C1 established it must never get fainter.
-        Circle.StrokeDashArray = new DoubleCollection { 2, 2 };
-        Circle.StrokeDashOffset = 0;
-
-        CircleHalo.StrokeDashArray = new DoubleCollection { 2, 2 };
-        CircleHalo.StrokeDashOffset = 0;
     }
 
     /// <summary>

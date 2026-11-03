@@ -206,7 +206,8 @@ public sealed class ProcessController
             {
                 Serilog.Log.Warning(
                     "ForceKill: sent one in-place left-button-up, but GetAsyncKeyState VK_LBUTTON={LeftButtonStillDown} "
-                    + "still reads down, so Windows is discarding injected input; the marker is kept for the App's startup backstop.",
+                    + "still reads down: dropped by Windows, or the button is held by another pointer device; "
+                    + "the marker is kept for the App's startup backstop.",
                     result.LeftButtonStillDown);
                 return;
             }

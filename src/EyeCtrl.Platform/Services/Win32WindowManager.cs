@@ -259,7 +259,9 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     public IntPtr? TryGetEscapeTarget()
     {
         var self = _integrity.ReadSelf();
-        IntPtr candidate = IntPtr.Zero;
+        var ownProcessId = (uint)Environment.ProcessId;
+        var shell = NativeMethods.GetShellWindow();
+        var candidates = new List<EscapeCandidate>();
 
         NativeMethods.EnumWindows((hwnd, lParam) =>
         {
@@ -269,25 +271,23 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
                 return true;
 
             NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
-            if (pid == (uint)Environment.ProcessId)
-                return true;
+            var isShell = hwnd == shell;
+            var facts = isShell || pid == ownProcessId
+                ? ProcessTokenFacts.Unknown
+                : _integrity.InspectWindow(hwnd);
 
-            // The shell/desktop is the fallback, never the first choice.
-            if (hwnd == NativeMethods.GetShellWindow())
-                return true;
-
-            if (InputIntegrityRules.BlocksInjectedInput(_integrity.InspectWindow(hwnd), self))
-                return true; // bringing an elevated window forward would be a second blocked click
-
-            candidate = hwnd;
-            return false;
+            candidates.Add(new EscapeCandidate(hwnd, pid, isShell, facts));
+            return true;
         }, IntPtr.Zero);
 
-        if (candidate != IntPtr.Zero)
-            return candidate;
+        // The shell is the last resort even when it has no title (IsCandidateWindow would drop it).
+        if (shell != IntPtr.Zero && !candidates.Exists(c => c.Hwnd == shell))
+        {
+            NativeMethods.GetWindowThreadProcessId(shell, out var shellPid);
+            candidates.Add(new EscapeCandidate(shell, shellPid, IsShell: true, ProcessTokenFacts.Unknown));
+        }
 
-        var shell = NativeMethods.GetShellWindow();
-        return shell != IntPtr.Zero && IsCandidateWindow(shell, out _) ? shell : null;
+        return EscapeTargetRules.SelectTopmost(candidates, self, ownProcessId);
     }
 
     /// <inheritdoc />
@@ -296,9 +296,13 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
         if (hwnd == IntPtr.Zero)
             return new EscapeWindowResult(false, false, false);
 
+        var isShell = hwnd == NativeMethods.GetShellWindow();
+
         // A minimized target is restored first, for the reason the task switcher documents: a bare
-        // SetForegroundWindow "succeeds" on an iconic window without un-minimizing it.
-        if (NativeMethods.IsIconic(hwnd))
+        // SetForegroundWindow "succeeds" on an iconic window without un-minimizing it. Never on the
+        // shell: minimizing and restoring the desktop's Progman window is untried, so the shell path
+        // is SetForegroundWindow ONLY.
+        if (!isShell && NativeMethods.IsIconic(hwnd))
             NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
 
         // DELIBERATELY no ALT tap: that grant is injected input, and the state this path exists to
@@ -310,9 +314,18 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
         if (NativeMethods.GetForegroundWindow() == hwnd)
         {
             _logger.LogInformation(
-                "Blocked-input escape: brought window {Hwnd} ({Title}) to the foreground without injecting input.",
-                hwnd, DescribeWindow(hwnd));
+                "Blocked-input escape: brought window {Hwnd} ({Process}) to the foreground without injecting input.",
+                hwnd, DescribeProcess(hwnd));
             return new EscapeWindowResult(true, setForeground, false);
+        }
+
+        if (isShell)
+        {
+            _logger.LogWarning(
+                "Blocked-input escape: SetForegroundWindow returned {SetForeground} for the desktop shell "
+                + "{Hwnd}; no minimize/restore is attempted on the shell.",
+                setForeground, hwnd);
+            return new EscapeWindowResult(false, setForeground, false);
         }
 
         NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
@@ -322,18 +335,25 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
         if (changed)
         {
             _logger.LogInformation(
-                "Blocked-input escape: SetForegroundWindow returned {SetForeground} for {Hwnd} ({Title}); "
+                "Blocked-input escape: SetForegroundWindow returned {SetForeground} for {Hwnd} ({Process}); "
                 + "the minimize/restore fallback brought it forward without injecting input.",
-                setForeground, hwnd, DescribeWindow(hwnd));
+                setForeground, hwnd, DescribeProcess(hwnd));
         }
         else
         {
             _logger.LogWarning(
                 "Blocked-input escape: neither SetForegroundWindow ({SetForeground}) nor the "
-                + "minimize/restore fallback moved {Hwnd} ({Title}) to the foreground.",
-                setForeground, hwnd, DescribeWindow(hwnd));
+                + "minimize/restore fallback moved {Hwnd} ({Process}) to the foreground.",
+                setForeground, hwnd, DescribeProcess(hwnd));
         }
 
         return new EscapeWindowResult(changed, setForeground, true);
     }
+
+    /// <summary>
+    /// The process name for the escape logs (C10 fixup-01 F7): window titles carry document, mail
+    /// and chat names, and the brief allows process names only.
+    /// </summary>
+    private string DescribeProcess(IntPtr hwnd) =>
+        _integrity.InspectWindow(hwnd).ProcessName ?? "unknown";
 }

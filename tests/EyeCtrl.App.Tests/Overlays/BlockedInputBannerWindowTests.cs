@@ -52,10 +52,13 @@ public class BlockedInputBannerWindowTests
     public void TheGermanWording_IsTheTicketsDraft()
     {
         Check.That(GermanDraft.TextOf("overlays.blocked.elevated", string.Empty)).IsEqualTo(
-            "Klicks werden blockiert: Ein Fenster mit Administratorrechten (z. B. Task-Manager) ist im Vordergrund.");
+            "Klicks werden blockiert: Ein Fenster mit Administratorrechten (z.\u00A0B. Task-Manager) ist im Vordergrund.");
         Check.That(GermanDraft.TextOf("overlays.blocked.escape", string.Empty))
             .IsEqualTo("Zum Desktop / vorheriges Fenster");
         Check.That(GermanDraft.TextOf("overlays.blocked.dismiss", string.Empty)).IsEqualTo("Ausblenden");
+        Check.WithCustomMessage("the generic line must say that Windows is not letting the input through.")
+            .That(GermanDraft.TextOf("overlays.blocked.generic", string.Empty)).IsEqualTo(
+                "Klicks werden blockiert: Windows lässt die Eingaben von EyeCtrl zurzeit nicht durch.");
     }
 
     [StaFact]

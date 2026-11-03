@@ -56,8 +56,8 @@ internal static class StartupHeldButtonRelease
             if (result.MarkerKeptBecauseButtonDown)
             {
                 log("Held-button backstop: sent one in-place button-up, but GetAsyncKeyState "
-                    + $"VK_LBUTTON={result.LeftButtonStillDown} still reads down, so Windows is discarding "
-                    + "injected input and the marker is kept for the next attempt.");
+                    + $"VK_LBUTTON={result.LeftButtonStillDown} still reads down: dropped by Windows, or "
+                    + "the button is held by another pointer device; the marker is kept for the next attempt.");
                 return true;
             }
 

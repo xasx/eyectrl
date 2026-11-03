@@ -28,23 +28,29 @@ internal sealed class BlockedInputCoordinator : IDisposable
     private readonly ICursorCircleOverlay _cursorCircle;
     private readonly Dispatcher _dispatcher;
     private readonly IMessenger _messenger;
+    private readonly BlockedInputGate _gate;
+    private readonly IEyeCareHooks _eyeCare;
     private bool _dismissed;
     private bool _disposed;
 
-    /// <summary>Wires the detector to the banner, the ring and the escape path.</summary>
+    /// <summary>Wires the detector to the banner, the ring, the escape path and eye-care.</summary>
     /// <param name="detector">R2's state machine.</param>
     /// <param name="banner">The banner window (a DI singleton, hidden until a block).</param>
     /// <param name="escape">R4's non-injecting foreground path.</param>
     /// <param name="cursorCircle">The gaze ring, for the blocked look.</param>
     /// <param name="dispatcher">The UI dispatcher every surface call is marshalled to.</param>
     /// <param name="messenger">The bus carrying the gaze stream.</param>
+    /// <param name="gate">The flag that defers the eye-care prompt while blocked.</param>
+    /// <param name="eyeCare">The eye-care hooks; only its banner is dismissed (blocked wins).</param>
     public BlockedInputCoordinator(
         BlockedInputDetector detector,
         IBlockedInputBanner banner,
         IEscapeWindowService escape,
         ICursorCircleOverlay cursorCircle,
         Dispatcher dispatcher,
-        IMessenger messenger)
+        IMessenger messenger,
+        BlockedInputGate gate,
+        IEyeCareHooks eyeCare)
     {
         _detector = detector;
         _banner = banner;
@@ -52,6 +58,8 @@ internal sealed class BlockedInputCoordinator : IDisposable
         _cursorCircle = cursorCircle;
         _dispatcher = dispatcher;
         _messenger = messenger;
+        _gate = gate;
+        _eyeCare = eyeCare;
 
         _detector.StateChanged += OnStateChanged;
         _banner.EscapeRequested += OnEscapeRequested;
@@ -73,7 +81,9 @@ internal sealed class BlockedInputCoordinator : IDisposable
 
     private void OnGaze(BlockedInputCoordinator recipient, GazeCursorMovedMessage message)
     {
-        if (!_disposed)
+        // C10 fixup-01 F4: a gap frame holds the last point. The banner's buttons must not complete
+        // on a blink, the same rule RestartNotice, the notes and Manual Selection follow.
+        if (!_disposed && !message.IsInGap)
             _banner.OnGaze(message.Position, message.TimestampMicroseconds);
     }
 
@@ -82,6 +92,13 @@ internal sealed class BlockedInputCoordinator : IDisposable
     {
         if (_disposed)
             return;
+
+        // C10 fixup-01 F3: blocked wins over the eye-care prompt. The gate makes a break due from
+        // now on wait for the clear; an eye-care banner already on screen is taken down (only the
+        // banner — a running exercise keeps its own Skip exit).
+        _gate.Set(state.IsBlocked);
+        if (state.IsBlocked)
+            _eyeCare.CancelBanner();
 
         _cursorCircle.SetBlocked(state.IsBlocked);
 
@@ -135,6 +152,7 @@ internal sealed class BlockedInputCoordinator : IDisposable
         _banner.EscapeRequested -= OnEscapeRequested;
         _banner.DismissRequested -= OnDismissRequested;
         _messenger.UnregisterAll(this);
+        _gate.Set(false);
         _banner.HideBlocked();
         _cursorCircle.SetBlocked(false);
     }

@@ -423,7 +423,7 @@
     "src": "ac45986f"
   },
   "overlays.blocked.elevated": {
-    "text": "Klicks werden blockiert: Ein Fenster mit Administratorrechten (z. B. Task-Manager) ist im Vordergrund.",
+    "text": "Klicks werden blockiert: Ein Fenster mit Administratorrechten (z. B. Task-Manager) ist im Vordergrund.",
     "src": "6de95819"
   },
   "overlays.blocked.escape": {
@@ -431,7 +431,7 @@
     "src": "7ab56fd8"
   },
   "overlays.blocked.generic": {
-    "text": "Klicks werden blockiert: Windows verwirft zurzeit EyeCtrl-Eingaben.",
+    "text": "Klicks werden blockiert: Windows lässt die Eingaben von EyeCtrl zurzeit nicht durch.",
     "src": "b341aa4d"
   },
   "overlays.edge.back": {

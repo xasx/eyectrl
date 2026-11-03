@@ -28,6 +28,7 @@ public class BlockedInputDetectorTests
             .That(h.Detector.IsBlocked).IsFalse();
 
         h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
         Check.That(h.Detector.IsBlocked).IsTrue();
         Check.That(h.Events).HasSize(1);
         Check.That(h.Events[0].IsBlocked).IsTrue();
@@ -42,6 +43,7 @@ public class BlockedInputDetectorTests
 
         h.Detector.ReportAction(target, stuck, stuck);
         h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
         Check.That(h.Detector.IsBlocked).IsTrue();
 
         h.Detector.ReportAction(target, stuck, target);
@@ -183,6 +185,7 @@ public class BlockedInputDetectorTests
 
         h.Detector.ReportAction(new PhysicalPoint(10, 10), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
         h.Detector.ReportAction(new PhysicalPoint(10, 10), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
+        h.ConfirmMisses();
 
         Check.That(h.Detector.CurrentState.Reason).IsEqualTo(BlockedInputReason.HigherIntegrityForeground);
         Check.That(h.Detector.CurrentState.Foreground.ProcessName).IsEqualTo("Taskmgr.exe");
@@ -196,6 +199,7 @@ public class BlockedInputDetectorTests
 
         h.Detector.ReportAction(new PhysicalPoint(10, 10), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
         h.Detector.ReportAction(new PhysicalPoint(10, 10), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
+        h.ConfirmMisses();
 
         Check.That(h.Detector.CurrentState.Reason).IsEqualTo(BlockedInputReason.HigherIntegrityTarget);
     }
@@ -210,6 +214,7 @@ public class BlockedInputDetectorTests
 
         h.Detector.ReportAction(target, stuck, stuck);
         h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
         h.Detector.ReportAction(target, stuck, target);
 
         Check.That(h.Log.Entries).HasSize(2);
@@ -235,9 +240,118 @@ public class BlockedInputDetectorTests
 
         h.Detector.ReportAction(new PhysicalPoint(10, 10), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
         h.Detector.ReportAction(new PhysicalPoint(10, 10), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
+        h.ConfirmMisses();
 
         Check.That(h.Detector.IsBlocked).IsTrue();
         Check.That(h.Detector.CurrentState.Reason).IsEqualTo(BlockedInputReason.Unknown);
+    }
+
+    [Fact]
+    public void OneConfirmedMiss_IsNotEnough()
+    {
+        // The debounce is two CONFIRMED misses (the first dropped click already did nothing); one
+        // confirmed miss must not raise the banner (M1).
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
+        Check.WithCustomMessage("one confirmed miss is not enough evidence.")
+            .That(h.Detector.IsBlocked).IsFalse();
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
+        Check.That(h.Detector.IsBlocked).IsTrue();
+    }
+
+    [Fact]
+    public void AMissIsNotCounted_UntilTheDelayedReReadConfirmsIt()
+    {
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        Check.That(h.Detector.IsBlocked).IsFalse(); // candidate only
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds - 1);
+        h.Detector.ReportMoveCommand(stuck); // not due yet
+        Check.That(h.Detector.IsBlocked).IsFalse();
+
+        h.Clock.Advance(1);
+        h.Detector.ReportAction(target, stuck, stuck); // processes the first candidate, then queues the second
+        Check.That(h.Detector.IsBlocked).IsFalse();      // one confirmed miss
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(stuck);             // confirms the second
+        Check.That(h.Detector.IsBlocked).IsTrue();
+    }
+
+    [Fact]
+    public void ALandedMoveAfterTheReadDropsThePendingMiss()
+    {
+        // F1: the cursor read right after SendInput can lag. The re-read finds the pointer at P, so
+        // the action was not dropped and must not count.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var start = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, start, start);
+        h.Cursor.Position = target; // the move lands just after the read
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void AnOffScreenTarget_IsClampedBeforeComparing()
+    {
+        var h = new Harness(screen: (3840, 2400));
+        var clampedEdge = new PhysicalPoint(3839, 0);
+
+        // A corner caption at y=-20 with the cursor already clamped to the top edge is a reached
+        // target, not a 20 px miss (F2).
+        h.Detector.ReportAction(new PhysicalPoint(3839, -20), clampedEdge, clampedEdge);
+        h.Detector.ReportAction(new PhysicalPoint(3839, -20), clampedEdge, clampedEdge);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void AnOffScreenFreeLookCommand_IsClampedBeforeTheSamplerCompares()
+    {
+        var h = new Harness(cursor: new PhysicalPoint(1900, 0), screen: (3840, 2400));
+
+        for (var i = 0; i < 6; i++)
+        {
+            h.Detector.ReportMoveCommand(new PhysicalPoint(1900 + (i % 3), -30 - (i % 4)));
+            h.Clock.Advance(1000);
+        }
+
+        Check.WithCustomMessage("a clamped gaze above the top edge is not a dropped move")
+            .That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void AClickAtTheFrozenCursor_DoesNotClearARealBlock()
+    {
+        // F5: a click that lands where the frozen cursor already sits is no evidence that injection
+        // works again; the clear needs an observed move.
+        var h = new Harness();
+        h.Integrity.Foreground = Facts("Taskmgr.exe", SelfHigh, elevated: true);
+        // Open the sampler window, then three full sample windows.
+        for (var i = 0; i < 4; i++)
+        {
+            h.Detector.ReportMoveCommand(new PhysicalPoint(10, 10));
+            h.Clock.Advance(1000);
+        }
+        Check.That(h.Detector.IsBlocked).IsTrue();
+
+        h.Detector.ReportAction(new PhysicalPoint(300, 300), new PhysicalPoint(300, 300), new PhysicalPoint(300, 300));
+
+        Check.That(h.Detector.IsBlocked).IsTrue();
     }
 
     private static ProcessTokenFacts Facts(string name, int level, bool elevated) =>
@@ -245,13 +359,15 @@ public class BlockedInputDetectorTests
 
     private sealed class Harness
     {
-        public Harness(PhysicalPoint? cursor = null)
+        public Harness(PhysicalPoint? cursor = null, (int Width, int Height)? screen = null)
         {
             Cursor = new FakeCursor(cursor ?? new PhysicalPoint(300, 300));
             Integrity = new FakeIntegrity();
             Clock = new FakeClock();
             Log = new RecordingLogger();
-            Detector = new BlockedInputDetector(Cursor, Integrity, Log, () => Clock.NowMs);
+            Detector = new BlockedInputDetector(
+                Cursor, Integrity, Log, () => Clock.NowMs,
+                screen is { } s ? () => s : null);
             Detector.StateChanged += (_, state) => Events.Add(state);
         }
 
@@ -261,6 +377,13 @@ public class BlockedInputDetectorTests
         public RecordingLogger Log { get; }
         public BlockedInputDetector Detector { get; }
         public List<BlockedInputState> Events { get; } = new();
+
+        /// <summary>Advances past the confirmation delay and drains the pending misses.</summary>
+        public void ConfirmMisses()
+        {
+            Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+            Detector.ReportMoveCommand(Cursor.Position ?? new PhysicalPoint(300, 300));
+        }
     }
 
     private sealed class FakeCursor : ICursorPositionProbe

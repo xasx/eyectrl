@@ -8,7 +8,8 @@ using EyeCtrl.Core.Services;
 /// <summary>
 /// C3's one release operation, shared by the Supervisor (after a force-kill) and the App (at
 /// startup). The contract under test: <b>exactly one in-place button-up and only when a marker
-/// exists</b>, and the marker is cleared only after a successful send.
+/// exists</b>, and the marker is cleared only after a send that the live OS button state confirms
+/// left the button up (C8 F3).
 /// </summary>
 public class HeldButtonReleaseTests
 {
@@ -44,26 +45,54 @@ public class HeldButtonReleaseTests
     }
 
     [Fact]
-    public void TheProbe_IsReadBeforeTheRelease_AndReportedButNeverDecides()
+    public void TheProbe_IsReadBeforeAndAfterTheRelease_AndTheAfterReadingDecidesTheClear()
     {
-        // GetAsyncKeyState is diagnostic only: a marker with the button already UP (the crash
-        // landed between MouseUp and the marker clear) still owes its one inert button-up, and a
-        // probe error must not suppress it. Here the marker is set and the probe says up.
+        // GetAsyncKeyState is read twice since C8 F3: before the release for the log, and after it
+        // to decide whether the marker may be cleared. A marker with the button already UP (the
+        // crash landed between MouseUp and the marker clear) still owes its one inert button-up,
+        // and an "up" reading after the send clears the marker.
         var marker = new FakeMarker { IsSet = true };
         var input = new RecordingInput();
-        var probedAfterSend = (bool?)null;
+        var callCountsAtProbe = new List<int>();
         var release = new HeldButtonRelease(marker, input,
             leftButtonIsDown: () =>
             {
-                probedAfterSend = input.Calls.Count == 0 ? (bool?)null : true;
+                callCountsAtProbe.Add(input.Calls.Count);
                 return false;
             });
 
         var result = release.ReleaseIfMarked();
 
         Check.That(result.MarkerWasSet).IsTrue();
-        Check.That(result.LeftButtonWasDown == false).IsTrue();  // the probe said UP...
-        Check.That(probedAfterSend).IsNull();                   // read BEFORE the release        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.That(result.LeftButtonWasDown == false).IsTrue();   // the before reading
+        Check.That(result.LeftButtonStillDown == false).IsTrue(); // the after reading
+        Check.That(callCountsAtProbe).ContainsExactly(0, 1);      // before the send, after it
+        Check.That(result.ReleasedAndCleared).IsTrue();
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.That(marker.IsSet).IsFalse();
+    }
+
+    [Fact]
+    public void TheButtonStillReadingDownAfterTheRelease_KeepsTheMarkerForTheNextPath()
+    {
+        // C8 F3's UIPI case: SendInput accepts the call and Windows delivers nothing, so
+        // GetAsyncKeyState still reads down. Clearing the marker then would lose the only record
+        // that a button is owed; keeping it lets the Supervisor/startup backstop retry.
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput();
+        var release = new HeldButtonRelease(marker, input, leftButtonIsDown: () => true);
+
+        var result = release.ReleaseIfMarked();
+
+        Check.That(result.MarkerWasSet).IsTrue();
+        Check.That(result.LeftButtonWasDown == true).IsTrue();
+        Check.That(result.LeftButtonStillDown == true).IsTrue();
+        Check.That(result.MarkerKeptBecauseButtonDown).IsTrue();
+        Check.That(result.ReleasedAndCleared).IsFalse();
+        Check.That(result.MarkerClearFailure).IsNull();
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.That(marker.ClearCount).IsEqualTo(0);
+        Check.That(marker.IsSet).IsTrue();
     }
 
     [Fact]
@@ -103,6 +132,27 @@ public class HeldButtonReleaseTests
         Check.That(result.ReleasedAndCleared).IsFalse();
         Check.That(result.MarkerClearFailure).IsSameReferenceAs(failure);
         Check.That(marker.IsSet).IsTrue();                      // stale, not lost
+    }
+
+    [Fact]
+    public void ThePostReleaseProbe_IsReadAfterASettle()
+    {
+        // F8: GetAsyncKeyState right after SendInput shares F1's timing premise. A stale "down"
+        // would keep the marker for no reason, so the re-read waits ~40 ms.
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput();
+        var ticks = new List<long>();
+        var release = new HeldButtonRelease(marker, input, leftButtonIsDown: () =>
+        {
+            ticks.Add(Environment.TickCount64);
+            return false;
+        });
+
+        release.ReleaseIfMarked();
+
+        Check.That(ticks).HasSize(2);
+        Check.WithCustomMessage("the after reading is not settled: it can observe the pre-release state.")
+            .That(ticks[1] - ticks[0]).IsGreaterOrEqualThan(HeldButtonRelease.PostReleaseSettleMilliseconds - 10);
     }
 
     private sealed class FakeMarker : IHeldButtonMarker

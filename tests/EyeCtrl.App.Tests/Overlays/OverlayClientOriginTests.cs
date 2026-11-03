@@ -88,6 +88,7 @@ public class OverlayClientOriginTests
         "ActionMenuWindow",
         "ActivationButtonWindow",
         "AdaptationPreviewWindow",
+        "BlockedInputBannerWindow",
         "CalibrationWindow",
         "CaregiverAlertWindow",
         "CueOverlayWindow",
@@ -206,6 +207,9 @@ public class OverlayClientOriginTests
         if (type == typeof(NotePlaceHereWindow)) return new NotePlaceHereWindow(NoteSettings.DefaultTextSizeDip);
         if (type == typeof(NoteNoticeWindow)) return new NoteNoticeWindow { ShowRealWindow = false };
         if (type == typeof(SettingsWindow)) return BuildSettingsWindow(cleanups);
+        // C10's banner builds through its headless present seam (no show); the gate only needs the
+        // HWND for the client-origin read.
+        if (type == typeof(BlockedInputBannerWindow)) return new BlockedInputBannerWindow(present: _ => { });
         // The lag-mark button's dwell time is required, so it gets its own factory (T0(a)).
         if (type == typeof(LagMarkWindow)) return new LagMarkWindow(dwellMs: 700);
         if (type == typeof(SubPixelProbeWindow)) return BuildSubPixelProbeWindow();

@@ -53,8 +53,9 @@ public class StartupHeldButtonReleaseTests
     [Fact]
     public void TheLogLine_ReportsTheProbeReading()
     {
-        // GetAsyncKeyState is logged for diagnosis ("the marker was stale, the button was up") but
-        // never gates the release — the marker does.
+        // GetAsyncKeyState is logged for diagnosis ("the marker was stale, the button was up"). It
+        // never gates the SEND — the marker does — but since C8 F3 its AFTER reading gates the
+        // CLEAR, so a constant-down probe keeps the marker.
         var marker = new FakeMarker { IsSet = true };
         var input = new RecordingInput();
         var lines = new List<string>();
@@ -63,6 +64,9 @@ public class StartupHeldButtonReleaseTests
 
         Check.That(lines).HasSize(1);
         Check.That(lines[0]).Contains("VK_LBUTTON=True");
+        Check.That(lines[0]).Contains("marker is kept");
+        Check.That(marker.IsSet).IsTrue();
+        Check.That(marker.ClearCount).IsEqualTo(0);
         Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
     }
 

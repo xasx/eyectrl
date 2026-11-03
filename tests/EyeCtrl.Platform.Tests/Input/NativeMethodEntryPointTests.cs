@@ -27,7 +27,10 @@ public partial class NativeMethodEntryPointTests
     [Fact]
     public void EveryLibraryImport_ResolvesToARealExport()
     {
-        var methods = typeof(NativeMethods).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+        var methods = typeof(NativeMethods)
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            .Concat(typeof(InputIntegrityNativeMethods)
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
             .Where(m => m.GetCustomAttribute<LibraryImportAttribute>() is not null)
             .ToList();
 

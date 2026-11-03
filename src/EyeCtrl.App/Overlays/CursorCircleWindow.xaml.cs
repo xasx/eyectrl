@@ -224,12 +224,12 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
 
         // Core owns the geometry; this method owns only WPF. The palette colours are passed
         // in as hex because EyeCtrl.Core cannot reference EyeCtrl.Controls.
-        var stack = CursorRingStacks.For(
+        _restStack = CursorRingStacks.For(
             settings.RingStyle, size, settings.CircleThickness, settings.CircleOpacity,
             settings.CircleColor, ToHex(Tokens.StrokeHalo), ToHex(Tokens.TextPrimary));
-
-        Apply(CircleHalo, stack.Outer, Tokens.BrushStrokeHalo);
-        Apply(Circle, stack.Core, Tokens.BrushAccent);
+        _size = size;
+        var stack = _restStack.Value;
+        ApplyStack();
 
         Width = size;
         Height = size;
@@ -247,6 +247,43 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         FiredFlashOuter.Height = size;
         FiredFlashCore.Width = size;
         FiredFlashCore.Height = size;
+    }
+
+    /// <summary>The last settings-driven (rest) look, the base the blocked look derives from.</summary>
+    private CursorRingStack? _restStack;
+
+    private double _size;
+
+    private bool _blocked;
+
+    /// <summary>
+    /// C10's blocked look: the two bands turn dashed while the detector reports that Windows is
+    /// discarding EyeCtrl's injected input. The geometry comes from
+    /// <see cref="CursorRingStacks.Blocked"/> — paired angular dashes for the solid styles, and
+    /// BiTonal's interleave kept — so this method paints, never invents. Deliberately NOT dimmed:
+    /// C1's lesson is that the owner's ring must never get harder to see, and
+    /// <see cref="Window.Opacity"/> stays the pin/quiet channel. The rest look is re-applied on
+    /// unblock, so a settings change and a block cannot leave each other's pixels behind.
+    /// </summary>
+    /// <param name="blocked">True while the detector reports a block. The look follows the detector,
+    /// not the banner: a dismissed banner keeps the dashed cue.</param>
+    public void SetBlocked(bool blocked)
+    {
+        if (_blocked == blocked) return;
+        _blocked = blocked;
+        ApplyStack();
+    }
+
+    /// <summary>True while the blocked look is showing (test seam).</summary>
+    internal bool IsBlockedLookOn => _blocked;
+
+    private void ApplyStack()
+    {
+        if (_restStack is not { } rest) return;
+
+        var stack = _blocked ? CursorRingStacks.Blocked(rest, _size) : rest;
+        Apply(CircleHalo, stack.Outer, Tokens.BrushStrokeHalo);
+        Apply(Circle, stack.Core, Tokens.BrushAccent);
     }
 
     /// <summary>

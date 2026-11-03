@@ -385,15 +385,50 @@ public class ProcessControllerTests
         public void Emit(Serilog.Events.LogEvent logEvent) => Messages.Add(logEvent.RenderMessage());
     }
 
+    [Fact]
+    public void ForceKill_WhenTheButtonStillReadsDown_KeepsTheMarkerAndLogsTheAmbiguity()
+    {
+        // F8/R5: the post-release probe can read down because Windows dropped the button-up OR
+        // because another pointer device holds it. The marker must be kept, and the line must say
+        // both, instead of asserting "Windows is discarding input".
+        var marker = new FakeMarker { IsSet = true };
+        var input = new RecordingInput();
+        var controller = CreateControllerWithRelease(
+            out _, marker, input, leftButtonDown: () => true);
+        var sink = new CapturingSink();
+        var previous = Serilog.Log.Logger;
+        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
+            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            Check.ThatCode(controller.ForceKill).DoesNotThrow();
+        }
+        finally
+        {
+            Serilog.Log.Logger = previous;
+        }
+
+        Check.That(marker.IsSet).IsTrue();
+        Check.That(marker.ClearCount).IsEqualTo(0);
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.WithCustomMessage($"the Supervisor did not log the kept marker: {string.Join(" | ", sink.Messages)}")
+            .That(sink.Messages.Any(m => m.Contains("still reads down", StringComparison.Ordinal)))
+            .IsTrue();
+        Check.WithCustomMessage($"the line claims Windows is discarding input: {string.Join(" | ", sink.Messages)}")
+            .That(sink.Messages.Any(m => m.Contains("another pointer device", StringComparison.Ordinal)))
+            .IsTrue();
+    }
+
     private static ProcessController CreateControllerWithRelease(
-        out FakeProcessHandle handle, FakeMarker marker, RecordingInput input, bool hasExited = false)
+        out FakeProcessHandle handle, FakeMarker marker, RecordingInput input, bool hasExited = false,
+        Func<bool>? leftButtonDown = null)
     {
         handle = new FakeProcessHandle(12345, hasExited);
         var process = handle;
         return new ProcessController(
             _ => process,
             _ => process,
-            new EyeCtrl.Core.Services.HeldButtonRelease(marker, input));
+            new EyeCtrl.Core.Services.HeldButtonRelease(marker, input, leftButtonDown));
     }
 
     private static ProcessController CreateController(out FakeProcessHandle handle, bool hasExited = false, FakeProcessHandle? adoptResult = null)

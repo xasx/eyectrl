@@ -22,9 +22,9 @@ public class Win32InputSimulator : IInputSimulator
     private static int ScreenHeight => NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
 
     /// <summary>The live screen bounds the absolute normalisation uses (the same SM_CXSCREEN /
-    /// SM_CYSCREEN the shared mapper receives), so the restore-exactness gate can compute both
-    /// encodings at the real size.</summary>
-    internal static (int Width, int Height) ScreenMetrics => (ScreenWidth, ScreenHeight);
+    /// SM_CYSCREEN the shared mapper receives), so the restore-exactness gate and the blocked-input
+    /// clamp can compute both encodings at the real size.</summary>
+    public static (int Width, int Height) ScreenMetrics => (ScreenWidth, ScreenHeight);
 
     private readonly IMouseCoordinateMapper _coordinateMapper;
     private readonly ILogger<Win32InputSimulator>? _logger;
@@ -555,16 +555,20 @@ public class Win32InputSimulator : IInputSimulator
             : (int)NativeMethods.SendInput(count, inputs, s_inputSize);
         if (sent == count) return (int)sent;
 
-        // SendInput does not throw on a block: it returns 0 when the foreground process has
-        // higher integrity (elevated windows, the secure desktop). Every event is then silently
-        // dropped, and for a gaze-only user "nothing happens" is indistinguishable from
-        // "paused" without this log. Rate-limited above.
+        // SendInput does NOT report a UIPI block. Microsoft documents that the call fails when
+        // blocked by UIPI but that neither GetLastError nor the return value indicates it, and the
+        // 02.11 sitting proved it for mouse input: every event was accepted (full count) while the
+        // cursor never moved. A short return is therefore NOT the UIPI signal — R2's cursor
+        // verification (BlockedInputDetector) is. This warning still catches the few cases where
+        // Windows really does return short (an invalid input struct, some secure-desktop cases).
+        // Rate-limited above.
         var now = Environment.TickCount64;
         if (now - _lastBlockedLogTicks > 30_000)
         {
             _lastBlockedLogTicks = now;
             _logger?.LogWarning(
-                "SendInput injected {Sent}/{Count} events (Win32 error {ErrorCode}) — input into elevated or secure-desktop windows is blocked by Windows",
+                "SendInput injected {Sent}/{Count} events (Win32 error {ErrorCode}) — the remainder was refused; "
+                + "a UIPI block is NOT reported this way, see the cursor verification",
                 sent, count, Marshal.GetLastWin32Error());
         }
         return (int)sent;

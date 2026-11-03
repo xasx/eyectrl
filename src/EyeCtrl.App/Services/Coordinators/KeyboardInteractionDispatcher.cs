@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
+using System.Globalization;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -198,11 +200,18 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         }
 
         var pt = msg.IsPreciseTarget ? msg.Point : (Context.GazeEngine.StableCentroid ?? msg.Point);
-        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] [Modifiers={Modifiers}] [BackdropVisible={BackdropVisible}]",
-            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers, backdrop.IsVisible);
+
+        // C10 (L3/L5): the action line carries the cursor either side of the injection and the
+        // process under the target. The cursor is the one thing that exposed the 02.11 freeze, and
+        // the target process is what distinguishes "the click landed nowhere" from "it landed on
+        // the elevated window". Both reads are optional: a focused test context has no probes.
+        var cursorBefore = Context.CursorPositionProbe?.TryGetCursorPosition();
+        var targetFacts = Context.InputIntegrityProbe?.InspectPoint(pt) ?? ProcessTokenFacts.Unknown;
 
         if (msg.Action == InteractionAction.PinNote)
         {
+            LogAction(msg, pt, cursorBefore, cursorBefore, targetFacts, backdrop.IsVisible);
+
             if (Context is { NoteManager.IsAtCapacity: true })
                 Context.NoteManager.ShowCapacityNotice(pt); // P4 D4: the pin explains itself
             else if (Context is { NoteManager: not null })
@@ -262,6 +271,12 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
                 break;
         }
 
+        // Logged AFTER the injection so the line can carry the cursor it left behind. The prefix
+        // and the [PreciseTarget] / [Modifiers] / [BackdropVisible] triple are unchanged; the new
+        // fields follow, so session-log parsers keep matching.
+        LogAction(msg, pt, cursorBefore, Context.CursorPositionProbe?.TryGetCursorPosition(),
+            targetFacts, backdrop.IsVisible);
+
         if (Context.TargetHighlightVM.IsVisible)
         {
             Context.TargetHighlightVM.IsVisible = false;
@@ -269,4 +284,28 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         }
     }
 
+    /// <summary>
+    /// The one `Action:` line. Its prefix is unchanged from the pre-C10 shape (session-log parsers
+    /// match `] Action: "…" at (x, y) [PreciseTarget=…]`); C10 appends the cursor either side of
+    /// the injection and the target's process and elevation.
+    /// </summary>
+    private static void LogAction(
+        ActionRequestedMessage msg, PhysicalPoint point, PhysicalPoint? cursorBefore,
+        PhysicalPoint? cursorAfter, ProcessTokenFacts target, bool backdropVisible)
+    {
+        Log.Information(
+            "Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] "
+            + "[Modifiers={Modifiers}] [BackdropVisible={BackdropVisible}] "
+            + "[CursorBefore={CursorBefore:l}] [CursorAfter={CursorAfter:l}] "
+            + "[TargetProcess={TargetProcess:l}] [TargetElevated={TargetElevated}]",
+            msg.Action, point.X, point.Y, msg.IsPreciseTarget, msg.Modifiers, backdropVisible,
+            DescribeCursor(cursorBefore), DescribeCursor(cursorAfter),
+            target.ProcessName ?? "unknown", target.Elevated);
+    }
+
+    /// <summary>Renders a cursor read for the log: invariant whole pixels, or <c>(?)</c>.</summary>
+    internal static string DescribeCursor(PhysicalPoint? point) =>
+        point is { } p
+            ? string.Format(CultureInfo.InvariantCulture, "({0:F0},{1:F0})", p.X, p.Y)
+            : "(?)";
 }

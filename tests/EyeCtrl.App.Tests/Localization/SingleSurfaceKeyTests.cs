@@ -73,6 +73,9 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml", ["eye-care"]),
         ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml", ["eye-care"]),
         ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", ["eye-care"]),
+        // C10: the blocked-input banner's message, detail and two button labels are overlays keys.
+        ("src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.EyeCare/EyeCareService.cs", ["eye-care"]),
         ("src/EyeCtrl.EyeCare/Exercises/Calibration202020Exercise.cs", ["eye-care"]),
         ("src/EyeCtrl.EyeCare/Exercises/DirectionalSweepExercise.cs", ["eye-care"]),

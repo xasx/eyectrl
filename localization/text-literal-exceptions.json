@@ -1491,6 +1491,24 @@
       "Literal": "\"cursor=({0:F0},{1:F0})\"",
       "Category": "log",
       "Reason": "The Scroll mode entry line's cursor fragment -- log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs",
+      "Literal": "\"blocked_input_dismiss\"",
+      "Category": "id",
+      "Reason": "C10's dwell-target id for the blocked-input banner's dismiss button — an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs",
+      "Literal": "\"blocked_input_escape\"",
+      "Category": "id",
+      "Reason": "C10's dwell-target id for the blocked-input banner's way-out button — an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs",
+      "Literal": "\"({0:F0},{1:F0})\"",
+      "Category": "log",
+      "Reason": "C10's cursor rendering for the Action log line (invariant whole pixels) — log-only, never shown."
     }
   ]
 }

@@ -50,9 +50,20 @@ internal static class StartupHeldButtonRelease
                 return true;
             }
 
+            // C8 F3: SendInput accepted the button-up but Windows discarded it (an elevated window
+            // held the foreground). The marker is the only record that a button is still owed, so
+            // it is kept for the Supervisor's post-kill release or the next start.
+            if (result.MarkerKeptBecauseButtonDown)
+            {
+                log("Held-button backstop: sent one in-place button-up, but GetAsyncKeyState "
+                    + $"VK_LBUTTON={result.LeftButtonStillDown} still reads down: dropped by Windows, or "
+                    + "the button is held by another pointer device; the marker is kept for the next attempt.");
+                return true;
+            }
+
             log("Held-button backstop: a previous session left the left mouse button down; sent one "
                 + "in-place button-up and cleared the marker (GetAsyncKeyState VK_LBUTTON="
-                + $"{result.LeftButtonWasDown}).");
+                + $"{result.LeftButtonWasDown} after={result.LeftButtonStillDown}).");
             return true;
         }
         catch (Exception ex)

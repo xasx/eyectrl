@@ -19,6 +19,7 @@ using EyeCtrl.App.Views;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
@@ -43,6 +44,7 @@ public partial class App : Application
     private ServiceProvider _serviceProvider = null!;
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
+    private BlockedInputCoordinator? _blockedInput;
     private RestartNoticeHost? _restartNoticeHost;
     private LagMarkHost? _lagMarkHost;
     private RingArmLog? _ringArmLog;
@@ -177,6 +179,14 @@ public partial class App : Application
             var inputSimulator = _serviceProvider.GetRequiredService<IInputSimulator>();
             var gazeProvider = _serviceProvider.GetRequiredService<IGazeProvider>();
 
+            // C10's one startup token line: what EyeCtrl's own token is, in the same vocabulary R1
+            // compares against. A sitting log then answers "why could I not click" at a glance.
+            var selfToken = _serviceProvider.GetRequiredService<IInputIntegrityProbe>().ReadSelf();
+            Log.Information(
+                "Token: IL={IntegrityLevel} UIAccess={UIAccess} Elevated={Elevated} exe={ExecutablePath}",
+                InputIntegrityRules.IntegrityName(selfToken.IntegrityLevel), selfToken.HasUIAccess,
+                selfToken.Elevated, Environment.ProcessPath ?? "unknown");
+
             // ── Held-button backstop (C3) ──
             // A hard kill mid-drag (the Supervisor's hang-kill, Task Manager, a native crash) runs
             // none of DragCoordinator's release paths and leaves the OS left button down: every
@@ -305,7 +315,9 @@ public partial class App : Application
                 repeatCursorVm,
                 _serviceProvider.GetRequiredService<IGlobalEscapeHatch>(),
                 _serviceProvider.GetRequiredService<UserDictionaryService>(),
-                HeldButtonMarker: heldButtonMarker);
+                HeldButtonMarker: heldButtonMarker,
+                CursorPositionProbe: _serviceProvider.GetRequiredService<ICursorPositionProbe>(),
+                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>());
             _eventCoordinator.Initialize(coordinationContext);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in
@@ -355,6 +367,19 @@ public partial class App : Application
 
             // ── Close splash and show persistent overlays (last, after all wiring) ──
             ShowOverlays(splash, cursorCircle, toolbar, settings);
+
+            // C10: the blocked-input surfaces. Constructed here, after the overlays exist and
+            // before the gaze engine can produce the first sampler window. The banner is a hidden
+            // singleton until a block shows it.
+            _blockedInput = new BlockedInputCoordinator(
+                _serviceProvider.GetRequiredService<BlockedInputDetector>(),
+                _serviceProvider.GetRequiredService<IBlockedInputBanner>(),
+                _serviceProvider.GetRequiredService<IEscapeWindowService>(),
+                cursorCircle,
+                Dispatcher,
+                messenger,
+                _serviceProvider.GetRequiredService<BlockedInputGate>(),
+                _serviceProvider.GetRequiredService<IEyeCareHooks>());
 
             // ORDER LOAD-BEARING (spec O4): this pause push must stay AFTER ShowOverlays — the
             // startup band show bypasses ToolbarVisibilityAdapter, so on --paused/startPaused
@@ -739,6 +764,7 @@ public partial class App : Application
         Step("dispose tray icon", () => _trayIconManager?.Dispose());
         Step("dispose lag mark host", () => _lagMarkHost?.Dispose());
         Step("dispose ring arm log", () => _ringArmLog?.Dispose());
+        Step("dispose blocked-input coordinator", () => _blockedInput?.Dispose());
         Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
 
         if (_serviceProvider != null)

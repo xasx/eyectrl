@@ -199,6 +199,19 @@ public sealed class ProcessController
             if (!result.MarkerWasSet)
                 return;
 
+            // C8 F3: SendInput accepted the button-up but Windows discarded it (an elevated window
+            // held the foreground). Keep the marker — the App's startup backstop retries it — and
+            // say why, so a sitting log shows the silent-drop state.
+            if (result.MarkerKeptBecauseButtonDown)
+            {
+                Serilog.Log.Warning(
+                    "ForceKill: sent one in-place left-button-up, but GetAsyncKeyState VK_LBUTTON={LeftButtonStillDown} "
+                    + "still reads down: dropped by Windows, or the button is held by another pointer device; "
+                    + "the marker is kept for the App's startup backstop.",
+                    result.LeftButtonStillDown);
+                return;
+            }
+
             // Fixup-01 F5: a clear failure is not a failed release — the button-up was sent. The
             // stale marker only means a later startup may send one more, inert button-up.
             if (result.MarkerClearFailure is { } clearFailure)

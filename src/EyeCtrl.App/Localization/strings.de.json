@@ -414,6 +414,26 @@
     "text": "{0}% {1}",
     "src": "3dfdbbd4"
   },
+  "overlays.blocked.detail": {
+    "text": "Blockierendes Fenster: {0}",
+    "src": "97acd946"
+  },
+  "overlays.blocked.dismiss": {
+    "text": "Ausblenden",
+    "src": "ac45986f"
+  },
+  "overlays.blocked.elevated": {
+    "text": "Klicks werden blockiert: Ein Fenster mit Administratorrechten (z. B. Task-Manager) ist im Vordergrund.",
+    "src": "6de95819"
+  },
+  "overlays.blocked.escape": {
+    "text": "Zum Desktop / vorheriges Fenster",
+    "src": "7ab56fd8"
+  },
+  "overlays.blocked.generic": {
+    "text": "Klicks werden blockiert: Windows lässt die Eingaben von EyeCtrl zurzeit nicht durch.",
+    "src": "b341aa4d"
+  },
   "overlays.edge.back": {
     "text": "Zurück",
     "src": "a9db9b1c"

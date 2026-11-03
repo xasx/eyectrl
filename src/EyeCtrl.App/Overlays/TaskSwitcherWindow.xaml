@@ -12,7 +12,7 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalAlignment="Center">
+        <ScrollViewer Grid.Row="0" x:Name="TilesScroll" VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center">
             <ItemsControl x:Name="TilesPanel" ItemsSource="{Binding Tiles}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>

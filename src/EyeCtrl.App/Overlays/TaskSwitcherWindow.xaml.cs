@@ -77,11 +77,23 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// <summary>
     /// For each tile, compute its real on-screen rectangle (the drawn tile face) and push it
     /// into the VM so the DwellDetector hit-tests the drawn face, not a circle that ignores
-    /// the corners.
+    /// the corners. Tiles that do not overlap the ScrollViewer's viewport get NO target: a
+    /// fully clipped tile keeps no live dwell target at its on-screen position, where gaze
+    /// resting on the bottom band would silently switch windows.
     /// </summary>
     private void UpdateTilePositions()
     {
         if (_viewModel == null) return;
+
+        // With the scrollbar Disabled/Hidden there is no scrollbar chrome, so the
+        // ScrollViewer's whole area IS its viewport. Its physical rect is the reachability
+        // boundary — reachability is geometric (viewport intersection), not ordinal.
+        var vpTopLeft = TilesScroll.PointToScreen(new Point(0, 0));
+        var vpBottomRight = TilesScroll.PointToScreen(
+            new Point(TilesScroll.ActualWidth, TilesScroll.ActualHeight));
+        var viewportRect = new PhysicalRect(
+            vpTopLeft.X, vpTopLeft.Y,
+            vpBottomRight.X - vpTopLeft.X, vpBottomRight.Y - vpTopLeft.Y);
 
         foreach (var item in TilesPanel.Items)
         {
@@ -99,8 +111,8 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
                 continue;
 
             // PointToScreen, like every other overlay (Keyboard, Toolbar, QuickActions,
-            // Settings): it returns PHYSICAL device pixels and folds in Windows' DPI
-            // virtualization. This window used to compute the center via
+            // Settings): it returns PHYSICAL device pixels and folds in Windows'
+            // DPI virtualization. This window used to compute the center via
             // TransformToAncestor + DpiHelper.LogicalToPhysicalX — the one overlay not using
             // PointToScreen — and under a DPI-virtualized process (ScaleX telling only half
             // the story) the targets landed far from the tiles' true screen positions: tiles
@@ -111,6 +123,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             var bottomRight = border.PointToScreen(new Point(border.ActualWidth, border.ActualHeight));
             var faceRect = new PhysicalRect(topLeft.X, topLeft.Y,
                 bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            if (!TileOverlapsViewport(faceRect, viewportRect))
+                continue;   // fully clipped: no target, no invisible accumulation
+
             _viewModel.UpdateTilePosition(tile.Hwnd, faceRect);
         }
 
@@ -119,6 +134,17 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
         _viewModel.UpdateCloseButtonPosition(new PhysicalPoint(closeCenter.X, closeCenter.Y));
     }
+
+    /// <summary>
+    /// Whether a tile's on-screen face overlaps the ScrollViewer's viewport. Boundary touch
+    /// does NOT count (<see cref="PhysicalRect.IntersectsWith"/> is strict): a tile whose only
+    /// contact with the viewport is a shared edge has zero visible pixels, and a live dwell
+    /// target there is exactly the hazard this filter exists for. <c>internal static</c> pure
+    /// helper so the decision unit-tests headlessly (ForegroundSwitchDiagnosis.Classify
+    /// precedent).
+    /// </summary>
+    internal static bool TileOverlapsViewport(PhysicalRect tileRect, PhysicalRect viewportRect) =>
+        tileRect.IntersectsWith(viewportRect);
 
     /// <summary>
     /// The tile DataTemplate's root Border: the first Border among the container's visual

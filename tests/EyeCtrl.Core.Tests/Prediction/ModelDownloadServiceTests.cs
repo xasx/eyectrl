@@ -322,7 +322,9 @@ public class ModelDownloadServiceTests
             cts.Cancel();
 
             OperationCanceledException? cancelled = null;
-            try { await download; }
+            // Bounded so a regression that stops the token reaching the body read fails loud
+            // instead of hanging the suite (review r1 F5).
+            try { await download.WaitAsync(TimeSpan.FromSeconds(10)); }
             catch (OperationCanceledException ex) { cancelled = ex; }
             Check.That(cancelled).IsNotNull();
 
@@ -386,7 +388,8 @@ public class ModelDownloadServiceTests
                 body.Release();   // never leave the first download parked past the assertions
             }
 
-            Check.That(await first).IsTrue();                 // the first download still completes
+            // Bounded for the same reason as the cancel test above (review r1 F5).
+            Check.That(await first.WaitAsync(TimeSpan.FromSeconds(10))).IsTrue();                 // the first download still completes
             Check.That(File.Exists(Path.Combine(tempDir, "first.onnx"))).IsTrue();
             Check.That(File.Exists(Path.Combine(tempDir, "first.onnx.download"))).IsFalse();
             Check.That(events.Last().IsComplete).IsTrue();

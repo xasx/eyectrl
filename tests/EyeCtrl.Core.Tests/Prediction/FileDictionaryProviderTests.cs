@@ -605,6 +605,10 @@ public class FileDictionaryProviderTests : IDisposable
         var userPath = Path.Combine(_testDir, "user_dictionary_en.json");
         File.WriteAllText(userPath, "{ this is not valid json }");
 
+        // The Load→Save sequence its comment describes: without this call the Save leg exercises
+        // only the EnsureBaseLoaded → DetectInflationForSave route (review r1 F7).
+        Check.ThatCode(() => _provider.Load()).DoesNotThrow();
+
         Check.ThatCode(() => _provider.Save(new Dictionary<string, int>
         {
             ["hello"] = 10,

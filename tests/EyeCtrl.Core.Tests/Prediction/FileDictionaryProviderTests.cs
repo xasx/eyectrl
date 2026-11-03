@@ -554,4 +554,105 @@ public class FileDictionaryProviderTests : IDisposable
             Directory.Delete(tempDir, true);
         }
     }
+
+    // The user dictionary is written NON-atomically (Save's File.WriteAllText, unlike the
+    // temp+File.Replace used for bigrams/phrases), so a crash or power loss mid-write is the
+    // realistic way this file corrupts. Load must fall back to the base dictionary without
+    // throwing — or the whole keyboard word-prediction stack throws at startup for that language.
+    [Fact]
+    public void Load_CorruptUserDictionary_ReturnsTheBaseWordsWithoutThrowing()
+    {
+        File.WriteAllText(Path.Combine(_testDir, "base.json"),
+            JsonSerializer.Serialize(new { words = new Dictionary<string, int> { ["hello"] = 10 } }));
+        File.WriteAllText(Path.Combine(_testDir, "user_dictionary_en.json"), "{ this is not valid json }");
+
+        Dictionary<string, int>? words = null;
+        Check.ThatCode(() => words = _provider.Load()).DoesNotThrow();
+
+        Check.That(words).IsNotNull();
+        Check.That(words!).HasSize(1);
+        Check.That(words!["hello"]).IsEqualTo(10);
+    }
+
+    // The IOException sibling of the JsonException catch: a locked user file (an antivirus scan,
+    // a concurrent rebuild) degrades to the base dictionary too.
+    [Fact]
+    public void Load_LockedUserDictionary_ReturnsTheBaseWordsInsteadOfThrowing()
+    {
+        File.WriteAllText(Path.Combine(_testDir, "base.json"),
+            JsonSerializer.Serialize(new { words = new Dictionary<string, int> { ["hello"] = 10 } }));
+        var userPath = Path.Combine(_testDir, "user_dictionary_en.json");
+        File.WriteAllText(userPath, "{}");
+
+        using var fileLock = new FileStream(userPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Dictionary<string, int>? words = null;
+        Check.ThatCode(() => words = _provider.Load()).DoesNotThrow();
+
+        Check.That(words).IsNotNull();
+        Check.That(words!).HasSize(1);
+        Check.That(words!["hello"]).IsEqualTo(10);
+    }
+
+    // The owner's learned-word file must be able to heal: after a corrupt user file, the next
+    // Save rewrites a VALID learned delta (base counts subtracted), and a fresh provider reads
+    // base + delta back.
+    [Fact]
+    public void Save_AfterCorruptUserDictionary_RewritesAValidLearnedDelta()
+    {
+        File.WriteAllText(Path.Combine(_testDir, "base.json"),
+            JsonSerializer.Serialize(new { words = new Dictionary<string, int> { ["hello"] = 10 } }));
+        var userPath = Path.Combine(_testDir, "user_dictionary_en.json");
+        File.WriteAllText(userPath, "{ this is not valid json }");
+
+        Check.ThatCode(() => _provider.Save(new Dictionary<string, int>
+        {
+            ["hello"] = 10,
+            ["newly"] = 3,
+        })).DoesNotThrow();
+
+        var written = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(userPath));
+        Check.That(written).IsNotNull();
+        Check.That(written!).HasSize(1);                        // only the learned delta: hello's 10-10=0 is dropped
+        Check.That(written!["newly"]).IsEqualTo(3);
+
+        var reader = new FileDictionaryProvider(
+            Path.Combine(_testDir, "base.json"), _testDir, "en");
+        var reloaded = reader.Load();
+        Check.That(reloaded).HasSize(2);
+        Check.That(reloaded["hello"]).IsEqualTo(10);
+        Check.That(reloaded["newly"]).IsEqualTo(3);
+    }
+
+    // Save can be the FIRST caller (the background rebuild writes through a fresh provider), so
+    // the fresh provider's on-demand base load must also tolerate the corrupt user file it is
+    // about to overwrite — and its save still heals the file.
+    [Fact]
+    public void Save_FromAFreshProvider_OverACorruptUserDictionary_HealsTheFile()
+    {
+        File.WriteAllText(Path.Combine(_testDir, "base.json"),
+            JsonSerializer.Serialize(new { words = new Dictionary<string, int> { ["hello"] = 10 } }));
+        var userPath = Path.Combine(_testDir, "user_dictionary_en.json");
+        File.WriteAllText(userPath, "{ this is not valid json }");
+
+        var fresh = new FileDictionaryProvider(
+            Path.Combine(_testDir, "base.json"), _testDir, "en");
+        Check.ThatCode(() => fresh.Save(new Dictionary<string, int>
+        {
+            ["hello"] = 10,
+            ["typed"] = 2,
+        })).DoesNotThrow();
+
+        var written = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(userPath));
+        Check.That(written).IsNotNull();
+        Check.That(written!).HasSize(1);
+        Check.That(written!["typed"]).IsEqualTo(2);
+
+        var reader = new FileDictionaryProvider(
+            Path.Combine(_testDir, "base.json"), _testDir, "en");
+        var reloaded = reader.Load();
+        Check.That(reloaded).HasSize(2);
+        Check.That(reloaded["hello"]).IsEqualTo(10);
+        Check.That(reloaded["typed"]).IsEqualTo(2);
+    }
 }

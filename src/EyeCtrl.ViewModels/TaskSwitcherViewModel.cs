@@ -162,23 +162,26 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>
-    /// Called by the View once a tile's container is laid out, with the tile's real screen
-    /// center. Creates (or repositions — <see cref="DwellDetector.AddTarget"/> replaces by id)
-    /// the dwell target here so the detector only ever hit-tests correctly-positioned targets.
-    /// Reuses <c>ToolbarButtonDwellMs</c> (700 ms default): tiles are large (200x120) so it
-    /// feels easy to hit, which is intentional for a fullscreen picker. If user testing finds
-    /// it too sensitive, add a dedicated TaskSwitcherTileDwellMs field to DwellSettings.
+    /// Called by the View once a tile's container is laid out, with the tile's real on-screen
+    /// rectangle. Creates (or repositions — <see cref="DwellDetector.AddTarget"/> replaces by id)
+    /// a RECTANGULAR dwell target here so the detector hit-tests the drawn tile face: the tiles
+    /// are 184x104 DIP faces (200x120 cells minus the template border's 8 DIP margin), and the
+    /// old r50 circle left roughly 41% of every visible face dead — gaze accumulated nothing
+    /// there, with no cue explaining why (the same drawn-vs-hit mismatch QuickActions fixed as
+    /// a field finding, and the class behind the 2026-08-17 'tiles gave no feedback' report).
+    /// Reuses <c>ToolbarButtonDwellMs</c> (700 ms default): tiles are large so it feels easy to
+    /// hit, which is intentional for a fullscreen picker. If user testing finds it too
+    /// sensitive, add a dedicated TaskSwitcherTileDwellMs field to DwellSettings.
     /// </summary>
-    public void UpdateTilePosition(IntPtr hwnd, PhysicalPoint screenCenter)
+    public void UpdateTilePosition(IntPtr hwnd, PhysicalRect screenRect)
     {
         var tile = Tiles.FirstOrDefault(t => t.Hwnd == hwnd);
         if (tile != null)
-            tile.Position = screenCenter;
+            tile.Position = screenRect.Center;
 
         DwellDetector.AddTarget(new DwellTarget(
             hwnd.ToString(),
-            screenCenter,
-            DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
+            screenRect,
             _settings.Dwell.ToolbarButtonDwellMs));
     }
 }

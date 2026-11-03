@@ -75,8 +75,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     }
 
     /// <summary>
-    /// For each tile, compute its real on-screen center and push it into the VM so the
-    /// DwellDetector hit-tests against true coordinates.
+    /// For each tile, compute its real on-screen rectangle (the drawn tile face) and push it
+    /// into the VM so the DwellDetector hit-tests the drawn face, not a circle that ignores
+    /// the corners.
     /// </summary>
     private void UpdateTilePositions()
     {
@@ -91,6 +92,12 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             if (container is not FrameworkElement fe)
                 continue;
 
+            // The dwell target is the tile's DRAWN face: the template's root Border (the
+            // container is the generator's ContentPresenter around it). Its 8 DIP margin is
+            // the inter-tile gap — outside the face, so it must stay dead.
+            if (FindTemplateBorder(fe) is not Border border)
+                continue;
+
             // PointToScreen, like every other overlay (Keyboard, Toolbar, QuickActions,
             // Settings): it returns PHYSICAL device pixels and folds in Windows' DPI
             // virtualization. This window used to compute the center via
@@ -98,15 +105,34 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             // PointToScreen — and under a DPI-virtualized process (ScaleX telling only half
             // the story) the targets landed far from the tiles' true screen positions: tiles
             // visible, gaze never inside any hit circle, nothing dwellable (2026-08-17
-            // field report). See QuickActionsGridWindow's own "do NOT multiply by DpiHelper".
-            var center = fe.PointToScreen(new Point(fe.ActualWidth / 2, fe.ActualHeight / 2));
-            _viewModel.UpdateTilePosition(tile.Hwnd, new PhysicalPoint(center.X, center.Y));
+            // field report). Two calls (top-left, bottom-right of the Border) give the whole
+            // rect; see QuickActionsGridWindow's own "do NOT multiply by DpiHelper".
+            var topLeft = border.PointToScreen(new Point(0, 0));
+            var bottomRight = border.PointToScreen(new Point(border.ActualWidth, border.ActualHeight));
+            var faceRect = new PhysicalRect(topLeft.X, topLeft.Y,
+                bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            _viewModel.UpdateTilePosition(tile.Hwnd, faceRect);
         }
 
         // Register the close disc as a dwell target too (same physical-pixel convention).
         var closeCenter = CloseButton.PointToScreen(
             new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
         _viewModel.UpdateCloseButtonPosition(new PhysicalPoint(closeCenter.X, closeCenter.Y));
+    }
+
+    /// <summary>
+    /// The tile DataTemplate's root Border: the first Border among the container's visual
+    /// children (the generator wraps the template root in a ContentPresenter).
+    /// </summary>
+    private static Border? FindTemplateBorder(DependencyObject container)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(container);
+        for (var i = 0; i < count; i++)
+        {
+            if (VisualTreeHelper.GetChild(container, i) is Border border)
+                return border;
+        }
+        return null;
     }
 
     /// <summary>Called by the coordinator when the VM hides (selection or second toggle).</summary>

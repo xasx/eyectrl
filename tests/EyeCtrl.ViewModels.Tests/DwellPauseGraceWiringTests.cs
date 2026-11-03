@@ -141,7 +141,7 @@ public class DwellPauseGraceWiringTests
             {
                 var vm = new TaskSwitcherViewModel(new OneWindowManager(), settings, messenger);
                 vm.Receive(new TaskSwitcherToggledMessage());
-                vm.UpdateTilePosition(new IntPtr(4242), On);
+                vm.UpdateTilePosition(new IntPtr(4242), PhysicalRect.FromCenter(On, 184, 104));
                 var item = vm.Tiles.Single();
                 return new Surface(name, vm, DetectorOf(vm), "4242", () => item.IsDwellPaused, () => item.DwellProgress) { Messenger = messenger };
             }

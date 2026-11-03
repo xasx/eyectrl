@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels.Tests;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -79,7 +80,7 @@ public class TaskSwitcherViewModelTests
 
         // The View positions the tile after layout; simulate that (creates the dwell target).
         var center = new PhysicalPoint(500, 400);
-        vm.UpdateTilePosition(hwnd, center);
+        vm.UpdateTilePosition(hwnd, PhysicalRect.FromCenter(center, 184, 104));
 
         // Dwell: gaze enters the tile and remains past the dwell time (700 ms default → µs),
         // sampled continuously — a single step past 150 ms restarts the dwell.
@@ -89,6 +90,35 @@ public class TaskSwitcherViewModelTests
         Check.That(selected).IsEqualTo(hwnd);
         Check.That(vm.IsVisible).IsFalse();  // overlay dismissed after a selection
         Check.That(vm.Tiles).IsEmpty();
+    }
+
+    [Fact]
+    public void UpdateTilePosition_RegistersRectTarget_MatchingTheDrawnFace()
+    {
+        // A3: the tile's hit area IS its drawn face — the 184x104 rect (200x120 cell minus
+        // the template Border's 8 DIP margin), not a circle that ignored the corners: the old
+        // r50 circle left ~41% of every face dead, where gaze accumulated nothing and no cue
+        // explained why. The corner is inside, the first pixel past the face (the inter-tile
+        // gap) is outside. Read back through the internal DetectorForTest seam — the
+        // DwellDetector property is protected and does not compile from tests.
+        var messenger = new WeakReferenceMessenger();
+        var hwnd = new IntPtr(42);
+        var wm = new FakeWindowManager(new[] { new AppWindow(hwnd, "Notepad", 100, "notepad") });
+        var settings = new EyeCtrlSettings();
+        using var vm = new TaskSwitcherViewModel(wm, settings, messenger);
+
+        messenger.Send(new TaskSwitcherToggledMessage());
+
+        var face = new PhysicalRect(100, 200, 184, 104);
+        vm.UpdateTilePosition(hwnd, face);
+
+        var target = vm.DetectorForTest.Targets.Single();
+        Check.That(target.Id).IsEqualTo("42");
+        Check.That(target.Bounds).IsEqualTo(face);
+        Check.That(target.Center).IsEqualTo(new PhysicalPoint(192, 252));
+        Check.That(target.HitTest(new PhysicalPoint(100, 200))).IsTrue();   // top-left corner
+        Check.That(target.HitTest(new PhysicalPoint(284, 304))).IsTrue();   // bottom-right corner
+        Check.That(target.HitTest(new PhysicalPoint(285, 304))).IsFalse();  // 1 px past the face
     }
 
     [Fact]

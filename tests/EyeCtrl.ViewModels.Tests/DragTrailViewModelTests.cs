@@ -228,4 +228,71 @@ public class DragTrailViewModelTests
 
         Check.That(vm.DragState).IsEqualTo(DragSubState.FreeDrag);
     }
+
+    // The drag trail's release/settle button is the gaze way out of a live drag — a safety release
+    // must never go inert (DwellOverlayViewModelBase.DwellActiveWhilePaused opt-in). The pause term
+    // must route through the shared SampleMayDwell gate: an override that reimplements its own
+    // checks silently bypasses the pause gate (the exact failure mode documented on the base —
+    // three overrides did it once, leaving two opt-ins as dead code), and a paused drag would leave
+    // the OS mouse button held down with no gaze-reachable release.
+    [Fact]
+    public void PausedRestOnTheReleaseSpot_DropsTheDrag()
+    {
+        // Settle can never win the race to a drop: 2000 ms is the validator's maximum
+        // (DragSettings.OnSettleDwellMsChanging throws outside 200..2000) against a 200 ms release.
+        _settings.Drag.SettleDwellMs = 2000;
+        _settings.Drag.SettleRadiusPixels = 40;
+        _settings.Dwell.DragReleaseButtonDwellMs = 200;
+        var vm = CreateVm();
+        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
+
+        DragDropMessage? dropMsg = null;
+        _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
+
+        // R1: the release arms only once the gaze has left the spot it rested on at drag start
+        // (the radial menu's Drag item), then a saccade to the rest spot.
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(900, 900), -30_000));
+        var rest = new PhysicalPoint(300, 300);
+        _messenger.Send(new GazeCursorMovedMessage(rest, 0));
+
+        // A paused rest, ~30 Hz, on the release spot: the dwell must accumulate and fire.
+        var maxProgressSeen = 0.0;
+        long t;
+        for (t = 30_000; dropMsg is null && t < 5_000_000; t += 30_000)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(rest, t) { IsPaused = true });
+            maxProgressSeen = Math.Max(maxProgressSeen, vm.ReleaseProgress);
+        }
+
+        Check.That(dropMsg).IsNotNull();
+        Check.That(maxProgressSeen).IsStrictlyGreaterThan(0);
+        Check.That(vm.IsDragActive).IsFalse();
+        Check.That(dropMsg!.DropPoint).IsEqualTo(rest);   // the rest centroid, not the grab origin
+    }
+
+    // The gate's other side: the opt-in is for the RELEASE only in the sense that it must not block
+    // the release — but a gap-held sample never accumulates, on any surface. A paused rest only
+    // drops because SampleMayDwell passes it through while a paused GAP is still skipped.
+    [Fact]
+    public void PausedGapHeldSamples_DoNotDropTheDrag()
+    {
+        _settings.Drag.SettleDwellMs = 2000;
+        _settings.Drag.SettleRadiusPixels = 40;
+        _settings.Dwell.DragReleaseButtonDwellMs = 200;
+        var vm = CreateVm();
+        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
+
+        DragDropMessage? dropMsg = null;
+        _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
+
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(900, 900), -30_000));
+        var rest = new PhysicalPoint(300, 300);
+        _messenger.Send(new GazeCursorMovedMessage(rest, 0));
+
+        for (long t = 30_000; t < 3_000_000; t += 30_000)
+            _messenger.Send(new GazeCursorMovedMessage(new GazeFrame(rest, t, IsInGap: true)) { IsPaused = true });
+
+        Check.That(dropMsg).IsNull();
+        Check.That(vm.IsDragActive).IsTrue();
+    }
 }

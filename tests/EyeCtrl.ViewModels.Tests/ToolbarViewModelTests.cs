@@ -47,6 +47,37 @@ public class ToolbarViewModelTests
         Check.That(received).IsTrue();
     }
 
+    // The six remaining activations are the gaze-only user's primary navigation: a case deleted
+    // from the switch, an id typo'd, or two messages swapped turns the button into a no-op (a dead
+    // Settings button locks a gaze-only user out of configuration entirely). Probes on ALL six
+    // message types pin that exactly one fires — no cross-wiring.
+    [Theory]
+    [InlineData("Keyboard")]
+    [InlineData("Calibrate")]
+    [InlineData("Settings")]
+    [InlineData("TaskSwitcher")]
+    [InlineData("Modes")]
+    [InlineData("QuickActions")]
+    public void ActivatingAButton_SendsExactlyItsOwnMessage(string buttonId)
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+        var sent = new Dictionary<string, int> { ["Keyboard"] = 0, ["Calibrate"] = 0, ["Settings"] = 0, ["TaskSwitcher"] = 0, ["Modes"] = 0, ["QuickActions"] = 0 };
+        void Count(string key) => sent[key]++;
+
+        _messenger.Register<KeyboardToggledMessage>(_messenger, (_, _) => Count("Keyboard"));
+        _messenger.Register<CalibrationRequestedMessage>(_messenger, (_, _) => Count("Calibrate"));
+        _messenger.Register<SettingsRequestedMessage>(_messenger, (_, _) => Count("Settings"));
+        _messenger.Register<TaskSwitcherToggledMessage>(_messenger, (_, _) => Count("TaskSwitcher"));
+        _messenger.Register<ModesMenuToggledMessage>(_messenger, (_, _) => Count("Modes"));
+        _messenger.Register<QuickActionsToggledMessage>(_messenger, (_, _) => Count("QuickActions"));
+
+        vm.SimulateButtonActivated(buttonId);
+
+        Check.That(sent[buttonId]).IsEqualTo(1);
+        foreach (var other in sent.Keys.Where(id => id != buttonId))
+            Check.That(sent[other]).IsEqualTo(0);
+    }
+
     // Paused-trap guard, check 2. On 2026-09-24 a held gaze re-armed the toggle every cooldown
     // cycle (700 ms dwell + 400 ms cooldown ≈ 1.1 s), so 3.5 s of continuous gaze toggled the app
     // three times. One look must mean one toggle: after firing, the toggle cannot fire again until

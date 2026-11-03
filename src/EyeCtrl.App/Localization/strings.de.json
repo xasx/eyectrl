@@ -863,8 +863,8 @@
     "src": "76d1d8e0"
   },
   "overlays.taskSwitcher.hint": {
-    "text": "Fenster auswählen – oder zum Abbrechen wegschauen",
-    "src": "e628a37c"
+    "text": "Fenster auswählen – oder über Schließen abbrechen",
+    "src": "8f24c09c"
   },
   "overlays.toolbar.keyboard": {
     "text": "Tastatur",

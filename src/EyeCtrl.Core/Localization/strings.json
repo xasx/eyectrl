@@ -1594,7 +1594,7 @@
     "args": []
   },
   "overlays.taskSwitcher.hint": {
-    "text": "Select a window — or look away to cancel",
+    "text": "Select a window — or close to cancel",
     "who": "user",
     "where": "overlays",
     "fit": "prose",

@@ -31,11 +31,20 @@ UI tests): no test needs a certificate, and CI never publishes or signs. Only th
 signs and installs, and only on the owner's go.
 
 - `tools/release/Publish-Signed.ps1` publishes the App (`-p:EyeCtrlUiAccess=true`), the Supervisor
-  and `EyeCtrl.Setup` when it exists, signs every exe (pinned thumbprint
-  `C1039769A2D9ED01F93CEBC78B61176EE6B12F91`, DigiCert timestamp, `/fd SHA256`, `/td SHA256`),
-  verifies the signatures and the embedded manifests (App `true`, Supervisor/Setup `false`), refuses
-  self-extraction, writes `package.json` plus a signed `EyeCtrl.cat` (`New-FileCatalog` v2), and
-  copies the result to `%LOCALAPPDATA%\EyeCtrl\updates\<version>\`.
+  (compressed single-file; the App is never compressed) and `EyeCtrl.Setup` when it exists, signs
+  every exe (pinned thumbprint `C1039769A2D9ED01F93CEBC78B61176EE6B12F91`, DigiCert timestamp,
+  `/fd SHA256`, `/td SHA256`), verifies the signatures and the embedded manifests (App `true`,
+  Supervisor/Setup `false`), refuses self-extraction, writes `package.json` plus a signed
+  `EyeCtrl.cat` (`New-FileCatalog` v2), and copies the result to
+  `%LOCALAPPDATA%\EyeCtrl\updates\<version>\`.
+- **The package contract (shared with `src/EyeCtrl.Setup`):** the catalog covers every file
+  recursively and `package.json` is one of its members (only `EyeCtrl.cat` is outside it), so
+  editing `package.json` makes the package fail verification. A member's tag is the **uppercase hex
+  of its SIP SHA-256** (for a PE, the Authenticode hash), with the relative path in `FilePath` —
+  look members up by hash, never by path. The inbox copy is assembled in a dot-prefixed
+  `.<version>.partial` folder and renamed into place, so consumers must ignore dot-prefixed folders.
+  "Newer" means `package.json` `created`, then version, then folder name. PDBs, XML docs,
+  `*.lib` and `README.md` never ship; they are pruned before the catalog is written.
 - **Agents never sign, never write the real inbox, never touch Program Files or HKLM, and never run
   a built exe.** The runnable mode is
   `Publish-Signed.ps1 -DryRun -NoSign -ScratchDir <scratch>`: it builds and packages into that
@@ -43,7 +52,8 @@ signs and installs, and only on the owner's go.
 - `tools/release/Install-EyeCtrl.ps1` finds the newest inbox package and starts its
   `EyeCtrl.Setup.exe update <dir>` with `Start-Process` (ShellExecute). Never replace that with the
   call operator: `CreateProcess` of the launched exe is the Win32 740 trap. `-NoNewWindow` also
-  flips `Start-Process` to `CreateProcess`, so it must not appear either.
+  flips `Start-Process` to `CreateProcess`, and `-Wait` waits for the whole tree (the App joins it),
+  so neither may appear; the wrapper uses `-PassThru` plus `WaitForExit()` for `-UntilExit`.
 
 ## CI
 

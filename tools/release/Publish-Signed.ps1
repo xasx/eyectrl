@@ -5,15 +5,17 @@
 
 .DESCRIPTION
     Publishes EyeCtrl.App (single-file, self-contained, uiAccess="true") and EyeCtrl.Supervisor
-    (single-file, self-contained, uiAccess="false") into one package folder, plus EyeCtrl.Setup
-    when src/EyeCtrl.Setup exists. Each publish output keeps its loose native DLLs beside the
-    single-file exe: self-extraction would load native code from a user-writable %TEMP% into a
-    High-IL process, so it is refused.
+    (single-file, self-contained, uiAccess="false", compressed) into one package folder, plus
+    EyeCtrl.Setup when src/EyeCtrl.Setup exists. Each publish output keeps its loose native DLLs
+    beside the single-file exe: self-extraction would load native code from a user-writable %TEMP%
+    into a High-IL process, so it is refused. Symbols, XML docs, import libraries and README files
+    are build artifacts and are pruned from the package.
 
     With signing on, every exe is signed with the pinned self-signed certificate and the DigiCert
     timestamp, each signature is verified, each embedded manifest is read back and checked, and
-    the file catalog (New-FileCatalog v2, SHA-256) is created and signed the same way. The
-    package is then copied to %LOCALAPPDATA%\EyeCtrl\updates\<version>\.
+    the file catalog (New-FileCatalog v2, SHA-256) is created and signed the same way. The package
+    is then copied to %LOCALAPPDATA%\EyeCtrl\updates\<version>\ through a .<version>.partial folder
+    and a rename, so a half-written package is never visible.
 
     -DryRun -NoSign does everything except signing and the inbox copy. It is the only mode an
     agent or a reviewer may run: it never touches the real inbox, Program Files or the registry,
@@ -21,6 +23,16 @@
 
     Never sign in a dev, test or CI session. Dev, test and CI builds stay unsigned with
     uiAccess="false"; only the owner's machine signs and installs, and only on the owner's go.
+
+    The package contract (shared with src/EyeCtrl.Setup):
+      - every exe is signed and timestamped; EyeCtrl.cat is signed with the same certificate;
+      - EyeCtrl.cat is a New-FileCatalog v2 (SHA-256) catalog over every other file, recursively;
+      - a catalog member's tag is the uppercase hex of its SIP SHA-256 hash (for a PE that is the
+        Authenticode hash), and its relative path is the FilePath attribute;
+      - package.json is a catalog member (only EyeCtrl.cat itself is outside it), so editing it
+        makes the package fail verification;
+      - package.json is { version, sha, created }: version is the App's informational version,
+        sha the git commit, created an ISO-8601 timestamp.
 
 .PARAMETER DryRun
     Build and package into -ScratchDir (or -OutputDir) only. Implies -NoSign and refuses any
@@ -32,14 +44,16 @@
 
 .PARAMETER SkipSetup
     Package App + Supervisor without EyeCtrl.Setup. A package without Setup cannot install
-    itself, so a normal (signing) run refuses a missing Setup unless this switch is given.
+    itself, so it never reaches the real inbox, and a signing run refuses a missing Setup unless
+    this switch is given.
 
 .PARAMETER Force
     Replace an existing destination folder of the same version.
 
 .PARAMETER Version
-    Override the package version (passed to all three publishes as -p:Version). Default: the
-    published EyeCtrl.App.exe's own product (informational) version.
+    MSBuild version for the three publishes (-p:Version). The package folder and package.json
+    always use the App's own informational version, which carries +<sha>; this only bumps the
+    numeric part.
 
 .PARAMETER OutputDir
     Final package destination. Default: the inbox in a signing run, and the scratch package
@@ -78,6 +92,19 @@ $TimestampUrl = 'http://timestamp.digicert.com'
 
 $RequiredPackageExes = @('EyeCtrl.App.exe', 'EyeCtrl.Supervisor.exe')
 $SetupExeName = 'EyeCtrl.Setup.exe'
+
+# The loose natives a working installed build needs. Their absence is the silent self-extraction
+# signature (and, for the Tobii engine, a package without eye tracking).
+$RequiredNativeDlls = @(
+    'onnxruntime.dll',
+    'tobii_stream_engine.dll',
+    'wpfgfx_cor3.dll',
+    'PresentationNative_cor3.dll'
+)
+
+# Build artifacts that must not ship to Program Files.
+$PackageNoiseExtensions = @('.pdb', '.lib')
+$PackageNoiseNames = @('README.md')
 
 function Write-Step([string]$Message)
 {
@@ -169,7 +196,7 @@ function Get-EmbeddedManifestText([string]$ExePath)
             $directory = $headers.PEHeader.ResourceTableDirectory
             if ($directory.RelativeVirtualAddress -le 0)
             {
-                throw "$ExePath has no PE resource table, so no embedded manifest"
+                throw "${ExePath}: no PE resource table, so no embedded manifest"
             }
 
             $sectionBase = -1
@@ -284,15 +311,25 @@ function Assert-Manifest([string]$ExePath, [string]$ExpectedUiAccess)
 
 # ── Self-extraction refusal ──────────────────────────────────────────────────────────────────
 
-function Assert-NoSelfExtraction([string]$ProjectPath)
+function Assert-NoSelfExtraction([string]$ProjectPath, [bool]$UiAccess)
 {
-    $json = & dotnet msbuild $ProjectPath -nologo `
-        -getProperty:IncludeNativeLibrariesForSelfExtract `
-        -getProperty:IncludeAllContentForSelfExtract `
-        "-property:Configuration=$Configuration" `
-        "-property:PublishSingleFile=true" `
-        "-property:SelfContained=true" `
+    $msbuildArguments = @(
+        $ProjectPath, '-nologo',
+        '-getProperty:IncludeNativeLibrariesForSelfExtract',
+        '-getProperty:IncludeAllContentForSelfExtract',
+        "-property:Configuration=$Configuration",
+        '-property:PublishSingleFile=true',
+        '-property:SelfContained=true',
         "-property:RuntimeIdentifier=$Runtime"
+    )
+    if ($UiAccess)
+    {
+        # Evaluate the same build the App publish performs: a self-extract property behind
+        # Condition="'$(EyeCtrlUiAccess)' == 'true'" must not hide from this gate.
+        $msbuildArguments += '-property:EyeCtrlUiAccess=true'
+    }
+
+    $json = & dotnet msbuild @msbuildArguments
     if ($LASTEXITCODE -ne 0)
     {
         throw "dotnet msbuild could not evaluate $ProjectPath (exit $LASTEXITCODE)"
@@ -321,19 +358,36 @@ function Assert-NoSelfExtraction([string]$ProjectPath)
 
 # ── Publish and package ─────────────────────────────────────────────────────────────────────
 
-function Invoke-Publish([string]$ProjectPath, [string]$OutDir, [bool]$UiAccess)
+function Invoke-Publish
 {
+    param(
+        [Parameter(Mandatory)][string]$ProjectPath,
+        [Parameter(Mandatory)][string]$OutDir,
+        [switch]$UiAccess,
+        [switch]$CompressSingleFile
+    )
+
     $arguments = @(
         'publish', $ProjectPath, '--nologo',
         '-c', $Configuration,
         '-r', $Runtime,
         '--self-contained', 'true',
         '-p:PublishSingleFile=true',
+        # Symbols and XML docs are build artifacts, not installed files.
+        '-p:DebugType=None',
+        '-p:DebugSymbols=false',
+        '-p:GenerateDocumentationFile=false',
         '-o', $OutDir
     )
     if ($UiAccess)
     {
         $arguments += '-p:EyeCtrlUiAccess=true'
+    }
+    if ($CompressSingleFile)
+    {
+        # Bundled assemblies decompress in memory; nothing is extracted to %TEMP%. The App stays
+        # uncompressed so its start-up is not slowed.
+        $arguments += '-p:EnableCompressionInSingleFile=true'
     }
     if ($Version)
     {
@@ -365,6 +419,35 @@ function Copy-IntoPackage([string]$SourceDir, [string]$PackageDir)
         }
         Copy-Item -LiteralPath $file.FullName -Destination $target
     }
+}
+
+function Copy-PackageTree([string]$SourceDir, [string]$TargetDir)
+{
+    foreach ($file in Get-ChildItem -LiteralPath $SourceDir -Recurse -File)
+    {
+        $relative = [System.IO.Path]::GetRelativePath($SourceDir, $file.FullName)
+        $target = Join-Path $TargetDir $relative
+        $parent = Split-Path -Parent $target
+        if (-not (Test-Path -LiteralPath $parent))
+        {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        Copy-Item -LiteralPath $file.FullName -Destination $target
+    }
+}
+
+function Remove-PackageNoise([string]$PackageDir)
+{
+    $removed = 0
+    foreach ($file in Get-ChildItem -LiteralPath $PackageDir -Recurse -File)
+    {
+        if ($PackageNoiseExtensions -contains $file.Extension -or $PackageNoiseNames -contains $file.Name)
+        {
+            Remove-Item -LiteralPath $file.FullName -Force
+            $removed++
+        }
+    }
+    Write-Note "pruned $removed build artifact(s) (*.pdb, *.lib, README.md)"
 }
 
 # ── Signing ─────────────────────────────────────────────────────────────────────────────────
@@ -455,12 +538,14 @@ function New-PackageCatalog([string]$PackageDir)
     {
         throw "New-FileCatalog did not produce $catalogPath"
     }
-    Write-Note "EyeCtrl.cat: New-FileCatalog v2 (SHA-256)"
+    Write-Note "EyeCtrl.cat: New-FileCatalog v2 (SHA-256, SIP member tags)"
 }
 
 function Assert-CatalogValid([string]$PackageDir)
 {
     $catalogPath = Join-Path $PackageDir 'EyeCtrl.cat'
+    # Hash-only: every non-catalog file must be a member and unmodified. package.json is one of
+    # them, because it is written before the catalog.
     $status = Test-FileCatalog -Path $PackageDir -CatalogFilePath $catalogPath -ErrorAction Stop
     if ("$status" -ne 'Valid')
     {
@@ -497,7 +582,7 @@ if ($Version)
     if ($Version.Contains('+'))
     {
         throw ("-Version must be a plain numeric version: MSBuild's Version property cannot carry " +
-            'build metadata. The SDK already appends +<sha> to the App informational version.')
+            'build metadata. The App informational version already appends +<sha>.')
     }
     Assert-VersionFolderName $Version
 }
@@ -552,15 +637,17 @@ Write-Note "sha:       $sha"
 
 if (-not $NoSign)
 {
-    # package.json's sha claims the sources this package was built from. A dirty tree makes that
-    # claim false, and the package is signed, so say it loudly rather than shipping a wrong SHA.
+    # package.json's sha claims the sources this package was built from, and the package is signed.
+    # A dirty tree makes that claim false, so a signing publish refuses it outright.
     Push-Location $repoRoot
     try
     {
         $dirty = (& git status --porcelain 2>$null)
         if ($LASTEXITCODE -eq 0 -and $dirty)
         {
-            Write-WarningLine "The working tree is dirty: package.json's sha names HEAD ($sha), not the built sources. Publish from a clean checkout."
+            $changed = (@($dirty) | Select-Object -First 10) -join [Environment]::NewLine
+            throw ("The working tree is dirty: package.json's sha names HEAD ($sha), not the built " +
+                "sources. Commit or stash before a signing publish, or use -DryRun -NoSign.`n$changed")
         }
     }
     finally
@@ -570,8 +657,8 @@ if (-not $NoSign)
 }
 
 Write-Step 'Refusing self-extraction'
-Assert-NoSelfExtraction $appProject
-Assert-NoSelfExtraction $supervisorProject
+Assert-NoSelfExtraction $appProject $true
+Assert-NoSelfExtraction $supervisorProject $false
 
 Write-Step 'Publishing'
 if (Test-Path -LiteralPath $packageDir)
@@ -582,24 +669,24 @@ New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
 $appOut = Join-Path $buildRoot 'app'
 $supervisorOut = Join-Path $buildRoot 'supervisor'
+$setupOut = Join-Path $buildRoot 'setup'
 # dotnet publish does not clear -o, so a reused scratch folder would carry stale files into the
 # signed package. Start each publish output empty.
-foreach ($publishOut in @($appOut, (Join-Path $buildRoot 'setup'), $supervisorOut))
+foreach ($publishOut in @($appOut, $supervisorOut, $setupOut))
 {
     if (Test-Path -LiteralPath $publishOut)
     {
         Remove-Item -LiteralPath $publishOut -Recurse -Force
     }
 }
-Invoke-Publish $appProject $appOut $true
-Invoke-Publish $supervisorProject $supervisorOut $false
+Invoke-Publish -ProjectPath $appProject -OutDir $appOut -UiAccess
+Invoke-Publish -ProjectPath $supervisorProject -OutDir $supervisorOut -CompressSingleFile
 
-$setupOut = Join-Path $buildRoot 'setup'
 $haveSetup = Test-Path -LiteralPath $setupProject
 if ($haveSetup)
 {
-    Assert-NoSelfExtraction $setupProject
-    Invoke-Publish $setupProject $setupOut $false
+    Assert-NoSelfExtraction $setupProject $false
+    Invoke-Publish -ProjectPath $setupProject -OutDir $setupOut
 }
 elseif (-not $SkipSetup -and -not $NoSign)
 {
@@ -645,6 +732,7 @@ if ($haveSetup)
 {
     Copy-IntoPackage $setupOut $packageDir
 }
+Remove-PackageNoise $packageDir
 
 $packagedApp = Join-Path $packageDir 'EyeCtrl.App.exe'
 foreach ($exeName in $RequiredPackageExes)
@@ -661,13 +749,17 @@ if ($haveSetup -and -not (Test-Path -LiteralPath (Join-Path $packageDir $SetupEx
 
 # The natives stay loose beside the single-file exe (never self-extracted). A publish that lost
 # them is the silent self-extraction failure section 4 warns about.
-$looseNatives = @(Get-ChildItem -LiteralPath $packageDir -File -Filter '*.dll')
-if ($looseNatives.Count -eq 0)
+foreach ($native in $RequiredNativeDlls)
 {
-    throw 'The package has no loose native DLLs: the single-file publish may be self-extracting them.'
+    if (-not (Test-Path -LiteralPath (Join-Path $packageDir $native)))
+    {
+        throw "The package is missing the loose native ${native}: the single-file publish may be self-extracting, or the App was built without it."
+    }
 }
 
-$packageVersion = if ($Version) { $Version } else { Get-AppVersion $packagedApp }
+# The folder, package.json and the App's own informational version must agree. -Version only
+# changes the numeric part; the App always reports <version>+<sha>.
+$packageVersion = Get-AppVersion $packagedApp
 Assert-VersionFolderName $packageVersion
 Write-Note "version:   $packageVersion"
 
@@ -688,6 +780,10 @@ $destination = Resolve-Destination
 if ($NoSign)
 {
     Assert-NotInInbox $destination 'an unsigned package must never appear in the update inbox'
+}
+if (-not $haveSetup)
+{
+    Assert-NotInInbox $destination 'a package without EyeCtrl.Setup cannot install itself'
 }
 
 Write-Step 'Signing'
@@ -741,13 +837,23 @@ else
         }
         Remove-Item -LiteralPath $destination -Recurse -Force
     }
+
+    # Atomic publish: the wrapper (and Setup) must never see a half-copied package. Copy into a
+    # dot-prefixed sibling, validate the catalog there, then rename it into place.
     $parent = Split-Path -Parent $destination
     if (-not (Test-Path -LiteralPath $parent))
     {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
-    New-Item -ItemType Directory -Path $destination -Force | Out-Null
-    Copy-Item -Path (Join-Path $packageDir '*') -Destination $destination -Recurse -Force
+    $partial = Join-Path $parent ('.' + (Split-Path -Leaf $destination) + '.partial')
+    if (Test-Path -LiteralPath $partial)
+    {
+        Remove-Item -LiteralPath $partial -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $partial -Force | Out-Null
+    Copy-PackageTree $packageDir $partial
+    Assert-CatalogValid $partial
+    Rename-Item -LiteralPath $partial -NewName (Split-Path -Leaf $destination)
     Write-Note "copied to: $destination"
     Assert-CatalogValid $destination
 }

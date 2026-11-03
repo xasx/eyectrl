@@ -5,13 +5,17 @@
 
 .DESCRIPTION
     A thin wrapper with no install logic of its own. It finds the newest package in
-    %LOCALAPPDATA%\EyeCtrl\updates\<version>\ (newest by the package.json "created" stamp) and
-    starts that package's EyeCtrl.Setup.exe with the arguments "update <packageDir>".
+    %LOCALAPPDATA%\EyeCtrl\updates\<version>\ (newest by the package.json "created" stamp, then
+    version, then folder name) and starts that package's EyeCtrl.Setup.exe with the arguments
+    "update <packageDir>".
 
     It always starts Setup with Start-Process (ShellExecute), never with the PowerShell call
     operator: a plain CreateProcess of a launched executable is what fails with Win32 error 740
     for a UIAccess image. Setup itself is asInvoker and medium, so this matters for the contract,
     not for today's token.
+
+    Dot-prefixed folders are skipped: Publish-Signed.ps1 assembles an inbox package in
+    .<version>.partial and only renames it into place once its catalog validates.
 
     Nothing is downloaded, verified, copied or installed here: Setup does all of that. This
     wrapper never writes to Program Files, the registry or %APPDATA%; it only starts a process.
@@ -24,20 +28,21 @@
 .PARAMETER InboxRoot
     The update inbox. Default: %LOCALAPPDATA%\EyeCtrl\updates.
 
-.PARAMETER Wait
-    Wait for Setup to exit and return its exit code. Default: start it and return at once.
+.PARAMETER UntilExit
+    Block until Setup exits and return its exit code. It waits for Setup only, never for the
+    process tree it starts: the App that Setup launches outlives it by design.
 
 .EXAMPLE
     ./Install-EyeCtrl.ps1 -WhatIf
 
 .EXAMPLE
-    ./Install-EyeCtrl.ps1 -Wait
+    ./Install-EyeCtrl.ps1 -UntilExit
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$PackageDir,
     [string]$InboxRoot,
-    [switch]$Wait
+    [switch]$UntilExit
 )
 
 Set-StrictMode -Version Latest
@@ -49,6 +54,13 @@ $SetupVerb = 'update'
 if (-not $InboxRoot)
 {
     $InboxRoot = Join-Path $env:LOCALAPPDATA 'EyeCtrl\updates'
+}
+
+function Resolve-PackagePath([string]$Path)
+{
+    # GetFullPath('C:\x\') keeps the trailing separator, and CommandLineToArgvW reads the
+    # resulting ...update "C:\x\" as a literal quote inside the argument.
+    return [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetFullPath($Path))
 }
 
 function Read-PackageStamp([string]$PackagePath)
@@ -73,7 +85,7 @@ function Read-PackageStamp([string]$PackagePath)
     $version = if ($null -ne $versionProperty) { [string]$versionProperty.Value } else { '' }
 
     # "1.2.3", "1.2.3+<sha>" and "1.2.3-rc1" all compare on their numeric core. The created stamp
-    # is the primary order; the version is only a tie-break.
+    # is the primary order; the version and the folder name are the tie-breaks.
     $versionKey = $null
     if (-not [version]::TryParse(($version -split '[+\-]')[0], [ref]$versionKey))
     {
@@ -120,6 +132,7 @@ if (-not $PackageDir)
     }
 
     $candidates = Get-ChildItem -LiteralPath $InboxRoot -Directory |
+        Where-Object { -not $_.Name.StartsWith('.') } |
         ForEach-Object { Read-PackageStamp $_.FullName } |
         Where-Object { $null -ne $_ -and (Test-Path -LiteralPath (Join-Path $_.Path $SetupExeName)) }
 
@@ -138,14 +151,14 @@ if (-not $PackageDir)
 }
 else
 {
-    $PackageDir = [System.IO.Path]::GetFullPath($PackageDir)
+    $PackageDir = Resolve-PackagePath $PackageDir
     if (-not (Test-Path -LiteralPath $PackageDir))
     {
         throw "Package folder '$PackageDir' does not exist."
     }
 }
 
-$PackageDir = [System.IO.Path]::GetFullPath($PackageDir)
+$PackageDir = Resolve-PackagePath $PackageDir
 $setupExe = Join-Path $PackageDir $SetupExeName
 if (-not (Test-Path -LiteralPath $setupExe))
 {
@@ -166,9 +179,12 @@ Write-Host "Arguments: $setupArguments"
 
 # Start-Process is ShellExecute here (no window suppression, no redirection), which is the
 # launch path the C9 plan measured. Never replace this with the call operator.
-if ($Wait)
+if ($UntilExit)
 {
-    $process = Start-Process -FilePath $setupExe -ArgumentList $setupArguments -WorkingDirectory $PackageDir -PassThru -Wait
+    # -PassThru plus WaitForExit waits for Setup itself. Start-Process's own wait flag would wait
+    # for the whole process tree, and the App that Setup starts outlives it by hours.
+    $process = Start-Process -FilePath $setupExe -ArgumentList $setupArguments -WorkingDirectory $PackageDir -PassThru
+    $process.WaitForExit()
     Write-Host "Setup exited with code $($process.ExitCode)."
     exit $process.ExitCode
 }

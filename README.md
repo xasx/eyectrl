@@ -93,13 +93,15 @@ pwsh -File tools/release/Publish-Signed.ps1 -DryRun -NoSign -ScratchDir C:\t\pub
 pwsh -File tools/release/Install-EyeCtrl.ps1
 ```
 
-`Publish-Signed.ps1` publishes the App with `-p:EyeCtrlUiAccess=true`, the Supervisor and (when
-present) `EyeCtrl.Setup` into one folder, signs every exe with the pinned certificate
-(`C1039769A2D9ED01F93CEBC78B61176EE6B12F91`) and the DigiCert timestamp, verifies each signature
-and each embedded manifest (App `uiAccess="true"`, Supervisor and Setup `false`), refuses
-self-extraction, then writes `package.json` and an `EyeCtrl.cat` catalog (`New-FileCatalog` v2)
-over the package and signs it. `-DryRun` implies `-NoSign` and refuses any destination under the
-update inbox, so an unsigned package can never appear there.
+`Publish-Signed.ps1` publishes the App with `-p:EyeCtrlUiAccess=true`, the Supervisor (compressed
+single-file; the App is never compressed) and (when present) `EyeCtrl.Setup` into one folder, signs
+every exe with the pinned certificate (`C1039769A2D9ED01F93CEBC78B61176EE6B12F91`) and the DigiCert
+timestamp, verifies each signature and each embedded manifest (App `uiAccess="true"`, Supervisor and
+Setup `false`), refuses self-extraction, then writes `package.json` and an `EyeCtrl.cat` catalog
+(`New-FileCatalog` v2) over the package and signs it. The inbox copy is assembled in a dot-prefixed
+`.<version>.partial` folder and renamed into place, so a half-written package is never visible.
+`-DryRun` implies `-NoSign` and refuses any destination under the update inbox, so an unsigned
+package can never appear there.
 
 ## Test
 

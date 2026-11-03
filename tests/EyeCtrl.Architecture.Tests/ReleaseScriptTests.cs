@@ -8,10 +8,11 @@ namespace EyeCtrl.Architecture.Tests;
 /// These are text ratchets on purpose. The scripts are run by a human on the owner's machine, not
 /// by CI: a publish signs with a TPM-backed certificate and writes the owner's update inbox, so no
 /// test may execute either script (and CI must never sign). What CI <i>can</i> pin is the shape the
-/// C9 plan and the package contract depend on: the pinned thumbprint and timestamp on every
-/// signature, the UiAccess switch, the self-extraction refusal, the manifest expectations, the
-/// catalog version, the three package.json fields, and Start-Process (never the call operator) in
-/// the wrapper. A silent drift in any of those is the failure this file exists for.
+/// C9 plan and the package contract depend on: the exact signtool argument list and its pinned
+/// thumbprint and timestamp, the UiAccess switch on the App and compression on the Supervisor only,
+/// the self-extraction refusal, the manifest expectations, the catalog version and package.json
+/// fields, the atomic inbox delivery, and Start-Process (never the call operator, never its
+/// tree-waiting flag) in the wrapper.
 /// </para>
 /// </summary>
 public class ReleaseScriptTests
@@ -22,7 +23,7 @@ public class ReleaseScriptTests
     private const string TimestampUrl = "http://timestamp.digicert.com";
 
     [Fact]
-    public void ThePublishScript_SignsWithThePinnedCertificateAndTheDigiCertTimestamp()
+    public void ThePublishScript_SignsWithExactlyThePinnedCertificateAndTheDigiCertTimestamp()
     {
         var script = File.ReadAllText(PublishScriptPath);
 
@@ -31,19 +32,16 @@ public class ReleaseScriptTests
         Check.WithCustomMessage("the timestamp server is DigiCert's")
             .That(script).Contains($"$TimestampUrl = '{TimestampUrl}'");
 
-        // The argument ORDER matters: /fd SHA256, then the pinned /sha1 and /s My, then the
-        // RFC 3161 /tr with /td SHA256. A missing /td produces an SHA-1 timestamp on some
-        // responders, and a missing /tr leaves an unsigned build that expires with the cert.
+        // The argument list is pinned EXACTLY, element for element: an inserted /sm, a dropped
+        // /td or a missing /tr changes the signature or its durability, and "contains in order"
+        // would let an extra argument through (review-01 M6).
         var sign = FunctionBody(script, "Invoke-Sign");
-        AssertContainsInOrder(
-            sign,
-            "'sign'",
-            "'/fd'", "'SHA256'",
-            "'/sha1'", "$CertificateThumbprint",
-            "'/s'", "'My'",
-            "'/tr'", "$TimestampUrl",
-            "'/td'", "'SHA256'",
-            "$FilePath");
+        Check.WithCustomMessage("Invoke-Sign must build exactly one argument array")
+            .That(Occurrences(sign, "@(")).IsEqualTo(1);
+
+        // Joined and compared whole: same elements, same order, nothing inserted anywhere.
+        Check.That(string.Join(" ", ArgumentList(sign)))
+            .IsEqualTo("'sign' '/fd' 'SHA256' '/sha1' $CertificateThumbprint '/s' 'My' '/tr' $TimestampUrl '/td' 'SHA256' $FilePath");
     }
 
     [Fact]
@@ -71,16 +69,42 @@ public class ReleaseScriptTests
             .That(script).Contains("-p:PublishSingleFile=true");
         Check.WithCustomMessage("the installed build is self-contained")
             .That(script).Contains("'--self-contained', 'true'");
-        Check.WithCustomMessage("the App is published with the switch, the Supervisor without it")
-            .That(script).Contains("Invoke-Publish $appProject $appOut $true");
-        Check.WithCustomMessage("the Supervisor must never take the UiAccess switch")
-            .That(script).Contains("Invoke-Publish $supervisorProject $supervisorOut $false");
+
+        // The call line is pinned whole: flipping the switch off (review-01 M2) or compressing
+        // the App both fail here.
+        Check.That(SingleLineContaining(script, "Invoke-Publish -ProjectPath $appProject"))
+            .IsEqualTo("Invoke-Publish -ProjectPath $appProject -OutDir $appOut -UiAccess");
+    }
+
+    [Fact]
+    public void ThePublishScript_CompressesTheSupervisorButNeverTheApp()
+    {
+        // N1: the Supervisor is the one the plan allows to trade start-up time for 90 MB. The App
+        // stays uncompressed so gaze control comes up as fast as today.
+        var script = File.ReadAllText(PublishScriptPath);
+
+        Check.That(SingleLineContaining(script, "Invoke-Publish -ProjectPath $supervisorProject"))
+            .IsEqualTo("Invoke-Publish -ProjectPath $supervisorProject -OutDir $supervisorOut -CompressSingleFile");
+        Check.WithCustomMessage("the compression is a Supervisor-only publish property")
+            .That(script).Contains("-p:EnableCompressionInSingleFile=true");
+        Check.WithCustomMessage("the App publish line must not compress")
+            .That(SingleLineContaining(script, "Invoke-Publish -ProjectPath $appProject"))
+            .DoesNotContain("CompressSingleFile");
+        Check.WithCustomMessage("compression is not self-extraction: the Supervisor stays single-file")
+            .That(script).Contains("-p:PublishSingleFile=true");
     }
 
     [Fact]
     public void ThePublishScript_RefusesSelfExtractionBeforeItPublishes()
     {
         var script = File.ReadAllText(PublishScriptPath);
+
+        // The App is evaluated with the same build switch its publish uses, so a self-extract
+        // property behind EyeCtrlUiAccess cannot hide from the gate.
+        Check.WithCustomMessage("the App must be evaluated with the UiAccess switch on")
+            .That(script).Contains("Assert-NoSelfExtraction $appProject $true");
+        Check.WithCustomMessage("the Supervisor is evaluated without the switch")
+            .That(script).Contains("Assert-NoSelfExtraction $supervisorProject $false");
 
         var refusal = FunctionBody(script, "Assert-NoSelfExtraction");
         Check.WithCustomMessage("IncludeNativeLibrariesForSelfExtract must be refused")
@@ -89,11 +113,17 @@ public class ReleaseScriptTests
             .That(refusal).Contains("IncludeAllContentForSelfExtract");
         Check.WithCustomMessage("the refusal must explain the %TEMP% / High-IL reason")
             .That(refusal).Contains("%TEMP%");
+        Check.WithCustomMessage("the App's evaluation must pass the UiAccess switch")
+            .That(refusal).Contains("-property:EyeCtrlUiAccess=true");
 
-        // Both the property gate and the result gate: a publish that lost its loose natives is the
-        // silent self-extraction failure.
-        Check.WithCustomMessage("the package must still hold loose native DLLs after publishing")
-            .That(script).Contains("The package has no loose native DLLs");
+        // The result gate names the natives a working install needs, so "some dll" cannot pass.
+        Check.That(script).Contains("$RequiredNativeDlls = @(");
+        foreach (var native in new[] { "onnxruntime.dll", "tobii_stream_engine.dll", "wpfgfx_cor3.dll", "PresentationNative_cor3.dll" })
+        {
+            Check.WithCustomMessage($"the loose-native gate must require {native}")
+                .That(script).Contains($"'{native}'");
+        }
+        Check.That(script).Contains("The package is missing the loose native");
         Check.WithCustomMessage("a bundled app assembly means single-file did not happen")
             .That(script).Contains("EyeCtrl.App.dll");
     }
@@ -116,7 +146,7 @@ public class ReleaseScriptTests
     }
 
     [Fact]
-    public void ThePublishScript_WritesPackageJsonAndASha256Catalog()
+    public void ThePublishScript_WritesPackageJsonAsAMemberOfASha256Catalog()
     {
         var script = File.ReadAllText(PublishScriptPath);
 
@@ -133,23 +163,87 @@ public class ReleaseScriptTests
         Check.That(packageJson).Contains("version =");
         Check.That(packageJson).Contains("sha     =");
         Check.That(packageJson).Contains("created =");
+
+        // The contract: package.json is written BEFORE the catalog, so it is a catalog member and
+        // any later edit makes the package fail verification.
+        var jsonIndex = script.IndexOf("Write-PackageJson $packageDir $packageVersion $sha", StringComparison.Ordinal);
+        var catalogIndex = script.IndexOf("New-PackageCatalog $packageDir", StringComparison.Ordinal);
+        Check.WithCustomMessage("package.json must be written before the catalog")
+            .That(jsonIndex).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("the catalog must be created after package.json")
+            .That(catalogIndex).IsStrictlyGreaterThan(jsonIndex);
     }
 
     [Fact]
-    public void ThePublishScript_WritesTheInboxOnlyForASignedPackage()
+    public void ThePublishScript_TakesThePackageVersionFromTheAppItself()
+    {
+        // F2: -Version only bumps the MSBuild version. The folder, package.json and the App must
+        // all say <version>+<sha>, which is what Get-AppVersion reads out of the built apphost.
+        var script = File.ReadAllText(PublishScriptPath);
+
+        Check.That(script).Contains("$packageVersion = Get-AppVersion $packagedApp");
+        Check.WithCustomMessage("no branch may let -Version override the App's own informational version")
+            .That(script).DoesNotContain("$packageVersion = if ($Version)");
+    }
+
+    [Fact]
+    public void ThePublishScript_WritesTheInboxOnlyForASignedInstallablePackage()
     {
         var script = File.ReadAllText(PublishScriptPath);
 
         Check.WithCustomMessage("the inbox is %LOCALAPPDATA%\\EyeCtrl\\updates")
             .That(script).Contains("'EyeCtrl\\updates'");
         Check.WithCustomMessage("an unsigned package must never reach the real inbox")
-            .That(script).Contains("Assert-NotInInbox $destination");
+            .That(script).Contains("Assert-NotInInbox $destination 'an unsigned package");
+        Check.WithCustomMessage("a package without Setup must never reach the real inbox")
+            .That(script).Contains("Assert-NotInInbox $destination 'a package without EyeCtrl.Setup");
         Check.WithCustomMessage("the dry run must imply NoSign")
             .That(script).Contains("DryRun implies NoSign");
 
-        // The dry-run contract: everything except signing and the inbox copy.
         Check.That(script).Contains("[switch]$DryRun");
         Check.That(script).Contains("[switch]$NoSign");
+    }
+
+    [Fact]
+    public void ThePublishScript_DeliversTheInboxAtomically()
+    {
+        // F4: a half-copied package must never be visible under updates\<version>.
+        var script = File.ReadAllText(PublishScriptPath);
+
+        Check.WithCustomMessage("the copy must go through a dot-prefixed .partial sibling")
+            .That(script).Contains("'.' + (Split-Path -Leaf $destination) + '.partial'");
+        Check.WithCustomMessage("the partial package must validate before it is renamed")
+            .That(script).Contains("Assert-CatalogValid $partial");
+        Check.WithCustomMessage("the rename is the publish")
+            .That(script).Contains("Rename-Item -LiteralPath $partial -NewName");
+        Check.WithCustomMessage("a wildcard -Path misreads [ and ] in the scratch path")
+            .That(script).DoesNotContain("Join-Path $packageDir '*'");
+        Check.That(script).Contains("Copy-PackageTree $packageDir $partial");
+    }
+
+    [Fact]
+    public void ThePublishScript_KeepsBuildArtifactsOutOfThePackage()
+    {
+        var script = File.ReadAllText(PublishScriptPath);
+
+        Check.That(script).Contains("$PackageNoiseExtensions = @('.pdb', '.lib')");
+        Check.That(script).Contains("$PackageNoiseNames = @('README.md')");
+        Check.That(script).Contains("Remove-PackageNoise $packageDir");
+        Check.WithCustomMessage("symbols are not generated for the publish")
+            .That(script).Contains("'-p:DebugType=None'");
+        Check.WithCustomMessage("XML docs are not generated for the publish")
+            .That(script).Contains("'-p:GenerateDocumentationFile=false'");
+    }
+
+    [Fact]
+    public void ThePublishScript_RefusesADirtyTreeOnASigningRun()
+    {
+        // The package's sha claims HEAD, and the package is signed: a dirty tree makes that false.
+        var script = File.ReadAllText(PublishScriptPath);
+
+        Check.That(script).Contains("The working tree is dirty");
+        Check.WithCustomMessage("a dirty tree is an error on a signing run, not a warning")
+            .That(script).Contains("throw (\"The working tree is dirty:");
     }
 
     [Fact]
@@ -175,10 +269,41 @@ public class ReleaseScriptTests
         Check.WithCustomMessage("no dynamic invocation can smuggle in a bare exe call")
             .That(script).DoesNotContain("Invoke-Expression");
 
-        Check.WithCustomMessage("the wrapper has no install logic of its own: it never copies, deletes or writes")
+        Check.WithCustomMessage("the wrapper has no install logic of its own: it never copies")
             .That(script).DoesNotContain("Copy-Item");
         Check.WithCustomMessage("the wrapper must not write the registry")
             .That(script).DoesNotContain("New-ItemProperty");
+    }
+
+    [Fact]
+    public void TheInstallWrapper_WaitsForSetupOnly_NotForItsProcessTree()
+    {
+        // F1: Start-Process's own wait flag waits on the job object, which holds the App that
+        // Setup launches. -PassThru plus WaitForExit waits for Setup itself.
+        var script = File.ReadAllText(InstallScriptPath);
+
+        Check.WithCustomMessage("the wrapper must never pass the tree-waiting flag")
+            .That(script).DoesNotContain("-Wait");
+        Check.That(script).Contains("Start-Process -FilePath $setupExe -ArgumentList $setupArguments -WorkingDirectory $PackageDir -PassThru");
+        Check.That(script).Contains("$process.WaitForExit()");
+    }
+
+    [Fact]
+    public void TheInstallWrapper_TrimsATrailingSeparatorAndSkipsPartialPackages()
+    {
+        // F3: GetFullPath('C:\x\') keeps the '\', and update "C:\x\" arrives as C:\x".
+        var script = File.ReadAllText(InstallScriptPath);
+
+        Check.That(script).Contains("TrimEndingDirectorySeparator");
+        Check.WithCustomMessage("the .<version>.partial folder must not be treated as a package")
+            .That(script).Contains("-not $_.Name.StartsWith('.')");
+
+        // Contract order: created, then version, then name.
+        AssertContainsInOrder(
+            script,
+            "Expression = 'Created'",
+            "Expression = 'VersionKey'",
+            "Expression = 'Name'");
     }
 
     [Fact]
@@ -232,8 +357,37 @@ public class ReleaseScriptTests
     }
 
     /// <summary>
-    /// Asserts the tokens are all present and appear in the given order — the signtool contract is
-    /// positional, so a mere Contains would accept a reordered or duplicated argument list.
+    /// Returns the elements of the first <c>@( … )</c> array literal in a function body, in source
+    /// order. Splitting on commas is enough because every element is a single token.
+    /// </summary>
+    private static string[] ArgumentList(string functionBody)
+    {
+        var start = functionBody.IndexOf("@(", StringComparison.Ordinal);
+        Check.WithCustomMessage("the function must build an argument array")
+            .That(start).IsStrictlyGreaterThan(-1);
+        var end = functionBody.IndexOf(')', start);
+        Check.WithCustomMessage("the argument array must be closed")
+            .That(end).IsStrictlyGreaterThan(start);
+
+        return functionBody[(start + 2)..end]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    /// <summary>Returns the trimmed single line that contains <paramref name="marker"/>.</summary>
+    private static string SingleLineContaining(string text, string marker)
+    {
+        foreach (var line in text.Split('\n'))
+        {
+            if (line.Contains(marker, StringComparison.Ordinal))
+            {
+                return line.Trim();
+            }
+        }
+        throw new InvalidOperationException($"no line contains '{marker}'");
+    }
+
+    /// <summary>
+    /// Asserts the tokens are all present and appear in the given order.
     /// </summary>
     private static void AssertContainsInOrder(string text, params string[] tokens)
     {
@@ -242,10 +396,22 @@ public class ReleaseScriptTests
         {
             var index = text.IndexOf(token, position, StringComparison.Ordinal);
             Check.WithCustomMessage(
-                    $"'{token}' must appear after the previous argument (searching from offset {position})")
+                    $"'{token}' must appear after the previous token (searching from offset {position})")
                 .That(index).IsStrictlyGreaterThan(-1);
             position = index + token.Length;
         }
+    }
+
+    private static int Occurrences(string text, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
     }
 
     private static string RepoRoot()

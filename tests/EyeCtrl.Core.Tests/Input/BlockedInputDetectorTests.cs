@@ -287,6 +287,30 @@ public class BlockedInputDetectorTests
     }
 
     [Fact]
+    public void ADelayedLanding_ClearsALiveBlock()
+    {
+        // L2/X4: the pre-move landing is positive evidence and must clear a LIVE block, not only
+        // drop a candidate while unblocked.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
+        Check.That(h.Detector.IsBlocked).IsTrue();
+
+        // While blocked, another click's read lags and queues a candidate.
+        h.Detector.ReportAction(target, stuck, stuck);
+
+        // The next frame's pre-move read is at the click target: the click landed late.
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: target);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+        Check.That(h.Events[^1].IsBlocked).IsFalse();
+    }
+
+    [Fact]
     public void APreMoveReadStillAtTheOldSpot_KeepsThePendingMiss()
     {
         // N1/P9: the click was dropped; the pre-move read is still where the cursor was, so the

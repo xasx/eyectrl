@@ -47,9 +47,10 @@ public sealed class VerifiedInputSimulator : IInputSimulator
     /// <inheritdoc />
     public void MoveCursor(PhysicalPoint point)
     {
-        // N1: read BEFORE our own move writes over the spot. A click whose injection landed a frame
-        // late is visible here; reading after this MoveCursor would see only the gaze point it just
-        // wrote, which is exactly the button the owner is still looking at.
+        // N1: read BEFORE our own move writes over the spot. A click that has landed by this read
+        // is visible here; reading after this MoveCursor would see only the gaze point it just
+        // wrote, which is exactly the button the owner is still looking at. A landing later than
+        // this read is overwritten by the move itself, so it cannot be seen at all (one-frame window).
         var cursorBeforeMove = ReadCursor();
         _inner.MoveCursor(point);
         _detector.ReportMoveCommand(point, cursorBeforeMove);

@@ -228,10 +228,12 @@ public sealed class BlockedInputDetector
 
     /// <summary>
     /// Reports one commanded move together with the cursor read taken BEFORE the move was written.
-    /// That read is the evidence N1 needs: a click whose <c>SendInput</c> landed after the click's
-    /// own read is visible at the next frame, while the post-move read would see only the gaze point
-    /// this call just wrote (and would call a landed click a miss when the gaze is still on the
-    /// button). The overload with no pre-move read keeps the post-move behaviour for direct callers.
+    /// That read is the evidence N1 needs: a click that lands BY the next frame's pre-move read is
+    /// visible here, while the post-move read would see only the gaze point this call just wrote
+    /// (and would call a landed click a miss when the gaze is still on the button). A landing later
+    /// than that read is overwritten by this frame's own FreeLook move; the 40 ms confirmation then
+    /// sees the gaze, which is the documented one-frame window. The overload with no pre-move read
+    /// keeps the post-move behaviour for direct callers.
     /// </summary>
     /// <param name="commanded">The point EyeCtrl just asked the OS to move to.</param>
     /// <param name="cursorBeforeMove">The cursor before this move, or null when unreadable. A null

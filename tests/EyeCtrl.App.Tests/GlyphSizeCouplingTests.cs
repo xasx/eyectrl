@@ -101,6 +101,57 @@ public class GlyphSizeCouplingTests
         }
     }
 
+    /// <summary>
+    /// The switcher's close disc is the QuickActions close button transplanted onto a
+    /// dismissal-only fullscreen surface, so it carries the same two couplings: the const must
+    /// mirror the XAML's Width/Height, and the lone glyph must take Dominant. The hit-radius
+    /// half of the B8 chain (registered radius == the shared r50) is pinned on the ViewModel
+    /// side in TaskSwitcherCloseTargetTests — together the two close the drawn-vs-hit gap the
+    /// 2026-08-17 field report came from.
+    /// </summary>
+    [StaFact]
+    public void TaskSwitcherCloseButton_KeepsItsConstAndItsRatioInStepWithTheXaml()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var window = new TaskSwitcherWindow();
+        try
+        {
+            var button = window.FindName("CloseButton") as Border;
+            Check.WithCustomMessage("TaskSwitcherWindow has no Border named CloseButton.")
+                .That(button).IsNotNull();
+
+            // Half one: the const mirrors the XAML (QuickActionsCloseButton half one, verbatim
+            // shape). If the XAML's Width moves and the const does not, the glyph is sized for
+            // a disc that no longer exists — and the drawn face stops being 2 × the hit radius.
+            Check.WithCustomMessage(
+                    "TaskSwitcherWindow.CloseButtonSize has drifted from the Width the XAML "
+                    + $"declares on CloseButton. Const says {TaskSwitcherWindow.CloseButtonSize}, "
+                    + $"XAML renders {button!.Width}. Change both or neither.")
+                .That(button.Width).IsEqualTo(TaskSwitcherWindow.CloseButtonSize);
+            Check.WithCustomMessage("CloseButton is no longer square.")
+                .That(button.Height).IsEqualTo(TaskSwitcherWindow.CloseButtonSize);
+
+            var glyph = window.FindName("CloseGlyph") as TextBlock;
+            Check.WithCustomMessage("TaskSwitcherWindow has no TextBlock named CloseGlyph.")
+                .That(glyph).IsNotNull();
+
+            // Half two: the RATIO CHOICE — Dominant, the bucket for a lone glyph filling its
+            // chrome affordance, same as the QuickActions close button it mirrors.
+            Check.WithCustomMessage(
+                    "CloseGlyph must be CloseButtonSize x ContainerRatio.Dominant — Dominant is "
+                    + "the bucket for a lone glyph filling its chrome affordance (spec "
+                    + $"§8.5). Expected {TaskSwitcherWindow.CloseButtonSize * ContainerRatio.Dominant} "
+                    + $"but found {glyph!.FontSize}.")
+                .That(glyph.FontSize)
+                .IsEqualTo(TaskSwitcherWindow.CloseButtonSize * ContainerRatio.Dominant);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [StaFact]
     public void QuickActionsTile_KeepsItsConstAndItsRatioInStepWithTheItemTemplate()
     {

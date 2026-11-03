@@ -3,6 +3,8 @@ namespace EyeCtrl.ViewModels.Tests;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -103,6 +105,28 @@ public class TaskSwitcherCloseTargetTests
         // Returning inside the target resumes it: paused clears.
         messenger.Send(new GazeCursorMovedMessage(CloseCenter, 360_000));
         Check.That(vm.CloseDwellPaused).IsFalse();
+    }
+
+    [Fact]
+    public void CloseTarget_RegistersTheSharedHitRadius_TheB8Chain()
+    {
+        // B8: what is drawn IS what the detector hit-tests. The drawn disc is 100 DIP —
+        // TaskSwitcherWindow.CloseButtonSize = 2 x UIConstants.ButtonRadius, pinned against the
+        // XAML attribute by GlyphSizeCouplingTests (App.Tests; this project cannot see the WPF
+        // window). The registered hit radius must therefore be exactly the shared r50 —
+        // LogicalToPhysicalX of it — and never an independent number that can drift: a drawn
+        // 100 DIP disc against a different hit radius re-splits drawn-vs-hit on this
+        // dismissal-only surface (the 2026-08-17 field report's failure class).
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        using var vm = NewSwitcher(messenger, settings);
+
+        vm.Receive(new TaskSwitcherToggledMessage());
+        vm.UpdateCloseButtonPosition(CloseCenter);
+
+        var target = vm.DetectorForTest.Targets.Single(t => t.Id == TaskSwitcherViewModel.CloseTargetId);
+        Check.That(target.Bounds).IsNull();
+        Check.That(target.Radius).IsEqualTo(DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius));
     }
 
     [Fact]

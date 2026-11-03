@@ -239,6 +239,71 @@ public class SmallLMPredictorConcurrencyTests
         }
     }
 
+    // The worker runs on a bare ThreadPool.QueueUserWorkItem thread: without the worker's catch,
+    // one failed ONNX Run (a DirectML device hiccup, a corrupted cache tensor) is an unhandled
+    // thread-pool exception that crashes the whole app mid-sentence. The catch must contain the
+    // fault, the worker must exit cleanly, and the next Predict must still produce suggestions.
+    [Fact]
+    public void Predict_FirstRequestStepThrows_OperationIsContained_AndTheNextPredictSucceeds()
+    {
+        RunWorker_RecoversFromStepFault(new InvalidOperationException("ONNX Run fault (simulated)"));
+    }
+
+    // The OCE fault pins the integrated containment only: CreateModelFree has no logger seam, so
+    // an OCE absorbed by the general catch (logged at Error) is externally indistinguishable from
+    // the dedicated silent OCE catch at SmallLMPredictor.cs:256 — no observable differs
+    // (review r1 F8). The InvalidOperationException fact above is the one that kills a removed
+    // general catch: the thread-pool throw surfaces as a bounded test failure, not process death.
+    [Fact]
+    public void Predict_FirstRequestStepThrowsOperationCanceled_OperationIsContained_AndTheNextPredictSucceeds()
+    {
+        RunWorker_RecoversFromStepFault(new OperationCanceledException("inference cancelled (simulated)"));
+    }
+
+    private static void RunWorker_RecoversFromStepFault(Exception fault)
+    {
+        var tokenizer = CreateTokenizer(out var directory);
+        var entered = new ManualResetEventSlim();
+        SmallLMPredictor? predictor = null;
+        var requestIndex = -1;
+
+        try
+        {
+            predictor = SmallLMPredictor.CreateModelFree(tokenizer, (step, token) =>
+            {
+                if (step == 0) requestIndex++;
+                var request = requestIndex;
+
+                if (request == 0)
+                {
+                    // Prove the first request's step RAN before it faulted — otherwise a
+                    // superseded request could be skipped (token already cancelled) and the
+                    // recovery would be untested.
+                    entered.Set();
+                    throw fault;
+                }
+
+                return step == 0 ? new SmallLMPredictor.StepOutput(WorldToken, 0.5) : null;
+            });
+
+            predictor.Predict("first request");
+            Check.That(entered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+
+            predictor.Predict("second request");
+
+            var results = WaitForResults(predictor, TimeSpan.FromSeconds(10));
+            Check.That(results).IsNotNull();
+            Check.That(results!).HasSize(1);
+            Check.That(results![0].Word).IsEqualTo("w");
+        }
+        finally
+        {
+            predictor?.Dispose();
+            tokenizer.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
     private static IReadOnlyList<PredictionResult>? WaitForResults(SmallLMPredictor predictor, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

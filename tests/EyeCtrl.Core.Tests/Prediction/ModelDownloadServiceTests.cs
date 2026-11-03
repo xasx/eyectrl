@@ -287,4 +287,176 @@ public class ModelDownloadServiceTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
         }
     }
+
+    // The user cancels a model download by dwelling Cancel on the Models settings page (the
+    // production caller owns the token it passes). The chain must hold: the half-written
+    // .download temp is deleted, the IsCancelled progress event reaches the UI, and the
+    // cancellation unwinds as OperationCanceledException instead of crashing. Without it the
+    // user's learned-file directory keeps a half-written artifact and the UI never resets.
+    [Fact]
+    public async Task DownloadModelAsync_CancelledMidBody_CleansTempRaisesIsCancelledAndRethrows()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        try
+        {
+            using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    // Serve one chunk, then park on the caller's token — a stalled body read.
+                    Content = new StreamContent(new ChunkThenCancelStream())
+                }));
+            using var service = new ModelDownloadService(tempDir, client);
+            var events = new List<ModelDownloadService.ModelDownloadProgress>();
+            service.ProgressChanged += p => events.Add(p);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            var download = service.DownloadModelAsync(
+                "custom-x", "custom-x.onnx", "http://localhost/model.onnx",
+                expectedSha256: "",
+                cancellationToken: cts.Token);
+
+            // The call parks inside the body read with the .download temp already on disk.
+            var tempPath = Path.Combine(tempDir, "custom-x.onnx.download");
+            Check.That(System.Threading.SpinWait.SpinUntil(() => File.Exists(tempPath), 10_000)).IsTrue();
+
+            cts.Cancel();
+
+            OperationCanceledException? cancelled = null;
+            // Bounded so a regression that stops the token reaching the body read fails loud
+            // instead of hanging the suite (review r1 F5).
+            try { await download.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (OperationCanceledException ex) { cancelled = ex; }
+            Check.That(cancelled).IsNotNull();
+
+            Check.That(File.Exists(tempPath)).IsFalse();                                  // temp cleaned up
+            Check.That(File.Exists(Path.Combine(tempDir, "custom-x.onnx"))).IsFalse();    // nothing installed
+            Check.That(events).HasElementThatMatches(e => e.IsCancelled);
+            Check.That(events.Last().IsCancelled).IsTrue();
+            Check.That(events.Last().IsComplete).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    // The Busy guard stops two overlapping transfers from interleaving on the same temp file — a
+    // double activation of the download button would otherwise silently corrupt the first.
+    [Fact]
+    public async Task DownloadModelAsync_SecondConcurrentDownload_IsRejectedAsBusy()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        var body = new GatedStream();
+        try
+        {
+            using var client = new HttpClient(new StubHttpMessageHandler((_, _) =>
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(body)
+                }));
+            using var service = new ModelDownloadService(tempDir, client);
+            var events = new List<ModelDownloadService.ModelDownloadProgress>();
+            service.ProgressChanged += p => events.Add(p);
+
+            var first = service.DownloadModelAsync(
+                "first", "first.onnx", "http://localhost/first.onnx",
+                expectedSha256: "",
+                cancellationToken: TestContext.Current.CancellationToken);
+            try
+            {
+                Check.That(System.Threading.SpinWait.SpinUntil(() => service.IsDownloading, 10_000)).IsTrue();
+                Check.That(File.Exists(Path.Combine(tempDir, "first.onnx.download"))).IsTrue();
+
+                var secondOk = await service.DownloadModelAsync(
+                    "second", "second.onnx", "http://localhost/second.onnx",
+                    expectedSha256: "",
+                    cancellationToken: TestContext.Current.CancellationToken);
+                Check.That(secondOk).IsFalse();
+                Check.That(File.Exists(Path.Combine(tempDir, "second.onnx"))).IsFalse();
+                Check.That(File.Exists(Path.Combine(tempDir, "second.onnx.download"))).IsFalse();
+
+                var secondEvents = events.Where(e => e.ModelId == "second").ToList();
+                Check.That(secondEvents).HasSize(1);
+                Check.That(secondEvents[0].Error).IsEqualTo("Another download is already in progress");
+                Check.That(secondEvents[0].IsComplete).IsFalse();
+                Check.That(secondEvents[0].IsCancelled).IsFalse();
+
+                Check.That(service.IsDownloading).IsTrue();   // still the FIRST download's turn
+            }
+            finally
+            {
+                body.Release();   // never leave the first download parked past the assertions
+            }
+
+            // Bounded for the same reason as the cancel test above (review r1 F5).
+            Check.That(await first.WaitAsync(TimeSpan.FromSeconds(10))).IsTrue();                 // the first download still completes
+            Check.That(File.Exists(Path.Combine(tempDir, "first.onnx"))).IsTrue();
+            Check.That(File.Exists(Path.Combine(tempDir, "first.onnx.download"))).IsFalse();
+            Check.That(events.Last().IsComplete).IsTrue();
+            Check.That(service.IsDownloading).IsFalse();
+        }
+        finally
+        {
+            body.Release();
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>Serves one chunk, then parks until the caller's token fires — a stalled body read.</summary>
+    private sealed class ChunkThenCancelStream : Stream
+    {
+        private readonly byte[] _firstChunk = System.Text.Encoding.UTF8.GetBytes("first-chunk-of-model");
+        private bool _firstReadServed;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("async-only test stream");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (!_firstReadServed)
+            {
+                _firstReadServed = true;
+                var served = Math.Min(count, _firstChunk.Length);
+                Array.Copy(_firstChunk, 0, buffer, offset, served);
+                return served;
+            }
+
+            // Park until the caller cancels; Task.Delay throws OperationCanceledException then.
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;   // unreachable
+        }
+    }
+
+    /// <summary>Parks every read on a gate the test controls; the body ends once released.</summary>
+    private sealed class GatedStream : Stream
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => _gate.TrySetResult();
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("async-only test stream");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            await _gate.Task.WaitAsync(cancellationToken);
+            return 0;   // released: end of body
+        }
+    }
 }

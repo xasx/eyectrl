@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Interfaces;
@@ -25,6 +26,12 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private readonly EyeCtrlSettings _settings;  // H2 fix: declared + assigned
 
     public ObservableCollection<TaskSwitcherTileViewModel> Tiles { get; } = new();
+
+    /// <summary>Reserved dwell-target id for the switcher's close button (not a window tile).</summary>
+    public const string CloseTargetId = "__taskswitcher_close__";
+    [ObservableProperty] private double _closeDwellProgress;
+    /// <summary>True while the close button's dwell is held (gaze stepped off mid-dwell): its bar dims.</summary>
+    [ObservableProperty] private bool _closeDwellPaused;
 
     public TaskSwitcherViewModel(
         IWindowManager windowManager,
@@ -60,6 +67,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // the overlapping origin targets during the layout gap (the old (0,0) race).
         Tiles.Clear();
         DwellDetector.ClearTargets();
+        CloseDwellProgress = 0;
+        CloseDwellPaused = false;
 
         foreach (var window in _windowManager.EnumerateOpenWindows())
         {
@@ -83,17 +92,41 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         IsVisible = false;
         DwellDetector.ClearTargets();
         Tiles.Clear();
+        // A progress bar left over from the hidden session must not greet the next show (the
+        // VM is a DI singleton — the next show reuses this instance, AppBootstrapper pattern).
+        CloseDwellProgress = 0;
+        CloseDwellPaused = false;
+    }
+
+    /// <summary>
+    /// Called by the View after layout to register the close disc as a dwell target.
+    /// Mirrors <see cref="QuickActionsGridViewModel.UpdateCloseButtonPosition"/> — same
+    /// physical-pixel convention and the same <see cref="DwellSettings.ToolbarButtonDwellMs"/>.
+    /// </summary>
+    public void UpdateCloseButtonPosition(PhysicalPoint screenCenter)
+    {
+        DwellDetector.AddTarget(new DwellTarget(
+            CloseTargetId, screenCenter,
+            DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
+            _settings.Dwell.ToolbarButtonDwellMs));
     }
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
-    // a tile dwell is this overlay's ONLY dismissal (no close tile, no auto-dismiss, ESC does not
-    // reach it), so gating the dwell would make a paused switcher an inescapable fullscreen
-    // overlay (round-2 blocker). The EFFECT is gated instead in OnTargetActivated: while paused
-    // a tile dwell dismisses, it never switches windows.
+    // the close target and the tile dwells must stay dwellable while paused so a paused
+    // fullscreen switcher stays escapable; the effect stays gated via LastSampleWasPaused.
+    // While paused a tile dwell dismisses (never switches — see OnTargetActivated) and the
+    // close target always just dismisses.
     protected override bool DwellActiveWhilePaused => true;
 
     protected override void OnTargetActivated(string targetId)
     {
+        // The close target is a pure dismissal — paused or not it NEVER sends the selection
+        // (OS input); it only hides the overlay.
+        if (targetId == CloseTargetId)
+        {
+            HideOverlay();
+            return;
+        }
         // targetId is the hwnd string. While paused the dwell is a DISMISS, never a switch —
         // suppressing the selection send (OS input) but keeping HideOverlay is what keeps the
         // overlay escapable while still obeying "no input leaves EyeCtrl while paused".
@@ -106,6 +139,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
     protected override void OnTargetProgress(string targetId, double progress)
     {
+        if (targetId == CloseTargetId)
+        {
+            CloseDwellProgress = progress;
+            return;
+        }
         var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
         if (tile != null)
             tile.DwellProgress = progress;
@@ -113,6 +151,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
     protected override void OnTargetPauseChanged(string targetId, bool paused)
     {
+        if (targetId == CloseTargetId)
+        {
+            CloseDwellPaused = paused;
+            return;
+        }
         var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
         if (tile != null)
             tile.IsDwellPaused = paused;

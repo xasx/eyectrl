@@ -105,6 +105,22 @@ public class OverlayStaticTextTests
              .IsEqualTo("Close");
     }
 
+    /// <summary>
+    /// The switcher's close disc is a Border (no automation peer) whose only text is the glyph,
+    /// so it would announce "✕" — same shape as the QuickActions grid's close button. The glyph
+    /// TextBlock carries the real name; the key reuse is single-surface (overlays).
+    /// </summary>
+    [StaFact]
+    public void TaskSwitcherCloseGlyph_PublishesARealName()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new TaskSwitcherWindow();
+
+        Check.That(System.Windows.Automation.AutomationProperties.GetName(
+                (TextBlock)window.FindName("CloseGlyph")!))
+             .IsEqualTo("Close");
+    }
+
     private static string Text(FrameworkElement window, string name) =>
         ((TextBlock)window.FindName(name)!).Text;
 

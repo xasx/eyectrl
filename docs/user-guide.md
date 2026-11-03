@@ -64,7 +64,7 @@ dictionaries, emoji data, sounds) next to `EyeCtrl.exe` — the app needs those 
 
 **Start:** double-click `EyeCtrl.exe`. A splash card appears briefly while the overlays get
 ready, then the gaze ring starts following your eyes. On the very first run a short
-**safety setup** follows: five yes/no questions, one dwellable card at a time, that set the
+**safety setup** follows: five short questions, one dwellable card at a time, that set the
 safety-critical basics — you can run it again any time from Settings → General. If
 **Start on Windows Boot** is on (Settings → General), Windows starts EyeCtrl automatically
 when you sign in.
@@ -107,12 +107,14 @@ reticle*.
 **Dwell = rest your gaze.** To press anything in EyeCtrl — a toolbar button, a keyboard key,
 a settings row — just look at it and hold still. A progress indicator fills while you dwell;
 when it completes, the control activates. A brief glance away (under about half a second)
-doesn't cancel a dwell — only a sustained look-away does.
+doesn't cancel a dwell — only a sustained look-away does (keyboard keys excepted — see
+[section 13](#13-the-on-screen-keyboard)).
 
 ![A dwell progress arc filling around a toolbar button](images/dwell-arc.png)
 *A dwell in progress: the arc fills around the button as you hold your gaze on it.
-Captured on an earlier build: the ▶ shows the app was paused at capture time, and the
-small provider glyph visible left of the band has since been removed from the toolbar.*
+Captured on an earlier build: the ▶ shows the app was paused at capture time, the seventh
+(reset) button shows Adaptation was on, and the small provider glyph at the left end of
+the band has since been removed.*
 
 **How a click happens.** Rest your gaze where you want to act:
 
@@ -120,13 +122,13 @@ small provider glyph visible left of the band has since been removed from the to
    **activation button** appears **just beside your gaze ring, diagonally toward the middle
    of the screen** (Settings → Dwell Times names its dwell time "Activation Button").
 2. **Move your eyes onto the button** and hold (about **700 ms** default) until it
-   completes — the **action menu** then opens where you were originally looking (see
+   completes — the **action menu** opens, in the middle of the screen by default (see
    [section 5](#5-clicking-with-the-action-menu)). Be reasonably quick: if you don't look
    at the button, it disappears again after about ¾ of a second.
 3. Dwell the action you want, for example **Left click**. The action lands at the point you
    fixated in step 1 — not at the button.
 
-<img src="images/dwell-flow.svg" width="720" alt="Schematic: rest your gaze, hold the activation halo, the action menu ring opens">
+<img src="images/dwell-flow.svg" width="720" alt="Schematic: rest your gaze, move onto the activation button beside the ring, the action menu ring opens">
 
 **Dwell times** (defaults; every one is adjustable in Settings → Dwell Times):
 
@@ -145,20 +147,23 @@ target cannot fire again — so one long look is one activation, not several.
 
 **Sound feedback.** An optional **Dwell Completion Sound** (off by default) plays a soft
 tone whenever a dwell activates on EyeCtrl's own buttons, menus, and settings. The keyboard
-has its own key click sound, on by default. Every activation on EyeCtrl's own surfaces also
-takes one brief **cursor-ring flash** (the **Dwell Completion Highlight**, on by default) —
-keyboard keys never flash, and inside the magnifier the rim flashes instead when an offer
-is accepted.
+has its own key click sound, on by default. Wherever the cursor ring is visible, an
+activation also makes it take one brief flash (the **Dwell Completion Highlight**, on by
+default) — activations inside the action menu or settings (where the ring is hidden) don't
+flash, keyboard keys never flash, and inside the magnifier the rim flashes instead when an
+offer is accepted.
 
 **Pause.** Dwelling **Pause** on the toolbar (or the tray item) suspends gaze control: the
 ring disappears, and a thin strip along the docked screen edge marks that EyeCtrl is
 paused — with a round **Resume disc (▶)** sitting on it. Look at the disc and hold (about
 1 s by default) to resume. If your eyes were already resting on it, look away for a moment
 and come back — the disc only arms after you leave it. The toolbar itself is hidden while
-paused; the strip is the way back (you can also summon the toolbar from its docked edge
-and dwell its ▶ button). Pausing also ends any active mode — a drag is cancelled, and
-scroll and repeat modes exit. While paused, only the resume affordances and a few
-dismissal surfaces (the task switcher, closing the quick-actions grid) answer to gaze.
+paused; the strip is the way back. (The band hides only while it auto-hides — a real
+tracker, docked; if the toolbar is showing, because docking is off or in mouse mode, its ▶
+button is the way out.) Pausing also ends any active mode — a drag is cancelled, and
+scroll and repeat modes exit. While paused, the toolbar band and its Modes menu (when the
+band is showing), the resume affordances, and a few dismissal surfaces (the task switcher,
+closing the quick-actions grid) answer to gaze.
 Pause is also how you hand the mouse to a caregiver — see below.
 
 **The Windows pointer follows your gaze.** While you look around, the system pointer rides
@@ -180,10 +185,10 @@ No mode can trap you — each has several ways out:
 | Mid-drag | Hold still ~½ s to drop where you look · dwell the drop disc on your gaze point · dwell ✕ (right screen edge) or press **Esc** to **cancel** back to the grab point |
 | In a repeat-click mode | Dwell the ⏹ Stop button (right screen edge) · dwell the same mode again · press Esc · losing gaze for ~2 s |
 | Action menu open | Dwell ✕ (right screen edge) · press Esc |
-| Inside the magnifier | Dwell ✕ or **Back** (right screen edge) · press Esc |
+| Inside the magnifier | Dwell ✕ (right screen edge) · press Esc — the second edge button is Recapture, not an exit |
 | Calibrating | Dwell the ✕ Cancel disc |
 | In an eye-care exercise | Dwell the Skip disc |
-| Paused | Dwell the ▶ Resume disc on the edge strip (~1 s) — or summon the toolbar from its docked edge and dwell ▶ |
+| Paused | Dwell the ▶ Resume disc on the edge strip (~1 s) — or, if the toolbar is showing (docking off / mouse mode), just dwell its ▶ |
 
 And two backstops that always apply: **pausing hands the mouse to a caregiver** (the
 pointer otherwise follows your gaze), and a physical **Esc** key press leaves the action
@@ -200,7 +205,7 @@ bottom, left, or right edge (Settings → Toolbar). Button size is adjustable (d
 ![The EyeCtrl toolbar with its buttons](images/toolbar.png)
 *The toolbar — captured on an earlier build with Adaptation enabled, hence the seventh
 (reset) button; today's default band shows six and no longer carries the small provider
-glyph left of the band.*
+glyph that sat at the band's left end.*
 
 | Button | What it does |
 |---|---|
@@ -266,8 +271,8 @@ Drag trail color and opacity, and the settle time and radius, are in Settings �
 
 **Scroll Mode** (on the ring's first layer by default) turns your gaze into a joystick:
 
-- The point where you opened the menu becomes the **anchor**, marked with a crosshair and a
-  wide **start circle**.
+- The point you were looking at when you chose Scroll Mode becomes the **anchor**, marked
+  with a crosshair and a wide **start circle**.
 - **Look back at the anchor to stop.** Look away from it in any direction to scroll that
   way — the farther you look, the faster it scrolls. A small dot shows your joystick
   position, and the accent ring thickens with speed. Scrolling only *arms* after you hold
@@ -310,8 +315,9 @@ mode, or Settings → Selection) magnifies before you commit:
    accepted offer.
 3. Look at the exact spot inside the zoom. After a short settling moment a small **anchor**
    crosshair marks the spot; dwell it (default 600 ms) to commit.
-4. The action menu opens **centered on your precise point**, with the zoomed preview still
-   visible in the middle so you can confirm. Dwell the action you want.
+4. The action menu opens (screen centre by default), with the zoomed preview of your
+   precise point in its middle so you can confirm. Dwell the action you want — it lands at
+   your precise point.
 
 Two helpers make this forgiving: a **grace period** (default 500 ms) ignores your first
 glance so you can orient, and **hold tolerance** (default 72 px) lets your gaze wobble
@@ -330,12 +336,12 @@ box, menu item, checkbox, list item, and so on, in any application that exposes 
 (including non-Microsoft apps and web browsers). If one is found:
 
 - a **highlight rectangle** marks the control, and
-- the action menu opens centered on it, and your chosen action is performed at the
-  control's center — not at your raw, slightly-off gaze point.
+- the action menu opens (screen centre by default), and your chosen action is performed at
+  the control's centre — not at your raw, slightly-off gaze point.
 
 If nothing interactive is exactly under the point, EyeCtrl searches outward in rings
-(default 48 px) and can finally fall back to the whole window or the raw pixel (adjustable
-in Settings → Selection).
+(default 48 px) and can finally fall back to the whole window or the raw pixel (the snap
+radius is adjustable in Settings → Selection).
 
 ## 11. Pinned notes
 
@@ -362,8 +368,9 @@ in Settings (Screen Edge: Bottom / Top).
 
 ![The letters page of the on-screen keyboard](images/keyboard-letters.png)
 *The letters page — QWERTY here, shown docked at the top edge with the toolbar above it
-(the default dock is the bottom edge; the flip button swaps them). The right-edge buttons
-(close/flip) sit outside this crop, and the prediction row appears only once you type.*
+(the default dock is the bottom edge; the flip button swaps them). The toolbar in these
+captures is an older build (seven buttons, provider glyph); the right-edge buttons
+(close/flip) sit outside the crop, and the prediction row appears only once you type.*
 
 - **ABC** — letters, with **Shift, Ctrl, Alt, Win** and **Caps** on the sides. **Shift,
   Ctrl, Alt and Win apply to the next key only**, then release themselves — dwell one a
@@ -374,7 +381,7 @@ in Settings (Screen Edge: Bottom / Top).
   labelled **àé** on QWERTZ, **Acc** on AZERTY.
 - **123** — numbers; **#+=** — symbols.
 - **Fn** — Esc, F1–F12, Print Screen, Home / End / PgUp / PgDn / Ins / Del, the arrow keys,
-  and one-dwell shortcuts: **Copy, Paste, Cut, Undo, Redo, Select All**, and **Add Word**
+  and one-dwell shortcuts: **Copy, Paste, Cut, Undo, Redo, Sel All**, and **Add Word**
   (teaches your current text to the prediction dictionary, see below).
 - **😀** — the emoji keyboard (next section).
 
@@ -383,9 +390,11 @@ in Settings (Screen Edge: Bottom / Top).
 (right-edge buttons outside the crop).*
 
 Handy special keys on the main pages: **Bksp** (backspace) and **DelWd** (delete whole
-word). On the QWERTZ layout the keys carry German labels instead — **Strg** (Ctrl), **⌫**
-(backspace), **Aa** (delete word), **⌴** (space), **↵** (enter), **⇥** (tab) — and the Fn
-shortcuts read **Kopieren, Einfügen, ✂, ↶, ↷, Alles mark.** and **+ Wort** (add word).
+word). On the QWERTZ layout the keys carry German labels instead — **Strg** (Ctrl), **⇧**
+(Shift), **⬆** (Caps), **⌫** (backspace), **Aa** (delete word), **⌴** (space), **↵**
+(enter), **⇥** (tab) — the Fn navigation keys read **Druck, Pos1, Ende, Bild↑, Bild↓,
+Einfg, Entf**, and the Fn shortcuts read **Kopieren, Einfügen, ✂, ↶, ↷, Alles mark.** and
+**+ Wort** (add word).
 
 **Sizing and sound.** Keys scale from 0.5× to 2.0× (default 1.0×, Settings → Keyboard), and
 a click sound plays on every key (on by default).
@@ -443,8 +452,7 @@ needed.
 
 **Summon:** look at your **left screen edge** (default) and hold for about 400 ms. A grid of
 large tiles slides out. **Dismiss:** look away for about 5 seconds (a blink counts too), or
-dwell its ✕ button — the auto-dismiss timer only runs when the grid was summoned from the
-edge; one opened from the toolbar stays until you close it.
+dwell its ✕ button.
 
 **What goes in the grid** is up to you — it starts **empty** on a fresh install
 (Settings → Quick Actions): keyboard shortcuts
@@ -550,22 +558,23 @@ Reset.
 ### Dwell Times
 Per-surface dwell times (see [section 3](#3-gaze-control-basics) for the list) · Resume
 Strip (1000 ms) · Manual Selection Side Buttons (600 ms) · Fixation radius (75 px — how
-far gaze may drift within one fixation) · Dwell cooldown (400 ms) · Dwell completion sound
-(Off) · Dwell Completion Highlight (On — the cursor ring flashes briefly when a dwell
+far gaze may drift within one fixation) · Dwell cooldown (400 ms) · Look-Away Grace
+(500 ms — the brief-glance forgiveness §3 describes; keyboard keys don't get it) · Dwell
+completion sound (Off) · Dwell Completion Highlight (On — the cursor ring flashes briefly when a dwell
 fires) · Disconnect Chime (On — plays once when the tracker has stayed disconnected for
 over ten seconds) · Reset.
 
 ### Selection
 Selection mode (None) · Manual selection: circle radius (100 px), magnification (4.0×),
-grace period (500 ms), hold tolerance (72 px) · Auto selection: snap search radius (48 px),
-fallback to pixel (on) · Highlight color (accent) and thickness (3) · Gaze-ring appearance
+grace period (500 ms), hold tolerance (72 px) · Auto selection: snap search radius (48 px) ·
+Highlight color (accent) and thickness (3) · Gaze-ring appearance
 inside the magnifier · Reset animation (100 ms).
 
 ### Action Menu
 Ring preview · Per-action visibility: Left / Right / Double / Middle click, Drag, Scroll
 Up / Down / Left / Right, Scroll Mode, Pin note, Keyboard (Middle, Scroll Left, Scroll
 Right off by default) · Which actions sit on the first layer (max 4; default Left, Right,
-Double, Scroll Mode) · Reset.
+Double, Scroll Mode) · Note text size (28) · Reset.
 
 ### Layout
 Where the action menu and magnifier open: **At Gaze** or **At Center** (default At Center) ·
@@ -573,7 +582,8 @@ Reset.
 
 ### Keyboard
 Active layout (QWERTY) · Key size (1.0×) · Word prediction (On) · Max predictions (5) ·
-Dictionary language (auto-detect; EN/DE/ES/FR/PL) · Click sound (On) · Screen edge
+Dictionary language (auto-detect; EN/DE/ES/FR/PL) · Click sound (On) · Show loading hint
+for predictions (On) · Guard the first key after the keyboard moves back (On) · Screen edge
 (Bottom) · Learned-words list with per-word remove and Remove ALL · Reset.
 
 ### Models
@@ -607,8 +617,8 @@ tolerance 0.50, smoothing 0.50, target size 0.50 with 100 px growth cap) · Rese
 ### General
 **Sprache / Language** (System — always the first row) · Theme (Midnight; restart to apply) ·
 Start on Windows Boot (Off) · Start Paused (Off) · Show Track Status (Off — a small corner
-box with live tracker status) · Run Safety Setup (button — the same five questions as the
-first launch) · Automatic Crash Recovery (Off; see
+box with live tracker status) · Run Safety Setup Again (button — the same five questions as
+the first launch) · Automatic Crash Recovery (Off; see
 [section 24](#24-crash-recovery-and-the-supervisor)) · Restart Notice Button (0 = follows
 the Activation Button dwell) · Restart Now · Reset General Settings ·
 Reset ALL Settings (advanced mode only).
@@ -627,7 +637,7 @@ that opt into EyeCtrl dwell) · Reset.
 
 ### Diagnostics
 Record raw gaze (Off — opt-in trace of where you looked; stays on this PC) · Measure UI
-timing (Off) · Open recordings folder · Reset.
+timing (Off) · Sub-pixel Visibility Test · Open recordings folder · Reset.
 
 ## 23. Language
 
@@ -682,7 +692,7 @@ Everything stays on this PC, under `%APPDATA%\EyeCtrl` (usually
 | `actions.json` | Your Quick Actions |
 | `models\` | Downloaded prediction models |
 | `logs\` | App and Supervisor logs (kept 7 days) |
-| `user_dictionary_<language>.json` (plus `_bigrams`, `_phrases` and their `_timestamps` files) | Words, word pairs and phrases you typed |
+| Every `user_dictionary_<language>…` file — the dictionary plus its `_bigrams`, `_phrases`, `_casing` and `_timestamps` companions, and any `.bak-inflated` backup | The words, word pairs, phrases and casing variants you typed |
 | `recent_emojis.json` | Your recent-emoji list |
 | `adaptation-state.json`, `adaptation-log.jsonl` | What Adaptation learned |
 | `gaze-recording.csv` + `gaze-recording.groundtruth.json` | The optional raw gaze trace |
@@ -701,11 +711,11 @@ Stuck inside a mode right now? Jump to [Getting unstuck](#getting-unstuck) in se
 | No ring, nothing follows my eyes | Most often EyeCtrl is **paused** — look at the edge strip and dwell the ▶ Resume disc. Otherwise it may be mouse mode (no tracker found), where the mouse pointer *is* the gaze point: check that the tracker is connected and its Tobii software runs, then restart EyeCtrl. |
 | The ring sits slightly off where I look | Run **Calibrate Now** (Settings → Calibration). Recurring? The drift notice will tell you too. |
 | The ring lags or stutters | Increase smoothing (Cursor tab) — e.g. lower the One Euro min cutoff — and check tracker placement/lighting. |
-| EyeCtrl starts paused | The **Start Paused** setting is on, or it was relaunched by the Supervisor's safe retry. Dwell **Resume** on the toolbar. |
+| EyeCtrl starts paused | The **Start Paused** setting is on, or it was relaunched by the Supervisor's safe retry. Dwell the ▶ **Resume disc** on the edge strip (about 1 s), or summon the toolbar from its docked edge and dwell ▶. |
 | Second launch does nothing | By design — one instance at a time. |
 | Toolbar is hidden and I can't find it | Look at its docked screen edge to summon it, or use tray → **Show toolbar** (mouse mode never auto-hides it). |
 | Published exe reports missing files | Keep the `Resources` folder beside `EyeCtrl.exe`. |
-| A tray toggle says the Supervisor is not installed | Crash recovery needs the Supervisor program on the PC; the toggle degrades gracefully without it. |
+| The Automatic Crash Recovery setting says the Supervisor is not installed | Crash recovery needs the Supervisor program on the PC; the setting degrades gracefully without it. |
 | Something needs investigating | Logs live in `%APPDATA%\EyeCtrl\logs` (`eyectrl-*.log`, `supervisor-*.log`), kept 7 days — attach the newest to a support request. |
 
 Settings that misbehave can be rolled back per tab (each tab's Reset button) or entirely

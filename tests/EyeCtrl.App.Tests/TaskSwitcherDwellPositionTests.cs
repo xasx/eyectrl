@@ -178,6 +178,36 @@ public class TaskSwitcherDwellPositionTests
             .That(body.Contains("Toolbar.IsVisible")).IsFalse();
     }
 
+    /// <summary>
+    /// Source-scan pin: <c>BringToFront</c> must not spend the ALT foreground grant on a dead
+    /// hwnd. The tile snapshot is one-shot (AppWindow per ShowOverlay), so a window that
+    /// closes mid-session leaves a tile whose dwell dispatches here on a dead hwnd; the ALT
+    /// down+up pair injected anyway lands in whatever currently holds foreground — the exact
+    /// key-event-misdelivery class the 2026-08-25 stuck-ALT report made load-bearing. The
+    /// IsWindow check must therefore come BEFORE NativeMethods.SendInput, alongside the
+    /// guards Minimize/MaximizeOrRestore/CloseWindow already carry.
+    /// </summary>
+    [Fact]
+    public void BringToFront_SkipsTheAltGrant_OnADeadHwnd()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
+        var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
+
+        var isWindow = body.IndexOf("IsWindow", StringComparison.Ordinal);
+        var sendInput = body.IndexOf("NativeMethods.SendInput", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "BringToFront must reject a dead hwnd BEFORE the ALT grant: a window that "
+                + "closes mid-session leaves a tile whose dwell would otherwise fire a stray "
+                + "ALT down+up pair into whatever currently holds foreground (the 2026-08-25 "
+                + "stuck-ALT hazard), and the switch silently never happens.")
+            .That(isWindow).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The IsWindow check must precede NativeMethods.SendInput — the grant is only "
+                + "worth spending on a target that can receive it.")
+            .That(isWindow < sendInput).IsTrue();
+    }
+
     private static string ExtractMethod(string source, string signature)
     {
         var start = source.IndexOf(signature, StringComparison.Ordinal);

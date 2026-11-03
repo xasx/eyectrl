@@ -74,6 +74,37 @@ public class SetupManifestTests
     }
 
     [Fact]
+    public void TheImageCheck_UsesOnlyLimitedQueryRights()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "WindowsProcessControl.cs"));
+
+        Check.That(source).Contains("QueryFullProcessImageName");
+        Check.That(source).Contains("ProcessQueryLimitedInformation = 0x1000");
+        Check.That(source).DoesNotContain("PROCESS_QUERY_INFORMATION");    }
+
+    [Fact]
+    public void TheProcessSeam_HasNoRestartRequest()
+    {
+        // Plan §10: Setup never sends RestartRequested. The seam has no such operation at all, so
+        // no workflow can send one even by accident; the clean path only waits for the App.
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.Setup", "Abstractions", "ProcessSeams.cs"));
+
+        Check.That(source).DoesNotContain("Restart");
+    }
+
+    [Fact]
+    public void TheHeldButtonRelease_IsCoresImplementation()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "SetupInputSimulator.cs"));
+
+        Check.That(source).Contains("new HeldButtonRelease(");
+        Check.That(source).Contains("new FileHeldButtonMarker()");
+    }
+
+    [Fact]
     public void SetupShipsNoLooseFileOfItsOwn()
     {
         // S6b's publish script stops when two publish outputs share a name with different bytes.

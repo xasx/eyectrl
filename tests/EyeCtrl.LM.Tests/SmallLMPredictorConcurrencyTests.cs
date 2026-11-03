@@ -249,6 +249,11 @@ public class SmallLMPredictorConcurrencyTests
         RunWorker_RecoversFromStepFault(new InvalidOperationException("ONNX Run fault (simulated)"));
     }
 
+    // The OCE fault pins the integrated containment only: CreateModelFree has no logger seam, so
+    // an OCE absorbed by the general catch (logged at Error) is externally indistinguishable from
+    // the dedicated silent OCE catch at SmallLMPredictor.cs:256 — no observable differs
+    // (review r1 F8). The InvalidOperationException fact above is the one that kills a removed
+    // general catch: the thread-pool throw surfaces as a bounded test failure, not process death.
     [Fact]
     public void Predict_FirstRequestStepThrowsOperationCanceled_OperationIsContained_AndTheNextPredictSucceeds()
     {

@@ -66,7 +66,10 @@ public sealed class SetupNoticeWatch : IDisposable
 
     /// <summary>
     /// Starts watching: one immediate check (a record from the previous session still shows at
-    /// this start, as before), then the first scheduled poll.
+    /// this start), then the first scheduled poll. Review 02 R5: an OLD record shown by that check
+    /// does NOT end the watch — this session's own record is still to come, and the once-per-time
+    /// rule makes a repeat of the same record impossible. Only a notice whose record time is newer
+    /// than this session's start ends the watch.
     /// </summary>
     public void Start()
     {
@@ -85,9 +88,17 @@ public sealed class SetupNoticeWatch : IDisposable
             _fileWatch = null;
         }
 
-        Poke();
-        if (!_done)
-            _schedule(_interval, Poll);
+        if (_service.CheckStartup())
+        {
+            NoticeShown = true;
+            if (IsCurrentSessionRecord())
+            {
+                Finish();
+                return;
+            }
+        }
+
+        _schedule(_interval, Poll);
     }
 
     /// <summary>One scheduled poll: check, then either finish or schedule the next.</summary>
@@ -99,8 +110,11 @@ public sealed class SetupNoticeWatch : IDisposable
         if (_service.CheckStartup())
         {
             NoticeShown = true;
-            Finish();
-            return;
+            if (IsCurrentSessionRecord())
+            {
+                Finish();
+                return;
+            }
         }
 
         if (_now() - _startedAt >= _window)
@@ -119,12 +133,18 @@ public sealed class SetupNoticeWatch : IDisposable
         if (_done)
             return;
 
-        if (_service.CheckStartup())
-        {
-            NoticeShown = true;
+        if (!_service.CheckStartup())
+            return;
+
+        NoticeShown = true;
+        if (IsCurrentSessionRecord())
             Finish();
-        }
     }
+
+    /// <summary>True when the last shown record is newer than this watch's start — this session's
+    /// own outcome, as opposed to a previous session's record surfaced at the immediate check.</summary>
+    private bool IsCurrentSessionRecord() =>
+        _service.LastShownTime is { } shown && shown > _startedAt;
 
     private void Finish()
     {

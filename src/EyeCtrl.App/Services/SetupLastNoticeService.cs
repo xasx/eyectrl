@@ -176,9 +176,17 @@ public sealed class SetupLastNoticeService
             return false;
 
         _store.WriteShownTime(record.Time);
+        LastShownTime = record.Time;
         _show(_resolve(notice.Value.Key, notice.Value.Args), _closeLabel());
         return true;
     }
+
+    /// <summary>
+    /// The record time of the last notice this service showed, or null when it never showed one.
+    /// The startup watch uses it to tell a PREVIOUS session's record (shown on the immediate check,
+    /// which must not end the watch) from this session's own late record (review 02 R5).
+    /// </summary>
+    public DateTimeOffset? LastShownTime { get; private set; }
 
     /// <summary>
     /// Which outcomes earn a notice and the key/args each speaks (review 01 M3 + N1).

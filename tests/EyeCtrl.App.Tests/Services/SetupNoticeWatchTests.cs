@@ -97,8 +97,11 @@ public class SetupNoticeWatchTests
     }
 
     [Fact]
-    public void AnUnseenRecordFromThePreviousSession_StillShowsOnTheImmediateCheck()
+    public void AnUnseenPreviousSessionRecord_ShowsAtStart_AndTheWatchStillWaitsForThisSession()
     {
+        // Review 02 R5: an old notice-worthy record surfaced at the immediate check must not end
+        // the watch — this session's own record is still to come, and the once-per-time rule makes
+        // a second show of the SAME record impossible.
         var harness = new Harness();
         harness.Store.Record = Record(time: Start.AddMinutes(-30));
 
@@ -106,9 +109,19 @@ public class SetupNoticeWatchTests
         watch.Start();
 
         Check.That(watch.NoticeShown).IsTrue();
+        Check.That(watch.IsDone).IsFalse();
         Check.That(harness.Shown).HasSize(1);
-        Check.That(harness.Scheduled).IsEmpty();
-        Check.That(harness.FileWatchDisposed).IsTrue();
+        Check.That(harness.Scheduled).HasSize(1);
+
+        // 25 s later this session's record lands; the poll shows it once and ends the watch.
+        harness.Now = Start.AddSeconds(25);
+        harness.Store.Record = Record(time: harness.Now);
+        harness.Scheduled[^1].Tick();
+
+        Check.That(harness.Shown).HasSize(2);
+        Check.That(harness.Shown[1]).IsEqualTo("update.notice.degraded|1.5.0");
+        Check.That(watch.IsDone).IsTrue();
+        Check.That(watch.NoticeShown).IsTrue();
     }
 
     [Fact]

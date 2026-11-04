@@ -183,6 +183,7 @@ public class RunCopyManagerTests
         harness.RunCopies.MarkForDeletionAtReboot("abc");
 
         Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunFolder("abc"));
+        Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunRoot);
         Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("abc"))).IsTrue();
     }
 }

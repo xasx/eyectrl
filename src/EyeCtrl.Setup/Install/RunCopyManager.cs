@@ -160,7 +160,9 @@ public sealed class RunCopyManager
         }
     }
 
-    /// <summary>Registers the named run folder for deletion at the next restart (uninstall path).</summary>
+    /// <summary>Registers the named run folder — and the <c>EyeCtrl.run</c> root itself — for
+    /// deletion at the next restart (uninstall path). S6c D8: without the root, an empty
+    /// <c>C:\Program Files\EyeCtrl.run</c> survived the reboot.</summary>
     public void MarkForDeletionAtReboot(string runId)
     {
         if (string.IsNullOrWhiteSpace(runId))
@@ -168,10 +170,12 @@ public sealed class RunCopyManager
 
         var folder = _paths.RunFolder(runId);
         _guard.RequireProgramFilesPath(folder);
-        if (!_fileSystem.DirectoryExists(folder))
-            return;
+        if (_fileSystem.DirectoryExists(folder))
+            _fileSystem.MarkForDeletionAtReboot(folder);
 
-        _fileSystem.MarkForDeletionAtReboot(folder);
+        _guard.RequireProgramFilesPath(_paths.RunRoot);
+        if (_fileSystem.DirectoryExists(_paths.RunRoot))
+            _fileSystem.MarkForDeletionAtReboot(_paths.RunRoot);
     }
 
     /// <summary>

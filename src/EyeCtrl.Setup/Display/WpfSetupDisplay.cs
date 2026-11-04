@@ -19,6 +19,8 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
     private readonly SetupVerb _verb;
     private readonly SetupUi _ui;
     private readonly string _appDataRoot;
+    private readonly Func<SetupProgressWindow> _createWindow;
+    private readonly Action<SetupProgressWindow> _showWindow;
     private readonly object _gate = new();
     private readonly ManualResetEventSlim _threadReady = new(false);
     private readonly ManualResetEventSlim _closed = new(false);
@@ -26,13 +28,28 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
     private Thread? _thread;
     private Dispatcher? _dispatcher;
     private SetupProgressWindow? _window;
+    private bool _windowClosed;
     private bool _disposed;
 
     public WpfSetupDisplay(SetupVerb verb, SetupUi ui, string appDataRoot)
+        : this(verb, ui, appDataRoot, createWindow: null, showWindow: null)
+    {
+    }
+
+    /// <summary>
+    /// The test seam: production leaves both null and gets the real window shown once with
+    /// <see cref="Window.Show"/>. A test supplies a window it can close without ever painting it,
+    /// which is how the "an early close only ends the display" path is exercised through this seam.
+    /// </summary>
+    internal WpfSetupDisplay(
+        SetupVerb verb, SetupUi ui, string appDataRoot,
+        Func<SetupProgressWindow>? createWindow, Action<SetupProgressWindow>? showWindow)
     {
         _verb = verb;
         _ui = ui;
         _appDataRoot = appDataRoot;
+        _createWindow = createWindow ?? (() => new SetupProgressWindow(_ui.Strings, _verb));
+        _showWindow = showWindow ?? (window => window.Show());
     }
 
     /// <inheritdoc />
@@ -43,6 +60,8 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
             Invoke(() =>
             {
                 EnsureWindow();
+                if (_windowClosed)
+                    return;
                 _window!.Stage(stage);
             });
         }
@@ -61,10 +80,14 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
             Invoke(() =>
             {
                 EnsureWindow();
+                if (_windowClosed)
+                    return;
                 _window!.ShowResult(mapped);
             });
 
-            // Wait for the window's own timer to close it (60 s + a margin for a slow paint).
+            // Wait for the window's own timer to close it (60 s + a margin for a slow paint). An
+            // early close (the owner's Alt+F4 or close button) has already set this event, so the
+            // display ends at once and the install is unaffected.
             _closed.Wait(TimeSpan.FromSeconds(75));
         }
         catch (Exception)
@@ -99,7 +122,11 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
         {
             try
             {
-                if (dispatcher.CheckAccess())
+                if (_windowClosed)
+                {
+                    // The owner already closed it; nothing to do.
+                }
+                else if (dispatcher.CheckAccess())
                 {
                     window?.Close();
                 }
@@ -181,10 +208,16 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
         if (_window is not null)
             return;
 
-        var window = new SetupProgressWindow(_ui.Strings, _verb);
-        window.Closed += (_, _) => _closed.Set();
-        window.Show();
+        var window = _createWindow();
+        // The owner may close the ordinary window early (Alt+F4 or its close button). That only
+        // ends the display: the install keeps running and Finish stops waiting immediately.
+        window.Closed += (_, _) =>
+        {
+            _windowClosed = true;
+            _closed.Set();
+        };
         _window = window;
+        _showWindow(window);
     }
 }
 

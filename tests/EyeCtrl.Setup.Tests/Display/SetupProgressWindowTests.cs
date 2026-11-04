@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup.Tests.Display;
 
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows.Interop;
@@ -9,9 +10,10 @@ using EyeCtrl.Setup;
 using EyeCtrl.Setup.Display;
 
 /// <summary>
-/// The display-only progress/result window: its texts, its 10 s / 60 s self-close, and the two
-/// extended styles that make it click-through and non-activating. The window's HWND is created
-/// but never shown; the style test reads the real bits.
+/// The display-only progress/result window: its texts, its 10 s / 60 s self-close, and — since
+/// owner decision Q13 — that it is an ordinary window (not click-through, not topmost, in the
+/// taskbar, with a title and EyeCtrl's icon). The window's HWND is created but never shown; the
+/// style test reads the real bits.
 /// </summary>
 [Collection(SetupUiWindowsCollection.Name)]
 public sealed class SetupProgressWindowTests
@@ -156,31 +158,87 @@ public sealed class SetupProgressWindowTests
     }
 
     [Fact]
-    public void TheWindowCarriesTransparentAndNoActivate()
+    public void TheWindowIsOrdinary_NotTopmostOrClickThrough_AndInTheTaskbar()
     {
         RunSta(() =>
         {
             var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
             try
             {
-                // EnsureHandle raises SourceInitialized, so this exercises the production wiring
-                // (not a test helper that applies the styles itself).
+                // EnsureHandle creates the real HWND without showing the window.
                 var hwnd = new WindowInteropHelper(window).EnsureHandle();
                 Check.That(hwnd).IsNotEqualTo(IntPtr.Zero);
-                Check.WithCustomMessage("AllowsTransparency is false: WS_EX_TRANSPARENT would pass no clicks.")
-                    .That(window.AllowsTransparency).IsTrue();
-                Check.That(window.Topmost).IsTrue();
-                Check.WithCustomMessage("WS_EX_LAYERED is missing: WS_EX_TRANSPARENT only works on a layered window.")
-                    .That(SetupProgressWindow.HasLayeredStyle(hwnd)).IsTrue();
-                Check.WithCustomMessage("WS_EX_TRANSPARENT is missing: the screen would block TD Control.")
-                    .That(SetupProgressWindow.HasClickThroughStyle(hwnd)).IsTrue();
-                Check.WithCustomMessage("WS_EX_NOACTIVATE is missing: the screen could take focus.")
-                    .That(SetupProgressWindow.HasNoActivateStyle(hwnd)).IsTrue();
+
+                Check.WithCustomMessage("Q13: the progress window must be an ordinary, non-layered window.")
+                    .That(window.AllowsTransparency).IsFalse();
+                Check.WithCustomMessage("Q13: the screen must not be topmost.")
+                    .That(window.Topmost).IsFalse();
+                Check.WithCustomMessage("Q13: the screen must have a taskbar button.")
+                    .That(window.ShowInTaskbar).IsTrue();
+                Check.WithCustomMessage("Q13: an ordinary window may activate once when it appears.")
+                    .That(window.ShowActivated).IsTrue();
+                Check.WithCustomMessage("The taskbar button and the title need the verb's title.")
+                    .That(window.Title).IsEqualTo(English.T("update.progress.title"));
+                Check.WithCustomMessage("EyeCtrl's icon is missing from the taskbar button.")
+                    .That(window.Icon).IsNotNull();
+
+                Check.WithCustomMessage("WS_EX_TOPMOST is set: the screen would stay above other windows.")
+                    .That(SetupProgressWindow.HasTopmostStyle(hwnd)).IsFalse();
+                Check.WithCustomMessage("WS_EX_TRANSPARENT is set: the screen would still pass clicks through.")
+                    .That(SetupProgressWindow.HasClickThroughStyle(hwnd)).IsFalse();
+                Check.WithCustomMessage("WS_EX_LAYERED is set: the screen is not an ordinary window.")
+                    .That(SetupProgressWindow.HasLayeredStyle(hwnd)).IsFalse();
+                Check.WithCustomMessage("WS_EX_NOACTIVATE is set: the screen could not activate.")
+                    .That(SetupProgressWindow.HasNoActivateStyle(hwnd)).IsFalse();
+                Check.WithCustomMessage("WS_EX_TOOLWINDOW is set: the screen would have no taskbar button.")
+                    .That(SetupProgressWindow.HasToolWindowStyle(hwnd)).IsFalse();
             }
             finally
             {
                 window.Close();
             }
+        });
+    }
+
+    [Fact]
+    public void ClosingTheWindowEarly_LeavesTheDisplayWorking_AndForcesNothingAgain()
+    {
+        RunSta(() =>
+        {
+            var created = 0;
+            using var display = new WpfSetupDisplay(
+                SetupVerb.Update,
+                SetupUi.English,
+                AppData,
+                createWindow: () =>
+                {
+                    created++;
+                    return new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
+                },
+                showWindow: window =>
+                {
+                    // The owner closes the display early. EnsureHandle gives the real HWND (so
+                    // Closed fires) without the window ever being painted.
+                    _ = new WindowInteropHelper(window).EnsureHandle();
+                    window.Close();
+                });
+
+            var watch = Stopwatch.StartNew();
+            display.Stage(SetupStage.Verify);
+            Check.That(created).IsEqualTo(1);
+
+            // A later stage must not throw, must not force the closed window back, and must not
+            // recreate it; the display is gone but the install is unaffected.
+            display.Stage(SetupStage.Swap);
+            Check.That(created).IsEqualTo(1);
+
+            var result = new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.Ok, Version = "1.0.0" };
+            display.Finish(result);
+            watch.Stop();
+
+            Check.That(created).IsEqualTo(1);
+            Check.WithCustomMessage("Finish waited for a result timer of a window the owner had already closed.")
+                .That(watch.Elapsed.TotalSeconds).IsStrictlyLessThan(5.0);
         });
     }
 

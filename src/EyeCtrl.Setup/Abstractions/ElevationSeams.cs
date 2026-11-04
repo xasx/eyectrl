@@ -86,8 +86,10 @@ public readonly record struct LauncherResult(LauncherOutcome Outcome, int ExitCo
 /// </summary>
 public interface IElevatedLauncher
 {
-    /// <summary>Launches an elevated child and waits for it (bounded).</summary>
-    LauncherResult Launch(string exePath, IReadOnlyList<string> arguments);
+    /// <summary>Launches an elevated child in an explicit working directory — always
+    /// <see cref="SetupWorkingDirectory.Neutral"/>, never a folder the swap renames — and waits
+    /// for it (bounded).</summary>
+    LauncherResult Launch(string exePath, IReadOnlyList<string> arguments, string workingDirectory);
 }
 
 /// <summary>

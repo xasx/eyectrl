@@ -73,6 +73,10 @@ public class ElevationBrokerTests
 
         // EveryJob has two uninstall variants, so one launch per request.
         Check.That(launcher.Calls).HasSize(EveryJob().Count);
+
+        // S6f H1: a runas child that inherits an EyeCtrl cwd holds the folder it must rename.
+        Check.That(launcher.Calls).ContainsOnlyElementsThatMatch(
+            call => call.WorkingDirectory == SetupWorkingDirectory.Neutral);
     }
 
     [Fact]

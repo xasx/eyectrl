@@ -3,6 +3,10 @@ namespace EyeCtrl.Setup.Tests.TestSupport;
 using EyeCtrl.Core.Input;
 using EyeCtrl.Setup.Abstractions;
 
+/// <summary>One recorded start: the exe, its argv and the explicit working directory.</summary>
+public readonly record struct RecordedStart(
+    string ExePath, IReadOnlyList<string> Arguments, string WorkingDirectory);
+
 /// <summary>A recording process seam. Starts add a live PID; stop/kill remove it and record order.</summary>
 public sealed class FakeProcessControl : IProcessControl
 {
@@ -13,6 +17,12 @@ public sealed class FakeProcessControl : IProcessControl
 
     /// <summary>The shared ordering log.</summary>
     public List<string> Log { get; }
+
+    /// <summary>Every start, with the working directory Setup asked for.</summary>
+    public List<RecordedStart> Starts { get; } = [];
+
+    /// <summary>The bounds every wait was given, for the refusal-restart tests.</summary>
+    public List<TimeSpan> WaitTimeouts { get; } = [];
 
     /// <summary>The current process table (images are used by the image check).</summary>
     public List<RunningProcess> Processes { get; } = [];
@@ -55,10 +65,12 @@ public sealed class FakeProcessControl : IProcessControl
     public IReadOnlyList<RunningProcess> Snapshot() => Processes.ToList();
 
     /// <inheritdoc />
-    public int? Start(string exePath, IReadOnlyList<string>? arguments = null)
+    public int? Start(string exePath, string workingDirectory, IReadOnlyList<string>? arguments = null)
     {
-        Log.Add("start:" + exePath + (arguments is { Count: > 0 }
-            ? "|" + string.Join("|", arguments)
+        var argv = arguments?.ToList() ?? [];
+        Starts.Add(new RecordedStart(exePath, argv, workingDirectory));
+        Log.Add("start:" + exePath + (argv.Count > 0
+            ? "|" + string.Join("|", argv)
             : string.Empty));
         if (!StartSucceeds)
             return null;
@@ -95,6 +107,7 @@ public sealed class FakeProcessControl : IProcessControl
     /// <inheritdoc />
     public bool WaitForExit(int processId, TimeSpan timeout)
     {
+        WaitTimeouts.Add(timeout);
         Log.Add("wait:" + processId);
         if (WaitForExitResult)
             Remove(processId);

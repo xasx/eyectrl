@@ -686,6 +686,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Views/Settings/SetupProbeRebuild.cs",
+      "Literal": "\"Advanced\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
       "Literal": "\"am_jump_0\"",
       "Count": 1

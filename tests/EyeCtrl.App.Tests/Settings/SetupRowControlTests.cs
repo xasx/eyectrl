@@ -13,6 +13,7 @@ using EyeCtrl.Controls;
 /// holds roughly the same footprint. Headless: the controls are constructed and measured, never
 /// shown.
 /// </summary>
+[Collection("WpfApplication")]
 public class SetupRowControlTests
 {
     private const double RadiusPhysical = 24;
@@ -79,5 +80,36 @@ public class SetupRowControlTests
         Check.That(label).IsNotNull();
         Check.That(label!.Root.MinHeight).IsEqualTo(SettingsRowSpec.DescribedButtonRowHeight);
         Check.That(label.Root.Text).IsEqualTo("Update wird geprüft");
+    }
+
+    /// <summary>
+    /// The gaze-rate contract for the new composite (review 02 R4): the frame loop reads
+    /// <c>Children</c> once per composite per frame, so the list must be a cached field, not built
+    /// per get. Named by the census in EyeCtrl.Controls.Tests
+    /// (<c>TheAppTestsCaseCoveringDescribedButtonRow_StillExists</c>).
+    /// </summary>
+    [StaFact]
+    public void ADescribedButton_ForwardsItsCachedChildren()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            new ButtonSpec("av_update", "Update installieren", () => { },
+                ButtonKind.Default, Width: 380, Height: 100)
+            {
+                Description = "Version 2.0.0 ist bereit (installiert: 1.0.0).",
+            },
+            new SettingsAutoPagination.NoopDwellRegistrar(),
+            RadiusPhysical, DwellMs, availableWidth: 1000);
+
+        var first = composite.Children;
+        var second = composite.Children;
+
+        Check.WithCustomMessage(
+                "A described button row handed out a different Children object on the second get, "
+                + "so it allocates once per row per gaze frame in UpdateAllTargetPositions. Cache "
+                + "the list; never build one per get.")
+            .That(ReferenceEquals(first, second)).IsTrue();
+        Check.That(first).HasSize(1);
     }
 }

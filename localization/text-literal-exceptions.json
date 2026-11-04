@@ -1557,6 +1557,12 @@
       "Literal": "\"setup_update_later\"",
       "Category": "id",
       "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/SetupProbeRebuild.cs",
+      "Literal": "\"Advanced\"",
+      "Category": "id",
+      "Reason": "C9 S6f: the Advanced tab id the probe completion compares against; never shown."
     }
   ]
 }

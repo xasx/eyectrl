@@ -2540,7 +2540,7 @@
     "text": "Checking for update…",
     "who": "user",
     "where": "settings",
-    "fit": "btn380x100",
+    "fit": "row",
     "args": []
   },
   "settings.advanced.update.description": {

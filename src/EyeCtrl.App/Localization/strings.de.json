@@ -1400,7 +1400,7 @@
   },
   "settings.advanced.update.checking": {
     "text": "Update wird geprüft",
-    "src": "1f917b4e"
+    "src": "fc0e5711"
   },
   "settings.advanced.update.description": {
     "text": "Version {0} ist bereit (installiert: {1}). EyeCtrl beendet sich kurz und startet von selbst neu.",

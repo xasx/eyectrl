@@ -93,6 +93,9 @@ public sealed class FakeProcessControl : IProcessControl
     /// <summary>Called with the process id after a kill (a test can model a Supervisor relaunch).</summary>
     public Action<int>? OnKill { get; set; }
 
+    /// <summary>Called after each wait; a test can add the App a Supervisor would relaunch.</summary>
+    public Action<int>? OnWait { get; set; }
+
     /// <inheritdoc />
     public void Kill(int processId)
     {
@@ -111,6 +114,7 @@ public sealed class FakeProcessControl : IProcessControl
         Log.Add("wait:" + processId);
         if (WaitForExitResult)
             Remove(processId);
+        OnWait?.Invoke(processId);
         return WaitForExitResult;
     }
 

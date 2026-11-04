@@ -62,6 +62,30 @@ public class RefusalRestartWaitTests
     }
 
     [Fact]
+    public void AnAppThatAppearsDuringTheWait_IsNotStartedAgain()
+    {
+        // F2 (review W1): the fresh snapshot after the wait is the only defence against a
+        // Supervisor relaunch while the handing-off App exits.
+        var harness = BlockedUpdate();
+        var appPid = harness.Processes.Add(harness.Paths.AppExePath);
+        int? relaunched = null;
+        harness.Processes.OnWait = _ =>
+            relaunched = harness.Processes.Add(harness.Paths.AppExePath);
+
+        var result = harness.Workflow.Update(@"C:\inbox\2.0.0");
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Blocked);
+        Check.That(harness.Processes.Log).Contains("wait:" + appPid);
+        Check.That(relaunched.HasValue).IsTrue();
+        Check.That(harness.Processes.Starts).IsEmpty();
+        Check.That(harness.Processes.Processes.Count(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsEqualTo(1);
+        Check.That(harness.Logging.Lines.Any(line =>
+            line.Contains("An App is still running after the refusal wait", StringComparison.Ordinal)))
+            .IsTrue();
+    }
+
+    [Fact]
     public void NoHandingOffApp_StartsWithoutWaiting()
     {
         var harness = BlockedUpdate();

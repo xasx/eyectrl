@@ -138,7 +138,14 @@ public class SingleSurfaceKeyTests
         // SP-4b: the probe's coordinator resolves the C10 refusal reasons on the settings surface;
         // the probe window resolves its own screens on the overlays surface.
         ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeCoordinator.cs", ["settings"]),
-        ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeWindow.cs", ["overlays"])
+        ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeWindow.cs", ["overlays"]),
+
+        // C9 S6f: the „Erweitert" page renders settings rows (labels/descriptions) AND the update
+        // flow's confirm texts (update/rollback surfaces) — one key per surface, D3.
+        ("src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+            ["settings", "update", "rollback"]),
+        // C9 S6f: the one-time setup-last notice speaks only the update surface.
+        ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update"])
     ];
 
     /// <summary>

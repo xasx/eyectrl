@@ -611,6 +611,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/SetupLastNoticeService.cs",
+      "Literal": "\"setup-notice-shown.json\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/SupervisorLauncher.cs",
       "Literal": "\"EYECTRL_SUPERVISOR_EXE\"",
       "Count": 1
@@ -694,6 +699,26 @@
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
       "Literal": "\"settings.action_menu.preview.not_a_control\"",
       "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_rollback_go\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_rollback_later\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_update_install\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_update_later\"",
+      "Count": 2
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",

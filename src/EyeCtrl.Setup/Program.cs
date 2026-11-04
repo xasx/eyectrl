@@ -25,7 +25,8 @@ public static class Program
 
         try
         {
-            return SetupComposition.CreateProduction().Run(command);
+            return SetupComposition.CreateProduction(
+                SetupComposition.PreferredStringsDirectory(command)).Run(command);
         }
         catch (Exception ex)
         {

@@ -23,7 +23,10 @@ public static class StringTableSchema
         "settings",
         "calibration",
         "eye-care",
-        "overlays"
+        "overlays",
+        "rollback",
+        "uninstall",
+        "update"
     ];
 
     /// <summary>Audience values the <c>who</c> meta field may carry.</summary>
@@ -100,6 +103,11 @@ public static class StringTableSchema
         "btn544x106",
         // Paginated Settings rows and wrapping prose: pagination and reachability (T09 PR 2).
         "row",
-        "prose"
+        "prose",
+        // C9 S6e: Setup's own screens. setup420x160 is the uninstall choice's 420 x 160 DIP
+        // button (28 DIP, wrapping); setupProse is every 36 DIP prose line (titles, questions,
+        // details, progress and result text) in its 1280 x 384 DIP box.
+        "setup420x160",
+        "setupProse"
     ];
 }

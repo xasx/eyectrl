@@ -30,10 +30,10 @@ public class ShippedGermanSwitchOnTests
 {
     /// <summary>
     /// The manifest pin: the shipped file names exactly the switched-on surfaces, in sorted order
-    /// (the validator's own rule), the copy beside the exe is the same file, and the eleven
+    /// (the validator's own rule), the copy beside the exe is the same file, and the fourteen
     /// account for every surface in <see cref="StringTableSchema.Surfaces"/> — T13 switched the last
-    /// three on, so nothing may stay English, and a new surface fails here rather than silently
-    /// escaping the decision.
+    /// three on, C9 S6e added Setup's three, so nothing may stay English, and a new surface fails
+    /// here rather than silently escaping the decision.
     /// </summary>
     [Fact]
     public void TheShippedManifest_NamesExactlyTheSwitchedOnSurfaces()

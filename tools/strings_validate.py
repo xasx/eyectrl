@@ -82,6 +82,9 @@ SURFACES = [
     "calibration",
     "eye-care",
     "overlays",
+    "rollback",
+    "uninstall",
+    "update",
 ]
 
 WHO_VALUES = ["caretaker", "user", "both"]
@@ -122,6 +125,10 @@ FIT_CLASSES = [
     "btn544x106",
     "row",
     "prose",
+    # C9 S6e: Setup's screens. setup420x160 is the uninstall choice's 420 x 160 DIP button;
+    # setupProse is a 36 DIP prose line in its 1280 x 384 DIP box.
+    "setup420x160",
+    "setupProse",
 ]
 
 REQUIRED_ENGLISH_META = {"text", "who", "where", "fit", "args"}

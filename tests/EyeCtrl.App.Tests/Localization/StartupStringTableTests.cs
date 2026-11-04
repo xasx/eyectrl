@@ -61,14 +61,14 @@ public class StartupStringTableTests
     }
 
     [Fact]
-    public void TheShippedDefault_System_OnDeDe_GivesGermanOnAllElevenSurfaces()
+    public void TheShippedDefault_System_OnDeDe_GivesGermanOnAllFourteenSurfaces()
     {
         // The explicit overload: the shipped files beside the test exe, de-DE, "system".
         var warnings = new List<string>();
         var table = StartupStringTable.Load(
             Settings(UiLanguage.System), ShippedGerman.GermanCulture, AppContext.BaseDirectory, warnings.Add);
 
-        Check.That(ShippedGerman.SwitchedOn).HasSize(11);
+        Check.That(ShippedGerman.SwitchedOn).HasSize(14);
         AssertGermanOnEverySurface(table, warnings);
     }
 

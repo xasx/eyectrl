@@ -17,5 +17,8 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.Sdk.Wpf.Tests" />
+    <!-- C9 S6e: Setup's headless window tests point the SDK at a test-private pipe so a test
+         never starts the production eyectrl_dwell client. -->
+    <InternalsVisibleTo Include="EyeCtrl.Setup.Tests" />
   </ItemGroup>
 </Project>

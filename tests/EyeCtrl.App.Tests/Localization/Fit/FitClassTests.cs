@@ -234,6 +234,7 @@ public class FitClassTests
     {
         var measured = AppFitMeasurers.Measurers.Keys
             .Concat(AppFitMeasurers.SupervisorMeasuredClasses)
+            .Concat(AppFitMeasurers.SetupMeasuredClasses)
             .Concat(AppFitMeasurers.PaginatedClasses)
             .OrderBy(c => c, StringComparer.Ordinal)
             .ToList();

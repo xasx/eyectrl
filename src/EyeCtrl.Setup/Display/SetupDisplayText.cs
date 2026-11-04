@@ -38,14 +38,19 @@ public static class SetupDisplayText
         _ => string.Empty,
     };
 
-    /// <summary>The stage line. Update and rollback share the stage texts; an uninstall only has
-    /// the stop line to say.</summary>
-    public static string Stage(StringTable strings, SetupStage stage) => stage switch
+    /// <summary>The stage line. Verify and Stop are shared; Swap and Start are the verb's own,
+    /// because a rollback puts the previous version back rather than a new one in place. An
+    /// uninstall only has the stop line to say.</summary>
+    public static string Stage(StringTable strings, SetupVerb verb, SetupStage stage) => stage switch
     {
         SetupStage.Verify => strings.T("update.progress.verify"),
         SetupStage.Stop => strings.T("update.progress.stop"),
-        SetupStage.Swap => strings.T("update.progress.swap"),
-        SetupStage.Start => strings.T("update.progress.start"),
+        SetupStage.Swap => verb == SetupVerb.Rollback
+            ? strings.T("rollback.progress.swap")
+            : strings.T("update.progress.swap"),
+        SetupStage.Start => verb == SetupVerb.Rollback
+            ? strings.T("rollback.progress.start")
+            : strings.T("update.progress.start"),
         _ => string.Empty,
     };
 

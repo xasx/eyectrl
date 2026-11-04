@@ -54,7 +54,7 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         if (string.IsNullOrWhiteSpace(exePath))
             return new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "missingExe");
 
-        var result = _launcher.Launch(exePath, arguments);
+        var result = _launcher.Launch(exePath, arguments, SetupWorkingDirectory.Neutral);
         return result.Outcome switch
         {
             LauncherOutcome.Exited => FromExitCode(result.ExitCode),
@@ -153,19 +153,13 @@ public sealed class ShellExecuteRunAsLauncher : IElevatedLauncher
     }
 
     /// <inheritdoc />
-    public LauncherResult Launch(string exePath, IReadOnlyList<string> arguments)
+    public LauncherResult Launch(
+        string exePath, IReadOnlyList<string> arguments, string workingDirectory)
     {
-        var startInfo = new System.Diagnostics.ProcessStartInfo(exePath)
-        {
-            UseShellExecute = true,
-            Verb = "runas",
-        };
-        foreach (var argument in arguments)
-            startInfo.ArgumentList.Add(argument);
-
         try
         {
-            using var process = System.Diagnostics.Process.Start(startInfo);
+            using var process = System.Diagnostics.Process.Start(
+                BuildStartInfo(exePath, arguments, workingDirectory));
             if (process is null)
                 return new LauncherResult(LauncherOutcome.Failed, Detail: "startFailed");
 
@@ -198,5 +192,25 @@ public sealed class ShellExecuteRunAsLauncher : IElevatedLauncher
             _log.Error($"Elevated launch failed: {ex.GetType().Name}");
             return new LauncherResult(LauncherOutcome.Failed, Detail: ex.GetType().Name);
         }
+    }
+
+    /// <summary>
+    /// ShellExecute <c>runas</c> with the explicit neutral directory. A runas child that inherits
+    /// the medium caller's cwd holds every folder that caller held, the install folder included,
+    /// and blocks the very rename that child has to perform.
+    /// </summary>
+    internal static System.Diagnostics.ProcessStartInfo BuildStartInfo(
+        string exePath, IReadOnlyList<string> arguments, string workingDirectory)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo(exePath)
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WorkingDirectory = workingDirectory,
+        };
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        return startInfo;
     }
 }

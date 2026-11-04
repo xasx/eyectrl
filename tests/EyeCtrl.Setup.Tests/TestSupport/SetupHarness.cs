@@ -100,19 +100,23 @@ public sealed class FakeCatalogMemberVerifier : EyeCtrl.Setup.Abstractions.ICata
     }
 }
 
+/// <summary>One recorded elevated launch: the exe, its argv and the explicit working directory.</summary>
+public readonly record struct RecordedLaunch(
+    string ExePath, IReadOnlyList<string> Arguments, string WorkingDirectory);
+
 /// <summary>Records every elevated launch and returns a scripted result.</summary>
 public sealed class FakeElevatedLauncher : IElevatedLauncher
 {
     /// <summary>The launches made.</summary>
-    public List<(string ExePath, IReadOnlyList<string> Arguments)> Calls { get; } = [];
+    public List<RecordedLaunch> Calls { get; } = [];
 
     /// <summary>The scripted result.</summary>
     public LauncherResult Result { get; set; } = new(LauncherOutcome.Exited, 0);
 
     /// <inheritdoc />
-    public LauncherResult Launch(string exePath, IReadOnlyList<string> arguments)
+    public LauncherResult Launch(string exePath, IReadOnlyList<string> arguments, string workingDirectory)
     {
-        Calls.Add((exePath, arguments.ToList()));
+        Calls.Add(new RecordedLaunch(exePath, arguments.ToList(), workingDirectory));
         return Result;
     }
 }

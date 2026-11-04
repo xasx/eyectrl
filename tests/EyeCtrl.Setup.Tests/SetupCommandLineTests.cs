@@ -24,6 +24,27 @@ public class SetupCommandLineTests
     }
 
     [Fact]
+    public void Update_WithARelativeDirectory_IsAUsageError()
+    {
+        // F3: the cwd is neutral at entry, so a relative directory would resolve elsewhere and
+        // read as a damaged package later. It must fail at parse time.
+        var command = SetupCommandLine.Parse(["update", @".\inbox\2.0.0"]);
+
+        Check.That(command.Error).Contains("absolute");
+        Check.That(command.Job).IsEqualTo(SetupJob.Help);
+    }
+
+    [Fact]
+    public void Internal_PrepareUpdate_WithARelativeDirectory_IsAUsageError()
+    {
+        var command = SetupCommandLine.Parse(
+            ["--internal", "prepare-update", @".\inbox", "--run-id", "r1"]);
+
+        Check.That(command.Error).Contains("absolute");
+        Check.That(command.Job).IsEqualTo(SetupJob.Help);
+    }
+
+    [Fact]
     public void Uninstall_Quiet_IsParsed()
     {
         var command = SetupCommandLine.Parse(["uninstall", "--quiet"]);

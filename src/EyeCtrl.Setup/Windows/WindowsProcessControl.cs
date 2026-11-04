@@ -53,21 +53,11 @@ public sealed class WindowsProcessControl : IProcessControl
     }
 
     /// <inheritdoc />
-    public int? Start(string exePath, IReadOnlyList<string>? arguments = null)
+    public int? Start(string exePath, string workingDirectory, IReadOnlyList<string>? arguments = null)
     {
         try
         {
-            // ShellExecute, never CreateProcess: S1a measured Win32 740 for a CreateProcess of a
-            // uiAccess exe, even from a UIAccess parent, while ShellExecute starts it and returns
-            // a usable handle.
-            var startInfo = new ProcessStartInfo(exePath) { UseShellExecute = true };
-            if (arguments is not null)
-            {
-                foreach (var argument in arguments)
-                    startInfo.ArgumentList.Add(argument);
-            }
-
-            var started = Process.Start(startInfo);
+            var started = Process.Start(BuildStartInfo(exePath, workingDirectory, arguments));
             if (started is null)
                 return null;
 
@@ -79,6 +69,29 @@ public sealed class WindowsProcessControl : IProcessControl
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// ShellExecute, never CreateProcess: S1a measured Win32 740 for a CreateProcess of a uiAccess
+    /// exe, even from a UIAccess parent, while ShellExecute starts it and returns a usable handle.
+    /// The explicit working directory is S6f H1's defence in depth: a ShellExecute child with none
+    /// inherits its caller's cwd, and a live cwd blocks the swap's Directory.Move.
+    /// </summary>
+    internal static ProcessStartInfo BuildStartInfo(
+        string exePath, string workingDirectory, IReadOnlyList<string>? arguments)
+    {
+        var startInfo = new ProcessStartInfo(exePath)
+        {
+            UseShellExecute = true,
+            WorkingDirectory = workingDirectory,
+        };
+        if (arguments is not null)
+        {
+            foreach (var argument in arguments)
+                startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
     }
 
     /// <inheritdoc />

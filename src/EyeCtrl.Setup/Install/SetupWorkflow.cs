@@ -422,7 +422,9 @@ public sealed class SetupWorkflow
             return FinishRefused(verb, prepare, display);
 
         var runCopy = _paths.RunSetupExePath(runId);
-        var pid = _processes.Start(runCopy, arguments);
+
+        // The run copy applies the swap, so it must not inherit (and hold) the installed folder.
+        var pid = _processes.Start(runCopy, SetupWorkingDirectory.Neutral, arguments);
         if (pid is null)
             return Finish(verb, SetupOutcome.Failed, null, null, "relaunchFailed", display: display);
 
@@ -506,17 +508,68 @@ public sealed class SetupWorkflow
         return _appStart.StartAndCheck(_paths.AppExePath);
     }
 
-    /// <summary>Starts the installed App and runs the pass rule, unless it is already running (a
-    /// second instance would hit the single-instance guard and fail spuriously).</summary>
+    /// <summary>
+    /// Starts the installed App and runs the pass rule, unless one is already running (a second
+    /// instance would hit the single-instance guard and fail spuriously).
+    /// </summary>
+    /// <remarks>
+    /// S6f M4: on a refusal the App that handed off to Setup is usually still in <c>OnExit</c>.
+    /// A single snapshot sees it, starts nothing, and the App then exits into an idle Supervisor:
+    /// EyeCtrl is gone. So wait, bounded, for the handing-off App to exit first, then decide on a
+    /// FRESH snapshot. If it never exits, it is still EyeCtrl running, and a second instance is
+    /// never started.
+    /// </remarks>
     private EyeCtrl.Setup.Install.AppStartOutcome? TryStartInstalledIfNotRunning()
     {
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
             return null;
 
-        var alreadyRunning = _processes.Snapshot().Any(p =>
-            string.Equals(p.ImagePath, _paths.AppExePath, StringComparison.OrdinalIgnoreCase));
-        return alreadyRunning ? null : StartChecked();
+        if (!WaitForHandingOffAppToExit())
+            return null;
+
+        return StartChecked();
     }
+
+    /// <summary>
+    /// Waits up to <see cref="SetupConstants.RefusalRestartWait"/> for every App process present
+    /// now to exit. False means an App is still alive (or one appeared meanwhile), so the caller
+    /// must not start a second one.
+    /// </summary>
+    private bool WaitForHandingOffAppToExit()
+    {
+        var deadline = _clock.UtcNow + SetupConstants.RefusalRestartWait;
+        foreach (var pid in AppProcessIds())
+        {
+            var remaining = deadline - _clock.UtcNow;
+            if (remaining < TimeSpan.Zero)
+                remaining = TimeSpan.Zero;
+
+            if (_processes.WaitForExit(pid, remaining) || !_processes.IsAlive(pid))
+                continue;
+
+            _log.Warn(
+                $"The handing-off App (PID {pid}) did not exit within " +
+                $"{SetupConstants.RefusalRestartWait.TotalSeconds:0} s; not starting a second instance.");
+            return false;
+        }
+
+        // A fresh snapshot, not the one taken before the wait: the App may have gone, or the
+        // Supervisor may have relaunched one. Either way, never start a duplicate.
+        if (AppProcessIds().Count > 0)
+        {
+            _log.Warn(
+                "An App is still running after the refusal wait; not starting a second instance.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private List<int> AppProcessIds() =>
+        _processes.Snapshot()
+            .Where(p => string.Equals(p.ImagePath, _paths.AppExePath, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Id)
+            .ToList();
 
     private string? RunCopySource()
     {

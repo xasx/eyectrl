@@ -152,4 +152,10 @@ public static class SetupConstants
     public static readonly TimeSpan CleanExitGrace = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan TokenPollInterval = TimeSpan.FromMilliseconds(250);
     public static readonly TimeSpan ProcessExitWait = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long a refusal (Blocked, or a refused elevated phase) waits for the App that handed off
+    /// to Setup to finish <c>OnExit</c> before deciding whether to restart EyeCtrl (S6f M4).
+    /// </summary>
+    public static readonly TimeSpan RefusalRestartWait = TimeSpan.FromSeconds(15);
 }

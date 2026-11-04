@@ -64,7 +64,9 @@ public sealed class AppStartService
         int? pid;
         try
         {
-            pid = _processes.Start(appExePath);
+            // S6f H1: the App must not inherit Setup's cwd. If the installed Setup was started
+            // from inside EyeCtrl\, the App would hold that folder against rollback/uninstall.
+            pid = _processes.Start(appExePath, SetupWorkingDirectory.Neutral);
         }
         catch (Exception ex)
         {

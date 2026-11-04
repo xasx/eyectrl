@@ -50,9 +50,10 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
     /// <summary>
     /// Resolves icons for each tile, covers the primary screen, then — after layout —
-    /// pushes each tile's real screen center into the VM, which creates the dwell target
-    /// there. The VM has already set IsVisible (that is what triggered this call); creating
-    /// targets only post-layout keeps them off the (0,0) placeholder during the layout gap.
+    /// pushes each tile's real on-screen rectangle (clamped to its visible face) into the
+    /// VM, which creates the dwell target there. The VM has already set IsVisible (that is
+    /// what triggered this call); creating targets only post-layout keeps them off the
+    /// (0,0) placeholder during the layout gap.
     /// </summary>
     public void ShowFullScreen()
     {

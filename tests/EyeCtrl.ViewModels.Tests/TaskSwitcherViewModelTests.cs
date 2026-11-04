@@ -97,10 +97,11 @@ public class TaskSwitcherViewModelTests
     {
         // A3: the tile's hit area IS its drawn face — the 184x104 rect (200x120 cell minus
         // the template Border's 8 DIP margin), not a circle that ignored the corners: the old
-        // r50 circle left ~41% of every face dead, where gaze accumulated nothing and no cue
-        // explained why. The corner is inside, the first pixel past the face (the inter-tile
-        // gap) is outside. Read back through the internal DetectorForTest seam — the
-        // DwellDetector property is protected and does not compile from tests.
+        // r50 circle covered only ~41% of every face, leaving ~59% dead, where gaze
+        // accumulated nothing and no cue explained why. The corner is inside, the first
+        // pixel past the face (the inter-tile gap) is outside. Read back through the
+        // internal DetectorForTest seam — the DwellDetector property is protected and does
+        // not compile from tests.
         var messenger = new WeakReferenceMessenger();
         var hwnd = new IntPtr(42);
         var wm = new FakeWindowManager(new[] { new AppWindow(hwnd, "Notepad", 100, "notepad") });

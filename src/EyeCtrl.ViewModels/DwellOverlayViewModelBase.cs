@@ -107,8 +107,9 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// into whatever the OS foreground is. Override with <c>true</c> ONLY for surfaces whose
     /// dwell is the user's way OUT of a stuck state — the toolbar band (gaze-unpause), the modes
     /// menu (holds the pause toggle), the edge bar and the drag trail (release affordances) —
-    /// and for overlays whose ONLY dismissal is a dwell (task switcher tiles, quick actions):
-    /// those opt in and gate the EFFECT instead via <see cref="LastSampleWasPaused"/>.
+    /// and for overlays whose ONLY dismissal is a dwell (the task switcher — its tiles and its
+    /// close target — and quick actions): those opt in and gate the EFFECT instead via
+    /// <see cref="LastSampleWasPaused"/>.
     /// </summary>
     protected virtual bool DwellActiveWhilePaused => false;
 

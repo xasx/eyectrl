@@ -63,6 +63,47 @@ function Resolve-PackagePath([string]$Path)
     return [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetFullPath($Path))
 }
 
+function Write-SetupRecordOutcome([datetimeoffset]$NotBefore)
+{
+    # S6c D2: rolledBack and degraded exit 0 by design, so the exit code alone is not the answer.
+    # Print the record this run wrote (a record older than NotBefore is from an earlier run).
+    $recordPath = Join-Path $env:APPDATA 'EyeCtrl\setup-last.json'
+    if (-not (Test-Path -LiteralPath $recordPath))
+    {
+        Write-Host 'No setup-last.json was written; the exit code is the only outcome.'
+        return
+    }
+
+    try
+    {
+        $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+    }
+    catch
+    {
+        Write-Host 'setup-last.json could not be read; the exit code is the only outcome.'
+        return
+    }
+
+    $recordTime = [datetimeoffset]::MinValue
+    $timeProperty = $record.PSObject.Properties['time']
+    if ($null -ne $timeProperty)
+    {
+        $parsed = [datetimeoffset]::MinValue
+        if ([datetimeoffset]::TryParse([string]$timeProperty.Value, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed))
+        {
+            $recordTime = $parsed
+        }
+    }
+
+    if ($recordTime -lt $NotBefore)
+    {
+        Write-Host 'setup-last.json is older than this run; the exit code is the only outcome.'
+        return
+    }
+
+    Write-Host "Setup outcome: $($record.outcome) (version $($record.version), previous $($record.previousVersion), detail $($record.detail))."
+}
+
 function Read-PackageStamp([string]$PackagePath)
 {
     $manifestPath = Join-Path $PackagePath 'package.json'
@@ -183,9 +224,11 @@ if ($UntilExit)
 {
     # -PassThru plus WaitForExit waits for Setup itself. Start-Process's own wait flag would wait
     # for the whole process tree, and the App that Setup starts outlives it by hours.
+    $startedAt = [datetimeoffset]::UtcNow
     $process = Start-Process -FilePath $setupExe -ArgumentList $setupArguments -WorkingDirectory $PackageDir -PassThru
     $process.WaitForExit()
     Write-Host "Setup exited with code $($process.ExitCode)."
+    Write-SetupRecordOutcome -NotBefore $startedAt
     exit $process.ExitCode
 }
 

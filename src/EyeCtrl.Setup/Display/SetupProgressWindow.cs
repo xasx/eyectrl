@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
@@ -55,7 +56,11 @@ internal sealed class SetupProgressWindow : Window
         // The App measured this (clicking investigation R1 / #214); every click-through overlay
         // there sets AllowsTransparency. WindowStyle is already None, as WPF requires.
         AllowsTransparency = true;
-        Background = Tokens.BrushSurfaceLight;
+        // N1: a layered window can still be visually opaque. Use the r01 SurfaceDark colour with
+        // full alpha (frozen), so the result text keeps its contrast; click-through comes from
+        // WS_EX_TRANSPARENT, not from alpha.
+        var opaqueSurface = OpaqueSurfaceDark();
+        Background = opaqueSurface;
         Foreground = Tokens.BrushTextPrimary;
         FontFamily = Tokens.FontStandard;
         FontSize = SetupWindowMetrics.ProseFontSize;
@@ -86,7 +91,7 @@ internal sealed class SetupProgressWindow : Window
 
         Content = new Border
         {
-            Background = Tokens.BrushSurfaceLight,
+            Background = opaqueSurface,
             Padding = new Thickness(SetupWindowMetrics.WindowMargin),
             Child = panel,
         };
@@ -152,6 +157,18 @@ internal sealed class SetupProgressWindow : Window
     /// another process's clicks through.</summary>
     internal static bool HasLayeredStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExLayered) != 0;
+
+    /// <summary>
+    /// The theme's SurfaceDark colour with full opacity, frozen. N1: the layered window must keep
+    /// the r01 background and its contrast; WS_EX_TRANSPARENT, not alpha, provides click-through.
+    /// </summary>
+    private static SolidColorBrush OpaqueSurfaceDark()
+    {
+        var color = Tokens.SurfaceDark;
+        var brush = new SolidColorBrush(Color.FromRgb(color.R, color.G, color.B));
+        brush.Freeze();
+        return brush;
+    }
 
     private void ApplyClickThrough()
     {

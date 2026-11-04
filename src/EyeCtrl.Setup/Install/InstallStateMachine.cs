@@ -487,6 +487,9 @@ public sealed class InstallStateMachine
             if (_fileSystem.DirectoryExists(folder))
                 _fileSystem.DeleteDirectory(folder, recursive: true);
         }
+
+        // The journal lives under EyeCtrl.run, which survives as the current run copy's parent.
+        _journal.Clear();
     }
 
     /// <summary>Removes every HKCU Run/RunOnce value whose name starts with <c>EyeCtrl</c>.</summary>

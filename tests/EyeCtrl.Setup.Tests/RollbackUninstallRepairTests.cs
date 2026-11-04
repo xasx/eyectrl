@@ -67,6 +67,8 @@ public class UninstallWorkflowTests
         harness.SeedInstalled("1.0.0");
         harness.Processes.Add(harness.Paths.AppExePath);
         harness.Processes.Add(harness.Paths.SupervisorExePath);
+        harness.Journal.Write(new EyeCtrl.Setup.Install.InstallJournal(
+            EyeCtrl.Setup.Install.InstallOperation.Update, 2));
         harness.Registry.SeedString(
             RegistryHive.CurrentUser, SetupConstants.RunKeyPath, "EyeCtrl", "x");
         harness.Registry.SeedString(
@@ -86,6 +88,7 @@ public class UninstallWorkflowTests
         Check.That(harness.Registry.Names(RegistryHive.CurrentUser, SetupConstants.RunKeyPath))
             .Not.Contains("EyeCtrl");
         Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunFolder("run1"));
+        Check.That(harness.Journal.Read()).IsNull();
     }
 
     [Fact]

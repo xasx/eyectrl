@@ -100,17 +100,34 @@ public sealed class AppStartService
             return AppStartOutcome.Fail(AppStartFailure.NotAliveAfter20s, processId);
         }
 
-        var line = _logProbe.ReadStartupTokenLine(appExePath, startedAt);
-        if (line == AppStartupTokenLine.UiAccessTrue)
+        // G2: poll for C10's token line while the process stays alive, up to 45 s from start.
+        // A cold first start after an update can take well past the 20 s mark.
+        var deadline = startedAt + SetupConstants.TokenLineTimeout;
+        while (true)
         {
-            _log.Info("App passed the token, alive and startup-line checks.");
-            return AppStartOutcome.Success(processId);
-        }
+            var line = _logProbe.ReadStartupTokenLine(appExePath, startedAt);
+            if (line == AppStartupTokenLine.UiAccessTrue)
+            {
+                _log.Info("App passed the token, alive and startup-line checks.");
+                return AppStartOutcome.Success(processId);
+            }
 
-        if (line == AppStartupTokenLine.UiAccessFalse)
-        {
-            _log.Warn("The startup token line says UIAccess=False; leaving the decision to the caller.");
-            return AppStartOutcome.Degraded(processId, "tokenLineUiAccessFalse");
+            if (line == AppStartupTokenLine.UiAccessFalse)
+            {
+                _log.Warn("The startup token line says UIAccess=False; leaving the decision to the caller.");
+                return AppStartOutcome.Degraded(processId, "tokenLineUiAccessFalse");
+            }
+
+            if (!_processes.IsAlive(processId))
+            {
+                _log.Warn("App died before its startup token line appeared.");
+                return AppStartOutcome.Fail(AppStartFailure.NotAliveAfter20s, processId);
+            }
+
+            if (_clock.UtcNow >= deadline)
+                break;
+
+            _clock.Sleep(SetupConstants.TokenLinePollInterval);
         }
 
         KillQuietly(processId);

@@ -138,6 +138,8 @@ public static class SetupConstants
 
     public static readonly TimeSpan TokenCheckTimeout = TimeSpan.FromSeconds(30);
     public static readonly TimeSpan AliveAfter = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan TokenLineTimeout = TimeSpan.FromSeconds(45);
+    public static readonly TimeSpan TokenLinePollInterval = TimeSpan.FromMilliseconds(500);
     public static readonly TimeSpan CleanExitGrace = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan TokenPollInterval = TimeSpan.FromMilliseconds(250);
     public static readonly TimeSpan ProcessExitWait = TimeSpan.FromSeconds(5);

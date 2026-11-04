@@ -101,6 +101,47 @@ public class AppStartServiceTests
     }
 
     [Fact]
+    public void AHealthyAppWhoseTokenLineIsSlow_PassesWithin45s()
+    {
+        var harness = Harness();
+        for (var i = 0; i < 30; i++)
+            harness.LogProbe.Results.Enqueue(AppStartupTokenLine.None);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessTrue);
+
+        var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
+
+        Check.That(outcome.Passed).IsTrue();
+        Check.That(harness.LogProbe.Calls.Count).IsStrictlyGreaterThan(30);
+    }
+
+    [Fact]
+    public void ATokenLineThatNeverAppears_FailsAfter45s()
+    {
+        var harness = Harness();
+        for (var i = 0; i < 60; i++)
+            harness.LogProbe.Results.Enqueue(AppStartupTokenLine.None);
+
+        var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
+
+        Check.That(outcome.FailureReason).IsEqualTo(AppStartFailure.MissingTokenLine);
+        Check.That(harness.Log.Any(e => e.StartsWith("kill:", StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Fact]
+    public void ATokenLineSayingFalseDuringThePoll_IsADegradedCandidate()
+    {
+        var harness = Harness();
+        for (var i = 0; i < 10; i++)
+            harness.LogProbe.Results.Enqueue(AppStartupTokenLine.None);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse);
+
+        var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
+
+        Check.That(outcome.UiAccessOnlyFailure).IsTrue();
+        Check.That(outcome.StillAlive).IsTrue();
+    }
+
+    [Fact]
     public void AFailedStart_ReportsNotStarted()
     {
         var harness = Harness();

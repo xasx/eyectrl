@@ -27,11 +27,16 @@ public class SupervisionStartPlannerTests
         Check.That(plan.StartOnBootEnabled).IsEqualTo(startOnBoot);
     }
 
-    [Fact]
-    public void AnUpdateWithSupervisionOn_StillStartsOnlyTheApp_AndLeavesTheRunKeyAlone()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void AnUpdate_StartsOnlyTheApp_ForEverySupervisionAndBootCombination(
+        bool supervision, bool startOnBoot)
     {
         var harness = new SetupHarness();
-        harness.Settings.State = new SupervisionBootState(true, true);
+        harness.Settings.State = new SupervisionBootState(supervision, startOnBoot);
         harness.SeedInstalled("1.0.0");
         var package = @"C:\inbox\2.0.0";
         harness.SeedPackage(package, "2.0.0");
@@ -44,6 +49,9 @@ public class SupervisionStartPlannerTests
         Check.That(harness.Processes.Processes.Any(p =>
             p.ImagePath == harness.Paths.SupervisorExePath)).IsFalse();
         Check.That(harness.Registry.Names(RegistryHive.CurrentUser, SetupConstants.RunKeyPath)).IsEmpty();
+        Check.That(harness.Logging.Lines.Any(line =>
+            line.Contains("Start plan: app=True supervisor=False runKey=False", StringComparison.Ordinal)))
+            .IsTrue();
     }
 }
 

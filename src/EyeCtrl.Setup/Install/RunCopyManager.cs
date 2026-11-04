@@ -38,18 +38,20 @@ public sealed class RunCopyManager
         _log = log;
     }
 
+    /// <summary>True for a filesystem-safe run id: letters, digits and hyphens, at most 64 chars.</summary>
+    public static bool IsValidRunId(string? runId) =>
+        !string.IsNullOrWhiteSpace(runId)
+        && runId.Length <= 64
+        && runId.All(c => char.IsLetterOrDigit(c) || c == '-');
+
     /// <summary>
     /// Verifies <paramref name="sourceSetupExe"/> against the pinned thumbprint, removes stale run
     /// folders, and copies the exe into the private folder for <paramref name="runId"/>.
     /// </summary>
     public RunCopyResult Prepare(string sourceSetupExe, string runId)
     {
-        if (string.IsNullOrWhiteSpace(runId)
-            || runId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-            || runId.Contains("..", StringComparison.Ordinal))
-        {
+        if (!IsValidRunId(runId))
             return RunCopyResult.Fail("invalidRunId");
-        }
 
         if (!_fileSystem.FileExists(sourceSetupExe))
             return RunCopyResult.Fail("setupMissing");

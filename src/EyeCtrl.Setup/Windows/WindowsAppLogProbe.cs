@@ -45,7 +45,11 @@ public sealed class WindowsAppLogProbe : IAppLogProbe
                         continue;
                     if (!line.Contains(expectedExe, StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (!TryReadTimestamp(line, out var timestamp) || timestamp >= sinceLocal)
+                    // F9: fail closed. An unparseable timestamp cannot prove the line came from
+                    // this launch, so it is not evidence.
+                    if (!TryReadTimestamp(line, out var timestamp))
+                        continue;
+                    if (timestamp >= sinceLocal)
                         return true;
                 }
             }

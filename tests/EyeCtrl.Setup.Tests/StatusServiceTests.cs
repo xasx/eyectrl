@@ -72,6 +72,38 @@ public class StatusServiceTests
     }
 
     [Fact]
+    public void Status_ReportsAPendingRunOnceRepair()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.Registry.SeedString(
+            Microsoft.Win32.RegistryHive.CurrentUser, SetupConstants.RunOnceKeyPath,
+            SetupConstants.RepairRunOnceName, "\"run\" repair");
+
+        Check.That(harness.Status.GetReport().RepairPending).IsTrue();
+    }
+
+    [Fact]
+    public void Status_ReportsAPendingJournalRepair()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.Journal.Write(new EyeCtrl.Setup.Install.InstallJournal(
+            EyeCtrl.Setup.Install.InstallOperation.Update, 2));
+
+        Check.That(harness.Status.GetReport().RepairPending).IsTrue();
+    }
+
+    [Fact]
+    public void Status_IsNotPending_WithoutARepairMark()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+
+        Check.That(harness.Status.GetReport().RepairPending).IsFalse();
+    }
+
+    [Fact]
     public void Status_IsReadOnly()
     {
         var harness = new SetupHarness();

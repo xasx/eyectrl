@@ -56,6 +56,27 @@ public class WindowsAppLogProbeTests
     }
 
     [Fact]
+    public void AnUnparseableTimestamp_FailsClosed()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var paths = new SetupPaths(@"C:\Program Files", root, root);
+            Directory.CreateDirectory(paths.LogsRoot);
+            var app = Path.Combine(paths.InstallRoot, "EyeCtrl.App.exe");
+            File.WriteAllText(Path.Combine(paths.LogsRoot, "eyectrl-20261103.log"),
+                $"no-timestamp [INF] [App] Token: IL=High UIAccess=True Elevated=False exe={app}\n");
+
+            Check.That(new WindowsAppLogProbe(paths).HasUiAccessStartupLine(
+                app, DateTimeOffset.UtcNow.AddHours(-1))).IsFalse();
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void NoLogsFolder_IsFalse()
     {
         var root = CreateTempRoot();

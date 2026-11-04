@@ -112,6 +112,30 @@ public class StopCoordinatorTests
     }
 
     [Fact]
+    public void TheKillPath_ChasesAnAppTheSupervisorRelaunched()
+    {
+        var harness = Harness();
+        harness.Processes.Add(harness.Paths.AppExePath);
+        var supervisor = harness.Processes.Add(harness.Paths.SupervisorExePath);
+        harness.Processes.WaitForExitResult = false;
+        var relaunched = false;
+        harness.Processes.OnStop = pid =>
+        {
+            if (pid == supervisor && !relaunched)
+            {
+                relaunched = true;
+                harness.Processes.Add(harness.Paths.AppExePath);
+            }
+        };
+
+        var result = harness.Stop.StopForSwap(TimeSpan.FromSeconds(5));
+
+        Check.That(result.Ok).IsTrue();
+        Check.That(harness.Processes.Processes.Any(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsFalse();
+    }
+
+    [Fact]
     public void TheImageCheck_CountsAProcessWhoseImageIsTheSupervisor()
     {
         var harness = Harness();

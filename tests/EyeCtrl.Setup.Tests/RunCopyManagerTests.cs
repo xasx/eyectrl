@@ -64,6 +64,9 @@ public class RunCopyManagerTests
     [InlineData("../escape")]
     [InlineData("a/b")]
     [InlineData("")]
+    [InlineData(".")]
+    [InlineData("..\\EyeCtrl")]
+    [InlineData("a.b")]
     public void AnUnsafeRunId_IsRefused(string runId)
     {
         var harness = new SetupHarness();

@@ -64,10 +64,12 @@ public sealed class SetupComposition
             paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion, log);
         var broker = new ShellExecuteElevationBroker(
             paths, elevated, environment, policy, new ShellExecuteRunAsLauncher(log), log);
+        var planner = new SupervisionStartPlanner(new SettingsSnapshotReader(paths, fileSystem));
         var workflow = new SetupWorkflow(
-            paths, policy, broker, appStart, fileSystem, processes, new KeepUninstallChoice(),
+            paths, policy, broker, appStart, planner, fileSystem, processes, new KeepUninstallChoice(),
             new GuidRunIdGenerator(), metadata, recorder, environment, clock, log);
-        var status = new StatusService(paths, state, processes, policy, recorder);
+        var status = new StatusService(
+            paths, state, processes, policy, recorder, registry, journal);
 
         return new SetupComposition(workflow, elevated, status, new ConsoleStatusWriter(),
             broker, log);
@@ -85,6 +87,12 @@ public sealed class SetupComposition
 
         if (command.IsInternal)
         {
+            if (command.RunId is { } runId && !RunCopyManager.IsValidRunId(runId))
+            {
+                _log.Error("An internal job has an unsafe run id; refusing before any write.");
+                return SetupExitCodes.Usage;
+            }
+
             if (!_broker.IsElevated)
             {
                 _log.Error("An internal job needs an elevated token; refusing before any write.");

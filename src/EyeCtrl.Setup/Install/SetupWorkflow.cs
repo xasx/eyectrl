@@ -13,6 +13,7 @@ public sealed class SetupWorkflow
     private readonly IElevationPolicy _policy;
     private readonly IElevationBroker _broker;
     private readonly AppStartService _appStart;
+    private readonly SupervisionStartPlanner _planner;
     private readonly IFileSystem _fileSystem;
     private readonly IProcessControl _processes;
     private readonly IUninstallChoice _uninstallChoice;
@@ -26,6 +27,7 @@ public sealed class SetupWorkflow
     /// <summary>Creates the workflow.</summary>
     public SetupWorkflow(
         SetupPaths paths, IElevationPolicy policy, IElevationBroker broker, AppStartService appStart,
+        SupervisionStartPlanner planner,
         IFileSystem fileSystem, IProcessControl processes, IUninstallChoice uninstallChoice,
         IRunIdGenerator runIds, IPackageMetadataReader metadata, IResultRecorder recorder,
         ISetupEnvironment environment, ISetupClock clock, ISetupLog log)
@@ -34,6 +36,7 @@ public sealed class SetupWorkflow
         _policy = policy;
         _broker = broker;
         _appStart = appStart;
+        _planner = planner;
         _fileSystem = fileSystem;
         _processes = processes;
         _uninstallChoice = uninstallChoice;
@@ -78,7 +81,7 @@ public sealed class SetupWorkflow
         var newVersion = _metadata.Read(_paths.InstallRoot).Version;
         var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
 
-        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        var start = StartChecked();
         if (start.Passed)
         {
             return Finish(SetupVerb.Update, SetupOutcome.Ok, newVersion, previousVersion);
@@ -109,7 +112,7 @@ public sealed class SetupWorkflow
 
         var version = _metadata.Read(_paths.InstallRoot).Version;
         var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
-        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        var start = StartChecked();
         if (start.Passed)
             return Finish(SetupVerb.Update, SetupOutcome.Ok, version, previousVersion, "repairCompleted");
 
@@ -139,7 +142,7 @@ public sealed class SetupWorkflow
         }
 
         var restoredVersion = _metadata.Read(_paths.InstallRoot).Version;
-        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        var start = StartChecked();
         return start.Passed
             ? Finish(verb, SetupOutcome.RolledBack, attemptedVersion, restoredVersion,
                 "newVersionFailed:" + failureReason)
@@ -176,7 +179,7 @@ public sealed class SetupWorkflow
 
         var restoredVersion = _metadata.Read(_paths.InstallRoot).Version;
         var displacedVersion = _metadata.Read(_paths.PreviousRoot).Version;
-        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        var start = StartChecked();
         if (start.Passed)
             return Finish(SetupVerb.Rollback, SetupOutcome.Ok, restoredVersion, displacedVersion);
 
@@ -190,7 +193,7 @@ public sealed class SetupWorkflow
         }
 
         var forwardVersion = _metadata.Read(_paths.InstallRoot).Version;
-        var forwardStart = _appStart.StartAndCheck(_paths.AppExePath);
+        var forwardStart = StartChecked();
         return forwardStart.Passed
             ? Finish(SetupVerb.Rollback, SetupOutcome.Failed, restoredVersion, forwardVersion,
                 "rollbackTargetFailed:" + start.FailureReason)
@@ -291,7 +294,7 @@ public sealed class SetupWorkflow
 
         var version = _metadata.Read(_paths.InstallRoot).Version;
         var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
-        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        var start = StartChecked();
         return start.Passed
             ? Finish(SetupVerb.Repair, SetupOutcome.Repaired, version, previousVersion)
             : RevertAndCheck(
@@ -385,16 +388,27 @@ public sealed class SetupWorkflow
         return Finish(verb, outcome, null, null, phase.Detail);
     }
 
+    /// <summary>Starts the installed App with the real supervision × boot plan in the log, then
+    /// runs the three-part pass rule.</summary>
+    private EyeCtrl.Setup.Install.AppStartOutcome StartChecked()
+    {
+        var plan = _planner.Plan();
+        _log.Info(
+            $"Start plan: app={plan.StartAppOnce} supervisor={plan.StartSupervisor} " +
+            $"runKey={plan.WriteStartOnBootRunKey} appStartsSupervisor={plan.AppWillStartSupervisor}");
+        return _appStart.StartAndCheck(_paths.AppExePath);
+    }
+
     /// <summary>Starts the installed App and runs the pass rule, unless it is already running (a
     /// second instance would hit the single-instance guard and fail spuriously).</summary>
-    private AppStartOutcome? TryStartInstalledIfNotRunning()
+    private EyeCtrl.Setup.Install.AppStartOutcome? TryStartInstalledIfNotRunning()
     {
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
             return null;
 
         var alreadyRunning = _processes.Snapshot().Any(p =>
             string.Equals(p.ImagePath, _paths.AppExePath, StringComparison.OrdinalIgnoreCase));
-        return alreadyRunning ? null : _appStart.StartAndCheck(_paths.AppExePath);
+        return alreadyRunning ? null : StartChecked();
     }
 
     private string? RunCopySource()
@@ -443,3 +457,4 @@ public sealed class SetupWorkflow
         return result;
     }
 }
+

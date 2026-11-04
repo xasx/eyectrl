@@ -152,11 +152,11 @@ public sealed class SetupHarness
             Paths, Policy, RunCopies, Staging, Stop, State, AppsAndFeatures, AppData, Logging);
         Broker = new FakeElevationBroker { Handler = Elevated.Execute };
         Environment.ProcessPath = @"C:\Users\test\Desktop\EyeCtrl.Setup.exe";
-        Workflow = new SetupWorkflow(
-            Paths, Policy, Broker, AppStart, Files, Processes, Choice, RunIds, Metadata,
-            Recorder, Environment, Clock, Logging);
-        Status = new StatusService(Paths, State, Processes, Policy, Recorder);
         Planner = new SupervisionStartPlanner(Settings);
+        Workflow = new SetupWorkflow(
+            Paths, Policy, Broker, AppStart, Planner, Files, Processes, Choice, RunIds, Metadata,
+            Recorder, Environment, Clock, Logging);
+        Status = new StatusService(Paths, State, Processes, Policy, Recorder, Registry, Journal);
         Inbox = new InboxScanner(Paths, Files, Metadata);
     }
 

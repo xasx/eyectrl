@@ -75,14 +75,22 @@ public sealed class FakeProcessControl : IProcessControl
     {
         Log.Add("stop:" + processId);
         Remove(processId);
+        OnStop?.Invoke(processId);
     }
+
+    /// <summary>Called with the process id after a kill (a test can model a Supervisor relaunch).</summary>
+    public Action<int>? OnKill { get; set; }
 
     /// <inheritdoc />
     public void Kill(int processId)
     {
         Log.Add("kill:" + processId);
         Remove(processId);
+        OnKill?.Invoke(processId);
     }
+
+    /// <summary>Called with the process id after a supervisor stop.</summary>
+    public Action<int>? OnStop { get; set; }
 
     /// <inheritdoc />
     public bool WaitForExit(int processId, TimeSpan timeout)

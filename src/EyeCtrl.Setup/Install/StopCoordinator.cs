@@ -35,6 +35,9 @@ public sealed class StopCoordinator
     private readonly IHeldButtonRecovery _heldButton;
     private readonly ISetupLog _log;
 
+    /// <summary>How many App images the kill path will chase after the Supervisor exits.</summary>
+    private const int MaxKillRounds = 5;
+
     /// <summary>Creates the coordinator.</summary>
     public StopCoordinator(
         SetupPaths paths, IProcessControl processes, IHeldButtonRecovery heldButton, ISetupLog log)
@@ -84,10 +87,16 @@ public sealed class StopCoordinator
                 _processes.WaitForExit(liveSupervisor.Id, SetupConstants.ProcessExitWait);
             }
 
-            if (app is { } liveApp)
+            // F11: re-snapshot after the Supervisor has exited. It may have relaunched the App
+            // in between; kill every App image that appears, with a bound.
+            for (var attempt = 0; attempt < MaxKillRounds; attempt++)
             {
-                _processes.Kill(liveApp.Id);
-                _processes.WaitForExit(liveApp.Id, SetupConstants.ProcessExitWait);
+                var liveApp = FindByImage(_processes.Snapshot(), _paths.AppExePath);
+                if (liveApp is not { } current)
+                    break;
+
+                _processes.Kill(current.Id);
+                _processes.WaitForExit(current.Id, SetupConstants.ProcessExitWait);
             }
 
             // C3: the killed process ran none of its in-process release paths. Release once, in

@@ -10,6 +10,7 @@ public sealed record StatusReport(
     string? PreviousVersion,
     bool StagingPending,
     bool FailedVersionPresent,
+    bool RepairPending,
     string State,
     bool AppRunning,
     bool SupervisorRunning,
@@ -33,17 +34,22 @@ public sealed class StatusService
     private readonly IProcessControl _processes;
     private readonly IElevationPolicy _policy;
     private readonly IResultRecorder _recorder;
+    private readonly IRegistryStore _registry;
+    private readonly IInstallJournalStore _journal;
 
     /// <summary>Creates the service.</summary>
     public StatusService(
         SetupPaths paths, InstallStateMachine state, IProcessControl processes,
-        IElevationPolicy policy, IResultRecorder recorder)
+        IElevationPolicy policy, IResultRecorder recorder, IRegistryStore registry,
+        IInstallJournalStore journal)
     {
         _paths = paths;
         _state = state;
         _processes = processes;
         _policy = policy;
         _recorder = recorder;
+        _registry = registry;
+        _journal = journal;
     }
 
     /// <summary>Reads the state and returns the report.</summary>
@@ -63,6 +69,10 @@ public sealed class StatusService
             snapshot.PreviousVersion,
             snapshot.StagingExists,
             snapshot.FailedExists,
+            _journal.Read() is not null
+            || _registry.ReadString(
+                Microsoft.Win32.RegistryHive.CurrentUser, SetupConstants.RunOnceKeyPath,
+                SetupConstants.RepairRunOnceName) is not null,
             snapshot.State,
             appRunning,
             supervisorRunning,

@@ -75,11 +75,12 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     }
 
     /// <summary>
-    /// For each tile, compute its real on-screen rectangle (the drawn tile face) and push it
-    /// into the VM so the DwellDetector hit-tests the drawn face, not a circle that ignores
-    /// the corners. Tiles that do not overlap the ScrollViewer's viewport get NO target: a
-    /// fully clipped tile keeps no live dwell target at its on-screen position, where gaze
-    /// resting on the bottom band would silently switch windows.
+    /// For each tile, compute its real on-screen rectangle (the drawn tile face) and push its
+    /// VISIBLE part — the intersection with the ScrollViewer's viewport — into the VM, so the
+    /// DwellDetector hit-tests exactly what is drawn: not a circle that ignores the corners,
+    /// and not the hidden remainder of a row the viewport clips. Tiles with no visible area
+    /// get NO target: gaze resting on the bottom band (the hint row, the close disc) must
+    /// never silently switch windows through a tile that is not on screen.
     /// </summary>
     private void UpdateTilePositions()
     {
@@ -123,10 +124,17 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             var bottomRight = border.PointToScreen(new Point(border.ActualWidth, border.ActualHeight));
             var faceRect = new PhysicalRect(topLeft.X, topLeft.Y,
                 bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
-            if (!TileOverlapsViewport(faceRect, viewportRect))
-                continue;   // fully clipped: no target, no invisible accumulation
 
-            _viewModel.UpdateTilePosition(tile.Hwnd, faceRect);
+            // Register only the VISIBLE face: the intersection with the viewport. The
+            // ScrollContentPresenter clips tiles at the viewport edge, so for a partially
+            // clipped row this intersection IS what the user sees drawn; registering the
+            // full face would keep its hidden part a live target under the hint row and
+            // beside the close disc, silently switching windows when gaze rests there.
+            var visibleRect = VisibleTileRect(faceRect, viewportRect);
+            if (visibleRect.Width <= 0 || visibleRect.Height <= 0)
+                continue;   // fully clipped (or edge-touching): no target, no invisible accumulation
+
+            _viewModel.UpdateTilePosition(tile.Hwnd, visibleRect);
         }
 
         // Register the close disc as a dwell target too (same physical-pixel convention).
@@ -136,15 +144,23 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     }
 
     /// <summary>
-    /// Whether a tile's on-screen face overlaps the ScrollViewer's viewport. Boundary touch
-    /// does NOT count (<see cref="PhysicalRect.IntersectsWith"/> is strict): a tile whose only
-    /// contact with the viewport is a shared edge has zero visible pixels, and a live dwell
-    /// target there is exactly the hazard this filter exists for. <c>internal static</c> pure
-    /// helper so the decision unit-tests headlessly (ForegroundSwitchDiagnosis.Classify
-    /// precedent).
+    /// The part of a tile's on-screen face that lies inside the ScrollViewer's viewport — its
+    /// VISIBLE face, the only part that may carry a dwell target. An overlap of zero area
+    /// (fully clipped, or merely touching the viewport edge — the same strictness as
+    /// <see cref="PhysicalRect.IntersectsWith"/>) yields a non-positive width or height,
+    /// which the caller treats as "no target": a tile whose only contact with the viewport is
+    /// a shared edge has zero visible pixels, and a live dwell target there is exactly the
+    /// hazard this clamp exists for. <c>internal static</c> pure helper so the geometry
+    /// unit-tests headlessly (ForegroundSwitchDiagnosis.Classify precedent).
     /// </summary>
-    internal static bool TileOverlapsViewport(PhysicalRect tileRect, PhysicalRect viewportRect) =>
-        tileRect.IntersectsWith(viewportRect);
+    internal static PhysicalRect VisibleTileRect(PhysicalRect face, PhysicalRect viewport)
+    {
+        var left = Math.Max(face.X, viewport.X);
+        var top = Math.Max(face.Y, viewport.Y);
+        var right = Math.Min(face.X + face.Width, viewport.X + viewport.Width);
+        var bottom = Math.Min(face.Y + face.Height, viewport.Y + viewport.Height);
+        return new PhysicalRect(left, top, right - left, bottom - top);
+    }
 
     /// <summary>
     /// The tile DataTemplate's root Border: the first Border among the container's visual

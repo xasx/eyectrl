@@ -14,9 +14,11 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// Fullscreen Task Switcher overlay ViewModel. Enumerates open windows via
 /// <see cref="IWindowManager"/> into <see cref="Tiles"/> when toggled on, exposes
-/// dwell targets over each tile, and sends <see cref="TaskSwitcherSelectionMessage"/>
-/// when a tile is dwelt on. WPF-free (ViewModels targets plain net10.0): the View
-/// (TaskSwitcherWindow) resolves icons via IAppIconProvider using each tile's ProcessId.
+/// dwell targets over each tile plus a dedicated close target (<see cref="CloseTargetId"/>,
+/// a pure dismissal that never selects a window), and sends
+/// <see cref="TaskSwitcherSelectionMessage"/> when a tile is dwelt on. WPF-free
+/// (ViewModels targets plain net10.0): the View (TaskSwitcherWindow) resolves icons via
+/// IAppIconProvider using each tile's ProcessId.
 /// </summary>
 public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     IRecipient<TaskSwitcherToggledMessage>
@@ -61,10 +63,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private void ShowOverlay()
     {
         // Repopulate tiles from the live window list. Dwell targets are NOT created here:
-        // the View computes each tile's real screen center after layout and calls
-        // UpdateTilePosition(), which creates the target at its true position. Creating all
-        // targets up front at a shared (0,0) placeholder would let gaze accumulate dwell on
-        // the overlapping origin targets during the layout gap (the old (0,0) race).
+        // the View computes each tile's real on-screen rectangle (its visible face) after
+        // layout and calls UpdateTilePosition(), which creates the target at its true
+        // position. Creating all targets up front at a shared (0,0) placeholder would let
+        // gaze accumulate dwell on the overlapping origin targets during the layout gap
+        // (the old (0,0) race).
         Tiles.Clear();
         DwellDetector.ClearTargets();
         CloseDwellProgress = 0;
@@ -163,10 +166,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
     /// <summary>
     /// Called by the View once a tile's container is laid out, with the tile's real on-screen
-    /// rectangle. Creates (or repositions — <see cref="DwellDetector.AddTarget"/> replaces by id)
-    /// a RECTANGULAR dwell target here so the detector hit-tests the drawn tile face: the tiles
-    /// are 184x104 DIP faces (200x120 cells minus the template border's 8 DIP margin), and the
-    /// old r50 circle left roughly 41% of every visible face dead — gaze accumulated nothing
+    /// rectangle (already clamped to the visible face for clipped rows). Creates (or
+    /// repositions — <see cref="DwellDetector.AddTarget"/> replaces by id) a RECTANGULAR dwell
+    /// target here so the detector hit-tests the drawn tile face: the tiles are 184x104 DIP
+    /// faces (200x120 cells minus the template border's 8 DIP margin), and the old r50 circle
+    /// covered only ~41% of every visible face, leaving ~59% dead — gaze accumulated nothing
     /// there, with no cue explaining why (the same drawn-vs-hit mismatch QuickActions fixed as
     /// a field finding, and the class behind the 2026-08-17 'tiles gave no feedback' report).
     /// Reuses <c>ToolbarButtonDwellMs</c> (700 ms default): tiles are large so it feels easy to

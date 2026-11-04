@@ -24,7 +24,13 @@ public class TaskSwitcherDwellPositionTests
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs"));
-        var body = ExtractMethod(source, "private void UpdateTilePositions()");
+        // Comments stripped (BringToFront_SkipsTheAltGrant pattern): the method's own comment
+        // narrates the 2026-08-17 bug and names PointToScreen, TransformToAncestor and
+        // DpiHelper, so a raw substring scan is comment-satisfiable. External review I2: the
+        // old negative check keyed on the pre-A3 local name "center", which the rect rewrite
+        // renamed away — the check could never fail again, and a simulated revert to the
+        // TransformToAncestor + DpiHelper path passed the pin.
+        var body = SourceScanner.StripComments(ExtractMethod(source, "private void UpdateTilePositions()"));
 
         Check.WithCustomMessage(
                 "UpdateTilePositions no longer uses PointToScreen — the one overlay that "
@@ -33,10 +39,17 @@ public class TaskSwitcherDwellPositionTests
                 + "of a position transform is the bug this pin exists for.")
             .That(body.Contains("PointToScreen")).IsTrue();
         Check.WithCustomMessage(
-                "UpdateTilePositions still scales positions with DpiHelper.LogicalToPhysical — "
-                + "DpiHelper's scale does not know Windows' DPI virtualization; PointToScreen "
-                + "does. Remove the manual scaling (see QuickActionsGridWindow's comment).")
-            .That(body.Contains("LogicalToPhysicalX(center")).IsFalse();
+                "UpdateTilePositions still derives positions via TransformToAncestor — the "
+                + "pre-2026-08-17 path. Combined with manual scaling it landed targets far "
+                + "from the tiles under DPI virtualization; PointToScreen is the only "
+                + "position source this method may use.")
+            .That(body.Contains("TransformToAncestor")).IsFalse();
+        Check.WithCustomMessage(
+                "UpdateTilePositions still scales positions with DpiHelper — DpiHelper's "
+                + "scale does not know Windows' DPI virtualization; PointToScreen does. The "
+                + "close disc's radius is converted in the ViewModel, so no legitimate "
+                + "DpiHelper use remains in this method.")
+            .That(body.Contains("DpiHelper.")).IsFalse();
     }
 
     /// <summary>

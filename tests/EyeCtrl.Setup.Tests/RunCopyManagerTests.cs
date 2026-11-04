@@ -110,6 +110,30 @@ public class RunCopyManagerTests
             Path.GetFileName(path) == "Extra_cor3.dll")).IsFalse();
     }
 
+    [Theory]
+    [InlineData(true, "DEADBEEF", null)]
+    [InlineData(false, null, "0x800B0100")]
+    public void ARunCopyCatalogWithAForeignOrMissingSignature_IsRefusedAndRemoved(
+        bool valid, string? thumbprint, string? error)
+    {
+        // T1: WinTrust's member check requires a trusted catalog, not OUR signer. The pinned
+        // thumbprint is what keeps out a validly signed catalog from someone else.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.Signature.Verifier = path =>
+            path.Contains("EyeCtrl.run", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(
+                Path.GetFileName(path), SetupConstants.CatalogName, StringComparison.OrdinalIgnoreCase)
+                ? new FileSignatureCheck(valid, thumbprint, error)
+                : new FileSignatureCheck(true, SetupConstants.PinnedThumbprint, null);
+
+        var result = harness.RunCopies.Prepare(harness.Paths.InstalledSetupExePath, "abc");
+
+        Check.That(result.Ok).IsFalse();
+        Check.That(result.FailureReason).IsEqualTo("runCopyCatalog");
+        Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("abc"))).IsFalse();
+    }
+
     [Fact]
     public void AVerifiedSetup_IsCopiedIntoThePrivateRunFolder()
     {

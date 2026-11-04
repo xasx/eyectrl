@@ -81,8 +81,8 @@ public sealed class RunCopyManager
         if (!_fileSystem.FileExists(sourceCatalog))
             return RunCopyResult.Fail("setupCatalogMissing");
 
-        var companions = SetupPayload.FindCompanions(_fileSystem, sourceSetupExe);
-        if (SetupPayload.MissingRequired(companions) is { } missing)
+        var companions = SetupPayload.RequiredCompanions;
+        if (SetupPayload.FirstMissing(_fileSystem, sourceFolder) is { } missing)
             return RunCopyResult.Fail("setupPayloadMissing:" + missing);
 
         var targetFolder = _paths.RunFolder(runId);

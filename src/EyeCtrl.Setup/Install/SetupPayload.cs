@@ -7,7 +7,13 @@ using EyeCtrl.Setup.Abstractions;
 /// app, and self-extraction is forbidden on purpose (plan §4), so WPF's natives stay loose.
 /// S6c D1 measured the consequence: a run copy holding only the exe crashes on the first window
 /// (0xC000041D, <c>DllNotFoundException</c> in <c>HwndSubclass</c>), leaving the owner with no
-/// EyeCtrl at all after a rollback. Every companion is therefore copied and re-verified.
+/// EyeCtrl at all after a rollback.
+/// <para>
+/// The payload is exactly this pinned list, not a wildcard: a glob would also carry an unrelated
+/// or future <c>*_cor3.dll</c> that <see cref="RunCopyManager.VerifyRunCopy"/> does not check
+/// (review E1). A WPF rename is therefore a deliberate list edit, which the runtime ratchet test
+/// in <c>RunCopyManagerTests</c> notices.
+/// </para>
 /// </summary>
 public static class SetupPayload
 {
@@ -21,32 +27,8 @@ public static class SetupPayload
         "wpfgfx_cor3.dll",
     ];
 
-    /// <summary>The naming rule the WPF runtime uses for its loose natives.</summary>
-    public const string NativeSuffix = "_cor3.dll";
-
-    /// <summary>
-    /// Every <c>*_cor3.dll</c> beside <paramref name="sourceSetupExe"/>. A future WPF native that
-    /// follows the same rule is carried without another code change; the pinned list above is the
-    /// ratchet that makes a rename fail headless instead of on the owner's desktop.
-    /// </summary>
-    public static IReadOnlyList<string> FindCompanions(
-        IFileSystem fileSystem, string sourceSetupExe)
-    {
-        var folder = Path.GetDirectoryName(Path.GetFullPath(sourceSetupExe));
-        if (string.IsNullOrEmpty(folder))
-            return [];
-
-        return fileSystem.EnumerateFiles(folder, recursive: false)
-            .Where(path => Path.GetFileName(path).EndsWith(
-                NativeSuffix, StringComparison.OrdinalIgnoreCase))
-            .Select(path => Path.GetFileName(path)!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    /// <summary>The first pinned companion missing from <paramref name="present"/>, or null.</summary>
-    public static string? MissingRequired(IReadOnlyList<string> present) =>
-        RequiredCompanions.FirstOrDefault(required =>
-            !present.Contains(required, StringComparer.OrdinalIgnoreCase));
+    /// <summary>The first pinned companion missing from <paramref name="sourceFolder"/>, or null.</summary>
+    public static string? FirstMissing(IFileSystem fileSystem, string sourceFolder) =>
+        RequiredCompanions.FirstOrDefault(companion =>
+            !fileSystem.FileExists(Path.Combine(sourceFolder, companion)));
 }

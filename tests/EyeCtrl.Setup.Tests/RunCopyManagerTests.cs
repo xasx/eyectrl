@@ -90,6 +90,27 @@ public class RunCopyManagerTests
     }
 
     [Fact]
+    public void AnExtraCor3Native_IsNotCopied_AndNotVerified()
+    {
+        // E1: the payload is the pinned publish set, not every *_cor3.dll. A future WPF native
+        // must be a deliberate addition (the ratchet test notices it), never an unverified file
+        // loaded by the elevated run copy.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.Files.AddFile(Path.Combine(harness.Paths.InstallRoot, "Extra_cor3.dll"), "extra");
+        harness.CatalogMembers.Verifier =
+            path => Path.GetFileName(path) == "Extra_cor3.dll" ? 1 : 0;
+
+        var result = harness.RunCopies.Prepare(harness.Paths.InstalledSetupExePath, "abc");
+
+        Check.That(result.Ok).IsTrue();
+        Check.That(harness.Files.FileExists(
+            Path.Combine(harness.Paths.RunFolder("abc"), "Extra_cor3.dll"))).IsFalse();
+        Check.That(harness.CatalogMembers.Calls.Any(path =>
+            Path.GetFileName(path) == "Extra_cor3.dll")).IsFalse();
+    }
+
+    [Fact]
     public void AVerifiedSetup_IsCopiedIntoThePrivateRunFolder()
     {
         var harness = new SetupHarness();

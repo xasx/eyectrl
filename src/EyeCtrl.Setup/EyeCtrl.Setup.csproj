@@ -27,6 +27,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      C9 S6e fixup-03: the progress/result screen shows EyeCtrl's own icon (taskbar button and
+      title). The App owns the single source file (tools/EyeCtrl.IconBuilder writes it); linking
+      it keeps one copy instead of shipping a second, drift-prone icon. It is embedded as a WPF
+      resource, so the single-file publish needs no loose asset.
+    -->
+    <Resource Include="..\EyeCtrl.App\Assets\eyectrl.ico" Link="Assets\eyectrl.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
     <ProjectReference Include="..\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
     <ProjectReference Include="..\EyeCtrl.Sdk.Wpf\EyeCtrl.Sdk.Wpf.csproj" />

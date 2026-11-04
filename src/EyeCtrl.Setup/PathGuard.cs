@@ -18,7 +18,8 @@ public sealed class PathGuardException : Exception
 /// <item>the five <c>EyeCtrl*</c> folders under Program Files (and their contents);</item>
 /// <item>the exact <c>Uninstall\EyeCtrl</c> key under HKLM;</item>
 /// <item>HKCU <c>Run</c>/<c>RunOnce</c> values whose names start with <c>EyeCtrl</c>;</item>
-/// <item><c>%APPDATA%\EyeCtrl\setup-last.json</c> — the result record, and nothing else there.</item>
+/// <item><c>%APPDATA%\EyeCtrl\setup-last.json</c> — the result record;</item>
+/// <item><c>%APPDATA%\EyeCtrl\logs\setup-*.log</c> — the rolling diagnostics log (S6c D9).</item>
 /// </list>
 /// <c>%APPDATA%\EyeCtrl</c> otherwise moves only through the S6e deletion seam.
 /// </summary>
@@ -84,5 +85,40 @@ public sealed class PathGuard
     {
         if (!string.Equals(SetupPaths.Normalize(path), _paths.AppDataRoot, StringComparison.OrdinalIgnoreCase))
             throw new PathGuardException($"'{path}' is not the EyeCtrl app-data root");
+    }
+
+    /// <summary>Throws unless this is a <c>setup-*.log</c> directly inside the app's log folder.</summary>
+    public void RequireSetupLogPath(string path)
+    {
+        var full = SetupPaths.Normalize(path);
+        if (!SetupPaths.IsUnder(_paths.LogsRoot, full)
+            || string.Equals(full, _paths.LogsRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PathGuardException($"'{path}' is not a Setup log under the app log folder");
+        }
+
+        var name = Path.GetFileName(full);
+        if (!name.StartsWith("setup-", StringComparison.OrdinalIgnoreCase)
+            || !name.EndsWith(".log", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PathGuardException($"'{name}' is not a rolling Setup log");
+        }
+
+        // IsUnder already rejects a nested folder, but a '..' in the file name would normalise
+        // away; the parent check keeps the rule exact.
+        if (!string.Equals(Path.GetDirectoryName(full), _paths.LogsRoot, StringComparison.OrdinalIgnoreCase))
+            throw new PathGuardException($"'{path}' is not directly inside the app log folder");
+    }
+
+    /// <summary>Throws unless the folder is the app-data root or its <c>logs</c> child — the only
+    /// two folders the Setup log may create on a machine where the App never ran.</summary>
+    public void RequireSetupLogDirectory(string path)
+    {
+        var full = SetupPaths.Normalize(path);
+        if (!string.Equals(full, _paths.AppDataRoot, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(full, _paths.LogsRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PathGuardException($"'{path}' is not the EyeCtrl app-data or log folder");
+        }
     }
 }

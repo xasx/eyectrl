@@ -37,13 +37,12 @@ public sealed class SetupComposition
     /// For an update, the inbox package's folder: its <c>strings.de.json</c> comes from the same
     /// build as the code reading it, so the first update from a pre-S6e version still shows German.
     /// </param>
-    public static SetupComposition CreateProduction(string? updatePackageDirectory = null)
+    /// <param name="log">The process's log; defaults to stderr for a direct engine caller.</param>
+    public static SetupComposition CreateProduction(
+        string? updatePackageDirectory = null, ISetupLog? log = null)
     {
-        var log = new ConsoleSetupLog();
-        var paths = new SetupPaths(
-            RequireFolder(Environment.SpecialFolder.ProgramFiles),
-            RequireFolder(Environment.SpecialFolder.ApplicationData),
-            RequireFolder(Environment.SpecialFolder.LocalApplicationData));
+        log ??= new ConsoleSetupLog();
+        var paths = ProductionPaths();
 
         var fileSystem = new PhysicalFileSystem();
         var registry = new WindowsRegistryStore();
@@ -174,6 +173,31 @@ public sealed class SetupComposition
         if (string.IsNullOrWhiteSpace(path))
             throw new InvalidOperationException($"The OS folder '{folder}' is unavailable.");
         return path;
+    }
+
+    /// <summary>The one install layout, from the machine's OS folders. Shared by the composition
+    /// and the file log so both name exactly the same paths.</summary>
+    internal static SetupPaths ProductionPaths() => new(
+        RequireFolder(Environment.SpecialFolder.ProgramFiles),
+        RequireFolder(Environment.SpecialFolder.ApplicationData),
+        RequireFolder(Environment.SpecialFolder.LocalApplicationData));
+
+    /// <summary>
+    /// Records an unhandled exception as a failed result, built from the OS layout alone so it
+    /// still works when the composition never came up. Failures here are logged, never thrown.
+    /// </summary>
+    internal static void TryRecordFailure(SetupResult result, ISetupLog log)
+    {
+        try
+        {
+            var paths = ProductionPaths();
+            var fileSystem = new PhysicalFileSystem();
+            new ResultRecorder(paths, fileSystem, new PathGuard(paths), log).Write(result);
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"Could not record the failure: {ex.GetType().Name}");
+        }
     }
 }
 

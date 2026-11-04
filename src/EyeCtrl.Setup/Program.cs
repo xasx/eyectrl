@@ -1,5 +1,8 @@
 namespace EyeCtrl.Setup;
 
+using EyeCtrl.Setup.Abstractions;
+using EyeCtrl.Setup.Windows;
+
 /// <summary>The exe's entry point. Parsing is pure; the composition binds the OS seams.</summary>
 public static class Program
 {
@@ -28,17 +31,47 @@ public static class Program
             return SetupExitCodes.Ok;
         }
 
+        // S6c D9: the medium process and every elevated child append the same rolling file. It is
+        // created before the composition so a crash while wiring the OS seams still leaves a trace.
+        var log = new CompositeSetupLog(
+            FileSetupLog.TryCreate(SetupLogContext.For(command, Environment.ProcessId)),
+            new ConsoleSetupLog());
+
         try
         {
             return SetupComposition.CreateProduction(
-                SetupComposition.PreferredStringsDirectory(command)).Run(command);
+                SetupComposition.PreferredStringsDirectory(command), log).Run(command);
         }
         catch (Exception ex)
         {
-            // A crash must still be a clean exit code for the coordinator's script. The detail
-            // is one type name; no path and no settings content is printed.
-            ConsoleSupport.WriteLine($"EyeCtrl.Setup failed: {ex.GetType().Name}");
-            return SetupExitCodes.Failed;
+            return HandleCrash(
+                command, ex, log, result => SetupComposition.TryRecordFailure(result, log));
         }
+    }
+
+    /// <summary>
+    /// An unhandled exception must leave a log line and a failed record (where the verb has an
+    /// installation outcome), and still a clean exit code for the coordinator's script.
+    /// </summary>
+    internal static int HandleCrash(
+        ParsedSetupCommand command, Exception exception, ISetupLog log,
+        Action<SetupResult>? record = null)
+    {
+        // The whole exception, stack included: this is the only trace an elevated child leaves.
+        log.Error("Unhandled exception: " + exception);
+
+        if (SetupLogContext.PublicVerb(command.Job) is { } verb)
+        {
+            record?.Invoke(new SetupResult
+            {
+                Verb = verb,
+                Outcome = SetupOutcome.Failed,
+                Time = DateTimeOffset.UtcNow,
+                Detail = "unhandled:" + exception.GetType().Name,
+            });
+        }
+
+        ConsoleSupport.WriteLine($"EyeCtrl.Setup failed: {exception.GetType().Name}");
+        return SetupExitCodes.Failed;
     }
 }

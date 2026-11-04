@@ -87,6 +87,45 @@ public class PathGuardTests
             .Throws<PathGuardException>();
     }
 
+    [Theory]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs\setup-20261104.log")]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs\SETUP-20261104.LOG")]
+    public void TheSetupLogUnderTheAppLogFolder_IsAllowed(string path)
+    {
+        var guard = Guard();
+
+        guard.RequireSetupLogPath(path);
+        guard.RequireSetupLogDirectory(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs");
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs\eyectrl-20261104.log")]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs\setup-20261104.txt")]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs\sub\setup-20261104.log")]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\setup-20261104.log")]
+    [InlineData(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs\..\settings.json")]
+    [InlineData(@"C:\Users\test\AppData\Local\EyeCtrl\logs\setup-20261104.log")]
+    public void EverythingElseUnderAppData_IsStillRefused(string path)
+    {
+        Check.ThatCode(() => Guard().RequireSetupLogPath(path)).Throws<PathGuardException>();
+    }
+
+    [Fact]
+    public void OnlyTheAppDataAndLogsFolders_MayBeCreated()
+    {
+        var guard = Guard();
+
+        guard.RequireSetupLogDirectory(@"C:\Users\test\AppData\Roaming\EyeCtrl");
+        guard.RequireSetupLogDirectory(@"C:\Users\test\AppData\Roaming\EyeCtrl\logs");
+
+        Check.ThatCode(() => guard.RequireSetupLogDirectory(
+                @"C:\Users\test\AppData\Roaming\EyeCtrl\logs\sub"))
+            .Throws<PathGuardException>();
+        Check.ThatCode(() => guard.RequireSetupLogDirectory(
+                @"C:\Users\test\AppData\Roaming\EyeCtrl\other"))
+            .Throws<PathGuardException>();
+    }
+
     [Fact]
     public void TrailingSeparatorsAndCase_DoNotDefeatTheGuard()
     {

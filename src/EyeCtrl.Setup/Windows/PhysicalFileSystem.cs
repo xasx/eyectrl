@@ -106,6 +106,15 @@ public sealed class PhysicalFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
+    public void AppendAllText(string path, string contents)
+    {
+        var folder = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(folder))
+            Directory.CreateDirectory(folder);
+        File.AppendAllText(path, contents);
+    }
+
+    /// <inheritdoc />
     public void MarkForDeletionAtReboot(string path)
     {
         if (File.Exists(path))

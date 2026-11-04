@@ -50,35 +50,44 @@
             </ItemsControl>
         </ScrollViewer>
         <Grid Grid.Row="1">
-            <TextBlock x:Name="HintText" Text="{loc:T 'overlays.taskSwitcher.hint'}"
-                       Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,12"/>
-            <!-- Close button — a gaze dwell target (registered + positioned in code-behind),
-                 mirroring QuickActionsGridWindow's proven close disc: NOT a WPF Button (gaze
-                 produces no mouse clicks, and there is no DwellButtonStyle resource in this
-                 app). Dwell progress binds to CloseDwellProgress. The disc is 2 × the shared
-                 r50 hit radius (B8), so what is drawn IS what the detector hit-tests; keep
-                 Width == Height == TaskSwitcherWindow.CloseButtonSize. -->
-            <Border x:Name="CloseButton" Width="100" Height="100" HorizontalAlignment="Right" Margin="12"
-                    CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
-                    BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
-                <Grid>
-                    <!-- FontSize is set in the constructor from CloseButtonSize × the container
-                         ratio — XAML cannot express the multiplication. The glyph TextBlock
-                         carries the UIA name (D11): the Border around it has no automation
-                         peer, so an explicit name on the glyph is what a screen reader
-                         announces instead of "✕". -->
-                    <TextBlock x:Name="CloseGlyph" Text="&#x2715;" Foreground="{StaticResource BrushTextPrimary}"
-                               AutomationProperties.Name="{loc:T 'overlays.edge.close'}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    <ProgressBar Minimum="0" Maximum="1"
-                                 Value="{Binding CloseDwellProgress}"
-                                 Height="4" VerticalAlignment="Bottom"
-                                 Background="Transparent" Foreground="{StaticResource BrushAccent}"
-                                 BorderThickness="0" Focusable="False" IsHitTestVisible="False"
-                                 Opacity="{Binding CloseDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
-                </Grid>
-            </Border>
+            <!-- Hint and close disc share ONE centred row (review m4): the ✕ sits directly
+                 beside the text that names it, at horizontal screen centre where tracking is
+                 most accurate — the previous bottom-right corner placement put the only
+                 non-switching escape in the corner band, where tracker accuracy is weakest
+                 and a mis-aimed dwell could land on the last tile column and switch a window.
+                 The 48 DIP gap keeps dwell built while reading the hint's trailing words off
+                 the disc's drawn edge (B8: the hit circle IS the drawn disc). -->
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
+                <TextBlock x:Name="HintText" Text="{loc:T 'overlays.taskSwitcher.hint'}"
+                           Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
+                           VerticalAlignment="Center" Margin="0,12"/>
+                <!-- Close button — a gaze dwell target (registered + positioned in code-behind),
+                     mirroring QuickActionsGridWindow's proven close disc: NOT a WPF Button (gaze
+                     produces no mouse clicks, and there is no DwellButtonStyle resource in this
+                     app). Dwell progress binds to CloseDwellProgress. The disc is 2 × the shared
+                     r50 hit radius (B8), so what is drawn IS what the detector hit-tests; keep
+                     Width == Height == TaskSwitcherWindow.CloseButtonSize. -->
+                <Border x:Name="CloseButton" Width="100" Height="100" Margin="48,12,0,12"
+                        CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
+                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
+                    <Grid>
+                        <!-- FontSize is set in the constructor from CloseButtonSize × the container
+                             ratio — XAML cannot express the multiplication. The glyph TextBlock
+                             carries the UIA name (D11): the Border around it has no automation
+                             peer, so an explicit name on the glyph is what a screen reader
+                             announces instead of "✕". -->
+                        <TextBlock x:Name="CloseGlyph" Text="&#x2715;" Foreground="{StaticResource BrushTextPrimary}"
+                                   AutomationProperties.Name="{loc:T 'overlays.edge.close'}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <ProgressBar Minimum="0" Maximum="1"
+                                     Value="{Binding CloseDwellProgress}"
+                                     Height="4" VerticalAlignment="Bottom"
+                                     Background="Transparent" Foreground="{StaticResource BrushAccent}"
+                                     BorderThickness="0" Focusable="False" IsHitTestVisible="False"
+                                     Opacity="{Binding CloseDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
         </Grid>
     </Grid>
 </overlays:OverlayWindow>

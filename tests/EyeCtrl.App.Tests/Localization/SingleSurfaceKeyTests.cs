@@ -144,8 +144,9 @@ public class SingleSurfaceKeyTests
         // flow's confirm texts (update/rollback surfaces) — one key per surface, D3.
         ("src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
             ["settings", "update", "rollback"]),
-        // C9 S6f: the one-time setup-last notice speaks only the update surface.
-        ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update"])
+        // C9 S6f: the one-time setup-last notice speaks only the update surface, plus the
+        // rollback failure sentence after review 01 N1.
+        ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update", "rollback"])
     ];
 
     /// <summary>

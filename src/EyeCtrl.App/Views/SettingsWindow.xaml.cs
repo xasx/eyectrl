@@ -354,6 +354,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly AdaptationPageSource _adaptationSource;
     private readonly DiagnosticsPageSource _diagnosticsSource;
     private readonly AdvancedPageSource _advancedSource;
+    // C9 S6f (review 01 N2): the catalog probe finishes on a worker; a window closed meanwhile
+    // must not rebuild a disposed view model.
+    private bool _windowClosed;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
@@ -622,6 +625,7 @@ public partial class SettingsWindow : OverlayWindow
         // Dispose ViewModel on window close
         Closed += (_, _) =>
         {
+            _windowClosed = true;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
@@ -654,6 +658,15 @@ public partial class SettingsWindow : OverlayWindow
             // C9 S6f: the „Erweitert" setup rows (null in headless hosts: the page omits them).
             SetupGateways = setupGateways,
         };
+
+        // C9 S6f (review 01 N2): start the catalog check OFF the UI thread as the window opens.
+        // The owner needs several dwells to reach „Erweitert", so the result is usually ready by
+        // then; the page shows a same-height placeholder and rebuilds once it lands.
+        setupGateways?.BeginUpdateOfferProbe(() =>
+        {
+            if (!_windowClosed)
+                Dispatcher.BeginInvoke(new Action(RebuildContent));
+        });
         _cursorSource = new CursorPageSource(_ctx);
         _dwellSource = new DwellPageSource(_ctx);
         _selectionSource = new SelectionPageSource(_ctx);

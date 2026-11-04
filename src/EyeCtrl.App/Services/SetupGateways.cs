@@ -3,6 +3,8 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Install;
@@ -24,11 +26,13 @@ public sealed record SetupUpdateOffer(
 /// policy gate, ShellExecute shape, clean exit) is headlessly testable with fakes.
 /// </summary>
 /// <remarks>
-/// The four read-only facts are cheap directory/registry probes, except <see cref="UpdateOffer"/>:
-/// its catalog verification hashes and WinTrust-checks every package file, so it is computed at
-/// most once per instance (the App hands one instance to each Settings window, see
-/// <see cref="CreateForProduction" />). That is the plan §10 budget: an inbox that changed while
-/// Settings is open is re-checked the next time Settings opens, not mid-dwell.
+/// <para><b>Freshness (review 01 M1):</b> the App builds a NEW instance for every Settings window
+/// (a factory through <see cref="SettingsUiCoordinator" />), so the offer and the policy are
+/// re-probed on each visit; nothing is cached across windows, let alone the App's lifetime.</para>
+/// <para><b>The catalog check is never run on the UI thread (review 01 N2):</b> it hashes and
+/// WinTrust-checks every package file and measured 0.5–0.8 s warm and 1–3 s cold. The page calls
+/// <see cref="BeginUpdateOfferProbe" /> and renders a same-height placeholder until the result
+/// lands; <see cref="UpdateOffer" /> only ever returns a completed result.</para>
 /// </remarks>
 public interface ISetupGateways
 {
@@ -42,40 +46,50 @@ public interface ISetupGateways
     /// <summary>The previous package's version, when readable. Names it in the rollback description.</summary>
     string? PreviousVersion { get; }
 
-    /// <summary>True when <c>ConsentPromptBehaviorAdmin</c> is not 0 (plan §10's gate): an update
-    /// would raise a secure-desktop prompt that gaze cannot reach.</summary>
+    /// <summary>True when <c>ConsentPromptBehaviorAdmin</c> is not 0 (plan §10's gate): an update or
+    /// rollback would raise a secure-desktop prompt that gaze cannot reach.</summary>
     bool PolicyBlocks { get; }
 
-    /// <summary>
-    /// The verified newer package in the inbox, or null. Uses S6a's rules: dot-folders ignored,
-    /// newest by created/version/name, strictly newer than the installed version, and the whole
-    /// catalog verified against the pinned thumbprint.
-    /// </summary>
+    /// <summary>The completed catalog verification's result (null when it found no offer). Null also
+    /// while the probe is still running — read <see cref="UpdateOfferPending" /> to tell them apart.</summary>
     SetupUpdateOffer? UpdateOffer { get; }
+
+    /// <summary>True while the first catalog verification has not completed yet.</summary>
+    bool UpdateOfferPending { get; }
+
+    /// <summary>
+    /// Starts the catalog verification once, on a worker thread; later calls are no-ops. The
+    /// callback runs once on that worker thread when the result is stored (marshal it yourself).
+    /// </summary>
+    void BeginUpdateOfferProbe(Action whenDone);
 
     /// <summary>
     /// Hand off to the offered package's Setup: re-check the Setup exe's signature against the
     /// pinned thumbprint (belt and braces after the catalog check), start
-    /// <c>EyeCtrl.Setup.exe update "&lt;dir&gt;"</c> with ShellExecute, then exit cleanly — the
-    /// lifecycle is <see cref="ISetupExitFlow" />, which must never set the restart flag.
+    /// <c>EyeCtrl.Setup.exe update "&lt;dir&gt;"</c> with ShellExecute from a neutral working
+    /// directory, then exit cleanly — the lifecycle is <see cref="ISetupExitFlow" />, which must
+    /// never set the restart flag. False when refused or the launch threw; EyeCtrl then keeps running.
     /// </summary>
-    void StartUpdateHandoff(SetupUpdateOffer offer);
+    bool StartUpdateHandoff(SetupUpdateOffer offer);
 
-    /// <summary>Start the installed Setup's <c>rollback</c> with ShellExecute, then exit cleanly.</summary>
-    void StartRollbackHandoff();
+    /// <summary>Start the installed Setup's <c>rollback</c> with ShellExecute, then exit cleanly.
+    /// False when refused or the launch threw; EyeCtrl then keeps running.</summary>
+    bool StartRollbackHandoff();
 
     /// <summary>Start the installed Setup's <c>uninstall</c> with ShellExecute. EyeCtrl keeps
-    /// running: its dwell is the input for Setup's own uninstall window.</summary>
-    void StartUninstallHandoff();
+    /// running: its dwell is the input for Setup's own uninstall window. False when refused or the
+    /// launch threw.</summary>
+    bool StartUninstallHandoff();
 }
 
-/// <summary>Starts a process. <paramref name="useShellExecute" /> is the pinned shell-vs-
-/// CreateProcess decision for S6f's hand-off — the fake launcher records it, and the
-/// CreateProcess mutant fails the hand-off test.</summary>
+/// <summary>Starts a process. <paramref name="workingDirectory" /> is the reviewed
+/// shell-vs-CreateProcess decision's third leg (review 01 H1): it must be a NEUTRAL folder, never
+/// anywhere under <c>Program Files\EyeCtrl*</c>, because a live cwd there blocks the swap's
+/// rename. <paramref name="useShellExecute" /> is the pinned shell-vs-CreateProcess decision.</summary>
 public interface ISetupProcessLauncher
 {
     /// <summary>Starts <paramref name="executablePath" /> with <paramref name="arguments" />.</summary>
-    void Launch(string executablePath, string arguments, bool useShellExecute);
+    void Launch(string executablePath, string arguments, string workingDirectory, bool useShellExecute);
 }
 
 /// <summary>
@@ -96,13 +110,15 @@ public interface ISetupExitFlow
 public sealed class ShellProcessLauncher : ISetupProcessLauncher
 {
     /// <inheritdoc />
-    public void Launch(string executablePath, string arguments, bool useShellExecute) =>
+    public void Launch(string executablePath, string arguments, string workingDirectory, bool useShellExecute) =>
         Process.Start(new ProcessStartInfo
         {
             FileName = executablePath,
             Arguments = arguments,
             UseShellExecute = useShellExecute,
-            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? AppContext.BaseDirectory,
+            // Review 01 H1: never the exe's own folder — the hand-off must not pin
+            // Program Files\EyeCtrl as a live cwd, or the swap/delete cannot rename it.
+            WorkingDirectory = workingDirectory,
         })?.Dispose();
 }
 
@@ -129,6 +145,14 @@ public sealed class SetupExitFlow : ISetupExitFlow
 /// <summary>The production <see cref="ISetupGateways" /> over S6a's read-only engine pieces.</summary>
 public sealed class SetupGateways : ISetupGateways
 {
+    /// <summary>The neutral working directory used when none is injected: the Windows folder is
+    /// never under <c>Program Files\EyeCtrl</c>, so a hand-off cannot lock the folder it renames.</summary>
+    private static string DefaultNeutralWorkingDirectory()
+    {
+        var system = Environment.SystemDirectory;
+        return string.IsNullOrWhiteSpace(system) ? Path.GetTempPath() : system;
+    }
+
     private readonly Func<string> _currentProcessPath;
     private readonly SetupPaths _paths;
     private readonly IFileSystem _fileSystem;
@@ -138,8 +162,11 @@ public sealed class SetupGateways : ISetupGateways
     private readonly IElevationPolicy _policy;
     private readonly ISetupProcessLauncher _launcher;
     private readonly ISetupExitFlow _exit;
+    private readonly string _neutralWorkingDirectory;
+    private readonly Action<string> _warn;
 
-    private bool _offerProbed;
+    private int _offerProbeStarted;
+    private int _offerProbeDone;
     private SetupUpdateOffer? _offer;
     private bool _previousVersionProbed;
     private string? _previousVersion;
@@ -148,6 +175,11 @@ public sealed class SetupGateways : ISetupGateways
 
     /// <summary>Creates the gateways. Every OS touch is a seam, so the tests never read the
     /// machine's registry, Program Files or inbox.</summary>
+    /// <param name="neutralWorkingDirectory">The working directory every hand-off passes: a
+    /// neutral folder, never under <c>Program Files\EyeCtrl*</c> (review 01 H1). Defaults to the
+    /// Windows folder.</param>
+    /// <param name="warn">Receives one machine-readable line when a probe or a launch fails; the
+    /// App logs it. Never user text.</param>
     public SetupGateways(
         Func<string> currentProcessPath,
         SetupPaths paths,
@@ -157,7 +189,9 @@ public sealed class SetupGateways : ISetupGateways
         IFileSignatureVerifier signatures,
         IElevationPolicy policy,
         ISetupProcessLauncher launcher,
-        ISetupExitFlow exit)
+        ISetupExitFlow exit,
+        string? neutralWorkingDirectory = null,
+        Action<string>? warn = null)
     {
         _currentProcessPath = currentProcessPath ?? throw new ArgumentNullException(nameof(currentProcessPath));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
@@ -168,7 +202,15 @@ public sealed class SetupGateways : ISetupGateways
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
         _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
         _exit = exit ?? throw new ArgumentNullException(nameof(exit));
+        _neutralWorkingDirectory = string.IsNullOrWhiteSpace(neutralWorkingDirectory)
+            ? DefaultNeutralWorkingDirectory()
+            : neutralWorkingDirectory;
+        _warn = warn ?? (_ => { });
     }
+
+    /// <summary>The working directory every hand-off passes. Public so a wiring test can pin that
+    /// it is neutral (never under <c>Program Files\EyeCtrl*</c>).</summary>
+    public string NeutralWorkingDirectory => _neutralWorkingDirectory;
 
     /// <inheritdoc />
     public bool Installed => _paths.IsUnderInstallRoot(_currentProcessPath());
@@ -199,7 +241,16 @@ public sealed class SetupGateways : ISetupGateways
             if (!_policyProbed)
             {
                 _policyProbed = true;
-                _policyBlocks = !_policy.Read().Allowed;
+                try
+                {
+                    _policyBlocks = !_policy.Read().Allowed;
+                }
+                catch (Exception ex)
+                {
+                    // Fail closed: an unreadable policy is not permission.
+                    _policyBlocks = true;
+                    _warn($"policy probe failed: {ex.GetType().Name}");
+                }
             }
 
             return _policyBlocks;
@@ -207,62 +258,117 @@ public sealed class SetupGateways : ISetupGateways
     }
 
     /// <inheritdoc />
-    public SetupUpdateOffer? UpdateOffer
-    {
-        get
-        {
-            if (!_offerProbed)
-            {
-                _offerProbed = true;
-                _offer = ComputeUpdateOffer();
-            }
+    public SetupUpdateOffer? UpdateOffer => Volatile.Read(ref _offer);
 
-            return _offer;
-        }
+    /// <inheritdoc />
+    public bool UpdateOfferPending =>
+        Volatile.Read(ref _offerProbeStarted) != 0 && Volatile.Read(ref _offerProbeDone) == 0;
+
+    /// <inheritdoc />
+    public void BeginUpdateOfferProbe(Action whenDone)
+    {
+        if (Interlocked.Exchange(ref _offerProbeStarted, 1) != 0)
+            return;
+
+        whenDone ??= static () => { };
+        _ = Task.Run(() =>
+        {
+            SetupUpdateOffer? offer = null;
+            try
+            {
+                offer = ComputeUpdateOffer();
+            }
+            catch (Exception ex)
+            {
+                // Review 01 N4: an IO/ACL fault on the inbox fails closed (no row), never the page.
+                _warn($"update offer probe failed: {ex.GetType().Name}");
+            }
+            finally
+            {
+                Volatile.Write(ref _offer, offer);
+                Volatile.Write(ref _offerProbeDone, 1);
+                try
+                {
+                    whenDone();
+                }
+                catch (Exception ex)
+                {
+                    // The callback is caller code (a rebuild); its fault must not kill the probe.
+                    _warn($"update offer probe callback failed: {ex.GetType().Name}");
+                }
+            }
+        });
     }
 
     /// <inheritdoc />
-    public void StartUpdateHandoff(SetupUpdateOffer offer)
+    public bool StartUpdateHandoff(SetupUpdateOffer offer)
     {
         if (offer is null || !Installed)
-            return;
+            return false;
 
         // The visibility check verified the whole catalog; the hand-off re-checks the one file
-        // about to be started, against the pinned signer. A failure here refuses silently (the
-        // recorded S6f minor): it can only happen when the inbox changed between the page build
-        // and the dwell, and Setup re-verifies everything itself before installing.
+        // about to be started, against the pinned signer.
         var signature = _signatures.Verify(offer.SetupExePath);
         if (!signature.Valid || !string.Equals(
                 signature.SignerThumbprint, SetupConstants.PinnedThumbprint, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            _warn("update hand-off refused: the package Setup's signature does not match the pinned signer");
+            return false;
         }
 
-        _launcher.Launch(offer.SetupExePath, $"update \"{offer.Directory}\"", useShellExecute: true);
-        _exit.SignalShuttingDown(restartRequested: false);
-        _exit.Shutdown();
+        return LaunchAndExit(offer.SetupExePath, $"update \"{offer.Directory}\"");
     }
 
     /// <inheritdoc />
-    public void StartRollbackHandoff()
+    public bool StartRollbackHandoff()
     {
         if (!Installed)
-            return;
+            return false;
 
-        _launcher.Launch(_paths.InstalledSetupExePath, "rollback", useShellExecute: true);
-        _exit.SignalShuttingDown(restartRequested: false);
-        _exit.Shutdown();
+        return LaunchAndExit(_paths.InstalledSetupExePath, "rollback");
     }
 
     /// <inheritdoc />
-    public void StartUninstallHandoff()
+    public bool StartUninstallHandoff()
     {
         if (!Installed)
-            return;
+            return false;
 
         // EyeCtrl keeps running — no heartbeat, no shutdown: the App's dwell is the input for
         // Setup's own uninstall window (S6e).
-        _launcher.Launch(_paths.InstalledSetupExePath, "uninstall", useShellExecute: true);
+        try
+        {
+            _launcher.Launch(
+                _paths.InstalledSetupExePath, "uninstall", _neutralWorkingDirectory, useShellExecute: true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // Review 01 N3: never let a launch fault reach the dispatcher.
+            _warn($"uninstall hand-off launch failed: {ex.GetType().Name}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The reviewed order (review 01 N3 / MUT2): launch FIRST; only a successful launch may signal
+    /// the clean shutdown and exit. A throw keeps EyeCtrl running with nothing gone.
+    /// </summary>
+    private bool LaunchAndExit(string executablePath, string arguments)
+    {
+        try
+        {
+            _launcher.Launch(executablePath, arguments, _neutralWorkingDirectory, useShellExecute: true);
+        }
+        catch (Exception ex)
+        {
+            _warn($"hand-off launch failed: {ex.GetType().Name}");
+            return false;
+        }
+
+        _exit.SignalShuttingDown(restartRequested: false);
+        _exit.Shutdown();
+        return true;
     }
 
     /// <summary>
@@ -270,7 +376,8 @@ public sealed class SetupGateways : ISetupGateways
     /// pinned-thumbprint catalog verifier. <paramref name="currentProcessPath" /> is injectable so
     /// a non-bundled App.Tests host can never look "installed" by accident.
     /// </summary>
-    public static SetupGateways CreateForProduction(ISetupExitFlow exitFlow, Func<string>? currentProcessPath = null)
+    public static SetupGateways CreateForProduction(
+        ISetupExitFlow exitFlow, Func<string>? currentProcessPath = null, Action<string>? warn = null)
     {
         var paths = new SetupPaths(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -287,10 +394,13 @@ public sealed class SetupGateways : ISetupGateways
             signatures,
             new ElevationPolicyGate(new WindowsRegistryStore()),
             new ShellProcessLauncher(),
-            exitFlow);
+            exitFlow,
+            warn: warn);
     }
 
-    private SetupUpdateOffer? ComputeUpdateOffer()
+    /// <summary>The verification itself. Internal so the headless matrix tests exercise the
+    /// decision synchronously; the page only ever reaches it through <see cref="BeginUpdateOfferProbe" />.</summary>
+    internal SetupUpdateOffer? ComputeUpdateOffer()
     {
         if (!Installed)
             return null;

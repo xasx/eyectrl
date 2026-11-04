@@ -33,7 +33,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
     private SupervisionToggleService? _supervisionToggle;
-    private ISetupGateways? _setupGateways;
+    private Func<ISetupGateways>? _setupGatewaysFactory;
     // The probe entry (build plan C10): the Diagnostics button's reason probe and request action,
     // handed over once at startup by EventCoordinator after C7 exists.
     private Func<string?>? _probeBlockReason;
@@ -123,10 +123,13 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     /// Called once at startup, like <see cref="SetRestartCoordinator"/>.</summary>
     public void SetSupervisionToggle(SupervisionToggleService service) => _supervisionToggle = service;
 
-    /// <summary>Hands the S6f setup gateways (the „Erweitert" update/rollback/uninstall rows) to
-    /// the settings window at construction. Called once at startup, like
-    /// <see cref="SetSupervisionToggle"/>; null keeps the page free of the rows.</summary>
-    public void SetSetupGateways(ISetupGateways gateways) => _setupGateways = gateways;
+    /// <summary>Hands the S6f setup-gateways FACTORY (the „Erweitert" update/rollback/uninstall
+    /// rows) to the settings window construction. Called once at startup, like
+    /// <see cref="SetSupervisionToggle"/>; null keeps the page free of the rows. A factory, not an
+    /// instance: review 01 M1 requires a fresh offer and policy per Settings window, so an inbox
+    /// change or a caregiver fixing the policy shows on the next visit without an App restart.</summary>
+    public void SetSetupGateways(Func<ISetupGateways> gatewaysFactory) =>
+        _setupGatewaysFactory = gatewaysFactory;
 
     /// <summary>
     /// Hands the sub-pixel probe entry (build plan C10) to the next settings window: the
@@ -248,7 +251,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 probeBlockReason: _probeBlockReason,
                 requestProbe: _probeRequest,
                 canResumeSession2: _probeCanResume,
-                setupGateways: _setupGateways);
+                setupGateways: _setupGatewaysFactory?.Invoke());
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

@@ -7,9 +7,11 @@ using EyeCtrl.ViewModels;
 
 /// <summary>
 /// C9 S6f's „Erweitert" rows: the visibility matrix the ticket lists (installed or not; a verified
-/// offer or none; the policy block; the previous folder), the confirm pattern (the window's own
-/// modal, with the ticket's labels), and the hand-off each row starts. The facts themselves — what
-/// makes an offer exist (dot-folders, older, unverified) — are pinned at the gateways level in
+/// offer, a pending probe, none; the policy block on BOTH rows; the previous folder), the confirm
+/// pattern (the window's own modal, with the ticket's labels), the hand-offs each row starts, and
+/// the review-01 additions: the same-height probe placeholder (N2), the blocked rollback gate (M4),
+/// and the failure line a refused hand-off shows (N3). The facts themselves — what makes an offer
+/// exist (dot-folders, older, unverified, foreign signer) — are pinned at the gateways level in
 /// <see cref="EyeCtrl.App.Tests.Services.SetupGatewaysTests" />; a page source only renders facts.
 /// </summary>
 public class SetupRowsTests
@@ -21,22 +23,47 @@ public class SetupRowsTests
         public string? PreviousVersion { get; set; } = "1.0.0";
         public bool PolicyBlocks { get; set; }
         public SetupUpdateOffer? UpdateOffer { get; set; }
+        public bool UpdateOfferPending { get; set; }
+        public int BeginProbeCalls { get; private set; }
         public List<SetupUpdateOffer> UpdateHandoffs { get; } = [];
         public int RollbackHandoffs { get; private set; }
         public int UninstallHandoffs { get; private set; }
+        public bool UpdateHandoffResult { get; set; } = true;
+        public bool RollbackHandoffResult { get; set; } = true;
+        public bool UninstallHandoffResult { get; set; } = true;
 
-        public void StartUpdateHandoff(SetupUpdateOffer offer) => UpdateHandoffs.Add(offer);
-        public void StartRollbackHandoff() => RollbackHandoffs++;
-        public void StartUninstallHandoff() => UninstallHandoffs++;
+        public void BeginUpdateOfferProbe(Action whenDone) => BeginProbeCalls++;
+
+        public bool StartUpdateHandoff(SetupUpdateOffer offer)
+        {
+            UpdateHandoffs.Add(offer);
+            return UpdateHandoffResult;
+        }
+
+        public bool StartRollbackHandoff()
+        {
+            RollbackHandoffs++;
+            return RollbackHandoffResult;
+        }
+
+        public bool StartUninstallHandoff()
+        {
+            UninstallHandoffs++;
+            return UninstallHandoffResult;
+        }
     }
 
     private static readonly SetupUpdateOffer Offer =
         new(@"C:\inbox\2.0.0", @"C:\inbox\2.0.0\EyeCtrl.Setup.exe", "2.0.0", "1.0.0");
 
-    private static SettingsWindowViewModel BuildRows(FakeGateways gateways, out List<SettingsRowSpec> rows)
+    private static SettingsWindowViewModel BuildRows(
+        FakeGateways gateways, out List<SettingsRowSpec> rows, List<string>? errors = null)
     {
         var viewModel = QaTestSupport.MakeViewModel();
-        var context = TestSettingsPageContext.Build(viewModel: viewModel, setupGateways: gateways);
+        var context = TestSettingsPageContext.Build(
+            viewModel: viewModel,
+            setupGateways: gateways,
+            showError: errors is null ? null : errors.Add);
         rows = new AdvancedPageSource(context).Build().SelectMany(page => page.Rows).ToList();
         return viewModel;
     }
@@ -46,6 +73,8 @@ public class SetupRowsTests
 
     private static bool HasRow(List<SettingsRowSpec> rows, string id) =>
         rows.Any(spec => spec.Id == id);
+
+    private static string BlockedText() => StringTable.Current.T("settings.advanced.update.blocked");
 
     [Fact]
     public void NotInstalled_HidesAllThreeRows()
@@ -90,6 +119,39 @@ public class SetupRowsTests
     }
 
     [Fact]
+    public void WhileTheProbeRuns_ASameHeightPlaceholderStandsInForTheUpdateRow()
+    {
+        // Review 01 N2: the catalog check is off-thread; the placeholder keeps the row's geometry
+        // so nothing shifts under the gaze when the result lands. The build also (re)starts the
+        // idempotent probe for a host that did not start it at window open.
+        var gateways = new FakeGateways { Installed = true, UpdateOfferPending = true };
+
+        BuildRows(gateways, out var rows);
+
+        var placeholder = Button(rows, "av_update_probe");
+        Check.That(placeholder.Label).IsEqualTo(StringTable.Current.T("settings.advanced.update.checking"));
+        Check.That(placeholder.Width).IsEqualTo(380.0);
+        Check.That(placeholder.Height).IsEqualTo(100.0);
+        Check.That(gateways.BeginProbeCalls).IsEqualTo(1);
+
+        // Same height as the real update button it will become.
+        var real = new FakeGateways { Installed = true, UpdateOffer = Offer };
+        BuildRows(real, out var realRows);
+        Check.That(Button(realRows, "av_update").Height).IsEqualTo(placeholder.Height);
+    }
+
+    [Fact]
+    public void AFinishedProbeWithoutAnOffer_ShowsNoUpdateRow()
+    {
+        BuildRows(
+            new FakeGateways { Installed = true, UpdateOffer = null, UpdateOfferPending = false },
+            out var rows);
+
+        Check.That(HasRow(rows, "av_update")).IsFalse();
+        Check.That(HasRow(rows, "av_update_probe")).IsFalse();
+    }
+
+    [Fact]
     public void BlockedPolicy_ShowsTheBlockedText_AndNoDwellableUpdateButton()
     {
         BuildRows(
@@ -97,9 +159,40 @@ public class SetupRowsTests
             out var rows);
 
         Check.That(HasRow(rows, "av_update")).IsFalse();
-        var blocked = rows.OfType<LabelSpec>()
-            .Single(spec => spec.Text() == StringTable.Current.T("settings.advanced.update.blocked"));
-        Check.That(blocked).IsNotNull();
+        Check.That(rows.OfType<LabelSpec>().Single(spec => spec.Text() == BlockedText())).IsNotNull();
+    }
+
+    [Fact]
+    public void BlockedPolicy_AlsoGatesTheRollbackRow_OneBlockedLineForBoth()
+    {
+        // Review 01 M4: plan §10 gives both rows the blocked text; a blocked rollback must not
+        // hand off and exit (Setup then snapshots a still-exiting App and starts nothing).
+        BuildRows(
+            new FakeGateways
+            {
+                Installed = true,
+                PreviousAvailable = true,
+                UpdateOffer = Offer,
+                PolicyBlocks = true,
+            },
+            out var rows);
+
+        Check.That(HasRow(rows, "av_update")).IsFalse();
+        Check.That(HasRow(rows, "av_rollback")).IsFalse();
+        var blocked = rows.OfType<LabelSpec>().Where(spec => spec.Text() == BlockedText()).ToList();
+        Check.That(blocked).HasSize(1);
+        Check.That(HasRow(rows, "av_uninstall")).IsTrue();
+    }
+
+    [Fact]
+    public void BlockedPolicy_RollbackOnly_StillShowsTheBlockedLine()
+    {
+        BuildRows(
+            new FakeGateways { Installed = true, PreviousAvailable = true, PolicyBlocks = true },
+            out var rows);
+
+        Check.That(HasRow(rows, "av_rollback")).IsFalse();
+        Check.That(rows.OfType<LabelSpec>().Single(spec => spec.Text() == BlockedText())).IsNotNull();
     }
 
     [Fact]
@@ -172,6 +265,60 @@ public class SetupRowsTests
         // Setup's own window asks (S6e); the App neither asks nor exits.
         Check.That(viewModel.IsModalVisible).IsFalse();
         Check.That(gateways.UninstallHandoffs).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ARefusedUpdateHandoff_KeepsRunning_AndShowsTheFailureLine()
+    {
+        // Review 01 N3: after a completed dwell, silence reads as the button not working.
+        var errors = new List<string>();
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            UpdateOffer = Offer,
+            UpdateHandoffResult = false,
+        };
+        var viewModel = BuildRows(gateways, out var rows, errors);
+
+        Button(rows, "av_update").OnActivate();
+        viewModel.ModalChoices[0].OnChosen!.Invoke();
+
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).IsEqualTo(StringTable.Current.T("settings.advanced.setup.startFailed"));
+    }
+
+    [Fact]
+    public void ARefusedRollbackHandoff_ShowsTheFailureLine()
+    {
+        var errors = new List<string>();
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            PreviousAvailable = true,
+            RollbackHandoffResult = false,
+        };
+        var viewModel = BuildRows(gateways, out var rows, errors);
+
+        Button(rows, "av_rollback").OnActivate();
+        viewModel.ModalChoices[0].OnChosen!.Invoke();
+
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).IsEqualTo(
+            StringTable.Current.T("settings.advanced.setup.startFailed"));
+    }
+
+    [Fact]
+    public void ARefusedUninstallHandoff_ShowsTheFailureLine()
+    {
+        var errors = new List<string>();
+        var gateways = new FakeGateways { Installed = true, UninstallHandoffResult = false };
+        BuildRows(gateways, out var rows, errors);
+
+        Button(rows, "av_uninstall").OnActivate();
+
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).IsEqualTo(
+            StringTable.Current.T("settings.advanced.setup.startFailed"));
     }
 
     [Fact]

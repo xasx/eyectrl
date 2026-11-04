@@ -1671,6 +1671,13 @@
       "version"
     ]
   },
+  "rollback.notice.failed": {
+    "text": "Restoring the previous version failed. EyeCtrl keeps running.",
+    "who": "user",
+    "where": "rollback",
+    "fit": "prose",
+    "args": []
+  },
   "settings.action_menu.jump.label": {
     "text": "View ring preview",
     "who": "user",
@@ -2501,6 +2508,13 @@
     "fit": "row",
     "args": []
   },
+  "settings.advanced.setup.startFailed": {
+    "text": "EyeCtrl.Setup could not be started. Please get the caregiver.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
   "settings.advanced.uninstall.description": {
     "text": "Removes EyeCtrl from this PC. It asks first whether settings and logs stay.",
     "who": "user",
@@ -2520,6 +2534,13 @@
     "who": "user",
     "where": "settings",
     "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.update.checking": {
+    "text": "Checking for update…",
+    "who": "user",
+    "where": "settings",
+    "fit": "btn380x100",
     "args": []
   },
   "settings.advanced.update.description": {
@@ -6034,6 +6055,13 @@
     "args": [
       "version"
     ]
+  },
+  "update.notice.failed.noVersion": {
+    "text": "The last update failed. EyeCtrl keeps running.",
+    "who": "user",
+    "where": "update",
+    "fit": "prose",
+    "args": []
   },
   "update.notice.rolledBack": {
     "text": "The last update was rolled back to version {0}.",

@@ -910,6 +910,10 @@
     "text": "Zu Version {0} zurückwechseln?",
     "src": "654fa518"
   },
+  "rollback.notice.failed": {
+    "text": "Das Wiederherstellen der vorigen Version ist fehlgeschlagen. EyeCtrl läuft weiter.",
+    "src": "a9ea5112"
+  },
   "settings.action_menu.jump.label": {
     "text": "Vorschau des Aktionsmenüs",
     "src": "f2c5e4b9"
@@ -1378,6 +1382,10 @@
     "text": "Scrollen beenden (ms)",
     "src": "8e6548e1"
   },
+  "settings.advanced.setup.startFailed": {
+    "text": "EyeCtrl.Setup ließ sich nicht starten. Bitte die Betreuungsperson holen.",
+    "src": "95d7271d"
+  },
   "settings.advanced.uninstall.description": {
     "text": "Entfernt EyeCtrl von diesem PC. Vorher wird gefragt, ob Einstellungen und Protokolle bleiben.",
     "src": "d6cf7fcd"
@@ -1389,6 +1397,10 @@
   "settings.advanced.update.blocked": {
     "text": "Updates brauchen gerade eine Windows-Bestätigung, die per Blick nicht erreichbar ist. Bitte die Betreuungsperson holen.",
     "src": "8229ade8"
+  },
+  "settings.advanced.update.checking": {
+    "text": "Update wird geprüft",
+    "src": "1f917b4e"
   },
   "settings.advanced.update.description": {
     "text": "Version {0} ist bereit (installiert: {1}). EyeCtrl beendet sich kurz und startet von selbst neu.",
@@ -3284,6 +3296,10 @@
   "update.notice.failed": {
     "text": "Das letzte Update auf Version {0} ist fehlgeschlagen. EyeCtrl läuft weiter.",
     "src": "8b22d8eb"
+  },
+  "update.notice.failed.noVersion": {
+    "text": "Das letzte Update ist fehlgeschlagen. EyeCtrl läuft weiter.",
+    "src": "39971ccd"
   },
   "update.notice.rolledBack": {
     "text": "Beim letzten Update wurde auf Version {0} zurückgewechselt.",

@@ -112,12 +112,13 @@ public class EventCoordinator : IEventCoordinator
         _settingsUi!.SetSupervisionToggle(service);
     }
 
-    /// <summary>Hands the C9 S6f setup gateways (the „Erweitert" update/rollback/uninstall rows)
-    /// to the settings window at construction. Called once at startup.</summary>
-    public void SetSetupGateways(ISetupGateways gateways)
+    /// <summary>Hands the C9 S6f setup-gateways factory (the „Erweitert" update/rollback/uninstall
+    /// rows) to the settings window construction. Called once at startup; the factory yields a
+    /// FRESH instance per window (review 01 M1).</summary>
+    public void SetSetupGateways(Func<ISetupGateways> gatewaysFactory)
     {
         RequireInitialized(nameof(SetSetupGateways));
-        _settingsUi!.SetSetupGateways(gateways);
+        _settingsUi!.SetSetupGateways(gatewaysFactory);
     }
 
     /// <summary>

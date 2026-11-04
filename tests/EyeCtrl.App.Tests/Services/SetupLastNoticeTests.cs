@@ -1,14 +1,16 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System;
 using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.Setup;
 
 /// <summary>
-/// C9 S6f's one-time setup-last notice: the outcome routing (rolled back / degraded / the failed
-/// family; the deliberate silent set), "exactly once" keyed by the record's <c>time</c> against
-/// <c>setup-notice-shown.json</c> (the coordinator's ruling — setup-last.json is never touched),
-/// and the crash-safety order: the marker is written BEFORE the card shows.
+/// C9 S6f's one-time setup-last notice: the outcome routing (rolled back names the RESTORED
+/// version; degraded the running one; the failed family routes by verb and copes with a null
+/// version; uninstall and repair failures stay silent), "exactly once" keyed by the record's
+/// <c>time</c> against <c>setup-notice-shown.json</c> (the coordinator's ruling — setup-last.json
+/// is never touched), and the crash-safety order: the marker is written BEFORE the card shows.
 /// </summary>
 public class SetupLastNoticeTests
 {
@@ -23,6 +25,7 @@ public class SetupLastNoticeTests
         public int Writes { get; private set; }
         public List<string>? Order { get; set; }
 
+        public string RecordPath => "";
         public SetupResult? TryReadRecord() =>
             ThrowOnRead ? throw new IOException("unreadable") : Record;
 
@@ -39,12 +42,17 @@ public class SetupLastNoticeTests
     private sealed record Captured(string Text, string CloseLabel);
 
     private static SetupResult Record(
-        SetupOutcome outcome, string? version = "9.9.9", DateTimeOffset? time = null) =>
+        SetupOutcome outcome,
+        SetupVerb verb = SetupVerb.Update,
+        string? version = "9.9.9",
+        string? previous = null,
+        DateTimeOffset? time = null) =>
         new()
         {
-            Verb = SetupVerb.Update,
+            Verb = verb,
             Outcome = outcome,
             Version = version,
+            PreviousVersion = previous,
             Time = time ?? RecordTime,
         };
 
@@ -66,9 +74,12 @@ public class SetupLastNoticeTests
     }
 
     [Fact]
-    public void RolledBack_ShowsTheRolledBackNotice_WithTheRestoredVersion()
+    public void RolledBack_NamesTheRestoredVersion_NotTheFailedOne()
     {
-        var (service, store, shown) = Build(Record(SetupOutcome.RolledBack, "1.4.0"));
+        // Review 01 M3: Setup writes Finish(RolledBack, attempted, restored); Version is the
+        // failed attempt, PreviousVersion the one now running — the sentence says "rolled back to".
+        var (service, store, shown) = Build(Record(
+            SetupOutcome.RolledBack, version: "2.0.0", previous: "1.4.0"));
 
         Check.That(service.CheckStartup()).IsTrue();
 
@@ -79,9 +90,10 @@ public class SetupLastNoticeTests
     }
 
     [Fact]
-    public void Degraded_ShowsTheQ12DegradedNotice()
+    public void Degraded_NamesTheRunningVersion()
     {
-        var (service, _, shown) = Build(Record(SetupOutcome.Degraded, "3.1.0"));
+        // Q12: the running version is the record's Version.
+        var (service, _, shown) = Build(Record(SetupOutcome.Degraded, version: "3.1.0"));
 
         Check.That(service.CheckStartup()).IsTrue();
 
@@ -89,17 +101,37 @@ public class SetupLastNoticeTests
     }
 
     [Theory]
-    [InlineData(SetupOutcome.AllFailed)]
-    [InlineData(SetupOutcome.VerifyFailed)]
-    [InlineData(SetupOutcome.NotApplied)]
-    [InlineData(SetupOutcome.Failed)]
-    public void TheFailedFamily_SharesTheFailedNotice(SetupOutcome outcome)
+    [InlineData(SetupOutcome.AllFailed, SetupVerb.Update, "2.0.0", "update.notice.failed|2.0.0")]
+    [InlineData(SetupOutcome.VerifyFailed, SetupVerb.Update, null, "update.notice.failed.noVersion")]
+    [InlineData(SetupOutcome.NotApplied, SetupVerb.Update, null, "update.notice.failed.noVersion")]
+    [InlineData(SetupOutcome.Failed, SetupVerb.Update, "2.0.0", "update.notice.failed|2.0.0")]
+    [InlineData(SetupOutcome.Failed, SetupVerb.Rollback, "2.0.0", "rollback.notice.failed")]
+    [InlineData(SetupOutcome.AllFailed, SetupVerb.Rollback, null, "rollback.notice.failed")]
+    public void TheFailedFamily_RoutesByVerb_AndCopesWithANullVersion(
+        SetupOutcome outcome, SetupVerb verb, string? version, string expected)
     {
-        var (service, _, shown) = Build(Record(outcome, "2.0.0"));
+        // Review 01 N1: a refused record has Version=null (no "auf Version  ist" hole), and a
+        // rollback failure must not read as an update.
+        var (service, _, shown) = Build(Record(outcome, verb, version));
 
         Check.That(service.CheckStartup()).IsTrue();
 
-        Check.That(shown.Single().Text).IsEqualTo("update.notice.failed|2.0.0");
+        Check.That(shown.Single().Text).IsEqualTo(expected);
+    }
+
+    [Theory]
+    [InlineData(SetupOutcome.Failed, SetupVerb.Uninstall)]
+    [InlineData(SetupOutcome.AllFailed, SetupVerb.Repair)]
+    public void AnUninstallOrRepairFailure_StaysSilent(SetupOutcome outcome, SetupVerb verb)
+    {
+        // S6e's own window shows an uninstall failure while EyeCtrl keeps running; the next start
+        // must not announce a failed "update" that never happened.
+        var (service, store, shown) = Build(Record(outcome, verb));
+
+        Check.That(service.CheckStartup()).IsFalse();
+
+        Check.That(shown).IsEmpty();
+        Check.That(store.Writes).IsZero();
     }
 
     [Theory]
@@ -122,7 +154,7 @@ public class SetupLastNoticeTests
     [Fact]
     public void TheSameRecord_ShowsExactlyOnce()
     {
-        var (service, store, shown) = Build(Record(SetupOutcome.RolledBack, "1.4.0"));
+        var (service, store, shown) = Build(Record(SetupOutcome.RolledBack, previous: "1.4.0"));
 
         Check.That(service.CheckStartup()).IsTrue();
         Check.That(service.CheckStartup()).IsFalse();
@@ -132,23 +164,26 @@ public class SetupLastNoticeTests
     }
 
     [Fact]
-    public void ANewerRecord_ShowsAgain()
+    public void ANewerRecord_ShowsAgain_AgainstTheSameStore()
     {
-        var record = Record(SetupOutcome.RolledBack, "1.4.0", RecordTime.AddHours(1));
-        var (service, _, shown) = Build(record);
-        // The marker already records an older record's time.
-        service.CheckStartup();      // shows once, marks this time
-        var secondRun = Build(Record(SetupOutcome.Degraded, "1.5.0", RecordTime.AddHours(2)));
-        Check.That(secondRun.Service.CheckStartup()).IsTrue();
+        // Review 01 MUT1: an existing marker must not silence every later record — the rule is
+        // strictly "newer time", not "any marker".
+        var (service, store, shown) = Build(Record(SetupOutcome.RolledBack, previous: "1.4.0"));
+        Check.That(service.CheckStartup()).IsTrue();
 
-        Check.That(shown).HasSize(1);   // first build's card
-        Check.That(secondRun.Shown).HasSize(1);
+        store.Record = Record(
+            SetupOutcome.Degraded, version: "1.5.0", time: RecordTime.AddHours(1));
+        Check.That(service.CheckStartup()).IsTrue();
+
+        Check.That(shown).HasSize(2);
+        Check.That(shown[1].Text).IsEqualTo("update.notice.degraded|1.5.0");
+        Check.That(store.Shown).IsEqualTo(RecordTime.AddHours(1));
     }
 
     [Fact]
     public void AnAlreadyShownRecord_IsSilent_WithoutWritingAgain()
     {
-        var record = Record(SetupOutcome.RolledBack, "1.4.0");
+        var record = Record(SetupOutcome.RolledBack, previous: "1.4.0");
         var (service, store, shown) = Build(record);
         store.Shown = record.Time;   // a previous start already showed it
 
@@ -163,7 +198,7 @@ public class SetupLastNoticeTests
     {
         // A crash while the card is up must never re-show it: mark first, present second.
         var order = new List<string>();
-        var (service, _, _) = Build(Record(SetupOutcome.RolledBack), order);
+        var (service, _, _) = Build(Record(SetupOutcome.RolledBack, previous: "1.4.0"), order);
 
         Check.That(service.CheckStartup()).IsTrue();
 

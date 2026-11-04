@@ -15,6 +15,9 @@ public interface ISetupNoticeStore
     /// <summary><c>%APPDATA%\EyeCtrl\setup-last.json</c>, or null when absent/unreadable.</summary>
     SetupResult? TryReadRecord();
 
+    /// <summary>The marker's path (the file watcher subscribes to its folder). Empty for a fake.</summary>
+    string RecordPath { get; }
+
     /// <summary>The recorded time of the last shown notice, or null when none was shown.</summary>
     DateTimeOffset? ReadShownTime();
 
@@ -42,6 +45,9 @@ public sealed class SetupNoticeFiles : ISetupNoticeStore
         _recordPath = recordPath ?? throw new ArgumentNullException(nameof(recordPath));
         _markerPath = markerPath ?? throw new ArgumentNullException(nameof(markerPath));
     }
+
+    /// <summary>The record's path — the file watcher listens in its folder.</summary>
+    public string RecordPath => _recordPath;
 
     /// <summary>The production layout: <c>SetupPaths</c>'s record path plus the marker beside it.</summary>
     public static SetupNoticeFiles CreateForProduction()
@@ -175,20 +181,41 @@ public sealed class SetupLastNoticeService
     }
 
     /// <summary>
-    /// Which outcomes earn a notice and the key/args each speaks. Rolled-back and the Q12
-    /// <c>degraded</c> have their own words (the ticket); the failed family shares one sentence.
-    /// Deliberate no-notice set: Ok/Uninstalled/Repaired (the result screen just showed them),
-    /// HandedOff (transient; the terminal record follows), Cancelled (the owner chose it in
-    /// Setup's own window) and Blocked (Setup's window explains the policy to the caregiver).
+    /// Which outcomes earn a notice and the key/args each speaks (review 01 M3 + N1).
+    /// <list type="bullet">
+    /// <item><c>RolledBack</c> names the RESTORED version — Setup writes
+    /// <c>Finish(verb, outcome, attempted, restored, …)</c>, so <c>Version</c> is the failed one and
+    /// <c>PreviousVersion</c> the one now running.</item>
+    /// <item><c>Degraded</c> names the running version (Q12).</item>
+    /// <item>The failed family routes by verb: an update failure speaks the update sentence (a
+    /// version-less one when <c>Version</c> is null, as every refused record has), a rollback
+    /// failure its own, and an uninstall failure stays silent — S6e's window shows it while the
+    /// App keeps running, so the next start must not announce a failed "update" that never happened.
+    /// Repair/Status failures stay silent too.</item>
+    /// </list>
+    /// Deliberate no-notice set besides those: Ok/Uninstalled/Repaired (the result screen just
+    /// showed them), HandedOff (transient; the terminal record follows), Cancelled (the owner chose
+    /// it in Setup's own window) and Blocked (Setup's window explains the policy to the caregiver).
     /// </summary>
     internal static (string Key, object?[] Args)? NoticeFor(SetupResult record) =>
         record.Outcome switch
         {
-            SetupOutcome.RolledBack => ("update.notice.rolledBack", [record.Version]),
-            SetupOutcome.Degraded => ("update.notice.degraded", [record.Version]),
+            SetupOutcome.RolledBack => record.PreviousVersion is { } restored
+                ? ("update.notice.rolledBack", [restored])
+                : ("update.notice.failed.noVersion", Array.Empty<object?>()),
+            SetupOutcome.Degraded => record.Version is { } running
+                ? ("update.notice.degraded", [running])
+                : ("update.notice.failed.noVersion", Array.Empty<object?>()),
             SetupOutcome.AllFailed or SetupOutcome.VerifyFailed
                 or SetupOutcome.NotApplied or SetupOutcome.Failed
-                => ("update.notice.failed", [record.Version]),
+                => record.Verb switch
+                {
+                    SetupVerb.Update => record.Version is { } attempted
+                        ? ("update.notice.failed", [attempted])
+                        : ("update.notice.failed.noVersion", Array.Empty<object?>()),
+                    SetupVerb.Rollback => ("rollback.notice.failed", Array.Empty<object?>()),
+                    _ => null,
+                },
             _ => null,
         };
 }

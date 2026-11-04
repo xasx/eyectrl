@@ -158,6 +158,17 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
     /// the ticket's chosen option, because for a gaze user a dead row is worse than the row's
     /// absence — three labels that dwell into nothing read as a broken screen.
     /// </para>
+    /// <para>
+    /// Review 01 N2: while the catalog verification runs on its worker thread, a same-height
+    /// placeholder stands in for the update row, so the rows never shift under the gaze when the
+    /// result lands (the window starts the probe when it opens; this build call is the idempotent
+    /// fallback for a host that did not).
+    /// </para>
+    /// <para>
+    /// Review 01 M4: the policy gate covers the rollback row too, exactly like the update row —
+    /// plan §10 wants both blocked when Windows would prompt. One blocked line covers both rows
+    /// (the same text twice would read as a duplicated screen), and nothing dwellable is offered.
+    /// </para>
     /// </summary>
     private IEnumerable<SettingsRowSpec> BuildSetupRows()
     {
@@ -166,13 +177,23 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
 
         yield return new SeparatorSpec();
 
+        var blocked = gate.PolicyBlocks;
+        var blockedLineEmitted = false;
+
         var offer = gate.UpdateOffer;
-        if (offer is not null)
+        if (offer is null && gate.UpdateOfferPending)
         {
-            if (gate.PolicyBlocks)
+            gate.BeginUpdateOfferProbe(() => _ctx.Invoke(_ctx.RebuildContent));
+            yield return new ButtonSpec("av_update_probe",
+                StringTable.Current.T("settings.advanced.update.checking"),
+                () => { }, ButtonKind.Default, Width: 380, Height: 100);
+        }
+        else if (offer is not null)
+        {
+            if (blocked)
             {
-                // Shown and disabled: the blocked text IS the row, and there is nothing to dwell.
-                yield return new LabelSpec(() => StringTable.Current.T("settings.advanced.update.blocked"));
+                yield return BlockedLine();
+                blockedLineEmitted = true;
             }
             else
             {
@@ -188,22 +209,39 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
 
         if (gate.PreviousAvailable)
         {
-            yield return new ButtonSpec("av_rollback",
-                StringTable.Current.T("settings.advanced.rollback.label"),
-                () => ConfirmRollback(gate), ButtonKind.Default, Width: 380, Height: 100)
+            if (blocked)
             {
-                Description = StringTable.Current.T(
-                    "settings.advanced.rollback.description", gate.PreviousVersion ?? ""),
-            };
+                if (!blockedLineEmitted)
+                    yield return BlockedLine();
+            }
+            else
+            {
+                yield return new ButtonSpec("av_rollback",
+                    StringTable.Current.T("settings.advanced.rollback.label"),
+                    () => ConfirmRollback(gate), ButtonKind.Default, Width: 380, Height: 100)
+                {
+                    Description = StringTable.Current.T(
+                        "settings.advanced.rollback.description", gate.PreviousVersion ?? ""),
+                };
+            }
         }
 
         yield return new ButtonSpec("av_uninstall",
             StringTable.Current.T("settings.advanced.uninstall.label"),
-            () => gate.StartUninstallHandoff(), ButtonKind.Danger, Width: 380, Height: 100)
+            () =>
+            {
+                if (!gate.StartUninstallHandoff())
+                    _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
+            },
+            ButtonKind.Danger, Width: 380, Height: 100)
         {
             Description = StringTable.Current.T("settings.advanced.uninstall.description"),
         };
     }
+
+    /// <summary>The blocked policy line — shown and disabled, because there is nothing to dwell.</summary>
+    private static LabelSpec BlockedLine() =>
+        new(() => StringTable.Current.T("settings.advanced.update.blocked"));
 
     /// <summary>The update confirm: the ticket's „Jetzt installieren" / „Später" pair, in the
     /// existing modal (the „Allgemein zurücksetzen" pattern) with custom labels. The detail line
@@ -218,7 +256,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 new ModalChoice("setup_update_install",
                     StringTable.Current.T("update.confirm.install"),
                     ModalChoiceKind.Affirmative,
-                    () => gate.StartUpdateHandoff(offer)),
+                    () => RunUpdate(gate, offer)),
                 new ModalChoice("setup_update_later",
                     StringTable.Current.T("update.confirm.later"),
                     ModalChoiceKind.Negative,
@@ -235,11 +273,26 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 new ModalChoice("setup_rollback_go",
                     StringTable.Current.T("rollback.confirm.go"),
                     ModalChoiceKind.Affirmative,
-                    gate.StartRollbackHandoff),
+                    () => RunRollback(gate)),
                 new ModalChoice("setup_rollback_later",
                     StringTable.Current.T("rollback.confirm.later"),
                     ModalChoiceKind.Negative,
                     null),
             ]);
+    }
+
+    /// <summary>Review 01 N3: a refused or throwing hand-off keeps EyeCtrl running and says so —
+    /// after a completed dwell, silence reads as the button not working.</summary>
+    private void RunUpdate(ISetupGateways gate, SetupUpdateOffer offer)
+    {
+        if (!gate.StartUpdateHandoff(offer))
+            _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
+    }
+
+    /// <summary>The rollback hand-off with the same failure line.</summary>
+    private void RunRollback(ISetupGateways gate)
+    {
+        if (!gate.StartRollbackHandoff())
+            _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
     }
 }

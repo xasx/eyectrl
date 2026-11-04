@@ -96,6 +96,25 @@ public class UpdateWorkflowTests
     }
 
     [Fact]
+    public void AStillRunningRepairChild_StopsWithoutRevert()
+    {
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.Broker.Handler = request => request.Job switch
+        {
+            ElevatedJob.ApplyUpdate => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "applyFailed"),
+            ElevatedJob.Repair => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childStillRunning"),
+            _ => harness.Elevated.Execute(request),
+        };
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Failed);
+        Check.That(result.Detail).IsEqualTo("childStillRunning");
+        Check.That(harness.Broker.Requests.Any(r => r.Job == ElevatedJob.Revert)).IsFalse();
+    }
+
+    [Fact]
     public void AProcessStillRunningFromTheInstallFolder_RefusesTheSwap()
     {
         var harness = Harness();

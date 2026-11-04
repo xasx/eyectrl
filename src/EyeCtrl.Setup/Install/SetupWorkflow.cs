@@ -123,6 +123,12 @@ public sealed class SetupWorkflow
         var repair = _broker.Run(new ElevatedRequest(ElevatedJob.Repair, RunId: runId));
         if (!repair.Succeeded)
         {
+            if (repair.Detail == "childStillRunning")
+            {
+                // G1: the stopped child may still be renaming; do not launch the revert.
+                return Finish(SetupVerb.Update, SetupOutcome.Failed, null, null, "childStillRunning");
+            }
+
             _log.Warn($"Repair after a failed apply failed: {repair.Detail}; trying the previous version.");
             return RevertAndCheck(
                 SetupVerb.Update, null, _metadata.Read(_paths.PreviousRoot).Version, runId,

@@ -69,6 +69,10 @@ public sealed record SetupResult
 
     /// <summary>One machine-readable sentence for the log and the status report; never user text.</summary>
     public string? Detail { get; init; }
+
+    /// <summary>The child PID for <see cref="SetupOutcome.HandedOff"/>; null otherwise. A caller
+    /// must wait for a newer <c>time</c> in setup-last.json, not for this process's exit.</summary>
+    public int? ProcessId { get; init; }
 }
 
 /// <summary>The small public verb set, for the result record (the internal jobs are not results).</summary>
@@ -92,11 +96,16 @@ public static class SetupExitCodes
     public const int Failed = 5;
     public const int AllFailed = 6;
 
+    /// <summary>A medium verb handed off to its run copy. The parent exits before the work is
+    /// done, so this is deliberately non-zero; S6c/S6f wait for a newer setup-last.json time.</summary>
+    public const int HandedOff = 7;
+
     /// <summary>Maps a result outcome to the process exit code the parent maps back.</summary>
     public static int For(SetupOutcome outcome) => outcome switch
     {
         SetupOutcome.Ok or SetupOutcome.Uninstalled or SetupOutcome.Repaired or SetupOutcome.RolledBack
-            or SetupOutcome.HandedOff or SetupOutcome.Degraded => Ok,
+            or SetupOutcome.Degraded => Ok,
+        SetupOutcome.HandedOff => HandedOff,
         SetupOutcome.Blocked => Blocked,
         SetupOutcome.VerifyFailed => VerifyFailed,
         SetupOutcome.NotApplied => NotApplied,

@@ -71,6 +71,20 @@ public sealed class ElevatedOperations
         }
 
         var stagedSetup = Path.Combine(_paths.StagingRoot, SetupConstants.SetupExeName);
+        if (request.ReuseRunCopy)
+        {
+            // G4: the hand-off child already runs from a verified run copy; reuse it instead of
+            // creating a second EyeCtrl.run\<id> folder (and a second runas).
+            var existing = _runCopies.VerifyRunCopy(runId);
+            if (!existing.Ok)
+            {
+                _log.Warn($"Existing run copy refused: {existing.FailureReason}");
+                return new ElevatedPhaseResult(MapRunCopyFailure(existing.FailureReason), existing.FailureReason);
+            }
+
+            return ElevatedPhaseResult.Ok;
+        }
+
         var runCopy = _runCopies.Prepare(stagedSetup, runId);
         if (!runCopy.Ok)
         {
@@ -196,8 +210,8 @@ public sealed class ElevatedOperations
     }
 
     private static ElevatedPhaseStatus MapRunCopyFailure(string? reason) =>
-        reason is "invalidRunId" or "setupMissing" or "setupSignature:invalid" or "setupThumbprint"
-            or "runCopySignature"
+        reason is "invalidRunId" or "setupMissing" or "setupThumbprint" or "runCopySignature"
+        || reason?.StartsWith("setupSignature:", StringComparison.Ordinal) == true
             ? ElevatedPhaseStatus.VerifyFailed
             : ElevatedPhaseStatus.Failed;
 

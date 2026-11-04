@@ -33,7 +33,8 @@ public sealed record ElevatedRequest(
     string? PackageDirectory = null,
     string? RunId = null,
     string? SourceSetupExe = null,
-    bool KeepData = true);
+    bool KeepData = true,
+    bool ReuseRunCopy = false);
 
 /// <summary>The outcome vocabulary the elevated phase reports back to the medium workflow.</summary>
 public enum ElevatedPhaseStatus

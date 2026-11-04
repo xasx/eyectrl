@@ -60,8 +60,13 @@ public sealed class SetupWorkflow
 
         var runId = _runIds.NewId();
 
+        var currentRunId = CurrentRunId();
+        if (currentRunId is not null)
+            runId = currentRunId;
+
         var prepare = _broker.Run(new ElevatedRequest(
-            ElevatedJob.PrepareUpdate, PackageDirectory: packageDirectory, RunId: runId));
+            ElevatedJob.PrepareUpdate, PackageDirectory: packageDirectory, RunId: runId,
+            ReuseRunCopy: currentRunId is not null));
         if (!prepare.Succeeded)
             return FinishRefused(SetupVerb.Update, prepare);
 
@@ -198,15 +203,19 @@ public sealed class SetupWorkflow
         if (!_fileSystem.DirectoryExists(_paths.PreviousRoot))
             return Finish(SetupVerb.Rollback, SetupOutcome.NotApplied, null, null, "previousMissing");
 
-        var runId = _runIds.NewId();
-        var source = RunCopySource();
-        if (source is null)
-            return Finish(SetupVerb.Rollback, SetupOutcome.Failed, null, null, "setupMissing");
+        var currentRunId = CurrentRunId();
+        var runId = currentRunId ?? _runIds.NewId();
+        if (currentRunId is null)
+        {
+            var source = RunCopySource();
+            if (source is null)
+                return Finish(SetupVerb.Rollback, SetupOutcome.Failed, null, null, "setupMissing");
 
-        var prepare = _broker.Run(new ElevatedRequest(
-            ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: source));
-        if (!prepare.Succeeded)
-            return FinishRefused(SetupVerb.Rollback, prepare);
+            var prepare = _broker.Run(new ElevatedRequest(
+                ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: source));
+            if (!prepare.Succeeded)
+                return FinishRefused(SetupVerb.Rollback, prepare);
+        }
 
         var apply = _broker.Run(new ElevatedRequest(ElevatedJob.ApplyRollback, RunId: runId));
         if (!apply.Succeeded)
@@ -260,15 +269,19 @@ public sealed class SetupWorkflow
             keep = choice == UninstallChoice.Keep;
         }
 
-        var runId = _runIds.NewId();
-        var source = RunCopySource();
-        if (source is null)
-            return Finish(SetupVerb.Uninstall, SetupOutcome.Failed, null, null, "setupMissing");
+        var currentRunId = CurrentRunId();
+        var runId = currentRunId ?? _runIds.NewId();
+        if (currentRunId is null)
+        {
+            var source = RunCopySource();
+            if (source is null)
+                return Finish(SetupVerb.Uninstall, SetupOutcome.Failed, null, null, "setupMissing");
 
-        var prepare = _broker.Run(new ElevatedRequest(
-            ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: source));
-        if (!prepare.Succeeded)
-            return FinishRefused(SetupVerb.Uninstall, prepare);
+            var prepare = _broker.Run(new ElevatedRequest(
+                ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: source));
+            if (!prepare.Succeeded)
+                return FinishRefused(SetupVerb.Uninstall, prepare);
+        }
 
         var uninstall = _broker.Run(new ElevatedRequest(
             ElevatedJob.Uninstall, RunId: runId, KeepData: keep));
@@ -367,7 +380,7 @@ public sealed class SetupWorkflow
             return Finish(verb, SetupOutcome.Failed, null, null, "relaunchFailed");
 
         _log.Info($"{verb}: relaunched the medium verb from the run copy (PID {pid}).");
-        return Finish(verb, SetupOutcome.HandedOff, null, null, "relaunchedFromRunCopy");
+        return Finish(verb, SetupOutcome.HandedOff, null, null, "relaunchedFromRunCopy", pid);
     }
 
     private SetupResult? Blocked(SetupVerb verb)
@@ -480,7 +493,7 @@ public sealed class SetupWorkflow
 
     private SetupResult Finish(
         SetupVerb verb, SetupOutcome outcome, string? version, string? previousVersion,
-        string? detail = null)
+        string? detail = null, int? processId = null)
     {
         var result = new SetupResult
         {
@@ -490,6 +503,7 @@ public sealed class SetupWorkflow
             PreviousVersion = previousVersion,
             Time = _clock.UtcNow,
             Detail = detail,
+            ProcessId = processId,
         };
 
         if (outcome != SetupOutcome.HandedOff)

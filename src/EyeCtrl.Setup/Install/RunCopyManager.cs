@@ -149,4 +149,24 @@ public sealed class RunCopyManager
 
         _fileSystem.MarkForDeletionAtReboot(folder);
     }
+
+    /// <summary>Verifies an existing run copy without creating or replacing it (the hand-off
+    /// child and the RunOnce repair already run from one).</summary>
+    public RunCopyResult VerifyRunCopy(string runId)
+    {
+        if (!IsValidRunId(runId))
+            return RunCopyResult.Fail("invalidRunId");
+
+        var target = _paths.RunSetupExePath(runId);
+        _guard.RequireProgramFilesPath(target);
+        if (!_fileSystem.FileExists(target))
+            return RunCopyResult.Fail("runCopyMissing");
+
+        var check = _signature.Verify(target);
+        return check.Valid
+               && string.Equals(check.SignerThumbprint, SetupConstants.PinnedThumbprint,
+                   StringComparison.OrdinalIgnoreCase)
+            ? RunCopyResult.Success(target)
+            : RunCopyResult.Fail("runCopySignature");
+    }
 }

@@ -25,7 +25,7 @@ public sealed class SetupFitTests
     public void TheTwoSetupClasses_HaveTheirKeys_AndNoGermanIsMissing()
     {
         Check.That(FitCatalog.ItemsOf("setup420x160")).HasSize(5);
-        Check.That(FitCatalog.ItemsOf("setupProse")).HasSize(33);
+        Check.That(FitCatalog.ItemsOf("setupProse")).HasSize(35);
         Check.That(GermanDraft.MissingKeys()).IsEmpty();
         Check.WithCustomMessage("The German draft logged load warnings:\n  " + string.Join("\n  ", GermanDraft.LoadWarnings))
             .That(GermanDraft.LoadWarnings).IsEmpty();

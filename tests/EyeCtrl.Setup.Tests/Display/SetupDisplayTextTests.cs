@@ -35,13 +35,33 @@ public class SetupDisplayTextTests
     public void EveryStage_HasItsOwnText()
     {
         var texts = Enum.GetValues<SetupStage>()
-            .Select(stage => SetupDisplayText.Stage(English, stage))
+            .Select(stage => SetupDisplayText.Stage(English, SetupVerb.Update, stage))
             .ToList();
 
         Check.That(texts).HasSize(4);
         Check.That(texts).ContainsOnlyElementsThatMatch(text => text.Length > 0);
         Check.That(texts).ContainsOnlyElementsThatMatch(text => !text.StartsWith("update.progress.", StringComparison.Ordinal));
         Check.That(texts.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(4);
+    }
+
+    [Fact]
+    public void RollbackStage_UsesThePreviousVersionTexts_WhileVerifyAndStopStayShared()
+    {
+        Check.That(SetupDisplayText.Stage(English, SetupVerb.Rollback, SetupStage.Verify))
+            .IsEqualTo(English.T("update.progress.verify"));
+        Check.That(SetupDisplayText.Stage(English, SetupVerb.Rollback, SetupStage.Stop))
+            .IsEqualTo(English.T("update.progress.stop"));
+
+        Check.That(SetupDisplayText.Stage(English, SetupVerb.Rollback, SetupStage.Swap))
+            .IsEqualTo(English.T("rollback.progress.swap"));
+        Check.That(SetupDisplayText.Stage(English, SetupVerb.Rollback, SetupStage.Start))
+            .IsEqualTo(English.T("rollback.progress.start"));
+
+        // The same stages under an update keep the new-version wording.
+        Check.That(SetupDisplayText.Stage(English, SetupVerb.Update, SetupStage.Swap))
+            .IsEqualTo(English.T("update.progress.swap"));
+        Check.That(SetupDisplayText.Stage(English, SetupVerb.Update, SetupStage.Start))
+            .IsEqualTo(English.T("update.progress.start"));
     }
 
     [Fact]

@@ -24,6 +24,7 @@ internal sealed class SetupProgressWindow : Window
     private const long WsExLayered = 0x00080000L;
 
     private readonly StringTable _strings;
+    private readonly SetupVerb _verb;
     private readonly TextBlock _title;
     private readonly TextBlock _detail;
     private readonly TextBlock _stage;
@@ -40,6 +41,7 @@ internal sealed class SetupProgressWindow : Window
     public SetupProgressWindow(StringTable strings, SetupVerb verb, Action? close = null)
     {
         _strings = strings;
+        _verb = verb;
         _close = close ?? Close;
 
         var progressTitle = SetupDisplayText.ProgressTitle(strings, verb);
@@ -125,7 +127,7 @@ internal sealed class SetupProgressWindow : Window
     internal bool IsCloseScheduled => _closeTimer.IsEnabled;
 
     /// <summary>Advances the stage line.</summary>
-    internal void Stage(SetupStage stage) => _stage.Text = SetupDisplayText.Stage(_strings, stage);
+    internal void Stage(SetupStage stage) => _stage.Text = SetupDisplayText.Stage(_strings, _verb, stage);
 
     /// <summary>Replaces the progress with the terminal result and arms the self-close.</summary>
     internal void ShowResult(SetupDisplayResult result)

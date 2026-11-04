@@ -33,8 +33,33 @@ public sealed class SetupProgressWindowTests
                 foreach (var stage in Enum.GetValues<SetupStage>())
                 {
                     window.Stage(stage);
-                    Check.That(window.StageText).IsEqualTo(SetupDisplayText.Stage(English, stage));
+                    Check.That(window.StageText).IsEqualTo(SetupDisplayText.Stage(English, SetupVerb.Update, stage));
                 }
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ARollback_StagesNameThePreviousVersion_NotTheNewOne()
+    {
+        RunSta(() =>
+        {
+            var window = new SetupProgressWindow(English, SetupVerb.Rollback, close: () => { });
+            try
+            {
+                window.Stage(SetupStage.Swap);
+                Check.WithCustomMessage("a rollback's swap must not reuse the update's 'new version' text.")
+                    .That(window.StageText).IsEqualTo(English.T("rollback.progress.swap"));
+                Check.That(window.StageText).Not.IsEqualTo(English.T("update.progress.swap"));
+
+                window.Stage(SetupStage.Start);
+                Check.WithCustomMessage("a rollback's start must not reuse the update's 'new version' text.")
+                    .That(window.StageText).IsEqualTo(English.T("rollback.progress.start"));
+                Check.That(window.StageText).Not.IsEqualTo(English.T("update.progress.start"));
             }
             finally
             {

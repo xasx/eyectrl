@@ -118,6 +118,18 @@ public class ElevationBrokerTests
     }
 
     [Fact]
+    public void AStillRunningChild_IsFailedAndStopsTheNextPhase()
+    {
+        var (broker, launcher, _) = Build();
+        launcher.Result = new LauncherResult(LauncherOutcome.StillRunning, Detail: "childStillRunning");
+
+        var result = broker.Run(new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: "r1"));
+
+        Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.Failed);
+        Check.That(result.Detail).IsEqualTo("childStillRunning");
+    }
+
+    [Fact]
     public void ARefusedElevation_IsBlocked()
     {
         var (broker, launcher, _) = Build();

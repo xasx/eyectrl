@@ -68,6 +68,13 @@ public sealed class SetupWorkflow
         var apply = _broker.Run(new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: runId));
         if (!apply.Succeeded)
         {
+            if (apply.Detail == "childStillRunning")
+            {
+                // G1: the timed-out elevated child may still be renaming. Do not repair, revert
+                // or start anything; the RunOnce/journal repair finishes at the next logon.
+                return Finish(SetupVerb.Update, SetupOutcome.Failed, null, null, "childStillRunning");
+            }
+
             if (apply.Status == ElevatedPhaseStatus.Failed)
             {
                 var repaired = TryRepairAfterFailedApply(runId);

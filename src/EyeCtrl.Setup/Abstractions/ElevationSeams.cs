@@ -61,6 +61,7 @@ public enum LauncherOutcome
     Exited,
     Blocked,
     TimedOut,
+    StillRunning,
     Failed,
 }
 

@@ -70,6 +70,7 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
             LauncherOutcome.Exited => FromExitCode(result.ExitCode),
             LauncherOutcome.Blocked => new ElevatedPhaseResult(ElevatedPhaseStatus.Blocked, "elevationRefused"),
             LauncherOutcome.TimedOut => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childTimeout"),
+            LauncherOutcome.StillRunning => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childStillRunning"),
             _ => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, result.Detail ?? "launchFailed"),
         };
     }
@@ -163,7 +164,15 @@ public sealed class ShellExecuteRunAsLauncher : IElevatedLauncher
                 // Kill the elevated child itself; its own children are unrelated programs.
                 try { process.Kill(); } catch (Exception) { /* raced exit */ }
                 process.WaitForExit((int)SetupConstants.ProcessExitWait.TotalMilliseconds);
-                _log.Error("Elevated child exceeded the wait bound.");
+                if (!process.HasExited)
+                {
+                    // G1: the medium caller may lack TERMINATE on a runas child. Never launch
+                    // the next elevated phase while this one may still be renaming.
+                    _log.Error("Elevated child is still running after the timeout kill.");
+                    return new LauncherResult(LauncherOutcome.StillRunning, Detail: "childStillRunning");
+                }
+
+                _log.Error("Elevated child exceeded the wait bound and was killed.");
                 return new LauncherResult(LauncherOutcome.TimedOut, Detail: "childTimeout");
             }
 

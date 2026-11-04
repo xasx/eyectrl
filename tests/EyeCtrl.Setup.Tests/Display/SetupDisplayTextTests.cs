@@ -48,13 +48,48 @@ public class SetupDisplayTextTests
     public void UpdateResult_MapsEveryOutcome()
     {
         AssertMaps(SetupVerb.Update, SetupOutcome.Ok, "update.result.ok", args: "1.2.3");
-        AssertMaps(SetupVerb.Update, SetupOutcome.RolledBack, "update.result.rolledBack", args: "1.2.3");
+        // The failed new version is Version; the restored one is PreviousVersion.
+        AssertMaps(SetupVerb.Update, SetupOutcome.RolledBack, "update.result.rolledBack", args: "1.0.0");
         AssertMaps(SetupVerb.Update, SetupOutcome.NotApplied, "update.result.notApplied");
         AssertMaps(SetupVerb.Update, SetupOutcome.VerifyFailed, "update.result.verifyFailed");
         AssertMaps(SetupVerb.Update, SetupOutcome.AllFailed, "update.result.allFailed");
         AssertMaps(SetupVerb.Update, SetupOutcome.Blocked, "uninstall.needsHelp");
         AssertMaps(SetupVerb.Update, SetupOutcome.Failed, "update.result.failed");
         AssertMaps(SetupVerb.Update, SetupOutcome.Failed, "update.result.notApplied", detail: "childStillRunning");
+    }
+
+    [Fact]
+    public void RolledBack_NamesTheRestoredVersion_NotTheFailedOne()
+    {
+        var result = new SetupResult
+        {
+            Verb = SetupVerb.Update,
+            Outcome = SetupOutcome.RolledBack,
+            Version = "1.5.0",
+            PreviousVersion = "1.4.0",
+        };
+
+        var mapped = SetupDisplayText.Result(English, result, AppData);
+
+        Check.That(mapped.Text).IsEqualTo(English.T("update.result.rolledBack", "1.4.0"));
+        Check.WithCustomMessage("The rolled-back text named the failed new version.").That(mapped.Text).Not.Contains("1.5.0");
+    }
+
+    [Fact]
+    public void Degraded_NamesTheRunningVersion_NotTheDisplacedOne()
+    {
+        var result = new SetupResult
+        {
+            Verb = SetupVerb.Update,
+            Outcome = SetupOutcome.Degraded,
+            Version = "1.4.0",
+            PreviousVersion = "1.5.0",
+        };
+
+        var mapped = SetupDisplayText.Result(English, result, AppData);
+
+        Check.That(mapped.Text).IsEqualTo(English.T("update.result.degraded", "1.4.0"));
+        Check.That(mapped.Text).Not.Contains("1.5.0");
     }
 
     [Fact]
@@ -111,6 +146,7 @@ public class SetupDisplayTextTests
             Verb = SetupVerb.Update,
             Outcome = SetupOutcome.Degraded,
             Version = "3.4.5",
+            PreviousVersion = "2.0.0",
         };
 
         var mapped = SetupDisplayText.Result(English, result, AppData);
@@ -118,6 +154,7 @@ public class SetupDisplayTextTests
         Check.That(mapped.IsFailure).IsTrue();
         Check.That(mapped.Text).IsEqualTo(English.T("update.result.degraded", "3.4.5"));
         Check.That(mapped.Text).Contains("3.4.5");
+        Check.That(mapped.Text).Not.Contains("2.0.0");
         Check.That(mapped.Text).Not.IsEqualTo(English.T("update.result.ok", "3.4.5"));
     }
 
@@ -150,6 +187,7 @@ public class SetupDisplayTextTests
             Verb = verb,
             Outcome = outcome,
             Version = "1.2.3",
+            PreviousVersion = "1.0.0",
             Detail = detail,
         };
 

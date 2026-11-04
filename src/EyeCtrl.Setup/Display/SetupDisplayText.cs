@@ -108,7 +108,7 @@ public static class SetupDisplayText
     private static string UpdateText(StringTable strings, SetupResult result) => result.Outcome switch
     {
         SetupOutcome.Ok or SetupOutcome.Repaired => strings.T("update.result.ok", Version(result.Version)),
-        SetupOutcome.RolledBack => strings.T("update.result.rolledBack", Version(result.Version)),
+        SetupOutcome.RolledBack => strings.T("update.result.rolledBack", Version(result.PreviousVersion)),
         SetupOutcome.Degraded => strings.T("update.result.degraded", Version(result.Version)),
         SetupOutcome.NotApplied => strings.T("update.result.notApplied"),
         SetupOutcome.VerifyFailed => strings.T("update.result.verifyFailed"),
@@ -121,7 +121,7 @@ public static class SetupDisplayText
 
     private static string RollbackText(StringTable strings, SetupResult result) => result.Outcome switch
     {
-        SetupOutcome.Ok or SetupOutcome.RolledBack => strings.T("rollback.result.ok", Version(result.Version)),
+        SetupOutcome.Ok => strings.T("rollback.result.ok", Version(result.Version)),
         SetupOutcome.Degraded => strings.T("rollback.result.degraded", Version(result.Version)),
         SetupOutcome.NotApplied => strings.T("rollback.result.notApplied"),
         SetupOutcome.VerifyFailed => strings.T("rollback.result.verifyFailed"),

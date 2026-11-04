@@ -1687,6 +1687,20 @@
     "fit": "prose",
     "args": []
   },
+  "rollback.progress.start": {
+    "text": "Starting the previous version",
+    "who": "user",
+    "where": "rollback",
+    "fit": "setupProse",
+    "args": []
+  },
+  "rollback.progress.swap": {
+    "text": "Putting the previous version back",
+    "who": "user",
+    "where": "rollback",
+    "fit": "setupProse",
+    "args": []
+  },
   "rollback.progress.title": {
     "text": "Restoring the previous version",
     "who": "user",
@@ -1702,7 +1716,7 @@
     "args": []
   },
   "rollback.result.degraded": {
-    "text": "The rollback did not fully work. Version {0} is running, but it cannot click in windows with administrator rights (for example Task Manager).",
+    "text": "The rollback did not work as planned. Version {0} is running, but it cannot click in windows with administrator rights (for example Task Manager).",
     "who": "user",
     "where": "rollback",
     "fit": "setupProse",
@@ -6229,7 +6243,7 @@
     ]
   },
   "update.notice.degraded": {
-    "text": "Version {0} is running without UIAccess. Windows dialogs such as Task Manager cannot be clicked by gaze. Please get the caregiver.",
+    "text": "Version {0} is running, but it cannot click in windows with administrator rights (for example Task Manager). Please get the caregiver.",
     "who": "user",
     "where": "update",
     "fit": "prose",
@@ -6312,7 +6326,7 @@
     "args": []
   },
   "update.result.degraded": {
-    "text": "The update did not work. Version {0} is running again, but it cannot click in windows with administrator rights (for example Task Manager).",
+    "text": "The update did not work as planned. Version {0} is running, but it cannot click in windows with administrator rights (for example Task Manager).",
     "who": "user",
     "where": "update",
     "fit": "setupProse",

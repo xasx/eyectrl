@@ -90,7 +90,7 @@ public sealed class ElevatedOperations
                 _log.Warn($"Existing run copy refused: {existing.FailureReason}");
                 // S6c D4: the stage happened before this check; the update never applied.
                 _staging.Discard();
-                _runCopies.MarkForDeletionAtReboot(runId);
+                _runCopies.MarkRunFolderForDeletionAtReboot(runId);
                 return new ElevatedPhaseResult(MapRunCopyFailure(existing.FailureReason), existing.FailureReason);
             }
 
@@ -138,7 +138,7 @@ public sealed class ElevatedOperations
     private void CleanupRefusedUpdate(string runId)
     {
         _staging.Discard();
-        _runCopies.MarkForDeletionAtReboot(runId);
+        _runCopies.MarkRunFolderForDeletionAtReboot(runId);
     }
 
     private ElevatedPhaseResult PrepareRunCopy(ElevatedRequest request)

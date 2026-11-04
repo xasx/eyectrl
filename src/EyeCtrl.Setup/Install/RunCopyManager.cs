@@ -165,6 +165,17 @@ public sealed class RunCopyManager
     /// <c>C:\Program Files\EyeCtrl.run</c> survived the reboot.</summary>
     public void MarkForDeletionAtReboot(string runId)
     {
+        MarkRunFolderForDeletionAtReboot(runId);
+
+        _guard.RequireProgramFilesPath(_paths.RunRoot);
+        if (_fileSystem.DirectoryExists(_paths.RunRoot))
+            _fileSystem.MarkForDeletionAtReboot(_paths.RunRoot);
+    }
+
+    /// <summary>Registers only one run folder (a refused update's copy, S6c D4). The root is not
+    /// marked: another run copy or the journal may still belong to a live repair.</summary>
+    public void MarkRunFolderForDeletionAtReboot(string runId)
+    {
         if (string.IsNullOrWhiteSpace(runId))
             return;
 
@@ -172,10 +183,6 @@ public sealed class RunCopyManager
         _guard.RequireProgramFilesPath(folder);
         if (_fileSystem.DirectoryExists(folder))
             _fileSystem.MarkForDeletionAtReboot(folder);
-
-        _guard.RequireProgramFilesPath(_paths.RunRoot);
-        if (_fileSystem.DirectoryExists(_paths.RunRoot))
-            _fileSystem.MarkForDeletionAtReboot(_paths.RunRoot);
     }
 
     /// <summary>

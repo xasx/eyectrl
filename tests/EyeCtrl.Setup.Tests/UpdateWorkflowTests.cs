@@ -142,6 +142,7 @@ public class UpdateWorkflowTests
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.NotApplied);
         Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
         Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunFolder("run1"));
+        Check.That(harness.Log).Not.Contains("reboot:" + harness.Paths.RunRoot);
     }
 
     [Fact]

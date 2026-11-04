@@ -159,6 +159,20 @@ public class UpdateWorkflowTests
     }
 
     [Fact]
+    public void AGoodUpdate_RemovesThePreviouslyFailedVersion()
+    {
+        // S6c D5: EyeCtrl.failed (about 190 MB with the real App) survived later good updates.
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.SeedVersionFolder(harness.Paths.FailedRoot, "0.9.0");
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Ok);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.FailedRoot)).IsFalse();
+    }
+
+    [Fact]
     public void AFailedPassRule_RollsBackAndStartsThePreviousVersion()
     {
         var harness = Harness();

@@ -160,8 +160,28 @@ public sealed class InstallStateMachine
         _journal.Clear();
         ClearRepairRunOnce();
         RegisterAppsAndFeatures();
+        RemoveFailedVersion();
         _log.Info("Update swapped in.");
         return SwapOutcome.Success();
+    }
+
+    /// <summary>
+    /// S6c D5: the rejected version is dead weight once a good update landed — about 190 MB with
+    /// the real App. A cleanup failure is logged, never fatal: the update itself already worked.
+    /// </summary>
+    private void RemoveFailedVersion()
+    {
+        if (!_fileSystem.DirectoryExists(_paths.FailedRoot))
+            return;
+
+        try
+        {
+            _fileSystem.DeleteDirectory(_paths.FailedRoot, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"Could not remove EyeCtrl.failed: {ex.GetType().Name}");
+        }
     }
 
     /// <summary>

@@ -50,8 +50,9 @@ public static class Program
     }
 
     /// <summary>
-    /// An unhandled exception must leave a log line and a failed record (where the verb has an
-    /// installation outcome), and still a clean exit code for the coordinator's script.
+    /// An unhandled exception must leave a log line and — on the medium side only — a failed
+    /// record where the verb has an installation outcome, and still a clean exit code for the
+    /// coordinator's script. Elevated phases log and exit; the parent records (review N1).
     /// </summary>
     internal static int HandleCrash(
         ParsedSetupCommand command, Exception exception, ISetupLog log,
@@ -60,7 +61,10 @@ public static class Program
         // The whole exception, stack included: this is the only trace an elevated child leaves.
         log.Error("Unhandled exception: " + exception);
 
-        if (SetupLogContext.PublicVerb(command.Job) is { } verb)
+        // N1: only the medium side writes setup-last.json. An elevated phase only logs; the
+        // medium parent maps its Failed exit code and records the one outcome. Writing the record
+        // from an elevated process would be a second, redundant write into a user-writable folder.
+        if (!command.IsInternal && SetupLogContext.PublicVerb(command.Job) is { } verb)
         {
             record?.Invoke(new SetupResult
             {

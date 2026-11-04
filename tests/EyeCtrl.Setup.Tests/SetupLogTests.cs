@@ -106,24 +106,30 @@ public class SetupLogTests
     }
 
     [Theory]
-    [InlineData(new[] { "--internal", "prepare-update", @"C:\inbox\2.0.0", "--run-id", "r1" },
-        SetupVerb.Update)]
-    [InlineData(new[] { "--internal", "apply-update", "--run-id", "r1" }, SetupVerb.Update)]
-    [InlineData(new[] { "--internal", "apply-rollback", "--run-id", "r1" }, SetupVerb.Rollback)]
-    [InlineData(new[] { "--internal", "revert", "--run-id", "r1" }, SetupVerb.Rollback)]
-    [InlineData(new[] { "--internal", "uninstall", "--run-id", "r1" }, SetupVerb.Uninstall)]
-    [InlineData(new[] { "--internal", "repair", "--run-id", "r1" }, SetupVerb.Repair)]
-    public void AnElevatedCrash_RecordsThePublicVerbItServes(string[] args, SetupVerb expected)
+    [InlineData("prepare-update")]
+    [InlineData("apply-update")]
+    [InlineData("apply-rollback")]
+    [InlineData("revert")]
+    [InlineData("uninstall")]
+    [InlineData("repair")]
+    public void AnElevatedCrash_LogsButDoesNotWriteTheRecord(string job)
     {
+        // N1: only the medium side writes setup-last.json. The elevated child logs, the medium
+        // parent maps its Failed exit code and records the outcome.
         var log = new RecordingSetupLog();
         SetupResult? recorded = null;
+        var args = job == "prepare-update"
+            ? new[] { "--internal", job, @"C:\inbox\2.0.0", "--run-id", "r1" }
+            : new[] { "--internal", job, "--run-id", "r1" };
         var command = SetupCommandLine.Parse(args);
 
-        Program.HandleCrash(
+        var exit = Program.HandleCrash(
             command, new InvalidOperationException("boom"), log, result => recorded = result);
 
-        Check.That(recorded).IsNotNull();
-        Check.That(recorded!.Verb).IsEqualTo(expected);
+        Check.That(exit).IsEqualTo(SetupExitCodes.Failed);
+        Check.That(recorded).IsNull();
+        Check.That(log.Lines.Any(line => line.Contains(
+            "Unhandled exception: System.InvalidOperationException", StringComparison.Ordinal))).IsTrue();
     }
 
     [Fact]

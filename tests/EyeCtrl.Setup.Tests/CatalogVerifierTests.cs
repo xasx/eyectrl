@@ -59,7 +59,7 @@ public class CatalogVerifierTests
         var directory = CloneFixture();
         try
         {
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.UncataloguedFiles).Not.Contains("EyeCtrl.cat");
@@ -84,7 +84,7 @@ public class CatalogVerifierTests
                 Path.Combine(directory, "sample.txt"),
                 overwrite: true);
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("sample.txt");
@@ -106,7 +106,7 @@ public class CatalogVerifierTests
                 Result = unchecked((int)0x800B0100),
             };
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), memberVerifier)
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), memberVerifier, requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("sample.txt");
@@ -127,7 +127,7 @@ public class CatalogVerifierTests
         {
             File.WriteAllText(Path.Combine(directory, "zz-planted.dll"), "not in any catalog");
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.UncataloguedFiles).Contains("zz-planted.dll");
@@ -146,7 +146,7 @@ public class CatalogVerifierTests
         {
             File.Delete(Path.Combine(directory, "sample.txt"));
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.MissingFiles).Contains("sample.txt");
@@ -165,7 +165,7 @@ public class CatalogVerifierTests
         {
             File.AppendAllText(Path.Combine(directory, "sample.txt"), "tampered");
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("sample.txt");
@@ -191,7 +191,8 @@ public class CatalogVerifierTests
                 });
             if (pe is null)
             {
-                Assert.Skip("No hashable System32 DLL available on this machine.");
+                Check.WithCustomMessage("System32 has no hashable DLL for the unhashable-file test")
+                    .That(pe).IsNotNull();
                 return;
             }
 
@@ -200,7 +201,7 @@ public class CatalogVerifierTests
             File.AppendAllText(bad, "x");
             File.WriteAllText(Path.Combine(directory, "zz-planted.dll"), "not in any catalog");
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: false)
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("0-bad.dll");
@@ -223,7 +224,7 @@ public class CatalogVerifierTests
                 {
                     Result = new FileSignatureCheck(true, "DEADBEEF", null),
                 },
-                new FakeCatalogMemberVerifier());
+                new FakeCatalogMemberVerifier(), requirePackageExecutables: false);
 
             var result = verifier.Verify(
                 Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
@@ -237,16 +238,67 @@ public class CatalogVerifierTests
     }
 
     [Fact]
+    public void APackageWithoutTheThreeExecutables_IsRefused()
+    {
+        var directory = CloneFixture();
+        try
+        {
+            var result = new AuthenticodeCatalogVerifier(
+                    PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: true)
+                .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory,
+                    SetupConstants.PinnedThumbprint);
+
+            Check.That(result.MissingFiles).Contains("EyeCtrl.App.exe");
+            Check.That(result.MissingFiles).Contains("EyeCtrl.Supervisor.exe");
+            Check.That(result.MissingFiles).Contains("EyeCtrl.Setup.exe");
+            Check.That(result.MissingFiles).Not.IsEmpty();
+        }
+        finally
+        {
+            TryDelete(directory);
+        }
+    }
+
+    [Fact]
+    public void AnEmptyCatalog_IsAnError()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(), "eyectrl-setup-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "EyeCtrl.cat"), "not a catalog");
+            File.WriteAllText(Path.Combine(directory, "EyeCtrl.App.exe"), "x");
+            File.WriteAllText(Path.Combine(directory, "EyeCtrl.Supervisor.exe"), "x");
+            File.WriteAllText(Path.Combine(directory, "EyeCtrl.Setup.exe"), "x");
+
+            var result = new AuthenticodeCatalogVerifier(
+                    PinnedFake(), new FakeCatalogMemberVerifier(), requirePackageExecutables: true)
+                .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory,
+                    SetupConstants.PinnedThumbprint);
+
+            Check.That(result.Error).IsNotNull();
+        }
+        finally
+        {
+            TryDelete(directory);
+        }
+    }
+
+    [Fact]
     public void TheRealCatalogSignature_IsValid_WithAThumbprint()
     {
-        var catalog = FindSystemCatalog();
-        if (catalog is null)
+        if (!OperatingSystem.IsWindows())
         {
-            Assert.Skip("No signed System32 catalog available on this machine.");
+            Assert.Skip("System catalogs are a Windows feature.");
             return;
         }
 
-        var check = new WinTrustFileSignatureVerifier().Verify(catalog);
+        var catalog = FindSystemCatalog();
+        Check.WithCustomMessage("CatRoot exists but no .cat file was found")
+            .That(catalog).IsNotNull();
+
+        var check = new WinTrustFileSignatureVerifier().Verify(catalog!);
 
         Check.That(check.Valid).IsTrue();
         Check.That(check.SignerThumbprint).IsNotNull();
@@ -266,14 +318,19 @@ public class CatalogVerifierTests
     [Fact]
     public void ARealSignedCatalogMember_AcceptsTheSipTag_AndRejectsPathsAndFlatHashes()
     {
-        var found = FindCataloguedPe();
-        if (found is null)
+        if (!OperatingSystem.IsWindows())
         {
-            Assert.Skip("No catalog-signed System32 PE available on this machine.");
+            Assert.Skip("System catalogs are a Windows feature.");
             return;
         }
 
-        var (file, tag, catalog) = found.Value;
+        var found = FindCataloguedPe();
+        Check.WithCustomMessage("No catalog-signed System32 PE was found").That(found).IsNotNull();
+        var (file, rawTag, catalog) = found!.Value;
+
+        // N2: the fixture was found with an INDEPENDENT SIP hash, not the code under test.
+        var tag = CatalogSipHash.Compute(file);
+        Check.That(tag).IsEqualTo(rawTag);
         var flat = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file)));
         Check.That(tag == flat).IsFalse(); // a PE's Authenticode hash differs from its flat hash
 
@@ -310,21 +367,46 @@ public class CatalogVerifierTests
 
     private static (string File, string Tag, string Catalog)? FindCataloguedPe()
     {
-        if (!Directory.Exists(@"C:\Windows\System32"))
+        if (!OperatingSystem.IsWindows() || !Directory.Exists(@"C:\Windows\System32"))
             return null;
 
         foreach (var file in Directory.EnumerateFiles(@"C:\Windows\System32", "*.dll").Take(400))
         {
-            string tag;
-            try { tag = CatalogSipHash.Compute(file); }
+            string rawTag;
+            try { rawTag = RawSipHash(file); }
             catch { continue; }
 
-            var catalog = FindCatalog(tag);
+            var catalog = FindCatalog(rawTag);
             if (catalog is not null)
-                return (file, tag, catalog);
+                return (file, rawTag, catalog);
         }
 
         return null;
+    }
+
+    /// <summary>The independent SIP SHA-256 computation used only to FIND the fixture (N2).</summary>
+    private static string RawSipHash(string path)
+    {
+        if (!CryptCATAdminAcquireContext2(out var admin, IntPtr.Zero, "SHA256", IntPtr.Zero, 0))
+            throw new InvalidOperationException("CryptCATAdminAcquireContext2 failed");
+
+        try
+        {
+            using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var size = 64;
+            var buffer = new byte[size];
+            if (!CryptCATAdminCalcHashFromFileHandle2(
+                    admin, handle.DangerousGetHandle(), ref size, buffer, 0))
+            {
+                throw new InvalidOperationException("CryptCATAdminCalcHashFromFileHandle2 failed");
+            }
+
+            return Convert.ToHexString(buffer.AsSpan(0, size));
+        }
+        finally
+        {
+            _ = CryptCATAdminReleaseContext(admin, 0);
+        }
     }
 
     private static string? FindCatalog(string tagHex)
@@ -385,4 +467,9 @@ public class CatalogVerifierTests
 
     [DllImport("wintrust.dll", SetLastError = true)]
     private static extern bool CryptCATAdminReleaseContext(IntPtr admin, uint flags);
+
+    [DllImport("wintrust.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptCATAdminCalcHashFromFileHandle2(
+        IntPtr hCatAdmin, IntPtr hFile, ref int pcbHash, byte[] pbHash, uint dwFlags);
 }

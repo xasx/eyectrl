@@ -211,13 +211,16 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
 {
     private readonly IFileSignatureVerifier _signature;
     private readonly ICatalogMemberVerifier _memberVerifier;
+    private readonly bool _requirePackageExecutables;
 
     /// <summary>Creates the verifier.</summary>
     public AuthenticodeCatalogVerifier(
-        IFileSignatureVerifier signature, ICatalogMemberVerifier? memberVerifier = null)
+        IFileSignatureVerifier signature, ICatalogMemberVerifier? memberVerifier = null,
+        bool requirePackageExecutables = true)
     {
         _signature = signature;
         _memberVerifier = memberVerifier ?? new WinTrustCatalogMemberVerifier();
+        _requirePackageExecutables = requirePackageExecutables;
     }
 
     /// <summary>The catalog member tag for a file: uppercase hex SIP SHA-256 (X1), never a path.</summary>
@@ -241,6 +244,14 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
             return new CatalogVerificationResult(
                 signature.Valid, signature.SignerThumbprint, thumbprintMatches,
                 [], [], [], ex.GetType().Name);
+        }
+
+        // N3: an empty member set is an error, not a vacuously clean catalog.
+        if (members.Count == 0)
+        {
+            return new CatalogVerificationResult(
+                signature.Valid, signature.SignerThumbprint, thumbprintMatches,
+                [], [], [], "emptyCatalog");
         }
 
         var mismatches = new List<string>();
@@ -293,6 +304,20 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
             {
                 if (!actualPaths.Contains(memberPath))
                     missing.Add(memberPath);
+            }
+
+            // N3: a package without its three executables is not a package.
+            if (_requirePackageExecutables)
+            {
+                foreach (var required in new[]
+                         {
+                             SetupConstants.AppExeName, SetupConstants.SupervisorExeName,
+                             SetupConstants.SetupExeName,
+                         })
+                {
+                    if (!members.ContainsKey(required))
+                        missing.Add(required);
+                }
             }
         }
         catch (Exception ex)

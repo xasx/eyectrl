@@ -111,7 +111,8 @@ public sealed class SetupWorkflow
         }
 
         return RevertAndCheck(
-            SetupVerb.Update, newVersion, previousVersion, runId, start.FailureReason);
+            SetupVerb.Update, newVersion, previousVersion, runId, start.FailureReason,
+            attemptedStart: start);
     }
 
     /// <summary>
@@ -153,7 +154,8 @@ public sealed class SetupWorkflow
         }
 
         return RevertAndCheck(
-            SetupVerb.Update, version, previousVersion, runId, "repairedVersionFailed:" + start.FailureReason);
+            SetupVerb.Update, version, previousVersion, runId, "repairedVersionFailed:" + start.FailureReason,
+            attemptedStart: start);
     }
 
     /// <summary>Reverts to the previous version and pass-checks it. Both failing is the only
@@ -161,7 +163,8 @@ public sealed class SetupWorkflow
     /// UIAccess is Q12's <see cref="SetupOutcome.Degraded"/> last resort.</summary>
     private SetupResult RevertAndCheck(
         SetupVerb verb, string? attemptedVersion, string? previousVersion, string? runId,
-        string? failureReason, SetupOutcome passedOutcome = SetupOutcome.RolledBack)
+        string? failureReason, SetupOutcome passedOutcome = SetupOutcome.RolledBack,
+        AppStartOutcome? attemptedStart = null)
     {
         if (string.IsNullOrWhiteSpace(runId)
             || !_fileSystem.DirectoryExists(_paths.PreviousRoot))
@@ -173,6 +176,15 @@ public sealed class SetupWorkflow
         var revert = _broker.Run(new ElevatedRequest(ElevatedJob.Revert, RunId: runId));
         if (!revert.Succeeded)
         {
+            // H2: the revert was refused before its kill path. If the attempted version is still
+            // alive and only lacks UIAccess, it is what runs; report it as degraded, not allFailed.
+            if (attemptedStart is { StillAlive: true, UiAccessOnlyFailure: true, ProcessId: { } pid }
+                && _processes.IsAlive(pid))
+            {
+                return Finish(verb, SetupOutcome.Degraded, attemptedVersion, previousVersion,
+                    "degradedRevertRefused:" + revert.Detail);
+            }
+
             return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, previousVersion,
                 "revert:" + revert.Detail);
         }
@@ -236,7 +248,7 @@ public sealed class SetupWorkflow
         _log.Warn($"Rollback target failed the pass rule: {start.FailureReason}; rolling forward.");
         return RevertAndCheck(
             SetupVerb.Rollback, restoredVersion, displacedVersion, runId,
-            "rollbackTargetFailed:" + start.FailureReason, SetupOutcome.Failed);
+            "rollbackTargetFailed:" + start.FailureReason, SetupOutcome.Failed, attemptedStart: start);
     }
 
     /// <summary>
@@ -348,7 +360,7 @@ public sealed class SetupWorkflow
 
         return RevertAndCheck(
             SetupVerb.Repair, version, previousVersion, runId,
-            "repairedVersionFailed:" + start.FailureReason);
+            "repairedVersionFailed:" + start.FailureReason, attemptedStart: start);
     }
 
     /// <summary>Nothing elevated ever starts EyeCtrl: a public verb in an elevated token is refused
@@ -425,6 +437,12 @@ public sealed class SetupWorkflow
             ElevatedPhaseStatus.NotApplied => SetupOutcome.NotApplied,
             _ => SetupOutcome.Failed,
         };
+
+        // H1: a stopped child that still runs may still be renaming EyeCtrl / EyeCtrl.previous.
+        // Never restart the App from EyeCtrl while it does. This covers every caller, including
+        // the rollback apply (and the prepare children, where a restart would be only wasteful).
+        if (phase.Detail == "childStillRunning")
+            return Finish(verb, outcome, null, null, phase.Detail);
 
         // An update, rollback or repair must end in a pass-ruled version (or a checked revert).
         // A pre-swap refusal leaves the old version intact; start and check it. Uninstall never

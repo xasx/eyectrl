@@ -61,6 +61,25 @@ public class RollbackWorkflowTests
 public class UninstallWorkflowTests
 {
     [Fact]
+    public void ARollbackApplyStillRunning_DoesNotRestartTheApp()
+    {
+        // H1: the apply-rollback child may still be renaming EyeCtrl and EyeCtrl.previous.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("2.0.0");
+        harness.SeedPrevious("1.0.0");
+        harness.Broker.Handler = request => request.Job == ElevatedJob.ApplyRollback
+            ? new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childStillRunning")
+            : harness.Elevated.Execute(request);
+
+        var result = harness.Workflow.Rollback();
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Failed);
+        Check.That(result.Detail).IsEqualTo("childStillRunning");
+        Check.That(harness.Log.Any(e =>
+            e.StartsWith("start:" + harness.Paths.AppExePath, StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Fact]
     public void QuietUninstall_AlwaysKeepsTheData_AndNeverAsks()
     {
         var harness = new SetupHarness();

@@ -114,6 +114,13 @@ public sealed class AppStartService
 
             if (line == AppStartupTokenLine.UiAccessFalse)
             {
+                // H3: an App that died just after the 20 s check is not a running last resort.
+                if (!_processes.IsAlive(processId))
+                {
+                    _log.Warn("App died before the UIAccess=False line could be trusted.");
+                    return AppStartOutcome.Fail(AppStartFailure.NotAliveAfter20s, processId);
+                }
+
                 _log.Warn("The startup token line says UIAccess=False; leaving the decision to the caller.");
                 return AppStartOutcome.Degraded(processId, "tokenLineUiAccessFalse");
             }

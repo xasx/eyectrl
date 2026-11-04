@@ -53,6 +53,23 @@ public class AppStartServiceTests
     }
 
     [Fact]
+    public void AUiAccessFalseLine_OnADeadProcess_IsNotDegraded()
+    {
+        // H3: the process dies just after the 20 s alive check, before the line is trusted.
+        var harness = Harness();
+        harness.Processes.AliveReader = _ =>
+            harness.LogProbe.Calls.Count == 0;
+        harness.LogProbe.Result = AppStartupTokenLine.UiAccessFalse;
+
+        var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
+
+        Check.That(outcome.Passed).IsFalse();
+        Check.That(outcome.StillAlive).IsFalse();
+        Check.That(outcome.UiAccessOnlyFailure).IsFalse();
+        Check.That(outcome.FailureReason).IsEqualTo(AppStartFailure.NotAliveAfter20s);
+    }
+
+    [Fact]
     public void TheTokenLineSayingUiAccessFalse_IsADegradedCandidate()
     {
         var harness = Harness();

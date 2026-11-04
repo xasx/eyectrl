@@ -84,6 +84,29 @@ public class PassRuleEndingsTests
     }
 
     [Fact]
+    public void ADegradedNewVersion_WhoseRevertIsRefused_ReportsDegraded()
+    {
+        // H2: the revert is blocked before its kill path; the new version still runs.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        var package = @"C:\inbox\2.0.0";
+        harness.SeedPackage(package, "2.0.0");
+        harness.Processes.TokenReader = _ =>
+            new EyeCtrl.Core.Input.ProcessTokenFacts("EyeCtrl.App.exe", 0x2000, false, false, false);
+        harness.Broker.Handler = request => request.Job == ElevatedJob.Revert
+            ? new ElevatedPhaseResult(ElevatedPhaseStatus.Blocked, "elevationPolicy")
+            : harness.Elevated.Execute(request);
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Degraded);
+        Check.That(result.Version).IsEqualTo("2.0.0");
+        Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("2.0.0");
+        Check.That(harness.Processes.Processes.Any(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsTrue();
+    }
+
+    [Fact]
     public void ALastResortWithoutUiAccess_IsDegradedAndLeftRunning()
     {
         var harness = new SetupHarness();

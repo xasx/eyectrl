@@ -111,15 +111,24 @@ public sealed class ShellProcessLauncher : ISetupProcessLauncher
 {
     /// <inheritdoc />
     public void Launch(string executablePath, string arguments, string workingDirectory, bool useShellExecute) =>
-        Process.Start(new ProcessStartInfo
+        Process.Start(BuildStartInfo(executablePath, arguments, workingDirectory, useShellExecute))?.Dispose();
+
+    /// <summary>
+    /// The pure start-info builder — review 02 R1's last hop. This is the line pair that actually
+    /// prevents review 01's rename lock: <see cref="ProcessStartInfo.WorkingDirectory" /> must be
+    /// the NEUTRAL directory the caller passed, never the exe's own folder. Extracted so a test can
+    /// assert it without starting a process (MUT6 pinned the old assignment and survived every
+    /// gateways-level test).
+    /// </summary>
+    internal static ProcessStartInfo BuildStartInfo(
+        string executablePath, string arguments, string workingDirectory, bool useShellExecute) =>
+        new()
         {
             FileName = executablePath,
             Arguments = arguments,
             UseShellExecute = useShellExecute,
-            // Review 01 H1: never the exe's own folder — the hand-off must not pin
-            // Program Files\EyeCtrl as a live cwd, or the swap/delete cannot rename it.
             WorkingDirectory = workingDirectory,
-        })?.Dispose();
+        };
 }
 
 /// <summary>The production exit flow over the App's heartbeat and shutdown.</summary>

@@ -13,15 +13,18 @@ public sealed class AppsAndFeaturesWriter
     private readonly SetupPaths _paths;
     private readonly IRegistryStore _registry;
     private readonly PathGuard _guard;
+    private readonly IFileSystem _fileSystem;
     private readonly ISetupLog _log;
 
     /// <summary>Creates the writer.</summary>
     public AppsAndFeaturesWriter(
-        SetupPaths paths, IRegistryStore registry, PathGuard guard, ISetupLog log)
+        SetupPaths paths, IRegistryStore registry, PathGuard guard, IFileSystem fileSystem,
+        ISetupLog log)
     {
         _paths = paths;
         _registry = registry;
         _guard = guard;
+        _fileSystem = fileSystem;
         _log = log;
     }
 
@@ -47,6 +50,7 @@ public sealed class AppsAndFeaturesWriter
                 _paths.AppExePath + ",0");
             _registry.WriteDword(RegistryHive.LocalMachine, key, "NoModify", 1);
             _registry.WriteDword(RegistryHive.LocalMachine, key, "NoRepair", 1);
+            _registry.WriteDword(RegistryHive.LocalMachine, key, "EstimatedSize", EstimateSizeKb());
             _registry.WriteString(RegistryHive.LocalMachine, key, "UninstallString",
                 UninstallCommand(_paths.InstalledSetupExePath));
             _registry.WriteString(RegistryHive.LocalMachine, key, "QuietUninstallString",
@@ -72,5 +76,26 @@ public sealed class AppsAndFeaturesWriter
         {
             _log.Warn($"Could not remove the Apps & Features entry: {ex.GetType().Name}");
         }
+    }
+
+    /// <summary>
+    /// S6c D7: the size Windows shows is in KB. The installed folder is the whole product (App,
+    /// Supervisor, Setup and their data); a folder that cannot be measured still gets 1 KB so the
+    /// value is present.
+    /// </summary>
+    private int EstimateSizeKb()
+    {
+        long bytes = 0;
+        try
+        {
+            foreach (var file in _fileSystem.EnumerateFiles(_paths.InstallRoot, recursive: true))
+                bytes += _fileSystem.GetFileLength(file);
+        }
+        catch (Exception)
+        {
+            // A locked or vanished folder: report the minimum rather than nothing.
+        }
+
+        return bytes <= 0 ? 1 : (int)Math.Min(int.MaxValue, (bytes + 1023) / 1024);
     }
 }

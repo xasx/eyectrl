@@ -191,7 +191,7 @@ public sealed class SetupHarness
             0);
 
         Recorder = new ResultRecorder(Paths, Files, Guard, Logging);
-        AppsAndFeatures = new AppsAndFeaturesWriter(Paths, Registry, Guard, Logging);
+        AppsAndFeatures = new AppsAndFeaturesWriter(Paths, Registry, Guard, Files, Logging);
         Metadata = new PackageMetadataReader(Files);
         Journal = new InstallJournalStore(Paths, Files, Guard, Logging);
         State = new InstallStateMachine(

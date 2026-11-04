@@ -231,6 +231,12 @@ public sealed class InMemoryFileSystem : IFileSystem
             : throw new FileNotFoundException(path);
 
     /// <inheritdoc />
+    public long GetFileLength(string path) =>
+        _files.TryGetValue(SetupPaths.Normalize(path), out var contents)
+            ? System.Text.Encoding.UTF8.GetByteCount(contents)
+            : 0;
+
+    /// <inheritdoc />
     public void WriteAllText(string path, string contents)
     {
         var full = SetupPaths.Normalize(path);

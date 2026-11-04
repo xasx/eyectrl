@@ -55,7 +55,7 @@ public sealed class SetupComposition
         var environment = new WindowsSetupEnvironment();
         var metadata = new PackageMetadataReader(fileSystem);
         var recorder = new ResultRecorder(paths, fileSystem, guard, log);
-        var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, log);
+        var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, fileSystem, log);
         var runCopies = new RunCopyManager(
             paths, fileSystem, guard, signature, new WinTrustCatalogMemberVerifier(),
             new CatalogFileHasher(), log);

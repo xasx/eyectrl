@@ -40,6 +40,9 @@ public interface IFileSystem
     /// <summary>Reads a text file.</summary>
     string ReadAllText(string path);
 
+    /// <summary>The file's length in bytes; 0 when the file is missing or unreadable.</summary>
+    long GetFileLength(string path);
+
     /// <summary>Writes a text file atomically (temp file in the same directory, then a replace-move).</summary>
     void WriteAllText(string path, string contents);
 

@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Sdk.Abstractions;
 using EyeCtrl.Sdk.Wpf;
@@ -30,12 +31,12 @@ public sealed class UninstallChoiceWindowTests
             Check.That(UninstallChoiceWindow.ArmingDelay).IsEqualTo(TimeSpan.FromSeconds(1));
             Check.That(window.IsArmed).IsFalse();
 
-            window.ClickForTests(UninstallChoiceAction.Keep);
+            Click(window.KeepButton);
             Check.WithCustomMessage("A click before the 1 s arming fired a choice.").That(window.Result).IsNull();
 
             window.CompleteArmingForTests();
             Check.That(window.IsArmed).IsTrue();
-            window.ClickForTests(UninstallChoiceAction.Keep);
+            Click(window.KeepButton);
             Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
         });
     }
@@ -45,10 +46,36 @@ public sealed class UninstallChoiceWindowTests
     {
         WithWindow(window =>
         {
-            window.ClickForTests(UninstallChoiceAction.Delete);
+            Click(window.DeleteButton);
 
             Check.That(window.ShowingConfirm).IsFalse();
             Check.That(window.Result).IsNull();
+        });
+    }
+
+    [Fact]
+    public void BeforeArming_NoRealButtonOnEitherScreenFires()
+    {
+        WithWindow(window =>
+        {
+            Click(window.KeepButton);
+            Click(window.CancelButton);
+            Click(window.DeleteButton);
+
+            Check.WithCustomMessage("A screen-1 button fired before the arming delay.")
+                .That(window.Result).IsNull();
+            Check.That(window.ShowingConfirm).IsFalse();
+        });
+
+        WithWindow(window =>
+        {
+            Arm(window);
+            Click(window.DeleteButton);
+
+            Click(window.ConfirmDeleteButton);
+            Click(window.KeepDataButton);
+            Check.WithCustomMessage("A screen-2 button fired before its arming delay.")
+                .That(window.Result).IsNull();
         });
     }
 
@@ -58,16 +85,16 @@ public sealed class UninstallChoiceWindowTests
         WithWindow(window =>
         {
             Arm(window);
-            window.ClickForTests(UninstallChoiceAction.Delete);
+            Click(window.DeleteButton);
             Check.That(window.ShowingConfirm).IsTrue();
             Check.That(window.IsArmed).IsFalse();
 
-            window.ClickForTests(UninstallChoiceAction.ConfirmDelete);
-            window.ClickForTests(UninstallChoiceAction.KeepData);
+            Click(window.ConfirmDeleteButton);
+            Click(window.KeepDataButton);
             Check.WithCustomMessage("A click before screen 2's arming fired a choice.").That(window.Result).IsNull();
 
             window.CompleteArmingForTests();
-            window.ClickForTests(UninstallChoiceAction.KeepData);
+            Click(window.KeepDataButton);
             Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
         });
     }
@@ -78,11 +105,11 @@ public sealed class UninstallChoiceWindowTests
         WithWindow(window =>
         {
             Arm(window);
-            window.ClickForTests(UninstallChoiceAction.Delete);
+            Click(window.DeleteButton);
             Check.WithCustomMessage("Screen 2's opening already deleted.").That(window.Result).IsNull();
 
             Arm(window);
-            window.ClickForTests(UninstallChoiceAction.ConfirmDelete);
+            Click(window.ConfirmDeleteButton);
             Check.That(window.Result).IsEqualTo(UninstallChoice.Delete);
         });
     }
@@ -199,6 +226,10 @@ public sealed class UninstallChoiceWindowTests
 
     private static Rect Box(FrameworkElement element, FrameworkElement root) =>
         element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+
+    /// <summary>The real click path: the routed event the UIA Invoke peer and a mouse both raise.</summary>
+    private static void Click(Button button) =>
+        button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
 
     private static void Arm(UninstallChoiceWindow window) => window.CompleteArmingForTests();
 

@@ -135,14 +135,6 @@ internal sealed class UninstallChoiceWindow : Window
     /// <summary>The result a window that was never answered resolves to.</summary>
     internal UninstallChoice ResolveUnaskedResult() => Result ?? UninstallChoice.Cancel;
 
-    /// <summary>Drives the same click path the buttons use, after the real arming guard.</summary>
-    internal void ClickForTests(UninstallChoiceAction action)
-    {
-        if (!_armed)
-            return;
-        Handle(action);
-    }
-
     /// <summary>Completes the 1 s arming delay without waiting for a dispatcher timer.</summary>
     internal void CompleteArmingForTests()
     {

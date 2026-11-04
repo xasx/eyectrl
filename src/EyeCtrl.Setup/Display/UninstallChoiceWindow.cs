@@ -53,7 +53,10 @@ internal sealed class UninstallChoiceWindow : Window
     private bool _closingForResult;
 
     /// <summary>Builds the window from the resolved table. Nothing is shown until <see cref="ShowChoice"/>.</summary>
-    public UninstallChoiceWindow(StringTable strings)
+    /// <param name="strings">The resolved table.</param>
+    /// <param name="workArea">The work area to lay the window into; tests pass the owner's
+    /// 1920 x 1152 DIP, production passes <see cref="SystemParameters.WorkArea"/>.</param>
+    public UninstallChoiceWindow(StringTable strings, Rect? workArea = null)
     {
         _strings = strings;
 
@@ -69,7 +72,7 @@ internal sealed class UninstallChoiceWindow : Window
         FontSize = SetupWindowMetrics.ProseFontSize;
         UseLayoutRounding = true;
 
-        var bounds = SetupWindowMetrics.ChoiceBounds(SystemParameters.WorkArea);
+        var bounds = SetupWindowMetrics.ChoiceBounds(workArea ?? SystemParameters.WorkArea);
         Left = bounds.Left;
         Top = bounds.Top;
         Width = bounds.Width;

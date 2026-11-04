@@ -30,6 +30,8 @@
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
     <ProjectReference Include="..\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
     <ProjectReference Include="..\EyeCtrl.Sdk.Wpf\EyeCtrl.Sdk.Wpf.csproj" />
+    <!-- Dwell.SetMode takes the SDK's DwellMode, so the choice buttons name it explicitly. -->
+    <ProjectReference Include="..\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

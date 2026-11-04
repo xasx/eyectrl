@@ -337,4 +337,41 @@ public class DwellPausedForwardingTests
     }
 
     // Mutation (A1-f10): the close binding names IsDwellPaused instead of CloseDwellPaused -> red.
+
+    [StaFact]
+    public void TaskSwitcherClose_BindsCloseDwellProgressAndPaused_ToItsBar()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
+        using var vm = new TaskSwitcherViewModel(
+            new EmptyWindowManager(), new EyeCtrlSettings(), new WeakReferenceMessenger());
+        window.DataContext = vm;
+        var closeButton = window.CloseButton;
+
+        var bar = RealisedBar(window, _ => FitText.Descendants<ProgressBar>(closeButton).Single(), out var host);
+        using (host)
+        {
+            vm.CloseDwellProgress = 0.5;
+            Check.WithCustomMessage("the close bar's fill must track CloseDwellProgress — without it the escape affordance gives no dwell feedback and reads as dead (the 2026-08-17 'not dwellable' perception, on the one control that must never feel dead)")
+                .That(bar.Value).IsEqualTo(0.5);
+            vm.CloseDwellPaused = true;
+            Check.That(bar.Opacity).IsEqualTo(Held);
+            vm.CloseDwellPaused = false;
+            Check.That(bar.Opacity).IsEqualTo(1.0);
+        }
+    }
+
+    // Mutations (review m5): the Value binding names DwellProgress instead of
+    // CloseDwellProgress -> red; the Opacity binding names IsDwellPaused instead of
+    // CloseDwellPaused -> red.
+
+    private sealed class EmptyWindowManager : IWindowManager
+    {
+        public IReadOnlyList<AppWindow> EnumerateOpenWindows() => Array.Empty<AppWindow>();
+        public void BringToFront(IntPtr hwnd) { }
+        public IntPtr? TryGetEligibleForegroundWindow() => null;
+        public void Minimize(IntPtr hwnd) { }
+        public void MaximizeOrRestore(IntPtr hwnd) { }
+        public bool CloseWindow(IntPtr hwnd) => false;
+    }
 }

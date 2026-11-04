@@ -20,6 +20,7 @@ internal sealed class SetupProgressWindow : Window
     private const long WsExTransparent = 0x00000020L;
     private const long WsExNoActivate = 0x08000000L;
     private const long WsExToolWindow = 0x00000080L;
+    private const long WsExLayered = 0x00080000L;
 
     private readonly StringTable _strings;
     private readonly TextBlock _title;
@@ -50,7 +51,11 @@ internal sealed class SetupProgressWindow : Window
         Focusable = false;
         IsHitTestVisible = false;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        Background = Tokens.BrushSurfaceDark;
+        // H1: WS_EX_TRANSPARENT only passes another process's clicks when the window is LAYERED.
+        // The App measured this (clicking investigation R1 / #214); every click-through overlay
+        // there sets AllowsTransparency. WindowStyle is already None, as WPF requires.
+        AllowsTransparency = true;
+        Background = Tokens.BrushSurfaceLight;
         Foreground = Tokens.BrushTextPrimary;
         FontFamily = Tokens.FontStandard;
         FontSize = SetupWindowMetrics.ProseFontSize;
@@ -81,7 +86,7 @@ internal sealed class SetupProgressWindow : Window
 
         Content = new Border
         {
-            Background = Tokens.BrushSurfaceDark,
+            Background = Tokens.BrushSurfaceLight,
             Padding = new Thickness(SetupWindowMetrics.WindowMargin),
             Child = panel,
         };
@@ -135,13 +140,6 @@ internal sealed class SetupProgressWindow : Window
         _closeTimer.Start();
     }
 
-    /// <summary>Creates the HWND without showing the window, then applies the click-through styles.</summary>
-    internal void PrepareHandleForTests()
-    {
-        _ = new WindowInteropHelper(this).EnsureHandle();
-        ApplyClickThrough();
-    }
-
     /// <summary>Tests whether an HWND carries the click-through style.</summary>
     internal static bool HasClickThroughStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExTransparent) != 0;
@@ -149,6 +147,11 @@ internal sealed class SetupProgressWindow : Window
     /// <summary>Tests whether an HWND carries the non-activating style.</summary>
     internal static bool HasNoActivateStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExNoActivate) != 0;
+
+    /// <summary>Tests whether an HWND is layered, without which WS_EX_TRANSPARENT does not pass
+    /// another process's clicks through.</summary>
+    internal static bool HasLayeredStyle(IntPtr hwnd) =>
+        (ReadExStyle(hwnd) & WsExLayered) != 0;
 
     private void ApplyClickThrough()
     {

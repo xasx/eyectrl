@@ -138,9 +138,15 @@ public sealed class SetupProgressWindowTests
             var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
             try
             {
-                window.PrepareHandleForTests();
-                var hwnd = new WindowInteropHelper(window).Handle;
+                // EnsureHandle raises SourceInitialized, so this exercises the production wiring
+                // (not a test helper that applies the styles itself).
+                var hwnd = new WindowInteropHelper(window).EnsureHandle();
                 Check.That(hwnd).IsNotEqualTo(IntPtr.Zero);
+                Check.WithCustomMessage("AllowsTransparency is false: WS_EX_TRANSPARENT would pass no clicks.")
+                    .That(window.AllowsTransparency).IsTrue();
+                Check.That(window.Topmost).IsTrue();
+                Check.WithCustomMessage("WS_EX_LAYERED is missing: WS_EX_TRANSPARENT only works on a layered window.")
+                    .That(SetupProgressWindow.HasLayeredStyle(hwnd)).IsTrue();
                 Check.WithCustomMessage("WS_EX_TRANSPARENT is missing: the screen would block TD Control.")
                     .That(SetupProgressWindow.HasClickThroughStyle(hwnd)).IsTrue();
                 Check.WithCustomMessage("WS_EX_NOACTIVATE is missing: the screen could take focus.")

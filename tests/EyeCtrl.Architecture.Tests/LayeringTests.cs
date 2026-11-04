@@ -100,8 +100,14 @@ public class LayeringTests
             ["EyeCtrl.Sdk.Abstractions"] = Set("EyeCtrl.Contracts"),
             ["EyeCtrl.Sdk.Wpf"] = Set("EyeCtrl.Sdk.Abstractions"),
             ["EyeCtrl.Sdk.WinUI"] = Set("EyeCtrl.Sdk.Abstractions"),
+            // C9 S6f: the App reuses EyeCtrl.Setup's read-only engine shapes (setup-last.json
+            // parsing, inbox scanner rules, catalog verification, paths constants) for the
+            // „Erweitert" rows — the coordinator's option (a). App deliberately still never
+            // couples to the Supervisor or the SDK chain (the negative usage gate below keeps
+            // holding; EyeCtrl.Setup is in the allowed set, not the forbidden one).
             ["EyeCtrl.App"] = Set("EyeCtrl.Core", "EyeCtrl.Platform", "EyeCtrl.ViewModels",
-                "EyeCtrl.Contracts", "EyeCtrl.EyeCare", "EyeCtrl.Controls", "EyeCtrl.LM"),
+                "EyeCtrl.Contracts", "EyeCtrl.EyeCare", "EyeCtrl.Controls", "EyeCtrl.LM",
+                "EyeCtrl.Setup"),
         };
 
     private static IReadOnlySet<string> Set(params string[] items) =>

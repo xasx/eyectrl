@@ -8,6 +8,14 @@
     <ProjectReference Include="..\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
     <ProjectReference Include="..\EyeCtrl.EyeCare\EyeCtrl.EyeCare.csproj" />
     <ProjectReference Include="..\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
+    <!--
+      C9 S6f, coordinator-approved option (a): the App reuses EyeCtrl.Setup's read-only engine
+      shapes for the „Erweitert" rows — SetupJson/SetupResult for setup-last.json, InboxScanner's
+      newest-package rules and the pinned-thumbprint catalog verification, SetupPaths' constants
+      and ElevationPolicyGate's policy read. Referencing the WinExe is inert at rest: Setup has no
+      module initializers, so nothing runs until the App constructs its types.
+    -->
+    <ProjectReference Include="..\EyeCtrl.Setup\EyeCtrl.Setup.csproj" />
   </ItemGroup>
 
   <ItemGroup>

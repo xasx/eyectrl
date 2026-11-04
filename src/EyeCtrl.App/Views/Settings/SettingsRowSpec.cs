@@ -29,6 +29,15 @@ public abstract record SettingsRowSpec(string Id, string Label)
     /// rather than a positional parameter so every existing spec construction keeps compiling.
     /// </summary>
     public bool Simple { get; init; }
+
+    /// <summary>
+    /// Roughly a described action-button row: the 150 DIP pitch box the button centres in, the
+    /// 6 DIP gap and one subtitle line. The „Erweitert" placeholder holds this footprint while the
+    /// catalog probe runs, so the rows below never shift under the gaze when the result lands
+    /// (review 02 R4). Mirrors the renderer's described-button row; "roughly" is the tolerance the
+    /// reviewer set, not a measurement the pages can take (specs never see WPF).
+    /// </summary>
+    public const double DescribedButtonRowHeight = 176;
 }
 
 /// <summary>A stepped numeric value with a live read/write binding to a setting.</summary>
@@ -116,7 +125,11 @@ public sealed record RingPreviewSpec(
 /// status text must stay fully readable for a gaze user. Rule-like labels (a run of one glyph)
 /// must clip at the column edge, not stack into a block of strokes.
 /// </param>
-public sealed record LabelSpec(Func<string> Text, bool Wrap = true) : SettingsRowSpec("", "");
+/// <param name="MinHeight">A minimum row height, or null for the label's natural height. Used by
+/// the „Erweitert" probe placeholder to hold roughly a described action-button row's footprint
+/// (review 02 R4), so a landing probe never shifts the rows under the gaze.</param>
+public sealed record LabelSpec(Func<string> Text, bool Wrap = true, double? MinHeight = null)
+    : SettingsRowSpec("", "");
 
 /// <summary>
 /// A full-width hairline rule separating sections within one tab's content. Renders as a

@@ -183,10 +183,13 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
         var offer = gate.UpdateOffer;
         if (offer is null && gate.UpdateOfferPending)
         {
-            gate.BeginUpdateOfferProbe(() => _ctx.Invoke(_ctx.RebuildContent));
-            yield return new ButtonSpec("av_update_probe",
-                StringTable.Current.T("settings.advanced.update.checking"),
-                () => { }, ButtonKind.Default, Width: 380, Height: 100);
+            // Review 02 R4: plain, non-interactive text — no dwellable no-op button — at roughly
+            // the described button row's footprint, so the rows below do not shift when the
+            // result lands (and on no other tab would it).
+            yield return new LabelSpec(
+                () => StringTable.Current.T("settings.advanced.update.checking"),
+                Wrap: false,
+                MinHeight: SettingsRowSpec.DescribedButtonRowHeight);
         }
         else if (offer is not null)
         {

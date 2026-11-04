@@ -24,7 +24,6 @@ public class SetupRowsTests
         public bool PolicyBlocks { get; set; }
         public SetupUpdateOffer? UpdateOffer { get; set; }
         public bool UpdateOfferPending { get; set; }
-        public int BeginProbeCalls { get; private set; }
         public List<SetupUpdateOffer> UpdateHandoffs { get; } = [];
         public int RollbackHandoffs { get; private set; }
         public int UninstallHandoffs { get; private set; }
@@ -32,7 +31,12 @@ public class SetupRowsTests
         public bool RollbackHandoffResult { get; set; } = true;
         public bool UninstallHandoffResult { get; set; } = true;
 
-        public void BeginUpdateOfferProbe(Action whenDone) => BeginProbeCalls++;
+        /// <summary>Review 02 R4: the page must NOT start the probe (the window owns that, when it
+        /// opens). The plain build path is proven by this throwing if anything calls it — the old
+        /// fake silently accepted the dead fallback and hid it.</summary>
+        public void BeginUpdateOfferProbe(Action whenDone) =>
+            throw new InvalidOperationException(
+                "The page source must not start the update-offer probe; the Settings window does, on open.");
 
         public bool StartUpdateHandoff(SetupUpdateOffer offer)
         {
@@ -119,25 +123,20 @@ public class SetupRowsTests
     }
 
     [Fact]
-    public void WhileTheProbeRuns_ASameHeightPlaceholderStandsInForTheUpdateRow()
+    public void WhileTheProbeRuns_ASameFootprintNonDwellablePlaceholderStandsInForTheUpdateRow()
     {
-        // Review 01 N2: the catalog check is off-thread; the placeholder keeps the row's geometry
-        // so nothing shifts under the gaze when the result lands. The build also (re)starts the
-        // idempotent probe for a host that did not start it at window open.
+        // Review 02 R4: plain text, not a dwellable no-op; roughly the described button row's
+        // height so nothing shifts when the result lands. Building must not start the probe — the
+        // FakeGateways throws if the page calls Begin (the window starts it on open).
         var gateways = new FakeGateways { Installed = true, UpdateOfferPending = true };
 
         BuildRows(gateways, out var rows);
 
-        var placeholder = Button(rows, "av_update_probe");
-        Check.That(placeholder.Label).IsEqualTo(StringTable.Current.T("settings.advanced.update.checking"));
-        Check.That(placeholder.Width).IsEqualTo(380.0);
-        Check.That(placeholder.Height).IsEqualTo(100.0);
-        Check.That(gateways.BeginProbeCalls).IsEqualTo(1);
-
-        // Same height as the real update button it will become.
-        var real = new FakeGateways { Installed = true, UpdateOffer = Offer };
-        BuildRows(real, out var realRows);
-        Check.That(Button(realRows, "av_update").Height).IsEqualTo(placeholder.Height);
+        Check.That(rows.OfType<ButtonSpec>().Any(spec => spec.Id == "av_update_probe")).IsFalse();
+        var placeholder = rows.OfType<LabelSpec>()
+            .Single(spec => spec.Text() == StringTable.Current.T("settings.advanced.update.checking"));
+        Check.That(placeholder.MinHeight).IsEqualTo(SettingsRowSpec.DescribedButtonRowHeight);
+        Check.That(placeholder.Wrap).IsFalse();
     }
 
     [Fact]

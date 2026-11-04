@@ -1782,8 +1782,7 @@ public partial class SettingsWindow : OverlayWindow
                     swatchNames: ColorSwatchNames.Select(StringTable.Current.T).ToArray(),
                     showLabel: false));
             case ButtonSpec b:
-                return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
-                    radiusPhysical, dwellMs, cat);
+                return CreateButtonRow(registrar, b, radiusPhysical, dwellMs, cat);
             case RingJumpSpec j:
                 // The jump row is a nav button, so it takes the ButtonSpec row shape exactly
                 // (see ButtonRow). A distinct spec kind only so the ring preview's spec-level
@@ -1795,7 +1794,12 @@ public partial class SettingsWindow : OverlayWindow
             case SeparatorSpec:
                 return new SeparatorRow();
             case LabelSpec l:
-                return new DwellLabel(l.Text(), wrap: l.Wrap);
+            {
+                var label = new DwellLabel(l.Text(), wrap: l.Wrap);
+                if (l.MinHeight is { } minHeight)
+                    label.Root.MinHeight = minHeight;
+                return label;
+            }
             default:
                 // Keep the null-CONDITIONAL. `?.` short-circuits the whole member chain, so a null
                 // row yields null rather than throwing — swapping it for `row!.GetType().Name`
@@ -1805,6 +1809,71 @@ public partial class SettingsWindow : OverlayWindow
                 throw new InvalidOperationException(
                     $"Unknown settings row spec: {row?.GetType().Name ?? "<null>"}");
         }
+    }
+
+    /// <summary>
+    /// The ButtonSpec's whole row: the bare button, or — when the spec carries a Description — the
+    /// button with its description underneath. C9 S6f's „Erweitert" rows name the versions they act
+    /// on in that description; before this, a ButtonSpec's Description was silently dropped.
+    /// </summary>
+    private static object CreateButtonRow(
+        IDwellRegistrar registrar, ButtonSpec spec, double radiusPhysical, int dwellMs, DwellCategory cat)
+    {
+        var button = ButtonRow(registrar, spec.Id, spec.Label, spec.OnActivate, spec.Kind,
+            spec.Width, spec.Height, radiusPhysical, dwellMs, cat);
+        return string.IsNullOrWhiteSpace(spec.Description)
+            ? button
+            : new DescribedButtonRow(button, spec.Description);
+    }
+
+    /// <summary>
+    /// A described action button: the button in its usual pitch box, with the description beneath
+    /// it in the same subtitle style every labelled row uses. An <see cref="IDwellComposite" /> so
+    /// it drops into <see cref="RenderSpec" /> and the pagination measurer through the one
+    /// <see cref="CreateControl" /> path (both see the same height); its only dwell target is the
+    /// button itself.
+    /// </summary>
+    private sealed class DescribedButtonRow : IDwellComposite
+    {
+        private readonly DwellButton _button;
+        private readonly Grid _host;
+        private readonly StackPanel _root;
+        private readonly IReadOnlyList<DwellControl> _children;
+
+        internal DescribedButtonRow(DwellButton button, string description)
+        {
+            _button = button;
+            _children = [button];
+            _host = new Grid();
+            _root = new StackPanel { Orientation = Orientation.Vertical };
+            _root.Children.Add(_host);
+            _root.Children.Add(new TextBlock
+            {
+                Text = description,
+                Foreground = Tokens.BrushTextSecondary,
+                FontSize = Tokens.FontSizeSubtitle,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(4, 0, 4, 6),
+            });
+        }
+
+        /// <inheritdoc />
+        public void Attach(Panel parent)
+        {
+            // Inner first: the row measures with its button already in place (LabelledSettingsRow's order).
+            _button.Attach(_host);
+            parent.Children.Add(_root);
+        }
+
+        /// <inheritdoc />
+        public void Detach(Panel parent)
+        {
+            parent.Children.Remove(_root);
+            _button.Detach(_host);
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<DwellControl> Children => _children;
     }
 
     /// <summary>

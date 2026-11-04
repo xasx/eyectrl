@@ -1527,6 +1527,42 @@
       "Literal": "\"Win32 8235 (ERROR_DS_REFERRAL): the App's signature or trust chain is broken, so a uiAccess exe cannot start\"",
       "Category": "log",
       "Reason": "C9 S3's distinct launch-failure reason for a broken signature or trust chain - written through Serilog only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SetupLastNoticeService.cs",
+      "Literal": "\"setup-notice-shown.json\"",
+      "Category": "id",
+      "Reason": "C9 S6f: the shown-time marker file's name; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_rollback_go\"",
+      "Category": "id",
+      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_rollback_later\"",
+      "Category": "id",
+      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_update_install\"",
+      "Category": "id",
+      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"setup_update_later\"",
+      "Category": "id",
+      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/SetupProbeRebuild.cs",
+      "Literal": "\"Advanced\"",
+      "Category": "id",
+      "Reason": "C9 S6f: the Advanced tab id the probe completion compares against; never shown."
     }
   ]
 }

@@ -46,6 +46,8 @@ public partial class App : Application
     private EventCoordinator _eventCoordinator = null!;
     private BlockedInputCoordinator? _blockedInput;
     private RestartNoticeHost? _restartNoticeHost;
+    // C9 S6f (review 01 M2): the bounded post-startup watch for a late setup-last.json.
+    private SetupNoticeWatch? _setupNoticeWatch;
     private LagMarkHost? _lagMarkHost;
     private RingArmLog? _ringArmLog;
     private SingleInstanceGuard? _singleInstance;
@@ -535,6 +537,37 @@ public partial class App : Application
             // trials. The probe opening takes a card that is up down too.
             _eventCoordinator.ProbeOpenChanged += _restartNoticeHost.OnProbeOpenChanged;
 
+            // C9 S6f: the one-time setup-last notice (rolled back / degraded / failed). It rides
+            // the same card as the restart notices — the host's presenter already forwards gaze
+            // and takes the card down when Settings or the probe opens — in the same target
+            // language, and never twice for the same record time (setup-notice-shown.json, the
+            // coordinator's ruling: setup-last.json itself is never touched).
+            //
+            // Review 01 M2: Setup writes the record at least 20 s AFTER it starts this App, so a
+            // single startup read would always miss the session it is for. The watch keeps looking
+            // for ~90 s (poll plus file-change acceleration) and shows a newer record exactly once.
+            var noticeFiles = SetupNoticeFiles.CreateForProduction();
+            _setupNoticeWatch = new SetupNoticeWatch(
+                new SetupLastNoticeService(
+                    noticeFiles,
+                    (key, args) => StringTable.Current.T(
+                        RestartNotices.TargetLanguage(settings.General.UiLanguage), key, args),
+                    () => RestartNotices.RefusedChoices(
+                        RestartNotices.TargetLanguage(settings.General.UiLanguage))[0].Label,
+                    (text, closeLabel) => _restartNoticeHost.Presenter.ShowNotice(
+                        text, closeLabel, RestartNoticeHost.RefusedHold)),
+                TimeSpan.FromSeconds(90),
+                TimeSpan.FromSeconds(2),
+                schedule: (delay, tick) =>
+                {
+                    var timer = new DispatcherTimer { Interval = delay };
+                    timer.Tick += (_, _) => { timer.Stop(); tick(); };
+                    timer.Start();
+                },
+                now: () => DateTimeOffset.Now,
+                fileChange: onChange => WatchSetupLastRecord(noticeFiles.RecordPath, onChange));
+            _setupNoticeWatch.Start();
+
             // T0(a) lag mark (spec plans/t0a-lag-mark-button): the temporary dwellable "Lag" button
             // and its LAG MARK line, constructed ONLY when the dispatch probe exists — an ordinary
             // session constructs nothing. No pause condition: the launcher starts the app --paused,
@@ -577,6 +610,19 @@ public partial class App : Application
             // toggle so the General tab can drive it.
             _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
             _eventCoordinator.SetSupervisionToggle(supervisionToggle);
+
+            // C9 S6f: the „Erweitert" update/rollback/uninstall gateways. A FACTORY yields a fresh
+            // instance per Settings window, so the offer and the policy are re-probed on every
+            // visit (review 01 M1). The exit flow signals the clean shutdown EXPLICITLY with
+            // restartRequested: false and then shuts the App — the Supervisor must go idle (never
+            // relaunch: Setup's own windows take over), and a dormant RestartCoordinator keeps
+            // OnExit's final stamp false too.
+            var setupExitFlow = new SetupExitFlow(
+                restartRequested => _heartbeatPublisher?.SignalShuttingDown(restartRequested),
+                Shutdown);
+            _eventCoordinator.SetSetupGateways(() => SetupGateways.CreateForProduction(
+                setupExitFlow,
+                warn: line => Log.Warning("{SetupGateways}", line)));
 
             // Ticket 07: after a reboot nothing else starts the Supervisor (no installer task
             // exists), yet enabled=true arms the kill-for-respawn crash policy. Run the write-free
@@ -710,6 +756,34 @@ public partial class App : Application
         }
     }
 
+    /// <summary>C9 S6f (review 01 M2): a FileSystemWatcher over setup-last.json accelerates the
+    /// notice watch's poll, marshalled to the dispatcher; a watcher that cannot start leaves the
+    /// poll alone. Returns null when no watcher was created.</summary>
+    private IDisposable? WatchSetupLastRecord(string recordPath, Action onChange)
+    {
+        try
+        {
+            var watcher = new FileSystemWatcher(
+                Path.GetDirectoryName(recordPath)!, Path.GetFileName(recordPath))
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
+                    | NotifyFilters.CreationTime,
+            };
+            void Raise(object? sender, FileSystemEventArgs e) =>
+                Dispatcher.BeginInvoke(new Action(onChange));
+            watcher.Changed += Raise;
+            watcher.Created += Raise;
+            watcher.Renamed += (sender, e) => Dispatcher.BeginInvoke(new Action(onChange));
+            watcher.EnableRaisingEvents = true;
+            return watcher;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "setup-last watch could not start; the poll alone covers the notice window");
+            return null;
+        }
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern IntPtr FindWindowW(string? className, string? windowName);
 
@@ -752,6 +826,9 @@ public partial class App : Application
         // Stop ticking before the publisher goes away: a tick racing Dispose would call Stamp on
         // a disposed publisher from the dispatcher.
         Step("stop heartbeat timer", () => _heartbeatTimer?.Stop());
+
+        // C9 S6f: the late-record watch is bounded and app-owned; release its timer/watcher now.
+        Step("dispose setup notice watch", () => _setupNoticeWatch?.Dispose());
 
         // Stop taking Supervisor requests before the exit save: a request mid-flight now sees the
         // pipe close, and the Supervisor parks it and re-sends to the next App.

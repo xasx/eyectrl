@@ -200,7 +200,7 @@ public class SettingsRowPitchTests
 
         var files = Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories).ToList();
         var heights = files
-            .SelectMany(f => Regex.Matches(File.ReadAllText(f), @"Height:\s*(\d+(?:\.\d+)?)")
+            .SelectMany(f => Regex.Matches(File.ReadAllText(f), @"(?<![A-Za-z])Height:\s*(\d+(?:\.\d+)?)")
                 .Select(m => double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)))
             .Distinct()
             .OrderBy(h => h)
@@ -234,7 +234,7 @@ public class SettingsRowPitchTests
 
         var withHeight = Regex.Matches(source, @"record\s+(\w+)\s*\(([^)]*)\)",
                 RegexOptions.Singleline)
-            .Where(m => m.Groups[2].Value.Contains("Height", StringComparison.Ordinal))
+            .Where(m => Regex.IsMatch(m.Groups[2].Value, @"(?<![A-Za-z])Height\b"))
             .Select(m => m.Groups[1].Value)
             .ToList();
 

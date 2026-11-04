@@ -25,6 +25,8 @@ using EyeCtrl.Tests.TestSupport;
 internal static class ShippedGerman
 {
     /// <summary>Every surface, switched on by Steps 1–3, in the manifest's sorted order.</summary>
+    /// <remarks>C9 S6f adds the update flow's own surfaces (<c>rollback</c>, <c>update</c>):
+    /// plan §10 ships them German-first, so they are switched on by the same rule.</remarks>
     internal static readonly string[] SwitchedOn =
     [
         "app-tray",

@@ -82,6 +82,7 @@ SURFACES = [
     "calibration",
     "eye-care",
     "overlays",
+    # C9 S6e/S6f: the install flow's own surfaces (plan §10's tables; reviewed 2nd-merge union).
     "rollback",
     "uninstall",
     "update",

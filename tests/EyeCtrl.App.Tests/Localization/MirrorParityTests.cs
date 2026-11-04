@@ -218,6 +218,10 @@ public class MirrorParityTests
             expected["settings.preset." + preset.Id] = "overlays.preset." + preset.Id;
         }
 
+        // C9 S6f: the rollback confirm's "Später" mirrors the update confirm's — the same word in
+        // the same modal shape, one key per surface (the D3 two-keys-one-word rule).
+        expected["rollback.confirm.later"] = "update.confirm.later";
+
         return expected;
 
         static void AddRingPair(Dictionary<string, string> expected, string overlaysKey)

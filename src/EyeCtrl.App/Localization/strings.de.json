@@ -898,6 +898,22 @@
     "text": "Fenster wechseln",
     "src": "82af8125"
   },
+  "rollback.confirm.go": {
+    "text": "Zurückwechseln",
+    "src": "165e265a"
+  },
+  "rollback.confirm.later": {
+    "text": "Später",
+    "src": "97529b5b"
+  },
+  "rollback.confirm.title": {
+    "text": "Zu Version {0} zurückwechseln?",
+    "src": "654fa518"
+  },
+  "rollback.notice.failed": {
+    "text": "Das Wiederherstellen der vorigen Version ist fehlgeschlagen. EyeCtrl läuft weiter.",
+    "src": "a9ea5112"
+  },
   "rollback.progress.title": {
     "text": "Vorige Version wird wiederhergestellt",
     "src": "a5a9e012"
@@ -1370,6 +1386,14 @@
     "text": "Einstellungen unter „Erweitert“ auf Standardwerte zurücksetzen?",
     "src": "4b4e58ec"
   },
+  "settings.advanced.rollback.description": {
+    "text": "Wechselt zurück zu Version {0}. EyeCtrl startet dabei von selbst neu.",
+    "src": "115a1119"
+  },
+  "settings.advanced.rollback.label": {
+    "text": "Vorige Version wiederherstellen",
+    "src": "ba1cb824"
+  },
   "settings.advanced.scroll_sensitivity.description": {
     "text": "Wie schnell das Scrollen per Blick durch Dokumente läuft.",
     "src": "3471379e"
@@ -1385,6 +1409,34 @@
   "settings.advanced.scroll_stop.label": {
     "text": "Scrollen beenden (ms)",
     "src": "8e6548e1"
+  },
+  "settings.advanced.setup.startFailed": {
+    "text": "EyeCtrl.Setup ließ sich nicht starten. Bitte die Betreuungsperson holen.",
+    "src": "95d7271d"
+  },
+  "settings.advanced.uninstall.description": {
+    "text": "Entfernt EyeCtrl von diesem PC. Vorher wird gefragt, ob Einstellungen und Protokolle bleiben.",
+    "src": "d6cf7fcd"
+  },
+  "settings.advanced.uninstall.label": {
+    "text": "EyeCtrl deinstallieren",
+    "src": "260c1819"
+  },
+  "settings.advanced.update.blocked": {
+    "text": "Updates brauchen gerade eine Windows-Bestätigung, die per Blick nicht erreichbar ist. Bitte die Betreuungsperson holen.",
+    "src": "8229ade8"
+  },
+  "settings.advanced.update.checking": {
+    "text": "Update wird geprüft",
+    "src": "fc0e5711"
+  },
+  "settings.advanced.update.description": {
+    "text": "Version {0} ist bereit (installiert: {1}). EyeCtrl beendet sich kurz und startet von selbst neu.",
+    "src": "da964e32"
+  },
+  "settings.advanced.update.label": {
+    "text": "Update installieren",
+    "src": "c5b74b38"
   },
   "settings.calibration.clear.label": {
     "text": "Kalibrierung löschen",
@@ -3320,6 +3372,38 @@
   "uninstall.working": {
     "text": "EyeCtrl wird deinstalliert",
     "src": "b92ffc47"
+  },
+  "update.confirm.detail": {
+    "text": "EyeCtrl ist dabei etwa eine Minute nicht bedienbar und startet danach von selbst neu.",
+    "src": "9fc410d5"
+  },
+  "update.confirm.install": {
+    "text": "Jetzt installieren",
+    "src": "54988db5"
+  },
+  "update.confirm.later": {
+    "text": "Später",
+    "src": "97529b5b"
+  },
+  "update.confirm.title": {
+    "text": "Update auf Version {0} installieren?",
+    "src": "5b6e7307"
+  },
+  "update.notice.degraded": {
+    "text": "Version {0} läuft ohne UIAccess. Fenster wie der Task-Manager lassen sich nicht per Blick bedienen. Bitte die Betreuungsperson holen.",
+    "src": "6958dada"
+  },
+  "update.notice.failed": {
+    "text": "Das letzte Update auf Version {0} ist fehlgeschlagen. EyeCtrl läuft weiter.",
+    "src": "8b22d8eb"
+  },
+  "update.notice.failed.noVersion": {
+    "text": "Das letzte Update ist fehlgeschlagen. EyeCtrl läuft weiter.",
+    "src": "39971ccd"
+  },
+  "update.notice.rolledBack": {
+    "text": "Beim letzten Update wurde auf Version {0} zurückgewechselt.",
+    "src": "a40febb6"
   },
   "update.progress.detail": {
     "text": "EyeCtrl startet gleich von selbst neu. Es ist nichts zu tun.",

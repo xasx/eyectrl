@@ -132,8 +132,11 @@ public class DwellCompositeChildrenStabilityTests
         // RingPreviewRow (the settings ring miniature) is the third: it registers no dwell target,
         // hands out a cached empty Children list, and is pinned by
         // SettingsRowLayoutTests.ARingPreviewRow_HasCachedEmptyChildren_AndAttaches.
+        // DescribedButtonRow (review 02 R4) is the fourth: C9 S6f's button-with-description row,
+        // pinned by SetupRowControlTests.ADescribedButton_ForwardsItsCachedChildren — and the
+        // companion fact below reads that file so this list cannot vouch for coverage that is gone.
         string[] covered =
-            ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle",
+            ["DescribedButtonRow", "DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle",
              "LabelledSettingsRow", "RingPreviewRow", "SeparatorRow"];
 
         Check.WithCustomMessage(
@@ -196,6 +199,28 @@ public class DwellCompositeChildrenStabilityTests
                 "RingPreviewRow's Children-stability pin is gone from SettingsRowLayoutTests. The"
                 + " census above vouches for it; restore the test or remove the name here.")
             .That(File.ReadAllText(path).Contains(RingPreviewTestName)).IsTrue();
+    }
+
+    /// <summary>
+    /// The same mechanical join for <c>DescribedButtonRow</c>, which review 02 R4 added: its
+    /// Children-stability pin lives in <c>SetupRowControlTests</c>, because the type is a private
+    /// nested class of <c>SettingsWindow</c> in EyeCtrl.App — unreachable from this suite.
+    /// </summary>
+    [Fact]
+    public void TheAppTestsCaseCoveringDescribedButtonRow_StillExists()
+    {
+        const string TestName = "ADescribedButton_ForwardsItsCachedChildren";
+        var path = Path.Combine(RepoRoot().FullName,
+            "tests", "EyeCtrl.App.Tests", "Settings", "SetupRowControlTests.cs");
+
+        Check.WithCustomMessage(
+                $"{path} is gone. It holds the only Children-stability coverage for"
+                + " DescribedButtonRow (review 02 R4); restore it or remove the census entry.")
+            .That(File.Exists(path)).IsTrue();
+        Check.WithCustomMessage(
+                $"SetupRowControlTests.cs no longer declares {TestName}, which the census names as"
+                + " DescribedButtonRow's Children pin. If it was renamed, update both places.")
+            .That(File.ReadAllText(path).Contains(TestName)).IsTrue();
     }
 
     /// <summary>

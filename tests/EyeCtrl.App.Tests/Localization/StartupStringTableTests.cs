@@ -61,14 +61,16 @@ public class StartupStringTableTests
     }
 
     [Fact]
-    public void TheShippedDefault_System_OnDeDe_GivesGermanOnAllFourteenSurfaces()
+    public void TheShippedDefault_System_OnDeDe_GivesGermanOnEverySwitchedOnSurface()
     {
         // The explicit overload: the shipped files beside the test exe, de-DE, "system".
         var warnings = new List<string>();
         var table = StartupStringTable.Load(
             Settings(UiLanguage.System), ShippedGerman.GermanCulture, AppContext.BaseDirectory, warnings.Add);
 
-        Check.That(ShippedGerman.SwitchedOn).HasSize(14);
+        // C9 S6e/S6f add the install flow's surfaces; the set follows StringTableSchema (the
+        // switch-on decision itself is pinned in ShippedGermanSwitchOnTests).
+        Check.That(ShippedGerman.SwitchedOn).HasSize(StringTableSchema.Surfaces.Count);
         AssertGermanOnEverySurface(table, warnings);
     }
 

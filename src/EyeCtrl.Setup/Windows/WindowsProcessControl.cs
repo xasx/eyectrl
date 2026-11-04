@@ -9,7 +9,7 @@ using EyeCtrl.Setup.Abstractions;
 /// <summary>
 /// The production process seam. Enumeration reads only <c>QueryFullProcessImageName</c> with
 /// <c>PROCESS_QUERY_LIMITED_INFORMATION</c> (plan §10 item 4); starts use ShellExecute; stops and
-/// kills use <c>Process.Kill(entireProcessTree: true)</c>.
+/// kills use a plain <c>Process.Kill()</c> of that one process, never a process tree.
 /// </summary>
 public sealed class WindowsProcessControl : IProcessControl
 {

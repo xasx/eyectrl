@@ -122,6 +122,15 @@ public class SetupManifestTests
     }
 
     [Fact]
+    public void TheKillPath_NeverKillsAProcessTree()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "WindowsProcessControl.cs"));
+
+        Check.That(source).DoesNotContain(".Kill(entireProcessTree: true)");
+    }
+
+    [Fact]
     public void ThePinnedThumbprint_IsThePlansValue()
     {
         Check.That(SetupConstants.PinnedThumbprint)

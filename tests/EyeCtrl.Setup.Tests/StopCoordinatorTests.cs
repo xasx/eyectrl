@@ -98,6 +98,20 @@ public class StopCoordinatorTests
     }
 
     [Fact]
+    public void TheKillPath_LeavesUnrelatedChildrenAlive()
+    {
+        var harness = Harness();
+        harness.Processes.Add(harness.Paths.AppExePath);
+        var child = harness.Processes.Add(@"C:\Program Files\Other\browser.exe");
+        harness.Processes.WaitForExitResult = false;
+
+        var result = harness.Stop.StopForSwap(TimeSpan.FromSeconds(5));
+
+        Check.That(result.Ok).IsTrue();
+        Check.That(harness.Processes.Processes.Any(p => p.Id == child)).IsTrue();
+    }
+
+    [Fact]
     public void TheImageCheck_CountsAProcessWhoseImageIsTheSupervisor()
     {
         var harness = Harness();

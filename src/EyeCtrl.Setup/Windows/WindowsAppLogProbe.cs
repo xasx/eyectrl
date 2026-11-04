@@ -21,12 +21,12 @@ public sealed class WindowsAppLogProbe : IAppLogProbe
     public WindowsAppLogProbe(SetupPaths paths) => _paths = paths;
 
     /// <inheritdoc />
-    public bool HasUiAccessStartupLine(string appExePath, DateTimeOffset sinceUtc)
+    public AppStartupTokenLine ReadStartupTokenLine(string appExePath, DateTimeOffset sinceUtc)
     {
         try
         {
             if (!Directory.Exists(_paths.LogsRoot))
-                return false;
+                return AppStartupTokenLine.None;
 
             var sinceLocal = sinceUtc.ToLocalTime().DateTime;
             var expectedExe = "exe=" + appExePath;
@@ -41,25 +41,28 @@ public sealed class WindowsAppLogProbe : IAppLogProbe
                 {
                     if (!line.Contains(TokenMarker, StringComparison.Ordinal))
                         continue;
-                    if (!line.Contains("UIAccess=True", StringComparison.Ordinal))
-                        continue;
                     if (!line.Contains(expectedExe, StringComparison.OrdinalIgnoreCase))
                         continue;
                     // F9: fail closed. An unparseable timestamp cannot prove the line came from
                     // this launch, so it is not evidence.
                     if (!TryReadTimestamp(line, out var timestamp))
                         continue;
-                    if (timestamp >= sinceLocal)
-                        return true;
+                    if (timestamp < sinceLocal)
+                        continue;
+
+                    if (line.Contains("UIAccess=True", StringComparison.Ordinal))
+                        return AppStartupTokenLine.UiAccessTrue;
+                    if (line.Contains("UIAccess=False", StringComparison.Ordinal))
+                        return AppStartupTokenLine.UiAccessFalse;
                 }
             }
         }
         catch (Exception)
         {
-            return false;
+            return AppStartupTokenLine.None;
         }
 
-        return false;
+        return AppStartupTokenLine.None;
     }
 
     private static bool TryReadTimestamp(string line, out DateTime timestamp)

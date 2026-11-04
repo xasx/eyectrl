@@ -42,16 +42,16 @@ public sealed class RecordingSetupLog : ISetupLog
 public sealed class FakeAppLogProbe : IAppLogProbe
 {
     /// <summary>What the probe answers when <see cref="Results"/> is empty.</summary>
-    public bool Result { get; set; } = true;
+    public AppStartupTokenLine Result { get; set; } = AppStartupTokenLine.UiAccessTrue;
 
     /// <summary>Per-call answers; consumed before <see cref="Result"/>.</summary>
-    public Queue<bool> Results { get; } = new();
+    public Queue<AppStartupTokenLine> Results { get; } = new();
 
     /// <summary>The calls made.</summary>
     public List<string> Calls { get; } = [];
 
     /// <inheritdoc />
-    public bool HasUiAccessStartupLine(string appExePath, DateTimeOffset sinceUtc)
+    public AppStartupTokenLine ReadStartupTokenLine(string appExePath, DateTimeOffset sinceUtc)
     {
         Calls.Add($"{appExePath}|{sinceUtc:O}");
         return Results.Count > 0 ? Results.Dequeue() : Result;

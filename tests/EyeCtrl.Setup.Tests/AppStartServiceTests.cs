@@ -1,6 +1,7 @@
 namespace EyeCtrl.Setup.Tests;
 
 using EyeCtrl.Core.Input;
+using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Install;
 using EyeCtrl.Setup.Tests.TestSupport;
 
@@ -23,7 +24,7 @@ public class AppStartServiceTests
     }
 
     [Fact]
-    public void WithoutTheUiAccessBit_TheStartFailsAndTheProcessIsKilled()
+    public void WithoutTheUiAccessBit_TheAppIsAliveAndADegradedCandidate()
     {
         var harness = Harness();
         harness.Processes.TokenReader = _ =>
@@ -32,12 +33,13 @@ public class AppStartServiceTests
         var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
 
         Check.That(outcome.Passed).IsFalse();
-        Check.That(outcome.FailureReason).IsEqualTo(AppStartFailure.TokenTimeout);
-        Check.That(harness.Log.Any(e => e.StartsWith("kill:", StringComparison.Ordinal))).IsTrue();
+        Check.That(outcome.UiAccessOnlyFailure).IsTrue();
+        Check.That(outcome.StillAlive).IsTrue();
+        Check.That(harness.Log.Any(e => e.StartsWith("kill:", StringComparison.Ordinal))).IsFalse();
     }
 
     [Fact]
-    public void AMediumToken_FailsEvenWithTheUiAccessBit()
+    public void AMediumToken_IsAlsoADegradedCandidate()
     {
         var harness = Harness();
         harness.Processes.TokenReader = _ =>
@@ -45,7 +47,22 @@ public class AppStartServiceTests
 
         var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
 
-        Check.That(outcome.FailureReason).IsEqualTo(AppStartFailure.TokenTimeout);
+        Check.That(outcome.UiAccessOnlyFailure).IsTrue();
+        Check.That(outcome.StillAlive).IsTrue();
+        Check.That(harness.Log.Any(e => e.StartsWith("kill:", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Fact]
+    public void TheTokenLineSayingUiAccessFalse_IsADegradedCandidate()
+    {
+        var harness = Harness();
+        harness.LogProbe.Result = AppStartupTokenLine.UiAccessFalse;
+
+        var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
+
+        Check.That(outcome.UiAccessOnlyFailure).IsTrue();
+        Check.That(outcome.StillAlive).IsTrue();
+        Check.That(harness.Log.Any(e => e.StartsWith("kill:", StringComparison.Ordinal))).IsFalse();
     }
 
     [Fact]
@@ -75,7 +92,7 @@ public class AppStartServiceTests
     public void AMissingTokenLine_FailsThePassRule()
     {
         var harness = Harness();
-        harness.LogProbe.Result = false;
+        harness.LogProbe.Result = AppStartupTokenLine.None;
 
         var outcome = harness.AppStart.StartAndCheck(harness.Paths.AppExePath);
 

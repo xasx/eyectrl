@@ -88,6 +88,16 @@ public sealed class SetupWorkflow
         }
 
         _log.Warn($"New version failed the pass rule: {start.FailureReason}; rolling back.");
+
+        // Q12: a NEW version still rolls back on a UIAccess failure. Only when there is nothing
+        // to roll back to, and the new version is alive, does it become the last resort.
+        if (!_fileSystem.DirectoryExists(_paths.PreviousRoot)
+            && start.StillAlive && start.UiAccessOnlyFailure)
+        {
+            return Finish(SetupVerb.Update, SetupOutcome.Degraded, newVersion, null,
+                "degraded:" + start.FailureReason);
+        }
+
         return RevertAndCheck(
             SetupVerb.Update, newVersion, previousVersion, runId, start.FailureReason);
     }
@@ -117,15 +127,23 @@ public sealed class SetupWorkflow
             return Finish(SetupVerb.Update, SetupOutcome.Ok, version, previousVersion, "repairCompleted");
 
         _log.Warn($"Repaired version failed the pass rule: {start.FailureReason}; reverting.");
+
+        if (start.StillAlive && start.UiAccessOnlyFailure && !_fileSystem.DirectoryExists(_paths.PreviousRoot))
+        {
+            return Finish(SetupVerb.Update, SetupOutcome.Degraded, version, null,
+                "degraded:" + start.FailureReason);
+        }
+
         return RevertAndCheck(
             SetupVerb.Update, version, previousVersion, runId, "repairedVersionFailed:" + start.FailureReason);
     }
 
     /// <summary>Reverts to the previous version and pass-checks it. Both failing is the only
-    /// <see cref="SetupOutcome.AllFailed"/> path.</summary>
+    /// <see cref="SetupOutcome.AllFailed"/> path; a previous version that is alive but only lacks
+    /// UIAccess is Q12's <see cref="SetupOutcome.Degraded"/> last resort.</summary>
     private SetupResult RevertAndCheck(
         SetupVerb verb, string? attemptedVersion, string? previousVersion, string? runId,
-        string? failureReason)
+        string? failureReason, SetupOutcome passedOutcome = SetupOutcome.RolledBack)
     {
         if (string.IsNullOrWhiteSpace(runId)
             || !_fileSystem.DirectoryExists(_paths.PreviousRoot))
@@ -143,11 +161,21 @@ public sealed class SetupWorkflow
 
         var restoredVersion = _metadata.Read(_paths.InstallRoot).Version;
         var start = StartChecked();
-        return start.Passed
-            ? Finish(verb, SetupOutcome.RolledBack, attemptedVersion, restoredVersion,
-                "newVersionFailed:" + failureReason)
-            : Finish(verb, SetupOutcome.AllFailed, attemptedVersion, restoredVersion,
-                "previousFailed:" + start.FailureReason);
+        if (start.Passed)
+        {
+            return Finish(verb, passedOutcome, attemptedVersion, restoredVersion,
+                "newVersionFailed:" + failureReason);
+        }
+
+        if (start.StillAlive && start.UiAccessOnlyFailure)
+        {
+            // Q12: keep the last-resort version running; it names the running version.
+            return Finish(verb, SetupOutcome.Degraded, restoredVersion, attemptedVersion,
+                "degraded:" + start.FailureReason);
+        }
+
+        return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, restoredVersion,
+            "previousFailed:" + start.FailureReason);
     }
 
     /// <summary>Restores <c>EyeCtrl.previous</c> and pass-checks it; a failed target rolls the
@@ -184,21 +212,9 @@ public sealed class SetupWorkflow
             return Finish(SetupVerb.Rollback, SetupOutcome.Ok, restoredVersion, displacedVersion);
 
         _log.Warn($"Rollback target failed the pass rule: {start.FailureReason}; rolling forward.");
-
-        var revert = _broker.Run(new ElevatedRequest(ElevatedJob.Revert, RunId: runId));
-        if (!revert.Succeeded)
-        {
-            return Finish(SetupVerb.Rollback, SetupOutcome.AllFailed, restoredVersion, displacedVersion,
-                "revert:" + revert.Detail);
-        }
-
-        var forwardVersion = _metadata.Read(_paths.InstallRoot).Version;
-        var forwardStart = StartChecked();
-        return forwardStart.Passed
-            ? Finish(SetupVerb.Rollback, SetupOutcome.Failed, restoredVersion, forwardVersion,
-                "rollbackTargetFailed:" + start.FailureReason)
-            : Finish(SetupVerb.Rollback, SetupOutcome.AllFailed, restoredVersion, forwardVersion,
-                "displacedFailed:" + forwardStart.FailureReason);
+        return RevertAndCheck(
+            SetupVerb.Rollback, restoredVersion, displacedVersion, runId,
+            "rollbackTargetFailed:" + start.FailureReason, SetupOutcome.Failed);
     }
 
     /// <summary>
@@ -295,11 +311,18 @@ public sealed class SetupWorkflow
         var version = _metadata.Read(_paths.InstallRoot).Version;
         var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
         var start = StartChecked();
-        return start.Passed
-            ? Finish(SetupVerb.Repair, SetupOutcome.Repaired, version, previousVersion)
-            : RevertAndCheck(
-                SetupVerb.Repair, version, previousVersion, runId,
-                "repairedVersionFailed:" + start.FailureReason);
+        if (start.Passed)
+            return Finish(SetupVerb.Repair, SetupOutcome.Repaired, version, previousVersion);
+
+        if (start.StillAlive && start.UiAccessOnlyFailure && !_fileSystem.DirectoryExists(_paths.PreviousRoot))
+        {
+            return Finish(SetupVerb.Repair, SetupOutcome.Degraded, version, null,
+                "degraded:" + start.FailureReason);
+        }
+
+        return RevertAndCheck(
+            SetupVerb.Repair, version, previousVersion, runId,
+            "repairedVersionFailed:" + start.FailureReason);
     }
 
     /// <summary>Nothing elevated ever starts EyeCtrl: a public verb in an elevated token is refused
@@ -352,6 +375,11 @@ public sealed class SetupWorkflow
         if (verb != SetupVerb.Uninstall)
         {
             var start = TryStartInstalledIfNotRunning();
+            if (start is { Passed: false, UiAccessOnlyFailure: true, StillAlive: true })
+            {
+                return Finish(verb, SetupOutcome.Blocked, null, null, "elevationPolicy:appDegraded");
+            }
+
             if (start is { Passed: false })
             {
                 return Finish(verb, SetupOutcome.AllFailed, null, null,
@@ -378,6 +406,12 @@ public sealed class SetupWorkflow
         if (verb is SetupVerb.Update or SetupVerb.Rollback or SetupVerb.Repair)
         {
             var start = TryStartInstalledIfNotRunning();
+            if (start is { Passed: false, UiAccessOnlyFailure: true, StillAlive: true })
+            {
+                return Finish(verb, outcome, null, null,
+                    (phase.Detail is null ? string.Empty : phase.Detail + ":") + "appDegraded");
+            }
+
             if (start is { Passed: false })
             {
                 return Finish(verb, SetupOutcome.AllFailed, null, null,

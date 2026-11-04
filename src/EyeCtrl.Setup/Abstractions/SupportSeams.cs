@@ -45,9 +45,16 @@ public interface ISettingsSnapshotReader
 /// </summary>
 public interface IAppLogProbe
 {
-    /// <summary>True when a line for this exe, written at/after <paramref name="sinceUtc"/>, says
-    /// <c>UIAccess=True</c>.</summary>
-    bool HasUiAccessStartupLine(string appExePath, DateTimeOffset sinceUtc);
+    /// <summary>Reads the newest startup token line for this exe at/after the launch time.</summary>
+    AppStartupTokenLine ReadStartupTokenLine(string appExePath, DateTimeOffset sinceUtc);
+}
+
+/// <summary>What the startup token line says, or that no line was found.</summary>
+public enum AppStartupTokenLine
+{
+    None,
+    UiAccessTrue,
+    UiAccessFalse,
 }
 
 /// <summary>The Q8 choice seam. S6e supplies the gaze window; S6a's default keeps the data.</summary>

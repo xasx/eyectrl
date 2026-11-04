@@ -13,13 +13,20 @@ public static class AppStartFailure
 }
 
 /// <summary>One start-and-check attempt.</summary>
-public sealed record AppStartOutcome(bool Passed, string? FailureReason, int? ProcessId)
+public sealed record AppStartOutcome(
+    bool Passed, string? FailureReason, int? ProcessId,
+    bool StillAlive = false, bool UiAccessOnlyFailure = false)
 {
     /// <summary>The App passed all three checks.</summary>
     public static AppStartOutcome Success(int pid) => new(true, null, pid);
 
     /// <summary>The App did not pass; the caller rolls back.</summary>
     public static AppStartOutcome Fail(string reason, int? pid) => new(false, reason, pid);
+
+    /// <summary>The App is alive but its token (or token line) lacks UIAccess. Q12's last-resort
+    /// candidate: the caller keeps it running and reports <c>degraded</c>.</summary>
+    public static AppStartOutcome Degraded(int pid, string reason) =>
+        new(false, reason, pid, StillAlive: true, UiAccessOnlyFailure: true);
 }
 
 /// <summary>
@@ -71,6 +78,14 @@ public sealed class AppStartService
         var (facts, failure) = WaitForUiAccessToken(processId, startedAt);
         if (facts is null)
         {
+            // Q12: a process that is alive but never gets High + UIAccess is the last-resort
+            // candidate. Do NOT kill it; the workflow decides whether it is the last resort.
+            if (_processes.IsAlive(processId))
+            {
+                _log.Warn($"App is alive without UIAccess ({failure}); leaving the decision to the caller.");
+                return AppStartOutcome.Degraded(processId, "noUiAccessToken");
+            }
+
             KillQuietly(processId);
             return AppStartOutcome.Fail(failure ?? AppStartFailure.TokenTimeout, processId);
         }
@@ -85,14 +100,21 @@ public sealed class AppStartService
             return AppStartOutcome.Fail(AppStartFailure.NotAliveAfter20s, processId);
         }
 
-        if (!_logProbe.HasUiAccessStartupLine(appExePath, startedAt))
+        var line = _logProbe.ReadStartupTokenLine(appExePath, startedAt);
+        if (line == AppStartupTokenLine.UiAccessTrue)
         {
-            KillQuietly(processId);
-            return AppStartOutcome.Fail(AppStartFailure.MissingTokenLine, processId);
+            _log.Info("App passed the token, alive and startup-line checks.");
+            return AppStartOutcome.Success(processId);
         }
 
-        _log.Info("App passed the token, alive and startup-line checks.");
-        return AppStartOutcome.Success(processId);
+        if (line == AppStartupTokenLine.UiAccessFalse)
+        {
+            _log.Warn("The startup token line says UIAccess=False; leaving the decision to the caller.");
+            return AppStartOutcome.Degraded(processId, "tokenLineUiAccessFalse");
+        }
+
+        KillQuietly(processId);
+        return AppStartOutcome.Fail(AppStartFailure.MissingTokenLine, processId);
     }
 
     private (EyeCtrl.Core.Input.ProcessTokenFacts? Facts, string? Failure) WaitForUiAccessToken(

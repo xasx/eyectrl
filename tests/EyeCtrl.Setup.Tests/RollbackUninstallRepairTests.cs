@@ -46,8 +46,8 @@ public class RollbackWorkflowTests
         var harness = new SetupHarness();
         harness.SeedInstalled("2.0.0");
         harness.SeedPrevious("1.0.0");
-        harness.LogProbe.Results.Enqueue(false);
-        harness.LogProbe.Results.Enqueue(true);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessTrue);
 
         var result = harness.Workflow.Rollback();
 

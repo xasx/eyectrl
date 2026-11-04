@@ -96,8 +96,8 @@ public class UpdateWorkflowTests
     {
         var harness = Harness();
         var package = SeedUpdatable(harness);
-        harness.LogProbe.Results.Enqueue(false);
-        harness.LogProbe.Results.Enqueue(true);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessTrue);
 
         var result = harness.Workflow.Update(package);
 
@@ -113,32 +113,35 @@ public class UpdateWorkflowTests
     }
 
     [Fact]
-    public void ANewVersionAndAPreviousVersionThatBothFail_ReportAllFailed()
+    public void ANewVersionAndAPreviousVersionThatBothLackUiAccess_ReportDegraded()
     {
-        var harness = Harness();
+        var harness = new SetupHarness();
         var package = SeedUpdatable(harness);
-        harness.LogProbe.Results.Enqueue(false);
-        harness.LogProbe.Results.Enqueue(false);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse);
 
         var result = harness.Workflow.Update(package);
 
-        Check.That(result.Outcome).IsEqualTo(SetupOutcome.AllFailed);
-        Check.That(harness.Recorder.TryReadLast()?.Outcome).IsEqualTo(SetupOutcome.AllFailed);
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Degraded);
+        Check.That(result.Version).IsEqualTo("1.0.0"); // the running last resort
+        Check.That(harness.Recorder.TryReadLast()?.Outcome).IsEqualTo(SetupOutcome.Degraded);
     }
 
     [Fact]
-    public void AFirstInstallThatFailsThePassRule_ReportsAllFailed()
+    public void AFirstInstallThatFailsThePassRule_ReportsDegraded()
     {
         var harness = Harness();
         var package = @"C:\inbox\2.0.0";
         harness.SeedPackage(package, "2.0.0");
-        harness.LogProbe.Result = false;
+        harness.LogProbe.Result = AppStartupTokenLine.UiAccessFalse;
 
         var result = harness.Workflow.Update(package);
 
-        Check.That(result.Outcome).IsEqualTo(SetupOutcome.AllFailed);
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Degraded);
         Check.That(harness.Files.DirectoryExists(harness.Paths.InstallRoot)).IsTrue();
         Check.That(harness.Files.DirectoryExists(harness.Paths.PreviousRoot)).IsFalse();
+        Check.That(harness.Processes.Processes.Any(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsTrue();
     }
 
     [Fact]

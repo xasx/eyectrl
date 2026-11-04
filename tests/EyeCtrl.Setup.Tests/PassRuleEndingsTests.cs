@@ -20,8 +20,8 @@ public class PassRuleEndingsTests
         harness.Registry.SeedString(
             Microsoft.Win32.RegistryHive.CurrentUser, SetupConstants.RunOnceKeyPath,
             SetupConstants.RepairRunOnceName, "\"run\" repair");
-        harness.LogProbe.Results.Enqueue(false); // repaired 2.0 fails
-        harness.LogProbe.Results.Enqueue(true);  // previous 1.0 passes
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse); // repaired 2.0 fails
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessTrue);  // previous 1.0 passes
 
         var result = harness.Workflow.Repair();
 
@@ -32,17 +32,19 @@ public class PassRuleEndingsTests
     }
 
     [Fact]
-    public void Repair_WhenBothVersionsFail_ReportsAllFailed()
+    public void Repair_WhenBothVersionsLackUiAccess_ReportsDegraded()
     {
         var harness = new SetupHarness();
         harness.SeedPrevious("1.0.0");
         harness.SeedStaging("2.0.0");
-        harness.LogProbe.Result = false;
+        harness.LogProbe.Result = AppStartupTokenLine.UiAccessFalse;
 
         var result = harness.Workflow.Repair();
 
-        Check.That(result.Outcome).IsEqualTo(SetupOutcome.AllFailed);
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Degraded);
         Check.That(harness.Broker.Requests.Any(r => r.Job == ElevatedJob.Revert)).IsTrue();
+        Check.That(harness.Processes.Processes.Any(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsTrue();
     }
 
     [Fact]
@@ -72,13 +74,71 @@ public class PassRuleEndingsTests
         var package = @"C:\inbox\2.0.0";
         harness.SeedPackage(package, "2.0.0");
         harness.Files.MoveFailure = index => index is 2 or 3;
-        harness.LogProbe.Results.Enqueue(false); // repaired 2.0
-        harness.LogProbe.Results.Enqueue(true);  // previous 1.0
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse); // repaired 2.0
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessTrue);  // previous 1.0
 
         var result = harness.Workflow.Update(package);
 
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.RolledBack);
         Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("1.0.0");
+    }
+
+    [Fact]
+    public void ALastResortWithoutUiAccess_IsDegradedAndLeftRunning()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        var package = @"C:\inbox\2.0.0";
+        harness.SeedPackage(package, "2.0.0");
+        harness.Processes.TokenReader = _ =>
+            new EyeCtrl.Core.Input.ProcessTokenFacts("EyeCtrl.App.exe", 0x2000, false, true, false);
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Degraded);
+        Check.That(result.Version).IsEqualTo("1.0.0");
+        Check.That(harness.Processes.Processes.Any(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsTrue();
+    }
+
+    [Fact]
+    public void ALastResortThatDies_ReportsAllFailed()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        var package = @"C:\inbox\2.0.0";
+        harness.SeedPackage(package, "2.0.0");
+        var starts = 0;
+        harness.Processes.OnStart = _ => starts++;
+        harness.Processes.TokenReader = _ =>
+            new EyeCtrl.Core.Input.ProcessTokenFacts("EyeCtrl.App.exe", 0x2000, false, true, false);
+        harness.Processes.AliveReader = _ => starts < 2;
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.AllFailed);
+    }
+
+    [Fact]
+    public void ANewVersionWithoutUiAccess_IsStillRolledBack()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        var package = @"C:\inbox\2.0.0";
+        harness.SeedPackage(package, "2.0.0");
+        var firstPid = 0;
+        harness.Processes.TokenReader = pid =>
+        {
+            if (firstPid == 0)
+                firstPid = pid;
+            return pid == firstPid
+                ? new EyeCtrl.Core.Input.ProcessTokenFacts("EyeCtrl.App.exe", 0x2000, false, true, false)
+                : new EyeCtrl.Core.Input.ProcessTokenFacts("EyeCtrl.App.exe", 0x3000, false, true, false);
+        };
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.RolledBack);
     }
 
     [Fact]
@@ -101,8 +161,8 @@ public class PassRuleEndingsTests
             }
         };
         harness.HeldButton.Result = new HeldButtonReleaseResult(true, true, null, false);
-        harness.LogProbe.Results.Enqueue(false);
-        harness.LogProbe.Results.Enqueue(true);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessFalse);
+        harness.LogProbe.Results.Enqueue(AppStartupTokenLine.UiAccessTrue);
 
         var result = harness.Workflow.Update(package);
 
@@ -112,18 +172,20 @@ public class PassRuleEndingsTests
     }
 
     [Fact]
-    public void ABlockedUpdateWhoseOldVersionCannotPass_ReportsAllFailed()
+    public void ABlockedUpdateWhoseOldVersionLacksUiAccess_LeavesItRunning()
     {
         var harness = new SetupHarness();
         harness.SeedInstalled("1.0.0");
         var package = @"C:\inbox\2.0.0";
         harness.SeedPackage(package, "2.0.0");
         harness.SetPolicy(5);
-        harness.LogProbe.Result = false;
+        harness.LogProbe.Result = AppStartupTokenLine.UiAccessFalse;
 
         var result = harness.Workflow.Update(package);
 
-        Check.That(result.Outcome).IsEqualTo(SetupOutcome.AllFailed);
-        Check.That(result.Detail).Contains("restartFailed");
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Blocked);
+        Check.That(result.Detail).Contains("appDegraded");
+        Check.That(harness.Processes.Processes.Any(p =>
+            p.ImagePath == harness.Paths.AppExePath)).IsTrue();
     }
 }

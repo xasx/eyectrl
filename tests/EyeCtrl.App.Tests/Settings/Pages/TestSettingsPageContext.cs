@@ -28,7 +28,8 @@ internal static class TestSettingsPageContext
         Func<string>? readClipboard = null,
         SupervisionToggleService? supervision = null,
         UserDictionaryService? dictionary = null,
-        Action? runSafetySetup = null) => new(
+        Action? runSafetySetup = null,
+        ISetupGateways? setupGateways = null) => new(
         settings ?? new EyeCtrlSettings(),
         viewModel!, registry!, modelManagement!,
         calibration ?? new CalibrationService(),
@@ -42,5 +43,6 @@ internal static class TestSettingsPageContext
         close: () => { }, readClipboard: readClipboard ?? (() => ""))
     {
         RunSafetySetup = runSafetySetup ?? (() => { }),
+        SetupGateways = setupGateways,
     };
 }

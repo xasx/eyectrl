@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.App.Services;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.ViewModels;
 
 internal sealed class AdvancedPageSource : ISettingsPageSource
 {
@@ -142,7 +144,102 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                         _ctx.RebuildContent();
                     }),
                     ButtonKind.Reset, Width: 300, Height: 100),
+                ..BuildSetupRows(),
             ]),
         ];
+    }
+
+    /// <summary>
+    /// C9 S6f's three „Erweitert" rows, at the very end of the page and in „Alle Optionen" only
+    /// (<see cref="SettingsRowSpec.Simple" /> stays false on every spec). A null gateways service
+    /// — headless test contexts, a host without the App composition — builds no setup rows at all.
+    /// <para>
+    /// Not installed (a dev build, or not running from Program Files\EyeCtrl) hides all three:
+    /// the ticket's chosen option, because for a gaze user a dead row is worse than the row's
+    /// absence — three labels that dwell into nothing read as a broken screen.
+    /// </para>
+    /// </summary>
+    private IEnumerable<SettingsRowSpec> BuildSetupRows()
+    {
+        if (_ctx.SetupGateways is not { Installed: true } gate)
+            yield break;
+
+        yield return new SeparatorSpec();
+
+        var offer = gate.UpdateOffer;
+        if (offer is not null)
+        {
+            if (gate.PolicyBlocks)
+            {
+                // Shown and disabled: the blocked text IS the row, and there is nothing to dwell.
+                yield return new LabelSpec(() => StringTable.Current.T("settings.advanced.update.blocked"));
+            }
+            else
+            {
+                yield return new ButtonSpec("av_update",
+                    StringTable.Current.T("settings.advanced.update.label"),
+                    () => ConfirmUpdate(gate, offer), ButtonKind.Default, Width: 380, Height: 100)
+                {
+                    Description = StringTable.Current.T(
+                        "settings.advanced.update.description", offer.Version, offer.InstalledVersion),
+                };
+            }
+        }
+
+        if (gate.PreviousAvailable)
+        {
+            yield return new ButtonSpec("av_rollback",
+                StringTable.Current.T("settings.advanced.rollback.label"),
+                () => ConfirmRollback(gate), ButtonKind.Default, Width: 380, Height: 100)
+            {
+                Description = StringTable.Current.T(
+                    "settings.advanced.rollback.description", gate.PreviousVersion ?? ""),
+            };
+        }
+
+        yield return new ButtonSpec("av_uninstall",
+            StringTable.Current.T("settings.advanced.uninstall.label"),
+            () => gate.StartUninstallHandoff(), ButtonKind.Danger, Width: 380, Height: 100)
+        {
+            Description = StringTable.Current.T("settings.advanced.uninstall.description"),
+        };
+    }
+
+    /// <summary>The update confirm: the ticket's „Jetzt installieren" / „Später" pair, in the
+    /// existing modal (the „Allgemein zurücksetzen" pattern) with custom labels. The detail line
+    /// rides in the modal body under the question, like every prose confirm in the window.</summary>
+    private void ConfirmUpdate(ISetupGateways gate, SetupUpdateOffer offer)
+    {
+        var title = StringTable.Current.T("update.confirm.title", offer.Version);
+        var detail = StringTable.Current.T("update.confirm.detail");
+        _ctx.ViewModel.ShowModal(
+            title + "\n\n" + detail,
+            [
+                new ModalChoice("setup_update_install",
+                    StringTable.Current.T("update.confirm.install"),
+                    ModalChoiceKind.Affirmative,
+                    () => gate.StartUpdateHandoff(offer)),
+                new ModalChoice("setup_update_later",
+                    StringTable.Current.T("update.confirm.later"),
+                    ModalChoiceKind.Negative,
+                    null),
+            ]);
+    }
+
+    /// <summary>The rollback confirm: „Zurückwechseln" / „Später", same modal pattern.</summary>
+    private void ConfirmRollback(ISetupGateways gate)
+    {
+        _ctx.ViewModel.ShowModal(
+            StringTable.Current.T("rollback.confirm.title", gate.PreviousVersion ?? ""),
+            [
+                new ModalChoice("setup_rollback_go",
+                    StringTable.Current.T("rollback.confirm.go"),
+                    ModalChoiceKind.Affirmative,
+                    gate.StartRollbackHandoff),
+                new ModalChoice("setup_rollback_later",
+                    StringTable.Current.T("rollback.confirm.later"),
+                    ModalChoiceKind.Negative,
+                    null),
+            ]);
     }
 }

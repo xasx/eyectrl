@@ -470,7 +470,8 @@ public partial class SettingsWindow : OverlayWindow
         UserDictionaryService? dictionaryService = null,
         Func<string?>? probeBlockReason = null,
         Action? requestProbe = null,
-        Func<bool>? canResumeSession2 = null)
+        Func<bool>? canResumeSession2 = null,
+        ISetupGateways? setupGateways = null)
     {
         InitializeComponent();
 
@@ -650,6 +651,8 @@ public partial class SettingsWindow : OverlayWindow
         {
             // The row: the window stays open when the chain ends (the user opened it).
             RunSafetySetup = () => StartSafetySetup(closeWhenDone: false),
+            // C9 S6f: the „Erweitert" setup rows (null in headless hosts: the page omits them).
+            SetupGateways = setupGateways,
         };
         _cursorSource = new CursorPageSource(_ctx);
         _dwellSource = new DwellPageSource(_ctx);

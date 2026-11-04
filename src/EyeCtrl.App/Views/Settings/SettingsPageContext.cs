@@ -95,4 +95,12 @@ internal sealed class SettingsPageContext
     /// stable ctor signature above is left alone; the shell supplies it, headless contexts keep the no-op.
     /// </summary>
     public Action RunSafetySetup { get; init; } = () => { };
+
+    /// <summary>
+    /// C9 S6f's setup gateways — the „Erweitert" page's update/rollback/uninstall rows. Null in a
+    /// degraded host (headless test contexts, a host without the App composition): the Advanced
+    /// page then builds without the three setup rows, like the General page without supervision.
+    /// An init property, not a constructor parameter, for the same stability reason as above.
+    /// </summary>
+    public ISetupGateways? SetupGateways { get; init; }
 }

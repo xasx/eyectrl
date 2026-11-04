@@ -33,6 +33,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
     private SupervisionToggleService? _supervisionToggle;
+    private ISetupGateways? _setupGateways;
     // The probe entry (build plan C10): the Diagnostics button's reason probe and request action,
     // handed over once at startup by EventCoordinator after C7 exists.
     private Func<string?>? _probeBlockReason;
@@ -121,6 +122,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     /// <summary>Hands the supervision toggle (ticket 04) to the settings window at construction.
     /// Called once at startup, like <see cref="SetRestartCoordinator"/>.</summary>
     public void SetSupervisionToggle(SupervisionToggleService service) => _supervisionToggle = service;
+
+    /// <summary>Hands the S6f setup gateways (the „Erweitert" update/rollback/uninstall rows) to
+    /// the settings window at construction. Called once at startup, like
+    /// <see cref="SetSupervisionToggle"/>; null keeps the page free of the rows.</summary>
+    public void SetSetupGateways(ISetupGateways gateways) => _setupGateways = gateways;
 
     /// <summary>
     /// Hands the sub-pixel probe entry (build plan C10) to the next settings window: the
@@ -241,7 +247,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 context.UserDictionary,
                 probeBlockReason: _probeBlockReason,
                 requestProbe: _probeRequest,
-                canResumeSession2: _probeCanResume);
+                canResumeSession2: _probeCanResume,
+                setupGateways: _setupGateways);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

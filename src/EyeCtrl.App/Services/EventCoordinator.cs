@@ -112,6 +112,14 @@ public class EventCoordinator : IEventCoordinator
         _settingsUi!.SetSupervisionToggle(service);
     }
 
+    /// <summary>Hands the C9 S6f setup gateways (the „Erweitert" update/rollback/uninstall rows)
+    /// to the settings window at construction. Called once at startup.</summary>
+    public void SetSetupGateways(ISetupGateways gateways)
+    {
+        RequireInitialized(nameof(SetSetupGateways));
+        _settingsUi!.SetSetupGateways(gateways);
+    }
+
     /// <summary>
     /// Guards the sub-coordinator forwards that carry startup state (model services, restart
     /// coordinator, keyboard load). Throws when <see cref="Initialize"/> has not run, so a

@@ -535,6 +535,21 @@ public partial class App : Application
             // trials. The probe opening takes a card that is up down too.
             _eventCoordinator.ProbeOpenChanged += _restartNoticeHost.OnProbeOpenChanged;
 
+            // C9 S6f: the one-time setup-last notice (rolled back / degraded / failed). It rides
+            // the same card as the restart notices — the host's presenter already forwards gaze
+            // and takes the card down when Settings or the probe opens — in the same target
+            // language, and never twice for the same record time (setup-notice-shown.json, the
+            // coordinator's ruling: setup-last.json itself is never touched).
+            new SetupLastNoticeService(
+                SetupNoticeFiles.CreateForProduction(),
+                (key, args) => StringTable.Current.T(
+                    RestartNotices.TargetLanguage(settings.General.UiLanguage), key, args),
+                () => RestartNotices.RefusedChoices(
+                    RestartNotices.TargetLanguage(settings.General.UiLanguage))[0].Label,
+                (text, closeLabel) => _restartNoticeHost.Presenter.ShowNotice(
+                    text, closeLabel, RestartNoticeHost.RefusedHold))
+                .CheckStartup();
+
             // T0(a) lag mark (spec plans/t0a-lag-mark-button): the temporary dwellable "Lag" button
             // and its LAG MARK line, constructed ONLY when the dispatch probe exists — an ordinary
             // session constructs nothing. No pause condition: the launcher starts the app --paused,
@@ -577,6 +592,15 @@ public partial class App : Application
             // toggle so the General tab can drive it.
             _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
             _eventCoordinator.SetSupervisionToggle(supervisionToggle);
+
+            // C9 S6f: the „Erweitert" update/rollback/uninstall gateways. The exit flow signals
+            // the clean shutdown EXPLICITLY with restartRequested: false and then shuts the App —
+            // the Supervisor must go idle (never relaunch: Setup's own windows take over), and a
+            // dormant RestartCoordinator keeps OnExit's final stamp false too.
+            _eventCoordinator.SetSetupGateways(SetupGateways.CreateForProduction(
+                new SetupExitFlow(
+                    restartRequested => _heartbeatPublisher?.SignalShuttingDown(restartRequested),
+                    Shutdown)));
 
             // Ticket 07: after a reboot nothing else starts the Supervisor (no installer task
             // exists), yet enabled=true arms the kill-for-respawn crash policy. Run the write-free

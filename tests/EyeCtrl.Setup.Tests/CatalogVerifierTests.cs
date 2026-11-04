@@ -96,6 +96,30 @@ public class CatalogVerifierTests
     }
 
     [Fact]
+    public void ANonZeroMemberVerifier_MarksEveryFile()
+    {
+        var directory = CloneFixture();
+        try
+        {
+            var memberVerifier = new FakeCatalogMemberVerifier
+            {
+                Result = unchecked((int)0x800B0100),
+            };
+
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), memberVerifier)
+                .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
+
+            Check.That(result.HashMismatches).Contains("sample.txt");
+            Check.That(result.HashMismatches).Contains("second.txt");
+            Check.That(memberVerifier.Calls).HasSize(2);
+        }
+        finally
+        {
+            TryDelete(directory);
+        }
+    }
+
+    [Fact]
     public void AnExtraFile_IsUncatalogued()
     {
         var directory = CloneFixture();

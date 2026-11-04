@@ -66,7 +66,7 @@ public class OverlayStaticTextTests
 
         var taskSwitcher = new TaskSwitcherWindow();
         Check.That(Text(taskSwitcher, "HintText"))
-             .IsEqualTo("Select a window — or close to cancel");
+             .IsEqualTo("Select a window — or ✕ to cancel");
 
         var scroll = new ScrollOverlayWindow();
         Check.That(Text(scroll, "EscapeHint")).IsEqualTo("Press Esc to stop scrolling");

@@ -131,4 +131,26 @@
     <InternalsVisibleTo Include="EyeCtrl.App.Tests" />
   </ItemGroup>
 
+  <!--
+    C9 S6f, coordinator condition on option (a): the App's single-file publish must carry NO
+    loose EyeCtrl.Setup.* file. The referenced exe project is runtime-copied for dev/test (the
+    App's JIT needs EyeCtrl.Setup.dll), and, beside a single-file bundle, the reference leaves
+    only its runtimeconfig.json / deps.json "sticker" files as loose litter — the managed DLL
+    itself is packed INSIDE EyeCtrl.App.exe (proved in the dry-run publish proof: build\app holds
+    no loose dll and the bundle contains EyeCtrl.Setup.dll). Publish-Signed refuses a loose
+    EyeCtrl.Setup.exe whose bytes would clash with Setup's own single-file build, and a loose
+    sticker pair next to the bundle is dead weight in the catalog. Narrow on purpose: only these
+    two exact names are dropped — the dll must stay in the publish item set so the bundler keeps
+    it. Runs at both ComputeFilesToPublish (drops the loose copy) and after
+    GenerateSingleFileBundle (survives an SDK reordering); the DryRun proof in the S6f
+    implementation report pins the final file list.
+  -->
+  <Target Name="DropReferencedSetupStickerFilesFromPublish"
+          AfterTargets="ComputeFilesToPublish;GenerateSingleFileBundle">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(Filename)%(Extension)' == 'EyeCtrl.Setup.runtimeconfig.json' or '%(Filename)%(Extension)' == 'EyeCtrl.Setup.deps.json'" />
+    </ItemGroup>
+  </Target>
+
 </Project>

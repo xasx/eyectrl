@@ -44,6 +44,23 @@ public class SettingsSetupWiringTests
                 "restartRequested=>_heartbeatPublisher?.SignalShuttingDown(restartRequested)")).IsTrue();
     }
 
+    [Fact]
+    public void TheProbeCompletion_JudgesBothConditionsInsideTheDispatchedAction()
+    {
+        // Review 02 R2/R3: rebuild only on „Erweitert", and evaluate the closed-window check
+        // INSIDE the queued action — the worker-thread check leaves a close-then-dispatch window
+        // where a disposed view model would be rebuilt.
+        var source = Collapsed("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs");
+
+        Check.WithCustomMessage(
+                "The probe completion must go through SetupProbeRebuild.ShouldRebuild inside the "
+                + "dispatched action (review 02 R2: the tab check; R3: the closed check in the action).")
+            .That(source.Contains(
+                "if(SetupProbeRebuild.ShouldRebuild(_windowClosed,"
+                + "_viewModel.Settings.CurrentTabName))RebuildContent();"))
+            .IsTrue();
+    }
+
     /// <summary>The file's code with comments blanked and every whitespace run collapsed.</summary>
     private static string Collapsed(params string[] parts) =>
         Regex.Replace(

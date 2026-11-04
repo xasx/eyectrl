@@ -661,18 +661,16 @@ public partial class SettingsWindow : OverlayWindow
 
         // C9 S6f (review 01 N2): start the catalog check OFF the UI thread as the window opens.
         // The owner needs several dwells to reach „Erweitert", so the result is usually ready by
-        // then; the page shows a same-height placeholder and rebuilds once it lands. Review 02 R2:
-        // only the „Erweitert" tab has anything to change — rebuilding any other tab would clear
-        // the owner's dwell targets mid-fixation.
+        // then; the page shows a same-height placeholder and rebuilds once it lands. Review 02
+        // R2/R3: rebuild only the „Erweitert" tab, and judge both conditions INSIDE the dispatched
+        // action — a window that closes between the worker's completion and this action must not
+        // touch a view model its Closed handler has already disposed.
         setupGateways?.BeginUpdateOfferProbe(() =>
-        {
-            if (!_windowClosed)
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (SetupProbeRebuild.IsAdvancedTab(_viewModel.Settings.CurrentTabName))
-                        RebuildContent();
-                }));
-        });
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (SetupProbeRebuild.ShouldRebuild(_windowClosed, _viewModel.Settings.CurrentTabName))
+                    RebuildContent();
+            })));
         _cursorSource = new CursorPageSource(_ctx);
         _dwellSource = new DwellPageSource(_ctx);
         _selectionSource = new SelectionPageSource(_ctx);

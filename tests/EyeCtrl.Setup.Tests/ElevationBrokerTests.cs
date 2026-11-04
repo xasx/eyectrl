@@ -129,6 +129,23 @@ public class ElevationBrokerTests
     }
 
     [Fact]
+    public void EveryJob_RefusesWhenThePolicyIsBlocked_BeforeLaunching()
+    {
+        foreach (var request in EveryJob())
+        {
+            var policy = new SequenceElevationPolicy();
+            policy.Enqueue(false);
+            var (broker, launcher, _) = Build(policy);
+
+            var result = broker.Run(request);
+
+            Check.WithCustomMessage($"blocked policy for {request.Job}")
+                .That(result.Status).IsEqualTo(ElevatedPhaseStatus.Blocked);
+            Check.That(launcher.Calls).IsEmpty();
+        }
+    }
+
+    [Fact]
     public void AnApplyUpdateWithNoPackageDirectory_Parses()
     {
         var parsed = SetupCommandLine.Parse(["--internal", "apply-update", "--run-id", "r1"]);

@@ -30,9 +30,12 @@ public sealed class FakeCatalogVerifier : ICatalogVerifier
 /// <summary>The file-signature fake.</summary>
 public sealed class FakeSignatureVerifier : IFileSignatureVerifier
 {
-    /// <summary>The result the next Verify returns.</summary>
+    /// <summary>The result the next Verify returns when <see cref="Verifier"/> is null.</summary>
     public FileSignatureCheck Result { get; set; } =
         new(true, SetupConstants.PinnedThumbprint, null);
+
+    /// <summary>An optional per-path answer (source valid, copy invalid, ...).</summary>
+    public Func<string, FileSignatureCheck>? Verifier { get; set; }
 
     /// <summary>The files checked.</summary>
     public List<string> Calls { get; } = [];
@@ -41,7 +44,7 @@ public sealed class FakeSignatureVerifier : IFileSignatureVerifier
     public FileSignatureCheck Verify(string filePath)
     {
         Calls.Add(filePath);
-        return Result;
+        return Verifier?.Invoke(filePath) ?? Result;
     }
 }
 

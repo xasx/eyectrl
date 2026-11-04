@@ -61,19 +61,21 @@ public sealed class ElevatedOperations
         if (request.PackageDirectory is not { } packageDirectory || request.RunId is not { } runId)
             return new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "missingArguments");
 
-        var runCopy = _runCopies.Prepare(
-            Path.Combine(packageDirectory, SetupConstants.SetupExeName), runId);
-        if (!runCopy.Ok)
-        {
-            _log.Warn($"Run copy refused: {runCopy.FailureReason}");
-            return new ElevatedPhaseResult(MapRunCopyFailure(runCopy.FailureReason), runCopy.FailureReason);
-        }
-
+        // F7: verify inside staging FIRST, then take the run copy from the verified staging
+        // folder (never from the user-writable inbox), and re-verify the copy itself.
         var staging = _staging.Stage(packageDirectory);
         if (!staging.Ok)
         {
             _log.Warn($"Staging refused: {staging.FailureReason} {staging.FailureDetail}");
             return new ElevatedPhaseResult(ElevatedPhaseStatus.VerifyFailed, staging.FailureReason);
+        }
+
+        var stagedSetup = Path.Combine(_paths.StagingRoot, SetupConstants.SetupExeName);
+        var runCopy = _runCopies.Prepare(stagedSetup, runId);
+        if (!runCopy.Ok)
+        {
+            _log.Warn($"Run copy refused: {runCopy.FailureReason}");
+            return new ElevatedPhaseResult(MapRunCopyFailure(runCopy.FailureReason), runCopy.FailureReason);
         }
 
         return ElevatedPhaseResult.Ok;
@@ -195,6 +197,7 @@ public sealed class ElevatedOperations
 
     private static ElevatedPhaseStatus MapRunCopyFailure(string? reason) =>
         reason is "invalidRunId" or "setupMissing" or "setupSignature:invalid" or "setupThumbprint"
+            or "runCopySignature"
             ? ElevatedPhaseStatus.VerifyFailed
             : ElevatedPhaseStatus.Failed;
 

@@ -70,6 +70,20 @@ public sealed class RunCopyManager
 
         try
         {
+            // F2: the current process may already be the run copy for this id; verify it and
+            // return without deleting the folder that holds the running image.
+            if (string.Equals(
+                    Path.GetFullPath(sourceSetupExe), Path.GetFullPath(targetExe),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var existing = _signature.Verify(targetExe);
+                return existing.Valid
+                       && string.Equals(existing.SignerThumbprint, SetupConstants.PinnedThumbprint,
+                           StringComparison.OrdinalIgnoreCase)
+                    ? RunCopyResult.Success(targetExe)
+                    : RunCopyResult.Fail("runCopySignature");
+            }
+
             CleanupOldRunFolders(runId);
 
             if (_fileSystem.DirectoryExists(targetFolder))
@@ -77,6 +91,16 @@ public sealed class RunCopyManager
 
             _fileSystem.CreateDirectory(targetFolder);
             _fileSystem.CopyFile(sourceSetupExe, targetExe, stripZoneIdentifier: true);
+
+            // F7: re-verify the copy that will actually be launched, in the admin-only folder.
+            var copied = _signature.Verify(targetExe);
+            if (!copied.Valid
+                || !string.Equals(copied.SignerThumbprint, SetupConstants.PinnedThumbprint,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _fileSystem.DeleteDirectory(targetFolder, recursive: true);
+                return RunCopyResult.Fail("runCopySignature");
+            }
         }
         catch (Exception ex)
         {

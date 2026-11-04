@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests;
 
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows.Controls;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
@@ -247,56 +248,77 @@ public class TaskSwitcherDwellPositionTests
     }
 
     /// <summary>
-    /// A5's reachability determinator: a tile registers a dwell target only if its on-screen
-    /// face overlaps the ScrollViewer's viewport. Partial overlap registers (the visible part
-    /// is real estate), a boundary touch does not (zero visible pixels — a live target there
-    /// is the hazard this filter exists for), and fully-clipped tiles get nothing.
+    /// A5's reachability determinator, tightened after external review (I1): a tile carries a
+    /// dwell target only for its VISIBLE face — the intersection with the viewport. Partial
+    /// overlap registers the CLIPPED rect (never the hidden remainder below the viewport), a
+    /// boundary touch or fully-clipped tile yields a non-positive dimension → no target.
     /// </summary>
     [Fact]
-    public void TileOverlapsViewport_RegistersPartialOverlap_SkipsClippedAndTouching()
+    public void VisibleTileRect_ReturnsOnlyTheVisibleFace_ClipsPartialRows()
     {
         // The viewport's physical rect, e.g. the ScrollViewer on a 1920x1264 window: the
         // bottom row holds the centered hint plus the 100 DIP close disc with 12 DIP margins,
         // so row 0's bottom sits ~124 DIP above the window bottom → viewport height ~1140.
         var viewport = new PhysicalRect(0, 0, 1920, 1140);
 
-        // Fully below the viewport: skipped.
-        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
-                new PhysicalRect(100, 1300, 184, 104), viewport)).IsFalse();
+        // Partial overlap (face spans 1100..1204 against a 1140 bottom): the target is the
+        // CLIPPED rect — bottom exactly at the viewport edge. The hidden 64 DIP below the
+        // viewport must NOT be part of the target: it sits under the hint row and beside the
+        // close disc, and a live rect there silently switches windows when gaze rests on it
+        // (external review I1 — the exact hazard this clamp exists for).
+        var clipped = TaskSwitcherWindow.VisibleTileRect(new PhysicalRect(100, 1100, 184, 104), viewport);
+        Check.That(clipped.X).IsEqualTo(100);
+        Check.That(clipped.Y).IsEqualTo(1100);
+        Check.That(clipped.Width).IsEqualTo(184);
+        Check.That(clipped.Height).IsEqualTo(40);
 
-        // Fully above the viewport: skipped.
-        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
-                new PhysicalRect(100, -300, 184, 104), viewport)).IsFalse();
+        // Horizontally clipped (face spans 1800..1984 against a 1920 right edge): same clamp.
+        var sideClipped = TaskSwitcherWindow.VisibleTileRect(new PhysicalRect(1800, 100, 184, 104), viewport);
+        Check.That(sideClipped.X).IsEqualTo(1800);
+        Check.That(sideClipped.Width).IsEqualTo(120);
+        Check.That(sideClipped.Height).IsEqualTo(104);
 
-        // Partial overlap (spans 1100..1204 against a 1140 bottom): registered.
-        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
-                new PhysicalRect(100, 1100, 184, 104), viewport)).IsTrue();
+        // Fully below the viewport: non-positive height → no target.
+        Check.That(TaskSwitcherWindow.VisibleTileRect(
+                new PhysicalRect(100, 1300, 184, 104), viewport).Height).IsStrictlyLessThan(0);
 
-        // Boundary touch (top edge exactly on the viewport bottom): skipped — zero visible area.
-        Check.That(TaskSwitcherWindow.TileOverlapsViewport(
-                new PhysicalRect(100, 1140, 184, 104), viewport)).IsFalse();
+        // Fully above the viewport: non-positive height → no target.
+        Check.That(TaskSwitcherWindow.VisibleTileRect(
+                new PhysicalRect(100, -300, 184, 104), viewport).Height).IsStrictlyLessThan(0);
+
+        // Boundary touch (top edge exactly on the viewport bottom): zero height → no target.
+        Check.That(TaskSwitcherWindow.VisibleTileRect(
+                new PhysicalRect(100, 1140, 184, 104), viewport).Height).IsEqualTo(0);
     }
 
     /// <summary>
-    /// A5 companion pin: UpdateTilePositions must keep the viewport-intersection guard. The
+    /// A5 companion pin, hardened after external review (m1): comments stripped, and the
+    /// guarded shape itself asserted — a comment naming the helper, or deleting only the
+    /// <c>continue</c> so the check becomes dead code, must both fail this pin. UpdateTilePositions
+    /// must pass the VISIBLE rect — the viewport intersection — to UpdateTilePosition. The
     /// PointToScreen path itself cannot run headless (PointToScreen needs an HWND — which is
-    /// why the existing pin is a source scan), but the guard's presence can be pinned the
-    /// same way.
+    /// why this pin is a source scan), but the clamp's presence can be pinned the same way.
     /// </summary>
     [Fact]
-    public void UpdateTilePositions_SkipsTilesOutsideTheScrollViewerViewport()
+    public void UpdateTilePositions_RegistersOnlyTheVisibleFace_SkipsTheRest()
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs"));
-        var body = ExtractMethod(source, "private void UpdateTilePositions()");
+        var body = SourceScanner.StripComments(ExtractMethod(source, "private void UpdateTilePositions()"));
 
         Check.WithCustomMessage(
-                "UpdateTilePositions must skip tiles whose face does not intersect the "
-                + "ScrollViewer's viewport: without the guard a fully clipped tile keeps a "
-                + "LIVE dwell target at its true on-screen position — inside the gazeable "
-                + "bottom band for a range of window heights — and gaze resting there "
-                + "silently switches windows (and, with the close disc beside it, contests "
-                + "it under nearest-hit arbitration).")
-            .That(body.Contains("TileOverlapsViewport")).IsTrue();
+                "UpdateTilePositions must skip tiles whose visible area is empty, with the "
+                + "guard in one piece (condition AND continue in one statement): deleting "
+                + "only the continue leaves the check as dead code and registers clipped "
+                + "tiles again — a live target where nothing is drawn.")
+            .That(Regex.IsMatch(body,
+                @"if\s*\(\s*visibleRect\.Width\s*<=\s*0\s*\|\|\s*visibleRect\.Height\s*<=\s*0\s*\)\s*continue;"))
+            .IsTrue();
+        Check.WithCustomMessage(
+                "The dwell target must be the VISIBLE rect (the viewport intersection), not "
+                + "the full face: a partially clipped tile's hidden part sits under the hint "
+                + "row beside the close disc, and a live target there silently switches "
+                + "windows when gaze rests on it (external review I1).")
+            .That(body.Contains("UpdateTilePosition(tile.Hwnd, visibleRect)")).IsTrue();
     }
 }

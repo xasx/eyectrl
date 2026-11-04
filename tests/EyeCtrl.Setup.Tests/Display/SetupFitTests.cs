@@ -40,13 +40,13 @@ public sealed class SetupFitTests
 
             foreach (var item in FitCatalog.ItemsOf("setup420x160"))
             {
-                var english = MeasureButton(item.Text);
+                var english = MeasureButton(item.Key, item.Text);
                 Check.WithCustomMessage($"{item}: {english}").That(english.Fits).IsTrue();
             }
 
             foreach (var item in GermanDraft.ItemsOf("setup420x160"))
             {
-                var german = MeasureButton(item.Text);
+                var german = MeasureButton(item.Key, item.Text);
                 Check.WithCustomMessage($"{item} \"{item.Text}\": {german}").That(german.Fits).IsTrue();
             }
         });
@@ -86,8 +86,8 @@ public sealed class SetupFitTests
                          string.Join(" ", Enumerable.Repeat("Wwww", 2000)),
                      })
             {
-                Check.WithCustomMessage($"setup420x160 passed an over-long text: {MeasureButton(text)}")
-                    .That(MeasureButton(text).Fits).IsFalse();
+                Check.WithCustomMessage($"setup420x160 passed an over-long text: {MeasureButton("fit.probe", text)}")
+                    .That(MeasureButton("fit.probe", text).Fits).IsFalse();
                 Check.WithCustomMessage($"setupProse passed an over-long text: {MeasureProse(text)}")
                     .That(MeasureProse(text).Fits).IsFalse();
             }
@@ -118,10 +118,10 @@ public sealed class SetupFitTests
         Check.That(SetupWindowMetrics.ProseFontSize).IsGreaterOrEqualThan(36);
     }
 
-    private static FitVerdict MeasureButton(string text)
+    private static FitVerdict MeasureButton(string key, string text)
     {
         var button = UninstallChoiceWindow.CreateChoiceButton(
-            text, ButtonKind.Normal, "setup_fit_button", () => { });
+            text, KindFor(key), "setup_fit_button", () => { });
         var panel = new StackPanel();
         panel.Children.Add(button);
         using var host = FitHost.Open(panel, family: Tokens.FontStandard);
@@ -140,9 +140,17 @@ public sealed class SetupFitTests
         return new FitVerdict(ok,
             $"button {FitText.Dip(button.ActualWidth)}×{FitText.Dip(button.ActualHeight)}, widest run "
             + $"'{run}' {FitText.Dip(runWidth)} vs {FitText.Dip(roomWidth)}, wrapped height "
-            + $"{FitText.Dip(height)} vs {FitText.Dip(roomHeight)}",
+            + $"{FitText.Dip(height)} vs {FitText.Dip(roomHeight)} ({KindFor(key)})",
             FitText.ResolvedFace(label), Math.Min(roomWidth - runWidth, roomHeight - height));
     }
+
+    /// <summary>The button face each classed key is drawn with (the primary/danger weights differ).</summary>
+    private static ButtonKind KindFor(string key) => key switch
+    {
+        "uninstall.choice.keep" or "uninstall.confirmDelete.no" => ButtonKind.Primary,
+        "uninstall.confirmDelete.yes" => ButtonKind.Danger,
+        _ => ButtonKind.Normal,
+    };
 
     private static FitVerdict MeasureProse(string text)
     {

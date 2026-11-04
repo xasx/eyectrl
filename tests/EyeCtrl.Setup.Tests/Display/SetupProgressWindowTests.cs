@@ -3,6 +3,7 @@ namespace EyeCtrl.Setup.Tests.Display;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Display;
@@ -92,6 +93,35 @@ public sealed class SetupProgressWindowTests
                 Check.That(window.TitleText).IsEqualTo(English.T("uninstall.done.kept"));
                 Check.That(window.DetailText).IsEqualTo(string.Empty);
                 Check.That(window.StageText).IsEqualTo(string.Empty);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void TheSelfCloseTimer_ActuallyFires()
+    {
+        RunSta(() =>
+        {
+            var closed = false;
+            var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => closed = true);
+            try
+            {
+                window.ScheduleClose(TimeSpan.FromMilliseconds(40));
+
+                // Pump the thread's dispatcher; the window is never shown.
+                var frame = new DispatcherFrame();
+                var stop = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(3) };
+                stop.Tick += (_, _) => frame.Continue = false;
+                stop.Start();
+                Dispatcher.PushFrame(frame);
+                stop.Stop();
+
+                Check.WithCustomMessage("The result's self-close timer did not fire.").That(closed).IsTrue();
+                Check.That(window.IsCloseScheduled).IsFalse();
             }
             finally
             {

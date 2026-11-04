@@ -62,9 +62,9 @@ internal sealed class SetupProgressWindow : Window
         Width = bounds.Width;
         Height = bounds.Height;
 
-        _title = CreateText(Tokens.BrushTextPrimary, strong: true);
-        _detail = CreateText(Tokens.BrushTextSecondary);
-        _stage = CreateText(Tokens.BrushTextPrimary);
+        _title = UninstallChoiceWindow.CreateProse(string.Empty, strong: true);
+        _detail = UninstallChoiceWindow.CreateProse(string.Empty, secondary: true);
+        _stage = UninstallChoiceWindow.CreateProse(string.Empty);
 
         _title.Text = progressTitle;
         _detail.Text = SetupDisplayText.ProgressDetail(strings, verb);
@@ -149,20 +149,6 @@ internal sealed class SetupProgressWindow : Window
     /// <summary>Tests whether an HWND carries the non-activating style.</summary>
     internal static bool HasNoActivateStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExNoActivate) != 0;
-
-    private static TextBlock CreateText(System.Windows.Media.Brush foreground, bool strong = false) =>
-        new()
-        {
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = SetupWindowMetrics.ProseWidth,
-            FontFamily = Tokens.FontStandard,
-            FontSize = SetupWindowMetrics.ProseFontSize,
-            FontWeight = strong ? Tokens.FontWeightStrong : Tokens.FontWeightMedium,
-            Foreground = foreground,
-            Margin = new Thickness(0, 0, 0, 12),
-        };
 
     private void ApplyClickThrough()
     {

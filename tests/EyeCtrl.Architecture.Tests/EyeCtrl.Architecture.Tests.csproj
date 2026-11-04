@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Wpf\EyeCtrl.Sdk.Wpf.csproj" />
     <ProjectReference Include="..\..\src\EyeCtrl.App\EyeCtrl.App.csproj" />
     <ProjectReference Include="..\..\src\EyeCtrl.Supervisor\EyeCtrl.Supervisor.csproj" />
+    <ProjectReference Include="..\..\src\EyeCtrl.Setup\EyeCtrl.Setup.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Linked, not copied: the hook is one rule, and a second copy is a second rule. Every

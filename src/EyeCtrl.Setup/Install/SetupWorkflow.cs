@@ -1,6 +1,7 @@
 namespace EyeCtrl.Setup.Install;
 
 using EyeCtrl.Setup.Abstractions;
+using EyeCtrl.Setup.Display;
 
 /// <summary>
 /// The medium instance's workflow: the elevation policy gate, the elevated phases, the start and
@@ -23,6 +24,7 @@ public sealed class SetupWorkflow
     private readonly ISetupEnvironment _environment;
     private readonly ISetupClock _clock;
     private readonly ISetupLog _log;
+    private readonly ISetupDisplayFactory _displayFactory;
 
     /// <summary>Creates the workflow.</summary>
     public SetupWorkflow(
@@ -30,7 +32,8 @@ public sealed class SetupWorkflow
         SupervisionStartPlanner planner,
         IFileSystem fileSystem, IProcessControl processes, IUninstallChoice uninstallChoice,
         IRunIdGenerator runIds, IPackageMetadataReader metadata, IResultRecorder recorder,
-        ISetupEnvironment environment, ISetupClock clock, ISetupLog log)
+        ISetupEnvironment environment, ISetupClock clock, ISetupLog log,
+        ISetupDisplayFactory? displayFactory = null)
     {
         _paths = paths;
         _policy = policy;
@@ -46,6 +49,7 @@ public sealed class SetupWorkflow
         _environment = environment;
         _clock = clock;
         _log = log;
+        _displayFactory = displayFactory ?? NullSetupDisplayFactory.Instance;
     }
 
     /// <summary>Installs the package and applies the three-part pass rule, rolling back on a
@@ -53,10 +57,16 @@ public sealed class SetupWorkflow
     public SetupResult Update(string packageDirectory)
     {
         if (MustRunMedium(SetupVerb.Update) is { } medium) return medium;
-        if (Blocked(SetupVerb.Update) is { } blocked)
-            return blocked;
-        if (HandOff(SetupVerb.Update, ["update", packageDirectory]) is { } handoff)
+
+        // Created before the hand-off, but only shown on first use: a hand-off child that exits
+        // without touching it shows nothing, while a policy-blocked run-copy prepare can still
+        // show uninstall.needsHelp from the installed exe.
+        using var display = _displayFactory.Create(SetupVerb.Update);
+
+        if (HandOff(SetupVerb.Update, ["update", packageDirectory], display) is { } handoff)
             return handoff;
+        if (Blocked(SetupVerb.Update, display) is { } blocked)
+            return blocked;
 
         var runId = _runIds.NewId();
 
@@ -64,12 +74,14 @@ public sealed class SetupWorkflow
         if (currentRunId is not null)
             runId = currentRunId;
 
+        display.Stage(SetupStage.Verify);
         var prepare = _broker.Run(new ElevatedRequest(
             ElevatedJob.PrepareUpdate, PackageDirectory: packageDirectory, RunId: runId,
             ReuseRunCopy: currentRunId is not null));
         if (!prepare.Succeeded)
-            return FinishRefused(SetupVerb.Update, prepare);
+            return FinishRefused(SetupVerb.Update, prepare, display);
 
+        display.Stage(SetupStage.Stop);
         var apply = _broker.Run(new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: runId));
         if (!apply.Succeeded)
         {
@@ -77,26 +89,28 @@ public sealed class SetupWorkflow
             {
                 // G1: the timed-out elevated child may still be renaming. Do not repair, revert
                 // or start anything; the RunOnce/journal repair finishes at the next logon.
-                return Finish(SetupVerb.Update, SetupOutcome.Failed, null, null, "childStillRunning");
+                return Finish(SetupVerb.Update, SetupOutcome.Failed, null, null, "childStillRunning", display: display);
             }
 
             if (apply.Status == ElevatedPhaseStatus.Failed)
             {
-                var repaired = TryRepairAfterFailedApply(runId);
+                var repaired = TryRepairAfterFailedApply(runId, display);
                 if (repaired is not null)
                     return repaired;
             }
 
-            return FinishRefused(SetupVerb.Update, apply);
+            return FinishRefused(SetupVerb.Update, apply, display);
         }
 
+        display.Stage(SetupStage.Swap);
         var newVersion = _metadata.Read(_paths.InstallRoot).Version;
         var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
 
+        display.Stage(SetupStage.Start);
         var start = StartChecked();
         if (start.Passed)
         {
-            return Finish(SetupVerb.Update, SetupOutcome.Ok, newVersion, previousVersion);
+            return Finish(SetupVerb.Update, SetupOutcome.Ok, newVersion, previousVersion, display: display);
         }
 
         _log.Warn($"New version failed the pass rule: {start.FailureReason}; rolling back.");
@@ -107,19 +121,19 @@ public sealed class SetupWorkflow
             && start.StillAlive && start.UiAccessOnlyFailure)
         {
             return Finish(SetupVerb.Update, SetupOutcome.Degraded, newVersion, null,
-                "degraded:" + start.FailureReason);
+                "degraded:" + start.FailureReason, display: display);
         }
 
         return RevertAndCheck(
             SetupVerb.Update, newVersion, previousVersion, runId, start.FailureReason,
-            attemptedStart: start);
+            attemptedStart: start, display: display);
     }
 
     /// <summary>
     /// A partial apply is finished by <c>repair</c>, and the repaired version then faces the same
     /// pass rule (or a checked revert). It is never started un-checked.
     /// </summary>
-    private SetupResult? TryRepairAfterFailedApply(string runId)
+    private SetupResult? TryRepairAfterFailedApply(string runId, ISetupDisplay? display)
     {
         var repair = _broker.Run(new ElevatedRequest(ElevatedJob.Repair, RunId: runId));
         if (!repair.Succeeded)
@@ -127,13 +141,13 @@ public sealed class SetupWorkflow
             if (repair.Detail == "childStillRunning")
             {
                 // G1: the stopped child may still be renaming; do not launch the revert.
-                return Finish(SetupVerb.Update, SetupOutcome.Failed, null, null, "childStillRunning");
+                return Finish(SetupVerb.Update, SetupOutcome.Failed, null, null, "childStillRunning", display: display);
             }
 
             _log.Warn($"Repair after a failed apply failed: {repair.Detail}; trying the previous version.");
             return RevertAndCheck(
                 SetupVerb.Update, null, _metadata.Read(_paths.PreviousRoot).Version, runId,
-                "repair:" + repair.Detail);
+                "repair:" + repair.Detail, display: display);
         }
 
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
@@ -143,19 +157,19 @@ public sealed class SetupWorkflow
         var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
         var start = StartChecked();
         if (start.Passed)
-            return Finish(SetupVerb.Update, SetupOutcome.Ok, version, previousVersion, "repairCompleted");
+            return Finish(SetupVerb.Update, SetupOutcome.Ok, version, previousVersion, "repairCompleted", display: display);
 
         _log.Warn($"Repaired version failed the pass rule: {start.FailureReason}; reverting.");
 
         if (start.StillAlive && start.UiAccessOnlyFailure && !_fileSystem.DirectoryExists(_paths.PreviousRoot))
         {
             return Finish(SetupVerb.Update, SetupOutcome.Degraded, version, null,
-                "degraded:" + start.FailureReason);
+                "degraded:" + start.FailureReason, display: display);
         }
 
         return RevertAndCheck(
             SetupVerb.Update, version, previousVersion, runId, "repairedVersionFailed:" + start.FailureReason,
-            attemptedStart: start);
+            attemptedStart: start, display: display);
     }
 
     /// <summary>Reverts to the previous version and pass-checks it. Both failing is the only
@@ -164,13 +178,13 @@ public sealed class SetupWorkflow
     private SetupResult RevertAndCheck(
         SetupVerb verb, string? attemptedVersion, string? previousVersion, string? runId,
         string? failureReason, SetupOutcome passedOutcome = SetupOutcome.RolledBack,
-        AppStartOutcome? attemptedStart = null)
+        AppStartOutcome? attemptedStart = null, ISetupDisplay? display = null)
     {
         if (string.IsNullOrWhiteSpace(runId)
             || !_fileSystem.DirectoryExists(_paths.PreviousRoot))
         {
             return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, previousVersion,
-                "noPreviousToRevert:" + failureReason);
+                "noPreviousToRevert:" + failureReason, display: display);
         }
 
         var revert = _broker.Run(new ElevatedRequest(ElevatedJob.Revert, RunId: runId));
@@ -182,11 +196,11 @@ public sealed class SetupWorkflow
                 && _processes.IsAlive(pid))
             {
                 return Finish(verb, SetupOutcome.Degraded, attemptedVersion, previousVersion,
-                    "degradedRevertRefused:" + revert.Detail);
+                    "degradedRevertRefused:" + revert.Detail, display: display);
             }
 
             return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, previousVersion,
-                "revert:" + revert.Detail);
+                "revert:" + revert.Detail, display: display);
         }
 
         var restoredVersion = _metadata.Read(_paths.InstallRoot).Version;
@@ -194,18 +208,18 @@ public sealed class SetupWorkflow
         if (start.Passed)
         {
             return Finish(verb, passedOutcome, attemptedVersion, restoredVersion,
-                "newVersionFailed:" + failureReason);
+                "newVersionFailed:" + failureReason, display: display);
         }
 
         if (start.StillAlive && start.UiAccessOnlyFailure)
         {
             // Q12: keep the last-resort version running; it names the running version.
             return Finish(verb, SetupOutcome.Degraded, restoredVersion, attemptedVersion,
-                "degraded:" + start.FailureReason);
+                "degraded:" + start.FailureReason, display: display);
         }
 
         return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, restoredVersion,
-            "previousFailed:" + start.FailureReason);
+            "previousFailed:" + start.FailureReason, display: display);
     }
 
     /// <summary>Restores <c>EyeCtrl.previous</c> and pass-checks it; a failed target rolls the
@@ -213,42 +227,50 @@ public sealed class SetupWorkflow
     public SetupResult Rollback()
     {
         if (MustRunMedium(SetupVerb.Rollback) is { } medium) return medium;
-        if (Blocked(SetupVerb.Rollback) is { } blocked)
-            return blocked;
-        if (HandOff(SetupVerb.Rollback, ["rollback"]) is { } handoff)
+
+        using var display = _displayFactory.Create(SetupVerb.Rollback);
+
+        if (HandOff(SetupVerb.Rollback, ["rollback"], display) is { } handoff)
             return handoff;
+        if (Blocked(SetupVerb.Rollback, display) is { } blocked)
+            return blocked;
 
         if (!_fileSystem.DirectoryExists(_paths.PreviousRoot))
-            return Finish(SetupVerb.Rollback, SetupOutcome.NotApplied, null, null, "previousMissing");
+            return Finish(SetupVerb.Rollback, SetupOutcome.NotApplied, null, null, "previousMissing", display: display);
 
         var currentRunId = CurrentRunId();
         var runId = currentRunId ?? _runIds.NewId();
+        display.Stage(SetupStage.Verify);
         if (currentRunId is null)
         {
             var source = RunCopySource();
             if (source is null)
-                return Finish(SetupVerb.Rollback, SetupOutcome.Failed, null, null, "setupMissing");
+                return Finish(SetupVerb.Rollback, SetupOutcome.Failed, null, null, "setupMissing", display: display);
 
             var prepare = _broker.Run(new ElevatedRequest(
                 ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: source));
             if (!prepare.Succeeded)
-                return FinishRefused(SetupVerb.Rollback, prepare);
+                return FinishRefused(SetupVerb.Rollback, prepare, display);
         }
 
+        display.Stage(SetupStage.Stop);
         var apply = _broker.Run(new ElevatedRequest(ElevatedJob.ApplyRollback, RunId: runId));
         if (!apply.Succeeded)
-            return FinishRefused(SetupVerb.Rollback, apply);
+            return FinishRefused(SetupVerb.Rollback, apply, display);
 
+        display.Stage(SetupStage.Swap);
         var restoredVersion = _metadata.Read(_paths.InstallRoot).Version;
         var displacedVersion = _metadata.Read(_paths.PreviousRoot).Version;
+        display.Stage(SetupStage.Start);
         var start = StartChecked();
         if (start.Passed)
-            return Finish(SetupVerb.Rollback, SetupOutcome.Ok, restoredVersion, displacedVersion);
+            return Finish(SetupVerb.Rollback, SetupOutcome.Ok, restoredVersion, displacedVersion, display: display);
 
         _log.Warn($"Rollback target failed the pass rule: {start.FailureReason}; rolling forward.");
         return RevertAndCheck(
             SetupVerb.Rollback, restoredVersion, displacedVersion, runId,
-            "rollbackTargetFailed:" + start.FailureReason, SetupOutcome.Failed, attemptedStart: start);
+            "rollbackTargetFailed:" + start.FailureReason, SetupOutcome.Failed,
+            attemptedStart: start, display: display);
     }
 
     /// <summary>
@@ -258,8 +280,11 @@ public sealed class SetupWorkflow
     public SetupResult Uninstall(bool quiet, bool? keepData)
     {
         if (MustRunMedium(SetupVerb.Uninstall) is { } medium) return medium;
-        if (Blocked(SetupVerb.Uninstall) is { } blocked)
-            return blocked;
+
+        // --quiet is scripted: no window, not even a result. The App's uninstall hand-off passes
+        // --keep/--delete and shows the progress/result.
+        using var display = quiet ? null : _displayFactory.Create(SetupVerb.Uninstall);
+
         var relaunchArguments = new List<string> { "uninstall" };
         if (quiet)
             relaunchArguments.Add("--quiet");
@@ -267,8 +292,10 @@ public sealed class SetupWorkflow
             relaunchArguments.Add("--keep");
         else if (keepData is false)
             relaunchArguments.Add("--delete");
-        if (HandOff(SetupVerb.Uninstall, relaunchArguments) is { } handoff)
+        if (HandOff(SetupVerb.Uninstall, relaunchArguments, display) is { } handoff)
             return handoff;
+        if (Blocked(SetupVerb.Uninstall, display) is { } blocked)
+            return blocked;
 
         bool keep;
         if (quiet)
@@ -283,7 +310,7 @@ public sealed class SetupWorkflow
         {
             var choice = _uninstallChoice.Ask();
             if (choice == UninstallChoice.Cancel)
-                return Finish(SetupVerb.Uninstall, SetupOutcome.Cancelled, null, null, "cancelled");
+                return Finish(SetupVerb.Uninstall, SetupOutcome.Cancelled, null, null, "cancelled", display: display);
             keep = choice == UninstallChoice.Keep;
         }
 
@@ -293,20 +320,21 @@ public sealed class SetupWorkflow
         {
             var source = RunCopySource();
             if (source is null)
-                return Finish(SetupVerb.Uninstall, SetupOutcome.Failed, null, null, "setupMissing");
+                return Finish(SetupVerb.Uninstall, SetupOutcome.Failed, null, null, "setupMissing", display: display);
 
             var prepare = _broker.Run(new ElevatedRequest(
                 ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: source));
             if (!prepare.Succeeded)
-                return FinishRefused(SetupVerb.Uninstall, prepare);
+                return FinishRefused(SetupVerb.Uninstall, prepare, display);
         }
 
+        display?.Stage(SetupStage.Stop);
         var uninstall = _broker.Run(new ElevatedRequest(
             ElevatedJob.Uninstall, RunId: runId, KeepData: keep));
         return uninstall.Succeeded
             ? Finish(SetupVerb.Uninstall, SetupOutcome.Uninstalled, null, null,
-                keep ? "kept" : "deleted")
-            : Finish(SetupVerb.Uninstall, SetupOutcome.Failed, null, null, uninstall.Detail);
+                keep ? "kept" : "deleted", display: display)
+            : Finish(SetupVerb.Uninstall, SetupOutcome.Failed, null, null, uninstall.Detail, display: display);
     }
 
     /// <summary>Finishes an interrupted swap (the RunOnce logon path) and starts the App.</summary>
@@ -380,7 +408,8 @@ public sealed class SetupWorkflow
     /// child (now outside EyeCtrl\) does the work. This is plan §10's "Setup never runs from a
     /// folder it renames".
     /// </summary>
-    private SetupResult? HandOff(SetupVerb verb, IReadOnlyList<string> arguments)
+    private SetupResult? HandOff(
+        SetupVerb verb, IReadOnlyList<string> arguments, ISetupDisplay? display = null)
     {
         var self = _environment.ProcessPath;
         if (self is null || !_paths.IsInRenamedFolder(self))
@@ -390,20 +419,20 @@ public sealed class SetupWorkflow
         var prepare = _broker.Run(new ElevatedRequest(
             ElevatedJob.PrepareRunCopy, RunId: runId, SourceSetupExe: self));
         if (!prepare.Succeeded)
-            return FinishRefused(verb, prepare);
+            return FinishRefused(verb, prepare, display);
 
         var runCopy = _paths.RunSetupExePath(runId);
 
         // The run copy applies the swap, so it must not inherit (and hold) the installed folder.
         var pid = _processes.Start(runCopy, SetupWorkingDirectory.Neutral, arguments);
         if (pid is null)
-            return Finish(verb, SetupOutcome.Failed, null, null, "relaunchFailed");
+            return Finish(verb, SetupOutcome.Failed, null, null, "relaunchFailed", display: display);
 
         _log.Info($"{verb}: relaunched the medium verb from the run copy (PID {pid}).");
-        return Finish(verb, SetupOutcome.HandedOff, null, null, "relaunchedFromRunCopy", pid);
+        return Finish(verb, SetupOutcome.HandedOff, null, null, "relaunchedFromRunCopy", pid, display);
     }
 
-    private SetupResult? Blocked(SetupVerb verb)
+    private SetupResult? Blocked(SetupVerb verb, ISetupDisplay? display = null)
     {
         var policy = _policy.Read();
         if (policy.Allowed)
@@ -417,20 +446,20 @@ public sealed class SetupWorkflow
             var start = TryStartInstalledIfNotRunning();
             if (start is { Passed: false, UiAccessOnlyFailure: true, StillAlive: true })
             {
-                return Finish(verb, SetupOutcome.Blocked, null, null, "elevationPolicy:appDegraded");
+                return Finish(verb, SetupOutcome.Blocked, null, null, "elevationPolicy:appDegraded", display: display);
             }
 
             if (start is { Passed: false })
             {
                 return Finish(verb, SetupOutcome.AllFailed, null, null,
-                    "restartFailed:" + start.FailureReason);
+                    "restartFailed:" + start.FailureReason, display: display);
             }
         }
 
-        return Finish(verb, SetupOutcome.Blocked, null, null, "elevationPolicy");
+        return Finish(verb, SetupOutcome.Blocked, null, null, "elevationPolicy", display: display);
     }
 
-    private SetupResult FinishRefused(SetupVerb verb, ElevatedPhaseResult phase)
+    private SetupResult FinishRefused(SetupVerb verb, ElevatedPhaseResult phase, ISetupDisplay? display = null)
     {
         var outcome = phase.Status switch
         {
@@ -444,7 +473,7 @@ public sealed class SetupWorkflow
         // Never restart the App from EyeCtrl while it does. This covers every caller, including
         // the rollback apply (and the prepare children, where a restart would be only wasteful).
         if (phase.Detail == "childStillRunning")
-            return Finish(verb, outcome, null, null, phase.Detail);
+            return Finish(verb, outcome, null, null, phase.Detail, display: display);
 
         // An update, rollback or repair must end in a pass-ruled version (or a checked revert).
         // A pre-swap refusal leaves the old version intact; start and check it. Uninstall never
@@ -455,17 +484,17 @@ public sealed class SetupWorkflow
             if (start is { Passed: false, UiAccessOnlyFailure: true, StillAlive: true })
             {
                 return Finish(verb, outcome, null, null,
-                    (phase.Detail is null ? string.Empty : phase.Detail + ":") + "appDegraded");
+                    (phase.Detail is null ? string.Empty : phase.Detail + ":") + "appDegraded", display: display);
             }
 
             if (start is { Passed: false })
             {
                 return Finish(verb, SetupOutcome.AllFailed, null, null,
-                    "restartFailed:" + start.FailureReason);
+                    "restartFailed:" + start.FailureReason, display: display);
             }
         }
 
-        return Finish(verb, outcome, null, null, phase.Detail);
+        return Finish(verb, outcome, null, null, phase.Detail, display: display);
     }
 
     /// <summary>Starts the installed App with the real supervision × boot plan in the log, then
@@ -570,7 +599,7 @@ public sealed class SetupWorkflow
 
     private SetupResult Finish(
         SetupVerb verb, SetupOutcome outcome, string? version, string? previousVersion,
-        string? detail = null, int? processId = null)
+        string? detail = null, int? processId = null, ISetupDisplay? display = null)
     {
         var result = new SetupResult
         {
@@ -584,7 +613,12 @@ public sealed class SetupWorkflow
         };
 
         if (outcome != SetupOutcome.HandedOff)
+        {
+            // Record first: a display failure must never lose the terminal result.
             _recorder.Write(result);
+            display?.Finish(result);
+        }
+
         _log.Info($"{verb}: {outcome}" + (detail is null ? string.Empty : $" ({detail})"));
         return result;
     }

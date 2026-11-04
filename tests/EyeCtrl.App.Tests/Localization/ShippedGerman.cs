@@ -34,10 +34,13 @@ internal static class ShippedGerman
         "eye-care",
         "language-recovery",
         "overlays",
+        "rollback",
         "settings",
         "startup-error",
         "supervisor",
-        "track-status"
+        "track-status",
+        "uninstall",
+        "update"
     ];
 
     /// <summary>The machine culture the switch-on is measured on: this PC's de-DE.</summary>

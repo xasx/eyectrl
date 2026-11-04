@@ -68,7 +68,7 @@ public class StartupStringTableTests
         var table = StartupStringTable.Load(
             Settings(UiLanguage.System), ShippedGerman.GermanCulture, AppContext.BaseDirectory, warnings.Add);
 
-        // C9 S6f adds the update flow's two surfaces; the set follows StringTableSchema (the
+        // C9 S6e/S6f add the install flow's surfaces; the set follows StringTableSchema (the
         // switch-on decision itself is pinned in ShippedGermanSwitchOnTests).
         Check.That(ShippedGerman.SwitchedOn).HasSize(StringTableSchema.Surfaces.Count);
         AssertGermanOnEverySurface(table, warnings);

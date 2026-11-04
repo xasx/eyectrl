@@ -24,9 +24,10 @@ public static class StringTableSchema
         "calibration",
         "eye-care",
         "overlays",
-        // C9 S6f: the update flow's own surfaces (plan §10's tables).
-        "update",
-        "rollback"
+        // C9 S6e/S6f: the install flow's own surfaces (plan §10's tables; reviewed 2nd-merge union).
+        "rollback",
+        "uninstall",
+        "update"
     ];
 
     /// <summary>Audience values the <c>who</c> meta field may carry.</summary>
@@ -103,6 +104,11 @@ public static class StringTableSchema
         "btn544x106",
         // Paginated Settings rows and wrapping prose: pagination and reachability (T09 PR 2).
         "row",
-        "prose"
+        "prose",
+        // C9 S6e: Setup's own screens. setup420x160 is the uninstall choice's 420 x 160 DIP
+        // button (28 DIP, wrapping); setupProse is every 36 DIP prose line (titles, questions,
+        // details, progress and result text) in its 1280 x 384 DIP box.
+        "setup420x160",
+        "setupProse"
     ];
 }

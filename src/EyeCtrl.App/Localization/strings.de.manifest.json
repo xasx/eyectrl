@@ -11,5 +11,6 @@
   "startup-error",
   "supervisor",
   "track-status",
+  "uninstall",
   "update"
 ]

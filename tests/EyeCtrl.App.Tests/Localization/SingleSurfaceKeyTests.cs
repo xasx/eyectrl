@@ -32,6 +32,10 @@ public class SingleSurfaceKeyTests
     [
         // Folders that really hold one surface.
         ("src/EyeCtrl.App/Views/Settings/**", ["settings"]),
+        // C9 S6e: Setup's uninstall choice and its progress/result screens reference the three
+        // Setup surfaces (one screen may only carry one of them; the map grants all three to the
+        // project because SetupDisplayText maps every verb's outcome).
+        ("src/EyeCtrl.Setup/**", ["rollback", "uninstall", "update"]),
         // The Supervisor's tray, setup window and FallenBack dialog are one surface (D4). Its
         // recovery strings are another (D5), and the Supervisor files that hold them are listed
         // explicitly by T05b — a glob must not grant both surfaces to every file.

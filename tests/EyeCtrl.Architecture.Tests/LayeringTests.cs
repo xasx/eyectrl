@@ -96,7 +96,8 @@ public class LayeringTests
             ["EyeCtrl.EyeCare"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.LM"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.Supervisor"] = Set("EyeCtrl.Core", "EyeCtrl.Platform", "EyeCtrl.Controls"),
-            ["EyeCtrl.Setup"] = Set("EyeCtrl.Core"),
+            ["EyeCtrl.Setup"] = Set("EyeCtrl.Core", "EyeCtrl.Controls", "EyeCtrl.Sdk.Wpf",
+                "EyeCtrl.Sdk.Abstractions"),
             ["EyeCtrl.Sdk.Abstractions"] = Set("EyeCtrl.Contracts"),
             ["EyeCtrl.Sdk.Wpf"] = Set("EyeCtrl.Sdk.Abstractions"),
             ["EyeCtrl.Sdk.WinUI"] = Set("EyeCtrl.Sdk.Abstractions"),
@@ -184,6 +185,19 @@ public class LayeringTests
     }
 
     [Fact]
+    public void Setup_Couples_To_Core_Controls_And_Sdk_Wpf_But_Not_App()
+    {
+        // C9 S6e: Setup renders the owner's uninstall choice and its progress/result screens. It
+        // takes the theme from EyeCtrl.Controls and the Dwell attached properties from the SDK,
+        // and must stay independent of the App (it installs, updates and removes the App, so a
+        // coupling would let the App's own code decide whether it runs).
+        var refs = UsageRefsOf("EyeCtrl.Setup");
+        Check.That(refs.Contains("EyeCtrl.App")).IsFalse();
+        ExpectUsageRefs("EyeCtrl.Setup",
+            new[] { "EyeCtrl.Core", "EyeCtrl.Controls", "EyeCtrl.Sdk.Wpf", "EyeCtrl.Sdk.Abstractions" });
+    }
+
+    [Fact]
     public void App_Does_Not_Couple_To_Supervisor_Or_The_Sdk_Chain()
     {
         // App is the composition root and the eyectrl_dwell pipe SERVER; it must not couple to its
@@ -259,6 +273,7 @@ public class LayeringTests
         {
             "EyeCtrl.Core", "EyeCtrl.Platform", "EyeCtrl.ViewModels", "EyeCtrl.App",
             "EyeCtrl.Controls", "EyeCtrl.EyeCare", "EyeCtrl.LM", "EyeCtrl.Supervisor",
+            "EyeCtrl.Setup",
             "EyeCtrl.Contracts", "EyeCtrl.Sdk.Abstractions", "EyeCtrl.Sdk.Wpf",
         };
         var missing = expected.Where(n => !UsageReferences.ContainsKey(n)).OrderBy(s => s).ToList();

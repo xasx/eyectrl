@@ -47,6 +47,9 @@ internal static class AppFitMeasurers
     /// <summary>Classes measured in EyeCtrl.Supervisor.Tests (their windows are Supervisor-internal).</summary>
     internal static readonly string[] SupervisorMeasuredClasses = ["tray63", "B260x3", "C-fallback"];
 
+    /// <summary>Classes measured in EyeCtrl.Setup.Tests (Setup's own windows and buttons).</summary>
+    internal static readonly string[] SetupMeasuredClasses = ["setup420x160", "setupProse"];
+
     /// <summary>Classes that are paginated rows or prose, measured by PR 2's pagination gates.</summary>
     internal static readonly string[] PaginatedClasses = ["row", "prose"];
 

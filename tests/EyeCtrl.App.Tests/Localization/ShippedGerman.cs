@@ -41,6 +41,7 @@ internal static class ShippedGerman
         "startup-error",
         "supervisor",
         "track-status",
+        "uninstall",
         "update"
     ];
 

@@ -12,6 +12,13 @@ using EyeCtrl.Controls;
 /// versions" requirement depended on it), and the probe placeholder is a label whose MinHeight
 /// holds roughly the same footprint. Headless: the controls are constructed and measured, never
 /// shown.
+///
+/// <para>
+/// The renderer change is deliberately NOT inert: three pre-existing rows carried descriptions that
+/// were dropped until now and render them since — <c>ad_reset_learned</c> and <c>ad_log</c> on
+/// „Anpassung", <c>dg_open_folder</c> on „Diagnose". That was accepted by the coordinator (review 03
+/// S2) as wanted behaviour, and is pinned by <c>AnExistingDescribedRow_NowRendersItsDescription</c>.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 public class SetupRowControlTests
@@ -53,7 +60,8 @@ public class SetupRowControlTests
     [StaFact]
     public void AnUndescribedButton_StaysABareDwellButton()
     {
-        // The existing ~160 ButtonSpecs (Reset rows etc.) keep their exact shape and pitch.
+        // A ButtonSpec WITHOUT a description keeps its exact shape and pitch — the many Reset
+        // rows among them. (Described specs are the three pre-existing rows above plus S6f's.)
         WpfApplicationGate.EnsureApplicationWithTokens();
 
         var control = SettingsWindow.CreateControl(
@@ -80,6 +88,37 @@ public class SetupRowControlTests
         Check.That(label).IsNotNull();
         Check.That(label!.Root.MinHeight).IsEqualTo(SettingsRowSpec.DescribedButtonRowHeight);
         Check.That(label.Root.Text).IsEqualTo("Update wird geprüft");
+    }
+
+    /// <summary>
+    /// Review 03 S2: three pre-existing ButtonSpecs carried descriptions that were dropped until
+    /// the described-row renderer; the coordinator accepted showing them. Pinned on the Diagnostics
+    /// row that sits directly above C10's sub-pixel probe button.
+    /// </summary>
+    [StaFact]
+    public void AnExistingDescribedRow_NowRendersItsDescription()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var context = EyeCtrl.App.Tests.Settings.Pages.TestSettingsPageContext.Build();
+        var spec = new DiagnosticsPageSource(context).Build()
+            .SelectMany(page => page.Rows)
+            .OfType<ButtonSpec>()
+            .Single(row => row.Id == "dg_open_folder");
+
+        Check.WithCustomMessage("dg_open_folder carries a description in its spec.")
+            .That(string.IsNullOrWhiteSpace(spec.Description)).IsFalse();
+
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            spec, new SettingsAutoPagination.NoopDwellRegistrar(),
+            RadiusPhysical, DwellMs, availableWidth: 1000);
+        var host = new Grid();
+        composite.Attach(host);
+        var stack = host.Children[0] as StackPanel;
+        Check.That(stack).IsNotNull();
+        var text = stack!.Children[1] as TextBlock;
+        Check.That(text).IsNotNull();
+        Check.WithCustomMessage("dg_open_folder's description must render beneath its button.")
+            .That(text!.Text).IsEqualTo(spec.Description);
     }
 
     /// <summary>

@@ -26,6 +26,8 @@ public class StagingServiceTests
             Check.That(harness.Files.HasZoneIdentifier(file)).IsFalse();
         Check.That(harness.Catalog.Calls).HasSize(1);
         Check.That(harness.Catalog.Calls[0]).Contains(SetupConstants.PinnedThumbprint);
+        // M5: the re-check happens INSIDE staging, never on the user-writable inbox.
+        Check.That(harness.Catalog.Calls[0]).Contains(harness.Paths.StagingRoot);
         Check.That(harness.Files.FileExists(
             Path.Combine(package, SetupConstants.SetupExeName))).IsTrue();
         Check.That(harness.Files.HasZoneIdentifier(

@@ -17,6 +17,9 @@ public class CatalogVerifierTests
     private const string ExpectedTag =
         "753B2705E34C3DA25CF44DC6F547B23839D7FA1B0A81555912E477A7C1F82432";
 
+    private const string SecondTag =
+        "61D9FCC515269A316004E4233FF47374226912B1692CF887EBC349E90A512E4B";
+
     private static string FixtureDirectory =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "catalog-v2");
 
@@ -31,8 +34,52 @@ public class CatalogVerifierTests
             Path.Combine(FixtureDirectory, "sample.cat"));
 
         Check.That(members).ContainsKey("sample.txt");
+        Check.That(members).ContainsKey("second.txt");
         Check.That(members["sample.txt"]).IsEqualTo(ExpectedTag);
-        Check.That(members).HasSize(1);
+        Check.That(members["second.txt"]).IsEqualTo(SecondTag);
+        Check.That(members).HasSize(2);
+    }
+
+    [Fact]
+    public void TheCatalogFile_IsNotWalkedAsAMember()
+    {
+        var directory = CloneFixture();
+        try
+        {
+            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+                .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
+
+            Check.That(result.UncataloguedFiles).Not.Contains("EyeCtrl.cat");
+            Check.That(result.MissingFiles).IsEmpty();
+        }
+        finally
+        {
+            TryDelete(directory);
+        }
+    }
+
+    [Fact]
+    public void AFileUnderAnotherMembersName_IsAMismatch()
+    {
+        var directory = CloneFixture();
+        try
+        {
+            // Both contents are in the catalog, but under the wrong names. WinTrust's tag lookup
+            // would accept each file's own hash; only the FilePath binding catches the swap.
+            File.Copy(
+                Path.Combine(directory, "second.txt"),
+                Path.Combine(directory, "sample.txt"),
+                overwrite: true);
+
+            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+                .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
+
+            Check.That(result.HashMismatches).Contains("sample.txt");
+        }
+        finally
+        {
+            TryDelete(directory);
+        }
     }
 
     [Fact]
@@ -195,6 +242,9 @@ public class CatalogVerifierTests
         File.Copy(
             Path.Combine(FixtureDirectory, "sample.txt"),
             Path.Combine(directory, "sample.txt"));
+        File.Copy(
+            Path.Combine(FixtureDirectory, "second.txt"),
+            Path.Combine(directory, "second.txt"));
         File.Copy(
             Path.Combine(FixtureDirectory, "sample.cat"),
             Path.Combine(directory, "EyeCtrl.cat"));

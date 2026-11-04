@@ -5,6 +5,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Sdk.Abstractions;
 using EyeCtrl.Sdk.Wpf;
@@ -153,8 +154,11 @@ public sealed class UninstallChoiceWindowTests
 
         WithWindow(window =>
         {
-            window.CloseForTests();
-            Check.That(window.ResolveUnaskedResult()).IsEqualTo(UninstallChoice.Cancel);
+            // A real Close on a window whose handle exists (nothing is shown): Alt+F4 and any
+            // foreign close take this path, and it must be Cancel.
+            _ = new WindowInteropHelper(window).EnsureHandle();
+            window.Close();
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
         });
 
         WithWindow(window =>

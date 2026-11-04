@@ -148,9 +148,6 @@ internal sealed class UninstallChoiceWindow : Window
     /// <summary>Runs the Esc path.</summary>
     internal void PressEscapeForTests() => OnEscape();
 
-    /// <summary>Runs the close path's result resolution.</summary>
-    internal void CloseForTests() => OnClosingForTests();
-
     /// <summary>
     /// The production button factory. Also used by the fit class, so the measured control is the
     /// button the window draws: 420 x 160 DIP, 28 DIP wrapping text, theme tokens, and the SDK's
@@ -358,12 +355,6 @@ internal sealed class UninstallChoiceWindow : Window
         _choiceTimer.Stop();
         if (Result is null)
             Complete(UninstallChoice.Cancel);
-    }
-
-    private void OnClosingForTests()
-    {
-        _choiceTimer.Stop();
-        Result ??= UninstallChoice.Cancel;
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)

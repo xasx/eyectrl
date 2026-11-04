@@ -172,7 +172,13 @@ public sealed class SetupLastNoticeService
             return false;
 
         var shown = _store.ReadShownTime();
-        if (shown is { } shownTime && record.Time <= shownTime)
+        // S1 (review 03): WriteShownTime is best-effort — a marker that could not be persisted must
+        // not let the watch re-show the same card on every poll. The in-memory fact counts as seen
+        // too, so the effective marker is the later of the two.
+        var lastSeen = shown is { } persisted
+            ? (LastShownTime is { } inMemory && inMemory > persisted ? inMemory : persisted)
+            : LastShownTime;
+        if (lastSeen is { } seenTime && record.Time <= seenTime)
             return false;
 
         _store.WriteShownTime(record.Time);

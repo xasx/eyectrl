@@ -163,4 +163,55 @@ public class SetupNoticeWatchTests
         Check.That(harness.Now - Start >= TimeSpan.FromSeconds(90)).IsTrue();
         Check.That(harness.FileWatchDisposed).IsTrue();
     }
+
+    /// <summary>
+    /// S1 (review 03): <c>WriteShownTime</c> is best-effort. An OLD record shown at the immediate
+    /// check must not re-show on every 2 s poll when the marker never persisted — the service's
+    /// in-memory <c>LastShownTime</c> counts as seen too.
+    /// </summary>
+    [Fact]
+    public void WithAFailedMarkerWrite_TheSameOldRecord_ShowsOnlyOnceAcrossPolls()
+    {
+        var shown = new List<string>();
+        var scheduled = new List<Action>();
+        var now = Start;
+        var service = new SetupLastNoticeService(
+            new NonPersistingStore { Record = Record(time: Start.AddMinutes(-30)) },
+            (key, args) => args.Length == 0 ? key : key + "|" + string.Join(",", args),
+            () => "✓ OK",
+            (text, _) => shown.Add(text));
+        var watch = new SetupNoticeWatch(
+            service,
+            TimeSpan.FromSeconds(90),
+            TimeSpan.FromSeconds(2),
+            schedule: (_, tick) => scheduled.Add(tick),
+            now: () => now);
+
+        watch.Start();
+        Check.That(shown).HasSize(1);
+        Check.That(watch.IsDone).IsFalse();
+
+        // Ten polls over the next 20 s: the marker is still absent, the record is the same one.
+        for (var i = 0; i < 10; i++)
+        {
+            now = now.AddSeconds(2);
+            scheduled[^1]();
+        }
+
+        Check.That(shown).HasSize(1);
+    }
+
+    /// <summary>A store whose WriteShownTime swallows the failure and persists nothing.</summary>
+    private sealed class NonPersistingStore : ISetupNoticeStore
+    {
+        public SetupResult? Record { get; set; }
+
+        public string RecordPath => "";
+        public SetupResult? TryReadRecord() => Record;
+        public DateTimeOffset? ReadShownTime() => null;
+        public void WriteShownTime(DateTimeOffset time)
+        {
+            // The failed write: swallowed by the production store's contract; nothing persists.
+        }
+    }
 }

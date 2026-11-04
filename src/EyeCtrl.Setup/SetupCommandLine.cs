@@ -73,6 +73,11 @@ public static class SetupCommandLine
             return Fail("update requires a package directory");
         if (args.Count > 2)
             return Fail("update takes exactly one package directory");
+
+        // F3: Setup's cwd is neutral, so a relative directory would resolve somewhere else and
+        // surface later as a misleading "package damaged". Refuse it before anything starts.
+        if (!Path.IsPathFullyQualified(args[1]))
+            return Fail("update requires an absolute package directory");
         return new ParsedSetupCommand(SetupJob.Update, args[1], false, null, null, null, null);
     }
 
@@ -170,10 +175,12 @@ public static class SetupCommandLine
         if (job is null)
             return Fail($"unknown internal job '{jobName}'");
 
-        if (job is SetupJob.InternalPrepareUpdate
-            && string.IsNullOrWhiteSpace(packageDir))
+        if (job is SetupJob.InternalPrepareUpdate)
         {
-            return Fail($"{jobName} requires a package directory");
+            if (string.IsNullOrWhiteSpace(packageDir))
+                return Fail($"{jobName} requires a package directory");
+            if (!Path.IsPathFullyQualified(packageDir))
+                return Fail($"{jobName} requires an absolute package directory");
         }
 
         if (job is SetupJob.InternalPrepareRunCopy && string.IsNullOrWhiteSpace(source))

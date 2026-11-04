@@ -2,6 +2,7 @@ namespace EyeCtrl.Setup;
 
 using System.Text.Json;
 using EyeCtrl.Setup.Abstractions;
+using EyeCtrl.Setup.Display;
 using EyeCtrl.Setup.Install;
 using EyeCtrl.Setup.Windows;
 
@@ -66,9 +67,11 @@ public sealed class SetupComposition
             paths, elevated, environment, new WindowsElevationState(), policy,
             new ShellExecuteRunAsLauncher(log), log);
         var planner = new SupervisionStartPlanner(new SettingsSnapshotReader(paths, fileSystem));
+        var ui = SetupUi.Load(paths, fileSystem, AppContext.BaseDirectory);
         var workflow = new SetupWorkflow(
-            paths, policy, broker, appStart, planner, fileSystem, processes, new KeepUninstallChoice(),
-            new GuidRunIdGenerator(), metadata, recorder, environment, clock, log);
+            paths, policy, broker, appStart, planner, fileSystem, processes, new WpfUninstallChoice(ui),
+            new GuidRunIdGenerator(), metadata, recorder, environment, clock, log,
+            new WpfSetupDisplayFactory(ui, paths.AppDataRoot));
         var status = new StatusService(
             paths, state, processes, policy, recorder, registry, journal);
 

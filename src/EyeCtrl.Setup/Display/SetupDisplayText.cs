@@ -79,8 +79,11 @@ public static class SetupDisplayText
     };
 
     /// <summary>The self-close delay for an outcome.</summary>
-    public static TimeSpan CloseDelay(SetupOutcome outcome) =>
-        IsFailure(outcome) ? FailureCloseDelay : SuccessCloseDelay;
+    public static TimeSpan CloseDelay(SetupOutcome outcome) => CloseDelayFor(IsFailure(outcome));
+
+    /// <summary>The self-close delay for a success/failure reading.</summary>
+    public static TimeSpan CloseDelayFor(bool isFailure) =>
+        isFailure ? FailureCloseDelay : SuccessCloseDelay;
 
     private static string UninstallText(StringTable strings, SetupResult result, string appDataRoot)
     {

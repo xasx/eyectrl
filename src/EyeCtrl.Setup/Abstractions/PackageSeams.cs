@@ -19,6 +19,7 @@ public sealed record CatalogVerificationResult(
     string? SignerThumbprint,
     bool ThumbprintMatches,
     IReadOnlyList<string> HashMismatches,
+    IReadOnlyList<string> MissingFiles,
     IReadOnlyList<string> UncataloguedFiles,
     string? Error);
 

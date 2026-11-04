@@ -13,6 +13,7 @@ public sealed class FakeCatalogVerifier : ICatalogVerifier
         SignerThumbprint: SetupConstants.PinnedThumbprint,
         ThumbprintMatches: true,
         HashMismatches: [],
+        MissingFiles: [],
         UncataloguedFiles: [],
         Error: null);
 

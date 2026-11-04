@@ -49,7 +49,7 @@ public class UpdateWorkflowTests
         var harness = Harness();
         var package = SeedUpdatable(harness);
         harness.Catalog.Result = new CatalogVerificationResult(
-            true, SetupConstants.PinnedThumbprint, true, ["onnxruntime.dll"], [], null);
+            true, SetupConstants.PinnedThumbprint, true, ["onnxruntime.dll"], [], [], null);
 
         var result = harness.Workflow.Update(package);
 

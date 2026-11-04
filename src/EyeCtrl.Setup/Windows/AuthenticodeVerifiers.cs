@@ -14,13 +14,13 @@ internal static class WinTrustNative
     private const uint WtdChoiceCatalog = 2;
     private const uint WtdStateActionVerify = 1;
     private const uint WtdStateActionClose = 2;
-    private const uint WtdSaferFlag = 0x100;
-    private const int TrustENosignature = unchecked((int)0x800B0100);
-    private const int TrustESubjectFormUnknown = unchecked((int)0x800B0003);
 
     private static readonly Guid GenericVerifyV2 = new("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");
 
-    /// <summary>Verifies a signed file's signature and chain. Returns the HRESULT (0 is valid).</summary>
+    /// <summary>Verifies a signed file's signature and chain. Returns the HRESULT (0 is valid).
+    /// <para>Y1: no <c>WTD_SAFER_FLAG</c> here. That flag makes every signed catalog return
+    /// <c>TRUST_E_NOSIGNATURE</c>; with 0, the same catalogs verify 0 (measured on 7 system cats).</para>
+    /// </summary>
     public static int VerifyFile(string filePath)
     {
         var info = new WinTrustFileInfo
@@ -32,6 +32,7 @@ internal static class WinTrustNative
         var infoPointer = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustFileInfo>());
         try
         {
+            Zero(infoPointer, Marshal.SizeOf<WinTrustFileInfo>());
             Marshal.StructureToPtr(info, infoPointer, fDeleteOld: false);
             var data = new WinTrustData
             {
@@ -41,7 +42,7 @@ internal static class WinTrustNative
                 UnionChoice = WtdChoiceFile,
                 Info = infoPointer,
                 StateAction = WtdStateActionVerify,
-                ProvFlags = WtdSaferFlag,
+                ProvFlags = 0,
             };
 
             var action = GenericVerifyV2;
@@ -61,6 +62,7 @@ internal static class WinTrustNative
         var info = new WinTrustCatalogInfo
         {
             CbStruct = (uint)Marshal.SizeOf<WinTrustCatalogInfo>(),
+            CatalogVersion = 0,
             CatalogFilePath = catalogPath,
             MemberTag = memberTag,
             MemberFilePath = memberFilePath,
@@ -69,6 +71,7 @@ internal static class WinTrustNative
         var infoPointer = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustCatalogInfo>());
         try
         {
+            Zero(infoPointer, Marshal.SizeOf<WinTrustCatalogInfo>());
             Marshal.StructureToPtr(info, infoPointer, fDeleteOld: false);
             var data = new WinTrustData
             {
@@ -78,7 +81,7 @@ internal static class WinTrustNative
                 UnionChoice = WtdChoiceCatalog,
                 Info = infoPointer,
                 StateAction = WtdStateActionVerify,
-                ProvFlags = WtdSaferFlag,
+                ProvFlags = 0,
             };
 
             var action = GenericVerifyV2;
@@ -92,9 +95,8 @@ internal static class WinTrustNative
         }
     }
 
-    /// <summary>True when <paramref name="filePath"/> is unsigned or not a member at all.</summary>
-    public static bool IsMissingFromCatalog(int result) =>
-        result is TrustENosignature or TrustESubjectFormUnknown;
+    private static void Zero(IntPtr pointer, int size) =>
+        Marshal.Copy(new byte[size], 0, pointer, size);
 
     private static void CloseState(ref WinTrustData data, ref Guid action)
     {
@@ -115,6 +117,7 @@ internal static class WinTrustNative
     private struct WinTrustCatalogInfo
     {
         public uint CbStruct;
+        public uint CatalogVersion;
         [MarshalAs(UnmanagedType.LPWStr)] public string CatalogFilePath;
         [MarshalAs(UnmanagedType.LPWStr)] public string MemberTag;
         [MarshalAs(UnmanagedType.LPWStr)] public string MemberFilePath;
@@ -186,9 +189,15 @@ public sealed class WinTrustFileSignatureVerifier : IFileSignatureVerifier
 
 /// <summary>
 /// Verifies a <c>New-FileCatalog</c> (v2, SHA-256) catalog over every other file in the staging
-/// folder. A file that is not a member and a file whose hash differs both fail WinTrust's catalog
-/// check; both are reported as a hash mismatch because WinTrust does not distinguish them. Either
-/// way the staging step refuses.
+/// folder:
+/// <list type="number">
+/// <item>the catalog's signature and the pinned signer thumbprint;</item>
+/// <item>every present file's hash against the catalog (per-file, so an unhashable file cannot
+/// switch the rest off);</item>
+/// <item>the full member set: a catalogued file missing from staging, or a file renamed to another
+/// member's name, is refused;</item>
+/// <item>no file outside the catalog.</item>
+/// </list>
 /// </summary>
 public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
 {
@@ -207,7 +216,24 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
         var thumbprintMatches = string.Equals(
             signature.SignerThumbprint, pinnedThumbprint, StringComparison.OrdinalIgnoreCase);
 
+        // Y3: the member set is the other half of the check. An unreadable catalog fails closed.
+        IReadOnlyDictionary<string, string> members;
+        try
+        {
+            members = CatalogMemberEnumerator.Read(catalogPath);
+        }
+        catch (Exception ex)
+        {
+            return new CatalogVerificationResult(
+                signature.Valid, signature.SignerThumbprint, thumbprintMatches,
+                [], [], [], ex.GetType().Name);
+        }
+
         var mismatches = new List<string>();
+        var missing = new List<string>();
+        var uncatalogued = new List<string>();
+        var actualPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         try
         {
             foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
@@ -216,28 +242,57 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
                         Path.GetFullPath(file), Path.GetFullPath(catalogPath),
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    continue;
+                    continue; // only EyeCtrl.cat is outside the catalog
                 }
 
                 var relative = Path.GetRelativePath(directory, file).Replace('/', '\\');
-                // X1: the catalog member tag is the uppercase hex SIP SHA-256, never the path.
-                // New-FileCatalog v2 records that value as the CTL subject identifier; package.json
-                // is a member like every other file, only EyeCtrl.cat is outside.
-                var tag = MemberTag(file);
-                var result = WinTrustNative.VerifyCatalogMember(catalogPath, file, tag);
-                if (result != 0)
+                actualPaths.Add(relative);
+
+                // Y2: one file that cannot be hashed is a mismatch, not an abort.
+                string tag;
+                try
+                {
+                    tag = MemberTag(file);
+                }
+                catch (Exception)
+                {
                     mismatches.Add(relative);
+                    continue;
+                }
+
+                if (!members.TryGetValue(relative, out var memberTag))
+                {
+                    uncatalogued.Add(relative);
+                    continue;
+                }
+
+                if (!string.Equals(tag, memberTag, StringComparison.OrdinalIgnoreCase))
+                    mismatches.Add(relative);
+
+                // WinTrust re-computes the member hash itself; a file copied under another
+                // member's name fails here even though its own hash is in the catalog.
+                if (WinTrustNative.VerifyCatalogMember(catalogPath, file, tag) != 0)
+                    mismatches.Add(relative);
+            }
+
+            foreach (var memberPath in members.Keys)
+            {
+                if (!actualPaths.Contains(memberPath))
+                    missing.Add(memberPath);
             }
         }
         catch (Exception ex)
         {
             return new CatalogVerificationResult(
                 signature.Valid, signature.SignerThumbprint, thumbprintMatches,
-                mismatches, [], ex.GetType().Name);
+                mismatches, missing, uncatalogued, ex.GetType().Name);
         }
 
         return new CatalogVerificationResult(
-            signature.Valid, signature.SignerThumbprint, thumbprintMatches, mismatches, [],
+            signature.Valid, signature.SignerThumbprint, thumbprintMatches,
+            mismatches.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            missing.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            uncatalogued.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             signature.Error);
     }
 }

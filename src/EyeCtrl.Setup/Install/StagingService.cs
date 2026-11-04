@@ -10,7 +10,9 @@ public static class StagingFailure
     public const string CatalogSignature = "catalogSignature";
     public const string Thumbprint = "thumbprint";
     public const string Hash = "hash";
+    public const string Missing = "missing";
     public const string Uncatalogued = "uncatalogued";
+    public const string CatalogError = "catalogError";
 }
 
 /// <summary>The result of one staging attempt.</summary>
@@ -98,10 +100,24 @@ public sealed class StagingService
             return StagingResult.Fail(StagingFailure.Hash, string.Join(";", result.HashMismatches));
         }
 
+        if (result.MissingFiles.Count > 0)
+        {
+            TryRemoveStaging();
+            return StagingResult.Fail(StagingFailure.Missing, string.Join(";", result.MissingFiles));
+        }
+
         if (result.UncataloguedFiles.Count > 0)
         {
             TryRemoveStaging();
             return StagingResult.Fail(StagingFailure.Uncatalogued, string.Join(";", result.UncataloguedFiles));
+        }
+
+        // Y2: a verifier error (for example an unreadable catalog) must fail closed even when
+        // every list happens to be empty.
+        if (result.Error is not null)
+        {
+            TryRemoveStaging();
+            return StagingResult.Fail(StagingFailure.CatalogError, result.Error);
         }
 
         _log.Info("Staging verified: catalog, pinned thumbprint, every hash, no uncatalogued file.");

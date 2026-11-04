@@ -62,7 +62,7 @@ public class CatalogSipHashTests
         var source = File.ReadAllText(Path.Combine(
             RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "AuthenticodeVerifiers.cs"));
 
-        Check.That(source).Contains("var tag = MemberTag(file);");
+        Check.That(source).Contains("MemberTag(file)");
         Check.That(source).Contains("VerifyCatalogMember(catalogPath, file, tag)");
         Check.That(source).DoesNotContain("VerifyCatalogMember(catalogPath, file, relative)");
     }

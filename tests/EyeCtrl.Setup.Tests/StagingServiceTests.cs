@@ -39,7 +39,7 @@ public class StagingServiceTests
         harness.SeedPackage(@"C:\inbox\2.0.0", "2.0.0");
         harness.Catalog.Result = new CatalogVerificationResult(
             true, SetupConstants.PinnedThumbprint, true,
-            ["onnxruntime.dll"], [], null);
+            ["onnxruntime.dll"], [], [], null);
 
         var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
 
@@ -55,7 +55,7 @@ public class StagingServiceTests
         harness.SeedPackage(@"C:\inbox\2.0.0", "2.0.0");
         harness.Catalog.Result = new CatalogVerificationResult(
             true, SetupConstants.PinnedThumbprint, true,
-            [], ["extra.dll"], null);
+            [], [], ["extra.dll"], null);
 
         var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
 
@@ -70,7 +70,7 @@ public class StagingServiceTests
         var harness = Harness();
         harness.SeedPackage(@"C:\inbox\2.0.0", "2.0.0");
         harness.Catalog.Result = new CatalogVerificationResult(
-            false, null, false, [], [], "0x800B0100");
+            false, null, false, [], [], [], "0x800B0100");
 
         var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
 
@@ -84,7 +84,7 @@ public class StagingServiceTests
         var harness = Harness();
         harness.SeedPackage(@"C:\inbox\2.0.0", "2.0.0");
         harness.Catalog.Result = new CatalogVerificationResult(
-            true, "DEADBEEF", false, [], [], null);
+            true, "DEADBEEF", false, [], [], [], null);
 
         var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
 
@@ -114,6 +114,34 @@ public class StagingServiceTests
         var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
 
         Check.That(result.FailureReason).IsEqualTo(StagingFailure.CopyFailed);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+    }
+
+    [Fact]
+    public void AMissingCataloguedFile_IsRefused()
+    {
+        var harness = Harness();
+        harness.SeedPackage(@"C:\inbox\2.0.0", "2.0.0");
+        harness.Catalog.Result = new CatalogVerificationResult(
+            true, SetupConstants.PinnedThumbprint, true, [], ["onnxruntime.dll"], [], null);
+
+        var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
+
+        Check.That(result.FailureReason).IsEqualTo(StagingFailure.Missing);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+    }
+
+    [Fact]
+    public void AVerifierError_IsRefused()
+    {
+        var harness = Harness();
+        harness.SeedPackage(@"C:\inbox\2.0.0", "2.0.0");
+        harness.Catalog.Result = new CatalogVerificationResult(
+            true, SetupConstants.PinnedThumbprint, true, [], [], [], "Win32Exception");
+
+        var result = harness.Staging.Stage(@"C:\inbox\2.0.0");
+
+        Check.That(result.FailureReason).IsEqualTo(StagingFailure.CatalogError);
         Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
     }
 

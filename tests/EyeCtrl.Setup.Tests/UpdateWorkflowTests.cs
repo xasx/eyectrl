@@ -130,6 +130,35 @@ public class UpdateWorkflowTests
     }
 
     [Fact]
+    public void ARefusedUpdate_RemovesStaging_AndMarksTheRunCopyForReboot()
+    {
+        // S6c D4: a refused update left 205 MB in EyeCtrl.staging and a new run folder.
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.Processes.Add(Path.Combine(harness.Paths.InstallRoot, "helper.exe"));
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.NotApplied);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+        Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunFolder("run1"));
+    }
+
+    [Fact]
+    public void AFailedRunCopyAfterStaging_RemovesStaging()
+    {
+        // The prepare phase staged the package, then refused the run copy itself.
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.CatalogMembers.Result = 1;
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Failed);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+    }
+
+    [Fact]
     public void AFailedPassRule_RollsBackAndStartsThePreviousVersion()
     {
         var harness = Harness();

@@ -88,6 +88,9 @@ public sealed class ElevatedOperations
             if (!existing.Ok)
             {
                 _log.Warn($"Existing run copy refused: {existing.FailureReason}");
+                // S6c D4: the stage happened before this check; the update never applied.
+                _staging.Discard();
+                _runCopies.MarkForDeletionAtReboot(runId);
                 return new ElevatedPhaseResult(MapRunCopyFailure(existing.FailureReason), existing.FailureReason);
             }
 
@@ -98,6 +101,8 @@ public sealed class ElevatedOperations
         if (!runCopy.Ok)
         {
             _log.Warn($"Run copy refused: {runCopy.FailureReason}");
+            // S6c D4: nothing will apply this package; do not leave its staging folder behind.
+            _staging.Discard();
             return new ElevatedPhaseResult(MapRunCopyFailure(runCopy.FailureReason), runCopy.FailureReason);
         }
 
@@ -111,10 +116,29 @@ public sealed class ElevatedOperations
 
         var stop = _stop.StopForSwap(SetupConstants.CleanExitGrace);
         if (!stop.Ok)
+        {
+            // S6c D4: a refusal changes nothing, so neither staging nor the run copy stays.
+            CleanupRefusedUpdate(runId);
             return new ElevatedPhaseResult(ElevatedPhaseStatus.NotApplied, "image:" + stop.Blocker);
+        }
 
         var swap = _state.ApplyUpdate(_paths.RunSetupExePath(runId));
+        if (swap.Failure == SwapFailure.NotApplied)
+            CleanupRefusedUpdate(runId);
+
         return MapSwap(swap);
+    }
+
+    /// <summary>
+    /// S6c D4: a refused update must not leave its staged package and a fresh run copy behind. The
+    /// staging folder goes now. This child runs from the run copy, so it cannot delete its own
+    /// image; the reboot registration removes it (and the next run's CleanupOldRunFolders also
+    /// takes it).
+    /// </summary>
+    private void CleanupRefusedUpdate(string runId)
+    {
+        _staging.Discard();
+        _runCopies.MarkForDeletionAtReboot(runId);
     }
 
     private ElevatedPhaseResult PrepareRunCopy(ElevatedRequest request)

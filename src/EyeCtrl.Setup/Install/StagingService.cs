@@ -136,4 +136,15 @@ public sealed class StagingService
             _log.Warn($"Could not remove the failed staging folder: {ex.GetType().Name}");
         }
     }
+
+    /// <summary>
+    /// Removes a staging folder an aborted update no longer needs (S6c D4). Called by the elevated
+    /// side, which owns the admin-only folder. Never throws: the leftover is harmless, the disk is
+    /// not.
+    /// </summary>
+    public void Discard()
+    {
+        _guard.RequireProgramFilesPath(_paths.StagingRoot);
+        TryRemoveStaging();
+    }
 }

@@ -248,6 +248,29 @@ public sealed class UninstallChoiceWindowTests
             var origin = window.KeepButton.PointToScreen(new Point(0, 0));
             var physical = window.KeepButton.PointToScreen(new Point(420, 0)).X - origin.X;
             Check.That(physical).IsCloseTo(840, 1.01);
+
+            // L2: screen 2's "Nein, behalten" occupies exactly screen 1's Delete cell, measured in
+            // screen pixels at 2.0 (not by Grid column). Drive the production path: a real Delete
+            // click switches the screens.
+            var deleteTopLeft = window.DeleteButton.PointToScreen(new Point(0, 0));
+            var deleteBottomRight = window.DeleteButton.PointToScreen(new Point(420, 160));
+
+            Arm(window);
+            Click(window.DeleteButton);
+            Check.That(window.ShowingConfirm).IsTrue();
+            host.Relayout();
+
+            var noTopLeft = window.KeepDataButton.PointToScreen(new Point(0, 0));
+            var noBottomRight = window.KeepDataButton.PointToScreen(new Point(420, 160));
+
+            Check.WithCustomMessage($"'Nein' starts at {noTopLeft}; Delete started at {deleteTopLeft}.")
+                .That(noTopLeft.X).IsCloseTo(deleteTopLeft.X, 0.5);
+            Check.WithCustomMessage($"'Nein' starts at {noTopLeft}; Delete started at {deleteTopLeft}.")
+                .That(noTopLeft.Y).IsCloseTo(deleteTopLeft.Y, 0.5);
+            Check.WithCustomMessage($"'Nein' ends at {noBottomRight}; Delete ended at {deleteBottomRight}.")
+                .That(noBottomRight.X).IsCloseTo(deleteBottomRight.X, 0.5);
+            Check.WithCustomMessage($"'Nein' ends at {noBottomRight}; Delete ended at {deleteBottomRight}.")
+                .That(noBottomRight.Y).IsCloseTo(deleteBottomRight.Y, 0.5);
         });
     }
 

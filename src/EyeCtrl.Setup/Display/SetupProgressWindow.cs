@@ -46,7 +46,12 @@ internal sealed class SetupProgressWindow : Window
     /// The close callback; tests pass a flag setter so no window is ever shown or closed. Production
     /// leaves it null and <see cref="Window.Close"/> is used.
     /// </param>
-    public SetupProgressWindow(StringTable strings, SetupVerb verb, Action? close = null)
+    /// <param name="workArea">
+    /// The work area to lay the window into; tests pass the owner's 1920 x 1152 DIP so the
+    /// per-monitor DPI pins do not depend on the machine running them. Production passes
+    /// <see cref="SystemParameters.WorkArea"/>.
+    /// </param>
+    public SetupProgressWindow(StringTable strings, SetupVerb verb, Action? close = null, Rect? workArea = null)
     {
         _strings = strings;
         _verb = verb;
@@ -75,7 +80,7 @@ internal sealed class SetupProgressWindow : Window
         UseLayoutRounding = true;
         Icon = LoadAppIcon();
 
-        var bounds = SetupWindowMetrics.ProgressBounds(SystemParameters.WorkArea);
+        var bounds = SetupWindowMetrics.ProgressBounds(workArea ?? SystemParameters.WorkArea);
         Left = bounds.Left;
         Top = bounds.Top;
         Width = bounds.Width;

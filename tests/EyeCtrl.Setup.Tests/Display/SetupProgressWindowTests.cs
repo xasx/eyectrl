@@ -3,11 +3,13 @@ namespace EyeCtrl.Setup.Tests.Display;
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Display;
+using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
 /// The display-only progress/result window: its texts, its 10 s / 60 s self-close, and — since
@@ -192,6 +194,43 @@ public sealed class SetupProgressWindowTests
                     .That(SetupProgressWindow.HasNoActivateStyle(hwnd)).IsFalse();
                 Check.WithCustomMessage("WS_EX_TOOLWINDOW is set: the screen would have no taskbar button.")
                     .That(SetupProgressWindow.HasToolWindowStyle(hwnd)).IsFalse();
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void AtDpiTwo_TheProgressWindowKeepsItsDipBounds_AsPhysicalPixels()
+    {
+        RunSta(() =>
+        {
+            // fixup-04: every bound is a DIP, so at the owner's 200 % only the physical pixels
+            // double. The window is never shown; its production content is hosted off-screen at
+            // exactly 2.0, the same technique the choice window's target pin uses.
+            var workArea = new Rect(0, 0, 1920, 1152);
+            var window = new SetupProgressWindow(
+                English, SetupVerb.Update, close: () => { }, workArea: workArea);
+            try
+            {
+                Check.That(window.Width).IsCloseTo(1344, 0.01);
+                Check.That(window.Height).IsCloseTo(806.4, 0.01);
+                Check.That(window.Left).IsCloseTo(288, 0.01);
+                Check.That(window.Top).IsCloseTo(172.8, 0.01);
+
+                var content = (FrameworkElement)window.Content;
+                window.Content = null;
+                using var host = FitHost.Open(
+                    content, width: window.Width, height: window.Height, inheritFrom: window);
+
+                var origin = content.PointToScreen(new Point(0, 0));
+                var right = content.PointToScreen(
+                    new Point(SetupWindowMetrics.ProgressBounds(workArea).Width, 0));
+                Check.WithCustomMessage(
+                        $"1344 DIP measured {right.X - origin.X} px, not 2688 at the owner's 200 %.")
+                    .That(right.X - origin.X).IsCloseTo(2688, 1.01);
             }
             finally
             {

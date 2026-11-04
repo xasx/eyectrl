@@ -119,6 +119,12 @@ internal sealed class UninstallChoiceWindow : Window
     /// <summary>True while screen 2 (confirm delete) is showing.</summary>
     internal bool ShowingConfirm => _showingConfirm;
 
+    /// <summary>True while the current screen's 1 s arming timer is running.</summary>
+    internal bool IsArming => _armTimer.IsEnabled;
+
+    /// <summary>True while the window's 5-minute no-choice timer is running.</summary>
+    internal bool IsChoiceTimerRunning => _choiceTimer.IsEnabled;
+
     internal Button KeepButton { get; private set; } = null!;
     internal Button CancelButton { get; private set; } = null!;
     internal Button DeleteButton { get; private set; } = null!;
@@ -144,9 +150,6 @@ internal sealed class UninstallChoiceWindow : Window
 
     /// <summary>Runs the 5-minute timeout's own path.</summary>
     internal void ExpireForTests() => OnTimeout();
-
-    /// <summary>Runs the Esc path.</summary>
-    internal void PressEscapeForTests() => OnEscape();
 
     /// <summary>
     /// The production button factory. Also used by the fit class, so the measured control is the

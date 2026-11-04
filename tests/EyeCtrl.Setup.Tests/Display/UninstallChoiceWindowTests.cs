@@ -5,6 +5,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Sdk.Abstractions;
@@ -137,6 +138,28 @@ public sealed class UninstallChoiceWindowTests
     }
 
     [Fact]
+    public void Loaded_StartsTheArmingAndTheFiveMinuteTimers()
+    {
+        WithWindow(window =>
+        {
+            Check.That(window.IsArming).IsFalse();
+            Check.That(window.IsChoiceTimerRunning).IsFalse();
+
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+            Check.WithCustomMessage("The 1 s arming timer did not start on Loaded.").That(window.IsArming).IsTrue();
+            Check.WithCustomMessage("The 5-minute no-choice timer did not start on Loaded.")
+                .That(window.IsChoiceTimerRunning).IsTrue();
+            Check.That(window.IsArmed).IsFalse();
+
+            window.CompleteArmingForTests();
+            Click(window.KeepButton);
+            Check.WithCustomMessage("The no-choice timer kept running after the window answered.")
+                .That(window.IsChoiceTimerRunning).IsFalse();
+        });
+    }
+
+    [Fact]
     public void Timeout_EscapeAndClose_AllMeanCancel()
     {
         WithWindow(window =>
@@ -148,7 +171,7 @@ public sealed class UninstallChoiceWindowTests
 
         WithWindow(window =>
         {
-            window.PressEscapeForTests();
+            RaiseEscape(window);
             Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
         });
 
@@ -234,6 +257,18 @@ public sealed class UninstallChoiceWindowTests
     /// <summary>The real click path: the routed event the UIA Invoke peer and a mouse both raise.</summary>
     private static void Click(Button button) =>
         button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+
+    /// <summary>Raises the real routed KeyDown the window's handler listens for.</summary>
+    private static void RaiseEscape(UninstallChoiceWindow window)
+    {
+        var hwnd = new WindowInteropHelper(window).EnsureHandle();
+        var source = PresentationSource.FromVisual(window) ?? HwndSource.FromHwnd(hwnd);
+        var args = new KeyEventArgs(Keyboard.PrimaryDevice, source!, 0, Key.Escape)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent,
+        };
+        window.RaiseEvent(args);
+    }
 
     private static void Arm(UninstallChoiceWindow window) => window.CompleteArmingForTests();
 

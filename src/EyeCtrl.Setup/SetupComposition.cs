@@ -37,13 +37,12 @@ public sealed class SetupComposition
     /// For an update, the inbox package's folder: its <c>strings.de.json</c> comes from the same
     /// build as the code reading it, so the first update from a pre-S6e version still shows German.
     /// </param>
-    public static SetupComposition CreateProduction(string? updatePackageDirectory = null)
+    /// <param name="log">The process's log; defaults to stderr for a direct engine caller.</param>
+    public static SetupComposition CreateProduction(
+        string? updatePackageDirectory = null, ISetupLog? log = null)
     {
-        var log = new ConsoleSetupLog();
-        var paths = new SetupPaths(
-            RequireFolder(Environment.SpecialFolder.ProgramFiles),
-            RequireFolder(Environment.SpecialFolder.ApplicationData),
-            RequireFolder(Environment.SpecialFolder.LocalApplicationData));
+        log ??= new ConsoleSetupLog();
+        var paths = ProductionPaths();
 
         var fileSystem = new PhysicalFileSystem();
         var registry = new WindowsRegistryStore();
@@ -56,8 +55,10 @@ public sealed class SetupComposition
         var environment = new WindowsSetupEnvironment();
         var metadata = new PackageMetadataReader(fileSystem);
         var recorder = new ResultRecorder(paths, fileSystem, guard, log);
-        var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, log);
-        var runCopies = new RunCopyManager(paths, fileSystem, guard, signature, log);
+        var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, fileSystem, log);
+        var runCopies = new RunCopyManager(
+            paths, fileSystem, guard, signature, new WinTrustCatalogMemberVerifier(),
+            new CatalogFileHasher(), log);
         var staging = new StagingService(paths, fileSystem, guard, catalog, log);
         var journal = new InstallJournalStore(paths, fileSystem, guard, log);
         var state = new InstallStateMachine(
@@ -65,11 +66,13 @@ public sealed class SetupComposition
         var stop = new StopCoordinator(paths, processes, new CoreHeldButtonRecovery(), log);
         var appStart = new AppStartService(processes, new WindowsAppLogProbe(paths), clock, log);
         var appDataDeletion = new PhysicalAppDataDeletion(paths);
+        var phaseResults = new ElevatedPhaseResultStore(paths, fileSystem, guard, log);
         var elevated = new ElevatedOperations(
-            paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion, log);
+            paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion,
+            phaseResults, log);
         var broker = new ShellExecuteElevationBroker(
             paths, elevated, environment, new WindowsElevationState(), policy,
-            new ShellExecuteRunAsLauncher(log), log);
+            new ShellExecuteRunAsLauncher(log), phaseResults, log);
         var planner = new SupervisionStartPlanner(new SettingsSnapshotReader(paths, fileSystem));
         var ui = SetupUi.Load(paths, fileSystem, updatePackageDirectory, AppContext.BaseDirectory);
         var workflow = new SetupWorkflow(
@@ -172,6 +175,31 @@ public sealed class SetupComposition
         if (string.IsNullOrWhiteSpace(path))
             throw new InvalidOperationException($"The OS folder '{folder}' is unavailable.");
         return path;
+    }
+
+    /// <summary>The one install layout, from the machine's OS folders. Shared by the composition
+    /// and the file log so both name exactly the same paths.</summary>
+    internal static SetupPaths ProductionPaths() => new(
+        RequireFolder(Environment.SpecialFolder.ProgramFiles),
+        RequireFolder(Environment.SpecialFolder.ApplicationData),
+        RequireFolder(Environment.SpecialFolder.LocalApplicationData));
+
+    /// <summary>
+    /// Records an unhandled exception as a failed result, built from the OS layout alone so it
+    /// still works when the composition never came up. Failures here are logged, never thrown.
+    /// </summary>
+    internal static void TryRecordFailure(SetupResult result, ISetupLog log)
+    {
+        try
+        {
+            var paths = ProductionPaths();
+            var fileSystem = new PhysicalFileSystem();
+            new ResultRecorder(paths, fileSystem, new PathGuard(paths), log).Write(result);
+        }
+        catch (Exception ex)
+        {
+            log.Warn($"Could not record the failure: {ex.GetType().Name}");
+        }
     }
 }
 

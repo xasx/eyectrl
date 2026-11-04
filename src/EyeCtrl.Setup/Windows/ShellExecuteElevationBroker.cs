@@ -1,6 +1,7 @@
 namespace EyeCtrl.Setup.Windows;
 
 using EyeCtrl.Setup.Abstractions;
+using EyeCtrl.Setup.Install;
 
 /// <summary>
 /// The production elevation seam: the medium instance re-launches the same exe (or its verified
@@ -17,13 +18,14 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     private readonly IElevationState _elevationState;
     private readonly IElevationPolicy _policy;
     private readonly IElevatedLauncher _launcher;
+    private readonly IElevatedPhaseResultStore _phaseResults;
     private readonly ISetupLog _log;
 
     /// <summary>Creates the broker.</summary>
     public ShellExecuteElevationBroker(
         SetupPaths paths, ElevatedOperations operations, ISetupEnvironment environment,
         IElevationState elevationState, IElevationPolicy policy, IElevatedLauncher launcher,
-        ISetupLog log)
+        IElevatedPhaseResultStore phaseResults, ISetupLog log)
     {
         _paths = paths;
         _operations = operations;
@@ -31,6 +33,7 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         _elevationState = elevationState;
         _policy = policy;
         _launcher = launcher;
+        _phaseResults = phaseResults;
         _log = log;
     }
 
@@ -57,12 +60,31 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         var result = _launcher.Launch(exePath, arguments, SetupWorkingDirectory.Neutral);
         return result.Outcome switch
         {
-            LauncherOutcome.Exited => FromExitCode(result.ExitCode),
+            LauncherOutcome.Exited => FromExit(request, result.ExitCode),
             LauncherOutcome.Blocked => new ElevatedPhaseResult(ElevatedPhaseStatus.Blocked, "elevationRefused"),
             LauncherOutcome.TimedOut => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childTimeout"),
             LauncherOutcome.StillRunning => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, "childStillRunning"),
             _ => new ElevatedPhaseResult(ElevatedPhaseStatus.Failed, result.Detail ?? "launchFailed"),
         };
+    }
+
+    /// <summary>
+    /// The exit code only says <c>childNotApplied</c>. When the child left a report for this exact
+    /// job and run id, its detail (for example <c>image:EyeCtrl.DryRunBlocker.exe</c>) is the
+    /// diagnosis the record must keep (S6c D3).
+    /// </summary>
+    private ElevatedPhaseResult FromExit(ElevatedRequest request, int exitCode)
+    {
+        var mapped = FromExitCode(exitCode);
+        if (mapped.Succeeded)
+            return mapped;
+
+        var reported = _phaseResults.Read(request);
+        return reported is { } detail
+               && detail.Status == mapped.Status
+               && !string.IsNullOrWhiteSpace(detail.Detail)
+            ? mapped with { Detail = detail.Detail }
+            : mapped;
     }
 
     /// <summary>

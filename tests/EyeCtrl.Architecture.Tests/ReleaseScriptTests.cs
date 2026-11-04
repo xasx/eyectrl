@@ -339,6 +339,22 @@ public class ReleaseScriptTests
     }
 
     [Fact]
+    public void TheInstallWrapper_PrintsTheNewerRecordOutcomeAfterUntilExit()
+    {
+        // S6c D2: rolledBack and degraded exit 0 by design; the record carries the real outcome.
+        var script = File.ReadAllText(InstallScriptPath);
+
+        Check.WithCustomMessage("the wrapper reads the result record")
+            .That(script).Contains("setup-last.json");
+        Check.WithCustomMessage("the outcome comes from the record, not the exit code")
+            .That(script).Contains("$($record.outcome)");
+        Check.WithCustomMessage("a stale record from an earlier run must not be reported")
+            .That(script).Contains("$recordTime -lt $NotBefore");
+        Check.WithCustomMessage("the printed line names the outcome")
+            .That(script).Contains("Setup outcome:");
+    }
+
+    [Fact]
     public void CiNeverPublishesOrSigns()
     {
         // The plan's invariant: CI stays unsigned and never sees a certificate. A workflow step

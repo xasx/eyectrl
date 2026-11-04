@@ -87,6 +87,19 @@ public sealed class PhysicalFileSystem : IFileSystem
     public string ReadAllText(string path) => File.ReadAllText(path);
 
     /// <inheritdoc />
+    public long GetFileLength(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? new FileInfo(path).Length : 0;
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
+    }
+
+    /// <inheritdoc />
     public void WriteAllText(string path, string contents)
     {
         var folder = Path.GetDirectoryName(path);
@@ -103,6 +116,15 @@ public sealed class PhysicalFileSystem : IFileSystem
         {
             try { if (File.Exists(temp)) File.Delete(temp); } catch { /* best effort */ }
         }
+    }
+
+    /// <inheritdoc />
+    public void AppendAllText(string path, string contents)
+    {
+        var folder = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(folder))
+            Directory.CreateDirectory(folder);
+        File.AppendAllText(path, contents);
     }
 
     /// <inheritdoc />

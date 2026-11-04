@@ -107,6 +107,7 @@ public class UninstallWorkflowTests
         Check.That(harness.Registry.Names(RegistryHive.CurrentUser, SetupConstants.RunKeyPath))
             .Not.Contains("EyeCtrl");
         Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunFolder("run1"));
+        Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunRoot);
         Check.That(harness.Journal.Read()).IsNull();
     }
 

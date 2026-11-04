@@ -489,6 +489,8 @@ public class SetupGatewaysTests
         public void CopyFile(string source, string destination, bool stripZoneIdentifier) => throw new NotSupportedException();
         public void CopyDirectory(string source, string destination, bool stripZoneIdentifier) => throw new NotSupportedException();
         public string ReadAllText(string path) => throw new NotSupportedException();
+        public long GetFileLength(string path) => throw new NotSupportedException();
+        public void AppendAllText(string path, string contents) => throw new NotSupportedException();
         public void WriteAllText(string path, string contents) => throw new NotSupportedException();
         public void MarkForDeletionAtReboot(string path) => throw new NotSupportedException();
     }

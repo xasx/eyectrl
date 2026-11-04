@@ -84,6 +84,26 @@ public class AppsAndFeaturesWriterTests
             .IsEqualTo("\"" + harness.Paths.InstalledSetupExePath + "\" uninstall --quiet");
     }
 
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(1024, 1)]
+    [InlineData(1025, 2)]
+    [InlineData(2048, 2)]
+    public void Register_WritesTheInstallFolderSizeInKb(int bytes, int expectedKb)
+    {
+        // S6c D7: Apps & Features showed no size because EstimatedSize was never written.
+        var harness = new SetupHarness();
+        harness.Files.AddFile(
+            Path.Combine(harness.Paths.InstallRoot, "payload.bin"),
+            new string('x', bytes));
+
+        harness.AppsAndFeatures.Register("2.0.0");
+
+        Check.That(harness.Registry.ReadDword(
+            RegistryHive.LocalMachine, SetupConstants.UninstallKeyPath, "EstimatedSize"))
+            .IsEqualTo(expectedKb);
+    }
+
     [Fact]
     public void Remove_DeletesTheEntry()
     {

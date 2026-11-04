@@ -137,7 +137,7 @@ public class RenamedFolderHandoffTests
         var package = @"C:\inbox\2.0.0";
         harness.SeedPackage(package, "2.0.0");
         harness.Environment.ProcessPath = harness.Paths.RunSetupExePath("run1");
-        harness.Files.AddFile(harness.Environment.ProcessPath);
+        harness.SeedVersionFolder(harness.Paths.RunFolder("run1"), "1.0.0");
         harness.ListOwnProcess();
         harness.RunIds.Id = "run2";
 

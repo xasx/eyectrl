@@ -72,8 +72,13 @@ public sealed class SetupPaths
     /// <summary><c>%APPDATA%\EyeCtrl\settings.json</c> — read-only for the supervision plan.</summary>
     public string SettingsPath => Path.Combine(AppDataRoot, "settings.json");
 
-    /// <summary><c>%APPDATA%\EyeCtrl\logs</c> — read-only for C10's startup token line.</summary>
+    /// <summary><c>%APPDATA%\EyeCtrl\logs</c> — read-only for C10's startup token line, and the one
+    /// folder Setup appends its own <c>setup-*.log</c> to (S6c D9).</summary>
     public string LogsRoot => Path.Combine(AppDataRoot, "logs");
+
+    /// <summary>The rolling Setup log for <paramref name="now"/>: <c>logs\setup-yyyyMMdd.log</c>.</summary>
+    public string SetupLogPath(DateTimeOffset now) =>
+        Path.Combine(LogsRoot, $"setup-{now:yyyyMMdd}.log");
 
     /// <summary>The private run folder for one id.</summary>
     public string RunFolder(string runId) => Path.Combine(RunRoot, runId);

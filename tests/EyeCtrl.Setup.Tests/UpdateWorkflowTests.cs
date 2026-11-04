@@ -124,8 +124,53 @@ public class UpdateWorkflowTests
         var result = harness.Workflow.Update(package);
 
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.NotApplied);
+        Check.That(result.Detail).IsEqualTo("image:helper.exe");
         Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("1.0.0");
         Check.That(harness.Files.DirectoryExists(harness.Paths.PreviousRoot)).IsFalse();
+    }
+
+    [Fact]
+    public void ARefusedUpdate_RemovesStaging_AndMarksTheRunCopyForReboot()
+    {
+        // S6c D4: a refused update left 205 MB in EyeCtrl.staging and a new run folder.
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.Processes.Add(Path.Combine(harness.Paths.InstallRoot, "helper.exe"));
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.NotApplied);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+        Check.That(harness.Log).Contains("reboot:" + harness.Paths.RunFolder("run1"));
+        Check.That(harness.Log).Not.Contains("reboot:" + harness.Paths.RunRoot);
+    }
+
+    [Fact]
+    public void AFailedRunCopyAfterStaging_RemovesStaging()
+    {
+        // The prepare phase staged the package, then refused the run copy itself.
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.CatalogMembers.Result = 1;
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Failed);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+    }
+
+    [Fact]
+    public void AGoodUpdate_RemovesThePreviouslyFailedVersion()
+    {
+        // S6c D5: EyeCtrl.failed (about 190 MB with the real App) survived later good updates.
+        var harness = Harness();
+        var package = SeedUpdatable(harness);
+        harness.SeedVersionFolder(harness.Paths.FailedRoot, "0.9.0");
+
+        var result = harness.Workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Ok);
+        Check.That(harness.Files.DirectoryExists(harness.Paths.FailedRoot)).IsFalse();
     }
 
     [Fact]
@@ -212,7 +257,7 @@ public class UpdateWorkflowTests
 
         Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.Blocked);
         Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
-        Check.That(harness.Files.DirectoryExists(harness.Paths.RunRoot)).IsFalse();
+        Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("r1"))).IsFalse();
     }
 
     [Fact]

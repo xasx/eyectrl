@@ -104,6 +104,10 @@ public sealed class InstallStateMachine
 
         // A running previous version is only a fallback; a new update replaces it. Removing it
         // before the first rename keeps the rename atomic instead of trying to overwrite.
+        //
+        // D6 (recorded, by design): this is why a later automatic rollback has no previous to
+        // restore — the swap deleted it first. The plan deliberately keeps at most one fallback,
+        // so "restore the previous version" disappears until the next good update.
         if (_fileSystem.DirectoryExists(_paths.InstallRoot)
             && _fileSystem.DirectoryExists(_paths.PreviousRoot))
         {
@@ -160,8 +164,28 @@ public sealed class InstallStateMachine
         _journal.Clear();
         ClearRepairRunOnce();
         RegisterAppsAndFeatures();
+        RemoveFailedVersion();
         _log.Info("Update swapped in.");
         return SwapOutcome.Success();
+    }
+
+    /// <summary>
+    /// S6c D5: the rejected version is dead weight once a good update landed — about 190 MB with
+    /// the real App. A cleanup failure is logged, never fatal: the update itself already worked.
+    /// </summary>
+    private void RemoveFailedVersion()
+    {
+        if (!_fileSystem.DirectoryExists(_paths.FailedRoot))
+            return;
+
+        try
+        {
+            _fileSystem.DeleteDirectory(_paths.FailedRoot, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn($"Could not remove EyeCtrl.failed: {ex.GetType().Name}");
+        }
     }
 
     /// <summary>
@@ -251,7 +275,9 @@ public sealed class InstallStateMachine
 
     /// <summary>
     /// Automatic rollback after a new version failed the pass rule: the broken install goes to
-    /// <c>EyeCtrl.failed</c> and <c>EyeCtrl.previous</c> comes back.
+    /// <c>EyeCtrl.failed</c> and <c>EyeCtrl.previous</c> comes back. After this the previous folder
+    /// is empty by design (D6): the update's swap already consumed the older fallback, so
+    /// "restore the previous version" stays unavailable until the next good update.
     /// </summary>
     public SwapOutcome RevertFailedUpdate(string runCopyPath)
     {

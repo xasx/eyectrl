@@ -45,6 +45,9 @@ public sealed class InMemoryFileSystem : IFileSystem
     /// leaving the exact state a power loss would leave (no undo).</summary>
     public int? CrashAfterMoveAt { get; set; }
 
+    /// <summary>When it returns true, the next AppendAllText throws (the log must swallow it).</summary>
+    public Func<string, bool>? AppendFailure { get; set; }
+
     /// <summary>Adds a file (and its parents) without logging, for test setup.</summary>
     public void AddFile(string path, string contents = "")
     {
@@ -228,12 +231,32 @@ public sealed class InMemoryFileSystem : IFileSystem
             : throw new FileNotFoundException(path);
 
     /// <inheritdoc />
+    public long GetFileLength(string path) =>
+        _files.TryGetValue(SetupPaths.Normalize(path), out var contents)
+            ? System.Text.Encoding.UTF8.GetByteCount(contents)
+            : 0;
+
+    /// <inheritdoc />
     public void WriteAllText(string path, string contents)
     {
         var full = SetupPaths.Normalize(path);
         Log.Add("write:" + full);
         EnsureParents(full);
         _files[full] = contents;
+    }
+
+    /// <inheritdoc />
+    public void AppendAllText(string path, string contents)
+    {
+        var full = SetupPaths.Normalize(path);
+        Log.Add("append:" + full);
+        if (AppendFailure?.Invoke(full) == true)
+            throw new IOException("injected append failure");
+
+        EnsureParents(full);
+        _files[full] = _files.TryGetValue(full, out var existing)
+            ? existing + contents
+            : contents;
     }
 
     /// <inheritdoc />

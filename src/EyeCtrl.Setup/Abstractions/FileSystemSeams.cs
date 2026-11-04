@@ -40,8 +40,15 @@ public interface IFileSystem
     /// <summary>Reads a text file.</summary>
     string ReadAllText(string path);
 
+    /// <summary>The file's length in bytes; 0 when the file is missing or unreadable.</summary>
+    long GetFileLength(string path);
+
     /// <summary>Writes a text file atomically (temp file in the same directory, then a replace-move).</summary>
     void WriteAllText(string path, string contents);
+
+    /// <summary>Appends text to a file, creating it (and its parents) when needed. Used only by the
+    /// Setup log.</summary>
+    void AppendAllText(string path, string contents);
 
     /// <summary>Registers a file or directory tree for deletion at the next restart.</summary>
     void MarkForDeletionAtReboot(string path);

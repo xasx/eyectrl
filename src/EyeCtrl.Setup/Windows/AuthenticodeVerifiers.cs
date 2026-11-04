@@ -195,6 +195,13 @@ public sealed class WinTrustCatalogMemberVerifier : ICatalogMemberVerifier
         WinTrustNative.VerifyCatalogMember(catalogPath, filePath, memberTag);
 }
 
+/// <summary>The production file hasher for catalog membership: WinTrust's SIP SHA-256.</summary>
+public sealed class CatalogFileHasher : IFileHasher
+{
+    /// <inheritdoc />
+    public string CatalogTag(string filePath) => CatalogSipHash.Compute(filePath);
+}
+
 /// <summary>
 /// Verifies a <c>New-FileCatalog</c> (v2, SHA-256) catalog over every other file in the staging
 /// folder:

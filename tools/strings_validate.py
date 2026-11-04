@@ -82,6 +82,9 @@ SURFACES = [
     "calibration",
     "eye-care",
     "overlays",
+    # C9 S6f: the update flow's own surfaces (plan §10's tables).
+    "update",
+    "rollback",
 ]
 
 WHO_VALUES = ["caretaker", "user", "both"]

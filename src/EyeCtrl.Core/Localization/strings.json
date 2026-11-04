@@ -1647,6 +1647,30 @@
     "fit": "row",
     "args": []
   },
+  "rollback.confirm.go": {
+    "text": "Switch back",
+    "who": "user",
+    "where": "rollback",
+    "fit": "modal460",
+    "args": []
+  },
+  "rollback.confirm.later": {
+    "text": "Later",
+    "who": "user",
+    "where": "rollback",
+    "fit": "modal460",
+    "args": [],
+    "mirrors": "update.confirm.later"
+  },
+  "rollback.confirm.title": {
+    "text": "Switch back to version {0}?",
+    "who": "user",
+    "where": "rollback",
+    "fit": "prose",
+    "args": [
+      "version"
+    ]
+  },
   "settings.action_menu.jump.label": {
     "text": "View ring preview",
     "who": "user",
@@ -2433,6 +2457,22 @@
     "fit": "prose",
     "args": []
   },
+  "settings.advanced.rollback.description": {
+    "text": "Switches back to version {0}. EyeCtrl restarts on its own.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "version"
+    ]
+  },
+  "settings.advanced.rollback.label": {
+    "text": "Restore previous version",
+    "who": "user",
+    "where": "settings",
+    "fit": "btn380x100",
+    "args": []
+  },
   "settings.advanced.scroll_sensitivity.description": {
     "text": "How fast gaze scrolling moves through documents.",
     "who": "user",
@@ -2459,6 +2499,44 @@
     "who": "user",
     "where": "settings",
     "fit": "row",
+    "args": []
+  },
+  "settings.advanced.uninstall.description": {
+    "text": "Removes EyeCtrl from this PC. It asks first whether settings and logs stay.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.uninstall.label": {
+    "text": "Uninstall EyeCtrl…",
+    "who": "user",
+    "where": "settings",
+    "fit": "btn380x100",
+    "args": []
+  },
+  "settings.advanced.update.blocked": {
+    "text": "Updates currently need a Windows confirmation that gaze cannot reach. Please get the caregiver.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.advanced.update.description": {
+    "text": "Version {0} is ready (installed: {1}). EyeCtrl closes briefly and restarts on its own.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "version",
+      "installed"
+    ]
+  },
+  "settings.advanced.update.label": {
+    "text": "Install update",
+    "who": "user",
+    "where": "settings",
+    "fit": "btn380x100",
     "args": []
   },
   "settings.calibration.clear.label": {
@@ -5908,5 +5986,62 @@
     "fit": "row",
     "args": [],
     "crisis": true
+  },
+  "update.confirm.detail": {
+    "text": "EyeCtrl cannot be used for about a minute and then restarts on its own.",
+    "who": "user",
+    "where": "update",
+    "fit": "prose",
+    "args": []
+  },
+  "update.confirm.install": {
+    "text": "Install now",
+    "who": "user",
+    "where": "update",
+    "fit": "modal460",
+    "args": []
+  },
+  "update.confirm.later": {
+    "text": "Later",
+    "who": "user",
+    "where": "update",
+    "fit": "modal460",
+    "args": []
+  },
+  "update.confirm.title": {
+    "text": "Install the update to version {0}?",
+    "who": "user",
+    "where": "update",
+    "fit": "prose",
+    "args": [
+      "version"
+    ]
+  },
+  "update.notice.degraded": {
+    "text": "Version {0} is running without UIAccess. Windows dialogs such as Task Manager cannot be clicked by gaze. Please get the caregiver.",
+    "who": "user",
+    "where": "update",
+    "fit": "prose",
+    "args": [
+      "version"
+    ]
+  },
+  "update.notice.failed": {
+    "text": "The last update to version {0} failed. EyeCtrl keeps running.",
+    "who": "user",
+    "where": "update",
+    "fit": "prose",
+    "args": [
+      "version"
+    ]
+  },
+  "update.notice.rolledBack": {
+    "text": "The last update was rolled back to version {0}.",
+    "who": "user",
+    "where": "update",
+    "fit": "prose",
+    "args": [
+      "version"
+    ]
   }
 }

@@ -23,7 +23,10 @@ public static class StringTableSchema
         "settings",
         "calibration",
         "eye-care",
-        "overlays"
+        "overlays",
+        // C9 S6f: the update flow's own surfaces (plan §10's tables).
+        "update",
+        "rollback"
     ];
 
     /// <summary>Audience values the <c>who</c> meta field may carry.</summary>

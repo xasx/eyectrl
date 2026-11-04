@@ -18,13 +18,14 @@ public sealed class ElevatedOperations
     private readonly InstallStateMachine _state;
     private readonly AppsAndFeaturesWriter _appsAndFeatures;
     private readonly IAppDataDeletion _appDataDeletion;
+    private readonly IElevatedPhaseResultStore _phaseResults;
     private readonly ISetupLog _log;
 
     /// <summary>Creates the phases.</summary>
     public ElevatedOperations(
         SetupPaths paths, IElevationPolicy policy, RunCopyManager runCopies, StagingService staging,
         StopCoordinator stop, InstallStateMachine state, AppsAndFeaturesWriter appsAndFeatures,
-        IAppDataDeletion appDataDeletion, ISetupLog log)
+        IAppDataDeletion appDataDeletion, IElevatedPhaseResultStore phaseResults, ISetupLog log)
     {
         _paths = paths;
         _policy = policy;
@@ -34,11 +35,19 @@ public sealed class ElevatedOperations
         _state = state;
         _appsAndFeatures = appsAndFeatures;
         _appDataDeletion = appDataDeletion;
+        _phaseResults = phaseResults;
         _log = log;
     }
 
-    /// <summary>Runs one elevated job.</summary>
+    /// <summary>Runs one elevated job and records its result for the medium instance.</summary>
     public ElevatedPhaseResult Execute(ElevatedRequest request)
+    {
+        var result = ExecuteCore(request);
+        _phaseResults.Write(request, result);
+        return result;
+    }
+
+    private ElevatedPhaseResult ExecuteCore(ElevatedRequest request)
     {
         if (Blocked() is { } blocked)
             return blocked;

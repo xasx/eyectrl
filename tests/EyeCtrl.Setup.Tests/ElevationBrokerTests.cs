@@ -15,7 +15,8 @@ public class ElevationBrokerTests
         var launcher = new FakeElevatedLauncher();
         var broker = new ShellExecuteElevationBroker(
             harness.Paths, harness.Elevated, harness.Environment, harness.ElevationState,
-            policy ?? new ElevationPolicyGate(harness.Registry), launcher, harness.Logging);
+            policy ?? new ElevationPolicyGate(harness.Registry), launcher, harness.PhaseResults,
+            harness.Logging);
         return (broker, launcher, harness);
     }
 
@@ -31,6 +32,51 @@ public class ElevationBrokerTests
         new(ElevatedJob.Uninstall, RunId: "r1", KeepData: false),
         new(ElevatedJob.Repair, RunId: "r1"),
     ];
+
+    [Fact]
+    public void ARefusedApply_ReturnsTheElevatedChildsReason()
+    {
+        var (broker, launcher, harness) = Build();
+        var request = new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: "r1");
+        harness.PhaseResults.Write(
+            request, new ElevatedPhaseResult(
+                ElevatedPhaseStatus.NotApplied, "image:EyeCtrl.DryRunBlocker.exe"));
+        launcher.Result = new LauncherResult(LauncherOutcome.Exited, SetupExitCodes.NotApplied);
+
+        var result = broker.Run(request);
+
+        Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.NotApplied);
+        Check.That(result.Detail).IsEqualTo("image:EyeCtrl.DryRunBlocker.exe");
+    }
+
+    [Fact]
+    public void APhaseReportFromAnotherChild_IsIgnored()
+    {
+        var (broker, launcher, harness) = Build();
+        harness.PhaseResults.Write(
+            new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: "other"),
+            new ElevatedPhaseResult(
+                ElevatedPhaseStatus.NotApplied, "image:EyeCtrl.DryRunBlocker.exe"));
+        launcher.Result = new LauncherResult(LauncherOutcome.Exited, SetupExitCodes.NotApplied);
+
+        var result = broker.Run(new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: "r1"));
+
+        Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.NotApplied);
+        Check.That(result.Detail).IsEqualTo("childNotApplied");
+    }
+
+    [Fact]
+    public void AnElevatedPhase_WritesTheReasonTheMediumInstanceReadsBack()
+    {
+        var harness = new SetupHarness();
+        var request = new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: "r1");
+
+        var result = harness.Elevated.Execute(request);
+
+        Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.NotApplied);
+        Check.That(result.Detail).IsEqualTo("stagingMissing");
+        Check.That(harness.PhaseResults.Read(request)?.Detail).IsEqualTo("stagingMissing");
+    }
 
     [Fact]
     public void AnInjectedElevatedState_UsesTheOperationsPath_WithoutTheLauncher()

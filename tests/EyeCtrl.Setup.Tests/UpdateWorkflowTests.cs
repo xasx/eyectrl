@@ -124,6 +124,7 @@ public class UpdateWorkflowTests
         var result = harness.Workflow.Update(package);
 
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.NotApplied);
+        Check.That(result.Detail).IsEqualTo("image:helper.exe");
         Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("1.0.0");
         Check.That(harness.Files.DirectoryExists(harness.Paths.PreviousRoot)).IsFalse();
     }
@@ -212,7 +213,7 @@ public class UpdateWorkflowTests
 
         Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.Blocked);
         Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
-        Check.That(harness.Files.DirectoryExists(harness.Paths.RunRoot)).IsFalse();
+        Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("r1"))).IsFalse();
     }
 
     [Fact]

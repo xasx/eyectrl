@@ -20,7 +20,7 @@ public class StagingRunCopyTests
         var result = harness.Workflow.Update(package);
 
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.VerifyFailed);
-        Check.That(harness.Files.DirectoryExists(harness.Paths.RunRoot)).IsFalse();
+        Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("run1"))).IsFalse();
     }
 
     [Fact]

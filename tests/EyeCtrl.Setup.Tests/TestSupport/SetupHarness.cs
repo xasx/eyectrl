@@ -198,11 +198,13 @@ public sealed class SetupHarness
             Paths, Files, Registry, Guard, AppsAndFeatures, Metadata, Journal, Logging);
         RunCopies = new RunCopyManager(
             Paths, Files, Guard, Signature, CatalogMembers, Hasher, Logging);
+        PhaseResults = new ElevatedPhaseResultStore(Paths, Files, Guard, Logging);
         Staging = new StagingService(Paths, Files, Guard, Catalog, Logging);
         Stop = new StopCoordinator(Paths, Processes, HeldButton, Logging);
         AppStart = new AppStartService(Processes, LogProbe, Clock, Logging);
         Elevated = new ElevatedOperations(
-            Paths, Policy, RunCopies, Staging, Stop, State, AppsAndFeatures, AppData, Logging);
+            Paths, Policy, RunCopies, Staging, Stop, State, AppsAndFeatures, AppData, PhaseResults,
+            Logging);
         Broker = new FakeElevationBroker { Handler = Elevated.Execute };
         Environment.ProcessPath = @"C:\Users\test\Desktop\EyeCtrl.Setup.exe";
         Planner = new SupervisionStartPlanner(Settings);
@@ -241,6 +243,7 @@ public sealed class SetupHarness
     public InstallJournalStore Journal { get; }
     public InstallStateMachine State { get; }
     public RunCopyManager RunCopies { get; }
+    public ElevatedPhaseResultStore PhaseResults { get; }
     public StagingService Staging { get; }
     public StopCoordinator Stop { get; }
     public AppStartService AppStart { get; }

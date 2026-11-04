@@ -66,11 +66,13 @@ public sealed class SetupComposition
         var stop = new StopCoordinator(paths, processes, new CoreHeldButtonRecovery(), log);
         var appStart = new AppStartService(processes, new WindowsAppLogProbe(paths), clock, log);
         var appDataDeletion = new PhysicalAppDataDeletion(paths);
+        var phaseResults = new ElevatedPhaseResultStore(paths, fileSystem, guard, log);
         var elevated = new ElevatedOperations(
-            paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion, log);
+            paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion,
+            phaseResults, log);
         var broker = new ShellExecuteElevationBroker(
             paths, elevated, environment, new WindowsElevationState(), policy,
-            new ShellExecuteRunAsLauncher(log), log);
+            new ShellExecuteRunAsLauncher(log), phaseResults, log);
         var planner = new SupervisionStartPlanner(new SettingsSnapshotReader(paths, fileSystem));
         var ui = SetupUi.Load(paths, fileSystem, updatePackageDirectory, AppContext.BaseDirectory);
         var workflow = new SetupWorkflow(

@@ -20,6 +20,7 @@ dotnet publish src/EyeCtrl.App -c Release -r win-x64 --self-contained true -p:Pu
 dotnet test tests/EyeCtrl.Core.Tests                              # unit tests (fast, no display)
 dotnet test tests/EyeCtrl.Platform.Tests                          # platform unit tests
 dotnet test tests/EyeCtrl.ViewModels.Tests                        # viewmodel unit tests
+dotnet test tests/EyeCtrl.Setup.Tests                             # installer engine tests (fakes only)
 dotnet test                                                       # all tests
 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"        # UI tests (needs display)
 ```
@@ -144,6 +145,7 @@ runtimes can consume them; the app side is net10):
 | `EyeCtrl.Sdk.Wpf` | SDK (WPF) | `net8.0-windows`, `UseWPF`. `Dwell` attachable control + WPF element adapter for WPF host apps |
 | `EyeCtrl.Sdk.WinUI` | SDK (WinUI 3) | `net8.0-windows10.0.19041.0`. `EyeCtrlDwell` control + WinUI coordinates/adapter |
 | `EyeCtrl.Supervisor` | Watchdog process | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. Heartbeat IPC, crash supervision, fallback launch chain, caregiver setup UI |
+| `EyeCtrl.Setup` | Install engine | `WinExe`, `net10.0-windows`, `asInvoker`/`uiAccess="false"`, self-contained on publish. Verbs `update`/`rollback`/`uninstall --quiet`/`repair`/`status`; every OS touch behind a seam; tests fake the file system, registry, processes and elevation |
 | `EyeCtrl.LM` | ONNX LM | `net10.0` leaf project. `SmallLMPredictor` + `LMTokenizer`. References Core. |
 | `EyeCtrl.EyeCare` | Eye-care logic | `net10.0` leaf project. Scheduler, fatigue monitor, gaze exercises, scoring. References Core. |
 

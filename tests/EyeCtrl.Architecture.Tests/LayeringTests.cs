@@ -96,6 +96,7 @@ public class LayeringTests
             ["EyeCtrl.EyeCare"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.LM"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.Supervisor"] = Set("EyeCtrl.Core", "EyeCtrl.Platform", "EyeCtrl.Controls"),
+            ["EyeCtrl.Setup"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.Sdk.Abstractions"] = Set("EyeCtrl.Contracts"),
             ["EyeCtrl.Sdk.Wpf"] = Set("EyeCtrl.Sdk.Abstractions"),
             ["EyeCtrl.Sdk.WinUI"] = Set("EyeCtrl.Sdk.Abstractions"),

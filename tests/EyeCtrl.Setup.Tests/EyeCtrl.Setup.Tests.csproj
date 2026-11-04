@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EyeCtrl.Setup\EyeCtrl.Setup.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Linked, not copied: the hook is one rule, and a second copy is a second rule. Every
+         Core-referencing test project installs both; see AssemblyInfo.cs in this project and
+         StringTableIsolationTests in EyeCtrl.App.Tests. -->
+    <Compile Include="..\TestSupport\StringTableRestoreAttribute.cs"
+             Link="TestSupport\StringTableRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
+             Link="TestSupport\StringTableObserverAttribute.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- X1's real New-FileCatalog v2 fixture: the binary .cat and the exact bytes it hashed.
+         Committed so the SIP SHA-256 tag is checked against a real catalog without signing
+         anything or touching a certificate. -->
+    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

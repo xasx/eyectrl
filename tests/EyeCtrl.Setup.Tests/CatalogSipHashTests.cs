@@ -36,6 +36,22 @@ public class CatalogSipHashTests
     }
 
     [Fact]
+    public void ForAPeFile_TheSipHashIsNotTheFlatSha256()
+    {
+        var pe = @"C:\Windows\System32\ntdll.dll";
+        if (!File.Exists(pe))
+        {
+            Assert.Skip("No System32 PE available on this machine.");
+            return;
+        }
+
+        var sip = CatalogSipHash.Compute(pe);
+        var flat = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(pe)));
+
+        Check.That(sip).IsNotEqualTo(flat);
+    }
+
+    [Fact]
     public void MutatingTheFile_ChangesTheTag()
     {
         var directory = Path.Combine(
@@ -63,7 +79,8 @@ public class CatalogSipHashTests
             RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "AuthenticodeVerifiers.cs"));
 
         Check.That(source).Contains("MemberTag(file)");
-        Check.That(source).Contains("VerifyCatalogMember(catalogPath, file, tag)");
+        Check.That(source).Contains("_memberVerifier.Verify(catalogPath, file, tag)");
+        Check.That(source).Contains("WinTrustNative.VerifyCatalogMember(catalogPath, filePath, memberTag)");
         Check.That(source).DoesNotContain("VerifyCatalogMember(catalogPath, file, relative)");
     }
 

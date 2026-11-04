@@ -20,10 +20,14 @@ public sealed class FakeCatalogVerifier : ICatalogVerifier
     /// <summary>The calls made.</summary>
     public List<string> Calls { get; } = [];
 
+    /// <summary>The directory each call verified (M5 pins that this is the staging root).</summary>
+    public List<string> Directories { get; } = [];
+
     /// <inheritdoc />
     public CatalogVerificationResult Verify(string catalogPath, string directory, string pinnedThumbprint)
     {
         Calls.Add($"{catalogPath}|{directory}|{pinnedThumbprint}");
+        Directories.Add(directory);
         return Result;
     }
 }
@@ -69,6 +73,23 @@ public sealed class FakeElevationBroker : IElevationBroker
     {
         Requests.Add(request);
         return Handler?.Invoke(request) ?? Result;
+    }
+}
+
+/// <summary>The member-verifier fake: 0 unless a test needs a WinTrust-style failure.</summary>
+public sealed class FakeCatalogMemberVerifier : EyeCtrl.Setup.Abstractions.ICatalogMemberVerifier
+{
+    /// <summary>The result the next Verify returns.</summary>
+    public int Result { get; set; }
+
+    /// <summary>The files checked.</summary>
+    public List<string> Calls { get; } = [];
+
+    /// <inheritdoc />
+    public int Verify(string catalogPath, string filePath, string memberTag)
+    {
+        Calls.Add(filePath);
+        return Result;
     }
 }
 

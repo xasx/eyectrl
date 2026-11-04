@@ -30,6 +30,15 @@ public interface ICatalogVerifier
     CatalogVerificationResult Verify(string catalogPath, string directory, string pinnedThumbprint);
 }
 
+/// <summary>Verifies one file's hash against the catalog (the production implementation is
+/// <c>WinTrustNative.VerifyCatalogMember</c>; the seam lets the fixture tests isolate the
+/// member-set and FilePath logic from a real signature).</summary>
+public interface ICatalogMemberVerifier
+{
+    /// <summary>Returns 0 when the file's hash matches the member tag in the catalog.</summary>
+    int Verify(string catalogPath, string filePath, string memberTag);
+}
+
 /// <summary>The untrusted <c>package.json</c> metadata. Never used for a path or a trust decision.</summary>
 public sealed record PackageMetadata(string? Version, string? Sha, DateTimeOffset? Created)
 {

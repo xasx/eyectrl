@@ -187,6 +187,14 @@ public sealed class WinTrustFileSignatureVerifier : IFileSignatureVerifier
     }
 }
 
+/// <summary>The production member verifier: WinTrust recomputes the hash and looks the tag up.</summary>
+public sealed class WinTrustCatalogMemberVerifier : ICatalogMemberVerifier
+{
+    /// <inheritdoc />
+    public int Verify(string catalogPath, string filePath, string memberTag) =>
+        WinTrustNative.VerifyCatalogMember(catalogPath, filePath, memberTag);
+}
+
 /// <summary>
 /// Verifies a <c>New-FileCatalog</c> (v2, SHA-256) catalog over every other file in the staging
 /// folder:
@@ -202,9 +210,15 @@ public sealed class WinTrustFileSignatureVerifier : IFileSignatureVerifier
 public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
 {
     private readonly IFileSignatureVerifier _signature;
+    private readonly ICatalogMemberVerifier _memberVerifier;
 
     /// <summary>Creates the verifier.</summary>
-    public AuthenticodeCatalogVerifier(IFileSignatureVerifier signature) => _signature = signature;
+    public AuthenticodeCatalogVerifier(
+        IFileSignatureVerifier signature, ICatalogMemberVerifier? memberVerifier = null)
+    {
+        _signature = signature;
+        _memberVerifier = memberVerifier ?? new WinTrustCatalogMemberVerifier();
+    }
 
     /// <summary>The catalog member tag for a file: uppercase hex SIP SHA-256 (X1), never a path.</summary>
     internal static string MemberTag(string filePath) => CatalogSipHash.Compute(filePath);
@@ -271,7 +285,7 @@ public sealed class AuthenticodeCatalogVerifier : ICatalogVerifier
 
                 // WinTrust re-computes the member hash itself; a file copied under another
                 // member's name fails here even though its own hash is in the catalog.
-                if (WinTrustNative.VerifyCatalogMember(catalogPath, file, tag) != 0)
+                if (_memberVerifier.Verify(catalogPath, file, tag) != 0)
                     mismatches.Add(relative);
             }
 

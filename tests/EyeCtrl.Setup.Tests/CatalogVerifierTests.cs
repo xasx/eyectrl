@@ -23,6 +23,19 @@ public class CatalogVerifierTests
     private static string FixtureDirectory =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "catalog-v2");
 
+    private static string RepoRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "EyeCtrl.slnx")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not find EyeCtrl.slnx above " + AppContext.BaseDirectory);
+    }
+
     private static string FixtureCatalog => Path.Combine(FixtureDirectory, "EyeCtrl.cat");
 
     private static IFileSignatureVerifier PinnedFake() => new FakeSignatureVerifier();
@@ -46,7 +59,7 @@ public class CatalogVerifierTests
         var directory = CloneFixture();
         try
         {
-            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.UncataloguedFiles).Not.Contains("EyeCtrl.cat");
@@ -71,7 +84,7 @@ public class CatalogVerifierTests
                 Path.Combine(directory, "sample.txt"),
                 overwrite: true);
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("sample.txt");
@@ -90,7 +103,7 @@ public class CatalogVerifierTests
         {
             File.WriteAllText(Path.Combine(directory, "zz-planted.dll"), "not in any catalog");
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.UncataloguedFiles).Contains("zz-planted.dll");
@@ -109,7 +122,7 @@ public class CatalogVerifierTests
         {
             File.Delete(Path.Combine(directory, "sample.txt"));
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.MissingFiles).Contains("sample.txt");
@@ -128,7 +141,7 @@ public class CatalogVerifierTests
         {
             File.AppendAllText(Path.Combine(directory, "sample.txt"), "tampered");
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("sample.txt");
@@ -163,7 +176,7 @@ public class CatalogVerifierTests
             File.AppendAllText(bad, "x");
             File.WriteAllText(Path.Combine(directory, "zz-planted.dll"), "not in any catalog");
 
-            var result = new AuthenticodeCatalogVerifier(PinnedFake())
+            var result = new AuthenticodeCatalogVerifier(PinnedFake(), new FakeCatalogMemberVerifier())
                 .Verify(Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
 
             Check.That(result.HashMismatches).Contains("0-bad.dll");
@@ -185,7 +198,8 @@ public class CatalogVerifierTests
                 new FakeSignatureVerifier
                 {
                     Result = new FileSignatureCheck(true, "DEADBEEF", null),
-                });
+                },
+                new FakeCatalogMemberVerifier());
 
             var result = verifier.Verify(
                 Path.Combine(directory, "EyeCtrl.cat"), directory, SetupConstants.PinnedThumbprint);
@@ -212,6 +226,17 @@ public class CatalogVerifierTests
 
         Check.That(check.Valid).IsTrue();
         Check.That(check.SignerThumbprint).IsNotNull();
+    }
+
+    [Fact]
+    public void TheCatalogInfo_HasTheVersionFieldAndAZeroedBuffer()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "AuthenticodeVerifiers.cs"));
+
+        Check.That(source).Contains("public uint CatalogVersion;");
+        Check.That(source).Contains("CatalogVersion = 0,");
+        Check.That(source).Contains("Zero(infoPointer, Marshal.SizeOf<WinTrustCatalogInfo>());");
     }
 
     [Fact]

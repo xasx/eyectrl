@@ -14,7 +14,7 @@ public class ElevationBrokerTests
         harness.Environment.ProcessPath = harness.Paths.InstalledSetupExePath;
         var launcher = new FakeElevatedLauncher();
         var broker = new ShellExecuteElevationBroker(
-            harness.Paths, harness.Elevated, harness.Environment,
+            harness.Paths, harness.Elevated, harness.Environment, harness.ElevationState,
             policy ?? new ElevationPolicyGate(harness.Registry), launcher, harness.Logging);
         return (broker, launcher, harness);
     }
@@ -31,6 +31,20 @@ public class ElevationBrokerTests
         new(ElevatedJob.Uninstall, RunId: "r1", KeepData: false),
         new(ElevatedJob.Repair, RunId: "r1"),
     ];
+
+    [Fact]
+    public void AnInjectedElevatedState_UsesTheOperationsPath_WithoutTheLauncher()
+    {
+        // The CI testhost runs elevated. The broker must follow the injected state, not the
+        // machine's token, so this test is identical on a developer box and a runner.
+        var (broker, launcher, harness) = Build();
+        harness.ElevationState.IsElevated = true;
+
+        var result = broker.Run(new ElevatedRequest(ElevatedJob.ApplyUpdate, RunId: "r1"));
+
+        Check.That(launcher.Calls).IsEmpty();
+        Check.That(result.Status).IsEqualTo(ElevatedPhaseStatus.NotApplied);
+    }
 
     [Fact]
     public void EveryJob_BuildsAnArgv_ThatParsesBackToTheSameRequest()

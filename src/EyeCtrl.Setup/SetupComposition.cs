@@ -63,7 +63,8 @@ public sealed class SetupComposition
         var elevated = new ElevatedOperations(
             paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion, log);
         var broker = new ShellExecuteElevationBroker(
-            paths, elevated, environment, policy, new ShellExecuteRunAsLauncher(log), log);
+            paths, elevated, environment, new WindowsElevationState(), policy,
+            new ShellExecuteRunAsLauncher(log), log);
         var planner = new SupervisionStartPlanner(new SettingsSnapshotReader(paths, fileSystem));
         var workflow = new SetupWorkflow(
             paths, policy, broker, appStart, planner, fileSystem, processes, new KeepUninstallChoice(),

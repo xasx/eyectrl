@@ -14,6 +14,7 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     private readonly SetupPaths _paths;
     private readonly ElevatedOperations _operations;
     private readonly ISetupEnvironment _environment;
+    private readonly IElevationState _elevationState;
     private readonly IElevationPolicy _policy;
     private readonly IElevatedLauncher _launcher;
     private readonly ISetupLog _log;
@@ -21,31 +22,20 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     /// <summary>Creates the broker.</summary>
     public ShellExecuteElevationBroker(
         SetupPaths paths, ElevatedOperations operations, ISetupEnvironment environment,
-        IElevationPolicy policy, IElevatedLauncher launcher, ISetupLog log)
+        IElevationState elevationState, IElevationPolicy policy, IElevatedLauncher launcher,
+        ISetupLog log)
     {
         _paths = paths;
         _operations = operations;
         _environment = environment;
+        _elevationState = elevationState;
         _policy = policy;
         _launcher = launcher;
         _log = log;
     }
 
     /// <inheritdoc />
-    public bool IsElevated
-    {
-        get
-        {
-            try
-            {
-                return WindowsTokenReader.Read(Environment.ProcessId).Elevated == true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-    }
+    public bool IsElevated => _elevationState.IsElevated;
 
     /// <inheritdoc />
     public ElevatedPhaseResult Run(ElevatedRequest request)
@@ -126,6 +116,26 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
 
     private static string RequireRunId(ElevatedRequest request) =>
         request.RunId ?? throw new InvalidOperationException("The elevated request has no run id.");
+}
+
+/// <summary>The production elevation state: the current process token's elevated bit.</summary>
+public sealed class WindowsElevationState : IElevationState
+{
+    /// <inheritdoc />
+    public bool IsElevated
+    {
+        get
+        {
+            try
+            {
+                return WindowsTokenReader.Read(Environment.ProcessId).Elevated == true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+    }
 }
 
 /// <summary>The production launcher: ShellExecute <c>runas</c>, one process, bounded wait, and a

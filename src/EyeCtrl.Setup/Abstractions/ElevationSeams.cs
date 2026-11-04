@@ -14,6 +14,16 @@ public interface IElevationPolicy
 /// <summary>Whether silent elevation is allowed, with the value that decided it.</summary>
 public readonly record struct ElevationPolicyResult(bool Allowed, int? ConsentPromptBehaviorAdmin);
 
+/// <summary>
+/// Whether the current process already runs elevated. A seam so unit tests never depend on the
+/// machine's token (GitHub's Windows runner is elevated; a developer's testhost is not).
+/// </summary>
+public interface IElevationState
+{
+    /// <summary>True when the current process carries an elevated token.</summary>
+    bool IsElevated { get; }
+}
+
 /// <summary>The internal jobs the medium instance hands to an elevated one.</summary>
 public enum ElevatedJob
 {

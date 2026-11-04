@@ -53,6 +53,13 @@ public sealed class FakeSignatureVerifier : IFileSignatureVerifier
     }
 }
 
+/// <summary>A fake elevation state; the machine's token is never read.</summary>
+public sealed class FakeElevationState : IElevationState
+{
+    /// <summary>What the fake reports.</summary>
+    public bool IsElevated { get; set; }
+}
+
 /// <summary>Records every elevated request and optionally executes the real elevated phases.</summary>
 public sealed class FakeElevationBroker : IElevationBroker
 {
@@ -139,6 +146,7 @@ public sealed class SetupHarness
         Clock = new FakeClock();
         Catalog = new FakeCatalogVerifier();
         Signature = new FakeSignatureVerifier();
+        ElevationState = new FakeElevationState();
         LogProbe = new FakeAppLogProbe();
         HeldButton = new FakeHeldButtonRecovery();
         Choice = new FakeUninstallChoice();
@@ -189,6 +197,7 @@ public sealed class SetupHarness
     public FakeClock Clock { get; }
     public FakeCatalogVerifier Catalog { get; }
     public FakeSignatureVerifier Signature { get; }
+    public FakeElevationState ElevationState { get; }
     public FakeAppLogProbe LogProbe { get; }
     public FakeHeldButtonRecovery HeldButton { get; }
     public FakeUninstallChoice Choice { get; }

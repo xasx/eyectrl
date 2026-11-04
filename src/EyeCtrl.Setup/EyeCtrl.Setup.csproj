@@ -4,7 +4,8 @@
     <!--
       C9 S6a: the install engine. It starts at medium IL (asInvoker) and re-launches only its
       internal elevated sub-verbs with ShellExecute runas. The manifest is explicit rather than
-      the SDK default so the asInvoker/uiAccess="false" pair is pinned by test.
+      the SDK default so the asInvoker/uiAccess="false" pair — and, since C9 S6e fixup-04, the
+      PerMonitorV2 DPI awareness — is pinned by test.
 
       Self-contained is a publish concern (S6b's Publish-Signed.ps1 passes
       self-contained true and a win-x64 runtime), matching EyeCtrl.App: the uninstall path must

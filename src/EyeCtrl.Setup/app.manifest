@@ -9,4 +9,19 @@
       </requestedPrivileges>
     </security>
   </trustInfo>
+  <!--
+    C9 S6e fixup-04: declare per-monitor v2 DPI awareness up front. Without a declaration the
+    process starts DPI-unaware and WPF raises its awareness only once the first window is being
+    created; the S6c rerun saw that first window at 1344x807 and then at 2688x1613 (its DIP
+    bounds, then the 200 % physical size), so its first frames are bitmap-stretched. Declaring it
+    in the manifest makes the process aware before any window exists. PerMonitorV2 with a
+    PerMonitor fallback for Windows versions that predate the v2 context (the same mode
+    EyeCtrl.App's coordinate code assumes).
+  -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
+    </windowsSettings>
+  </application>
 </assembly>

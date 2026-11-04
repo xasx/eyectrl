@@ -7,6 +7,11 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // S6f H1: a live process's cwd holds that folder against Directory.Move, and a
+        // ShellExecute child inherits its caller's cwd. Enter on the neutral folder before
+        // anything else, so a console or shortcut that starts Setup from inside EyeCtrl\ cannot
+        // pin the folder the swap has to rename. Every start also carries it explicitly.
+        SetupWorkingDirectory.Enter();
         ConsoleSupport.AttachParentConsole();
 
         var command = SetupCommandLine.Parse(args);

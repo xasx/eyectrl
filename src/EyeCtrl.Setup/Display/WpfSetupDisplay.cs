@@ -57,7 +57,7 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
     {
         try
         {
-            var mapped = SetupDisplayText.Result(_ui.Strings, result, _appDataRoot);
+            var mapped = SetupDisplayText.Result(_ui.TableFor(result), result, _appDataRoot);
             Invoke(() =>
             {
                 EnsureWindow();

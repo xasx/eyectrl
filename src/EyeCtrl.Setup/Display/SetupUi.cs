@@ -16,27 +16,42 @@ using EyeCtrl.Setup.Abstractions;
 /// </summary>
 public sealed class SetupUi
 {
-    private SetupUi(StringTable strings, ITheme theme)
+    private SetupUi(StringTable strings, StringTable installedStrings, ITheme theme)
     {
         Strings = strings;
+        InstalledStrings = installedStrings;
         Theme = theme;
     }
 
-    /// <summary>The resolved table.</summary>
+    /// <summary>The verb's preferred table (the update package's own during an update).</summary>
     public StringTable Strings { get; }
+
+    /// <summary>The table resolved from the install root (or embedded English): the trusted table
+    /// for a result that reports a refused package.</summary>
+    public StringTable InstalledStrings { get; }
 
     /// <summary>The active theme (also published through <see cref="Tokens"/>).</summary>
     public ITheme Theme { get; }
 
+    /// <summary>
+    /// The table a result must be rendered from. A <see cref="SetupOutcome.VerifyFailed"/> comes
+    /// from a refused package, so its text must never come from that package's own table (a
+    /// tampered table could make its refusal read as success); every other result uses the verb's
+    /// preferred table.
+    /// </summary>
+    public StringTable TableFor(SetupResult result) =>
+        result.Outcome == SetupOutcome.VerifyFailed ? InstalledStrings : Strings;
+
     /// <summary>The English/default-theme instance, for tests and as the last resort.</summary>
-    public static SetupUi English { get; } = new(StringTable.EmbeddedEnglish, ThemeRegistry.Resolve(null));
+    public static SetupUi English { get; } =
+        new(StringTable.EmbeddedEnglish, StringTable.EmbeddedEnglish, ThemeRegistry.Resolve(null));
 
     /// <summary>
     /// Reads the owner's settings and loads the tables. <paramref name="preferredDirectory"/> is
     /// tried first (the update package's own folder, whose table comes from the same build as the
     /// code reading it); <paramref name="fallbackDirectory"/> is the folder to look in when neither
     /// the preferred directory nor the install root has a German file (normally the App's own
-    /// folder).
+    /// folder). The install-root table is kept separately for <see cref="TableFor"/>.
     /// </summary>
     public static SetupUi Load(
         SetupPaths paths, IFileSystem fileSystem, string? preferredDirectory = null,
@@ -46,18 +61,32 @@ public sealed class SetupUi
         var theme = ThemeRegistry.Resolve(settings.ThemeName);
         Tokens.Activate(theme);
 
-        StringTable strings;
+        var installedDirectory = FindLooseStringDirectory(
+            paths, fileSystem, fallbackDirectory: fallbackDirectory);
+        var installed = LoadTable(settings.Language, installedDirectory);
+
+        var preferred = installed;
+        if (!string.IsNullOrWhiteSpace(preferredDirectory))
+        {
+            var preferredResolved = FindLooseStringDirectory(
+                paths, fileSystem, preferredDirectory, fallbackDirectory);
+            if (!string.Equals(preferredResolved, installedDirectory, StringComparison.OrdinalIgnoreCase))
+                preferred = LoadTable(settings.Language, preferredResolved);
+        }
+
+        return new SetupUi(preferred, installed, theme);
+    }
+
+    private static StringTable LoadTable(UiLanguage language, string? directory)
+    {
         try
         {
-            var directory = FindLooseStringDirectory(paths, fileSystem, preferredDirectory, fallbackDirectory);
-            strings = StringTable.Load(settings.Language, CultureInfo.CurrentUICulture, directory);
+            return StringTable.Load(language, CultureInfo.CurrentUICulture, directory);
         }
         catch (Exception)
         {
-            strings = StringTable.EmbeddedEnglish;
+            return StringTable.EmbeddedEnglish;
         }
-
-        return new SetupUi(strings, theme);
     }
 
     /// <summary>Reads the two fields Setup needs, tolerantly.</summary>

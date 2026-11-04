@@ -132,6 +132,35 @@ public sealed class SetupUiTests : IDisposable
     }
 
     [Fact]
+    public void Load_VerifyFailedUsesTheInstalledTable_NotThePackages()
+    {
+        var paths = Paths("program-files", "appdata");
+        CopyShippedGerman(paths.InstallRoot);
+        var package = Path.Combine(_root, "inbox", "2.0.0");
+        CopyShippedGerman(package);
+
+        ReplaceGerman(paths.InstallRoot, "beschädigt", "INSTALL-beschädigt");
+        ReplaceGerman(package, "beschädigt", "PAKET-beschädigt");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsPath)!);
+        File.WriteAllText(paths.SettingsPath, """{"general":{"uiLanguage":"german"}}""");
+
+        var ui = SetupUi.Load(paths, new PhysicalFileSystem(), preferredDirectory: package);
+        var verifyFailed = new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed };
+        var ok = new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.Ok };
+
+        Check.That(ui.Strings.T("update.result.verifyFailed")).Contains("PAKET-beschädigt");
+        Check.That(ui.InstalledStrings.T("update.result.verifyFailed")).Contains("INSTALL-beschädigt");
+        Check.WithCustomMessage("A refused package's own table supplied its refusal text.")
+            .That(ui.TableFor(verifyFailed).T("update.result.verifyFailed")).Contains("INSTALL-beschädigt");
+        Check.WithCustomMessage("An ordinary result stopped using the update package's table.")
+            .That(ui.TableFor(ok).T("update.result.verifyFailed")).Contains("PAKET-beschädigt");
+
+        var text = SetupDisplayText.Result(ui.TableFor(verifyFailed), verifyFailed, paths.AppDataRoot).Text;
+        Check.That(text).Contains("INSTALL-beschädigt").And.Not.Contains("PAKET-beschädigt");
+    }
+
+    [Fact]
     public void Load_WithoutAnyTable_IsEnglishAndTheDefaultTheme()
     {
         var paths = Paths("program-files", "appdata");
@@ -156,6 +185,12 @@ public sealed class SetupUiTests : IDisposable
             Path.Combine(Path.GetDirectoryName(GermanDraft.GermanPath)!, StringTable.ManifestFileName),
             Path.Combine(directory, StringTable.ManifestFileName),
             overwrite: true);
+    }
+
+    private static void ReplaceGerman(string directory, string oldText, string newText)
+    {
+        var path = Path.Combine(directory, StringTable.GermanFileName);
+        File.WriteAllText(path, File.ReadAllText(path).Replace(oldText, newText));
     }
 }
 

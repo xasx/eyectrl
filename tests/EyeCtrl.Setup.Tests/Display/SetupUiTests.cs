@@ -62,13 +62,13 @@ public sealed class SetupUiTests : IDisposable
         var files = new EyeCtrl.Setup.Tests.TestSupport.InMemoryFileSystem();
         var fallback = Path.Combine(_root, "fallback");
 
-        Check.That(SetupUi.FindLooseStringDirectory(paths, files, fallback)).IsNull();
+        Check.That(SetupUi.FindLooseStringDirectory(paths, files, fallbackDirectory: fallback)).IsNull();
 
         files.AddFile(Path.Combine(fallback, StringTable.GermanFileName), "{}");
-        Check.That(SetupUi.FindLooseStringDirectory(paths, files, fallback)).IsEqualTo(fallback);
+        Check.That(SetupUi.FindLooseStringDirectory(paths, files, fallbackDirectory: fallback)).IsEqualTo(fallback);
 
         files.AddFile(Path.Combine(paths.InstallRoot, StringTable.GermanFileName), "{}");
-        Check.That(SetupUi.FindLooseStringDirectory(paths, files, fallback)).IsEqualTo(paths.InstallRoot);
+        Check.That(SetupUi.FindLooseStringDirectory(paths, files, fallbackDirectory: fallback)).IsEqualTo(paths.InstallRoot);
     }
 
     [Fact]
@@ -99,10 +99,36 @@ public sealed class SetupUiTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsPath)!);
         File.WriteAllText(paths.SettingsPath, """{"general":{"uiLanguage":"german"}}""");
 
-        var ui = SetupUi.Load(paths, new PhysicalFileSystem(), fallback);
+        var ui = SetupUi.Load(paths, new PhysicalFileSystem(), fallbackDirectory: fallback);
 
         Check.That(ui.Strings.Language).IsEqualTo(UiLanguage.German);
         Check.That(ui.Strings.T("uninstall.choice.title")).IsEqualTo("EyeCtrl deinstallieren");
+    }
+
+    [Fact]
+    public void Load_ForUpdate_PrefersTheNewPackagesTable()
+    {
+        var paths = Paths("program-files", "appdata");
+        CopyShippedGerman(paths.InstallRoot);
+        var package = Path.Combine(_root, "inbox", "2.0.0");
+        CopyShippedGerman(package);
+
+        // The package's table comes from the new build; make it distinguishable from the installed
+        // (old) one without changing the JSON shape.
+        var packageGerman = Path.Combine(package, StringTable.GermanFileName);
+        var text = File.ReadAllText(packageGerman);
+        Check.That(text).Contains("Update wird installiert");
+        File.WriteAllText(packageGerman, text.Replace("Update wird installiert", "Paket-Update laeuft"));
+
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsPath)!);
+        File.WriteAllText(paths.SettingsPath, """{"general":{"uiLanguage":"german"}}""");
+
+        var update = SetupUi.Load(paths, new PhysicalFileSystem(), preferredDirectory: package);
+        Check.WithCustomMessage("An update used the installed old table instead of the package's.")
+            .That(update.Strings.T("update.progress.title")).IsEqualTo("Paket-Update laeuft");
+
+        var installed = SetupUi.Load(paths, new PhysicalFileSystem());
+        Check.That(installed.Strings.T("update.progress.title")).IsEqualTo("Update wird installiert");
     }
 
     [Fact]
@@ -110,7 +136,7 @@ public sealed class SetupUiTests : IDisposable
     {
         var paths = Paths("program-files", "appdata");
 
-        var ui = SetupUi.Load(paths, new PhysicalFileSystem(), Path.Combine(_root, "nothing"));
+        var ui = SetupUi.Load(paths, new PhysicalFileSystem(), fallbackDirectory: Path.Combine(_root, "nothing"));
 
         Check.That(ui.Theme.Name).IsEqualTo(MidnightTheme.Instance.Name);
         // System resolves against this machine's German culture, but with no loose table every key

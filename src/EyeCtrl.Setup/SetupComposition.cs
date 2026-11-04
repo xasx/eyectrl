@@ -33,7 +33,11 @@ public sealed class SetupComposition
     }
 
     /// <summary>Builds the production composition from the machine's OS folders.</summary>
-    public static SetupComposition CreateProduction()
+    /// <param name="updatePackageDirectory">
+    /// For an update, the inbox package's folder: its <c>strings.de.json</c> comes from the same
+    /// build as the code reading it, so the first update from a pre-S6e version still shows German.
+    /// </param>
+    public static SetupComposition CreateProduction(string? updatePackageDirectory = null)
     {
         var log = new ConsoleSetupLog();
         var paths = new SetupPaths(
@@ -67,7 +71,7 @@ public sealed class SetupComposition
             paths, elevated, environment, new WindowsElevationState(), policy,
             new ShellExecuteRunAsLauncher(log), log);
         var planner = new SupervisionStartPlanner(new SettingsSnapshotReader(paths, fileSystem));
-        var ui = SetupUi.Load(paths, fileSystem, AppContext.BaseDirectory);
+        var ui = SetupUi.Load(paths, fileSystem, updatePackageDirectory, AppContext.BaseDirectory);
         var workflow = new SetupWorkflow(
             paths, policy, broker, appStart, planner, fileSystem, processes, new WpfUninstallChoice(ui),
             new GuidRunIdGenerator(), metadata, recorder, environment, clock, log,

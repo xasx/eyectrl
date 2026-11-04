@@ -32,10 +32,15 @@ public sealed class SetupUi
     public static SetupUi English { get; } = new(StringTable.EmbeddedEnglish, ThemeRegistry.Resolve(null));
 
     /// <summary>
-    /// Reads the owner's settings and loads the tables. <paramref name="fallbackDirectory"/> is the
-    /// folder to look in when the install root has no German file (normally the App's own folder).
+    /// Reads the owner's settings and loads the tables. <paramref name="preferredDirectory"/> is
+    /// tried first (the update package's own folder, whose table comes from the same build as the
+    /// code reading it); <paramref name="fallbackDirectory"/> is the folder to look in when neither
+    /// the preferred directory nor the install root has a German file (normally the App's own
+    /// folder).
     /// </summary>
-    public static SetupUi Load(SetupPaths paths, IFileSystem fileSystem, string? fallbackDirectory = null)
+    public static SetupUi Load(
+        SetupPaths paths, IFileSystem fileSystem, string? preferredDirectory = null,
+        string? fallbackDirectory = null)
     {
         var settings = ReadSettings(paths, fileSystem);
         var theme = ThemeRegistry.Resolve(settings.ThemeName);
@@ -44,7 +49,7 @@ public sealed class SetupUi
         StringTable strings;
         try
         {
-            var directory = FindLooseStringDirectory(paths, fileSystem, fallbackDirectory);
+            var directory = FindLooseStringDirectory(paths, fileSystem, preferredDirectory, fallbackDirectory);
             strings = StringTable.Load(settings.Language, CultureInfo.CurrentUICulture, directory);
         }
         catch (Exception)
@@ -111,13 +116,18 @@ public sealed class SetupUi
     }
 
     /// <summary>
-    /// The first folder that holds <c>strings.de.json</c>: the App's install folder (the copy the
-    /// App ships), then the explicit fallback, then Setup's own folder. Null means embedded English.
+    /// The first folder that holds <c>strings.de.json</c>: the preferred folder (an update's new
+    /// package), the App's install folder (the copy the App ships), then the explicit fallback and
+    /// Setup's own folder. Null means embedded English.
     /// </summary>
     internal static string? FindLooseStringDirectory(
-        SetupPaths paths, IFileSystem fileSystem, string? fallbackDirectory)
+        SetupPaths paths, IFileSystem fileSystem, string? preferredDirectory = null,
+        string? fallbackDirectory = null)
     {
-        var candidates = new[] { paths.InstallRoot, fallbackDirectory, AppContext.BaseDirectory };
+        var candidates = new[]
+        {
+            preferredDirectory, paths.InstallRoot, fallbackDirectory, AppContext.BaseDirectory,
+        };
         foreach (var directory in candidates)
         {
             if (string.IsNullOrWhiteSpace(directory))

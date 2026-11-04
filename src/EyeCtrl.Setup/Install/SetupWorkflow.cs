@@ -66,7 +66,12 @@ public sealed class SetupWorkflow
         if (!apply.Succeeded)
         {
             if (apply.Status == ElevatedPhaseStatus.Failed)
-                _broker.Run(new ElevatedRequest(ElevatedJob.Repair, RunId: runId));
+            {
+                var repaired = TryRepairAfterFailedApply(runId);
+                if (repaired is not null)
+                    return repaired;
+            }
+
             return FinishRefused(SetupVerb.Update, apply);
         }
 
@@ -80,21 +85,66 @@ public sealed class SetupWorkflow
         }
 
         _log.Warn($"New version failed the pass rule: {start.FailureReason}; rolling back.");
+        return RevertAndCheck(
+            SetupVerb.Update, newVersion, previousVersion, runId, start.FailureReason);
+    }
+
+    /// <summary>
+    /// A partial apply is finished by <c>repair</c>, and the repaired version then faces the same
+    /// pass rule (or a checked revert). It is never started un-checked.
+    /// </summary>
+    private SetupResult? TryRepairAfterFailedApply(string runId)
+    {
+        var repair = _broker.Run(new ElevatedRequest(ElevatedJob.Repair, RunId: runId));
+        if (!repair.Succeeded)
+        {
+            _log.Warn($"Repair after a failed apply failed: {repair.Detail}; trying the previous version.");
+            return RevertAndCheck(
+                SetupVerb.Update, null, _metadata.Read(_paths.PreviousRoot).Version, runId,
+                "repair:" + repair.Detail);
+        }
+
+        if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
+            return null;
+
+        var version = _metadata.Read(_paths.InstallRoot).Version;
+        var previousVersion = _metadata.Read(_paths.PreviousRoot).Version;
+        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        if (start.Passed)
+            return Finish(SetupVerb.Update, SetupOutcome.Ok, version, previousVersion, "repairCompleted");
+
+        _log.Warn($"Repaired version failed the pass rule: {start.FailureReason}; reverting.");
+        return RevertAndCheck(
+            SetupVerb.Update, version, previousVersion, runId, "repairedVersionFailed:" + start.FailureReason);
+    }
+
+    /// <summary>Reverts to the previous version and pass-checks it. Both failing is the only
+    /// <see cref="SetupOutcome.AllFailed"/> path.</summary>
+    private SetupResult RevertAndCheck(
+        SetupVerb verb, string? attemptedVersion, string? previousVersion, string? runId,
+        string? failureReason)
+    {
+        if (string.IsNullOrWhiteSpace(runId)
+            || !_fileSystem.DirectoryExists(_paths.PreviousRoot))
+        {
+            return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, previousVersion,
+                "noPreviousToRevert:" + failureReason);
+        }
 
         var revert = _broker.Run(new ElevatedRequest(ElevatedJob.Revert, RunId: runId));
         if (!revert.Succeeded)
         {
-            return Finish(SetupVerb.Update, SetupOutcome.AllFailed, newVersion, previousVersion,
+            return Finish(verb, SetupOutcome.AllFailed, attemptedVersion, previousVersion,
                 "revert:" + revert.Detail);
         }
 
         var restoredVersion = _metadata.Read(_paths.InstallRoot).Version;
-        var oldStart = _appStart.StartAndCheck(_paths.AppExePath);
-        return oldStart.Passed
-            ? Finish(SetupVerb.Update, SetupOutcome.RolledBack, newVersion, restoredVersion,
-                "newVersionFailed:" + start.FailureReason)
-            : Finish(SetupVerb.Update, SetupOutcome.AllFailed, newVersion, restoredVersion,
-                "previousFailed:" + oldStart.FailureReason);
+        var start = _appStart.StartAndCheck(_paths.AppExePath);
+        return start.Passed
+            ? Finish(verb, SetupOutcome.RolledBack, attemptedVersion, restoredVersion,
+                "newVersionFailed:" + failureReason)
+            : Finish(verb, SetupOutcome.AllFailed, attemptedVersion, restoredVersion,
+                "previousFailed:" + start.FailureReason);
     }
 
     /// <summary>Restores <c>EyeCtrl.previous</c> and pass-checks it; a failed target rolls the
@@ -244,8 +294,9 @@ public sealed class SetupWorkflow
         var start = _appStart.StartAndCheck(_paths.AppExePath);
         return start.Passed
             ? Finish(SetupVerb.Repair, SetupOutcome.Repaired, version, previousVersion)
-            : Finish(SetupVerb.Repair, SetupOutcome.AllFailed, version, previousVersion,
-                "startFailed:" + start.FailureReason);
+            : RevertAndCheck(
+                SetupVerb.Repair, version, previousVersion, runId,
+                "repairedVersionFailed:" + start.FailureReason);
     }
 
     /// <summary>Nothing elevated ever starts EyeCtrl: a public verb in an elevated token is refused
@@ -296,7 +347,15 @@ public sealed class SetupWorkflow
             $"Elevation policy refuses {verb}: ConsentPromptBehaviorAdmin="
             + (policy.ConsentPromptBehaviorAdmin?.ToString() ?? "missing") + ".");
         if (verb != SetupVerb.Uninstall)
-            TryRestartInstalled();
+        {
+            var start = TryStartInstalledIfNotRunning();
+            if (start is { Passed: false })
+            {
+                return Finish(verb, SetupOutcome.AllFailed, null, null,
+                    "restartFailed:" + start.FailureReason);
+            }
+        }
+
         return Finish(verb, SetupOutcome.Blocked, null, null, "elevationPolicy");
     }
 
@@ -310,23 +369,32 @@ public sealed class SetupWorkflow
             _ => SetupOutcome.Failed,
         };
 
-        // An update, rollback or repair restart the old version after every pre-swap refusal
-        // (verify, image check, partial failure). Uninstall never restarts.
+        // An update, rollback or repair must end in a pass-ruled version (or a checked revert).
+        // A pre-swap refusal leaves the old version intact; start and check it. Uninstall never
+        // restarts.
         if (verb is SetupVerb.Update or SetupVerb.Rollback or SetupVerb.Repair)
-            TryRestartInstalled();
+        {
+            var start = TryStartInstalledIfNotRunning();
+            if (start is { Passed: false })
+            {
+                return Finish(verb, SetupOutcome.AllFailed, null, null,
+                    "restartFailed:" + start.FailureReason);
+            }
+        }
 
         return Finish(verb, outcome, null, null, phase.Detail);
     }
 
-    private void TryRestartInstalled()
+    /// <summary>Starts the installed App and runs the pass rule, unless it is already running (a
+    /// second instance would hit the single-instance guard and fail spuriously).</summary>
+    private AppStartOutcome? TryStartInstalledIfNotRunning()
     {
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
-            return;
+            return null;
 
         var alreadyRunning = _processes.Snapshot().Any(p =>
             string.Equals(p.ImagePath, _paths.AppExePath, StringComparison.OrdinalIgnoreCase));
-        if (!alreadyRunning)
-            _appStart.TryStart(_paths.AppExePath);
+        return alreadyRunning ? null : _appStart.StartAndCheck(_paths.AppExePath);
     }
 
     private string? RunCopySource()

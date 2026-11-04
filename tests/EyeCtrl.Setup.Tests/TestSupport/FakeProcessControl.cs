@@ -29,6 +29,9 @@ public sealed class FakeProcessControl : IProcessControl
     /// <summary>The result of the next Start calls; null means "started".</summary>
     public bool StartSucceeds { get; set; } = true;
 
+    /// <summary>Called with the exe path after a successful start (a test can model a child).</summary>
+    public Action<string>? OnStart { get; set; }
+
     /// <summary>The result WaitForExit returns; true means the process is gone.</summary>
     public bool WaitForExitResult { get; set; } = true;
 
@@ -63,6 +66,7 @@ public sealed class FakeProcessControl : IProcessControl
         var pid = _nextPid++;
         Processes.Add(new RunningProcess(pid, exePath));
         Alive.Add(pid);
+        OnStart?.Invoke(exePath);
         return pid;
     }
 

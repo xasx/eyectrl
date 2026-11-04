@@ -94,15 +94,4 @@ public class AppStartServiceTests
         Check.That(outcome.FailureReason).IsEqualTo(AppStartFailure.NotStarted);
         Check.That(harness.Clock.Sleeps).IsEmpty();
     }
-
-    [Fact]
-    public void TryStart_StartsOnceWithoutThePassRule()
-    {
-        var harness = Harness();
-
-        var started = harness.AppStart.TryStart(harness.Paths.AppExePath);
-
-        Check.That(started).IsTrue();
-        Check.That(harness.LogProbe.Calls).IsEmpty();
-    }
 }

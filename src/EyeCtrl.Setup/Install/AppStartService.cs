@@ -95,20 +95,6 @@ public sealed class AppStartService
         return AppStartOutcome.Success(processId);
     }
 
-    /// <summary>Starts the installed App without the pass rule (the pre-swap failure restart).</summary>
-    public bool TryStart(string appExePath)
-    {
-        try
-        {
-            return _processes.Start(appExePath) is not null;
-        }
-        catch (Exception ex)
-        {
-            _log.Warn($"App restart threw {ex.GetType().Name}.");
-            return false;
-        }
-    }
-
     private (EyeCtrl.Core.Input.ProcessTokenFacts? Facts, string? Failure) WaitForUiAccessToken(
         int pid, DateTimeOffset startedAt)
     {

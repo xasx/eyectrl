@@ -49,8 +49,7 @@ public class InstallJournalTests
 
         Check.That(harness.Files.DirectoryExists(harness.Paths.InstallRoot)).IsFalse();
         Check.That(harness.Journal.Read()!.Operation).IsEqualTo(InstallOperation.Update);
-        var repair = harness.State.Repair(RunCopy);
-        Check.That(repair.Ok).IsTrue();
+        var repair = harness.State.Repair(RunCopy);        Check.That(repair.Ok).IsTrue();
         Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("2.0.0");
         Check.That(harness.Metadata.Read(harness.Paths.PreviousRoot).Version).IsEqualTo("1.0.0");
         Check.That(harness.Journal.Read()).IsNull();
@@ -78,6 +77,7 @@ public class InstallJournalTests
         CrashAfter(harness, 1, () => harness.State.ApplyOwnerRollback(RunCopy));
 
         // staging now holds the previous version; the install is still 2.0.0.
+        Check.That(harness.Journal.Read()!.Operation).IsEqualTo(InstallOperation.OwnerRollback);
         Check.That(harness.Metadata.Read(harness.Paths.StagingRoot).Version).IsEqualTo("1.0.0");
         Check.That(harness.Metadata.Read(harness.Paths.PreviousRoot).Version).IsNull();
         var repair = harness.State.Repair(RunCopy);
@@ -127,6 +127,7 @@ public class InstallJournalTests
 
         Check.That(harness.Files.DirectoryExists(harness.Paths.InstallRoot)).IsFalse();
         Check.That(harness.Metadata.Read(harness.Paths.FailedRoot).Version).IsEqualTo("2.0.0");
+        Check.That(harness.Journal.Read()!.Operation).IsEqualTo(InstallOperation.Revert);
         var repair = harness.State.Repair(RunCopy);
         Check.That(repair.Ok).IsTrue();
         Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("1.0.0");

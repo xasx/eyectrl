@@ -3,25 +3,33 @@ namespace EyeCtrl.Setup.Display;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
 
 /// <summary>
 /// The display-only progress/result screen for update, rollback and uninstall: large centred text
-/// in the theme tokens, topmost, click-through (<c>WS_EX_TRANSPARENT</c>) and non-activating
-/// (<c>WS_EX_NOACTIVATE</c>). It has no targets and closes itself — 10 s after a success, 60 s
-/// after a failure (Q12's degraded included).
+/// in the theme tokens. Owner decision Q13 made it an ordinary window: it is not click-through (no
+/// <c>WS_EX_TRANSPARENT</c>/<c>WS_EX_LAYERED</c>), not topmost, visible in the taskbar and may
+/// activate once when it appears. It has no targets and closes itself — 10 s after a success, 60 s
+/// after a failure (Q12's degraded included). Closing it early only ends the display; the install
+/// carries on.
 /// </summary>
 internal sealed class SetupProgressWindow : Window
 {
     private const int GwlExStyle = -20;
     private const long WsExTransparent = 0x00000020L;
+    private const long WsExTopmost = 0x00000008L;
     private const long WsExNoActivate = 0x08000000L;
     private const long WsExToolWindow = 0x00000080L;
     private const long WsExLayered = 0x00080000L;
+
+    /// <summary>EyeCtrl's own icon, embedded from the App's single source file at build time, so
+    /// the taskbar button is recognisable.</summary>
+    internal const string IconResource =
+        "pack://application:,,,/EyeCtrl.Setup;component/Assets/eyectrl.ico";
 
     private readonly StringTable _strings;
     private readonly SetupVerb _verb;
@@ -48,25 +56,24 @@ internal sealed class SetupProgressWindow : Window
         Title = progressTitle;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
-        Topmost = true;
-        ShowInTaskbar = false;
-        ShowActivated = false;
+        // Owner decision Q13: an ordinary window. It is not topmost, it has a taskbar button, and
+        // it may activate once when it appears; the display calls Show() once and never re-forces it.
+        Topmost = false;
+        ShowInTaskbar = true;
+        ShowActivated = true;
+        AllowsTransparency = false;
         Focusable = false;
         IsHitTestVisible = false;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        // H1: WS_EX_TRANSPARENT only passes another process's clicks when the window is LAYERED.
-        // The App measured this (clicking investigation R1 / #214); every click-through overlay
-        // there sets AllowsTransparency. WindowStyle is already None, as WPF requires.
-        AllowsTransparency = true;
-        // N1: a layered window can still be visually opaque. Use the r01 SurfaceDark colour with
-        // full alpha (frozen), so the result text keeps its contrast; click-through comes from
-        // WS_EX_TRANSPARENT, not from alpha.
+        // The r01 background stays: an ordinary (non-layered) window with the frozen SurfaceDark
+        // colour, so the result text keeps its contrast in every theme (N1).
         var opaqueSurface = OpaqueSurfaceDark();
         Background = opaqueSurface;
         Foreground = Tokens.BrushTextPrimary;
         FontFamily = Tokens.FontStandard;
         FontSize = SetupWindowMetrics.ProseFontSize;
         UseLayoutRounding = true;
+        Icon = LoadAppIcon();
 
         var bounds = SetupWindowMetrics.ProgressBounds(SystemParameters.WorkArea);
         Left = bounds.Left;
@@ -107,8 +114,7 @@ internal sealed class SetupProgressWindow : Window
             _closeTimer.Stop();
             _close();
         };
-
-        SourceInitialized += (_, _) => ApplyClickThrough();
+        Closed += (_, _) => _closeTimer.Stop();
     }
 
     /// <summary>The progress title, for the tests' text assertions.</summary>
@@ -147,22 +153,30 @@ internal sealed class SetupProgressWindow : Window
         _closeTimer.Start();
     }
 
-    /// <summary>Tests whether an HWND carries the click-through style.</summary>
+    /// <summary>Tests whether an HWND carries the click-through style (Q13: it must not).</summary>
     internal static bool HasClickThroughStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExTransparent) != 0;
 
-    /// <summary>Tests whether an HWND carries the non-activating style.</summary>
+    /// <summary>Tests whether an HWND carries the non-activating style (Q13: it must not).</summary>
     internal static bool HasNoActivateStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExNoActivate) != 0;
 
-    /// <summary>Tests whether an HWND is layered, without which WS_EX_TRANSPARENT does not pass
-    /// another process's clicks through.</summary>
+    /// <summary>Tests whether an HWND is layered (Q13: an ordinary window is not).</summary>
     internal static bool HasLayeredStyle(IntPtr hwnd) =>
         (ReadExStyle(hwnd) & WsExLayered) != 0;
 
+    /// <summary>Tests whether an HWND is topmost (Q13: it must not be).</summary>
+    internal static bool HasTopmostStyle(IntPtr hwnd) =>
+        (ReadExStyle(hwnd) & WsExTopmost) != 0;
+
+    /// <summary>Tests whether an HWND is a tool window, which would hide it from the taskbar
+    /// (Q13: it must not be).</summary>
+    internal static bool HasToolWindowStyle(IntPtr hwnd) =>
+        (ReadExStyle(hwnd) & WsExToolWindow) != 0;
+
     /// <summary>
-    /// The theme's SurfaceDark colour with full opacity, frozen. N1: the layered window must keep
-    /// the r01 background and its contrast; WS_EX_TRANSPARENT, not alpha, provides click-through.
+    /// The theme's SurfaceDark colour with full opacity, frozen. N1: the ordinary window keeps the
+    /// r01 background and its contrast.
     /// </summary>
     private static SolidColorBrush OpaqueSurfaceDark()
     {
@@ -172,15 +186,26 @@ internal sealed class SetupProgressWindow : Window
         return brush;
     }
 
-    private void ApplyClickThrough()
+    /// <summary>
+    /// EyeCtrl's icon for the title text and the taskbar button. A missing icon must never stop the
+    /// result from appearing, so every failure simply leaves the default.
+    /// </summary>
+    internal static ImageSource? LoadAppIcon()
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd == IntPtr.Zero)
-            return;
-
-        var style = ReadExStyle(hwnd);
-        style |= WsExTransparent | WsExNoActivate | WsExToolWindow;
-        _ = SetWindowLongPtr(hwnd, GwlExStyle, new IntPtr(style));
+        try
+        {
+            var icon = new BitmapImage();
+            icon.BeginInit();
+            icon.UriSource = new Uri(IconResource, UriKind.Absolute);
+            icon.CacheOption = BitmapCacheOption.OnLoad;
+            icon.EndInit();
+            icon.Freeze();
+            return icon;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static long ReadExStyle(IntPtr hwnd) =>
@@ -188,7 +213,4 @@ internal sealed class SetupProgressWindow : Window
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 }

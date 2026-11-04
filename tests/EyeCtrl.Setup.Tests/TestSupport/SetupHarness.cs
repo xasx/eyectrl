@@ -86,8 +86,11 @@ public sealed class FakeElevationBroker : IElevationBroker
 /// <summary>The member-verifier fake: 0 unless a test needs a WinTrust-style failure.</summary>
 public sealed class FakeCatalogMemberVerifier : EyeCtrl.Setup.Abstractions.ICatalogMemberVerifier
 {
-    /// <summary>The result the next Verify returns.</summary>
+    /// <summary>The result the next Verify returns when <see cref="Verifier"/> is null.</summary>
     public int Result { get; set; }
+
+    /// <summary>An optional per-path answer (for example one tampered native).</summary>
+    public Func<string, int>? Verifier { get; set; }
 
     /// <summary>The files checked.</summary>
     public List<string> Calls { get; } = [];
@@ -96,7 +99,21 @@ public sealed class FakeCatalogMemberVerifier : EyeCtrl.Setup.Abstractions.ICata
     public int Verify(string catalogPath, string filePath, string memberTag)
     {
         Calls.Add(filePath);
-        return Result;
+        return Verifier?.Invoke(filePath) ?? Result;
+    }
+}
+
+/// <summary>A file-hasher fake: the tag value is irrelevant to the member-verifier fake.</summary>
+public sealed class FakeFileHasher : EyeCtrl.Setup.Abstractions.IFileHasher
+{
+    /// <summary>The files hashed.</summary>
+    public List<string> Calls { get; } = [];
+
+    /// <inheritdoc />
+    public string CatalogTag(string filePath)
+    {
+        Calls.Add(filePath);
+        return "TAG";
     }
 }
 
@@ -150,6 +167,8 @@ public sealed class SetupHarness
         Clock = new FakeClock();
         Catalog = new FakeCatalogVerifier();
         Signature = new FakeSignatureVerifier();
+        CatalogMembers = new FakeCatalogMemberVerifier();
+        Hasher = new FakeFileHasher();
         ElevationState = new FakeElevationState();
         LogProbe = new FakeAppLogProbe();
         HeldButton = new FakeHeldButtonRecovery();
@@ -177,7 +196,8 @@ public sealed class SetupHarness
         Journal = new InstallJournalStore(Paths, Files, Guard, Logging);
         State = new InstallStateMachine(
             Paths, Files, Registry, Guard, AppsAndFeatures, Metadata, Journal, Logging);
-        RunCopies = new RunCopyManager(Paths, Files, Guard, Signature, Logging);
+        RunCopies = new RunCopyManager(
+            Paths, Files, Guard, Signature, CatalogMembers, Hasher, Logging);
         Staging = new StagingService(Paths, Files, Guard, Catalog, Logging);
         Stop = new StopCoordinator(Paths, Processes, HeldButton, Logging);
         AppStart = new AppStartService(Processes, LogProbe, Clock, Logging);
@@ -201,6 +221,8 @@ public sealed class SetupHarness
     public FakeClock Clock { get; }
     public FakeCatalogVerifier Catalog { get; }
     public FakeSignatureVerifier Signature { get; }
+    public FakeCatalogMemberVerifier CatalogMembers { get; }
+    public FakeFileHasher Hasher { get; }
     public FakeElevationState ElevationState { get; }
     public FakeAppLogProbe LogProbe { get; }
     public FakeHeldButtonRecovery HeldButton { get; }
@@ -266,6 +288,7 @@ public sealed class SetupHarness
         Files.AddFile(Path.Combine(directory, SetupConstants.SupervisorExeName));
         Files.AddFile(Path.Combine(directory, SetupConstants.CatalogName));
         Files.AddFile(Path.Combine(directory, "onnxruntime.dll"));
+        SeedSetupPayload(directory);
         foreach (var file in Files.EnumerateFiles(directory, recursive: true))
             Files.AddZoneIdentifier(file);
     }
@@ -279,6 +302,14 @@ public sealed class SetupHarness
         Files.AddFile(Path.Combine(directory, SetupConstants.SupervisorExeName));
         Files.AddFile(Path.Combine(directory, SetupConstants.CatalogName));
         Files.AddFile(Path.Combine(directory, "onnxruntime.dll"));
+        SeedSetupPayload(directory);
+    }
+
+    /// <summary>The five WPF natives a published Setup carries beside its exe (S6c D1).</summary>
+    private void SeedSetupPayload(string directory)
+    {
+        foreach (var native in SetupPayload.RequiredCompanions)
+            Files.AddFile(Path.Combine(directory, native));
     }
 
     /// <summary>Sets the elevation policy value.</summary>

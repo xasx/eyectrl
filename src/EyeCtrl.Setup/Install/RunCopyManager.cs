@@ -14,9 +14,10 @@ public sealed record RunCopyResult(bool Ok, string? RunCopyPath, string? Failure
 
 /// <summary>
 /// Plan §10: Setup never runs from a folder it renames. Before any swap or uninstall it copies a
-/// VERIFIED <c>EyeCtrl.Setup.exe</c> into <c>EyeCtrl.run\&lt;id&gt;\</c> and continues from there.
-/// Old run folders are removed on later runs; an uninstall marks its own folder for deletion at
-/// the next restart because a process cannot delete its own image.
+/// VERIFIED <c>EyeCtrl.Setup.exe</c> — and every file a published Setup needs beside it, including
+/// WPF's loose natives (S6c D1) and the catalog that proves them — into <c>EyeCtrl.run\&lt;id&gt;\</c>
+/// and continues from there. Old run folders are removed on later runs; an uninstall marks its own
+/// folder for deletion at the next restart because a process cannot delete its own image.
 /// </summary>
 public sealed class RunCopyManager
 {
@@ -24,17 +25,22 @@ public sealed class RunCopyManager
     private readonly IFileSystem _fileSystem;
     private readonly PathGuard _guard;
     private readonly IFileSignatureVerifier _signature;
+    private readonly ICatalogMemberVerifier _members;
+    private readonly IFileHasher _hasher;
     private readonly ISetupLog _log;
 
     /// <summary>Creates the manager.</summary>
     public RunCopyManager(
         SetupPaths paths, IFileSystem fileSystem, PathGuard guard,
-        IFileSignatureVerifier signature, ISetupLog log)
+        IFileSignatureVerifier signature, ICatalogMemberVerifier members, IFileHasher hasher,
+        ISetupLog log)
     {
         _paths = paths;
         _fileSystem = fileSystem;
         _guard = guard;
         _signature = signature;
+        _members = members;
+        _hasher = hasher;
         _log = log;
     }
 
@@ -46,7 +52,9 @@ public sealed class RunCopyManager
 
     /// <summary>
     /// Verifies <paramref name="sourceSetupExe"/> against the pinned thumbprint, removes stale run
-    /// folders, and copies the exe into the private folder for <paramref name="runId"/>.
+    /// folders, and copies the exe and every file its publish needs beside it (S6c D1: WPF's loose
+    /// natives, plus the catalog that lets the copy prove itself) into the private folder for
+    /// <paramref name="runId"/>.
     /// </summary>
     public RunCopyResult Prepare(string sourceSetupExe, string runId)
     {
@@ -65,6 +73,18 @@ public sealed class RunCopyManager
             return RunCopyResult.Fail("setupThumbprint");
         }
 
+        var sourceFolder = Path.GetDirectoryName(Path.GetFullPath(sourceSetupExe));
+        if (string.IsNullOrEmpty(sourceFolder))
+            return RunCopyResult.Fail("setupMissing");
+
+        var sourceCatalog = Path.Combine(sourceFolder, SetupConstants.CatalogName);
+        if (!_fileSystem.FileExists(sourceCatalog))
+            return RunCopyResult.Fail("setupCatalogMissing");
+
+        var companions = SetupPayload.FindCompanions(_fileSystem, sourceSetupExe);
+        if (SetupPayload.MissingRequired(companions) is { } missing)
+            return RunCopyResult.Fail("setupPayloadMissing:" + missing);
+
         var targetFolder = _paths.RunFolder(runId);
         var targetExe = _paths.RunSetupExePath(runId);
         _guard.RequireProgramFilesPath(targetFolder);
@@ -78,12 +98,7 @@ public sealed class RunCopyManager
                     Path.GetFullPath(sourceSetupExe), Path.GetFullPath(targetExe),
                     StringComparison.OrdinalIgnoreCase))
             {
-                var existing = _signature.Verify(targetExe);
-                return existing.Valid
-                       && string.Equals(existing.SignerThumbprint, SetupConstants.PinnedThumbprint,
-                           StringComparison.OrdinalIgnoreCase)
-                    ? RunCopyResult.Success(targetExe)
-                    : RunCopyResult.Fail("runCopySignature");
+                return VerifyRunCopy(runId);
             }
 
             CleanupOldRunFolders(runId);
@@ -93,15 +108,24 @@ public sealed class RunCopyManager
 
             _fileSystem.CreateDirectory(targetFolder);
             _fileSystem.CopyFile(sourceSetupExe, targetExe, stripZoneIdentifier: true);
+            foreach (var companion in companions)
+            {
+                _fileSystem.CopyFile(
+                    Path.Combine(sourceFolder, companion),
+                    Path.Combine(targetFolder, companion),
+                    stripZoneIdentifier: true);
+            }
 
-            // F7: re-verify the copy that will actually be launched, in the admin-only folder.
-            var copied = _signature.Verify(targetExe);
-            if (!copied.Valid
-                || !string.Equals(copied.SignerThumbprint, SetupConstants.PinnedThumbprint,
-                    StringComparison.OrdinalIgnoreCase))
+            _fileSystem.CopyFile(sourceCatalog,
+                Path.Combine(targetFolder, SetupConstants.CatalogName), stripZoneIdentifier: true);
+
+            // F7 + S6c D1: re-verify the copy that will actually be launched — the exe, the
+            // catalog, and every native against that catalog's recorded hash.
+            var verified = VerifyRunCopy(runId);
+            if (!verified.Ok)
             {
                 _fileSystem.DeleteDirectory(targetFolder, recursive: true);
-                return RunCopyResult.Fail("runCopySignature");
+                return RunCopyResult.Fail(verified.FailureReason ?? "runCopySignature");
             }
         }
         catch (Exception ex)
@@ -109,7 +133,7 @@ public sealed class RunCopyManager
             return RunCopyResult.Fail("runCopy:" + ex.GetType().Name);
         }
 
-        _log.Info($"Run copy prepared in EyeCtrl.run\\{runId}.");
+        _log.Info($"Run copy prepared in EyeCtrl.run\\{runId} (exe + {companions.Count} natives).");
         return RunCopyResult.Success(targetExe);
     }
 
@@ -150,8 +174,12 @@ public sealed class RunCopyManager
         _fileSystem.MarkForDeletionAtReboot(folder);
     }
 
-    /// <summary>Verifies an existing run copy without creating or replacing it (the hand-off
-    /// child and the RunOnce repair already run from one).</summary>
+    /// <summary>
+    /// Verifies an existing run copy without creating or replacing it: the exe's signature, the
+    /// catalog's signature and pinned thumbprint, and every required native against that catalog.
+    /// The hand-off child and the RunOnce repair already run from one (S6c D1: the folder itself is
+    /// now the unit of trust, not only its exe).
+    /// </summary>
     public RunCopyResult VerifyRunCopy(string runId)
     {
         if (!IsValidRunId(runId))
@@ -163,10 +191,40 @@ public sealed class RunCopyManager
             return RunCopyResult.Fail("runCopyMissing");
 
         var check = _signature.Verify(target);
-        return check.Valid
-               && string.Equals(check.SignerThumbprint, SetupConstants.PinnedThumbprint,
-                   StringComparison.OrdinalIgnoreCase)
-            ? RunCopyResult.Success(target)
-            : RunCopyResult.Fail("runCopySignature");
+        if (!check.Valid
+            || !string.Equals(check.SignerThumbprint, SetupConstants.PinnedThumbprint,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return RunCopyResult.Fail("runCopySignature");
+        }
+
+        var folder = _paths.RunFolder(runId);
+        var catalog = Path.Combine(folder, SetupConstants.CatalogName);
+        _guard.RequireProgramFilesPath(catalog);
+        if (!_fileSystem.FileExists(catalog))
+            return RunCopyResult.Fail("runCopyCatalogMissing");
+
+        var catalogCheck = _signature.Verify(catalog);
+        if (!catalogCheck.Valid
+            || !string.Equals(catalogCheck.SignerThumbprint, SetupConstants.PinnedThumbprint,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return RunCopyResult.Fail("runCopyCatalog");
+        }
+
+        foreach (var companion in SetupPayload.RequiredCompanions)
+        {
+            var file = Path.Combine(folder, companion);
+            _guard.RequireProgramFilesPath(file);
+            if (!_fileSystem.FileExists(file))
+                return RunCopyResult.Fail("runCopyPayload:" + companion);
+
+            // WinTrust recomputes the file's hash and looks the tag up in the catalog. A copy
+            // that was truncated or replaced under the same name cannot pass.
+            if (_members.Verify(catalog, file, _hasher.CatalogTag(file)) != 0)
+                return RunCopyResult.Fail("runCopyPayload:" + companion);
+        }
+
+        return RunCopyResult.Success(target);
     }
 }

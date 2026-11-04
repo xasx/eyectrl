@@ -39,6 +39,14 @@ public interface ICatalogMemberVerifier
     int Verify(string catalogPath, string filePath, string memberTag);
 }
 
+/// <summary>Computes a file's catalog member tag (the SIP SHA-256 the catalog records). A seam so
+/// the run-copy tests can hash an in-memory file instead of a real one.</summary>
+public interface IFileHasher
+{
+    /// <summary>The uppercase hex SIP SHA-256 of <paramref name="filePath"/>.</summary>
+    string CatalogTag(string filePath);
+}
+
 /// <summary>The untrusted <c>package.json</c> metadata. Never used for a path or a trust decision.</summary>
 public sealed record PackageMetadata(string? Version, string? Sha, DateTimeOffset? Created)
 {

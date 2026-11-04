@@ -57,7 +57,9 @@ public sealed class SetupComposition
         var metadata = new PackageMetadataReader(fileSystem);
         var recorder = new ResultRecorder(paths, fileSystem, guard, log);
         var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, log);
-        var runCopies = new RunCopyManager(paths, fileSystem, guard, signature, log);
+        var runCopies = new RunCopyManager(
+            paths, fileSystem, guard, signature, new WinTrustCatalogMemberVerifier(),
+            new CatalogFileHasher(), log);
         var staging = new StagingService(paths, fileSystem, guard, catalog, log);
         var journal = new InstallJournalStore(paths, fileSystem, guard, log);
         var state = new InstallStateMachine(

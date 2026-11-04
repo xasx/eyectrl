@@ -7,6 +7,88 @@ using EyeCtrl.Setup.Tests.TestSupport;
 
 public class RunCopyManagerTests
 {
+    /// <summary>
+    /// S6c D1: a publish leaves exactly these WPF natives beside EyeCtrl.Setup.exe. The run copy
+    /// must carry them or every handed-off window crashes with 0xC000041D/DllNotFoundException.
+    /// </summary>
+    private static readonly string[] ExpectedSetupNatives =
+    [
+        "D3DCompiler_47_cor3.dll",
+        "PenImc_cor3.dll",
+        "PresentationNative_cor3.dll",
+        "vcruntime140_cor3.dll",
+        "wpfgfx_cor3.dll",
+    ];
+
+    [Fact]
+    public void ThePinnedPayload_IsExactlyTheWpfNativesTheRuntimeShips()
+    {
+        // The ratchet: PresentationFramework's own folder is the shared WPF runtime for this
+        // test run, and a self-contained publish copies these same loose natives beside the exe.
+        var frameworkDirectory = Path.GetDirectoryName(
+            typeof(System.Windows.Window).Assembly.Location);
+        Check.That(frameworkDirectory).IsNotNull();
+
+        var natives = Directory.EnumerateFiles(frameworkDirectory!, "*_cor3.dll", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        Check.That(SetupPayload.RequiredCompanions
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList())
+            .ContainsExactly(natives);
+        Check.That(SetupPayload.RequiredCompanions).ContainsExactly(ExpectedSetupNatives);
+    }
+
+    [Fact]
+    public void ARunCopy_HoldsEveryFileAPublishedSetupNeedsBesideTheExe()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+
+        var result = harness.RunCopies.Prepare(harness.Paths.InstalledSetupExePath, "abc");
+
+        Check.That(result.Ok).IsTrue();
+        var files = harness.Files.FilesUnder(harness.Paths.RunFolder("abc"))
+            .Select(Path.GetFileName)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        Check.That(files).ContainsExactly(
+            new[] { SetupConstants.CatalogName, SetupConstants.SetupExeName }
+                .Concat(ExpectedSetupNatives)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray());
+    }
+
+    [Fact]
+    public void AMissingSetupNative_IsRefused_AndNoRunFolderIsCreated()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.Files.DeleteFile(
+            Path.Combine(harness.Paths.InstallRoot, "wpfgfx_cor3.dll"));
+
+        var result = harness.RunCopies.Prepare(harness.Paths.InstalledSetupExePath, "abc");
+
+        Check.That(result.Ok).IsFalse();
+        Check.That(result.FailureReason).IsEqualTo("setupPayloadMissing:wpfgfx_cor3.dll");
+        Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("abc"))).IsFalse();
+    }
+
+    [Fact]
+    public void ANativeThatFailsTheCatalogCopiedIntoTheRunFolder_IsRefusedAndRemoved()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.CatalogMembers.Verifier = path => Path.GetFileName(path) == "wpfgfx_cor3.dll" ? 1 : 0;
+
+        var result = harness.RunCopies.Prepare(harness.Paths.InstalledSetupExePath, "abc");
+
+        Check.That(result.Ok).IsFalse();
+        Check.That(result.FailureReason).IsEqualTo("runCopyPayload:wpfgfx_cor3.dll");
+        Check.That(harness.Files.DirectoryExists(harness.Paths.RunFolder("abc"))).IsFalse();
+    }
+
     [Fact]
     public void AVerifiedSetup_IsCopiedIntoThePrivateRunFolder()
     {

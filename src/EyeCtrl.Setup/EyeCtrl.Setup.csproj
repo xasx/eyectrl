@@ -18,10 +18,23 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>EyeCtrl.Setup.Program</StartupObject>
+    <!--
+      C9 S6e: Setup renders the uninstall choice and the display-only progress/result screens.
+      EyeCtrl.Controls supplies the theme tokens; EyeCtrl.Sdk.Wpf supplies the Dwell attached
+      properties the choice buttons carry (Invoke mode).
+    -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\EyeCtrl.Core\EyeCtrl.Core.csproj" />
+    <ProjectReference Include="..\EyeCtrl.Controls\EyeCtrl.Controls.csproj" />
+    <ProjectReference Include="..\EyeCtrl.Sdk.Wpf\EyeCtrl.Sdk.Wpf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UseWPF's implicit-usings set drops System.IO; the engine's file seams rely on it. -->
+    <Using Include="System.IO" />
   </ItemGroup>
 
   <ItemGroup>

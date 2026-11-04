@@ -96,7 +96,7 @@ public class LayeringTests
             ["EyeCtrl.EyeCare"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.LM"] = Set("EyeCtrl.Core"),
             ["EyeCtrl.Supervisor"] = Set("EyeCtrl.Core", "EyeCtrl.Platform", "EyeCtrl.Controls"),
-            ["EyeCtrl.Setup"] = Set("EyeCtrl.Core"),
+            ["EyeCtrl.Setup"] = Set("EyeCtrl.Core", "EyeCtrl.Controls", "EyeCtrl.Sdk.Wpf"),
             ["EyeCtrl.Sdk.Abstractions"] = Set("EyeCtrl.Contracts"),
             ["EyeCtrl.Sdk.Wpf"] = Set("EyeCtrl.Sdk.Abstractions"),
             ["EyeCtrl.Sdk.WinUI"] = Set("EyeCtrl.Sdk.Abstractions"),
@@ -253,6 +253,7 @@ public class LayeringTests
         {
             "EyeCtrl.Core", "EyeCtrl.Platform", "EyeCtrl.ViewModels", "EyeCtrl.App",
             "EyeCtrl.Controls", "EyeCtrl.EyeCare", "EyeCtrl.LM", "EyeCtrl.Supervisor",
+            "EyeCtrl.Setup",
             "EyeCtrl.Contracts", "EyeCtrl.Sdk.Abstractions", "EyeCtrl.Sdk.Wpf",
         };
         var missing = expected.Where(n => !UsageReferences.ContainsKey(n)).OrderBy(s => s).ToList();

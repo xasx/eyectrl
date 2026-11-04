@@ -79,7 +79,9 @@ public static class SetupWorkingDirectory
         }
     }
 
-    private static bool IsInsideAnEyeCtrlFolder(string path)
+    /// <summary>True when any segment is one of the five folders (<c>EyeCtrl</c> or
+    /// <c>EyeCtrl.*</c>). Internal so the tests pin the guard's short-segment case (<c>C:</c>).</summary>
+    internal static bool IsInsideAnEyeCtrlFolder(string path)
     {
         foreach (var segment in path.Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
@@ -87,9 +89,13 @@ public static class SetupWorkingDirectory
         {
             var isEyeCtrl = segment.StartsWith(
                 SetupConstants.InstallFolderName, StringComparison.OrdinalIgnoreCase);
-            var isOneOfTheFolders = segment.Length == SetupConstants.InstallFolderName.Length
-                || segment[SetupConstants.InstallFolderName.Length] == '.';
-            if (isEyeCtrl && isOneOfTheFolders)
+
+            // F1: only index past "EyeCtrl" when the segment starts with it. "C:" and every
+            // other short segment used to throw here, which silently sent Resolve() to C:\.
+            var isOneOfTheFolders = isEyeCtrl
+                && (segment.Length == SetupConstants.InstallFolderName.Length
+                    || segment[SetupConstants.InstallFolderName.Length] == '.');
+            if (isOneOfTheFolders)
                 return true;
         }
 

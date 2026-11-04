@@ -40,17 +40,34 @@ public class WorkingDirectoryTests
     }
 
     [Fact]
-    public void TheNeutralFolder_IsNeverOneOfTheEyeCtrlFolders()
+    public void TheNeutralFolder_IsTheSystemDirectory()
     {
+        // F1: the guard used to throw on "C:" and Resolve() silently fell back to C:\.
+        Check.That(SetupWorkingDirectory.Neutral)
+            .IsEqualTo(SetupPaths.Normalize(Environment.SystemDirectory));
         Check.That(IsUnderAnEyeCtrlFolder(@"C:\Program Files", SetupWorkingDirectory.Neutral)).IsFalse();
         Check.That(SetupPaths.IsUnder(@"C:\Program Files\EyeCtrl.run", SetupWorkingDirectory.Neutral))
             .IsFalse();
     }
 
     [Fact]
-    public void IsUnderAnEyeCtrlFolder_RecognisesEveryInstallFolder()
+    public void TheEyeCtrlGuard_IsTrueOnlyForTheFiveFolders()
     {
-        // The guard the tests below rely on is not vacuous.
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Program Files\EyeCtrl")).IsTrue();
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Program Files\EyeCtrl.previous\x")).IsTrue();
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Program Files\EyeCtrl.staging")).IsTrue();
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Program Files\EyeCtrl.failed")).IsTrue();
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Program Files\EyeCtrl.run\r1")).IsTrue();
+
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Program Files\EyeCtrlX")).IsFalse();
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder("C:")).IsFalse();
+        Check.That(SetupWorkingDirectory.IsInsideAnEyeCtrlFolder(@"C:\Windows\System32")).IsFalse();
+    }
+
+    [Fact]
+    public void TheTestGuard_RecognisesEveryInstallFolder()
+    {
+        // The guard the start assertions rely on is not vacuous.
         Check.That(IsUnderAnEyeCtrlFolder(@"C:\Program Files", @"C:\Program Files\EyeCtrl")).IsTrue();
         Check.That(IsUnderAnEyeCtrlFolder(@"C:\Program Files", @"C:\Program Files\EyeCtrl.previous\x")).IsTrue();
         Check.That(IsUnderAnEyeCtrlFolder(@"C:\Program Files", @"C:\Program Files\EyeCtrl.staging")).IsTrue();

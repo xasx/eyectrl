@@ -26,7 +26,7 @@ public static class Program
         try
         {
             return SetupComposition.CreateProduction(
-                command.Job == SetupJob.Update ? command.PackageDirectory : null).Run(command);
+                SetupComposition.PreferredStringsDirectory(command)).Run(command);
         }
         catch (Exception ex)
         {

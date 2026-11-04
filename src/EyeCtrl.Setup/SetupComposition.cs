@@ -83,6 +83,14 @@ public sealed class SetupComposition
             broker, log);
     }
 
+    /// <summary>
+    /// The folder whose German table an update should prefer: the inbox package's own folder, whose
+    /// table comes from the same build as the code reading it. Every other job — including the
+    /// elevated <c>apply-update</c> — returns null, so an elevated job can never read the inbox.
+    /// </summary>
+    internal static string? PreferredStringsDirectory(ParsedSetupCommand command) =>
+        command.Job == SetupJob.Update ? command.PackageDirectory : null;
+
     /// <summary>Runs one parsed command and returns the process exit code.</summary>
     public int Run(ParsedSetupCommand command)
     {

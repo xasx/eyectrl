@@ -147,6 +147,23 @@ public class InstallJournalTests
     }
 
     [Fact]
+    public void AStaleRollbackJournal_DoesNotDeleteTheRealPreviousVersion()
+    {
+        // J1: stale OwnerRollback journal + an unapplied 3.0 in staging + the real previous 1.0.
+        var harness = HarnessWith("2.0.0", previous: "1.0.0");
+        harness.SeedStaging("3.0.0");
+        harness.Journal.Write(new InstallJournal(InstallOperation.OwnerRollback, 1));
+
+        var repair = harness.State.Repair(RunCopy);
+
+        Check.That(repair.Ok).IsTrue();
+        Check.That(harness.Metadata.Read(harness.Paths.InstallRoot).Version).IsEqualTo("2.0.0");
+        Check.That(harness.Metadata.Read(harness.Paths.PreviousRoot).Version).IsEqualTo("1.0.0");
+        Check.That(harness.Files.DirectoryExists(harness.Paths.StagingRoot)).IsFalse();
+        Check.That(harness.Journal.Read()).IsNull();
+    }
+
+    [Fact]
     public void TheJournal_IsClearedAfterACompletedTransition()
     {
         var harness = HarnessWith("1.0.0", previous: null);

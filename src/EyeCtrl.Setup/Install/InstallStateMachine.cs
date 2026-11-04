@@ -321,8 +321,18 @@ public sealed class InstallStateMachine
     {
         RequireAllInstallPaths();
         if (_journal.Read() is { } journal)
-            return RepairFromJournal(journal);
+        {
+            var fromJournal = RepairFromJournal(journal);
+            if (fromJournal is not null)
+                return fromJournal;
+        }
 
+        return RepairWithFolderRules();
+    }
+
+    /// <summary>The folder-only rules used when there is no journal (or it is stale).</summary>
+    private SwapOutcome RepairWithFolderRules()
+    {
         var changed = false;
 
         if (!_fileSystem.DirectoryExists(_paths.InstallRoot))
@@ -391,7 +401,7 @@ public sealed class InstallStateMachine
     /// first step: <c>staging</c> holds the PREVIOUS version, not an uncommitted new one, so it is
     /// moved back to <c>previous</c> instead of being discarded (Q9).
     /// </summary>
-    private SwapOutcome RepairFromJournal(InstallJournal journal)
+    private SwapOutcome? RepairFromJournal(InstallJournal journal)
     {
         var changed = false;
         try
@@ -402,9 +412,17 @@ public sealed class InstallStateMachine
                     if (_fileSystem.DirectoryExists(_paths.InstallRoot)
                         && _fileSystem.DirectoryExists(_paths.StagingRoot))
                     {
-                        // Step 1 done: staging is the previous version. Restore the fallback.
+                        // A real step-1 crash never has a previous (it was just moved to
+                        // staging). If one exists, the journal is stale: never delete it;
+                        // fall back to the folder rules, which keep both versions.
                         if (_fileSystem.DirectoryExists(_paths.PreviousRoot))
-                            _fileSystem.DeleteDirectory(_paths.PreviousRoot, recursive: true);
+                        {
+                            _journal.Clear();
+                            _log.Warn("Stale owner-rollback journal with an existing previous; using folder rules.");
+                            return null;
+                        }
+
+                        // Step 1 done: staging is the previous version. Restore the fallback.
                         _fileSystem.MoveDirectory(_paths.StagingRoot, _paths.PreviousRoot);
                         changed = true;
                     }

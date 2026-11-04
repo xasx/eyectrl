@@ -139,6 +139,7 @@ public class RenamedFolderHandoffTests
         harness.Environment.ProcessPath = harness.Paths.RunSetupExePath("run1");
         harness.Files.AddFile(harness.Environment.ProcessPath);
         harness.ListOwnProcess();
+        harness.RunIds.Id = "run2";
 
         var result = harness.Workflow.Update(package);
 
@@ -158,6 +159,7 @@ public class RenamedFolderHandoffTests
         harness.Environment.ProcessPath = harness.Paths.RunSetupExePath("run1");
         harness.Files.AddFile(harness.Environment.ProcessPath);
         harness.ListOwnProcess();
+        harness.RunIds.Id = "run2";
 
         var result = harness.Workflow.Uninstall(quiet: true, keepData: null);
 

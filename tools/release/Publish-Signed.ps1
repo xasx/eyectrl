@@ -453,7 +453,7 @@ function Remove-PackageNoise([string]$PackageDir)
             $removed++
         }
     }
-    Write-Note "pruned $removed build artifact(s) (*.pdb, *.lib, README.md)"
+    Write-Note "pruned $removed build artifact(s) (*.pdb, *.lib, *.xml, README.md)"
 }
 
 # ── Signing ─────────────────────────────────────────────────────────────────────────────────

@@ -515,6 +515,32 @@ public class BrowseCoordinatorTests
     // ── external review round ──
 
     [Fact]
+    public void AddressActivation_SummonsTheGazeKeyboard_OtherChromeDoesNot()
+    {
+        // Owner feedback 2026-11-05: dwelling the address box used to leave the keyboard hidden
+        // — a second summon dwell before any typing. The address dwell now slides the keyboard
+        // in with the focus (the SHOW message — never the toolbar's toggle, which would HIDE an
+        // already-shown keyboard); no other chrome button drags the keyboard in.
+        var kit = new Kit();
+        var keyboardShows = 0;
+        kit.Messenger.Register<BrowserCoordinatorKeyboardProbe, KeyboardShowRequestedMessage>(
+            new BrowserCoordinatorKeyboardProbe(), (_, _) => keyboardShows++);
+        kit.Initialize();
+        kit.SendShow();
+
+        DwellOnChrome(kit, BrowseViewModel.ChromeAddressId);
+        Check.That(kit.Surface.FocusAddressCalls).IsEqualTo(1);
+        Check.That(keyboardShows).IsEqualTo(1);
+
+        DwellOnChrome(kit, BrowseViewModel.ChromeBackId);
+        Check.That(keyboardShows).IsEqualTo(1); // navigation does not summon the keyboard
+    }
+
+    private sealed class BrowserCoordinatorKeyboardProbe
+    {
+    }
+
+    [Fact]
     public void Summon_DrivesTheSurfacesOwnWebSource()
     {
         // Review C2's regression class: the coordinator once built its OWN web source while the

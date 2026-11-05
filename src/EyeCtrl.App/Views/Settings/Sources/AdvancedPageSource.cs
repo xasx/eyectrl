@@ -233,7 +233,9 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
             StringTable.Current.T("settings.advanced.uninstall.label"),
             () =>
             {
-                if (!gate.StartUninstallHandoff())
+                // fixup-06 M2: a guard refusal means Setup is already starting or running — its
+                // own window is the answer. Only a launch that failed shows the failure line.
+                if (gate.StartUninstallHandoff() == SetupHandoffStart.Failed)
                     _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
             },
             ButtonKind.Danger, Width: 380, Height: 100)
@@ -285,17 +287,18 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
     }
 
     /// <summary>Review 01 N3: a refused or throwing hand-off keeps EyeCtrl running and says so —
-    /// after a completed dwell, silence reads as the button not working.</summary>
+    /// after a completed dwell, silence reads as the button not working. fixup-06 M2: only a
+    /// FAILED launch says so; a duplicate activation while Setup is already starting is silent.</summary>
     private void RunUpdate(ISetupGateways gate, SetupUpdateOffer offer)
     {
-        if (!gate.StartUpdateHandoff(offer))
+        if (gate.StartUpdateHandoff(offer) == SetupHandoffStart.Failed)
             _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
     }
 
     /// <summary>The rollback hand-off with the same failure line.</summary>
     private void RunRollback(ISetupGateways gate)
     {
-        if (!gate.StartRollbackHandoff())
+        if (gate.StartRollbackHandoff() == SetupHandoffStart.Failed)
             _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
     }
 }

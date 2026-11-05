@@ -21,6 +21,26 @@ public sealed record SetupUpdateOffer(
     string InstalledVersion);
 
 /// <summary>
+/// How a Setup hand-off ended (C9 S6e fixup-06 M2). The Settings page must keep
+/// <see cref="RefusedWhileActive"/> silent: in the sitting's exact case the first dwell started
+/// Setup normally and a resting gaze re-fired the row 2.1 s later, so telling the owner that Setup
+/// failed (and to fetch the caregiver) would be false. Only <see cref="Failed"/> means nothing is
+/// running.
+/// </summary>
+public enum SetupHandoffStart
+{
+    /// <summary>The hand-off launched.</summary>
+    Started,
+
+    /// <summary>Refused by the activation guard: a Setup session is already live, or this row's
+    /// previous start is still settling. The first Setup's own window is the answer.</summary>
+    RefusedWhileActive,
+
+    /// <summary>The pre-flight refused, or the launch threw: nothing is running.</summary>
+    Failed,
+}
+
+/// <summary>
 /// C9 S6f's view of the installed Setup: what the „Erweitert" page may offer, and the three
 /// hand-offs it can start. Split from the WPF page sources so every decision (visibility matrix,
 /// policy gate, ShellExecute shape, clean exit) is headlessly testable with fakes.
@@ -68,18 +88,21 @@ public interface ISetupGateways
     /// pinned thumbprint (belt and braces after the catalog check), start
     /// <c>EyeCtrl.Setup.exe update "&lt;dir&gt;"</c> with ShellExecute from a neutral working
     /// directory, then exit cleanly — the lifecycle is <see cref="ISetupExitFlow" />, which must
-    /// never set the restart flag. False when refused or the launch threw; EyeCtrl then keeps running.
+    /// never set the restart flag. <see cref="SetupHandoffStart.Failed" /> when refused or the
+    /// launch threw; EyeCtrl then keeps running.
     /// </summary>
-    bool StartUpdateHandoff(SetupUpdateOffer offer);
+    SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer);
 
     /// <summary>Start the installed Setup's <c>rollback</c> with ShellExecute, then exit cleanly.
-    /// False when refused or the launch threw; EyeCtrl then keeps running.</summary>
-    bool StartRollbackHandoff();
+    /// <see cref="SetupHandoffStart.Failed" /> when refused or the launch threw; EyeCtrl then keeps
+    /// running.</summary>
+    SetupHandoffStart StartRollbackHandoff();
 
     /// <summary>Start the installed Setup's <c>uninstall</c> with ShellExecute. EyeCtrl keeps
-    /// running: its dwell is the input for Setup's own uninstall window. False when refused or the
-    /// launch threw.</summary>
-    bool StartUninstallHandoff();
+    /// running: its dwell is the input for Setup's own uninstall window.
+    /// <see cref="SetupHandoffStart.RefusedWhileActive" /> when Setup is already starting or
+    /// running (show nothing), <see cref="SetupHandoffStart.Failed" /> when the launch threw.</summary>
+    SetupHandoffStart StartUninstallHandoff();
 }
 
 /// <summary>Starts a process. <paramref name="workingDirectory" /> is the reviewed
@@ -154,6 +177,15 @@ public sealed class SetupExitFlow : ISetupExitFlow
 /// <summary>The production <see cref="ISetupGateways" /> over S6a's read-only engine pieces.</summary>
 public sealed class SetupGateways : ISetupGateways
 {
+    /// <summary>
+    /// How long after a hand-off a second activation is refused even when no Setup session is
+    /// visible yet (C9 S6e fixup-05). The sitting's double launch was 2.1 s apart, both before
+    /// either Q8 window existed; the launcher's own run-copy preparation takes about 2 s, so the
+    /// mutex alone would leave that gap open. A clear timeout also releases the row when Setup
+    /// died before it ever took the session.
+    /// </summary>
+    public static readonly TimeSpan HandoffSettleWindow = TimeSpan.FromSeconds(30);
+
     /// <summary>The neutral working directory used when none is injected: the Windows folder is
     /// never under <c>Program Files\EyeCtrl</c>, so a hand-off cannot lock the folder it renames.</summary>
     private static string DefaultNeutralWorkingDirectory()
@@ -173,6 +205,9 @@ public sealed class SetupGateways : ISetupGateways
     private readonly ISetupExitFlow _exit;
     private readonly string _neutralWorkingDirectory;
     private readonly Action<string> _warn;
+    private readonly Func<bool> _setupSessionLive;
+    private readonly Func<DateTimeOffset> _utcNow;
+    private readonly object _handoffLock = new();
 
     private int _offerProbeStarted;
     private int _offerProbeDone;
@@ -181,6 +216,7 @@ public sealed class SetupGateways : ISetupGateways
     private string? _previousVersion;
     private bool _policyProbed;
     private bool _policyBlocks;
+    private DateTimeOffset? _lastHandoffStartedAt;
 
     /// <summary>Creates the gateways. Every OS touch is a seam, so the tests never read the
     /// machine's registry, Program Files or inbox.</summary>
@@ -189,6 +225,11 @@ public sealed class SetupGateways : ISetupGateways
     /// Windows folder.</param>
     /// <param name="warn">Receives one machine-readable line when a probe or a launch fails; the
     /// App logs it. Never user text.</param>
+    /// <param name="setupSessionLive">The pre-hand-off probe of Setup's own single-instance guard;
+    /// defaults to <see cref="SetupSessionGuard.IsSessionLive"/>. Tests inject a fake so a running
+    /// Setup on the box can never change their outcome.</param>
+    /// <param name="utcNow">The clock behind <see cref="HandoffSettleWindow"/>; defaults to
+    /// <see cref="DateTimeOffset.UtcNow"/>.</param>
     public SetupGateways(
         Func<string> currentProcessPath,
         SetupPaths paths,
@@ -200,7 +241,9 @@ public sealed class SetupGateways : ISetupGateways
         ISetupProcessLauncher launcher,
         ISetupExitFlow exit,
         string? neutralWorkingDirectory = null,
-        Action<string>? warn = null)
+        Action<string>? warn = null,
+        Func<bool>? setupSessionLive = null,
+        Func<DateTimeOffset>? utcNow = null)
     {
         _currentProcessPath = currentProcessPath ?? throw new ArgumentNullException(nameof(currentProcessPath));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
@@ -215,6 +258,8 @@ public sealed class SetupGateways : ISetupGateways
             ? DefaultNeutralWorkingDirectory()
             : neutralWorkingDirectory;
         _warn = warn ?? (_ => { });
+        _setupSessionLive = setupSessionLive ?? (() => SetupSessionGuard.IsSessionLive());
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
     /// <summary>The working directory every hand-off passes. Public so a wiring test can pin that
@@ -310,10 +355,10 @@ public sealed class SetupGateways : ISetupGateways
     }
 
     /// <inheritdoc />
-    public bool StartUpdateHandoff(SetupUpdateOffer offer)
+    public SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer)
     {
         if (offer is null || !Installed)
-            return false;
+            return SetupHandoffStart.Failed;
 
         // The visibility check verified the whole catalog; the hand-off re-checks the one file
         // about to be started, against the pinned signer.
@@ -322,62 +367,118 @@ public sealed class SetupGateways : ISetupGateways
                 signature.SignerThumbprint, SetupConstants.PinnedThumbprint, StringComparison.OrdinalIgnoreCase))
         {
             _warn("update hand-off refused: the package Setup's signature does not match the pinned signer");
-            return false;
+            return SetupHandoffStart.Failed;
         }
 
-        return LaunchAndExit(offer.SetupExePath, $"update \"{offer.Directory}\"");
+        return LaunchHandoff(
+            "update", offer.SetupExePath, $"update \"{offer.Directory}\"", signalCleanExit: true);
     }
 
     /// <inheritdoc />
-    public bool StartRollbackHandoff()
+    public SetupHandoffStart StartRollbackHandoff()
     {
         if (!Installed)
-            return false;
+            return SetupHandoffStart.Failed;
 
-        return LaunchAndExit(_paths.InstalledSetupExePath, "rollback");
+        return LaunchHandoff(
+            "rollback", _paths.InstalledSetupExePath, "rollback", signalCleanExit: true);
     }
 
     /// <inheritdoc />
-    public bool StartUninstallHandoff()
+    public SetupHandoffStart StartUninstallHandoff()
     {
         if (!Installed)
-            return false;
+            return SetupHandoffStart.Failed;
 
         // EyeCtrl keeps running — no heartbeat, no shutdown: the App's dwell is the input for
         // Setup's own uninstall window (S6e).
-        try
-        {
-            _launcher.Launch(
-                _paths.InstalledSetupExePath, "uninstall", _neutralWorkingDirectory, useShellExecute: true);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            // Review 01 N3: never let a launch fault reach the dispatcher.
-            _warn($"uninstall hand-off launch failed: {ex.GetType().Name}");
-            return false;
-        }
+        return LaunchHandoff(
+            "uninstall", _paths.InstalledSetupExePath, "uninstall", signalCleanExit: false);
     }
 
     /// <summary>
-    /// The reviewed order (review 01 N3 / MUT2): launch FIRST; only a successful launch may signal
-    /// the clean shutdown and exit. A throw keeps EyeCtrl running with nothing gone.
+    /// The one activation guard for all three Setup rows (C9 S6e fixup-05). A second dwell must
+    /// start nothing while Setup from the first one is still alive, and nothing for a short
+    /// settle window after a launch either — the sitting's second start came 2.1 s after the
+    /// first, before either Q8 window existed and before Setup could take its own session mutex.
+    /// <para>
+    /// The latch is not a hard lock: the App keeps EyeCtrl and Settings running through an
+    /// uninstall, so the row must become live again by itself. It clears when the settle window
+    /// elapsed and Setup's session (started by that hand-off, or by anything else) is gone; a
+    /// session that is still live keeps it closed for as long as Setup runs, however long the
+    /// owner takes on Q8.
+    /// </para>
     /// </summary>
-    private bool LaunchAndExit(string executablePath, string arguments)
+    private bool TryBeginHandoff(string verb)
     {
+        lock (_handoffLock)
+        {
+            var now = _utcNow();
+            var startedAt = _lastHandoffStartedAt;
+
+            // A start that never produced a session (a crash or an early refusal) may be retried
+            // after the settle window. A live session is still caught by the probe below.
+            if (startedAt is { } started && now - started >= HandoffSettleWindow)
+            {
+                _lastHandoffStartedAt = null;
+                startedAt = null;
+            }
+
+            if (_setupSessionLive())
+            {
+                _warn($"{verb} hand-off refused: a Setup session is already live");
+                return false;
+            }
+
+            if (startedAt is not null)
+            {
+                _warn($"{verb} hand-off refused: the previous Setup start is still settling");
+                return false;
+            }
+
+            _lastHandoffStartedAt = now;
+            return true;
+        }
+    }
+
+    /// <summary>Releases the latch after a launch that never happened, so a retry is not punished
+    /// for a fault that changed nothing.</summary>
+    private void HandoffFailed()
+    {
+        lock (_handoffLock)
+            _lastHandoffStartedAt = null;
+    }
+
+    /// <summary>
+    /// The reviewed order (review 01 N3 / MUT2, fixup-05 guard): the guard first, then launch,
+    /// and only a successful launch may signal the clean shutdown and exit. A throw keeps EyeCtrl
+    /// running with nothing gone and frees the row immediately. A guard refusal is
+    /// <see cref="SetupHandoffStart.RefusedWhileActive"/> — the page shows nothing for it.
+    /// </summary>
+    private SetupHandoffStart LaunchHandoff(
+        string verb, string executablePath, string arguments, bool signalCleanExit)
+    {
+        if (!TryBeginHandoff(verb))
+            return SetupHandoffStart.RefusedWhileActive;
+
         try
         {
             _launcher.Launch(executablePath, arguments, _neutralWorkingDirectory, useShellExecute: true);
         }
         catch (Exception ex)
         {
-            _warn($"hand-off launch failed: {ex.GetType().Name}");
-            return false;
+            HandoffFailed();
+            _warn($"{verb} hand-off launch failed: {ex.GetType().Name}");
+            return SetupHandoffStart.Failed;
         }
 
-        _exit.SignalShuttingDown(restartRequested: false);
-        _exit.Shutdown();
-        return true;
+        if (signalCleanExit)
+        {
+            _exit.SignalShuttingDown(restartRequested: false);
+            _exit.Shutdown();
+        }
+
+        return SetupHandoffStart.Started;
     }
 
     /// <summary>

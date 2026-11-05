@@ -30,6 +30,15 @@ public static class Dwell
     /// <summary>Sets the value of the Dwell.Mode attached property.</summary>
     public static void SetMode(DependencyObject o, DwellMode v) => o.SetValue(ModeProperty, v);
 
+    /// <summary>
+    /// The target id the element currently registers under, or null when it has no registration.
+    /// Headless window tests use it to prove that a re-arm opened a NEW target — the App's
+    /// detector drops a removed target with its progress, so a new id means the dwell restarts
+    /// from zero. It reads exactly the entry the production path registers.
+    /// </summary>
+    internal static string? TargetIdForTests(FrameworkElement element) =>
+        (element.GetValue(EntryProperty) as DwellEntry)?.Adapter.Id;
+
     private static readonly DependencyProperty EntryProperty = DependencyProperty.RegisterAttached(
         "Entry", typeof(object), typeof(Dwell), new PropertyMetadata(null));
 

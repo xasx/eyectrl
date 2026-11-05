@@ -228,6 +228,12 @@ if ($UntilExit)
     $process = Start-Process -FilePath $setupExe -ArgumentList $setupArguments -WorkingDirectory $PackageDir -PassThru
     $process.WaitForExit()
     Write-Host "Setup exited with code $($process.ExitCode)."
+    if ($process.ExitCode -eq 8)
+    {
+        # C9 S6e fixup-06 L1: Setup refuses a second public start while another session runs.
+        # Nothing was changed, and no setup-last.json was written for this run.
+        Write-Host 'Another Setup instance was already running; nothing was changed.'
+    }
     Write-SetupRecordOutcome -NotBefore $startedAt
     exit $process.ExitCode
 }

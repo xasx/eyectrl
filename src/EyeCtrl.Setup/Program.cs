@@ -39,14 +39,58 @@ public static class Program
 
         try
         {
-            return SetupComposition.CreateProduction(
-                SetupComposition.PreferredStringsDirectory(command), log).Run(command);
+            var paths = SetupComposition.ProductionPaths();
+            return RunGuarded(
+                command, paths, Environment.ProcessPath, log, null,
+                () => SetupComposition.CreateProduction(
+                    SetupComposition.PreferredStringsDirectory(command), log).Run(command));
         }
         catch (Exception ex)
         {
             return HandleCrash(
                 command, ex, log, result => SetupComposition.TryRecordFailure(result, log));
         }
+    }
+
+    /// <summary>
+    /// C9 S6e fixup-06 M1: the guard's one wiring point, extracted so a test can prove that
+    /// <see cref="Main"/> ACTS on the refusal. A held session returns <see cref="SetupExitCodes.Busy"/>
+    /// without ever calling <paramref name="runComposition"/>; a free one calls it once and releases
+    /// the session (the same thread owns and releases it).
+    /// </summary>
+    internal static int RunGuarded(
+        ParsedSetupCommand command, SetupPaths paths, string? processPath, ISetupLog log,
+        string? mutexName, Func<int> runComposition)
+    {
+        if (!TryEnterSession(command, paths, processPath, log, mutexName, out var session))
+            return SetupExitCodes.Busy;
+
+        using (session)
+            return runComposition();
+    }
+
+    /// <summary>
+    /// C9 S6e fixup-05: becomes the one public Setup session before the composition — and so before
+    /// any elevation, window, log record or file write. A second start of the same verb exits
+    /// cleanly with nothing changed; the App's hand-off guard refuses the same case from its side.
+    /// <paramref name="mutexName"/> exists so tests can use a GUID-suffixed, machine-global-free
+    /// name (the production name is <see cref="SetupSessionGuard.SessionMutexName"/>).
+    /// </summary>
+    internal static bool TryEnterSession(
+        ParsedSetupCommand command, SetupPaths paths, string? processPath, ISetupLog log,
+        string? mutexName, out IDisposable? session)
+    {
+        session = null;
+        if (!SetupSessionGuard.Guards(command.Job))
+            return true;
+
+        var wait = SetupSessionGuard.AcquisitionWait(command, paths, processPath);
+        session = SetupSessionGuard.TryEnter(wait, mutexName);
+        if (session is not null)
+            return true;
+
+        log.Warn($"{command.Job}: another Setup session is already running; exiting without changes.");
+        return false;
     }
 
     /// <summary>

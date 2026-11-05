@@ -42,6 +42,12 @@ public class SetupGatewaysTests
         public List<string> Warnings { get; } = [];
         public string CurrentProcessPath { get; set; } = @"C:\PFakes\EyeCtrl\EyeCtrl.App.exe";
 
+        /// <summary>What Setup's own session probe answers (never the machine's real mutex).</summary>
+        public bool SetupSessionLive { get; set; }
+
+        /// <summary>The clock behind the hand-off settle window.</summary>
+        public DateTimeOffset Now { get; set; } = new(2026, 11, 5, 12, 0, 0, TimeSpan.Zero);
+
         public Harness Installed(string version = "1.0.0")
         {
             Metadata.ByDirectory[Paths.InstallRoot] = new PackageMetadata(version, null, null);
@@ -68,7 +74,9 @@ public class SetupGatewaysTests
         public SetupGateways Create() => new(
             () => CurrentProcessPath, Paths, Fs, Metadata, Catalog, Signatures, Policy, Launcher, Exit,
             neutralWorkingDirectory: NeutralDirectory,
-            warn: Warnings.Add);
+            warn: Warnings.Add,
+            setupSessionLive: () => SetupSessionLive,
+            utcNow: () => Now);
     }
 
     private static SetupUpdateOffer OfferFor(string folder = "2.0.0") =>
@@ -102,8 +110,8 @@ public class SetupGatewaysTests
         Check.That(gateways.UpdateOffer).IsNull();
         Check.That(harness.Catalog.Calls).IsEmpty();
 
-        Check.That(gateways.StartRollbackHandoff()).IsFalse();
-        Check.That(gateways.StartUninstallHandoff()).IsFalse();
+        Check.That(gateways.StartRollbackHandoff()).IsEqualTo(SetupHandoffStart.Failed);
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Failed);
         Check.That(harness.Launcher.Calls).IsEmpty();
         Check.That(harness.Exit.Signals).IsEmpty();
     }
@@ -300,7 +308,7 @@ public class SetupGatewaysTests
         var gateways = harness.Create();
         var offer = OfferFor();
 
-        Check.That(gateways.StartUpdateHandoff(offer)).IsTrue();
+        Check.That(gateways.StartUpdateHandoff(offer)).IsEqualTo(SetupHandoffStart.Started);
 
         var launch = harness.Launcher.Calls.Single();
         Check.That(launch.Executable).IsEqualTo(offer.SetupExePath);
@@ -340,7 +348,7 @@ public class SetupGatewaysTests
         harness.Signatures.Result = new FileSignatureCheck(false, null, "badSignature");
         var gateways = harness.Create();
 
-        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsFalse();
+        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsEqualTo(SetupHandoffStart.Failed);
 
         Check.That(harness.Launcher.Calls).IsEmpty();
         Check.That(harness.Exit.Signals).IsEmpty();
@@ -356,7 +364,7 @@ public class SetupGatewaysTests
             true, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", null);
         var gateways = harness.Create();
 
-        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsFalse();
+        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsEqualTo(SetupHandoffStart.Failed);
         Check.That(harness.Launcher.Calls).IsEmpty();
         Check.That(harness.Exit.Signals).IsEmpty();
     }
@@ -369,9 +377,9 @@ public class SetupGatewaysTests
         harness.Launcher.Throw = new System.ComponentModel.Win32Exception(740);
         var gateways = harness.Create();
 
-        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsFalse();
-        Check.That(gateways.StartRollbackHandoff()).IsFalse();
-        Check.That(gateways.StartUninstallHandoff()).IsFalse();
+        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsEqualTo(SetupHandoffStart.Failed);
+        Check.That(gateways.StartRollbackHandoff()).IsEqualTo(SetupHandoffStart.Failed);
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Failed);
 
         Check.That(harness.Exit.Signals).IsEmpty();
         Check.That(harness.Exit.Shutdowns).IsZero();
@@ -384,7 +392,7 @@ public class SetupGatewaysTests
         var harness = new Harness().Installed();
         var gateways = harness.Create();
 
-        Check.That(gateways.StartRollbackHandoff()).IsTrue();
+        Check.That(gateways.StartRollbackHandoff()).IsEqualTo(SetupHandoffStart.Started);
 
         var launch = harness.Launcher.Calls.Single();
         Check.That(launch.Executable).IsEqualTo(Paths.InstalledSetupExePath);
@@ -403,7 +411,7 @@ public class SetupGatewaysTests
         var harness = new Harness().Installed();
         var gateways = harness.Create();
 
-        Check.That(gateways.StartUninstallHandoff()).IsTrue();
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
 
         var launch = harness.Launcher.Calls.Single();
         Check.That(launch.Executable).IsEqualTo(Paths.InstalledSetupExePath);
@@ -423,9 +431,11 @@ public class SetupGatewaysTests
 
         Check.That(SetupPaths.IsUnder(Paths.InstallRoot, gateways.NeutralWorkingDirectory)).IsFalse();
 
-        gateways.StartUpdateHandoff(OfferFor());
-        gateways.StartRollbackHandoff();
-        gateways.StartUninstallHandoff();
+        // One gateways per hand-off: fixup-05's activation guard holds the row after the first
+        // launch, by design. Each instance must still pass the same neutral directory.
+        Check.That(harness.Create().StartUpdateHandoff(OfferFor())).IsEqualTo(SetupHandoffStart.Started);
+        Check.That(harness.Create().StartRollbackHandoff()).IsEqualTo(SetupHandoffStart.Started);
+        Check.That(harness.Create().StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
 
         Check.That(harness.Launcher.Calls).HasSize(3);
         Check.That(harness.Launcher.Calls).ContainsOnlyElementsThatMatch(
@@ -438,14 +448,126 @@ public class SetupGatewaysTests
         // The ticket's pin: a clean exit carries ShuttingDown and NEVER RestartRequested,
         // so the Supervisor goes idle instead of relaunching.
         var harness = new Harness().Installed();
-        var gateways = harness.Create();
 
-        gateways.StartUpdateHandoff(OfferFor());
-        gateways.StartRollbackHandoff();
-        gateways.StartUninstallHandoff();
+        // A fresh gateways per hand-off (see the guard test above).
+        harness.Create().StartUpdateHandoff(OfferFor());
+        harness.Create().StartRollbackHandoff();
+        harness.Create().StartUninstallHandoff();
 
         Check.That(harness.Exit.Signals).HasSize(2);
         Check.That(harness.Exit.Signals).ContainsOnlyElementsThatMatch(restartRequested => !restartRequested);
+    }
+
+    // ─── fixup-05: one activation starts at most one Setup ───────────────
+
+    [Fact]
+    public void ASecondUninstallActivation_InsideTheGuardWindow_StartsNothing()
+    {
+        // The sitting: the row fired twice 2.1 s apart and two Q8 windows appeared.
+        var harness = new Harness().Installed();
+        var gateways = harness.Create();
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+
+        harness.Now += TimeSpan.FromSeconds(2.1);
+        Check.WithCustomMessage("The sitting's second activation was not refused as a duplicate.")
+            .That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.RefusedWhileActive);
+
+        Check.That(harness.Launcher.Calls).HasSize(1);
+        Check.That(harness.Warnings).HasElementThatMatches(line => line.Contains("still settling"));
+    }
+
+    [Fact]
+    public void WhileTheSetupSessionIsLive_TheRowStaysClosed_HoweverLongQ8Takes()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create();
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+
+        // Four minutes later the Q8 window is still open (its own limit is five).
+        harness.Now += TimeSpan.FromMinutes(4);
+        harness.SetupSessionLive = true;
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.RefusedWhileActive);
+        Check.That(harness.Launcher.Calls).HasSize(1);
+        Check.That(harness.Warnings).HasElementThatMatches(line => line.Contains("session is already live"));
+    }
+
+    [Fact]
+    public void AfterTheSessionEndsAndTheSettleWindowPassed_TheRowWorksAgain()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create();
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+
+        harness.Now += TimeSpan.FromMinutes(5);
+        harness.SetupSessionLive = true;
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.RefusedWhileActive);
+
+        // The result window closed: the session is gone and the settle window is long past.
+        harness.SetupSessionLive = false;
+        harness.Now += TimeSpan.FromSeconds(61);
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+
+        Check.That(harness.Launcher.Calls).HasSize(2);
+    }
+
+    [Fact]
+    public void AStartThatNeverProducedASession_IsRetried_AfterTheSettleWindow()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create();
+
+        // The launch succeeded but Setup died before taking its session (never observed).
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+        harness.Now += TimeSpan.FromSeconds(31);
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+        Check.That(harness.Launcher.Calls).HasSize(2);
+    }
+
+    [Fact]
+    public void AnotherSetupSession_AlreadyLive_RefusesBeforeLaunching()
+    {
+        // e.g. an update started from Explorer: the uninstall row must not add a second Setup.
+        var harness = new Harness().Installed();
+        harness.SetupSessionLive = true;
+        var gateways = harness.Create();
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.RefusedWhileActive);
+        Check.That(harness.Launcher.Calls).IsEmpty();
+        Check.That(harness.Exit.Signals).IsEmpty();
+    }
+
+    [Fact]
+    public void TheGuard_CoversTheUpdateAndRollbackRowsToo()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create();
+
+        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsEqualTo(SetupHandoffStart.Started);
+
+        harness.Now += TimeSpan.FromSeconds(2);
+        Check.That(gateways.StartRollbackHandoff()).IsEqualTo(SetupHandoffStart.RefusedWhileActive);
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.RefusedWhileActive);
+
+        Check.That(harness.Launcher.Calls).HasSize(1);
+    }
+
+    [Fact]
+    public void AThrowingLaunch_ReleasesTheGuard_SoARetryIsNotPunished()
+    {
+        var harness = new Harness().Installed();
+        harness.Launcher.Throw = new System.ComponentModel.Win32Exception(740);
+        var gateways = harness.Create();
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Failed);
+
+        harness.Launcher.Throw = null;
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+        Check.That(harness.Launcher.Calls).HasSize(1);
     }
 
     [Fact]

@@ -27,9 +27,9 @@ public class SetupRowsTests
         public List<SetupUpdateOffer> UpdateHandoffs { get; } = [];
         public int RollbackHandoffs { get; private set; }
         public int UninstallHandoffs { get; private set; }
-        public bool UpdateHandoffResult { get; set; } = true;
-        public bool RollbackHandoffResult { get; set; } = true;
-        public bool UninstallHandoffResult { get; set; } = true;
+        public SetupHandoffStart UpdateHandoffResult { get; set; } = SetupHandoffStart.Started;
+        public SetupHandoffStart RollbackHandoffResult { get; set; } = SetupHandoffStart.Started;
+        public SetupHandoffStart UninstallHandoffResult { get; set; } = SetupHandoffStart.Started;
 
         /// <summary>Review 02 R4: the page must NOT start the probe (the window owns that, when it
         /// opens). The plain build path is proven by this throwing if anything calls it — the old
@@ -38,19 +38,19 @@ public class SetupRowsTests
             throw new InvalidOperationException(
                 "The page source must not start the update-offer probe; the Settings window does, on open.");
 
-        public bool StartUpdateHandoff(SetupUpdateOffer offer)
+        public SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer)
         {
             UpdateHandoffs.Add(offer);
             return UpdateHandoffResult;
         }
 
-        public bool StartRollbackHandoff()
+        public SetupHandoffStart StartRollbackHandoff()
         {
             RollbackHandoffs++;
             return RollbackHandoffResult;
         }
 
-        public bool StartUninstallHandoff()
+        public SetupHandoffStart StartUninstallHandoff()
         {
             UninstallHandoffs++;
             return UninstallHandoffResult;
@@ -267,7 +267,7 @@ public class SetupRowsTests
     }
 
     [Fact]
-    public void ARefusedUpdateHandoff_KeepsRunning_AndShowsTheFailureLine()
+    public void AFailedUpdateLaunch_KeepsRunning_AndShowsTheFailureLine()
     {
         // Review 01 N3: after a completed dwell, silence reads as the button not working.
         var errors = new List<string>();
@@ -275,7 +275,7 @@ public class SetupRowsTests
         {
             Installed = true,
             UpdateOffer = Offer,
-            UpdateHandoffResult = false,
+            UpdateHandoffResult = SetupHandoffStart.Failed,
         };
         var viewModel = BuildRows(gateways, out var rows, errors);
 
@@ -287,14 +287,34 @@ public class SetupRowsTests
     }
 
     [Fact]
-    public void ARefusedRollbackHandoff_ShowsTheFailureLine()
+    public void ADuplicateUpdateActivation_ShowsNothing()
+    {
+        // fixup-06 M2: Setup is already starting; its own window is the answer, not a false
+        // "fetch the caregiver".
+        var errors = new List<string>();
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            UpdateOffer = Offer,
+            UpdateHandoffResult = SetupHandoffStart.RefusedWhileActive,
+        };
+        var viewModel = BuildRows(gateways, out var rows, errors);
+
+        Button(rows, "av_update").OnActivate();
+        viewModel.ModalChoices[0].OnChosen!.Invoke();
+
+        Check.That(errors).IsEmpty();
+    }
+
+    [Fact]
+    public void AFailedRollbackLaunch_ShowsTheFailureLine()
     {
         var errors = new List<string>();
         var gateways = new FakeGateways
         {
             Installed = true,
             PreviousAvailable = true,
-            RollbackHandoffResult = false,
+            RollbackHandoffResult = SetupHandoffStart.Failed,
         };
         var viewModel = BuildRows(gateways, out var rows, errors);
 
@@ -307,10 +327,32 @@ public class SetupRowsTests
     }
 
     [Fact]
-    public void ARefusedUninstallHandoff_ShowsTheFailureLine()
+    public void ADuplicateRollbackActivation_ShowsNothing()
     {
         var errors = new List<string>();
-        var gateways = new FakeGateways { Installed = true, UninstallHandoffResult = false };
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            PreviousAvailable = true,
+            RollbackHandoffResult = SetupHandoffStart.RefusedWhileActive,
+        };
+        var viewModel = BuildRows(gateways, out var rows, errors);
+
+        Button(rows, "av_rollback").OnActivate();
+        viewModel.ModalChoices[0].OnChosen!.Invoke();
+
+        Check.That(errors).IsEmpty();
+    }
+
+    [Fact]
+    public void AFailedUninstallLaunch_ShowsTheFailureLine()
+    {
+        var errors = new List<string>();
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            UninstallHandoffResult = SetupHandoffStart.Failed,
+        };
         BuildRows(gateways, out var rows, errors);
 
         Button(rows, "av_uninstall").OnActivate();
@@ -318,6 +360,24 @@ public class SetupRowsTests
         Check.That(errors).HasSize(1);
         Check.That(errors[0]).IsEqualTo(
             StringTable.Current.T("settings.advanced.setup.startFailed"));
+    }
+
+    [Fact]
+    public void ADuplicateUninstallActivation_ShowsNothing()
+    {
+        // The sitting's exact case: a resting gaze re-fires the row 2.1 s after a good start.
+        // The owner must not be told Setup failed and to fetch the caregiver.
+        var errors = new List<string>();
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            UninstallHandoffResult = SetupHandoffStart.RefusedWhileActive,
+        };
+        BuildRows(gateways, out var rows, errors);
+
+        Button(rows, "av_uninstall").OnActivate();
+
+        Check.That(errors).IsEmpty();
     }
 
     [Fact]

@@ -25,11 +25,21 @@ using EyeCtrl.Setup.Abstractions;
 /// </para>
 ///
 /// <para>
+/// fixup-05/06: only the screen in front carries dwell targets. Hidden drops them all; activation
+/// and becoming visible re-register fresh ids (the App discards a removed target with its dwell)
+/// and restart the gate. Losing activation alone does not drop them (Q8 is topmost, so it is
+/// usually not covered — the App's occlusion filter handles real coverage). fixup-06 M3(b) adds a
+/// resting-gaze gate: an Invoke that arrives before the window is armed restarts the gate for
+/// longer than the worst dwell restart (2 × dwell + cooldown + a blink allowance; fixup-07 N1), so
+/// a gaze that simply rests on Q8 never fires, even across a blink.
+/// </para>
+///
+/// <para>
 /// The window is never shown by a test: the fit tests lay its content out at 2.0 and the logic
-/// tests drive <see cref="ClickForTests"/> and the internal hooks.
+/// tests raise the real routed events and drive the internal timers.
 /// </para>
 /// </summary>
-internal sealed class UninstallChoiceWindow : Window
+internal class UninstallChoiceWindow : Window
 {
     /// <summary>Every screen is armed after this delay.</summary>
     public static readonly TimeSpan ArmingDelay = TimeSpan.FromSeconds(1);
@@ -46,6 +56,7 @@ internal sealed class UninstallChoiceWindow : Window
     private readonly StringTable _strings;
     private readonly DispatcherTimer _armTimer;
     private readonly DispatcherTimer _choiceTimer;
+    private readonly TimeSpan _restingGazeGate;
     private readonly Grid _screen1;
     private readonly Grid _screen2;
     private bool _armed;
@@ -56,9 +67,17 @@ internal sealed class UninstallChoiceWindow : Window
     /// <param name="strings">The resolved table.</param>
     /// <param name="workArea">The work area to lay the window into; tests pass the owner's
     /// 1920 x 1152 DIP, production passes <see cref="SystemParameters.WorkArea"/>.</param>
-    public UninstallChoiceWindow(StringTable strings, Rect? workArea = null)
+    /// <param name="restingGazeGate">fixup-06 M3(b), widened by fixup-07 N1: how long a pre-arm
+    /// Invoke restarts the gate for. Production passes the owner's dwell + cooldown + blink
+    /// allowance + margin (<see cref="SetupDwellTiming.RestingGate"/>); tests may pin a value. The
+    /// value is floored at <see cref="ArmingDelay"/> (fixup-07 L1), so legal low settings cannot
+    /// arm Q8 earlier than its own 1 s rule.</param>
+    public UninstallChoiceWindow(
+        StringTable strings, Rect? workArea = null, TimeSpan? restingGazeGate = null)
     {
         _strings = strings;
+        var gate = restingGazeGate ?? SetupDwellTiming.Default.RestingGate;
+        _restingGazeGate = gate < ArmingDelay ? ArmingDelay : gate;
 
         Title = strings.T("uninstall.choice.title");
         WindowStyle = WindowStyle.None;
@@ -104,10 +123,38 @@ internal sealed class UninstallChoiceWindow : Window
 
         Loaded += (_, _) =>
         {
-            StartArming();
+            // fixup-05: only the screen in front is dwellable, and every (re)appearance starts a
+            // fresh dwell.
+            ArmDwellTargets();
             _choiceTimer.Start();
         };
+
         KeyDown += OnKeyDown;
+        IsVisibleChanged += (_, e) => OnWindowVisibilityChanged((bool)e.NewValue);
+    }
+
+    /// <summary>
+    /// fixup-06 L2: losing activation does NOT drop the targets. Q8 is topmost, so being inactive
+    /// usually does not mean being covered (the App's occlusion filter already refuses a covered
+    /// target); dropping here would leave a visible, topmost Q8 dead to gaze until it is clicked.
+    /// Re-arming on activation is kept: it restarts both the dwell and the gate.
+    /// </summary>
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        ArmDwellTargets();
+    }
+
+    /// <summary>fixup-06 L3/Q4: hidden (and closed) is the only visibility edge that drops targets;
+    /// becoming visible registers fresh ones and restarts the gate. Protected so the headless
+    /// activation test can deliver the same call the <see cref="UIElement.IsVisibleChanged"/>
+    /// handler makes (a real visibility change needs a shown window).</summary>
+    protected virtual void OnWindowVisibilityChanged(bool visible)
+    {
+        if (visible)
+            ArmDwellTargets();
+        else
+            SuspendDwellTargets();
     }
 
     /// <summary>The choice, or null while the window is still open.</summary>
@@ -122,6 +169,13 @@ internal sealed class UninstallChoiceWindow : Window
     /// <summary>True while the current screen's 1 s arming timer is running.</summary>
     internal bool IsArming => _armTimer.IsEnabled;
 
+    /// <summary>The current gate's length: <see cref="ArmingDelay"/> normally, the resting-gaze gate
+    /// after a pre-arm Invoke (fixup-06 M3b, widened by fixup-07 N1).</summary>
+    internal TimeSpan ArmingInterval => _armTimer.Interval;
+
+    /// <summary>The configured resting-gaze gate (after the fixup-07 L1 floor).</summary>
+    internal TimeSpan RestingGazeGate => _restingGazeGate;
+
     /// <summary>True while the window's 5-minute no-choice timer is running.</summary>
     internal bool IsChoiceTimerRunning => _choiceTimer.IsEnabled;
 
@@ -130,6 +184,14 @@ internal sealed class UninstallChoiceWindow : Window
     internal Button DeleteButton { get; private set; } = null!;
     internal Button ConfirmDeleteButton { get; private set; } = null!;
     internal Button KeepDataButton { get; private set; } = null!;
+
+    /// <summary>
+    /// fixup-07 L2/M3e: the production window factory, extracted so a test can assert that the
+    /// owner's parsed dwell timing reaches the window. Dropping <c>ui.Dwell.RestingGate</c> here
+    /// would silently fall back to the default gate and shorten it for a slower dwell.
+    /// </summary>
+    internal static UninstallChoiceWindow CreateWindow(SetupUi ui) =>
+        new(ui.Strings, restingGazeGate: ui.Dwell.RestingGate);
 
     /// <summary>Shows the window modally and returns the choice; an unasked window is a cancel.</summary>
     internal UninstallChoice ShowChoice()
@@ -200,8 +262,9 @@ internal sealed class UninstallChoiceWindow : Window
         AutomationProperties.SetName(button, label);
 
         // Invoke mode: EyeCtrl's own dwell completes the button through UIA, with its ring.
+        // Enabled is left to the window (fixup-05): only the screen in front is registered, and
+        // each activation re-registers it, so a covered-then-uncovered window needs a fresh dwell.
         Dwell.SetMode(button, DwellMode.Invoke);
-        Dwell.SetEnabled(button, true);
         return button;
     }
 
@@ -279,10 +342,10 @@ internal sealed class UninstallChoiceWindow : Window
             // is at the far left, so the dwell that opened this screen cannot land on "yes".
             KeepDataButton = CreateChoiceButton(
                 _strings.T("uninstall.confirmDelete.no"), ButtonKind.Primary, KeepDataAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.KeepData); });
+                () => OnChoiceButton(UninstallChoiceAction.KeepData));
             ConfirmDeleteButton = CreateChoiceButton(
                 _strings.T("uninstall.confirmDelete.yes"), ButtonKind.Danger, ConfirmDeleteAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.ConfirmDelete); });
+                () => OnChoiceButton(UninstallChoiceAction.ConfirmDelete));
             Grid.SetColumn(ConfirmDeleteButton, 0);
             Grid.SetColumn(KeepDataButton, 4);
             row.Children.Add(ConfirmDeleteButton);
@@ -292,13 +355,13 @@ internal sealed class UninstallChoiceWindow : Window
         {
             KeepButton = CreateChoiceButton(
                 _strings.T("uninstall.choice.keep"), ButtonKind.Primary, KeepAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.Keep); });
+                () => OnChoiceButton(UninstallChoiceAction.Keep));
             CancelButton = CreateChoiceButton(
                 _strings.T("uninstall.choice.cancel"), ButtonKind.Normal, CancelAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.Cancel); });
+                () => OnChoiceButton(UninstallChoiceAction.Cancel));
             DeleteButton = CreateChoiceButton(
                 _strings.T("uninstall.choice.delete"), ButtonKind.Normal, DeleteAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.Delete); });
+                () => OnChoiceButton(UninstallChoiceAction.Delete));
             Grid.SetColumn(KeepButton, 0);
             Grid.SetColumn(CancelButton, 2);
             Grid.SetColumn(DeleteButton, 4);
@@ -308,6 +371,34 @@ internal sealed class UninstallChoiceWindow : Window
         }
 
         return screen;
+    }
+
+    /// <summary>
+    /// fixup-06 M3(b): every button's Invoke arrives here. A pre-arm Invoke is the only signal
+    /// Setup has that a gaze is resting on the window — the SDK's Invoke mode re-arms its detector
+    /// under a still gaze, so the next dwell would fire after another dwell. fixup-07 N1: the gate
+    /// also covers a blink/tracking-gap restart, so it never elapses inside the worst restart
+    /// rhythm. A gaze that never leaves never fires; one that leaves for longer than the gate and
+    /// returns sees a normally armed window.
+    /// </summary>
+    private void OnChoiceButton(UninstallChoiceAction action)
+    {
+        if (!_armed)
+        {
+            RestartRestingGazeGate();
+            return;
+        }
+
+        Handle(action);
+    }
+
+    /// <summary>Restarts the timer at <see cref="_restingGazeGate"/>; the normal
+    /// <see cref="StartArming"/> resets it to <see cref="ArmingDelay"/>.</summary>
+    private void RestartRestingGazeGate()
+    {
+        _armTimer.Stop();
+        _armTimer.Interval = _restingGazeGate;
+        _armTimer.Start();
     }
 
     private void Handle(UninstallChoiceAction action)
@@ -330,19 +421,60 @@ internal sealed class UninstallChoiceWindow : Window
         }
     }
 
+    /// <summary>Every choice button, whatever screen it belongs to.</summary>
+    private IEnumerable<Button> AllButtons =>
+        [KeepButton, CancelButton, DeleteButton, ConfirmDeleteButton, KeepDataButton];
+
+    private bool IsCurrentScreen(Button button) => _showingConfirm
+        ? button == KeepDataButton || button == ConfirmDeleteButton
+        : button == KeepButton || button == CancelButton || button == DeleteButton;
+
+    /// <summary>
+    /// Makes only the screen in front dwellable, re-registering its three targets. Disabling first
+    /// is deliberate: the SDK opens a NEW target id on enable, and the App's detector drops the old
+    /// target with its accumulated progress, so this call is the dwell restart. Called on Loaded,
+    /// on every activation, and when the visible screen changes.
+    /// </summary>
+    private void ArmDwellTargets()
+    {
+        foreach (var button in AllButtons)
+        {
+            Dwell.SetEnabled(button, false);
+            if (IsCurrentScreen(button))
+                Dwell.SetEnabled(button, true);
+        }
+
+        StartArming();
+    }
+
+    /// <summary>
+    /// Drops every dwell target while the window is hidden (fixup-06 L2: hiding, not merely
+    /// losing activation, is the edge that does this). The App removes the target and its
+    /// progress; the 1 s gate is stopped too, so it cannot elapse unseen.
+    /// </summary>
+    private void SuspendDwellTargets()
+    {
+        foreach (var button in AllButtons)
+            Dwell.SetEnabled(button, false);
+
+        _armed = false;
+        _armTimer.Stop();
+    }
+
     private void ShowConfirm()
     {
         _showingConfirm = true;
         _screen1.Visibility = Visibility.Collapsed;
         _screen2.Visibility = Visibility.Visible;
         Title = _strings.T("uninstall.confirmDelete.title");
-        StartArming();
+        ArmDwellTargets();
     }
 
     private void StartArming()
     {
         _armed = false;
         _armTimer.Stop();
+        _armTimer.Interval = ArmingDelay;
         _armTimer.Start();
     }
 
@@ -427,7 +559,7 @@ public sealed class WpfUninstallChoice : IUninstallChoice
     {
         try
         {
-            return new UninstallChoiceWindow(_ui.Strings).ShowChoice();
+            return UninstallChoiceWindow.CreateWindow(_ui).ShowChoice();
         }
         catch (Exception)
         {

@@ -326,7 +326,8 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>(),
                 HeldButtonMarker: heldButtonMarker,
                 CursorPositionProbe: _serviceProvider.GetRequiredService<ICursorPositionProbe>(),
-                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>());
+                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>(),
+                BrowseVM: _serviceProvider.GetRequiredService<BrowseViewModel>());
             _eventCoordinator.Initialize(coordinationContext);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in
@@ -1020,6 +1021,9 @@ public partial class App : Application
         // a per-startup migration would re-promote an action the user demoted on every launch.
         settings.ActionMenu.MigratePrimaryOnce();
         settings.ActionMenu.EnsureKeyboardActionOnce();
+        // Same once-only pattern, same reason: the browse action did not exist when any existing
+        // file was written, so the one-shot add cannot re-add anything the user removed.
+        settings.ActionMenu.EnsureBrowseActionOnce();
         // Same once-only pattern: a persisted old-default toolbar size (80) would override the
         // new 120 (mis-dwell fix) forever without this bump.
         settings.Toolbar.MigrateSizeOnce();

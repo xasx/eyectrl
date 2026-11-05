@@ -167,6 +167,14 @@ public static class ActionIcons
             + " M6.8,13.2 L9.2,13.2 M14.8,13.2 L17.2,13.2"
             + " M9.7,15.7 L14.3,15.7"),
 
+        // A browser window: rounded body, a title-bar divider, and a short address-bar dash in
+        // the bar's left half. The third non-mouse ACTION icon (after Keyboard and Recapture) —
+        // drawing a mouse would say "click", and this action opens a surface instead.
+        [ActionIcon.Browse] = IconGeometry.FromPathData(
+            "M6.5,5 L17.5,5 A2.5,2.5 0 0 1 20,7.5 L20,16.5 A2.5,2.5 0 0 1 17.5,19 L6.5,19 A2.5,2.5 0 0 1 4,16.5 L4,7.5 A2.5,2.5 0 0 1 6.5,5 Z"
+            + " M4,9.2 L20,9.2"
+            + " M6.6,7.1 L10.6,7.1"),
+
         // A compact keyboard with chevrons above and below: the edge bar's flip-to-other-edge
         // affordance. Chevrons change the outline from the plain Keyboard glyph, per the
         // peripheral-vision rule in the class doc.

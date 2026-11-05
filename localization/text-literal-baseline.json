@@ -1,6 +1,11 @@
 {
   "Entries": [
     {
+      "Path": "src/EyeCtrl.App/Browse/BrowseElementScript.cs",
+      "Literal": "\"\n(function () {\n    'use strict';\n\n    var MAX = 400;\n    var counter = 0;\n    var gen = 0;\n    var idMap = new WeakMap();       \n    var ids = new Map();             \n    var outline = null;\n\n    function visible(el) {\n        var style = null;\n        try { style = window.getComputedStyle(el); } catch (e) { return false; }\n        if (!style || style.visibility === 'hidden' || style.display === 'none') return false;\n        if (el.getAttribute('aria-hidden') === 'true' || el.hidden) return false;\n        var rect = el.getBoundingClientRect();\n        return rect.width > 0 && rect.height > 0;\n    }\n\n    function kindOf(el) {\n        var tag = el.tagName;\n        if (tag === 'A') return 'link';\n        if (tag === 'SELECT') return 'select';\n        if (tag === 'TEXTAREA') return 'textarea';\n        if (tag === 'INPUT') {\n            var type = (el.getAttribute('type') || 'text').toLowerCase();\n            if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image') return 'button';\n            return 'input';\n        }\n        return 'button';\n    }\n\n    function accept(el) {\n        if (el.id && ids.has(el.id)) return false;    \n        var tag = el.tagName;\n        var type = tag === 'INPUT' ? (el.getAttribute('type') || 'text').toLowerCase() : '';\n        if (tag === 'A' && el.hasAttribute('href')) return true;\n        if (tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'SUMMARY') return true;\n        if (tag === 'INPUT') {\n            if (type === 'hidden' || type === 'password') return false;\n            return true;\n        }\n        if (el.hasAttribute('onclick')) return true;\n        var role = (el.getAttribute('role') || '').toLowerCase();\n        return role === 'button' || role === 'link';\n    }\n\n    function idFor(el) {\n        var id = idMap.get(el);\n        if (!id) {\n            counter += 1;\n            id = 'web_e' + counter;\n            idMap.set(el, id);\n        }\n        return id;\n    }\n\n    function collect(doc, depth, out) {\n        var nodes = doc.querySelectorAll(\n            'a[href], button, input, select, textarea, summary, [role=button], [role=link], [onclick]');\n        for (var i = 0; i < nodes.length && out.length < MAX; i++) {\n            var el = nodes[i];\n            if (!visible(el) || !accept(el)) continue;\n            var id = idFor(el);\n            var rect = el.getBoundingClientRect();\n            out.push({ i: id, k: kindOf(el), r: [rect.left, rect.top, rect.width, rect.height] });\n            ids.set(id, el);\n        }\n        if (depth < 1) {\n            var frames = doc.querySelectorAll('iframe');\n            for (var f = 0; f < frames.length && out.length < MAX; f++) {\n                var frame = frames[f];\n                try {\n                    var origin = new URL(frame.src, window.location.href).origin;\n                    if (origin !== window.location.origin) continue;\n                } catch (e) { continue; }\n                try {\n                    if (frame.contentDocument) collect(frame.contentDocument, depth + 1, out);\n                } catch (e) {   }\n            }\n        }\n    }\n\n    function post() {\n        var els = [];\n        ids = new Map();\n        gen += 1;\n        try { collect(document, 0, els); } catch (e) { els = []; }\n        try {\n            window.chrome.webview.postMessage({\n                type: 'elements',\n                gen: gen,\n                dpr: window.devicePixelRatio,\n                els: els\n            });\n        } catch (e) {   }\n    }\n\n     \n     \n    var framePending = false;\n    function postOnFrame() {\n        if (framePending) return;\n        framePending = true;\n        requestAnimationFrame(function () {\n            framePending = false;\n            post();\n        });\n    }\n\n     \n     \n    var debounce = null;\n    function postDebounced() {\n        if (debounce) clearTimeout(debounce);\n        debounce = setTimeout(post, 150);\n    }\n\n     \n    function drawCue(id, p) {\n        var el = p > 0 ? ids.get(id) : null;\n        if (!el) { clearCue(); return; }\n        var rect = el.getBoundingClientRect();\n        if (rect.width <= 0 || rect.height <= 0) { clearCue(); return; }\n        if (!outline) {\n            outline = document.createElement('div');\n            outline.style.pointerEvents = 'none';\n            outline.style.position = 'absolute';\n            outline.style.zIndex = '2147483647';\n            outline.style.border = '3px solid #FFB300';\n            outline.style.boxSizing = 'border-box';\n            (document.body || document.documentElement).appendChild(outline);\n        }\n        outline.style.left = (rect.left + window.scrollX) + 'px';\n        outline.style.top = (rect.top + window.scrollY) + 'px';\n        outline.style.width = rect.width + 'px';\n        outline.style.height = rect.height + 'px';\n        outline.style.display = 'block';\n    }\n\n    function clearCue() {\n        if (outline) outline.style.display = 'none';\n    }\n\n    try {\n        window.chrome.webview.addEventListener('message', function (event) {\n            try {\n                var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;\n                if (data && data.type === 'dwell') drawCue(data.id, data.p);\n            } catch (e) {   }\n        });\n    } catch (e) {   }\n\n    window.addEventListener('load', post);\n    window.addEventListener('DOMContentLoaded', post);\n    window.addEventListener('scroll', postOnFrame, { passive: true, capture: true });\n    window.addEventListener('resize', postOnFrame);\n    document.addEventListener('wheel', postOnFrame, { passive: true, capture: true });\n\n    var observer = new MutationObserver(postDebounced);\n    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });\n\n     \n    if (document.body) post();\n})();\n\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",
       "Literal": "\"X2\"",
       "Count": 3
@@ -298,6 +303,16 @@
     {
       "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
       "Literal": "\"EyeCtrl\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/BrowseCoordinator.cs",
+      "Literal": "\"\n<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/BrowseCoordinator.cs",
+      "Literal": "\">\n<title>EyeCtrl Browser</title>\n<style>\n    body { font-family: 'Segoe UI', sans-serif; background: #181818; color: #f0f0f0;\n           display: flex; flex-direction: column; align-items: center; justify-content: center;\n           height: 100vh; margin: 0; }\n    h1 { font-size: 42px; margin-bottom: 8px; }\n    p { font-size: 20px; color: #b0b0b0; max-width: 640px; text-align: center; line-height: 1.5; }\n</style>\n</head>\n<body>\n<h1>EyeCtrl Browser</h1>\n<p>Type an address in the field above and press Enter. Links, buttons and fields on the page\nbecome gaze-dwell targets automatically — look at one to click it.</p>\n</body>\n</html>\n\"",
       "Count": 1
     },
     {
@@ -1198,6 +1213,41 @@
     {
       "Path": "src/EyeCtrl.ViewModels/Adaptation/ResetPreviewEngine.cs",
       "Literal": "\"ResetAdaptation\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"address\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"back\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"chrome_\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"forward\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"home\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BrowseViewModel.cs",
+      "Literal": "\"reload\"",
       "Count": 1
     },
     {

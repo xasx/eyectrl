@@ -833,6 +833,27 @@
     "args": [],
     "crisis": true
   },
+  "overlays.browse.failed.evergreen": {
+    "text": "The WebView2 Evergreen runtime is not installed.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.failed.initialize": {
+    "text": "The web view failed to initialize: {0}",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": ["0"]
+  },
+  "overlays.browse.failed.loader": {
+    "text": "The WebView2 native loader (WebView2Loader) failed to load.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.edge.back": {
     "text": "Back",
     "who": "user",
@@ -1236,6 +1257,13 @@
   },
   "overlays.ring.back": {
     "text": "Back",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.browse": {
+    "text": "Browse",
     "who": "user",
     "where": "overlays",
     "fit": "A105",
@@ -1838,6 +1866,20 @@
     "who": "user",
     "where": "settings",
     "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.browse.description": {
+    "text": "Opens the gaze browser.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.browse.label": {
+    "text": "Browse",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.action_menu.visible.double_click.description": {
@@ -4796,6 +4838,14 @@
     "fit": "A105",
     "args": [],
     "mirrors": "overlays.ring.back"
+  },
+  "settings.ring.browse": {
+    "text": "Browse",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": [],
+    "mirrors": "overlays.ring.browse"
   },
   "settings.ring.doubleClick": {
     "text": "Double click",

@@ -96,6 +96,29 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
         KeyboardActionMigrated = true;
     }
 
+    /// <summary>
+    /// Whether <see cref="EnsureBrowseActionOnce"/> has already run for this settings file.
+    /// Absent from every pre-2026-11 file (so it loads false) and set on the first migration.
+    /// Same pattern and reason as <see cref="KeyboardActionMigrated"/>: the browse action did
+    /// not exist when any existing file was written, so the one-shot add cannot re-add
+    /// anything the user deliberately removed.
+    /// </summary>
+    [ObservableProperty] private bool _browseActionMigrated;
+
+    /// <summary>
+    /// Adds <see cref="InteractionAction.Browse"/> to <see cref="VisibleActions"/> exactly
+    /// once per settings file. The startup caller must use this rather than editing the list —
+    /// see <see cref="BrowseActionMigrated"/>.
+    /// </summary>
+    public void EnsureBrowseActionOnce()
+    {
+        if (BrowseActionMigrated) return;
+        if (VisibleActions is null) VisibleActions = new List<InteractionAction>();
+        if (!VisibleActions.Contains(InteractionAction.Browse))
+            VisibleActions.Add(InteractionAction.Browse);
+        BrowseActionMigrated = true;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {

@@ -434,6 +434,18 @@
     "text": "Klicks werden blockiert: Windows lässt die Eingaben von EyeCtrl zurzeit nicht durch.",
     "src": "b341aa4d"
   },
+  "overlays.browse.failed.evergreen": {
+    "text": "Die WebView2 Evergreen-Laufzeit ist nicht installiert.",
+    "src": "d7c9447f"
+  },
+  "overlays.browse.failed.initialize": {
+    "text": "Die Webansicht konnte nicht initialisiert werden: {0}",
+    "src": "13b8df01"
+  },
+  "overlays.browse.failed.loader": {
+    "text": "Der native WebView2-Loader (WebView2Loader) konnte nicht geladen werden.",
+    "src": "72db649d"
+  },
   "overlays.edge.back": {
     "text": "Zurück",
     "src": "a9db9b1c"
@@ -665,6 +677,10 @@
   "overlays.ring.back": {
     "text": "Zurück",
     "src": "d75ae8b1"
+  },
+  "overlays.ring.browse": {
+    "text": "Browser",
+    "src": "72c20f2a"
   },
   "overlays.ring.doubleClick": {
     "text": "2× Klick",
@@ -993,6 +1009,14 @@
   "settings.action_menu.reset.message": {
     "text": "Einstellungen unter „Aktionsmenü“ auf Standardwerte zurücksetzen?",
     "src": "32183536"
+  },
+  "settings.action_menu.visible.browse.description": {
+    "text": "Öffnet den Blicksteuerungs-Browser.",
+    "src": "8ace0d9a"
+  },
+  "settings.action_menu.visible.browse.label": {
+    "text": "Browser",
+    "src": "943af779"
   },
   "settings.action_menu.visible.double_click.description": {
     "text": "Zwei schnelle Klicks an der gewählten Stelle.",
@@ -2632,6 +2656,10 @@
   "settings.ring.back": {
     "text": "Zurück",
     "src": "d75ae8b1"
+  },
+  "settings.ring.browse": {
+    "text": "Browser",
+    "src": "72c20f2a"
   },
   "settings.ring.doubleClick": {
     "text": "2× Klick",

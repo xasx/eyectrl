@@ -50,6 +50,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The occluder sources (P2 D3), evaluated per sample — no cache to invalidate. Null sources
     // contribute nothing: the lag mark before its bridge is attached, the banner slot while empty.
     private Func<IReadOnlyList<PhysicalRect>>? _lagMarkRects;
+    private Func<IReadOnlyList<PhysicalRect>>? _browseRects;
     private Func<PhysicalRect?>? _slotOccupantBounds;
     private Func<PhysicalRect?>? _trackStatusBounds;
     private Func<PhysicalRect?>? _noteNoticeBounds;
@@ -1274,6 +1275,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 Intersects, out hit) || hit)
             return true;
 
+        // T5 review R2: the browser is a work-area, non-click-through window — a note beneath it
+        // would fire a click onto the browser page. Its dwell rects (chrome + reconciled page
+        // elements) gate the notes exactly like the lag mark's.
+        if (!TryReadOccluderRects(KnownOccluderSources.Browse,
+                () => _browseRects?.Invoke() ?? (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
+                Intersects, out hit) || hit)
+            return true;
+
         if (!TryReadOccluderRects(KnownOccluderSources.BannerSlot,
                 () => _slotOccupantBounds?.Invoke() is { } slotOccupant
                     ? new[] { slotOccupant }
@@ -1921,6 +1930,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         else
             genuine |= covers;
 
+        if (!TryReadOccluder(KnownOccluderSources.Browse,
+                () => _browseRects is { } browse && browse().Any(rect => rect.Contains(gazePoint)), out covers))
+            failed = true;
+        else
+            genuine |= covers;
+
         if (!TryReadOccluder(KnownOccluderSources.BannerSlot,
                 () => _slotOccupantBounds is { } slotOccupant && slotOccupant.Invoke() is { } slotBounds
                     && slotBounds.Contains(gazePoint), out covers))
@@ -1980,6 +1995,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         public const string NoteNotice = "note notice";
         public const string StatusStrip = "status strip";
         public const string BlockedInputBanner = "blocked input banner";
+        public const string Browse = "browse window";
     }
 
     /// <summary>The logged-failure episode flags, one per source name: a failed source logs once,
@@ -2226,6 +2242,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// TrackStatusSettings.Enabled. C10 fixup-04 added the blocked-input banner: a note fires from
     /// its own gaze dwell, so a click-through banner does not stop one beneath it.</summary>
     public void SetOccluderSources(
+        Func<IReadOnlyList<PhysicalRect>>? browseRects = null,
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,
@@ -2233,6 +2250,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         Func<PhysicalRect?>? statusStripBounds = null,
         Func<PhysicalRect?>? blockedBannerBounds = null)
     {
+        _browseRects = browseRects;
         _lagMarkRects = lagMarkRects;
         _slotOccupantBounds = slotOccupantBounds;
         _trackStatusBounds = trackStatusBounds;

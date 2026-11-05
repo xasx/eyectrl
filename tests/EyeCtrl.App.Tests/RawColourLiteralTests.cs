@@ -44,6 +44,13 @@ public class RawColourLiteralTests
             "the Contrast palette itself (spec §10.7) — gated by tools/palette_validate.py",
         ["src/EyeCtrl.Controls/Theme/DaylightTheme.cs"] =
             "the Daylight palette itself (spec §10.8) — gated by tools/palette_validate.py",
+        // T4: embedded PAGE content, rendered by the WebView2 engine inside the browser — not
+        // EyeCtrl UI. The page cannot reference WPF theme tokens (they do not exist in the
+        // document); the chrome AROUND it (BrowseWindow.xaml) is fully token-backed.
+        ["src/EyeCtrl.App/Browse/BrowseElementScript.cs"] =
+            "the dwell-cue outline colour inside the injected page script — page content, no WPF token surface exists there",
+        ["src/EyeCtrl.App/Services/Coordinators/BrowseCoordinator.cs"] =
+            "the built-in start page's HTML document — page content the WebView2 renders, no WPF token surface exists there",
     };
 
     /// <summary>

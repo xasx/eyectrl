@@ -820,6 +820,8 @@ public class KeyboardCoordinatorTests
         public double ExtentDip => 140;
         public void Show() { }
         public void Hide() { }
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
         public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
         public void SetMode(bool isDocked, string edge) { }
         public void SetSelectionModeState(SelectionMode mode) { }

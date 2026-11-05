@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core.Browse;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -57,6 +58,7 @@ public class GazeConsumerInventoryTests
         public Func<IReadOnlyList<PhysicalRect>> NoteRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IReadOnlyList<PhysicalRect>> RestartRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IReadOnlyList<PhysicalRect>> LagMarkRects { get; set; } = () => Array.Empty<PhysicalRect>();
+        public Func<IReadOnlyList<PhysicalRect>> BrowseRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IOverlayManager> Overlays = () => throw new NotImplementedException("no keyboard supplied");
         public GazeConsumerInventory Inventory = null!;
 
@@ -84,6 +86,7 @@ public class GazeConsumerInventoryTests
                 NoteRects,
                 RestartRects,
                 LagMarkRects,
+                BrowseRects,
                 Bridge,
                 Messenger);
             return Inventory;
@@ -446,6 +449,45 @@ public class GazeConsumerInventoryTests
         Check.That(inventory.IsClear(new PhysicalRect(0, 0, 50, 50))).IsTrue();       // far away
     }
 
+    // ── T4: the browse source — the VM's live detector rects, gated on IsVisible ──
+
+    [StaFact]
+    public void Browse_Source_ReportsTheVmRectsWhileVisible_AndVanishesOnHide()
+    {
+        // The production delegate: () => browseVm.LiveTargetRects() — the detector snapshot
+        // rule (the notes' precedent). Chrome and page rects appear while the surface is up
+        // and vanish when it hides; the VM is constructed headlessly (no WebView2 involved).
+        var kit = new Kit();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        using var vm = new BrowseViewModel(settings, messenger);
+        kit.BrowseRects = () => vm.LiveTargetRects;
+
+        var elementRect = new PhysicalRect(600, 300, 200, 40);
+        var backRect = new PhysicalRect(500, 100, 48, 48);
+        using var inventory = kit.Build();
+        var live = inventory.Live();
+
+        Check.That(live).IsEmpty();
+
+        vm.Show();
+        vm.SetChromeTargets(new[] { (BrowseViewModel.ChromeBackId, backRect) });
+        vm.ApplySnapshot(new WebElementSnapshot(
+            1, new[] { new WebElementInfo("web_1", WebElementKind.Button, elementRect) }));
+        live = inventory.Live();
+
+        Check.WithCustomMessage("the visible browse surface contributes its chrome and page rects")
+            .That(live).Contains(elementRect);
+        Check.That(live).Contains(backRect);
+
+        vm.Hide();
+        live = inventory.Live();
+
+        Check.WithCustomMessage("the hidden browse surface contributes nothing (a phantom rect " +
+                "at a stale position would block a panel that may now legally cover it)")
+            .That(live).IsEmpty();
+    }
+
     // ── Changed: the SchedulePublish trigger set + the bars' own mutations ──
 
     [StaFact]
@@ -483,14 +525,17 @@ public class GazeConsumerInventoryTests
         kit.Messenger.Send(new ExternalDwellTargetsChangedMessage());
         kit.Messenger.Send(new NoteTargetsChangedMessage());
         kit.Messenger.Send(new RestartNoticeActiveMessage(true));
+        // T4: the browse surface's structural trigger — the VM sends it dispatcher-marshalled;
+        // a page adding or moving targets under a visible panel must re-check.
+        kit.Messenger.Send(new BrowseTargetsChangedMessage());
         Pump();
 
         Check.WithCustomMessage(
                 "Every SchedulePublish-set trigger plus the bars' button-set mutations and the " +
-                "note-targets and restart-notice messages must raise Changed (count: 3 keyboard — " +
-                "two visibility flips + emoji-mode — + 2 menus + 4 bars (IsVisible + " +
-                "ButtonSetChanged each) + 1 toolbar settings + 6 messages = 16).")
-            .That(fired).IsEqualTo(16);
+                "note-targets, restart-notice and browse-targets messages must raise Changed " +
+                "(count: 3 keyboard — two visibility flips + emoji-mode — + 2 menus + 4 bars " +
+                "(IsVisible + ButtonSetChanged each) + 1 toolbar settings + 7 messages = 17).")
+            .That(fired).IsEqualTo(17);
     }
 
     [StaFact]

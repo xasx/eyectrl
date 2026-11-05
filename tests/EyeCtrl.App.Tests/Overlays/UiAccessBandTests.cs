@@ -447,46 +447,38 @@ public class UiAccessBandTests
         };
         var menu = new ActionMenuWindow { PreviewCapture = (_, _) => null };
         var bar = new EdgeButtonBarWindow();
+        var modifierBar = new EdgeButtonBarWindow();
         var indicator = new ManualSelectionGazeIndicatorWindow();
         var strip = new PauseIndicatorWindow();
 
         InvisibleTestWindow.PrepareCloaked(magnifier);
         InvisibleTestWindow.PrepareCloaked(menu);
-        InvisibleTestWindow.PrepareCloaked(bar);
         InvisibleTestWindow.PrepareCloaked(indicator);
         InvisibleTestWindow.PrepareCloaked(strip);
+        InvisibleTestWindow.Prepare(bar);
+        InvisibleTestWindow.Prepare(modifierBar);
 
-        if (new OverlayWindow[] { magnifier, menu, bar, indicator, strip }
+        if (new OverlayWindow[] { magnifier, menu, indicator, strip }
             .Any(w => InvisibleTestWindow.IsCloaked(w) != true))
         {
             strip.Close();
             indicator.Close();
             bar.Close();
+            modifierBar.Close();
             menu.Close();
             magnifier.Close();
             backdrop.Close();
             Assert.Skip("DWM cannot cloak a window here; this test never shows an uncloaked window.");
         }
 
-        foreach (var window in new OverlayWindow[] { magnifier, menu, bar, indicator, strip })
+        foreach (var window in new OverlayWindow[] { magnifier, menu, bar, modifierBar, indicator, strip })
         {
             window.UiAccessEnabled = () => true;
             window.ReadBandForTest = _ => 2;
         }
         backdrop.UiAccessEnabled = () => true;
 
-        var repairs = 0;
         var previousRepair = OverlayWindow.ProcessReassertOverlayOrder;
-        OverlayWindow.ProcessReassertOverlayOrder = () =>
-        {
-            repairs++;
-            RaiseIfVisible(magnifier);
-            RaiseIfVisible(menu);
-            RaiseIfVisible(bar);
-            RaiseIfVisible(indicator);
-            RaiseIfVisible(strip);
-        };
-
         try
         {
             // The backdrop is first, like the coordinator's manual-selection/action-menu paths.
@@ -504,10 +496,18 @@ public class UiAccessBandTests
                 showBackButton: false, dwellTimeMs: 600, ringRadius: 100, previewCircleSize: 80,
                 borderColor: "#FFFFFF", positionIndicatorStyle: PositionIndicatorStyle.Crosshair);
 
+            // The REAL production repair, not a copy of its order (review-ring-02 F1). The seam is
+            // left at the real native call: this gate needs the actual z-order to change.
+            var manager = new OverlayManager(
+                magnifier, menu, modifierBar, bar, indicator, strip);
+            OverlayWindow.ProcessReassertOverlayOrder = manager.ReassertOverlayOrder;
+
             Pump();
 
-            Check.WithCustomMessage($"the backdrop must have taken the fallback; repairs={repairs}")
-                .That(repairs).IsEqualTo(1);
+            Check.WithCustomMessage("the magnifier must be raised by the repair (creation + repair)")
+                .That(magnifier.BandRaiseCount).IsEqualTo(2);
+            Check.WithCustomMessage("the menu must be raised by the repair (creation + repair)")
+                .That(menu.BandRaiseCount).IsEqualTo(2);
             Check.WithCustomMessage(
                     $"magnifier Z={ZIndexOf(magnifier)}, backdrop Z={ZIndexOf(backdrop)} (lower is in front)")
                 .That(ZIndexOf(magnifier)).IsStrictlyLessThan(ZIndexOf(backdrop));
@@ -523,6 +523,7 @@ public class UiAccessBandTests
             strip.Close();
             indicator.Close();
             bar.Close();
+            modifierBar.Close();
             menu.Close();
             magnifier.Close();
             backdrop.Close();
@@ -583,6 +584,60 @@ public class UiAccessBandTests
         Check.That(overriders[0]).IsEqualTo(typeof(SettingsWindow).FullName);
     }
 
+    /// <summary>
+    /// Sticky review-02 N3: a NoteWindow fallback MUST repair the order (the Resume strip has to go
+    /// back above the note); only the cursor ring is exempt. A future override on NoteWindow would
+    /// silently let a re-raised note cover the strip.
+    /// </summary>
+    [StaFact]
+    public void NoteWindow_NeedsTheOrderRepair_AndOnlyTheRingIsExempt()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var overriders = typeof(OverlayWindow).Assembly.GetTypes()
+            .Where(t => t != typeof(OverlayWindow) && typeof(OverlayWindow).IsAssignableFrom(t))
+            .Where(t => t.GetMethod(
+                "get_NeedsOrderRepairAfterBandFallback",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly) is not null)
+            .Select(t => t.FullName)
+            .ToList();
+        Check.WithCustomMessage(
+                "Only CursorCircleWindow may opt out of the order repair; these also do: "
+                + string.Join(", ", overriders))
+            .That(overriders).HasSize(1);
+        Check.That(overriders[0]).IsEqualTo(typeof(CursorCircleWindow).FullName);
+
+        var note = InvisibleTestWindow.Prepare(new NoteWindow("c9f2-repair"));
+        var ring = InvisibleTestWindow.Prepare(new CursorCircleWindow());
+        try
+        {
+            Check.WithCustomMessage(
+                    "a NoteWindow fallback must repair the order so the Resume strip stays above it")
+                .That(NeedsOrderRepair(note)).IsTrue();
+            Check.WithCustomMessage("the ring is the one window exempt from the repair")
+                .That(NeedsOrderRepair(ring)).IsFalse();
+        }
+        finally
+        {
+            ring.Close();
+            note.Close();
+        }
+    }
+
+    /// <summary>The effective protected property value on a concrete window (virtual dispatch).</summary>
+    private static bool NeedsOrderRepair(OverlayWindow window)
+    {
+        var getter = window.GetType().GetMethod(
+                         "get_NeedsOrderRepairAfterBandFallback",
+                         BindingFlags.Instance | BindingFlags.NonPublic)
+                     ?? typeof(OverlayWindow).GetMethod(
+                         "get_NeedsOrderRepairAfterBandFallback",
+                         BindingFlags.Instance | BindingFlags.NonPublic)
+                     ?? throw new InvalidOperationException("the band-repair opt-out has no getter");
+
+        return (bool)getter.Invoke(window, null)!;
+    }
+
     /// <summary>The banner slot re-raises only its LIVE occupant (the repair's banner/notices end).</summary>
     [Fact]
     public void TheBannerSlot_ReassertsOnlyItsLiveOccupant()
@@ -599,12 +654,6 @@ public class UiAccessBandTests
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────
-
-    private static void RaiseIfVisible(OverlayWindow window)
-    {
-        if (window.IsVisible)
-            window.RaiseToTop();
-    }
 
     private static void Pump() =>
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);

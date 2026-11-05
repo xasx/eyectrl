@@ -191,10 +191,6 @@ public partial class App : Application
                 InputIntegrityRules.IntegrityName(selfToken.IntegrityLevel), selfToken.HasUIAccess,
                 selfToken.Elevated, Environment.ProcessPath ?? "unknown");
 
-            // C9 F2: the show-time band verification is meaningless without UIAccess (a topmost
-            // insert cannot reach ZBID_UIACCESS), so this one cached read gates it for the process.
-            OverlayWindow.ProcessHasUiAccess = selfToken.HasUIAccess;
-
             // ── Held-button backstop (C3) ──
             // A hard kill mid-drag (the Supervisor's hang-kill, Task Manager, a native crash) runs
             // none of DragCoordinator's release paths and leaves the OS left button down: every
@@ -274,9 +270,11 @@ public partial class App : Application
 
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-            // The base window cannot resolve the manager (note and drag/scroll windows are created
-            // outside it), so the process-wide order repair is wired once, before any overlay show.
-            OverlayWindow.ProcessReassertOverlayOrder = overlayManager.ReassertOverlayOrder;
+            // C9 F2: the show-time band verification is meaningless without UIAccess (a topmost
+            // insert cannot reach ZBID_UIACCESS), so the cached token bit gates it for the process;
+            // the same wire points a non-ring fallback at the manager's order repair. Extracted so
+            // both assignments are unit-tested, with the call itself pinned by a source scan.
+            OverlayBandStartup.WireOverlayBand(selfToken, overlayManager);
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
                 quickActionsGridVm, modesMenuVm, repeatCursorVm,
                 _serviceProvider.GetRequiredService<ResumeStripViewModel>());

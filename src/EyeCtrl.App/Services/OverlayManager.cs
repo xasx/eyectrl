@@ -11,6 +11,7 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
 /// Manages the lifecycle of overlay windows in the application.
@@ -105,6 +106,38 @@ public class OverlayManager : IOverlayManager
     }
 
     /// <summary>
+    /// Test seam (C9 F2 fixup-02): a manager over six already-prepared order-critical windows, so
+    /// the real <see cref="ReassertOverlayOrder"/> walk is driveable headlessly. It only wires the
+    /// fields the repair reads; the production constructor still creates its windows in
+    /// <see cref="Initialize"/>.
+    /// </summary>
+    internal OverlayManager(
+        ManualSelectionOverlayWindow manualSelectionOverlay,
+        ActionMenuWindow actionMenu,
+        EdgeButtonBarWindow actionMenuModBar,
+        EdgeButtonBarWindow edgeButtonBar,
+        ManualSelectionGazeIndicatorWindow manualSelectionIndicator,
+        PauseIndicatorWindow pauseIndicator,
+        Func<IBannerSlot>? bannerSlot = null,
+        Func<BlockedInputBannerWindow>? blockedInputBanner = null,
+        GlassBackdropWindow? glassBackdrop = null)
+    {
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        _logger = NullLogger<OverlayManager>.Instance;
+        _iconProvider = null!;
+        _manualSelectionOverlay = manualSelectionOverlay;
+        _actionMenu = actionMenu;
+        _actionMenuModBarWindow = actionMenuModBar;
+        _edgeButtonBarWindow = edgeButtonBar;
+        _manualSelectionIndicator = manualSelectionIndicator;
+        _pauseIndicator = pauseIndicator;
+        _bannerSlot = bannerSlot;
+        _blockedInputBanner = blockedInputBanner;
+        _glassBackdrop = glassBackdrop!;
+        _initialized = true;
+    }
+
+    /// <summary>
     /// Builds the calibration overlay with the LIVE dwell settings. Extracted so a test can pin the
     /// hand-off (review 01, MEDIUM 1): the Cancel target's <c>max(1000 ms, toolbar dwell)</c> is
     /// only right while the window holds the settings object the Settings tab edits — a copy, or the
@@ -112,6 +145,34 @@ public class OverlayManager : IOverlayManager
     /// </summary>
     internal static CalibrationWindow CreateCalibrationWindow(EyeCtrlSettings settings) =>
         new(settings.Dwell);
+
+    /// <summary>
+    /// One bottom-to-top repair step, named so the production order is assertable without painting.
+    /// </summary>
+    internal readonly record struct OverlayRepairStep(string Name, Action Raise);
+
+    /// <summary>
+    /// The production bottom-to-top repair order (C9 F2 fixup-01, pinned by fixup-02): magnifier →
+    /// action menu → modifier bar → edge bar → gaze dot → Resume strip → live banner-slot occupant
+    /// → blocked-input banner. The backdrop and the ring are deliberately absent: the backdrop must
+    /// stay at the bottom of the modal stack, and the ring is hidden whenever it could cover a
+    /// surface. <see cref="ReassertOverlayOrder"/> iterates exactly this list.
+    /// </summary>
+    internal IReadOnlyList<OverlayRepairStep> RepairSteps =>
+    [
+        new("magnifier", () => RaiseIfVisible(_manualSelectionOverlay)),
+        new("actionMenu", () => RaiseIfVisible(_actionMenu)),
+        new("modifierBar", () => RaiseIfVisible(_actionMenuModBarWindow)),
+        new("edgeBar", () => RaiseIfVisible(_edgeButtonBarWindow)),
+        new("gazeDot", () => RaiseIfVisible(_manualSelectionIndicator)),
+        new("resumeStrip", () => RaiseIfVisible(_pauseIndicator)),
+        new("bannerSlot", () => _bannerSlot?.Invoke().ReassertForOrder()),
+        new("blockedBanner", () =>
+        {
+            if (_blockedInputBanner?.Invoke() is { } banner)
+                RaiseIfVisible(banner);
+        }),
+    ];
 
     /// <summary>
     /// Re-raises the VISIBLE order-critical overlays, bottom to top, after a band fallback in a
@@ -125,16 +186,8 @@ public class OverlayManager : IOverlayManager
     {
         if (!_initialized) return;
 
-        RaiseIfVisible(_manualSelectionOverlay);
-        RaiseIfVisible(_actionMenu);
-        RaiseIfVisible(_actionMenuModBarWindow);
-        RaiseIfVisible(_edgeButtonBarWindow);
-        RaiseIfVisible(_manualSelectionIndicator);
-        RaiseIfVisible(_pauseIndicator);
-
-        _bannerSlot?.Invoke().ReassertForOrder();
-        if (_blockedInputBanner?.Invoke() is { } banner)
-            RaiseIfVisible(banner);
+        foreach (var step in RepairSteps)
+            step.Raise();
     }
 
     private static void RaiseIfVisible(OverlayWindow window)

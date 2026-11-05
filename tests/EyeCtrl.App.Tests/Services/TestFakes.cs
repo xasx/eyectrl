@@ -365,11 +365,12 @@ internal static class TestFakes
         IEdgeButtonBar? actionMenuModBar = null,
         IActionMenuOverlay? actionMenu = null,
         ICalibrationOverlay? calibration = null,
-        ITrackStatusOverlay? trackStatus = null)
+        ITrackStatusOverlay? trackStatus = null,
+        Action? onReassertOverlayOrder = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
             cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration,
-            trackStatus);
+            trackStatus, onReassertOverlayOrder);
 
     /// <summary>No-op track-status overlay: <c>SettingsUiCoordinator.OnInitialize</c> dereferences
     /// <c>IOverlayManager.TrackStatus</c> unconditionally (UpdateTrackStatusVisibility), so any
@@ -558,6 +559,7 @@ internal static class TestFakes
         private readonly IActionMenuOverlay? _actionMenu;
         private readonly ICalibrationOverlay? _calibration;
         private readonly ITrackStatusOverlay? _trackStatus;
+        private readonly Action? _onReassertOverlayOrder;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
@@ -568,13 +570,14 @@ internal static class TestFakes
             ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
             IGlassBackdropOverlay? glassBackdrop = null,
             IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null,
-            ICalibrationOverlay? calibration = null, ITrackStatusOverlay? trackStatus = null)
+            ICalibrationOverlay? calibration = null, ITrackStatusOverlay? trackStatus = null,
+            Action? onReassertOverlayOrder = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
             _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu; _calibration = calibration;
-            _trackStatus = trackStatus;
+            _trackStatus = trackStatus; _onReassertOverlayOrder = onReassertOverlayOrder;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -610,6 +613,7 @@ internal static class TestFakes
         public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType) => throw new NotImplementedException();
+        public void ReassertOverlayOrder() => _onReassertOverlayOrder?.Invoke();
         public void CloseAll() => throw new NotImplementedException();
     }
 

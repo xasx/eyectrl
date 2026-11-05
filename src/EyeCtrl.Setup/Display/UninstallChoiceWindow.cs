@@ -25,10 +25,12 @@ using EyeCtrl.Setup.Abstractions;
 /// </para>
 ///
 /// <para>
-/// fixup-05: only the screen in front carries dwell targets, and losing the foreground (or being
-/// hidden) removes them all. Regaining it re-registers fresh target ids — the App discards a
-/// removed target with its accumulated dwell — so a window that was covered while a gaze rested
-/// over it needs a full fresh dwell, never the 0.8 s remainder the sitting measured.
+/// fixup-05/06: only the screen in front carries dwell targets. Hidden drops them all; activation
+/// and becoming visible re-register fresh ids (the App discards a removed target with its dwell)
+/// and restart the gate. Losing activation alone does not drop them (Q8 is topmost, so it is
+/// usually not covered — the App's occlusion filter handles real coverage). fixup-06 M3(b) adds a
+/// resting-gaze gate: an Invoke that arrives before the window is armed restarts the gate for
+/// longer than the owner's dwell + cooldown, so a gaze that simply rests on Q8 never fires.
 /// </para>
 ///
 /// <para>
@@ -53,6 +55,7 @@ internal class UninstallChoiceWindow : Window
     private readonly StringTable _strings;
     private readonly DispatcherTimer _armTimer;
     private readonly DispatcherTimer _choiceTimer;
+    private readonly TimeSpan _restingGazeGate;
     private readonly Grid _screen1;
     private readonly Grid _screen2;
     private bool _armed;
@@ -63,9 +66,14 @@ internal class UninstallChoiceWindow : Window
     /// <param name="strings">The resolved table.</param>
     /// <param name="workArea">The work area to lay the window into; tests pass the owner's
     /// 1920 x 1152 DIP, production passes <see cref="SystemParameters.WorkArea"/>.</param>
-    public UninstallChoiceWindow(StringTable strings, Rect? workArea = null)
+    /// <param name="restingGazeGate">fixup-06 M3(b): how long a pre-arm Invoke restarts the gate
+    /// for. Production passes the owner's dwell + cooldown + margin
+    /// (<see cref="SetupDwellTiming.RestingGate"/>); tests may pin a value.</param>
+    public UninstallChoiceWindow(
+        StringTable strings, Rect? workArea = null, TimeSpan? restingGazeGate = null)
     {
         _strings = strings;
+        _restingGazeGate = restingGazeGate ?? SetupDwellTiming.Default.RestingGate;
 
         Title = strings.T("uninstall.choice.title");
         WindowStyle = WindowStyle.None;
@@ -112,28 +120,20 @@ internal class UninstallChoiceWindow : Window
         Loaded += (_, _) =>
         {
             // fixup-05: only the screen in front is dwellable, and every (re)appearance starts a
-            // fresh dwell — a gaze that rested here while another window covered this one has
-            // accumulated nothing.
+            // fresh dwell.
             ArmDwellTargets();
             _choiceTimer.Start();
         };
 
-        IsVisibleChanged += (_, e) =>
-        {
-            if ((bool)e.NewValue)
-                ArmDwellTargets();
-            else
-                SuspendDwellTargets();
-        };
-
         KeyDown += OnKeyDown;
+        IsVisibleChanged += (_, e) => OnWindowVisibilityChanged((bool)e.NewValue);
     }
 
     /// <summary>
-    /// fixup-05 point 3: a covered or background window must not fire a long-armed dwell when it
-    /// is uncovered. Losing the foreground drops every target (the App's detector discards its
-    /// progress with the target); regaining it registers fresh ids, so a full dwell is needed
-    /// again, plus the ordinary 1 s arming gate.
+    /// fixup-06 L2: losing activation does NOT drop the targets. Q8 is topmost, so being inactive
+    /// usually does not mean being covered (the App's occlusion filter already refuses a covered
+    /// target); dropping here would leave a visible, topmost Q8 dead to gaze until it is clicked.
+    /// Re-arming on activation is kept: it restarts both the dwell and the gate.
     /// </summary>
     protected override void OnActivated(EventArgs e)
     {
@@ -141,11 +141,16 @@ internal class UninstallChoiceWindow : Window
         ArmDwellTargets();
     }
 
-    /// <inheritdoc />
-    protected override void OnDeactivated(EventArgs e)
+    /// <summary>fixup-06 L3/Q4: hidden (and closed) is the only visibility edge that drops targets;
+    /// becoming visible registers fresh ones and restarts the gate. Protected so the headless
+    /// activation test can deliver the same call the <see cref="UIElement.IsVisibleChanged"/>
+    /// handler makes (a real visibility change needs a shown window).</summary>
+    protected virtual void OnWindowVisibilityChanged(bool visible)
     {
-        base.OnDeactivated(e);
-        SuspendDwellTargets();
+        if (visible)
+            ArmDwellTargets();
+        else
+            SuspendDwellTargets();
     }
 
     /// <summary>The choice, or null while the window is still open.</summary>
@@ -159,6 +164,10 @@ internal class UninstallChoiceWindow : Window
 
     /// <summary>True while the current screen's 1 s arming timer is running.</summary>
     internal bool IsArming => _armTimer.IsEnabled;
+
+    /// <summary>The current gate's length: <see cref="ArmingDelay"/> normally, the resting-gaze gate
+    /// after a pre-arm Invoke (fixup-06 M3b).</summary>
+    internal TimeSpan ArmingInterval => _armTimer.Interval;
 
     /// <summary>True while the window's 5-minute no-choice timer is running.</summary>
     internal bool IsChoiceTimerRunning => _choiceTimer.IsEnabled;
@@ -318,10 +327,10 @@ internal class UninstallChoiceWindow : Window
             // is at the far left, so the dwell that opened this screen cannot land on "yes".
             KeepDataButton = CreateChoiceButton(
                 _strings.T("uninstall.confirmDelete.no"), ButtonKind.Primary, KeepDataAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.KeepData); });
+                () => OnChoiceButton(UninstallChoiceAction.KeepData));
             ConfirmDeleteButton = CreateChoiceButton(
                 _strings.T("uninstall.confirmDelete.yes"), ButtonKind.Danger, ConfirmDeleteAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.ConfirmDelete); });
+                () => OnChoiceButton(UninstallChoiceAction.ConfirmDelete));
             Grid.SetColumn(ConfirmDeleteButton, 0);
             Grid.SetColumn(KeepDataButton, 4);
             row.Children.Add(ConfirmDeleteButton);
@@ -331,13 +340,13 @@ internal class UninstallChoiceWindow : Window
         {
             KeepButton = CreateChoiceButton(
                 _strings.T("uninstall.choice.keep"), ButtonKind.Primary, KeepAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.Keep); });
+                () => OnChoiceButton(UninstallChoiceAction.Keep));
             CancelButton = CreateChoiceButton(
                 _strings.T("uninstall.choice.cancel"), ButtonKind.Normal, CancelAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.Cancel); });
+                () => OnChoiceButton(UninstallChoiceAction.Cancel));
             DeleteButton = CreateChoiceButton(
                 _strings.T("uninstall.choice.delete"), ButtonKind.Normal, DeleteAutomationId,
-                () => { if (_armed) Handle(UninstallChoiceAction.Delete); });
+                () => OnChoiceButton(UninstallChoiceAction.Delete));
             Grid.SetColumn(KeepButton, 0);
             Grid.SetColumn(CancelButton, 2);
             Grid.SetColumn(DeleteButton, 4);
@@ -347,6 +356,33 @@ internal class UninstallChoiceWindow : Window
         }
 
         return screen;
+    }
+
+    /// <summary>
+    /// fixup-06 M3(b): every button's Invoke arrives here. A pre-arm Invoke is the only signal
+    /// Setup has that a gaze is resting on the window — the SDK's Invoke mode re-arms its detector
+    /// under a still gaze, so the next dwell would fire about dwell + cooldown later. Restart the
+    /// gate for longer than that: a gaze that never leaves never fires; a gaze that leaves for
+    /// longer than the gate and returns sees a normally armed window.
+    /// </summary>
+    private void OnChoiceButton(UninstallChoiceAction action)
+    {
+        if (!_armed)
+        {
+            RestartRestingGazeGate();
+            return;
+        }
+
+        Handle(action);
+    }
+
+    /// <summary>Restarts the timer at <see cref="_restingGazeGate"/>; the normal
+    /// <see cref="StartArming"/> resets it to <see cref="ArmingDelay"/>.</summary>
+    private void RestartRestingGazeGate()
+    {
+        _armTimer.Stop();
+        _armTimer.Interval = _restingGazeGate;
+        _armTimer.Start();
     }
 
     private void Handle(UninstallChoiceAction action)
@@ -396,9 +432,9 @@ internal class UninstallChoiceWindow : Window
     }
 
     /// <summary>
-    /// Drops every dwell target while the window is covered or in the background. The App removes
-    /// the target and its progress, so a gaze resting over a button cannot keep arming it; the
-    /// 1 s gate is stopped too, so it cannot elapse unseen either.
+    /// Drops every dwell target while the window is hidden (fixup-06 L2: hiding, not merely
+    /// losing activation, is the edge that does this). The App removes the target and its
+    /// progress; the 1 s gate is stopped too, so it cannot elapse unseen.
     /// </summary>
     private void SuspendDwellTargets()
     {
@@ -422,6 +458,7 @@ internal class UninstallChoiceWindow : Window
     {
         _armed = false;
         _armTimer.Stop();
+        _armTimer.Interval = ArmingDelay;
         _armTimer.Start();
     }
 
@@ -506,7 +543,8 @@ public sealed class WpfUninstallChoice : IUninstallChoice
     {
         try
         {
-            return new UninstallChoiceWindow(_ui.Strings).ShowChoice();
+            return new UninstallChoiceWindow(_ui.Strings, restingGazeGate: _ui.Dwell.RestingGate)
+                .ShowChoice();
         }
         catch (Exception)
         {

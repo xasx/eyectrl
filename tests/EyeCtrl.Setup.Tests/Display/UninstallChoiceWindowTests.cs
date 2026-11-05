@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup.Tests.Display;
 
+using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
@@ -217,6 +218,8 @@ public sealed class UninstallChoiceWindowTests
             Arm(window);
             Click(window.DeleteButton);
             Check.That(window.ShowingConfirm).IsTrue();
+            Check.WithCustomMessage("The screen switch did not reset the gate to the 1 s arming delay.")
+                .That(window.ArmingInterval).IsEqualTo(UninstallChoiceWindow.ArmingDelay);
 
             Check.WithCustomMessage("A screen-1 button stayed dwellable behind screen 2.")
                 .That(Dwell.TargetIdForTests(window.KeepButton)).IsNull();
@@ -230,8 +233,11 @@ public sealed class UninstallChoiceWindowTests
     }
 
     [Fact]
-    public void ADeactivatedWindow_DropsEveryDwellTarget_AndReactivationNeedsAFreshDwell()
+    public void Reactivation_ReArmsAFreshDwell_WithoutAnySuspend()
     {
+        // fixup-06 L3/Q3: nothing was dropped before activation, so the disable-first in
+        // ArmDwellTargets is what makes this a restart. If it only re-enabled the already-enabled
+        // buttons, the ids would not change and the old dwell would survive.
         WithActivationWindow(window =>
         {
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
@@ -242,19 +248,6 @@ public sealed class UninstallChoiceWindowTests
             window.CompleteArmingForTests();
             Check.That(window.IsArmed).IsTrue();
 
-            // The sitting: another window covers Q8. Every target goes, and the arming gate with it.
-            window.RaiseDeactivated();
-            Check.WithCustomMessage("A covered window kept a dwell target (the long-armed 0.8 s dwell).")
-                .That(Dwell.TargetIdForTests(window.KeepButton)).IsNull();
-            Check.That(Dwell.TargetIdForTests(window.DeleteButton)).IsNull();
-            Check.That(window.IsArmed).IsFalse();
-            Check.WithCustomMessage("A covered window kept its 1 s arming timer running.")
-                .That(window.IsArming).IsFalse();
-            Click(window.KeepButton);
-            Check.That(window.Result).IsNull();
-
-            // Uncovered / foreground again: a new target id (the detector starts from zero), and
-            // the 1 s gate restarts.
             window.RaiseActivated();
             var keepAfter = Dwell.TargetIdForTests(window.KeepButton);
             var deleteAfter = Dwell.TargetIdForTests(window.DeleteButton);
@@ -266,6 +259,7 @@ public sealed class UninstallChoiceWindowTests
             Check.WithCustomMessage("Reactivation did not restart the 1 s arming gate.")
                 .That(window.IsArmed).IsFalse();
             Check.That(window.IsArming).IsTrue();
+            Check.That(window.ArmingInterval).IsEqualTo(UninstallChoiceWindow.ArmingDelay);
 
             Click(window.KeepButton);
             Check.WithCustomMessage("A click before the fresh arming delay fired.")
@@ -275,6 +269,107 @@ public sealed class UninstallChoiceWindowTests
             Click(window.KeepButton);
             Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
         });
+    }
+
+    [Fact]
+    public void AHiddenWindow_DropsEveryDwellTarget_AndBecomingVisibleNeedsAFreshDwell()
+    {
+        // fixup-06 L3/Q4: hiding is the edge that drops the targets; becoming visible re-arms.
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            var keepBefore = Dwell.TargetIdForTests(window.KeepButton);
+            Check.That(keepBefore).IsNotNull();
+            window.CompleteArmingForTests();
+
+            window.RaiseHidden();
+            Check.WithCustomMessage("A hidden window kept a dwell target.")
+                .That(Dwell.TargetIdForTests(window.KeepButton)).IsNull();
+            Check.That(Dwell.TargetIdForTests(window.DeleteButton)).IsNull();
+            Check.That(window.IsArmed).IsFalse();
+            Check.WithCustomMessage("A hidden window kept its 1 s arming timer running.")
+                .That(window.IsArming).IsFalse();
+            Click(window.KeepButton);
+            Check.That(window.Result).IsNull();
+
+            window.RaiseVisible();
+            var keepAfter = Dwell.TargetIdForTests(window.KeepButton);
+            Check.WithCustomMessage("Becoming visible did not register a dwell target.")
+                .That(keepAfter).IsNotNull();
+            Check.WithCustomMessage("Becoming visible reused the old target id.")
+                .That(keepAfter).IsNotEqualTo(keepBefore);
+            Check.That(window.IsArmed).IsFalse();
+            Check.That(window.IsArming).IsTrue();
+
+            window.CompleteArmingForTests();
+            Click(window.KeepButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
+        });
+    }
+
+    [Fact]
+    public void LosingActivation_DoesNotDropTheTargetsOrTheGate()
+    {
+        // fixup-06 L2: Q8 is topmost, so being inactive usually does not mean being covered; the
+        // App's occlusion filter handles real coverage. Dropping here would leave a visible Q8 dead
+        // to gaze until it is clicked.
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            var keepBefore = Dwell.TargetIdForTests(window.KeepButton);
+            window.CompleteArmingForTests();
+            Check.That(window.IsArmed).IsTrue();
+
+            window.RaiseDeactivated();
+
+            Check.WithCustomMessage("Losing activation dropped the dwell target.")
+                .That(Dwell.TargetIdForTests(window.KeepButton)).IsEqualTo(keepBefore);
+            Check.WithCustomMessage("Losing activation disarmed the window.")
+                .That(window.IsArmed).IsTrue();
+            Click(window.KeepButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
+        });
+    }
+
+    [Fact]
+    public void APreArmInvoke_RestartsTheGateBeyondADwell_SoARestingGazeNeverFires()
+    {
+        // fixup-06 M3(b): the detector re-arms under a still gaze, so a covered-then-uncovered (or
+        // just inactive) Q8 would fire again ~dwell+cooldown after every activation. Every pre-arm
+        // Invoke instead pushes the gate beyond that, so a gaze that never leaves never fires.
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Check.That(window.ArmingInterval).IsEqualTo(UninstallChoiceWindow.ArmingDelay);
+
+            for (var i = 0; i < 5; i++)
+            {
+                Click(window.KeepButton);
+                Check.WithCustomMessage($"Pre-arm Invoke {i + 1} fired a choice.")
+                    .That(window.Result).IsNull();
+                Check.That(window.IsArmed).IsFalse();
+                Check.WithCustomMessage($"Pre-arm Invoke {i + 1} did not hold the gate past one dwell + cooldown.")
+                    .That(window.ArmingInterval).IsEqualTo(TimeSpan.FromMilliseconds(1500));
+            }
+
+            // The gaze left and the gate elapsed: the window is normally armed again.
+            window.CompleteArmingForTests();
+            Check.That(window.IsArmed).IsTrue();
+            Click(window.KeepButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
+        });
+    }
+
+    [Fact]
+    public void TheRestingGate_IsLongerThanTheOwnersDwellPlusCooldown()
+    {
+        // The shadowing arithmetic of M3(b): the owner's file has 800 ms dwell / 400 ms cooldown.
+        var owner = new SetupDwellTiming(DefaultDwellMs: 800, CooldownMs: 400);
+        Check.That(owner.RestingGate).IsEqualTo(TimeSpan.FromMilliseconds(1500));
+        Check.That(owner.RestingGate.TotalMilliseconds)
+            .IsStrictlyGreaterThan(owner.DefaultDwellMs + owner.CooldownMs);
+        Check.That(SetupDwellTiming.Default.RestingGate.TotalMilliseconds)
+            .IsStrictlyGreaterThan(UninstallChoiceWindow.ArmingDelay.TotalMilliseconds);
     }
 
     [Fact]
@@ -344,6 +439,37 @@ public sealed class UninstallChoiceWindowTests
         });
     }
 
+    [Fact]
+    public void TheWindow_SubscribesTheVisibilityEdge_ToTheHideShowPath()
+    {
+        // fixup-06 L3/Q4: the WPF IsVisibleChanged event cannot be raised on a window that is
+        // never shown, so the behaviour is tested through OnWindowVisibilityChanged and this pins
+        // the one-line subscription that reaches it.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            File.ReadAllText(RepoFile("src", "EyeCtrl.Setup", "Display", "UninstallChoiceWindow.cs")),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "UninstallChoiceWindow no longer subscribes IsVisibleChanged: hiding would not drop the "
+                + "targets and becoming visible would not re-arm (review-05 L3/Q4).")
+            .That(source.Contains(
+                "IsVisibleChanged+=(_,e)=>OnWindowVisibilityChanged((bool)e.NewValue);")).IsTrue();
+    }
+
+    private static string RepoFile(params string[] parts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+               && !File.Exists(Path.Combine(directory.FullName, "EyeCtrl.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        return Path.Combine(
+            directory?.FullName ?? throw new InvalidOperationException("repo root not found"),
+            Path.Combine(parts));
+    }
+
     private static Rect Box(FrameworkElement element, FrameworkElement root) =>
         element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
 
@@ -374,7 +500,8 @@ public sealed class UninstallChoiceWindowTests
     /// production window runs. A window is never shown to make them fire.
     /// </summary>
     private static void WithActivationWindow(Action<ActivationChoiceWindow> action) =>
-        WithWindowCore(action, () => new ActivationChoiceWindow(English, OwnerWorkArea));
+        WithWindowCore(action, () => new ActivationChoiceWindow(
+            English, OwnerWorkArea, TimeSpan.FromMilliseconds(1500)));
 
     private static void WithWindowCore<T>(Action<T> action, Func<T> create)
         where T : UninstallChoiceWindow
@@ -397,11 +524,16 @@ public sealed class UninstallChoiceWindowTests
 
     private sealed class ActivationChoiceWindow : UninstallChoiceWindow
     {
-        public ActivationChoiceWindow(StringTable strings, Rect workArea) : base(strings, workArea) { }
+        public ActivationChoiceWindow(StringTable strings, Rect workArea, TimeSpan restingGate)
+            : base(strings, workArea, restingGate) { }
 
         public void RaiseActivated() => OnActivated(EventArgs.Empty);
 
         public void RaiseDeactivated() => OnDeactivated(EventArgs.Empty);
+
+        public void RaiseHidden() => OnWindowVisibilityChanged(false);
+
+        public void RaiseVisible() => OnWindowVisibilityChanged(true);
     }
 
     private static void RunSta(Action action)

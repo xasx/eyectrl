@@ -56,6 +56,29 @@ public sealed class SetupUiTests : IDisposable
     }
 
     [Fact]
+    public void ParseSettings_ReadsTheOwnersExternalDwellTiming_AndClampsIt()
+    {
+        // fixup-06 M3(b): the Q8 gate is derived from the owner's real values, not a constant.
+        var parsed = SetupUi.ParseSettings(
+            """{"externalDwell":{"defaultDwellMs":1200,"cooldownMs":900}}""");
+        Check.That(parsed.Dwell).IsEqualTo(new SetupDwellTiming(1200, 900));
+        Check.That(parsed.Dwell.RestingGate).IsEqualTo(TimeSpan.FromMilliseconds(2400));
+
+        // Missing section/fields keeps the App defaults (800 / 400 -> 1.5 s).
+        Check.That(SetupUi.ParseSettings("{}").Dwell).IsEqualTo(SetupDwellTiming.Default);
+        Check.That(SetupUi.ParseSettings("""{"externalDwell":{"cooldownMs":900}}""").Dwell)
+            .IsEqualTo(new SetupDwellTiming(800, 900));
+
+        // A hand-edited out-of-range value is clamped to the App's own legal range, never used raw.
+        Check.That(SetupUi.ParseSettings(
+                """{"externalDwell":{"defaultDwellMs":50,"cooldownMs":99999}}""").Dwell)
+            .IsEqualTo(new SetupDwellTiming(200, 5000));
+        Check.That(SetupUi.ParseSettings(
+                """{"externalDwell":{"defaultDwellMs":"900","cooldownMs":true}}""").Dwell)
+            .IsEqualTo(SetupDwellTiming.Default);
+    }
+
+    [Fact]
     public void FindLooseStringDirectory_PrefersTheInstallRoot_ThenTheFallback()
     {
         var paths = Paths("program-files", "appdata");

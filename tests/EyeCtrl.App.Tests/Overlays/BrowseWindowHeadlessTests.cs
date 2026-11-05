@@ -230,10 +230,10 @@ public class BrowseWindowHeadlessTests
             .IsEqualTo(5);
         Check.WithCustomMessage("the address box shares the row's dwell height")
             .That(xaml.Contains("Height=\"120\">", StringComparison.Ordinal)).IsTrue();
-        Check.WithCustomMessage("the glyphs scale with the buttons (the themed display size)")
+        Check.WithCustomMessage("the glyphs and the address text scale with the row (the themed display size; owner feedback 2026-11-05: the URL font was too small)")
             .That(System.Text.RegularExpressions.Regex.Matches(
                 xaml, System.Text.RegularExpressions.Regex.Escape("FontSize=\"{StaticResource FontSizeDisplay}\"")).Count)
-            .IsEqualTo(5);
+            .IsEqualTo(6);
         Check.WithCustomMessage("inter-button separation widened with the buttons")
             .That(System.Text.RegularExpressions.Regex.Matches(
                 xaml, System.Text.RegularExpressions.Regex.Escape("Margin=\"0,0,16,0\"")).Count)

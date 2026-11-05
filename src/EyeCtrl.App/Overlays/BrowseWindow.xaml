@@ -89,12 +89,16 @@
                 </Border>
 
                 <Grid Margin="16,0,16,0" Height="120">
+                    <!-- Owner feedback 2026-11-05: the URL text at body size was too small to read
+                         at gaze distance — it scales with the row now (the themed display size, the
+                         same one the chrome glyphs use). Over-long addresses scroll in the field;
+                         the failure notices share the size, so they read at a glance too. -->
                     <TextBox x:Name="AddressBox" AutomationProperties.AutomationId="chrome_address"
                              VerticalContentAlignment="Center"
                              Background="{StaticResource BrushSurfaceLight}"
                              Foreground="{StaticResource BrushTextPrimary}"
                              BorderBrush="{StaticResource BrushBorderSubtle}"
-                             FontSize="{StaticResource FontSizeBody}"/>
+                             FontSize="{StaticResource FontSizeDisplay}"/>
                     <Rectangle x:Name="ProgressAddress" Height="3" VerticalAlignment="Bottom"
                                HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
                                Visibility="Collapsed"/>

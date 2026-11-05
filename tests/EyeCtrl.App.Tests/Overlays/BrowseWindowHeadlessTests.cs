@@ -193,24 +193,51 @@ public class BrowseWindowHeadlessTests
     }
 
     [StaFact]
-    public void AddressInput_NormalizesBareHosts_AndRejectsGarbage()
+    public void AddressInput_BehavesAsAnOmnibox_AddressesNavigate_TextSearches()
     {
         // The address seam feeds NavigateRequested with an absolute http(s) URI — the web
         // source's Navigate(Uri) contract. Pinned headlessly against the same normalization
         // the Enter handler runs, without showing the window or touching the web view.
+        // Owner feedback 2026-11-05 made it an omnibox: non-URL input searches (Bing) instead
+        // of dead-ending, so typing must never reject.
         var window = ConstructWindow();
         Uri? requested = null;
         window.NavigateRequested += uri => requested = uri;
 
+        // Bare hosts and paths get the https scheme and navigate.
         Check.That(window.TryNavigate("example.com/path")).IsTrue();
         Check.That(requested).IsNotNull();
         Check.That(requested!.Scheme).IsEqualTo(Uri.UriSchemeHttps);
         Check.That(requested.Host).IsEqualTo("example.com");
         Check.That(requested.AbsolutePath).IsEqualTo("/path");
 
+        // Explicit schemes navigate when they name a web URL.
+        requested = null;
+        Check.That(window.TryNavigate("http://example.org")).IsTrue();
+        Check.That(requested!.Host).IsEqualTo("example.org");
+
+        // An IPv4 literal is an address.
+        requested = null;
+        Check.That(window.TryNavigate("192.168.1.1")).IsTrue();
+        Check.That(requested!.Host).IsEqualTo("192.168.1.1");
+
+        // A dotless single word is a QUERY, not a TLD-less host.
+        requested = null;
+        Check.That(window.TryNavigate("wikipedia")).IsTrue();
+        Check.That(requested!.Host).IsEqualTo("www.bing.com");
+        Check.That(requested.GetComponents(UriComponents.PathAndQuery, UriFormat.Unescaped))
+            .Contains("q=wikipedia");
+
+        // Free text with spaces is a search, spaces percent-encoded (EscapeDataString's %20).
+        requested = null;
+        Check.That(window.TryNavigate("gaze control browser")).IsTrue();
+        Check.That(requested!.Host).IsEqualTo("www.bing.com");
+        Check.That(requested.GetComponents(UriComponents.Query, UriFormat.Unescaped))
+            .IsEqualTo("q=gaze control browser");
+
+        // The empty field still navigates nowhere.
         requested = null;
         Check.That(window.TryNavigate("   ")).IsFalse();
-        Check.That(window.TryNavigate("not a uri \u0001")).IsFalse();
         Check.That(requested).IsNull();
     }
 

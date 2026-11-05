@@ -317,10 +317,13 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
     }
 
     /// <summary>
-    /// Normalizes the typed address and raises <see cref="NavigateRequested"/> for it: a bare
-    /// host gets the https scheme, a malformed URL is ignored rather than navigated. Returns
-    /// whether a navigation was requested. Internal test seam — the headless tests drive the
-    /// same normalization the Enter handler runs.
+    /// The address box's omnibox contract (owner feedback 2026-11-05: it "shall be able to
+    /// search"): an explicit http(s) URL navigates; a bare host that parses as one
+    /// (<c>example.com</c>, <c>example.com/path</c>, an IPv4 literal) gets the https scheme and
+    /// navigates; EVERYTHING else is a web search — spaces or a dotless word are a query, not a
+    /// broken URL, so typing must never dead-end the way the old malformed-URL rejection did.
+    /// Returns whether a navigation was requested. Internal test seam — the headless tests drive
+    /// the same normalization the Enter handler runs.
     /// </summary>
     internal bool TryNavigate(string candidate)
     {
@@ -328,16 +331,40 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         if (candidate.Length == 0)
             return false;
 
-        if (!candidate.Contains("://", StringComparison.Ordinal))
-            candidate = "https://" + candidate;
-        if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri)
-            && uri.Scheme is "http" or "https")
+        if (candidate.Contains("://", StringComparison.Ordinal))
         {
-            NavigateRequested?.Invoke(uri);
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+            {
+                NavigateRequested?.Invoke(uri);
+                return true;
+            }
+
+            return SearchFor(candidate);
+        }
+
+        // A single token that parses as a DNS host (dot required — "wikipedia" alone is a query,
+        // not a TLD-less host) or an IPv4 literal is an address; everything else is a search.
+        if (!candidate.Contains(' ')
+            && Uri.TryCreate("https://" + candidate, UriKind.Absolute, out var hostUri)
+            && (hostUri.HostNameType is UriHostNameType.IPv4
+                || (hostUri.HostNameType is UriHostNameType.Dns && hostUri.Host.Contains('.'))))
+        {
+            NavigateRequested?.Invoke(hostUri);
             return true;
         }
 
-        return false;
+        return SearchFor(candidate);
+    }
+
+    /// <summary>
+    /// The search arm of the omnibox. Bing is the Windows/Edge default and needs no account
+    /// wall; the engine is a one-line change here if the owner wants another, and a settings
+    /// row is deferred with the browser's other settings work.
+    /// </summary>
+    private bool SearchFor(string query)
+    {
+        NavigateRequested?.Invoke(new Uri("https://www.bing.com/search?q=" + Uri.EscapeDataString(query)));
+        return true;
     }
 
     private void RaiseSurfaceClosed()

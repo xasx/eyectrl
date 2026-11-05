@@ -1642,6 +1642,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.toolbar.browse": {
+    "text": "Browse",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.toolbar.keyboard": {
     "text": "Keyboard",
     "who": "user",

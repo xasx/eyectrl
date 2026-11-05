@@ -890,6 +890,10 @@
     "text": "Fenster auswählen – oder mit ✕ abbrechen",
     "src": "3a091918"
   },
+  "overlays.toolbar.browse": {
+    "text": "Browser",
+    "src": "943af779"
+  },
   "overlays.toolbar.keyboard": {
     "text": "Tastatur",
     "src": "1010edb8"

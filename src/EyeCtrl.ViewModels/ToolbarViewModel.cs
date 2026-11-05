@@ -200,6 +200,11 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("Calibrate", "Settings"),
             ("Settings", "Settings"),
             ("TaskSwitcher", "TaskSwitcher"),
+            // Owner feedback 2026-11-05: the action menu was not the right place for the browser's
+            // summon — the toolbar is where Keyboard and TaskSwitcher live, so Browse joins them.
+            // The ring's Browse action stays wired (the settings toggle still offers it) but is
+            // no longer the offered home.
+            ("Browse", "Browse"),
             ("Modes", "Modes"),
             // QuickActions is never rendered (ReachableElsewhere) and ToolbarIconKey has no lightning-
             // bolt member of its own; this is a placeholder pending a real icon, not a considered choice.
@@ -512,6 +517,9 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "Calibrate": Messenger.Send(new CalibrationRequestedMessage()); break;
             case "Settings": Messenger.Send(new SettingsRequestedMessage()); break;
             case "TaskSwitcher": Messenger.Send(new TaskSwitcherToggledMessage()); break;
+            // The coordinator's summon IS the toggle semantics (show or bring-to-front, never
+            // hide) — the same message the ring's Browse action sends.
+            case "Browse": Messenger.Send(new BrowseShowRequestedMessage()); break;
             case "Modes": Messenger.Send(new ModesMenuToggledMessage()); break;
             case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
             case "ResetAdaptation": Messenger.Send(new ResetAdaptationMessage()); break;

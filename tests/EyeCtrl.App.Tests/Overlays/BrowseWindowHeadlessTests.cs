@@ -214,6 +214,32 @@ public class BrowseWindowHeadlessTests
         Check.That(requested).IsNull();
     }
 
+    [Fact]
+    public void TheChromeRow_IsSizedForDwelling_AtTheToolbarSProvenButtonSize()
+    {
+        // Owner feedback from the first live smoke (2026-11-05): dwelling the 48-DIP chrome
+        // buttons was too difficult — the controls must be bigger. The chrome row now uses the
+        // toolbar's proven mis-dwell-fix size (120 DIP buttons, themed display-size glyphs, 16
+        // DIP inter-button separation). Pinned at the source: a shown window is not available
+        // headlessly for the measured rects, and the size is the contract.
+        var xaml = File.ReadAllText(SourcePath("Overlays", "BrowseWindow.xaml"));
+
+        Check.WithCustomMessage("all five chrome buttons must be 120 DIP (owner feedback 2026-11-05)")
+            .That(System.Text.RegularExpressions.Regex.Matches(
+                xaml, System.Text.RegularExpressions.Regex.Escape("Width=\"120\" Height=\"120\"")).Count)
+            .IsEqualTo(5);
+        Check.WithCustomMessage("the address box shares the row's dwell height")
+            .That(xaml.Contains("Height=\"120\">", StringComparison.Ordinal)).IsTrue();
+        Check.WithCustomMessage("the glyphs scale with the buttons (the themed display size)")
+            .That(System.Text.RegularExpressions.Regex.Matches(
+                xaml, System.Text.RegularExpressions.Regex.Escape("FontSize=\"{StaticResource FontSizeDisplay}\"")).Count)
+            .IsEqualTo(5);
+        Check.WithCustomMessage("inter-button separation widened with the buttons")
+            .That(System.Text.RegularExpressions.Regex.Matches(
+                xaml, System.Text.RegularExpressions.Regex.Escape("Margin=\"0,0,16,0\"")).Count)
+            .IsEqualTo(4);
+    }
+
     private static string? AutomationId(BrowseWindow window, string elementName) =>
         AutomationProperties.GetAutomationId(
             (UIElement)typeof(BrowseWindow).GetField(elementName,

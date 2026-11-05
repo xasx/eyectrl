@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
@@ -186,6 +187,7 @@ public class UiAccessBandTests
 
         var window = new EdgeButtonBarWindow();
         InvisibleTestWindow.PrepareCloaked(window);
+        RequireCloaked(window);
         try
         {
             window.UiAccessEnabled = () => false;
@@ -222,6 +224,7 @@ public class UiAccessBandTests
         window.UiAccessEnabled = () => true;
         window.ReadBandForTest = _ => band;
         InvisibleTestWindow.PrepareCloaked(window);
+        RequireCloaked(window);
         try
         {
             Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.Sink(sink).CreateLogger();
@@ -268,6 +271,7 @@ public class UiAccessBandTests
         window.UiAccessEnabled = () => false;
         window.ReadBandForTest = _ => { reads++; return 1; };
         InvisibleTestWindow.PrepareCloaked(window); // the creation raise runs (1); the show check must not
+        RequireCloaked(window);
         try
         {
             var raisesAtCreation = window.BandRaiseCount;
@@ -397,6 +401,7 @@ public class UiAccessBandTests
         ring.UiAccessEnabled = () => true;
         ring.ReadBandForTest = _ => { reads++; return 2; };
         InvisibleTestWindow.PrepareCloaked(ring);
+        RequireCloaked(ring);
         try
         {
             for (var i = 0; i < 3; i++)
@@ -450,6 +455,18 @@ public class UiAccessBandTests
         InvisibleTestWindow.PrepareCloaked(bar);
         InvisibleTestWindow.PrepareCloaked(indicator);
         InvisibleTestWindow.PrepareCloaked(strip);
+
+        if (new OverlayWindow[] { magnifier, menu, bar, indicator, strip }
+            .Any(w => InvisibleTestWindow.IsCloaked(w) != true))
+        {
+            strip.Close();
+            indicator.Close();
+            bar.Close();
+            menu.Close();
+            magnifier.Close();
+            backdrop.Close();
+            Assert.Skip("DWM cannot cloak a window here; this test never shows an uncloaked window.");
+        }
 
         foreach (var window in new OverlayWindow[] { magnifier, menu, bar, indicator, strip })
         {
@@ -592,6 +609,17 @@ public class UiAccessBandTests
     private static void Pump() =>
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
+    /// <summary>
+    /// A window a gate is about to SHOW must really be DWM-cloaked; on a host without composition
+    /// the test skips rather than paint the owner's screen (the ResumeStripZOrderTests recipe).
+    /// </summary>
+    private static void RequireCloaked(Window window)
+    {
+        if (InvisibleTestWindow.IsCloaked(window) == true) return;
+        window.Close();
+        Assert.Skip("DWM cannot cloak a window here; this test never shows an uncloaked window.");
+    }
+
     private static List<string> BandLines(CapturingSink sink) =>
         sink.Messages.Where(m => m.StartsWith("Overlay band: ", StringComparison.Ordinal)).ToList();
 
@@ -694,7 +722,13 @@ public class UiAccessBandTests
         public static FallbackRig Create(OverlayWindow window, params uint?[] bands)
         {
             WpfApplicationGate.EnsureApplicationWithTokens();
-            return new FallbackRig(window, bands);
+            var rig = new FallbackRig(window, bands);
+            if (InvisibleTestWindow.IsCloaked(window) != true)
+            {
+                rig.Dispose();
+                Assert.Skip("DWM cannot cloak a window here; this test never shows an uncloaked window.");
+            }
+            return rig;
         }
 
         public OverlayWindow Window { get; }

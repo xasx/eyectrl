@@ -62,6 +62,10 @@ public class OverlayBandWiringTests
         // The two hidden windows are prepared but never shown; they need only an HWND-free preparation.
         InvisibleTestWindow.Prepare(modifierBar);
         InvisibleTestWindow.Prepare(edgeBar);
+        // Hidden, but with a real HWND: "visible only" must be a real conjunct, not an artefact
+        // of RaiseToTop's HWND==0 early-out (review-ring-03 F2 / RM20).
+        _ = new WindowInteropHelper(modifierBar).EnsureHandle();
+        _ = new WindowInteropHelper(edgeBar).EnsureHandle();
 
         if (new OverlayWindow[] { magnifier, actionMenu, indicator, strip, blockedBanner }
             .Any(w => InvisibleTestWindow.IsCloaked(w) != true))
@@ -163,60 +167,6 @@ public class OverlayBandWiringTests
         }
     }
 
-    /// <summary>
-    /// N1(b): the extracted startup wire really sets the process UIAccess flag and points the
-    /// fallback at the manager's repair. A real cloaked toolbar is demoted through its default
-    /// gate, so removing either assignment (W1 or the repair wire) leaves the count at zero.
-    /// </summary>
-    [StaFact]
-    public void OverlayBandStartup_WiresTheUiAccessFlagAndTheManagersRepair()
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-
-        var window = new ToolbarWindow();
-        var calls = new List<int>();
-        window.SetWindowPosForBand = (_, _, _) => calls.Add(1);
-        window.ReadBandForTest = _ => calls.Count == 1 ? 1u : 2u;
-        InvisibleTestWindow.PrepareCloaked(window);
-        if (InvisibleTestWindow.IsCloaked(window) != true)
-        {
-            window.Close();
-            Assert.Skip("DWM cannot cloak a window here; this test never shows an uncloaked window.");
-        }
-
-        var previousAccess = OverlayWindow.ProcessHasUiAccess;
-        var previousRepair = OverlayWindow.ProcessReassertOverlayOrder;
-        var repairs = 0;
-        try
-        {
-            // Deterministic W1: the flag starts false, so only Wire(true, …) can switch the check on.
-            OverlayWindow.ProcessHasUiAccess = false;
-            OverlayWindow.ProcessReassertOverlayOrder = null;
-            var manager = TestFakes.MakeOverlayManager(onReassertOverlayOrder: () => repairs++);
-
-            OverlayBandStartup.WireOverlayBand(
-                new SelfTokenFacts(IntegrityLevel: 0x3000, Elevated: false, HasUIAccess: true), manager);
-
-            Check.WithCustomMessage("WireOverlayBand must set the process UIAccess flag")
-                .That(OverlayWindow.ProcessHasUiAccess).IsTrue();
-
-            window.Show();
-            Pump();
-
-            Check.WithCustomMessage(
-                    "the wired manager was not called: the show-time check did not see UIAccess true or "
-                    + "the repair wire is missing")
-                .That(repairs).IsEqualTo(1);
-            Check.That(window.BandRaiseCount).IsEqualTo(2); // creation + fallback
-        }
-        finally
-        {
-            OverlayWindow.ProcessHasUiAccess = previousAccess;
-            OverlayWindow.ProcessReassertOverlayOrder = previousRepair;
-            window.Close();
-        }
-    }
-
     /// <summary>N1(b): the App really calls the one wire (and no longer assigns the statics itself).</summary>
     [Fact]
     public void TheApp_CallsTheBandStartupWireExactlyOnce()
@@ -237,17 +187,25 @@ public class OverlayBandWiringTests
     /// every production fallback silently skip its order repair.
     /// </summary>
     [Fact]
-    public void OverlayManager_MarksItselfInitialized_BeforeTheRepairCanRun()
+    public void OverlayManager_MarksItselfInitialized_InsideInitialize()
     {
         var source = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Services", "OverlayManager.cs")));
 
-        Check.WithCustomMessage("OverlayManager.Initialize must set _initialized = true")
-            .That(source).Contains("_initialized = true;");
-    }
+        // Anchored on the completion log INSIDE Initialize, not a bare Contains: the internal test
+        // constructor also contains "_initialized = true;", which made the old scan vacuous
+        // (review-03 L1 / review-ring-03 F1 / RM21).
+        const string completionLog = "Overlay windows initialized successfully";
+        var logAt = source.IndexOf(completionLog, StringComparison.Ordinal);
+        Check.WithCustomMessage("OverlayManager.Initialize's completion log was not found")
+            .That(logAt).IsStrictlyGreaterThan(-1);
 
-    private static void Pump() =>
-        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+        var latchAt = source.IndexOf("_initialized = true;", logAt, StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "OverlayManager.Initialize must set _initialized = true after it has created every window, "
+                + "or every production order repair becomes a silent no-op")
+            .That(latchAt).IsStrictlyGreaterThan(logAt);
+    }
 
     private sealed class RecordingOccupant : IBannerSlotOccupant
     {
@@ -273,6 +231,67 @@ public class OverlayBandWiringTests
         {
             Reasserts++;
             _onReassert?.Invoke();
+        }
+    }
+}
+
+/// <summary>
+/// Exclusive (review-ring-03 F3): the startup-wire gate below flips process-wide band statics, so
+/// no other collection may run while it does. xUnit v3 runs a DisableParallelization collection
+/// exclusively; the gate itself is show-free, so the window is only the few synchronous asserts.
+/// </summary>
+[CollectionDefinition("OverlayBandProcessStatics", DisableParallelization = true)]
+public sealed class OverlayBandProcessStaticsCollection
+{
+}
+
+/// <summary>
+/// N1(b): the extracted startup wire sets both process-wide values. Show-free: it asserts the flag
+/// and the repair delegate's target/method, then invokes the delegate through a recording fake, so
+/// no window is shown and no band read is performed (review-03 L2 / review-ring-03 F3).
+/// </summary>
+[Collection("OverlayBandProcessStatics")]
+public class OverlayBandStartupTests
+{
+    [Fact]
+    public void WireOverlayBand_SetsTheUiAccessFlagAndTheManagersRepair()
+    {
+        var previousAccess = OverlayWindow.ProcessHasUiAccess;
+        var previousRepair = OverlayWindow.ProcessReassertOverlayOrder;
+        var repairs = 0;
+        try
+        {
+            // Deterministic W1/RM17: the flag starts false, so only the wire can turn it on.
+            OverlayWindow.ProcessHasUiAccess = false;
+            OverlayWindow.ProcessReassertOverlayOrder = null;
+            var manager = TestFakes.MakeOverlayManager(onReassertOverlayOrder: () => repairs++);
+
+            OverlayBandStartup.WireOverlayBand(
+                new SelfTokenFacts(IntegrityLevel: 0x3000, Elevated: false, HasUIAccess: true), manager);
+
+            Check.WithCustomMessage("WireOverlayBand must set the process UIAccess flag")
+                .That(OverlayWindow.ProcessHasUiAccess).IsTrue();
+
+            var repair = OverlayWindow.ProcessReassertOverlayOrder;
+            Check.WithCustomMessage("WireOverlayBand must point the repair at the resolved manager")
+                .That(repair).IsNotNull();
+            Check.WithCustomMessage("the repair delegate targets a different manager")
+                .That(ReferenceEquals(repair!.Target, manager)).IsTrue();
+            Check.That(repair.Method.Name).IsEqualTo(nameof(IOverlayManager.ReassertOverlayOrder));
+
+            repair();
+            Check.WithCustomMessage("the wired delegate must reach the manager's repair")
+                .That(repairs).IsEqualTo(1);
+
+            OverlayBandStartup.WireOverlayBand(
+                new SelfTokenFacts(IntegrityLevel: 0x2000, Elevated: false, HasUIAccess: false), manager);
+            Check.WithCustomMessage("WireOverlayBand must propagate UIAccess=false too")
+                .That(OverlayWindow.ProcessHasUiAccess).IsFalse();
+        }
+        finally
+        {
+            OverlayWindow.ProcessHasUiAccess = previousAccess;
+            OverlayWindow.ProcessReassertOverlayOrder = previousRepair;
         }
     }
 }

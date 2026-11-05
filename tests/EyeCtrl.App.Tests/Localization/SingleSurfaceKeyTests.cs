@@ -150,7 +150,10 @@ public class SingleSurfaceKeyTests
             ["settings", "update", "rollback"]),
         // C9 S6f: the one-time setup-last notice speaks only the update surface, plus the
         // rollback failure sentence after review 01 N1.
-        ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update", "rollback"])
+        ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update", "rollback"]),
+        // T4: the browse host's three web-source failure sentences render in the browser's
+        // address bar — the overlays surface (the browser window's own surface).
+        ("src/EyeCtrl.App/Browse/WebView2BrowseHost.cs", ["overlays"])
     ];
 
     /// <summary>

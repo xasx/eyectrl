@@ -38,4 +38,6 @@ public enum DwellContext
     ExternalDwell,
     /// <summary>Eye-care break banner buttons.</summary>
     EyeCare,
+    /// <summary>Browse-window page elements (links, buttons, inputs) and chrome buttons.</summary>
+    Browse,
 }

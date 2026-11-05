@@ -47,6 +47,8 @@ public class ToolbarPausedReturnTests
         public double ExtentDip => 136;
         public void Show() => IsVisible = true;
         public void Hide() => IsVisible = false;
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
         public void ShowAtRest() => IsVisible = true;
         public void ShowThenSlideIn() => IsVisible = true;
         public void SlideOutThenHide(Action onHidden) { IsVisible = false; onHidden(); }

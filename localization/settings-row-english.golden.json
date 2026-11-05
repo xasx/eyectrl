@@ -370,6 +370,12 @@
           "Modal": null
         },
         {
+          "Id": "am_Browse",
+          "Label": "Browse",
+          "Description": "Opens the gaze browser.",
+          "Modal": null
+        },
+        {
           "Id": "am_primary_LeftClick",
           "Label": "Left Click on first layer",
           "Description": "Shows Left Click straight away instead of behind More. Four fit.",
@@ -439,6 +445,12 @@
           "Id": "am_primary_Keyboard",
           "Label": "Keyboard on first layer",
           "Description": "Shows Keyboard straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_Browse",
+          "Label": "Browse on first layer",
+          "Description": "Shows Browse straight away instead of behind More. Four fit.",
           "Modal": null
         },
         {

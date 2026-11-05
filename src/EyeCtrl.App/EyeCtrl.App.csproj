@@ -20,6 +20,12 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
+    <!--
+      T4: the gaze browser's web engine, App-only (Core/ViewModels stay WebView2-free behind
+      IBrowseWebSource). Version pinned in the plan and re-confirmed against the nuget.org
+      flatcontainer API (HTTP 200 on the .nupkg URL).
+    -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="Emoji.Wpf" Version="0.3.4" />

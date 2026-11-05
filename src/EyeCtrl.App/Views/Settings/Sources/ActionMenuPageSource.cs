@@ -187,6 +187,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollMode => StringTable.Current.T("settings.ring.scrollMode"),
         InteractionAction.PinNote => StringTable.Current.T("settings.ring.pinNote"),
         InteractionAction.Keyboard => StringTable.Current.T("settings.ring.keyboard"),
+        InteractionAction.Browse => StringTable.Current.T("settings.ring.browse"),
         _ => action.ToString(),
     };
 
@@ -215,6 +216,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollMode => StringTable.Current.T("settings.action_menu.visible.scroll_mode.label"),
         InteractionAction.PinNote => StringTable.Current.T("settings.action_menu.visible.pin_note.label"),
         InteractionAction.Keyboard => StringTable.Current.T("settings.action_menu.visible.keyboard.label"),
+        InteractionAction.Browse => StringTable.Current.T("settings.action_menu.visible.browse.label"),
         _ => action.ToString()
     };
 
@@ -247,6 +249,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollMode => StringTable.Current.T("settings.action_menu.visible.scroll_mode.description"),
         InteractionAction.PinNote => StringTable.Current.T("settings.action_menu.visible.pin_note.description"),
         InteractionAction.Keyboard => StringTable.Current.T("settings.action_menu.visible.keyboard.description"),
+        InteractionAction.Browse => StringTable.Current.T("settings.action_menu.visible.browse.description"),
         _ => null
     };
 }

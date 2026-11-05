@@ -231,6 +231,12 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         if (msg.Action == InteractionAction.Keyboard)
             Context.Messenger.Send(new KeyboardShowRequestedMessage());
 
+        // The ring's browse action: the Keyboard branch's shape — a surface summons, no input
+        // injected (the click switch below has no Browse case). Same fall-through to the shared
+        // target-highlight cleanup.
+        if (msg.Action == InteractionAction.Browse)
+            Context.Messenger.Send(new BrowseShowRequestedMessage());
+
         // Modifier routing: a non-empty set goes to the modified (atomic-batch) overloads; null
         // AND empty sets stay on the bare click methods — byte-identical to the pre-modifier
         // paths. Modified scrolls send exactly one notch (the batch's leading move already puts

@@ -76,6 +76,7 @@ public interface INoteManager : INoteTextInput
     /// a note beneath it - its whole visible window must occlude, and it answers null while hidden.
     /// </summary>
     void SetOccluderSources(
+        Func<IReadOnlyList<PhysicalRect>>? browseRects = null,
         Func<IReadOnlyList<PhysicalRect>>? lagMarkRects = null,
         Func<PhysicalRect?>? slotOccupantBounds = null,
         Func<PhysicalRect?>? trackStatusBounds = null,

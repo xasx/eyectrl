@@ -202,6 +202,15 @@ public interface IToolbarOverlay
     /// <summary>Rebinds the buttons to the live view model after a mode or size change.</summary>
     void BindToViewModel();
 
+    /// <summary>
+    /// Re-asserts this window above sibling topmost overlays shown after it — the
+    /// <see cref="IPauseIndicatorOverlay.RaiseToTop"/> shape (OverlayWindow.RaiseToTop:
+    /// SetWindowPos HWND_TOPMOST | SWP_NOACTIVATE). The browse summon uses it so a visible
+    /// toolbar stays reachable over the browser window; a hidden one needs nothing (its own
+    /// later Show enters the topmost band above Browse).
+    /// </summary>
+    void RaiseToTop();
+
     // ── Slide transition ──
     // The auto-hide adapter drives these, so they have to be on the seam for it to be testable
     // without a window. They are intent-level ("slide in", "am I sliding") rather than WPF

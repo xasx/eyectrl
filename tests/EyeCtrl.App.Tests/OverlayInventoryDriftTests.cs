@@ -89,6 +89,10 @@ public class OverlayInventoryDriftTests
             ["NoteNoticeWindow"] = "exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder)",
             ["RestartNoticeWindow"] = "collision-zone",
             ["LagMarkWindow"] = "collision-zone",
+            // T4: the gaze browser — a full work-area window whose dwell targets (the chrome row
+            // and the page's reconciled elements, via BrowseViewModel.LiveTargetRects) are
+            // exactly where gaze acts while it is up.
+            ["BrowseWindow"] = "collision-zone",
         };
 
     /// <summary>The classification cell grammar: exactly <c>collision-zone</c>, or an exemption

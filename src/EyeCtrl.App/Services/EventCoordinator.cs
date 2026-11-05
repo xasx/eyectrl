@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System;
+using EyeCtrl.App.Browse;
 using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
@@ -34,6 +35,7 @@ public class EventCoordinator : IEventCoordinator
     private LostGazeExitCoordinator? _lostGazeExit;
     private QuickActionDispatcher? _quickActionDispatcher;
     private KeyboardInteractionDispatcher? _keyboardInteractionDispatcher;
+    private BrowseCoordinator? _browseCoordinator;
     private KeyboardCoordinator? _keyboard;
     private OverlayVmBindingCoordinator? _overlayVm;
     private OverlayMessageCoordinator? _overlayMessage;
@@ -246,6 +248,13 @@ public class EventCoordinator : IEventCoordinator
         _keyboardInteractionDispatcher = new KeyboardInteractionDispatcher();
         _keyboardInteractionDispatcher.Initialize(context);
 
+        // T5: the gaze browser's summon/wiring coordinator. Its window and web-source factories
+        // keep it headless-constructible; the VM rides the context (the DI singleton).
+        _browseCoordinator = new BrowseCoordinator(
+            () => new BrowseWindow(),
+            () => new WebView2BrowseHost());
+        _browseCoordinator.Initialize(context);
+
         // SettingsUiCoordinator is constructed LAST (7th): it consumes the suspend seams on the
         // toolbar/quick-actions coordinators and the ReloadIfChanged seam on the keyboard
         // coordinator, so all three must be initialized before it.
@@ -379,6 +388,8 @@ public class EventCoordinator : IEventCoordinator
         // registers as itself, so each UnregisterAll(this) is correctly keyed).
         _quickActionDispatcher?.Dispose();
         _keyboardInteractionDispatcher?.Dispose();
+        _browseCoordinator?.Dispose();
+        _browseCoordinator = null;
 
         // Unregister all message handlers (defensive: after cluster 7, EC itself registers nothing —
         // every registration lives in a sub-coordinator — but this stays as a safety net.)

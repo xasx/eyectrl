@@ -52,6 +52,8 @@ public class ToolbarVisibilityAdapterHeadlessTests
 
         public void Show() { IsVisible = true; _log.Add("Toolbar.Show"); }
         public void Hide() { IsVisible = false; _slidingOut = false; _log.Add("Toolbar.Hide"); }
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
 
         public void ShowAtRest()
         {

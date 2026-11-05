@@ -163,6 +163,33 @@ public class KeyboardInteractionDispatcherTests
         Check.That(showCount).IsEqualTo(1);
     }
 
+    // ---- The ring's Browse action (T2) -------------------------------------------------------
+    // The BrowseShowRequestedMessage send is the new branch's only effect: the same headless
+    // reachability as the Keyboard facts above (IsPreciseTarget, no click-switch case, hidden
+    // TargetHighlightVM), so the test pins message-only behavior — no input injected.
+
+    [Fact]
+    public void HandleActionRequested_Browse_SendsShowMessage_AndNothingElse()
+    {
+        var input = new TestFakes.FakeInputSimulator();
+        var ctx = WithBackdrop(TestFakes.MakeContext(input));
+        ctx = ctx with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
+        var dispatcher = new KeyboardInteractionDispatcher();
+        dispatcher.Initialize(ctx);
+
+        var showCount = 0;
+        ctx.Messenger.Register<object, BrowseShowRequestedMessage>(this, (_, _) => showCount++);
+
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(
+            InteractionAction.Browse, new PhysicalPoint(500, 500), IsPreciseTarget: true));
+
+        Check.That(showCount).IsEqualTo(1);
+        Check.That(input.BareClickCount).IsEqualTo(0);
+        Check.That(input.ButtonEvents).IsEmpty();
+        Check.That(input.Moves).IsEmpty();
+        Check.That(input.PointedScrolls).IsEmpty();
+    }
+
     [Fact]
     public void HandleActionRequested_ClickActions_NeverSendShowMessage()
     {

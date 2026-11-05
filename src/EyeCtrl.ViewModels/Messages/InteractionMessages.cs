@@ -189,6 +189,9 @@ public record KeyboardToggledMessage;
 /// <summary>Show the gaze keyboard (idempotent — never hides). Sent by the action-menu ring's
 /// Keyboard action; handled with the toolbar toggle's suppression semantics (spec ledger #1-#2).</summary>
 public record KeyboardShowRequestedMessage;
+/// <summary>Show the gaze browser (idempotent — never hides). Sent by the action-menu ring's
+/// Browse action; handled like the Keyboard show path — a surface summons, no input injected.</summary>
+public record BrowseShowRequestedMessage;
 /// <summary>Hide the gaze keyboard and release fixation suppression. Sent by the keyboard edge
 /// bar's Close button (spec ledger #13) — NOT the text-field seam message.</summary>
 public record KeyboardHideRequestedMessage;

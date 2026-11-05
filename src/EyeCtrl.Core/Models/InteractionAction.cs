@@ -26,5 +26,7 @@ public enum InteractionAction
     /// <summary>Pin a draggable note at the gaze point.</summary>
     PinNote,
     /// <summary>Show the on-screen gaze keyboard (idempotent — it never hides it).</summary>
-    Keyboard
+    Keyboard,
+    /// <summary>Show the single-tab gaze browser (idempotent — it never hides it).</summary>
+    Browse
 }

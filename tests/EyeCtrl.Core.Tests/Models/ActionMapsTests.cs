@@ -36,6 +36,7 @@ public class ActionMapsTests
             [InteractionAction.ScrollMode] = ActionIcon.ScrollMode,
             [InteractionAction.PinNote] = ActionIcon.PinNote,
             [InteractionAction.Keyboard] = ActionIcon.Keyboard,
+            [InteractionAction.Browse] = ActionIcon.Browse,
         };
 
         // Fails if a new InteractionAction is added without an icon.
@@ -86,6 +87,7 @@ public class ActionMapsTests
             [InteractionAction.ScrollMode] = "overlays.ring.scrollMode",
             [InteractionAction.PinNote] = "overlays.ring.pinNote",
             [InteractionAction.Keyboard] = "overlays.ring.keyboard",
+            [InteractionAction.Browse] = "overlays.ring.browse",
         };
 
         var allActions = Enum.GetValues<InteractionAction>();
@@ -115,6 +117,7 @@ public class ActionMapsTests
             [InteractionAction.ScrollMode] = "Scroll",   // the settings row says "Scroll Mode"
             [InteractionAction.PinNote] = "Pin note",
             [InteractionAction.Keyboard] = "Keyboard",
+            [InteractionAction.Browse] = "Browse",
         };
 
         var allActions = Enum.GetValues<InteractionAction>();

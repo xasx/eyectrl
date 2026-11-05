@@ -189,21 +189,91 @@ public sealed class UninstallChoiceWindowTests
     }
 
     [Fact]
-    public void EveryChoiceButton_IsAnInvokeModeDwellTarget()
+    public void OnlyTheScreenInFront_IsDwellable_AndEveryChoiceButtonUsesInvokeMode()
     {
         WithWindow(window =>
         {
-            var buttons = new[]
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+            var all = new[]
             {
                 window.KeepButton, window.CancelButton, window.DeleteButton,
                 window.KeepDataButton, window.ConfirmDeleteButton,
             };
 
-            foreach (var button in buttons)
-            {
-                Check.That(Dwell.GetEnabled(button)).IsTrue();
+            foreach (var button in all)
                 Check.That(Dwell.GetMode(button)).IsEqualTo(DwellMode.Invoke);
-            }
+
+            // Screen 1 is in front: its three buttons are targets, screen 2's are not.
+            Check.That(Dwell.TargetIdForTests(window.KeepButton)).IsNotNull();
+            Check.That(Dwell.TargetIdForTests(window.CancelButton)).IsNotNull();
+            Check.That(Dwell.TargetIdForTests(window.DeleteButton)).IsNotNull();
+            Check.WithCustomMessage("A hidden screen-2 button was dwellable behind screen 1.")
+                .That(Dwell.TargetIdForTests(window.KeepDataButton)).IsNull();
+            Check.WithCustomMessage("A hidden screen-2 button was dwellable behind screen 1.")
+                .That(Dwell.TargetIdForTests(window.ConfirmDeleteButton)).IsNull();
+
+            // The production screen switch: a real Delete click swaps which three are registered.
+            Arm(window);
+            Click(window.DeleteButton);
+            Check.That(window.ShowingConfirm).IsTrue();
+
+            Check.WithCustomMessage("A screen-1 button stayed dwellable behind screen 2.")
+                .That(Dwell.TargetIdForTests(window.KeepButton)).IsNull();
+            Check.WithCustomMessage("A screen-1 button stayed dwellable behind screen 2.")
+                .That(Dwell.TargetIdForTests(window.CancelButton)).IsNull();
+            Check.WithCustomMessage("A screen-1 button stayed dwellable behind screen 2.")
+                .That(Dwell.TargetIdForTests(window.DeleteButton)).IsNull();
+            Check.That(Dwell.TargetIdForTests(window.KeepDataButton)).IsNotNull();
+            Check.That(Dwell.TargetIdForTests(window.ConfirmDeleteButton)).IsNotNull();
+        });
+    }
+
+    [Fact]
+    public void ADeactivatedWindow_DropsEveryDwellTarget_AndReactivationNeedsAFreshDwell()
+    {
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            var keepBefore = Dwell.TargetIdForTests(window.KeepButton);
+            var deleteBefore = Dwell.TargetIdForTests(window.DeleteButton);
+            Check.That(keepBefore).IsNotNull();
+            Check.That(deleteBefore).IsNotNull();
+            window.CompleteArmingForTests();
+            Check.That(window.IsArmed).IsTrue();
+
+            // The sitting: another window covers Q8. Every target goes, and the arming gate with it.
+            window.RaiseDeactivated();
+            Check.WithCustomMessage("A covered window kept a dwell target (the long-armed 0.8 s dwell).")
+                .That(Dwell.TargetIdForTests(window.KeepButton)).IsNull();
+            Check.That(Dwell.TargetIdForTests(window.DeleteButton)).IsNull();
+            Check.That(window.IsArmed).IsFalse();
+            Check.WithCustomMessage("A covered window kept its 1 s arming timer running.")
+                .That(window.IsArming).IsFalse();
+            Click(window.KeepButton);
+            Check.That(window.Result).IsNull();
+
+            // Uncovered / foreground again: a new target id (the detector starts from zero), and
+            // the 1 s gate restarts.
+            window.RaiseActivated();
+            var keepAfter = Dwell.TargetIdForTests(window.KeepButton);
+            var deleteAfter = Dwell.TargetIdForTests(window.DeleteButton);
+            Check.WithCustomMessage("Reactivation did not register a dwell target.")
+                .That(keepAfter).IsNotNull();
+            Check.WithCustomMessage("Reactivation reused the old target id; its old progress would survive.")
+                .That(keepAfter).IsNotEqualTo(keepBefore);
+            Check.That(deleteAfter).IsNotNull().And.IsNotEqualTo(deleteBefore);
+            Check.WithCustomMessage("Reactivation did not restart the 1 s arming gate.")
+                .That(window.IsArmed).IsFalse();
+            Check.That(window.IsArming).IsTrue();
+
+            Click(window.KeepButton);
+            Check.WithCustomMessage("A click before the fresh arming delay fired.")
+                .That(window.Result).IsNull();
+
+            window.CompleteArmingForTests();
+            Click(window.KeepButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
         });
     }
 
@@ -295,13 +365,25 @@ public sealed class UninstallChoiceWindowTests
 
     private static void Arm(UninstallChoiceWindow window) => window.CompleteArmingForTests();
 
-    private static void WithWindow(Action<UninstallChoiceWindow> action)
+    private static void WithWindow(Action<UninstallChoiceWindow> action) =>
+        WithWindowCore(action, () => new UninstallChoiceWindow(English, OwnerWorkArea));
+
+    /// <summary>
+    /// The same window through a subclass whose only job is to deliver the activation callbacks
+    /// the OS delivers: it calls the very <c>OnActivated</c>/<c>OnDeactivated</c> overrides the
+    /// production window runs. A window is never shown to make them fire.
+    /// </summary>
+    private static void WithActivationWindow(Action<ActivationChoiceWindow> action) =>
+        WithWindowCore(action, () => new ActivationChoiceWindow(English, OwnerWorkArea));
+
+    private static void WithWindowCore<T>(Action<T> action, Func<T> create)
+        where T : UninstallChoiceWindow
     {
         RunSta(() =>
         {
             using var pipe = Dwell.UseTestPipeForTests(
                 "eyectrl_dwell_setup_test_" + Guid.NewGuid().ToString("N"));
-            var window = new UninstallChoiceWindow(English, OwnerWorkArea);
+            var window = create();
             try
             {
                 action(window);
@@ -311,6 +393,15 @@ public sealed class UninstallChoiceWindowTests
                 try { window.Close(); } catch (InvalidOperationException) { }
             }
         });
+    }
+
+    private sealed class ActivationChoiceWindow : UninstallChoiceWindow
+    {
+        public ActivationChoiceWindow(StringTable strings, Rect workArea) : base(strings, workArea) { }
+
+        public void RaiseActivated() => OnActivated(EventArgs.Empty);
+
+        public void RaiseDeactivated() => OnDeactivated(EventArgs.Empty);
     }
 
     private static void RunSta(Action action)

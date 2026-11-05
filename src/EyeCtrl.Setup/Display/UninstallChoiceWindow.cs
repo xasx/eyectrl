@@ -25,11 +25,18 @@ using EyeCtrl.Setup.Abstractions;
 /// </para>
 ///
 /// <para>
+/// fixup-05: only the screen in front carries dwell targets, and losing the foreground (or being
+/// hidden) removes them all. Regaining it re-registers fresh target ids — the App discards a
+/// removed target with its accumulated dwell — so a window that was covered while a gaze rested
+/// over it needs a full fresh dwell, never the 0.8 s remainder the sitting measured.
+/// </para>
+///
+/// <para>
 /// The window is never shown by a test: the fit tests lay its content out at 2.0 and the logic
-/// tests drive <see cref="ClickForTests"/> and the internal hooks.
+/// tests raise the real routed events and drive the internal timers.
 /// </para>
 /// </summary>
-internal sealed class UninstallChoiceWindow : Window
+internal class UninstallChoiceWindow : Window
 {
     /// <summary>Every screen is armed after this delay.</summary>
     public static readonly TimeSpan ArmingDelay = TimeSpan.FromSeconds(1);
@@ -104,10 +111,41 @@ internal sealed class UninstallChoiceWindow : Window
 
         Loaded += (_, _) =>
         {
-            StartArming();
+            // fixup-05: only the screen in front is dwellable, and every (re)appearance starts a
+            // fresh dwell — a gaze that rested here while another window covered this one has
+            // accumulated nothing.
+            ArmDwellTargets();
             _choiceTimer.Start();
         };
+
+        IsVisibleChanged += (_, e) =>
+        {
+            if ((bool)e.NewValue)
+                ArmDwellTargets();
+            else
+                SuspendDwellTargets();
+        };
+
         KeyDown += OnKeyDown;
+    }
+
+    /// <summary>
+    /// fixup-05 point 3: a covered or background window must not fire a long-armed dwell when it
+    /// is uncovered. Losing the foreground drops every target (the App's detector discards its
+    /// progress with the target); regaining it registers fresh ids, so a full dwell is needed
+    /// again, plus the ordinary 1 s arming gate.
+    /// </summary>
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        ArmDwellTargets();
+    }
+
+    /// <inheritdoc />
+    protected override void OnDeactivated(EventArgs e)
+    {
+        base.OnDeactivated(e);
+        SuspendDwellTargets();
     }
 
     /// <summary>The choice, or null while the window is still open.</summary>
@@ -200,8 +238,9 @@ internal sealed class UninstallChoiceWindow : Window
         AutomationProperties.SetName(button, label);
 
         // Invoke mode: EyeCtrl's own dwell completes the button through UIA, with its ring.
+        // Enabled is left to the window (fixup-05): only the screen in front is registered, and
+        // each activation re-registers it, so a covered-then-uncovered window needs a fresh dwell.
         Dwell.SetMode(button, DwellMode.Invoke);
-        Dwell.SetEnabled(button, true);
         return button;
     }
 
@@ -330,13 +369,53 @@ internal sealed class UninstallChoiceWindow : Window
         }
     }
 
+    /// <summary>Every choice button, whatever screen it belongs to.</summary>
+    private IEnumerable<Button> AllButtons =>
+        [KeepButton, CancelButton, DeleteButton, ConfirmDeleteButton, KeepDataButton];
+
+    private bool IsCurrentScreen(Button button) => _showingConfirm
+        ? button == KeepDataButton || button == ConfirmDeleteButton
+        : button == KeepButton || button == CancelButton || button == DeleteButton;
+
+    /// <summary>
+    /// Makes only the screen in front dwellable, re-registering its three targets. Disabling first
+    /// is deliberate: the SDK opens a NEW target id on enable, and the App's detector drops the old
+    /// target with its accumulated progress, so this call is the dwell restart. Called on Loaded,
+    /// on every activation, and when the visible screen changes.
+    /// </summary>
+    private void ArmDwellTargets()
+    {
+        foreach (var button in AllButtons)
+        {
+            Dwell.SetEnabled(button, false);
+            if (IsCurrentScreen(button))
+                Dwell.SetEnabled(button, true);
+        }
+
+        StartArming();
+    }
+
+    /// <summary>
+    /// Drops every dwell target while the window is covered or in the background. The App removes
+    /// the target and its progress, so a gaze resting over a button cannot keep arming it; the
+    /// 1 s gate is stopped too, so it cannot elapse unseen either.
+    /// </summary>
+    private void SuspendDwellTargets()
+    {
+        foreach (var button in AllButtons)
+            Dwell.SetEnabled(button, false);
+
+        _armed = false;
+        _armTimer.Stop();
+    }
+
     private void ShowConfirm()
     {
         _showingConfirm = true;
         _screen1.Visibility = Visibility.Collapsed;
         _screen2.Visibility = Visibility.Visible;
         Title = _strings.T("uninstall.confirmDelete.title");
-        StartArming();
+        ArmDwellTargets();
     }
 
     private void StartArming()

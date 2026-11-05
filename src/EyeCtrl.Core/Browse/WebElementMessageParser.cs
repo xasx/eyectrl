@@ -28,12 +28,27 @@ using EyeCtrl.Core.Models;
 /// app-generated and content-free (a random token, never page data). Callers must pass
 /// the same non-empty secret the host was created with; a null or empty one fails
 /// closed.</para>
+/// <para>Bounded work (external review r2 I6): a raw envelope beyond
+/// <see cref="MaxEnvelopeChars"/> characters fails before any JSON parsing — the parser
+/// runs on the UI thread, and a multi-megabyte string is a UI-thread stall a hostile page
+/// needs no secret to trigger. Likewise, more than <see cref="MaxElements"/> elements
+/// fails the whole parse inside the loop, never after it.</para>
 /// </summary>
 public static class WebElementMessageParser
 {
     /// <summary>The envelope <c>type</c> this parser accepts; other message types (posted
     /// by later revisions of the bridge script) fail the parse rather than throw.</summary>
     public const string MessageType = "elements";
+
+    /// <summary>The per-snapshot element cap, enforced INSIDE the parse loop (r2 I6): the
+    /// 401st element fails the whole parse. The bridge script's client-side cap
+    /// (<c>BrowseElementScript.MaxElements</c>) mirrors this number.</summary>
+    public const int MaxElements = 400;
+
+    /// <summary>The raw-envelope byte bound, checked before any JSON parsing (r2 I6): a
+    /// legit 400-element envelope is ~40 KB, so this is generous headroom, and a
+    /// multi-megabyte post is hostile or broken by definition.</summary>
+    public const int MaxEnvelopeChars = 131_072;
 
     /// <summary>Ids longer than this are page bugs (or attacks), not element identity;
     /// such elements are dropped.</summary>
@@ -57,7 +72,8 @@ public static class WebElementMessageParser
     /// <returns>true when the envelope was an elements message with a valid shape.</returns>
     public static bool TryParse(string? json, PhysicalPoint originPhysical, string? expectedSecret, out WebElementSnapshot snapshot)
     {
-        if (!string.IsNullOrEmpty(json) && !string.IsNullOrEmpty(expectedSecret))
+        if (!string.IsNullOrEmpty(json) && !string.IsNullOrEmpty(expectedSecret)
+            && json.Length <= MaxEnvelopeChars)
         {
             try
             {
@@ -103,6 +119,14 @@ public static class WebElementMessageParser
         var elements = new List<WebElementInfo>();
         foreach (var item in elsElement.EnumerateArray())
         {
+            // The element cap fails the WHOLE parse inside the loop (r2 I6): a page that posts
+            // 401 elements is over the bridge's contract, not a snapshot with a tail to trim.
+            if (elements.Count >= MaxElements)
+            {
+                snapshot = WebElementSnapshot.Empty;
+                return false;
+            }
+
             if (TryReadElement(item, originPhysical, dpr, out var element))
             {
                 elements.Add(element);

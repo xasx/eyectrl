@@ -1022,11 +1022,11 @@ public partial class App : Application
         settings.ActionMenu.MigratePrimaryOnce();
         settings.ActionMenu.EnsureKeyboardActionOnce();
         // The browse migration (EnsureBrowseActionOnce) is deliberately NOT called yet (external
-        // review I6): it would put the browser on every existing ring while the browser has
-        // passed no end-to-end smoke and no owner gaze check, and the one-shot flag would stop
-        // a later fixed build from re-offering it after an owner removed the slot in
-        // frustration. Call it in the same breath the browser ships for real; until then the
-        // browser is reachable through its Settings toggle (settings.action_menu.visible.browse).
+        // review I6, r2 disposition: still right): the toolbar Browse button is the primary
+        // summon for everyone, and the one-shot flag would stop a later build from re-offering
+        // the ring slot after an owner removed it in frustration. Call this in the same breath
+        // the browser ships its gaze verdict; until then the ring slot is available through the
+        // Settings toggle (settings.action_menu.visible.browse).
         // Same once-only pattern as its siblings above, same reason.
         // settings.ActionMenu.EnsureBrowseActionOnce();
         // Same once-only pattern: a persisted old-default toolbar size (80) would override the

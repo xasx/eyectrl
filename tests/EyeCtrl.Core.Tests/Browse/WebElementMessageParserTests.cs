@@ -327,6 +327,42 @@ public class WebElementMessageParserTests
         Check.That(snapshot.Generation).IsEqualTo(3);
     }
 
+    // ---- bounded work (external review r2 I6) -----------------------------------
+
+    [Fact]
+    public void Parse_EnvelopeBeyondTheByteBound_FailsWithoutParsing()
+    {
+        // A legit 400-element envelope is ~40 KB; beyond the bound the parse fails before any
+        // JSON work — a multi-megabyte post must not cost the UI thread a parse.
+        var huge = new System.Text.StringBuilder();
+        huge.Append(' ');
+        while (huge.Length <= WebElementMessageParser.MaxEnvelopeChars)
+            huge.Append(" {\"i\":\"x\",\"k\":\"button\",\"r\":[0,0,1,1]}");
+        var json = Envelope(huge.ToString());
+
+        var ok = Parse(json, default, out var snapshot);
+        Check.That(ok).IsFalse();
+        Check.That(snapshot).IsEqualTo(WebElementSnapshot.Empty);
+    }
+
+    [Fact]
+    public void Parse_MoreThanMaxElements_FailsTheWholeParse()
+    {
+        // The 401st element fails the parse INSIDE the loop (r2 I6) — a page over the bridge's
+        // contract is hostile, not a snapshot with a tail to trim.
+        var elements = string.Join(",", System.Linq.Enumerable.Range(1, WebElementMessageParser.MaxElements + 1)
+            .Select(i => Element($"e{i}", "button", "0,0,1,1")));
+        var over = Parse(Envelope($"[{elements}]"), default, out var overSnapshot);
+        Check.That(over).IsFalse();
+        Check.That(overSnapshot).IsEqualTo(WebElementSnapshot.Empty);
+
+        var fourHundred = string.Join(",", System.Linq.Enumerable.Range(1, WebElementMessageParser.MaxElements)
+            .Select(i => Element($"e{i}", "button", "0,0,1,1")));
+        var atCap = Parse(Envelope($"[{fourHundred}]"), default, out var capSnapshot);
+        Check.That(atCap).IsTrue();
+        Check.That(capSnapshot.Elements).HasSize(WebElementMessageParser.MaxElements);
+    }
+
     // ---- the bridge secret (external review C3c) -------------------------------
 
     [Fact]

@@ -66,6 +66,18 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
     /// unregister chrome that a re-show's layout dropped.</summary>
     private readonly HashSet<string> _chromeIds = new(StringComparer.Ordinal);
 
+    /// <summary>The chrome targets' live rects, for the re-arm exit check (r2 I2).</summary>
+    private readonly Dictionary<string, PhysicalRect> _chromeRects = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The target that just fired, withheld from the detector until the gaze LEAVES it
+    /// (review r2 I2 — the toolbar Pause rule applied to every browse target). Without it, a
+    /// resting gaze re-fires every dwell+cooldown (~1.1 s): on the address box that re-ran
+    /// SelectAll and the next key replaced everything typed; on a page it re-clicked Send.
+    /// Cleared when a sample lands outside the target's rect, or when the target goes away.
+    /// </summary>
+    private string? _reArmLatch;
+
     /// <summary>Whether the coordinator suspended dwell accumulation (ScrollMode is sliding the
     /// page under the gaze — nothing may complete while elements move under a resting gaze).</summary>
     private bool _scrollSuspended;
@@ -81,15 +93,22 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
     /// <summary>
     /// The per-sample gate the coordinator installs (external review I3): when another EyeCtrl
     /// surface (the keyboard, the toolbar, the ring) is the window under the gaze point, the
-    /// sample must not accumulate dwell here — a completing page target would click INTO that
+    /// sample must not accumulate here — a completing page target would click INTO that
     /// surface. Null (headless tests) leaves the sample ungated; the production coordinator
     /// always installs the check.
     /// </summary>
     public Func<PhysicalPoint, bool>? MayDwellAt { get; set; }
 
+    /// <summary>The last sample that passed every gate — the point the completing dwell's
+    /// click falls back to when the element's clipped center sits under another surface
+    /// (review r2 M2).</summary>
+    private PhysicalPoint _lastGatedGazePoint;
+
     /// <summary>Raised when a page element's dwell completed: the coordinator performs the
-    /// activation click at the element's mapped center. Not raised for a paused sample.</summary>
-    public event Action<string, PhysicalRect>? WebElementActivated;
+    /// activation click — at the element's clipped center, or at the completing gaze point
+    /// when the center sits under another EyeCtrl surface (review r2 M2). Not raised for a
+    /// paused sample.</summary>
+    public event Action<string, PhysicalRect, PhysicalPoint>? WebElementActivated;
 
     /// <summary>Raised when a chrome button's dwell completed. Navigation/close run while paused
     /// (window-internal); the address bar does not (OS keyboard focus — suppressed while paused).</summary>
@@ -134,6 +153,8 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         _lastSnapshot = null;
         _webRects.Clear();
         _chromeIds.Clear();
+        _chromeRects.Clear();
+        _reArmLatch = null;
         WindowOccluderRects = Array.Empty<PhysicalRect>();
         IsVisible = true;
     }
@@ -150,6 +171,8 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         _lastSnapshot = null;
         _webRects.Clear();
         _chromeIds.Clear();
+        _chromeRects.Clear();
+        _reArmLatch = null;
         WindowOccluderRects = Array.Empty<PhysicalRect>();
         DwellProgressChanged?.Invoke(null, 0);
         RaiseTargetsChanged();
@@ -157,10 +180,16 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
 
     /// <summary>
     /// Coordinator-reported window bounds for the note gate's occluder (external review I4).
-    /// Re-reported on layout changes; hidden clears it.
+    /// Re-reported on layout changes; hidden clears it. Guarded on visibility (review r2 M8): a
+    /// layout event from the closing window must not re-fill the occluder after Hide emptied
+    /// it — that would occlude every note until the next summon.
     /// </summary>
-    internal void ReportWindowBounds(PhysicalRect bounds) =>
+    internal void ReportWindowBounds(PhysicalRect bounds)
+    {
+        if (!IsVisible)
+            return;
         WindowOccluderRects = new[] { bounds };
+    }
 
     /// <summary>
     /// Reconciles a freshly parsed page snapshot against the detector's live web targets and
@@ -204,12 +233,14 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         foreach (var (id, rect) in chromeTargets)
         {
             _chromeIds.Add(id);
+            _chromeRects[id] = rect;
             DwellDetector.AddTarget(new DwellTarget(id, rect, _settings.Dwell.ToolbarButtonDwellMs));
         }
 
         foreach (var stale in _chromeIds.Where(id => !chromeTargets.Any(t => t.Id == id)).ToList())
         {
             _chromeIds.Remove(stale);
+            _chromeRects.Remove(stale);
             DwellDetector.RemoveTarget(stale);
         }
 
@@ -272,11 +303,24 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         // stale-false and silently disarms the pause suppression in OnTargetActivated.
         NoteSamplePaused(message.IsPaused);
 
+        // Review r2 I2: the just-fired target stays withheld until the gaze LEAVES it (the
+        // toolbar Pause rule, applied to every browse target). A sample outside the latched
+        // rect — or the latch's target being gone (navigation, layout change) — re-arms it.
+        if (_reArmLatch is { } latched
+            && (!TryGetLatchedRect(latched, out var latchedRect) || !latchedRect.Contains(message.Position)))
+        {
+            _reArmLatch = null;
+        }
+
         // External review I3: another EyeCtrl surface (keyboard, toolbar, ring) may sit over
         // the browser — a sample whose point is under THAT surface must not accumulate here,
         // or its completion clicks into the surface on top.
         if (IsVisible && SampleMayDwell(message) && !_scrollSuspended && (MayDwellAt?.Invoke(message.Position) ?? true))
-            DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+        {
+            _lastGatedGazePoint = message.Position;
+            DwellDetector.Update(message.Position, message.TimestampMicroseconds,
+                _reArmLatch is null ? null : target => target.Id != _reArmLatch);
+        }
     }
 
     /// <inheritdoc />
@@ -298,6 +342,7 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
             // are silent (no dwell-completion cue, review M10).
             if (LastSampleWasPaused && targetId != ChromeCloseId)
                 return;
+            _reArmLatch = targetId;
             ChromeActivated?.Invoke(targetId);
             Messenger.Send(new DwellActivationMessage());
             return;
@@ -311,7 +356,8 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
 
         if (_webRects.TryGetValue(targetId, out var rect))
         {
-            WebElementActivated?.Invoke(targetId, rect);
+            _reArmLatch = targetId;
+            WebElementActivated?.Invoke(targetId, rect, _lastGatedGazePoint);
             Messenger.Send(new DwellActivationMessage());
         }
     }
@@ -323,6 +369,11 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         // surprise click on unpause — the JS cue stays quiet while paused. The chrome WPF
         // strips keep drawing: window-internal feedback for the one live button.
         if (LastSampleWasPaused && !targetId.StartsWith(ChromePrefix, StringComparison.Ordinal))
+            return;
+
+        // External review r2 I2: while the just-fired target is withheld, its progress cue
+        // stays quiet too — a re-filling outline over a target that cannot fire misleads.
+        if (targetId == _reArmLatch)
             return;
 
         DwellProgressChanged?.Invoke(targetId, progress);
@@ -354,6 +405,15 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         }
 
         return result;
+    }
+
+    /// <summary>The latched target's CURRENT rect (web or chrome), for the exit check — a
+    /// rebase moves it, and a target that is gone clears the latch (r2 I2).</summary>
+    private bool TryGetLatchedRect(string id, out PhysicalRect rect)
+    {
+        if (_webRects.TryGetValue(id, out rect!))
+            return true;
+        return _chromeRects.TryGetValue(id, out rect!);
     }
 
     /// <summary>

@@ -4,9 +4,11 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using EyeCtrl.Core.Browse;
 using EyeCtrl.Core.Localization;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Serilog;
 
 /// <summary>
 /// The concrete <see cref="IBrowseWebSource"/>: owns the
@@ -72,6 +74,10 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
         }
         catch (Exception ex)
         {
+            // The user-facing sentence says "check the EyeCtrl log" (review r2 M9) — the log
+            // must carry what a helper needs: the exception's type and HRESULT, both
+            // content-free.
+            Log.Error("Browse web source failed: {ExceptionType} hr={HResult}", ex.GetType().Name, ex.HResult);
             Failed?.Invoke(Describe(ex));
         }
     }
@@ -86,6 +92,7 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
         }
         catch (Exception ex)
         {
+            Log.Error("Browse web source failed: {ExceptionType} hr={HResult}", ex.GetType().Name, ex.HResult);
             Failed?.Invoke(Describe(ex));
         }
     }
@@ -180,6 +187,22 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        // Sender check FIRST (r2 I6): it reads only e.Source, so a hostile page pays nothing to
+        // be rejected here — the expensive work must never run for a message that is already
+        // dead. WebMessageReceived fires for the top document only (frame posts go to the
+        // never-subscribed CoreWebView2Frame event), so a mismatch means a document that has
+        // navigated away — its envelopes must not register targets into the new page. Strict
+        // equality; the string-typed start page is about:blank on both sides. The per-summon
+        // secret is the other half of the authentication (the parser's).
+        var senderUri = e.Source;
+        var current = _core?.Source;
+        if (string.IsNullOrEmpty(senderUri)
+            || current is null
+            || !string.Equals(senderUri, current, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         // The bridge script posts a JS OBJECT, so the string accessor throws for every
         // snapshot (review C1) — WebMessageAsJson is the accessor for object posts.
         string json;
@@ -192,18 +215,13 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
             return; // not our object envelope: drop
         }
 
-        // Sender check (review C3c, host half): only the CURRENT top-level document may talk
-        // to the bridge. WebMessageReceived fires for the top document only (frame posts go
-        // to the never-subscribed CoreWebView2Frame event), so a mismatch means a document
-        // that has navigated away — its envelopes must not register targets into the new
-        // page. Strict equality; the string-typed start page is about:blank on both sides.
-        // The per-summon secret is the other half of the authentication (the parser's).
-        var senderUri = e.Source;
-        var current = _core?.Source;
-        if (string.IsNullOrEmpty(senderUri)
-            || current is null
-            || !string.Equals(senderUri, current, StringComparison.OrdinalIgnoreCase))
+        // Byte bound BEFORE anything parses (r2 I6): a legit 400-element envelope is ~40 KB, so
+        // anything beyond this is hostile or broken, and JsonDocument.Parse of a multi-megabyte
+        // string is a UI-thread stall the cap check would only follow. The parser enforces the
+        // same bound (defense in depth, Core-testable).
+        if (json.Length > WebElementMessageParser.MaxEnvelopeChars)
         {
+            Log.Debug("Browse bridge: envelope beyond the byte bound dropped");
             return;
         }
 

@@ -18,6 +18,15 @@ public interface IBrowseWindowSurface
     /// </summary>
     public void Show(BrowseViewModel vm);
 
+    /// <summary>
+    /// Shrinks the window's work-area rect by the docked toolbar's band on its edge (external
+    /// review r2 I1: the summon raises the visible toolbar above the browser, and a top-docked
+    /// band covered Reload and most of the address field while a right-docked one covered
+    /// Close). Called by the coordinator before <see cref="Show"/>, from the same settings the
+    /// toolbar's own placement uses; a no-op for a non-docked toolbar is the caller's business.
+    /// </summary>
+    public void InsetForDockedToolbar(double left, double top, double right, double bottom);
+
     /// <summary>Closes the window (raising <see cref="SurfaceClosed"/> through the normal
     /// closing path).</summary>
     public void Close();

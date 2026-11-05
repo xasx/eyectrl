@@ -49,8 +49,11 @@ internal static class LocalizationTestData
             if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
                 || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")) continue;
 
+            // Line endings are normalized before lexing (external review r2 M6): a raw string's
+            // value embeds the checkout's CRLF, and a baseline entry captured on Windows must
+            // match an LF worktree too — the ratchet compares literal TEXT, not bytes.
             yield return (Path.GetRelativePath(root, file).Replace('\\', '/'),
-                          SourceScanner.StripComments(File.ReadAllText(file)));
+                          SourceScanner.StripComments(File.ReadAllText(file)).Replace("\r\n", "\n"));
         }
     }
 }

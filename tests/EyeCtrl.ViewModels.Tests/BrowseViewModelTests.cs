@@ -43,7 +43,7 @@ public class BrowseViewModelTests
         using var vm = NewVm(messenger);
         var rect = new PhysicalRect(500, 400, 200, 40);
         (string Id, PhysicalRect Rect)? activated = null;
-        vm.WebElementActivated += (id, r) => activated = (id, r);
+        vm.WebElementActivated += (id, r, _) => activated = (id, r);
 
         vm.Show();
         vm.ApplySnapshot(Snap(1, El("web_1", rect)));
@@ -70,7 +70,7 @@ public class BrowseViewModelTests
         var web = new List<string>();
         var activations = 0;
         vm.ChromeActivated += id => chrome.Add(id);
-        vm.WebElementActivated += (id, _) => web.Add(id);
+        vm.WebElementActivated += (id, _, _) => web.Add(id);
         messenger.Register<BrowseViewModelTests, DwellActivationMessage>(this, (_, _) => activations++);
 
         vm.Show();
@@ -150,6 +150,32 @@ public class BrowseViewModelTests
         Check.That(webCues).Not.IsEmpty();
     }
 
+    // ---- the re-arm rule (external review r2 I2) --------------------------------
+
+    [Fact]
+    public void ARestingGaze_YieldsExactlyOneActivation_UntilItLeavesTheTarget()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var rect = new PhysicalRect(500, 400, 200, 40);
+        var activations = 0;
+        vm.WebElementActivated += (_, _, _) => activations++;
+
+        vm.Show();
+        vm.ApplySnapshot(Snap(1, El("web_1", rect)));
+
+        // Three dwell+cooldown cycles under a resting gaze: without the leave-before-re-arm
+        // rule this re-fired every ~1.1 s (on the address box it re-ran SelectAll and the next
+        // key replaced everything typed).
+        DwellDrive.Hold(messenger, rect.Center, 0, 1_301_000);
+        Check.That(activations).IsEqualTo(1);
+
+        // The gaze leaves the target: the latch releases and the target can fire again.
+        DwellDrive.Hold(messenger, new PhysicalPoint(500, 100), 1_301_000, 1_401_000);
+        DwellDrive.Hold(messenger, rect.Center, 1_401_000, 1_701_000);
+        Check.That(activations).IsEqualTo(2);
+    }
+
     // ---- the coordinator's under-point gate (external review I3) ----------------
 
     [Fact]
@@ -159,7 +185,7 @@ public class BrowseViewModelTests
         using var vm = NewVm(messenger);
         var rect = new PhysicalRect(500, 400, 200, 40);
         bool activated = false;
-        vm.WebElementActivated += (_, _) => activated = true;
+        vm.WebElementActivated += (_, _, _) => activated = true;
 
         vm.Show();
         vm.ApplySnapshot(Snap(1, El("web_1", rect)));
@@ -182,7 +208,7 @@ public class BrowseViewModelTests
         using var vm = NewVm(messenger);
         var rect = new PhysicalRect(500, 400, 200, 40);
         bool activated = false;
-        vm.WebElementActivated += (_, _) => activated = true;
+        vm.WebElementActivated += (_, _, _) => activated = true;
 
         vm.Show();
         vm.ApplySnapshot(Snap(1, El("web_1", rect)));
@@ -221,7 +247,7 @@ public class BrowseViewModelTests
         var rect = new PhysicalRect(500, 400, 200, 40);
         bool activated = false;
         var progress = new List<double>();
-        vm.WebElementActivated += (_, _) => activated = true;
+        vm.WebElementActivated += (_, _, _) => activated = true;
         vm.DwellProgressChanged += (_, p) => progress.Add(p);
 
         vm.Show();
@@ -249,7 +275,7 @@ public class BrowseViewModelTests
         var before = new PhysicalRect(500, 400, 200, 40);
         var after = new PhysicalRect(500, 800, 200, 40); // 400 px down: page scroll, not drift
         bool activated = false;
-        vm.WebElementActivated += (_, _) => activated = true;
+        vm.WebElementActivated += (_, _, _) => activated = true;
 
         vm.Show();
         vm.ApplySnapshot(Snap(1, El("web_1", before)));
@@ -333,7 +359,7 @@ public class BrowseViewModelTests
         var backRect = new PhysicalRect(500, 100, 60, 60);
         var web = new List<string>();
         var chrome = new List<string>();
-        vm.WebElementActivated += (id, _) => web.Add(id);
+        vm.WebElementActivated += (id, _, _) => web.Add(id);
         vm.ChromeActivated += id => chrome.Add(id);
 
         vm.Show();
@@ -362,7 +388,7 @@ public class BrowseViewModelTests
         using var vm = NewVm(messenger);
         var rect = new PhysicalRect(500, 400, 200, 40);
         bool activated = false;
-        vm.WebElementActivated += (_, _) => activated = true;
+        vm.WebElementActivated += (_, _, _) => activated = true;
 
         vm.Show();
         vm.ApplySnapshot(Snap(1, El("web_1", rect)));

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Overlays;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -95,11 +96,13 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         AddressBox.KeyDown += OnAddressKeyDown;
         Closing += (_, _) => RaiseSurfaceClosed();
 
-        // Review M6: the chrome rects and the web bounds are geometry read once per summon —
-        // a work-area or DPI change would leave them stale until close and re-summon. Every
-        // geometry move re-raises; the coordinator re-reads.
+        // Review M6 + r2 M11: the chrome rects and the web bounds are geometry read once per
+        // summon — a work-area, DPI or display change would leave them stale until close and
+        // re-summon. Every geometry move re-raises; the coordinator re-reads. A same-monitor
+        // DPI change keeps the DIP size, so neither SizeChanged nor LocationChanged fires.
         SizeChanged += (_, _) => RaiseLayoutChanged();
         LocationChanged += (_, _) => RaiseLayoutChanged();
+        DpiChanged += (_, _) => RaiseLayoutChanged();
     }
 
     /// <summary>Test seam (InternalsVisibleTo): the chrome map itself, so the headless suite can
@@ -130,8 +133,18 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
     /// <inheritdoc />
     public void FocusAddressBox()
     {
-        AddressBox.Focus();
-        AddressBox.SelectAll();
+        // Review r2 I5: WPF focus in an inactive window is logical only — the gaze keyboard
+        // types into the OS FOREGROUND window, so the browser must hold it. And review r2 I2:
+        // SelectAll runs only when the field was not already keyboard-focused — a re-dwell of
+        // the address box must preserve the typed text and the caret, or the next key wipes
+        // everything the owner typed.
+        SetOverlayInteraction(clickThrough: false, focusable: true);
+        Activate();
+        if (!AddressBox.IsKeyboardFocused)
+        {
+            AddressBox.Focus();
+            AddressBox.SelectAll();
+        }
     }
 
     /// <inheritdoc />
@@ -140,6 +153,18 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         SetOverlayInteraction(clickThrough: false, focusable: true);
         Activate();
         RaiseToTop();
+    }
+
+    /// <inheritdoc />
+    public void InsetForDockedToolbar(double left, double top, double right, double bottom)
+    {
+        // The ctor sized the window to the work area; the docked toolbar's band is reserved
+        // out of it on that edge (r2 I1) — persistent, so the chrome row never jumps when the
+        // auto-hidden toolbar slides in.
+        Left += left;
+        Top += top;
+        Width -= left + right;
+        Height -= top + bottom;
     }
 
     /// <inheritdoc />
@@ -343,17 +368,49 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         }
 
         // A single token that parses as a DNS host (dot required — "wikipedia" alone is a query,
-        // not a TLD-less host) or an IPv4 literal is an address; everything else is a search.
+        // not a TLD-less host) or a CANONICAL IPv4 dotted quad is an address; everything else
+        // is a search. Review r2 M1: .NET parses inet_aton shorthand, so bare numbers
+        // ("42" → 0.0.0.42), decimals ("3.14" → 3.0.0.14) and hex ("0x7f.1") must search, and
+        // userinfo ("user@example.com") must not smuggle a host through.
         if (!candidate.Contains(' ')
             && Uri.TryCreate("https://" + candidate, UriKind.Absolute, out var hostUri)
-            && (hostUri.HostNameType is UriHostNameType.IPv4
-                || (hostUri.HostNameType is UriHostNameType.Dns && hostUri.Host.Contains('.'))))
+            && hostUri.UserInfo.Length == 0)
         {
-            NavigateRequested?.Invoke(hostUri);
-            return true;
+            // The host part of the candidate ("example.com" out of "example.com/path"), with a
+            // trailing dot tolerated by Uri but not by a user's intent.
+            var hostPart = candidate.Split('/', '?')[0].TrimEnd('.');
+
+            // r2 M1: .NET parses inet_aton shorthand, so an IPv4 literal counts only when the
+            // candidate IS the canonical dotted quad the Uri reports back.
+            var isCanonicalIpv4 = hostUri.HostNameType is UriHostNameType.IPv4
+                && System.Text.RegularExpressions.Regex.IsMatch(
+                    hostPart, @"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
+                && string.Equals(hostUri.Host, hostPart, StringComparison.OrdinalIgnoreCase);
+
+            // A DNS host navigates when the candidate names exactly that host and its final
+            // label is alphabetic — years, versions and bare numbers are queries (r2 M1).
+            var isPlausibleDns = hostUri.HostNameType is UriHostNameType.Dns
+                && hostPart.Contains('.')
+                && string.Equals(hostUri.Host, hostPart, StringComparison.OrdinalIgnoreCase)
+                && HasAlphabeticFinalLabel(hostUri.Host);
+
+            if (isCanonicalIpv4 || isPlausibleDns)
+            {
+                NavigateRequested?.Invoke(hostUri);
+                return true;
+            }
         }
 
         return SearchFor(candidate);
+    }
+
+    /// <summary>The last DNS label must carry an alphabetic character: "3.14" parses as an IPv4
+    /// shorthand (rejected above), "v1.2" ends in a digit (search), and a TLD is alphabetic by
+    /// definition — this keeps years, versions and numbers in the search arm (review r2 M1).</summary>
+    private static bool HasAlphabeticFinalLabel(string host)
+    {
+        var lastLabel = host[(host.LastIndexOf('.') + 1)..];
+        return lastLabel.Length >= 2 && lastLabel.Any(char.IsLetter);
     }
 
     /// <summary>

@@ -447,8 +447,8 @@
     "src": "18f889e2"
   },
   "overlays.browse.start.hint": {
-    "text": "Geben Sie oben eine Adresse ein; die Eingabetaste der Bildschirmtastatur navigiert. Links, Schaltflächen und Felder der Seite werden automatisch zu Blick-Verweilzielen: Hinsehen genügt zum Klicken.",
-    "src": "1c33a687"
+    "text": "Geben Sie oben eine Adresse oder einen Suchbegriff ein; die Eingabetaste der Bildschirmtastatur öffnet ihn. Links, Schaltflächen und Felder der Seite werden automatisch zu Blick-Verweilzielen: Hinsehen genügt zum Klicken.",
+    "src": "f1f344c1"
   },
   "overlays.browse.start.title": {
     "text": "EyeCtrl-Browser",

@@ -460,6 +460,13 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
+    /// <summary>
+    /// The settings window is an ORDINARY window (Q13), not an overlay: C9 F2 keeps it outside
+    /// the overlay band fix, so it neither joins ZBID_UIACCESS nor writes the per-overlay band
+    /// line. Its topmost behaviour stays exactly what it was.
+    /// </summary>
+    protected override bool EntersUiAccessBand => false;
+
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
         EyeCtrlSettings settings,

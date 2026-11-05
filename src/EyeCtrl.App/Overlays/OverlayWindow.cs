@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using EyeCtrl.Controls.Theme;
+using Serilog;
 
 public class OverlayWindow : Window
 {
@@ -23,6 +24,14 @@ public class OverlayWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    /// <summary>
+    /// The undocumented (read-only) z-band query: 1 = ZBID_DESKTOP, 2 = ZBID_UIACCESS,
+    /// 16 = ZBID_SYSTEM_TOOLS. Used by <see cref="LogBand"/> only; callers must tolerate a
+    /// failure (older builds, or a window the shell does not band).
+    /// </summary>
+    [DllImport("user32.dll", EntryPoint = "GetWindowBand", SetLastError = true)]
+    private static extern bool GetWindowBandNative(IntPtr hwnd, out uint band);
 
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
     private static readonly IntPtr HWND_TOPMOST = new(-1);
@@ -55,6 +64,38 @@ public class OverlayWindow : Window
     public bool IsClickThrough { get; init; }
 
     /// <summary>
+    /// Whether this window joins the UIAccess z-band (ZBID_UIACCESS, band 2) on its first show.
+    /// True for every overlay; the settings window overrides it false because it is an ordinary
+    /// window (Q13), deliberately outside the C9 F2 overlay-band scope.
+    /// </summary>
+    protected virtual bool EntersUiAccessBand => true;
+
+    /// <summary>
+    /// The HWND the one-time band raise already ran for (<see cref="IntPtr.Zero"/> before that).
+    /// Keyed on the handle rather than a bool so a recreated HWND would still get the raise; the
+    /// ring team's constraint 1 forbids anything more frequent (a per-frame raise is the stutter
+    /// and z-order thrash bug).
+    /// </summary>
+    private IntPtr _uiAccessBandHwnd;
+
+    /// <summary>
+    /// How many times this window called the native topmost insert, for the headless band gates:
+    /// once from the HWND's creation, plus any explicit <see cref="RaiseToTop"/> (real ordering
+    /// triggers only). It never grows from a position update.
+    /// </summary>
+    internal int BandRaiseCount { get; private set; }
+
+    /// <summary>
+    /// The native side of the band raise, injectable so the headless gates can record the call
+    /// (HWND, insert-after, flags) without a shown window. Production is the real
+    /// <c>SetWindowPos</c>.
+    /// </summary>
+    internal Action<IntPtr, IntPtr, uint> SetWindowPosForBand { get; set; } = NativeSetWindowPosForBand;
+
+    private static void NativeSetWindowPosForBand(IntPtr hwnd, IntPtr insertAfter, uint flags) =>
+        _ = SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, flags);
+
+    /// <summary>
     /// When true, this window is excluded from screen capture via WDA_EXCLUDEFROMCAPTURE. The
     /// ManualSelection magnifier and action-menu preview grab the screen with GDI CopyFromScreen;
     /// any overlay composited over the captured region (glass backdrop, magnifier, gaze indicator,
@@ -84,6 +125,71 @@ public class OverlayWindow : Window
             if (hwnd != IntPtr.Zero)
                 SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
         }
+
+        if (EntersUiAccessBand)
+            RaiseIntoUiAccessBandOnce();
+    }
+
+    /// <summary>
+    /// C9 F2: gives the overlay the z-band the shell cannot cover. With
+    /// <c>ShowInTaskbar="False"</c> WPF gives a window a hidden, non-topmost owner, so an overlay
+    /// starts in ZBID_DESKTOP (band 1) despite being <c>WS_EX_TOPMOST</c>; Start, Search and the
+    /// notification centre live above that band. One
+    /// <c>SetWindowPos(HWND_TOPMOST, NOMOVE|NOSIZE|NOACTIVATE)</c> moves it into ZBID_UIACCESS
+    /// (band 2) — the band every overlay that already called <see cref="RaiseToTop"/> sits in
+    /// (S8 A2 evidence, <c>C:\t\s8\a2-bands.csv</c>).
+    ///
+    /// <para>
+    /// Called from <see cref="OnSourceInitialized"/>: the HWND exists and <c>Show()</c> creates it
+    /// BEFORE the first visible frame, so the window never appears in band 1. ShowWindow uses
+    /// SW_SHOWNA for a non-activating overlay and does not change the z-order, so the band sticks.
+    /// Once per window lifetime, never from a position update: the ring moves on every gaze frame,
+    /// and raising there is exactly the re-assert storm this must not reintroduce.
+    /// </para>
+    /// </summary>
+    internal void RaiseIntoUiAccessBandOnce()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;          // no HWND yet: the HWND-creation call does it
+        if (hwnd == _uiAccessBandHwnd) return;    // already raised for this HWND
+
+        _uiAccessBandHwnd = hwnd;
+        RaiseIntoBand(hwnd);
+        LogBand(hwnd);
+    }
+
+    /// <summary>Per-overlay startup diagnostic: one read-only line with the band the HWND landed in.</summary>
+    private void LogBand(IntPtr hwnd)
+    {
+        try
+        {
+            if (GetWindowBandNative(hwnd, out var band))
+            {
+                Log.Information(
+                    "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band={Band}",
+                    GetType().Name, hwnd.ToInt64(), band);
+            }
+            else
+            {
+                Log.Information(
+                    "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band=unknown (GetWindowBand failed, win32={Error})",
+                    GetType().Name, hwnd.ToInt64(), Marshal.GetLastWin32Error());
+            }
+        }
+        catch (Exception ex)
+        {
+            // A diagnostic must never be able to break an overlay's first show.
+            Log.Information(
+                "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band=unknown ({Error})",
+                GetType().Name, hwnd.ToInt64(), ex.GetType().Name);
+        }
+    }
+
+    /// <summary>One topmost insert with the exact flags the band fix permits.</summary>
+    private void RaiseIntoBand(IntPtr hwnd)
+    {
+        BandRaiseCount++;
+        SetWindowPosForBand(hwnd, HWND_TOPMOST, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     /// <summary>
@@ -91,12 +197,20 @@ public class OverlayWindow : Window
     /// activating it. Keeps an overlay above sibling top-most overlays shown after it — e.g. the
     /// manual-selection gaze indicator, which must draw above the opaque magnifier even though its
     /// own ViewModel may have shown it first (a second Show() is a no-op that would not re-raise it).
+    ///
+    /// <para>
+    /// For REAL ordering triggers only (a strip re-shown above notes, the gaze dot above the
+    /// magnifier / edge bar). The band membership itself is established once by
+    /// <see cref="RaiseIntoUiAccessBandOnce"/>; never call this from a position update or a
+    /// per-frame path — that is the stutter/z-order-thrash bug, and the focusable:false styles
+    /// plus SWP_NOACTIVATE here are what keep the overlay from stealing the foreground.
+    /// </para>
     /// </summary>
     public void RaiseToTop()
     {
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero)
-            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            RaiseIntoBand(hwnd);
     }
 
     /// <summary>

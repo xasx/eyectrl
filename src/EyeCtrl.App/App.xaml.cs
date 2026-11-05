@@ -183,9 +183,11 @@ public partial class App : Application
 
             // C10's one startup token line: what EyeCtrl's own token is, in the same vocabulary R1
             // compares against. A sitting log then answers "why could I not click" at a glance.
+            // The template is a contract with Setup's pass rule (AppStartupTokenLog): Serilog
+            // renders the bool as lowercase "true" through {Message:lj}, so the reader parses it.
             var selfToken = _serviceProvider.GetRequiredService<IInputIntegrityProbe>().ReadSelf();
             Log.Information(
-                "Token: IL={IntegrityLevel} UIAccess={UIAccess} Elevated={Elevated} exe={ExecutablePath}",
+                AppStartupTokenLog.TokenLineTemplate,
                 InputIntegrityRules.IntegrityName(selfToken.IntegrityLevel), selfToken.HasUIAccess,
                 selfToken.Elevated, Environment.ProcessPath ?? "unknown");
 

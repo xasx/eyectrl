@@ -10,11 +10,12 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// The browse surface's dwell contract, fed through the real message path
 /// (DwellDrive.Hold's 30 ms cadence — the DwellDetector's 150 ms restart bound makes single-step
-/// holds a lie): dwell on a page element completes and carries the element's rect; a paused
-/// sample keeps chrome navigation and close live while suppressing the page click and the
-/// address bar; the coordinator's scroll suspension gates accumulation; ApplySnapshot reconciles
-/// through the Core reconciler (move resets, drift preserves); and every structural mutation
-/// announces exactly one BrowseTargetsChangedMessage for the D17 inventory re-check.
+/// holds a lie): dwell on a page element completes and carries the element's rect; while paused
+/// ONLY Close stays effectful (external review M11) and suppressed activations stay silent
+/// (review M10); the coordinator's scroll suspension and under-point gate (review I3) gate
+/// accumulation; ApplySnapshot reconciles through the Core reconciler (move resets, drift
+/// preserves); the window bounds feed the note occluder (review I4); and every structural
+/// mutation announces exactly one BrowseTargetsChangedMessage for the D17 inventory re-check.
 /// </summary>
 [Collection("DpiHelper Tests (ViewModels)")]
 public class BrowseViewModelTests
@@ -57,46 +58,157 @@ public class BrowseViewModelTests
     // ---- pause semantics (the task-switcher rule) ------------------------------
 
     [Fact]
-    public void PausedSamples_ChromeNavigationActivates_WhileWebAndAddressStaySuppressed()
+    public void PausedSamples_OnlyCloseActivates_WhileWebAddressAndNavigationStaySuppressed()
     {
         var messenger = new WeakReferenceMessenger();
         using var vm = NewVm(messenger);
         var backRect = new PhysicalRect(500, 100, 60, 60);
+        var closeRect = new PhysicalRect(1200, 100, 60, 60);
         var addressRect = new PhysicalRect(700, 100, 400, 60);
         var webRect = new PhysicalRect(500, 400, 200, 40);
         var chrome = new List<string>();
         var web = new List<string>();
+        var activations = 0;
         vm.ChromeActivated += id => chrome.Add(id);
         vm.WebElementActivated += (id, _) => web.Add(id);
+        messenger.Register<BrowseViewModelTests, DwellActivationMessage>(this, (_, _) => activations++);
 
         vm.Show();
         vm.SetChromeTargets(new (string, PhysicalRect)[]
         {
             (BrowseViewModel.ChromeBackId, backRect),
             (BrowseViewModel.ChromeAddressId, addressRect),
+            (BrowseViewModel.ChromeCloseId, closeRect),
         });
         vm.ApplySnapshot(Snap(1, El("web_1", webRect)));
 
-        // Paused dwell on Back: navigation is window-internal — it fires.
+        // Paused dwell on Back: navigation acts on a paused gaze (a reload can drop form
+        // input) — suppressed (review M11 + the base rule: the opt-in is for the way OUT).
         DwellDrive.Hold(0, 301_000,
             t => messenger.Send(new GazeCursorMovedMessage(backRect.Center, t) { IsPaused = true }));
-        Check.That(chrome).ContainsExactly(BrowseViewModel.ChromeBackId);
+        Check.That(chrome).IsEmpty();
+        Check.That(activations).IsEqualTo(0); // review M10: suppressed activations are silent
 
         // Paused dwell on the address bar: OS keyboard focus — suppressed.
         DwellDrive.Hold(301_000, 700_000,
             t => messenger.Send(new GazeCursorMovedMessage(addressRect.Center, t) { IsPaused = true }));
-        Check.That(chrome).HasSize(1);
+        Check.That(chrome).IsEmpty();
 
         // Paused dwell on the page element: an OS click into the foreground — suppressed.
         DwellDrive.Hold(700_000, 1_100_000,
             t => messenger.Send(new GazeCursorMovedMessage(webRect.Center, t) { IsPaused = true }));
         Check.That(web).IsEmpty();
 
-        // The suppression was the pause, not the registration: unpaused gaze on the same
-        // element completes its dwell normally.
+        // Paused dwell on Close: the way out — it fires, and the completion cue publishes
+        // (a real effect ran; review M10).
         DwellDrive.Hold(1_100_000, 1_401_000,
+            t => messenger.Send(new GazeCursorMovedMessage(closeRect.Center, t) { IsPaused = true }));
+        Check.That(chrome).ContainsExactly(BrowseViewModel.ChromeCloseId);
+        Check.That(activations).IsEqualTo(1);
+
+        // The suppression was the pause, not the registration: unpaused gaze on the same
+        // element completes its dwell normally (after Close's activation cooldown lapses).
+        DwellDrive.Hold(1_501_000, 1_802_000,
             t => messenger.Send(new GazeCursorMovedMessage(webRect.Center, t)));
         Check.That(web).ContainsExactly("web_1");
+        Check.That(activations).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void PausedPageDwell_PublishesNoJsCue_UntilUnpaused()
+    {
+        // Review M10: the page outline must not advertise a dwell whose every effect is
+        // suppressed; the chrome WPF strip (window-internal feedback) keeps drawing.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var rect = new PhysicalRect(500, 400, 200, 40);
+        var webCues = new List<double>();
+        var chromeCues = new List<double>();
+        vm.DwellProgressChanged += (id, p) =>
+        {
+            if (id is not null && id.StartsWith(BrowseViewModel.ChromePrefix, System.StringComparison.Ordinal))
+                chromeCues.Add(p);
+            else
+                webCues.Add(p);
+        };
+
+        vm.Show();
+        vm.ApplySnapshot(Snap(1, El("web_1", rect)));
+        vm.SetChromeTargets(new (string, PhysicalRect)[] { (BrowseViewModel.ChromeCloseId, new PhysicalRect(500, 100, 60, 60)) });
+
+        DwellDrive.Hold(0, 151_000,
+            t => messenger.Send(new GazeCursorMovedMessage(rect.Center, t) { IsPaused = true }));
+        Check.That(webCues).IsEmpty();
+        Check.That(chromeCues).IsEmpty();
+
+        DwellDrive.Hold(151_000, 181_000,
+            t => messenger.Send(new GazeCursorMovedMessage(new PhysicalRect(500, 100, 60, 60).Center, t) { IsPaused = true }));
+        Check.That(chromeCues).Not.IsEmpty();
+
+        // Unpaused gaze on the page element: its cue flows again.
+        DwellDrive.Hold(181_000, 211_000, t => messenger.Send(new GazeCursorMovedMessage(rect.Center, t)));
+        Check.That(webCues).Not.IsEmpty();
+    }
+
+    // ---- the coordinator's under-point gate (external review I3) ----------------
+
+    [Fact]
+    public void GazeUnderAnotherSurface_GatesAccumulation_UntilTheBrowserIsUnderThePoint()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var rect = new PhysicalRect(500, 400, 200, 40);
+        bool activated = false;
+        vm.WebElementActivated += (_, _) => activated = true;
+
+        vm.Show();
+        vm.ApplySnapshot(Snap(1, El("web_1", rect)));
+
+        vm.MayDwellAt = _ => false; // the keyboard/toolbar is the window under the gaze point
+        DwellDrive.Hold(messenger, rect.Center, 0, 601_000);
+        Check.That(activated).IsFalse();
+
+        vm.MayDwellAt = _ => true;
+        DwellDrive.Hold(messenger, rect.Center, 601_000, 901_000);
+        Check.That(activated).IsTrue();
+    }
+
+    [Fact]
+    public void NoGateInstalled_IsUngated()
+    {
+        // Headless consumers (and any seam consumer that has not installed the gate) keep the
+        // old behavior — the production coordinator always installs it.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var rect = new PhysicalRect(500, 400, 200, 40);
+        bool activated = false;
+        vm.WebElementActivated += (_, _) => activated = true;
+
+        vm.Show();
+        vm.ApplySnapshot(Snap(1, El("web_1", rect)));
+        Check.That(vm.MayDwellAt).IsNull();
+
+        DwellDrive.Hold(messenger, rect.Center, 0, 301_000);
+        Check.That(activated).IsTrue();
+    }
+
+    // ---- the note-gate occluder source (external review I4) ----------------------
+
+    [Fact]
+    public void WindowBounds_FeedTheOccluder_AndClearOnHide()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var bounds = new PhysicalRect(0, 0, 1920, 1040);
+
+        vm.Show();
+        Check.That(vm.WindowOccluderRects).IsEmpty(); // nothing reported yet: fail-safe empty
+
+        vm.ReportWindowBounds(bounds);
+        Check.That(vm.WindowOccluderRects).Contains(bounds);
+
+        vm.Hide();
+        Check.That(vm.WindowOccluderRects).IsEmpty();
     }
 
     // ---- the coordinator's scroll gate -----------------------------------------

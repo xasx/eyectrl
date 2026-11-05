@@ -1021,9 +1021,14 @@ public partial class App : Application
         // a per-startup migration would re-promote an action the user demoted on every launch.
         settings.ActionMenu.MigratePrimaryOnce();
         settings.ActionMenu.EnsureKeyboardActionOnce();
-        // Same once-only pattern, same reason: the browse action did not exist when any existing
-        // file was written, so the one-shot add cannot re-add anything the user removed.
-        settings.ActionMenu.EnsureBrowseActionOnce();
+        // The browse migration (EnsureBrowseActionOnce) is deliberately NOT called yet (external
+        // review I6): it would put the browser on every existing ring while the browser has
+        // passed no end-to-end smoke and no owner gaze check, and the one-shot flag would stop
+        // a later fixed build from re-offering it after an owner removed the slot in
+        // frustration. Call it in the same breath the browser ships for real; until then the
+        // browser is reachable through its Settings toggle (settings.action_menu.visible.browse).
+        // Same once-only pattern as its siblings above, same reason.
+        // settings.ActionMenu.EnsureBrowseActionOnce();
         // Same once-only pattern: a persisted old-default toolbar size (80) would override the
         // new 120 (mis-dwell fix) forever without this bump.
         settings.Toolbar.MigrateSizeOnce();

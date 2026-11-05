@@ -34,9 +34,12 @@ internal static class NoteOccluderWiring
     internal static void Wire(INoteManager noteManager, IServiceProvider services, EventCoordinationContext context)
     {
         noteManager.SetOccluderSources(
-            // T5 review R2: the browser's dwell rects (chrome + page elements) while the window
-            // is up — the LiveTargetRects detector-snapshot rule, like the lag mark's bridge.
-            browseRects: () => services.GetRequiredService<BrowseViewModel>().LiveTargetRects,
+            // T5 review R2 + external review I4: the browser's WHOLE window bounds while the
+            // window is up — an opaque browser occludes notes across its whole face, not just
+            // where a dwell target sits (a note outside the links would fire a click onto the
+            // page). The dwell rects stay with the D17 inventory (GazeConsumerInventory),
+            // whose collision check wants the finer set.
+            browseRects: () => services.GetRequiredService<BrowseViewModel>().WindowOccluderRects,
             lagMarkRects: () => services.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
             // B4: the slot's live occupant, or null when the slot is empty. ONE source for every
             // bottom-centre banner (the drift notice and the caregiver alert replaced the two

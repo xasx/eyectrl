@@ -1,10 +1,13 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
+using System.Net;
 using System.Text.Json;
+using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Browse;
 using EyeCtrl.Core.Browse;
 using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -13,10 +16,17 @@ using Serilog;
 /// <summary>
 /// The gaze browser's summon/wiring coordinator — the KeyboardCoordinator pattern applied to
 /// the <c>BrowseShowRequestedMessage</c> the T2 ring action sends: show the window over the
-/// work area, bind the browse dwell surface, construct the web source ONCE per summon (the
-/// runtime is only ever constructed after the user asked for the browser, so a missing Evergreen
-/// runtime degrades instead of crashing startup), wire both event directions, and keep the
-/// visible toolbar above the browser window in the topmost band.
+/// work area, bind the browse dwell surface, drive the web source the SURFACE created (external
+/// review C2: exactly one host per summon — the window owns it and parents its control, so the
+/// coordinator can never navigate an orphan), wire both event directions, and keep the visible
+/// toolbar above the browser window in the topmost band.
+/// <para>
+/// The page→detector bridge is bounded and authenticated here (external review C3): the parser
+/// only accepts envelopes carrying the surface host's per-summon secret (C3c), the host caps the
+/// element count (C3b), and every element rect is clipped to the web view's on-screen bounds —
+/// the click point is the clipped rect's center (C3a). A page therefore cannot register a dwell
+/// target outside the browser, however it lies about its own DOM.
+/// </para>
 /// <para>
 /// Browse stays deliberately non-modal (no ModalInteractionState flag): the gaze keyboard must
 /// remain summonable over the browser for typing. Scroll suspension rides
@@ -27,48 +37,21 @@ using Serilog;
 /// </summary>
 internal sealed class BrowseCoordinator : CoordinatorBase
 {
-    /// <summary>The built-in start page: data-URI-free, no network dependency, no new loose
-    /// resource — loaded via <c>NavigateToString</c> when the runtime comes up.</summary>
-    public const string StartPageHtml = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>EyeCtrl Browser</title>
-<style>
-    body { font-family: 'Segoe UI', sans-serif; background: #181818; color: #f0f0f0;
-           display: flex; flex-direction: column; align-items: center; justify-content: center;
-           height: 100vh; margin: 0; }
-    h1 { font-size: 42px; margin-bottom: 8px; }
-    p { font-size: 20px; color: #b0b0b0; max-width: 640px; text-align: center; line-height: 1.5; }
-</style>
-</head>
-<body>
-<h1>EyeCtrl Browser</h1>
-<p>Type an address in the field above and press Enter. Links, buttons and fields on the page
-become gaze-dwell targets automatically — look at one to click it.</p>
-</body>
-</html>
-""";
-
     private readonly Func<IBrowseWindowSurface> _createSurface;
-    private readonly Func<IBrowseWebSource> _createWebSource;
 
     private BrowseViewModel? _vm;
     private IBrowseWindowSurface? _surface;
     private IBrowseWebSource? _webSource;
+    private string _bridgeSecret = string.Empty;
     private bool _startPageLoaded;
     private bool _chromeRectsRegistered;
     private IReadOnlyList<(string Id, PhysicalRect Rect)> _chromeRects = Array.Empty<(string, PhysicalRect)>();
     private bool _backPossible = true;
     private bool _forwardPossible = true;
 
-    public BrowseCoordinator(
-        Func<IBrowseWindowSurface> createSurface,
-        Func<IBrowseWebSource> createWebSource)
+    public BrowseCoordinator(Func<IBrowseWindowSurface> createSurface)
     {
         _createSurface = createSurface ?? throw new ArgumentNullException(nameof(createSurface));
-        _createWebSource = createWebSource ?? throw new ArgumentNullException(nameof(createWebSource));
     }
 
     protected override void OnInitialize()
@@ -113,18 +96,37 @@ become gaze-dwell targets automatically — look at one to click it.</p>
             return;
         }
 
-        _vm = Context!.BrowseVM ?? new BrowseViewModel(Context.Settings, Context.Messenger);
+        // The context always carries the DI singleton (App.xaml.cs registers it with the
+        // telemetry sink and the detector registry) — a missing one is a wiring bug, and the
+        // silent fallback that used to sit here would have built a telemetry-less VM instead
+        // of surfacing it.
+        _vm = Context!.BrowseVM ?? throw new InvalidOperationException(
+            "The coordination context carries no BrowseViewModel — App startup must register it.");
+
         _vm.Show();
 
         _surface = _createSurface();
-        _webSource = _createWebSource();
-
-        WireWebSource();
         WireSurface();
         WireViewModel();
 
         _surface.Show(_vm);
+
+        // The surface's own host (external review C2): created inside Show, parented to the
+        // window, and the ONLY web source the coordinator drives.
+        _webSource = _surface.WebSource ?? throw new InvalidOperationException(
+            "The browse surface did not expose its web source after Show.");
+        _bridgeSecret = _webSource.BridgeSecret;
+        WireWebSource();
+
+        // External review I3: the browser must not accumulate dwell on what lies beneath
+        // another EyeCtrl surface (the summonable keyboard, the raised toolbar, the ring) —
+        // the per-sample gate asks the window whether its root HWND is the one under the
+        // gaze point. The VM is a singleton reused across summons, so this is re-installed
+        // every summon (the closure reads the CURRENT surface field).
+        _vm.MayDwellAt = point => _surface is not null && _surface.IsUnderPoint(point);
+
         TryRegisterChromeRects();
+        TryReportWindowBounds();
         _vm.SetScrollSuspended(Context.InteractionManager.CurrentState == InteractionState.ScrollMode);
 
         // The toolbar is the one sibling that must stay REACHABLE over the browser: it is how
@@ -139,6 +141,7 @@ become gaze-dwell targets automatically — look at one to click it.</p>
     private void WireWebSource()
     {
         _webSource!.ElementMessageReceived += OnElementMessage;
+        _webSource.NavigationStarting += OnNavigationStarting;
         _webSource.NavigationCompleted += OnNavigationCompleted;
         _webSource.Ready += OnWebReady;
         _webSource.Failed += OnWebFailed;
@@ -152,6 +155,7 @@ become gaze-dwell targets automatically — look at one to click it.</p>
     {
         _surface!.NavigateRequested += OnNavigateRequested;
         _surface.SurfaceClosed += OnSurfaceClosed;
+        _surface.LayoutChanged += OnSurfaceLayoutChanged;
     }
 
     private void WireViewModel()
@@ -163,19 +167,74 @@ become gaze-dwell targets automatically — look at one to click it.</p>
 
     private void OnElementMessage(string json)
     {
-        // No honest origin yet (the window not laid out) — drop the snapshot; the page reposts
-        // on load/mutation/scroll, so a lost early snapshot returns.
+        // No honest geometry yet (the window not laid out) — drop the snapshot; the page
+        // reposts on load/mutation/scroll, so a lost early snapshot returns.
         if (_surface is null || !_surface.TryGetWebOrigin(out var origin))
             return;
+        if (!_surface.TryGetWebBounds(out var webBounds))
+            return;
 
-        if (WebElementMessageParser.TryParse(json, origin, out var snapshot))
-            _vm!.ApplySnapshot(snapshot);
+        // Authentication (review C3c): the envelope must carry the host's per-summon secret.
+        if (!WebElementMessageParser.TryParse(json, origin, _bridgeSecret, out var snapshot))
+            return;
+
+        // Host-side cap (review C3b): the script caps its own snapshots; a page that bypasses
+        // the script cannot flood the dwell registry (AddTarget rebuilds the snapshot array,
+        // so tens of thousands of elements would also stall the UI thread).
+        if (snapshot.Elements.Count > BrowseElementScript.MaxElements)
+        {
+            Log.Debug("Browse bridge: envelope beyond the element cap dropped");
+            return;
+        }
+
+        _vm!.ApplySnapshot(ClippedToWebBounds(snapshot, webBounds));
+    }
+
+    /// <summary>
+    /// Clips every element rect to the web view's on-screen bounds and drops the ones that do
+    /// not intersect it (external review C3a — the decisive half of the trust boundary: the
+    /// parser's ±100k clamp bounds magnitudes, not locations, and the click at a target's
+    /// center is a real OS click). The script already viewport-clips; this is the app-side
+    /// re-check a lying page cannot skip.
+    /// </summary>
+    private static WebElementSnapshot ClippedToWebBounds(WebElementSnapshot snapshot, PhysicalRect webBounds)
+    {
+        // Always maps: a fully-inside rect clips to itself, so the output equals the input
+        // when the page told the truth — and a lying or scrolled page gets its rects pulled
+        // back into the web view. Cheap at the bridge's 400-element cap.
+        var clipped = new List<WebElementInfo>(snapshot.Elements.Count);
+        foreach (var element in snapshot.Elements)
+        {
+            if (!webBounds.IntersectsWith(element.RectPhysical))
+                continue;
+            clipped.Add(element with { RectPhysical = Intersect(element.RectPhysical, webBounds) });
+        }
+
+        return new WebElementSnapshot(snapshot.Generation, clipped);
+    }
+
+    private static PhysicalRect Intersect(PhysicalRect a, PhysicalRect b)
+    {
+        var left = Math.Max(a.X, b.X);
+        var top = Math.Max(a.Y, b.Y);
+        var right = Math.Min(a.X + a.Width, b.X + b.Width);
+        var bottom = Math.Min(a.Y + a.Height, b.Y + b.Height);
+        return new PhysicalRect(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+    }
+
+    private void OnNavigationStarting()
+    {
+        // Review I1: clear BEFORE the new document loads — NavigationCompleted fires after
+        // body.onload, by which time the new page's bridge script has already posted its first
+        // snapshot, and clearing there wiped it (a static page stayed target-less). The start
+        // page's own initial load passes through harmlessly (nothing to clear).
+        _vm?.ClearWebTargets();
     }
 
     private void OnNavigationCompleted(string url, bool success)
     {
-        _vm?.ClearWebTargets();
         TryRegisterChromeRects(); // review R5: a late layout gets its chrome row on the next event
+        TryReportWindowBounds();
     }
 
     private void OnWebReady()
@@ -232,12 +291,80 @@ become gaze-dwell targets automatically — look at one to click it.</p>
         ApplyChromeTargets();
     }
 
+    /// <summary>
+    /// Review M6: the window's on-screen geometry moved — the chrome rects and the web bounds
+    /// the coordinator registered at summon are stale until re-read. Both re-reads are
+    /// idempotent, so the handler simply re-runs them (SetChromeTargets reconciles the chrome
+    /// set itself).
+    /// </summary>
+    private void OnSurfaceLayoutChanged()
+    {
+        _chromeRectsRegistered = false;
+        TryRegisterChromeRects();
+        TryReportWindowBounds();
+    }
+
+    /// <summary>
+    /// Reports the window's physical bounds to the VM for the note gate's occluder (external
+    /// review I4: an opaque browser window occludes notes across its WHOLE face — the dwell
+    /// rects left notes live everywhere outside links and buttons). The work-area fallback
+    /// covers the pre-layout window: the window sizes itself to the work area, so occluding
+    /// notes with it is never wrong while the browser is up.
+    /// </summary>
+    private void TryReportWindowBounds()
+    {
+        if (_vm is null)
+            return;
+
+        if (_surface is not null && _surface.TryGetWindowBounds(out var bounds))
+        {
+            _vm.ReportWindowBounds(bounds);
+            return;
+        }
+
+        var workArea = SystemParameters.WorkArea;
+        _vm.ReportWindowBounds(new PhysicalRect(
+            workArea.Left, workArea.Top, workArea.Width, workArea.Height));
+    }
+
+    /// <summary>
+    /// The built-in start page: data-URI-free, no network dependency, no new loose resource —
+    /// built per load, localized (review M3: the old text was hard-coded English and told a
+    /// gaze-only owner to "press Enter", which for them means the gaze keyboard's Enter).
+    /// </summary>
+    internal static string BuildStartPageHtml()
+    {
+        var title = WebUtility.HtmlEncode(StringTable.Current.T("overlays.browse.start.title"));
+        var hint = WebUtility.HtmlEncode(StringTable.Current.T("overlays.browse.start.hint"));
+        return $$"""
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{title}}</title>
+<style>
+    body { font-family: 'Segoe UI', sans-serif; background: #181818; color: #f0f0f0;
+           display: flex; flex-direction: column; align-items: center; justify-content: center;
+           height: 100vh; margin: 0; }
+    h1 { font-size: 42px; margin-bottom: 8px; }
+    p { font-size: 20px; color: #b0b0b0; max-width: 640px; text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>{{title}}</h1>
+<p>{{hint}}</p>
+</body>
+</html>
+""";
+    }
+
     private void EnsureStartPage()
     {
         if (_startPageLoaded || _webSource is null)
             return;
         _startPageLoaded = true;
-        _webSource.NavigateToString(StartPageHtml);
+        _webSource.NavigateToString(BuildStartPageHtml());
     }
 
     /// <summary>

@@ -87,7 +87,11 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// Whether an activation on this surface publishes <see cref="Messages.DwellActivationMessage"/>
     /// (the dwell-completion cue's trigger). Default true — a new effectful surface is covered with
     /// no action. Override with false ONLY where OnTargetActivated is a no-op (no effect to
-    /// confirm); a reflection pin in EyeCtrl.ViewModels.Tests forces new opt-outs to be conscious.
+    /// confirm), or where the surface must publish SELECTIVELY — a paused surface whose
+    /// suppression rules silence some activations (<see cref="BrowseViewModel"/>: it sends the
+    /// message itself exactly where an effect really ran, so a suppressed page click or address
+    /// focus never fires the cue — external review M10). Either way, a reflection pin in
+    /// EyeCtrl.ViewModels.Tests forces new opt-outs to be conscious.
     /// </summary>
     protected virtual bool AnnounceDwellActivation => true;
 

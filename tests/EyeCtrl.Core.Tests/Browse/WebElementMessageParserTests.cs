@@ -14,15 +14,22 @@ public class WebElementMessageParserTests
 {
     private static readonly PhysicalPoint Origin = new(100, 50);
 
+    /// <summary>The bridge secret the tests' envelopes carry; every <see cref="Parse"/> call
+    /// passes it as the expected value (external review C3c).</summary>
+    private const string Secret = "test-bridge-secret";
+
     // ---- helpers -------------------------------------------------------------
 
-    private static string Envelope(string els, string type = "elements", string gen = "1", string dpr = "1")
-        => $$"""{"type":"{{type}}","gen":{{gen}},"dpr":{{dpr}},"els":{{els}}}""";
+    private static string Envelope(string els, string type = "elements", string secret = Secret, string gen = "1", string dpr = "1")
+        => $$"""{"type":"{{type}}","n":"{{secret}}","gen":{{gen}},"dpr":{{dpr}},"els":{{els}}}""";
 
     private static string Element(string id, string kind, string rect)
         => $$"""{"i":"{{id}}","k":"{{kind}}","r":[{{rect}}]}""";
 
     private static string ArrayOf(params string[] elements) => "[" + string.Join(",", elements) + "]";
+
+    private static bool Parse(string? json, PhysicalPoint origin, out WebElementSnapshot snapshot)
+        => WebElementMessageParser.TryParse(json, origin, Secret, out snapshot);
 
     // ---- valid envelope ------------------------------------------------------
 
@@ -31,7 +38,7 @@ public class WebElementMessageParserTests
     {
         // dpr 2.5 (the payload's runtime devicePixelRatio — a 200 % display arrives as 2),
         // origin injected by the caller: css [10,20,30,40] → physical (125,100,75,100).
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(Element("a1", "link", "10,20,30,40")), dpr: "2.5"),
             Origin,
             out var snapshot);
@@ -51,7 +58,7 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_KindStrings_MapToTheWebElementKindVocabulary()
     {
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(
                 Element("l", "link", "0,0,1,1"),
                 Element("b", "button", "0,0,1,1"),
@@ -75,7 +82,7 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_UnknownOrWrongCasedKind_MapsToOtherOrItsCasedMatch()
     {
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(
                 Element("u", "canvas", "0,0,1,1"),
                 Element("c", "Link", "0,0,1,1"),
@@ -93,9 +100,9 @@ public class WebElementMessageParserTests
     public void Parse_MissingKind_KeepsTheElementAsOther()
     {
         // Kind is a refinement, not identity: an element without k is still actionable.
-        const string json = """{"type":"elements","gen":1,"dpr":1,"els":[{"i":"a","r":[0,0,1,1]}]}""";
+        const string json = """{"type":"elements","n":"test-bridge-secret","gen":1,"dpr":1,"els":[{"i":"a","r":[0,0,1,1]}]}""";
 
-        var ok = WebElementMessageParser.TryParse(json, default, out var snapshot);
+        var ok = Parse(json, default, out var snapshot);
 
         Check.That(ok).IsTrue();
         Check.That(snapshot.Elements).HasSize(1);
@@ -105,7 +112,7 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_IdReceivesTheWebPrefix_OnlyWhenItIsMissing()
     {
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(
                 Element("btn-1", "button", "0,0,1,1"),
                 Element("web_btn-2", "button", "0,0,1,1"))),
@@ -121,10 +128,10 @@ public class WebElementMessageParserTests
     public void Parse_ExtraFields_AtEveryLevel_AreIgnored()
     {
         const string json = """
-            {"type":"elements","gen":7,"dpr":1,"els":[{"i":"x","k":"button","r":[0,0,1,1],"text":"Buy now","href":"https://x"}],"url":"https://x","title":"Shop"}
+            {"type":"elements","n":"test-bridge-secret","gen":7,"dpr":1,"els":[{"i":"x","k":"button","r":[0,0,1,1],"text":"Buy now","href":"https://x"}],"url":"https://x","title":"Shop"}
             """;
 
-        var ok = WebElementMessageParser.TryParse(json, default, out var snapshot);
+        var ok = Parse(json, default, out var snapshot);
 
         // Content-free bridge: the extra (content-bearing) fields are simply not read.
         Check.That(ok).IsTrue();
@@ -136,7 +143,7 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_EmptyElementsArray_YieldsAnEmptySnapshotOfThatGeneration()
     {
-        var ok = WebElementMessageParser.TryParse(Envelope("[]", gen: "42"), default, out var snapshot);
+        var ok = Parse(Envelope("[]", gen: "42"), default, out var snapshot);
 
         Check.That(ok).IsTrue();
         Check.That(snapshot.Generation).IsEqualTo(42);
@@ -148,7 +155,7 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_BrokenElements_AreDropped_WhileValidSiblingsSurvive()
     {
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(
                 Element("good", "button", "1,2,3,4"),
                 Element("", "button", "1,2,3,4"),                     // empty id
@@ -167,9 +174,9 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_ElementMissingItsRect_IsDropped()
     {
-        const string json = """{"type":"elements","gen":1,"dpr":1,"els":[{"i":"a","k":"button"},{"i":"b","k":"button","r":[0,0,1,1]}]}""";
+        const string json = """{"type":"elements","n":"test-bridge-secret","gen":1,"dpr":1,"els":[{"i":"a","k":"button"},{"i":"b","k":"button","r":[0,0,1,1]}]}""";
 
-        var ok = WebElementMessageParser.TryParse(json, default, out var snapshot);
+        var ok = Parse(json, default, out var snapshot);
 
         Check.That(ok).IsTrue();
         Check.That(snapshot.Elements.Select(e => e.Id)).ContainsExactly("web_b");
@@ -178,7 +185,7 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_ElementWithNonObjectShape_IsDropped()
     {
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf("\"just-a-string\"", Element("b", "button", "0,0,1,1"))),
             default,
             out var snapshot);
@@ -193,9 +200,9 @@ public class WebElementMessageParserTests
     public void Parse_NaNAndInfinityLiterals_AreNotValidJson_AndFailTheParse()
     {
         // NaN/Infinity are not JSON tokens: they fail document parse, never surface as values.
-        var nan = WebElementMessageParser.TryParse(
+        var nan = Parse(
             Envelope(ArrayOf(Element("a", "button", "NaN,0,10,10"))), default, out var nanSnapshot);
-        var infinity = WebElementMessageParser.TryParse(
+        var infinity = Parse(
             Envelope(ArrayOf(Element("a", "button", "Infinity,0,10,10"))), default, out var infSnapshot);
 
         Check.That(nan).IsFalse();
@@ -208,7 +215,7 @@ public class WebElementMessageParserTests
     public void Parse_OutOfRangeRectMagnitude_IsDropped_NotInfinite()
     {
         // 1e400 overflows every double: the element must be rejected, never carried as Infinity.
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(
                 Element("fine", "button", "1,2,3,4"),
                 Element("boom", "button", "1e400,2,3,4"))),
@@ -223,7 +230,7 @@ public class WebElementMessageParserTests
     public void Parse_HugeFiniteRects_AreClampedLikeTheExternalDwellBridge()
     {
         // ExternalDwellService.ToRect's ±100 000 band: positions to [-100k, 100k], sizes to [0, 100k].
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(Element("big", "button", "500000,-300000,500000,-5")), dpr: "1"),
             default,
             out var snapshot);
@@ -240,7 +247,7 @@ public class WebElementMessageParserTests
     public void Parse_DprOverflowingTheConversion_DropsTheElement()
     {
         // A finite but absurd dpr must not smuggle infinite coordinates past the clamp.
-        var ok = WebElementMessageParser.TryParse(
+        var ok = Parse(
             Envelope(ArrayOf(Element("a", "button", "10,10,10,10")), dpr: "1e308"),
             default,
             out var snapshot);
@@ -255,10 +262,10 @@ public class WebElementMessageParserTests
     public void Parse_MissingEnvelopeField_FailsTheParse()
     {
         const string els = """[{"i":"a","k":"button","r":[0,0,1,1]}]""";
-        var missingType = WebElementMessageParser.TryParse($$"""{"gen":1,"dpr":1,"els":{{els}}}""", default, out var s1);
-        var missingGen = WebElementMessageParser.TryParse($$"""{"type":"elements","dpr":1,"els":{{els}}}""", default, out var s2);
-        var missingDpr = WebElementMessageParser.TryParse($$"""{"type":"elements","gen":1,"els":{{els}}}""", default, out var s3);
-        var missingEls = WebElementMessageParser.TryParse($$"""{"type":"elements","gen":1,"dpr":1}""", default, out var s4);
+        var missingType = Parse($$"""{"n":"{{Secret}}","gen":1,"dpr":1,"els":{{els}}}""", default, out var s1);
+        var missingGen = Parse($$"""{"type":"elements","n":"{{Secret}}","dpr":1,"els":{{els}}}""", default, out var s2);
+        var missingDpr = Parse($$"""{"type":"elements","n":"{{Secret}}","gen":1,"els":{{els}}}""", default, out var s3);
+        var missingEls = Parse($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1}""", default, out var s4);
 
         Check.That(missingType).IsFalse();
         Check.That(s1).IsEqualTo(WebElementSnapshot.Empty);
@@ -273,23 +280,23 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_WrongFieldType_FailsTheParse()
     {
-        var wrongType = WebElementMessageParser.TryParse(
+        var wrongType = Parse(
             Envelope("[]", type: "navstate"), default, out var s1);
-        var stringGen = WebElementMessageParser.TryParse(
+        var stringGen = Parse(
             Envelope("[]", gen: "\"1\""), default, out var s2);
-        var fractionalGen = WebElementMessageParser.TryParse(
+        var fractionalGen = Parse(
             Envelope("[]", gen: "1.5"), default, out var s3);
-        var negativeGen = WebElementMessageParser.TryParse(
+        var negativeGen = Parse(
             Envelope("[]", gen: "-1"), default, out var s4);
-        var stringDpr = WebElementMessageParser.TryParse(
+        var stringDpr = Parse(
             Envelope("[]", dpr: "\"1\""), default, out var s5);
-        var zeroDpr = WebElementMessageParser.TryParse(
+        var zeroDpr = Parse(
             Envelope("[]", dpr: "0"), default, out var s6);
-        var negativeDpr = WebElementMessageParser.TryParse(
+        var negativeDpr = Parse(
             Envelope("[]", dpr: "-1"), default, out var s7);
-        var objectEls = WebElementMessageParser.TryParse(
+        var objectEls = Parse(
             Envelope("{}"), default, out var s8);
-        var rootArray = WebElementMessageParser.TryParse("[]", default, out var s9);
+        var rootArray = Parse("[]", default, out var s9);
 
         Check.That(wrongType).IsFalse();
         Check.That(s1).IsEqualTo(WebElementSnapshot.Empty);
@@ -314,10 +321,52 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_GenAsIntegralDouble_IsAccepted()
     {
-        var ok = WebElementMessageParser.TryParse(Envelope("[]", gen: "3.0"), default, out var snapshot);
+        var ok = Parse(Envelope("[]", gen: "3.0"), default, out var snapshot);
 
         Check.That(ok).IsTrue();
         Check.That(snapshot.Generation).IsEqualTo(3);
+    }
+
+    // ---- the bridge secret (external review C3c) -------------------------------
+
+    [Fact]
+    public void Parse_MissingSecret_FailsTheParse()
+    {
+        // A forged envelope (any page can post {type:"elements"}) without the host's secret:
+        // rejected wholesale, no element survives.
+        var ok = Parse("""{"type":"elements","gen":1,"dpr":1,"els":[]}""", default, out var snapshot);
+
+        Check.That(ok).IsFalse();
+        Check.That(snapshot).IsEqualTo(WebElementSnapshot.Empty);
+    }
+
+    [Fact]
+    public void Parse_EmptySecret_FailsTheParse()
+    {
+        var ok = Parse(Envelope("[]", secret: ""), default, out var snapshot);
+
+        Check.That(ok).IsFalse();
+        Check.That(snapshot).IsEqualTo(WebElementSnapshot.Empty);
+    }
+
+    [Fact]
+    public void Parse_WrongSecret_FailsTheParse()
+    {
+        var ok = Parse(Envelope("[]", secret: "not-the-hosts-secret"), default, out var snapshot);
+
+        Check.That(ok).IsFalse();
+        Check.That(snapshot).IsEqualTo(WebElementSnapshot.Empty);
+    }
+
+    [Fact]
+    public void Parse_EmptyOrNullExpectedSecret_FailsClosed()
+    {
+        // Even a well-formed envelope must not parse when the caller has no secret to check
+        // against: the coordinator always passes the host's, so null here is a wiring bug.
+        const string json = """{"type":"elements","n":"test-bridge-secret","gen":1,"dpr":1,"els":[]}""";
+
+        Check.That(WebElementMessageParser.TryParse(json, default, null, out _)).IsFalse();
+        Check.That(WebElementMessageParser.TryParse(json, default, string.Empty, out _)).IsFalse();
     }
 
     // ---- malformed / degenerate input ------------------------------------------
@@ -325,11 +374,11 @@ public class WebElementMessageParserTests
     [Fact]
     public void Parse_MalformedOrEmptyJson_ReturnsFalseWithoutThrowing()
     {
-        var malformed = WebElementMessageParser.TryParse("{not json", default, out var s1);
-        var truncated = WebElementMessageParser.TryParse("{\"type\":\"elements\",\"els\":[{\"i\":\"a\"}", default, out var s2);
-        var empty = WebElementMessageParser.TryParse(string.Empty, default, out var s3);
-        var nullJson = WebElementMessageParser.TryParse(null, default, out var s4);
-        var scalar = WebElementMessageParser.TryParse("42", default, out var s5);
+        var malformed = Parse("{not json", default, out var s1);
+        var truncated = Parse("{\"type\":\"elements\",\"els\":[{\"i\":\"a\"}", default, out var s2);
+        var empty = Parse(string.Empty, default, out var s3);
+        var nullJson = Parse(null, default, out var s4);
+        var scalar = Parse("42", default, out var s5);
 
         Check.That(malformed).IsFalse();
         Check.That(s1).IsEqualTo(WebElementSnapshot.Empty);

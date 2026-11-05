@@ -2,8 +2,10 @@ namespace EyeCtrl.App.Overlays;
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using EyeCtrl.App.Browse;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
@@ -49,6 +51,9 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
     /// <inheritdoc />
     public event Action? SurfaceClosed;
 
+    /// <inheritdoc />
+    public event Action? LayoutChanged;
+
     public BrowseWindow()
     {
         InitializeComponent();
@@ -89,7 +94,18 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
 
         AddressBox.KeyDown += OnAddressKeyDown;
         Closing += (_, _) => RaiseSurfaceClosed();
+
+        // Review M6: the chrome rects and the web bounds are geometry read once per summon —
+        // a work-area or DPI change would leave them stale until close and re-summon. Every
+        // geometry move re-raises; the coordinator re-reads.
+        SizeChanged += (_, _) => RaiseLayoutChanged();
+        LocationChanged += (_, _) => RaiseLayoutChanged();
     }
+
+    /// <summary>Test seam (InternalsVisibleTo): the chrome map itself, so the headless suite can
+    /// pin the id→element PAIRING (review M9 — the id list alone cannot catch a remapped
+    /// chrome_address).</summary>
+    internal IReadOnlyDictionary<string, System.Windows.FrameworkElement> ChromeButtonsForTest => _chromeButtons;
 
     /// <inheritdoc />
     /// <remarks>
@@ -144,9 +160,79 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         }
     }
 
+    /// <inheritdoc />
+    public bool TryGetWebBounds(out PhysicalRect bounds) =>
+        TryGetScreenRect(WebHostHost, out bounds);
+
+    /// <inheritdoc />
+    public bool TryGetWindowBounds(out PhysicalRect bounds)
+    {
+        // The window itself: same two-corner pattern, on the window's own DIP extents.
+        if (ActualWidth <= 0 || ActualHeight <= 0)
+        {
+            bounds = default;
+            return false;
+        }
+
+        try
+        {
+            var topLeft = PointToScreen(new Point(0, 0));
+            var bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
+            bounds = new PhysicalRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            bounds = default;
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool IsUnderPoint(PhysicalPoint screenPoint)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        var raw = WindowFromPoint(new NativePoint
+        {
+            X = (int)Math.Round(screenPoint.X, MidpointRounding.AwayFromZero),
+            Y = (int)Math.Round(screenPoint.Y, MidpointRounding.AwayFromZero),
+        });
+        if (raw == IntPtr.Zero)
+            return false;
+
+        // The web area lives on the WebView2 control's own child HWND — resolve to the
+        // top-level window before comparing (the input-integrity probe's pattern).
+        var root = GetAncestor(raw, GaRoot);
+        return root == hwnd;
+    }
+
+    private void RaiseLayoutChanged() => LayoutChanged?.Invoke();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    private const uint GaRoot = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
     /// <summary>Test seam (InternalsVisibleTo): the chrome map's ids, so the headless suite can
     /// pin all six without a shown (measured) window.</summary>
     internal IReadOnlyList<string> ChromeIdsForTest => _chromeButtons.Keys.ToList();
+
+    /// <summary>Test seam (InternalsVisibleTo): raises <see cref="LayoutChanged"/>, so the
+    /// coordinator's geometry re-read is assertable without physically resizing a window.</summary>
+    internal void RaiseLayoutChangedForTest() => RaiseLayoutChanged();
 
     /// <summary>
     /// The chrome row's dwell cue, drawn WPF-side (the page's JS cue cannot know the

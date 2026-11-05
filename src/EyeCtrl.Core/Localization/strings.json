@@ -834,24 +834,38 @@
     "crisis": true
   },
   "overlays.browse.failed.evergreen": {
-    "text": "The WebView2 Evergreen runtime is not installed.",
+    "text": "This PC is missing the browser component (WebView2). A helper can install it from Microsoft, then close and reopen the browser.",
     "who": "user",
     "where": "overlays",
     "fit": "prose",
     "args": []
   },
   "overlays.browse.failed.initialize": {
-    "text": "The web view failed to initialize: {0}",
+    "text": "The browser could not start. Close and reopen the browser; if it keeps failing, check the EyeCtrl log.",
     "who": "user",
     "where": "overlays",
     "fit": "prose",
-    "args": ["0"]
+    "args": []
   },
   "overlays.browse.failed.loader": {
-    "text": "The WebView2 native loader (WebView2Loader) failed to load.",
+    "text": "A browser component failed to load. Close and reopen the browser; if it keeps failing, a helper needs to repair the EyeCtrl installation.",
     "who": "user",
     "where": "overlays",
     "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.start.hint": {
+    "text": "Type an address in the field above; the on-screen keyboard's Enter navigates. Links, buttons and fields on the page become gaze-dwell targets automatically: look at one to click it.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.start.title": {
+    "text": "EyeCtrl Browser",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
     "args": []
   },
   "overlays.edge.back": {

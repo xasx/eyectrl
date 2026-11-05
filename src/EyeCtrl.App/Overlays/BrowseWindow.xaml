@@ -30,9 +30,9 @@
                         AutomationProperties.AutomationId="chrome_back"
                         Margin="0,0,8,0" Background="{StaticResource BrushSurfaceLight}"
                         CornerRadius="{StaticResource StandardCornerRadius}">
-                                        <Grid>
-        <TextBlock Text="◀" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Grid>
+                        <TextBlock Text="◀" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <Rectangle x:Name="ProgressBack" Height="3" VerticalAlignment="Bottom"
                                    HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
                                    Visibility="Collapsed"/>
@@ -42,9 +42,9 @@
                         AutomationProperties.AutomationId="chrome_forward"
                         Margin="0,0,8,0" Background="{StaticResource BrushSurfaceLight}"
                         CornerRadius="{StaticResource StandardCornerRadius}">
-                                        <Grid>
-        <TextBlock Text="▶" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Grid>
+                        <TextBlock Text="▶" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <Rectangle x:Name="ProgressForward" Height="3" VerticalAlignment="Bottom"
                                    HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
                                    Visibility="Collapsed"/>
@@ -54,9 +54,9 @@
                         AutomationProperties.AutomationId="chrome_home"
                         Margin="0,0,8,0" Background="{StaticResource BrushSurfaceLight}"
                         CornerRadius="{StaticResource StandardCornerRadius}">
-                                        <Grid>
-        <TextBlock Text="⌂" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Grid>
+                        <TextBlock Text="⌂" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <Rectangle x:Name="ProgressHome" Height="3" VerticalAlignment="Bottom"
                                    HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
                                    Visibility="Collapsed"/>
@@ -66,9 +66,9 @@
                         AutomationProperties.AutomationId="chrome_reload"
                         Margin="0,0,8,0" Background="{StaticResource BrushSurfaceLight}"
                         CornerRadius="{StaticResource StandardCornerRadius}">
-                                        <Grid>
-        <TextBlock Text="⟳" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Grid>
+                        <TextBlock Text="⟳" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <Rectangle x:Name="ProgressReload" Height="3" VerticalAlignment="Bottom"
                                    HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
                                    Visibility="Collapsed"/>
@@ -79,9 +79,9 @@
                 <Border x:Name="ChromeClose" DockPanel.Dock="Right" Width="48" Height="48"
                         AutomationProperties.AutomationId="chrome_close"
                         Background="{StaticResource BrushSurfaceLight}" CornerRadius="{StaticResource StandardCornerRadius}">
-                                        <Grid>
-        <TextBlock Text="✕" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Grid>
+                        <TextBlock Text="✕" FontSize="{StaticResource FontSizeSubtitle}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <Rectangle x:Name="ProgressClose" Height="3" VerticalAlignment="Bottom"
                                    HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
                                    Visibility="Collapsed"/>

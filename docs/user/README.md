@@ -34,8 +34,9 @@ never fire a page link hiding behind it.
 The chrome row at the top holds Back, Forward, Home, Reload, the address field and Close.
 
 To type an address: dwell the **address box** — it takes real keyboard focus and the gaze
-keyboard slides in automatically — then type (or use a physical keyboard). **Enter** navigates. A
-bare name like `example.com` gets `https://` automatically.
+keyboard slides in automatically — then type (or use a physical keyboard). **Enter** navigates.
+The field is an omnibox: a bare name like `example.com` gets `https://` automatically, and
+anything that is not an address — words, questions, several words — becomes a web search.
 
 ### Page interaction
 

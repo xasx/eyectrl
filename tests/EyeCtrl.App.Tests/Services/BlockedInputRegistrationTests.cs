@@ -61,9 +61,7 @@ public class BlockedInputRegistrationTests
             SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "App.xaml.cs"));
 
         Check.WithCustomMessage("the one startup token line is gone.")
-            .That(source.Contains(
-                "\"Token: IL={IntegrityLevel} UIAccess={UIAccess} Elevated={Elevated} exe={ExecutablePath}\"",
-                StringComparison.Ordinal))
+            .That(source.Contains("AppStartupTokenLog.TokenLineTemplate", StringComparison.Ordinal))
             .IsTrue();
         Check.WithCustomMessage("the token line no longer reads the resolved probe.")
             .That(source.Contains("IInputIntegrityProbe>().ReadSelf()", StringComparison.Ordinal)).IsTrue();

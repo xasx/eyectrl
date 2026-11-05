@@ -39,8 +39,8 @@ public interface ISettingsSnapshotReader
 
 /// <summary>
 /// Reads C10's startup token line out of the App's daily log. The line is written by
-/// <c>src/EyeCtrl.App/App.xaml.cs</c> as
-/// <c>Token: IL={IntegrityLevel} UIAccess={UIAccess} Elevated={Elevated} exe={ExecutablePath}</c>
+/// <c>src/EyeCtrl.App/App.xaml.cs</c> from the shared contract
+/// <see cref="EyeCtrl.Core.Input.AppStartupTokenLog"/>
 /// into <c>%APPDATA%\EyeCtrl\logs\eyectrl-YYYYMMDD.log</c> (LoggingInitializer, rolling daily).
 /// </summary>
 public interface IAppLogProbe

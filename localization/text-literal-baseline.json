@@ -351,6 +351,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/LoggingInitializer.cs",
+      "Literal": "\"{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
       "Literal": "\"backdrop-close\"",
       "Count": 1

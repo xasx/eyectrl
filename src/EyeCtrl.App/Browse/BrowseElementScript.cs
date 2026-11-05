@@ -1,29 +1,47 @@
 namespace EyeCtrl.App.Browse;
 
+using System;
+
 /// <summary>
 /// The bridge script injected into every document
 /// (<c>CoreWebView2.AddScriptToExecuteOnDocumentCreated</c>): enumerates the page's interactive
 /// elements and posts the full snapshot envelope the T1 parser consumes —
-/// <c>{type:"elements", gen, dpr, els:[{i,k,r:[x,y,w,h]}]}</c> — where <c>r</c> rects are CSS-px
-/// viewport rects and <c>dpr</c> is the live <c>window.devicePixelRatio</c>, so each snapshot is
-/// self-describing (no DPI is ever baked in here; a Ctrl+wheel zoom simply changes dpr and the
-/// rAF-throttled wheel/resize handlers repost). Content-free by contract (the KB-E1 standard):
-/// ids, kinds and rects only — element text, labels, URLs and attributes never cross the bridge.
+/// <c>{type:"elements", n, gen, dpr, els:[{i,k,r:[x,y,w,h]}]}</c> — where <c>r</c> rects are CSS-px
+/// viewport rects (clipped to the viewport — review C3d: an element below the fold must not land
+/// over the taskbar or the chrome row), <c>dpr</c> is the live <c>window.devicePixelRatio</c>, and
+/// <c>n</c> is the per-summon bridge secret (<see cref="CreateSource"/>; the parser rejects any
+/// envelope without it — review C3c). Content-free by contract (the KB-E1 standard): ids, kinds,
+/// the secret and rects only — element text, labels, URLs and attributes never cross the bridge.
+/// <para>
+/// <c>AddScriptToExecuteOnDocumentCreated</c> runs in child frames too (review I2); the script
+/// exits immediately there — frame elements are out of v1's scope, and frame posts would go to
+/// the never-subscribed <c>CoreWebView2Frame.WebMessageReceived</c> anyway.
+/// </para>
 /// </summary>
 internal static class BrowseElementScript
 {
-    /// <summary>The per-snapshot element cap: a runaway page cannot flood the dwell registry.</summary>
+    /// <summary>The per-snapshot element cap: a runaway page cannot flood the dwell registry.
+    /// The coordinator enforces the same cap host-side (review C3b) — a page that bypasses the
+    /// script and posts its own (secret-less) envelope cannot flood either way.</summary>
     public const int MaxElements = 400;
 
-    /// <summary>The script source. Kept a C# const (no loose resource, no
+    /// <summary>The per-summon secret placeholder inside <see cref="Template"/>.</summary>
+    private const string SecretPlaceholder = "__BRIDGE_SECRET__";
+
+    /// <summary>The script template. Kept a C# const (no loose resource, no
     /// ExcludeFromSingleFile concern); the one side of the id/kind vocabulary that pairs with
     /// <c>WebElementMessageParser</c>'s other side. Ids carry the
     /// <c>WebElementInfo.IdPrefix</c> directly so the same string names the element in the
     /// detector and in the dwell-cue message posted back into the page.</summary>
-    public const string Source = """
+    private const string Template = """
 (function () {
     'use strict';
 
+    // Child frames exit (review I2): frame elements are out of v1's scope, and this script
+    // runs in every document — a frame's own observers and posts would be pure waste.
+    if (window.top !== window) return;
+
+    var SECRET = '__BRIDGE_SECRET__';
     var MAX = 400;
     var counter = 0;
     var gen = 0;
@@ -54,7 +72,6 @@ internal static class BrowseElementScript
     }
 
     function accept(el) {
-        if (el.id && ids.has(el.id)) return false;   // duplicated DOM id: first wins, like the parser
         var tag = el.tagName;
         var type = tag === 'INPUT' ? (el.getAttribute('type') || 'text').toLowerCase() : '';
         if (tag === 'A' && el.hasAttribute('href')) return true;
@@ -78,29 +95,26 @@ internal static class BrowseElementScript
         return id;
     }
 
-    function collect(doc, depth, out) {
-        var nodes = doc.querySelectorAll(
+    function collect(out) {
+        var nodes = document.querySelectorAll(
             'a[href], button, input, select, textarea, summary, [role=button], [role=link], [onclick]');
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
         for (var i = 0; i < nodes.length && out.length < MAX; i++) {
             var el = nodes[i];
             if (!visible(el) || !accept(el)) continue;
-            var id = idFor(el);
             var rect = el.getBoundingClientRect();
-            out.push({ i: id, k: kindOf(el), r: [rect.left, rect.top, rect.width, rect.height] });
+            // Viewport clip (review C3d): an off-viewport element must not register — below the
+            // fold it lands over the taskbar, above it over the chrome row. Partially visible
+            // elements carry their clipped rect, so the click point stays on what is shown.
+            if (rect.right <= 0 || rect.bottom <= 0 || rect.left >= vw || rect.top >= vh) continue;
+            var left = Math.max(rect.left, 0);
+            var top = Math.max(rect.top, 0);
+            var right = Math.min(rect.right, vw);
+            var bottom = Math.min(rect.bottom, vh);
+            var id = idFor(el);
+            out.push({ i: id, k: kindOf(el), r: [left, top, right - left, bottom - top] });
             ids.set(id, el);
-        }
-        if (depth < 1) {
-            var frames = doc.querySelectorAll('iframe');
-            for (var f = 0; f < frames.length && out.length < MAX; f++) {
-                var frame = frames[f];
-                try {
-                    var origin = new URL(frame.src, window.location.href).origin;
-                    if (origin !== window.location.origin) continue;
-                } catch (e) { continue; }
-                try {
-                    if (frame.contentDocument) collect(frame.contentDocument, depth + 1, out);
-                } catch (e) { /* cross-origin: skipped */ }
-            }
         }
     }
 
@@ -108,10 +122,11 @@ internal static class BrowseElementScript
         var els = [];
         ids = new Map();
         gen += 1;
-        try { collect(document, 0, els); } catch (e) { els = []; }
+        try { collect(els); } catch (e) { els = []; }
         try {
             window.chrome.webview.postMessage({
                 type: 'elements',
+                n: SECRET,
                 gen: gen,
                 dpr: window.devicePixelRatio,
                 els: els
@@ -187,4 +202,21 @@ internal static class BrowseElementScript
     if (document.body) post();
 })();
 """;
+
+    /// <summary>
+    /// The script source for one summon: the template with the bridge secret baked in
+    /// (review C3c). The secret rides every envelope the script posts; the parser rejects
+    /// any envelope without it. Only this script knows the secret: it runs before the
+    /// page's own scripts (so none can observe the capture) and it never exposes the value
+    /// on <c>window</c>, so a page cannot read it out of the DOM.
+    /// </summary>
+    public static string CreateSource(string secret)
+    {
+        // A Guid "N" token (the only production caller) cannot carry these; a stray one in a
+        // test must fail loudly here rather than silently break the envelope's JSON quoting.
+        if (string.IsNullOrEmpty(secret) || secret.Contains('\'') || secret.Contains('\\'))
+            throw new ArgumentException("The bridge secret must be non-empty and quote-free.", nameof(secret));
+
+        return Template.Replace(SecretPlaceholder, secret, StringComparison.Ordinal);
+    }
 }

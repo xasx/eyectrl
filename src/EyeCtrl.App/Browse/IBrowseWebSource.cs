@@ -16,12 +16,27 @@ using System;
 /// </summary>
 public interface IBrowseWebSource : IDisposable
 {
-    /// <summary>The raw page→app envelope JSON the bridge script posted (T1's parser consumes it).</summary>
+    /// <summary>The raw page→app envelope JSON the bridge script posted (T1's parser consumes
+    /// it). The host authenticates the sender first (external review C3c): only the current
+    /// top-level document's messages reach this event, and the envelope must still carry the
+    /// <see cref="BridgeSecret"/> for the parser to accept it.</summary>
     public event Action<string>? ElementMessageReceived;
 
+    /// <summary>The main frame requested a navigation — before any of the new document's
+    /// content loads (external review I1): the coordinator clears the page dwell targets here,
+    /// ahead of the new document's bridge script, so a static page's first snapshot survives.</summary>
+    public event Action? NavigationStarting;
+
     /// <summary>A top-level navigation settled. <paramref name="success"/> mirrors the event's
-    /// IsSuccess; the coordinator clears the page dwell targets on either arm.</summary>
+    /// IsSuccess. Nothing is cleared here any more (review I1 — clearing after the new page's
+    /// first snapshot wiped it); the coordinator only re-reads its chrome geometry.</summary>
     public event Action<string, bool>? NavigationCompleted;
+
+    /// <summary>The per-summon bridge secret this source's injected script bakes into every
+    /// envelope (external review C3c). The coordinator passes it to the parser; a page that
+    /// forges an envelope cannot know it. Generated in the constructor, so it exists before
+    /// the runtime does.</summary>
+    public string BridgeSecret { get; }
 
     /// <summary>Whether Back is possible changed (history-driven).</summary>
     public event Action<bool>? BackPossibilityChanged;

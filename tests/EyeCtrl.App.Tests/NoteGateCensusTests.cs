@@ -177,10 +177,12 @@ public class NoteGateCensusTests
         ["restartNoticeTargetRects"] = "suspended — the card is a RecomputeSuspension reason",
         ["externalTargetRects"] = "external — WindowFromPoint handles third-party windows (review-02 m-3: never an occluder)",
         ["noteTargetRects"] = "notes — the manager's own detector snapshot",
-        // T4/T5 review R2: the browse surface's rects ride the D17 inventory AND the note gate —
-        // wired into SetOccluderSources via NoteOccluderWiring (the lag-mark bridge's shape), so
-        // a note beneath the work-area browser cannot fire a click onto the browser page.
-        ["browseTargetRects"] = "occluder — BrowseViewModel.LiveTargetRects in SetOccluderSources (NoteOccluderWiring, review R2)",
+        // T4/T5 review R2 + external review I4: the browse surface rides the D17 inventory AND
+        // the note gate — wired into SetOccluderSources via NoteOccluderWiring (the lag-mark
+        // bridge's shape), so a note beneath the work-area browser cannot fire a click onto the
+        // browser page. The gate reads the WHOLE window face (WindowOccluderRects); the D17
+        // inventory keeps the dwell rects (LiveTargetRects), the finer set.
+        ["browseTargetRects"] = "occluder — BrowseViewModel.WindowOccluderRects in SetOccluderSources (NoteOccluderWiring, review R2 + I4)",
         // Infrastructure, not gaze sources.
         ["settings"] = "infrastructure — the toolbar settings trigger",
         ["overlays"] = "infrastructure — the lazy keyboard-bounds read",

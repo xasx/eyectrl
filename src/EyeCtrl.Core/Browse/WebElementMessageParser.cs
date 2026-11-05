@@ -21,6 +21,13 @@ using EyeCtrl.Core.Models;
 /// an unknown <c>k</c> string maps to <see cref="WebElementKind.Other"/>. The bridge is
 /// content-free: ids, kinds and rects only — element text or labels must never be
 /// added to the envelope.</para>
+/// <para>Authentication (external review C3c): the envelope must carry the bridge secret
+/// (<c>n</c>) that the host generated for THIS summon and the injected script baked in —
+/// a page script that forges an <c>elements</c> envelope cannot know it, so a forged
+/// snapshot fails the parse instead of registering dwell targets. The secret is
+/// app-generated and content-free (a random token, never page data). Callers must pass
+/// the same non-empty secret the host was created with; a null or empty one fails
+/// closed.</para>
 /// </summary>
 public static class WebElementMessageParser
 {
@@ -43,16 +50,19 @@ public static class WebElementMessageParser
     /// <param name="json">The raw message body posted by the page.</param>
     /// <param name="originPhysical">The web view's top-left corner in physical screen
     /// pixels (queried at runtime from the window); CSS coordinates are offset by it.</param>
+    /// <param name="expectedSecret">The bridge secret the host generated for this summon
+    /// (the web source's <c>BridgeSecret</c>). The envelope must carry exactly it; null or
+    /// empty fails closed.</param>
     /// <param name="snapshot">The parsed snapshot, or <see cref="WebElementSnapshot.Empty"/>.</param>
     /// <returns>true when the envelope was an elements message with a valid shape.</returns>
-    public static bool TryParse(string? json, PhysicalPoint originPhysical, out WebElementSnapshot snapshot)
+    public static bool TryParse(string? json, PhysicalPoint originPhysical, string? expectedSecret, out WebElementSnapshot snapshot)
     {
-        if (!string.IsNullOrEmpty(json))
+        if (!string.IsNullOrEmpty(json) && !string.IsNullOrEmpty(expectedSecret))
         {
             try
             {
                 using var document = JsonDocument.Parse(json);
-                if (TryParseDocument(document.RootElement, originPhysical, out snapshot))
+                if (TryParseDocument(document.RootElement, originPhysical, expectedSecret, out snapshot))
                 {
                     return true;
                 }
@@ -68,13 +78,16 @@ public static class WebElementMessageParser
         return false;
     }
 
-    private static bool TryParseDocument(JsonElement root, PhysicalPoint originPhysical, out WebElementSnapshot snapshot)
+    private static bool TryParseDocument(JsonElement root, PhysicalPoint originPhysical, string expectedSecret, out WebElementSnapshot snapshot)
     {
         snapshot = WebElementSnapshot.Empty;
         if (root.ValueKind != JsonValueKind.Object
             || !root.TryGetProperty(MessageFields.Type, out var typeElement)
             || typeElement.ValueKind != JsonValueKind.String
             || typeElement.GetString() != MessageType
+            || !root.TryGetProperty(MessageFields.Secret, out var secretElement)
+            || secretElement.ValueKind != JsonValueKind.String
+            || secretElement.GetString() != expectedSecret
             || !root.TryGetProperty(MessageFields.Generation, out var genElement)
             || genElement.ValueKind != JsonValueKind.Number
             || !TryReadNonNegativeInt32(genElement, out var generation)
@@ -229,6 +242,7 @@ public static class WebElementMessageParser
     private static class MessageFields
     {
         public const string Type = "type";
+        public const string Secret = "n";
         public const string Generation = "gen";
         public const string DevicePixelRatio = "dpr";
         public const string Elements = "els";

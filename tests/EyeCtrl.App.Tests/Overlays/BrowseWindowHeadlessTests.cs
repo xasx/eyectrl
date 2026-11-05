@@ -84,7 +84,7 @@ public class BrowseWindowHeadlessTests
         // WS_EX_NOACTIVATE until the flip runs. So the flip must (a) exist with exactly these
         // arguments and (b) come AFTER the Show() call in Show(BrowseViewModel). A source scan
         // — not reflection — because the ordering is the contract.
-        var source = File.ReadAllText(SourcePath("BrowseWindow.xaml.cs"));
+        var source = File.ReadAllText(SourcePath("Overlays", "BrowseWindow.xaml.cs"));
 
         var showCall = source.IndexOf("Show();", StringComparison.Ordinal);
         // Searching FROM the Show() call: the class doc quotes the literal, and the contract is
@@ -127,16 +127,69 @@ public class BrowseWindowHeadlessTests
     }
 
     [StaFact]
+    public void TheChromeMap_PairsEachIdWithItsOwnElement_IncludingTheAddressBox()
+    {
+        // Review M9: the id pin above cannot catch a REMAPPED id (chrome_address → ChromeClose
+        // survives it), and TryGetChromeRects reads the values — so the pairing itself is the
+        // pin: the map's element for the address id must be the address box field.
+        var window = ConstructWindow();
+        var addressBox = (System.Windows.UIElement)typeof(BrowseWindow).GetField("AddressBox",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(window)!;
+
+        Check.That(window.ChromeButtonsForTest[BrowseViewModel.ChromeAddressId]).IsSameReferenceAs(addressBox);
+        Check.That(window.ChromeButtonsForTest[BrowseViewModel.ChromeCloseId])
+            .IsSameReferenceAs(typeof(BrowseWindow).GetField("ChromeClose",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(window)!);
+    }
+
+    [StaFact]
     public void TryGetWebOrigin_FailsBeforeLayout_AndChromeRectsDoToo()
     {
         var window = ConstructWindow();
 
         // A constructed-but-never-shown window has no layout and no honest origin: both
         // geometry reads must report failure rather than a rect at the origin (the phantom-
-        // rect rule the inventory's sources share).
+        // rect rule the inventory's sources share). The review-round seams behave the same:
+        // the web bounds (the trust clip), the window bounds (the note occluder) and the
+        // under-point probe (no HWND yet) all answer conservatively before Show.
         Check.That(window.TryGetWebOrigin(out _)).IsFalse();
         Check.That(window.TryGetChromeRects(out var rects)).IsFalse();
         Check.That(rects).IsEmpty();
+        Check.That(window.TryGetWebBounds(out _)).IsFalse();
+        Check.That(window.TryGetWindowBounds(out _)).IsFalse();
+        Check.That(window.IsUnderPoint(new EyeCtrl.Core.Models.PhysicalPoint(100, 100))).IsFalse();
+    }
+
+    [Fact]
+    public void TheBridgeHost_IsPinnedInTheSource_JsonAccessorSenderCheckNewWindowRedirect()
+    {
+        // Reviews C1/C3c/I5, pinned at the source (the runtime cannot be constructed
+        // headlessly): the host must read bridge messages with WebMessageAsJson (the script
+        // posts a JS OBJECT — the string accessor throws for every snapshot), must gate the
+        // sender on the current top-level document, must raise NavigationStarting (review I1),
+        // and must handle NewWindowRequested by marking it Handled (an unhandled one opens an
+        // unmanaged popup). The M8 pin: initialization failure reports through the awaiting
+        // command only — the InitializeCoreAsync catch does not raise Failed itself.
+        var source = File.ReadAllText(SourcePath("Browse", "WebView2BrowseHost.cs"));
+
+        Check.WithCustomMessage("the host must read object envelopes with WebMessageAsJson (review C1)")
+            .That(source.Contains("e.WebMessageAsJson", StringComparison.Ordinal)).IsTrue();
+        Check.WithCustomMessage("TryGetWebMessageAsString throws for the script's object posts (review C1)")
+            .That(source.Contains("TryGetWebMessageAsString", StringComparison.Ordinal)).IsFalse();
+        Check.WithCustomMessage("the sender must be checked against the current document (review C3c)")
+            .That(source.Contains("!string.Equals(senderUri, current", StringComparison.Ordinal)).IsTrue();
+        Check.WithCustomMessage("NavigationStarting must reach the coordinator (review I1)")
+            .That(source.Contains("NavigationStarting?.Invoke()", StringComparison.Ordinal)).IsTrue();
+        Check.WithCustomMessage("NewWindowRequested must be handled — an unhandled one opens an unmanaged popup (review I5)")
+            .That(source.Contains("e.Handled = true", StringComparison.Ordinal)).IsTrue();
+        Check.WithCustomMessage(
+                "initialization failure reports once, through the awaiting command (review M8): exactly the " +
+                "two command catches raise Failed — a third raise in InitializeCoreAsync doubles the notice")
+            .That(System.Text.RegularExpressions.Regex.Matches(
+                source, System.Text.RegularExpressions.Regex.Escape("Failed?.Invoke(Describe(ex));")).Count)
+            .IsEqualTo(2);
     }
 
     [StaFact]
@@ -167,12 +220,12 @@ public class BrowseWindowHeadlessTests
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                 .GetValue(window)!);
 
-    private static string SourcePath(string fileName)
+    private static string SourcePath(params string[] segmentsUnderApp)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
             dir = dir.Parent;
         Check.That(dir).IsNotNull();
-        return Path.Combine(dir!.FullName, "src", "EyeCtrl.App", "Overlays", fileName);
+        return Path.Combine(new[] { dir!.FullName, "src", "EyeCtrl.App" }.Concat(segmentsUnderApp).ToArray());
     }
 }

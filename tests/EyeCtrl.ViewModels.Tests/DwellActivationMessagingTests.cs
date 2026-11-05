@@ -88,10 +88,13 @@ public class DwellActivationMessagingTests
     }
 
     [Fact]
-    public void TheAnnounceOptOutSet_IsExactlyTheTwoNoEffectSurfaces()
+    public void TheAnnounceOptOutSet_IsExactlyTheConsciousOptOuts()
     {
         // DeclaredOnly: an override declares its own getter; the inherited default does not.
         // Forces any future opt-out to touch this pin consciously (spec Testing).
+        // BrowseViewModel opts out to publish SELECTIVELY (external review M10): it sends the
+        // message itself exactly where an effect ran, so a paused page click or address focus
+        // never fires the dwell-completion cue.
         var optOuts = typeof(DwellOverlayViewModelBase).Assembly.GetTypes()
             .Where(t => t is { IsClass: true, IsAbstract: false }
                 && typeof(DwellOverlayViewModelBase).IsAssignableFrom(t))
@@ -101,6 +104,6 @@ public class DwellActivationMessagingTests
             .Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
 
         Check.That(string.Join(",", optOuts))
-            .IsEqualTo("ManualSelectionOverlayViewModel,ScrollOverlayViewModel");
+            .IsEqualTo("BrowseViewModel,ManualSelectionOverlayViewModel,ScrollOverlayViewModel");
     }
 }

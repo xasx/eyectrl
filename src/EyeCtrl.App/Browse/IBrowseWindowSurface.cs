@@ -31,12 +31,45 @@ public interface IBrowseWindowSurface
     /// contract — and the topmost Z-order).</summary>
     public void ActivateToFront();
 
+    /// <summary>
+    /// The web source this surface created and DISPLAYS (external review C2: exactly one host
+    /// per summon — the coordinator drives this instance, never one of its own). Created by
+    /// <see cref="Show"/>, so null before it; the coordinator reads it immediately after.
+    /// </summary>
+    public IBrowseWebSource? WebSource { get; }
+
+    /// <summary>
+    /// The WebView2 client area's physical screen bounds (external review C3a: the clip box
+    /// every page element rect is intersected with — a page cannot register a dwell target
+    /// outside the web view). False before the window is laid out (no honest bounds exist).
+    /// </summary>
+    public bool TryGetWebBounds(out PhysicalRect bounds);
+
+    /// <summary>
+    /// The whole window's physical screen bounds (external review I4: the note gate's occluder —
+    /// an opaque browser window occludes notes across its WHOLE face, not just where its dwell
+    /// targets sit). False before the window is laid out.
+    /// </summary>
+    public bool TryGetWindowBounds(out PhysicalRect bounds);
+
+    /// <summary>
+    /// Whether the window (its root HWND) is the one under <paramref name="screenPoint"/> —
+    /// the gaze point (external review I3). When another EyeCtrl surface (keyboard, toolbar,
+    /// ring) sits over the browser, the browser must not accumulate dwell on whatever lies
+    /// beneath it; this is the per-sample gate. False before the window is shown.
+    /// </summary>
+    public bool IsUnderPoint(PhysicalPoint screenPoint);
+
     /// <summary>The address bar's Enter: navigate the web view to the typed URL.</summary>
     public event Action<Uri>? NavigateRequested;
 
     /// <summary>The window closed (user alt+F4, the Close chrome button's window-internal
     /// path, or the coordinator's <see cref="Close"/>).</summary>
     public event Action? SurfaceClosed;
+
+    /// <summary>The window's on-screen geometry changed (external review M6: the chrome rects
+    /// and the web bounds are re-read then, instead of going stale until a re-summon).</summary>
+    public event Action? LayoutChanged;
 
     /// <summary>
     /// The WebView2 client area's top-left corner in physical screen pixels — the origin the

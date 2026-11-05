@@ -15,11 +15,19 @@ using EyeCtrl.ViewModels.Messages;
 /// View (BrowseWindow) draws the cue and the coordinator maps the activation.
 /// <para>
 /// Pause semantics follow the task-switcher rule (<see cref="DwellOverlayViewModelBase.DwellActiveWhilePaused"/>):
-/// the dwell itself keeps accumulating while paused — chrome navigation and close are
-/// window-internal (no OS input) and remain the paused user's way to drive or leave the browser —
-/// while the EFFECTS that reach beyond the window are gated via <see cref="LastSampleWasPaused"/>:
-/// a page-element activation (an OS click into the foreground) and the address bar (OS keyboard
-/// focus) do not fire on a paused sample.
+/// the dwell itself keeps accumulating while paused — but only the way OUT stays effectful
+/// (external review M11 + the base rule that reserves the opt-in for it): while paused, Close
+/// works, while Back/Forward/Home/Reload (a reload can drop form input), the address bar (OS
+/// keyboard focus) and page-element activation (an OS click into the foreground) do not fire
+/// on a paused sample. The dwell-completion cue (<see cref="Messages.DwellActivationMessage"/>)
+/// publishes only where an effect really ran — a suppressed activation is silent (review M10).
+/// </para>
+/// <para>
+/// The coordinator installs <see cref="MayDwellAt"/> (external review I3): the browser must not
+/// accumulate dwell on what lies beneath another EyeCtrl surface — the summonable keyboard, the
+/// raised toolbar, the ring. The whole window's bounds also feed the note gate's occluder
+/// (<see cref="WindowOccluderRects"/>, external review I4): an opaque browser occludes notes
+/// across its whole face.
 /// </para>
 /// </summary>
 public partial class BrowseViewModel : DwellOverlayViewModelBase
@@ -61,6 +69,23 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
     /// <summary>Whether the coordinator suspended dwell accumulation (ScrollMode is sliding the
     /// page under the gaze — nothing may complete while elements move under a resting gaze).</summary>
     private bool _scrollSuspended;
+
+    /// <summary>
+    /// The whole window's physical bounds while up — the note gate's occluder source (external
+    /// review I4). Empty before the coordinator reports and after hide; the coordinator falls
+    /// back to the work area until the window is measured. The D17 inventory keeps the dwell
+    /// rects (<see cref="LiveTargetRects"/>) — the finer set is what collision checks want.
+    /// </summary>
+    internal IReadOnlyList<PhysicalRect> WindowOccluderRects { get; private set; } = Array.Empty<PhysicalRect>();
+
+    /// <summary>
+    /// The per-sample gate the coordinator installs (external review I3): when another EyeCtrl
+    /// surface (the keyboard, the toolbar, the ring) is the window under the gaze point, the
+    /// sample must not accumulate dwell here — a completing page target would click INTO that
+    /// surface. Null (headless tests) leaves the sample ungated; the production coordinator
+    /// always installs the check.
+    /// </summary>
+    public Func<PhysicalPoint, bool>? MayDwellAt { get; set; }
 
     /// <summary>Raised when a page element's dwell completed: the coordinator performs the
     /// activation click at the element's mapped center. Not raised for a paused sample.</summary>
@@ -109,6 +134,7 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         _lastSnapshot = null;
         _webRects.Clear();
         _chromeIds.Clear();
+        WindowOccluderRects = Array.Empty<PhysicalRect>();
         IsVisible = true;
     }
 
@@ -124,9 +150,17 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         _lastSnapshot = null;
         _webRects.Clear();
         _chromeIds.Clear();
+        WindowOccluderRects = Array.Empty<PhysicalRect>();
         DwellProgressChanged?.Invoke(null, 0);
         RaiseTargetsChanged();
     }
+
+    /// <summary>
+    /// Coordinator-reported window bounds for the note gate's occluder (external review I4).
+    /// Re-reported on layout changes; hidden clears it.
+    /// </summary>
+    internal void ReportWindowBounds(PhysicalRect bounds) =>
+        WindowOccluderRects = new[] { bounds };
 
     /// <summary>
     /// Reconciles a freshly parsed page snapshot against the detector's live web targets and
@@ -238,34 +272,61 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         // stale-false and silently disarms the pause suppression in OnTargetActivated.
         NoteSamplePaused(message.IsPaused);
 
-        if (IsVisible && SampleMayDwell(message) && !_scrollSuspended)
+        // External review I3: another EyeCtrl surface (keyboard, toolbar, ring) may sit over
+        // the browser — a sample whose point is under THAT surface must not accumulate here,
+        // or its completion clicks into the surface on top.
+        if (IsVisible && SampleMayDwell(message) && !_scrollSuspended && (MayDwellAt?.Invoke(message.Position) ?? true))
             DwellDetector.Update(message.Position, message.TimestampMicroseconds);
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// External review M10: the base publishes <see cref="Messages.DwellActivationMessage"/> for
+    /// every activation, including the ones the pause rules suppress — a suppressed page click
+    /// or address focus would still fire the dwell-completion cue. The surface takes the
+    /// publishing over and sends it exactly where an effect ran.
+    /// </remarks>
+    protected override bool AnnounceDwellActivation => false;
 
     protected override void OnTargetActivated(string targetId)
     {
         if (targetId.StartsWith(ChromePrefix, StringComparison.Ordinal))
         {
-            // The address bar takes OS keyboard focus — a paused dwell must not fire it. The
-            // navigation and close buttons are window-internal (no OS input) and stay live: they
-            // are how a paused user drives and leaves the browser.
-            if (targetId == ChromeAddressId && LastSampleWasPaused)
+            // External review M11 + the base rule: while paused ONLY Close stays effectful — it
+            // is the way out. Back/Forward/Home/Reload act on a paused gaze can drop form input
+            // (a reload), and the address bar takes OS keyboard focus. Suppressed activations
+            // are silent (no dwell-completion cue, review M10).
+            if (LastSampleWasPaused && targetId != ChromeCloseId)
                 return;
             ChromeActivated?.Invoke(targetId);
+            Messenger.Send(new DwellActivationMessage());
             return;
         }
 
         // A page element's activation is an OS click into the foreground — suppressed while
-        // paused, like every non-safety effect on a DwellActiveWhilePaused surface.
+        // paused, like every non-safety effect on a DwellActiveWhilePaused surface. Silent on
+        // suppression (review M10).
         if (LastSampleWasPaused)
             return;
 
         if (_webRects.TryGetValue(targetId, out var rect))
+        {
             WebElementActivated?.Invoke(targetId, rect);
+            Messenger.Send(new DwellActivationMessage());
+        }
     }
 
-    protected override void OnTargetProgress(string targetId, double progress) =>
+    protected override void OnTargetProgress(string targetId, double progress)
+    {
+        // External review M10: a paused page dwell still accumulates (the way-out rule), but
+        // drawing its outline in the PAGE while every page effect is suppressed invites a
+        // surprise click on unpause — the JS cue stays quiet while paused. The chrome WPF
+        // strips keep drawing: window-internal feedback for the one live button.
+        if (LastSampleWasPaused && !targetId.StartsWith(ChromePrefix, StringComparison.Ordinal))
+            return;
+
         DwellProgressChanged?.Invoke(targetId, progress);
+    }
 
     /// <summary>Test seam (InternalsVisibleTo): raises <see cref="DwellProgressChanged"/> directly,
     /// so the coordinator's chrome/page cue routing is assertable without driving a dwell.</summary>

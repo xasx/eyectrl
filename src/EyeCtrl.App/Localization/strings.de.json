@@ -435,16 +435,24 @@
     "src": "b341aa4d"
   },
   "overlays.browse.failed.evergreen": {
-    "text": "Die WebView2 Evergreen-Laufzeit ist nicht installiert.",
-    "src": "d7c9447f"
+    "text": "Auf diesem PC fehlt die Browser-Komponente (WebView2). Ein Helfer kann sie von Microsoft installieren; danach den Browser schließen und neu öffnen.",
+    "src": "5158dec0"
   },
   "overlays.browse.failed.initialize": {
-    "text": "Die Webansicht konnte nicht initialisiert werden: {0}",
-    "src": "13b8df01"
+    "text": "Der Browser konnte nicht gestartet werden. Browser schließen und neu öffnen; besteht der Fehler weiter, die EyeCtrl-Protokolldatei prüfen.",
+    "src": "2d688221"
   },
   "overlays.browse.failed.loader": {
-    "text": "Der native WebView2-Loader (WebView2Loader) konnte nicht geladen werden.",
-    "src": "72db649d"
+    "text": "Eine Browser-Komponente konnte nicht geladen werden. Browser schließen und neu öffnen; besteht der Fehler weiter, muss ein Helfer die EyeCtrl-Installation reparieren.",
+    "src": "18f889e2"
+  },
+  "overlays.browse.start.hint": {
+    "text": "Geben Sie oben eine Adresse ein; die Eingabetaste der Bildschirmtastatur navigiert. Links, Schaltflächen und Felder der Seite werden automatisch zu Blick-Verweilzielen: Hinsehen genügt zum Klicken.",
+    "src": "1c33a687"
+  },
+  "overlays.browse.start.title": {
+    "text": "EyeCtrl-Browser",
+    "src": "867dc784"
   },
   "overlays.edge.back": {
     "text": "Zurück",

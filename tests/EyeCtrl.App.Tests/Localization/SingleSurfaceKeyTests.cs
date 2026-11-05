@@ -152,8 +152,10 @@ public class SingleSurfaceKeyTests
         // rollback failure sentence after review 01 N1.
         ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update", "rollback"]),
         // T4: the browse host's three web-source failure sentences render in the browser's
-        // address bar — the overlays surface (the browser window's own surface).
-        ("src/EyeCtrl.App/Browse/WebView2BrowseHost.cs", ["overlays"])
+        // address bar — the overlays surface (the browser window's own surface). External
+        // review M3: the start page's title and hint joined them, built in the coordinator.
+        ("src/EyeCtrl.App/Browse/WebView2BrowseHost.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/Coordinators/BrowseCoordinator.cs", ["overlays"])
     ];
 
     /// <summary>

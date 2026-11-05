@@ -248,11 +248,12 @@ public class EventCoordinator : IEventCoordinator
         _keyboardInteractionDispatcher = new KeyboardInteractionDispatcher();
         _keyboardInteractionDispatcher.Initialize(context);
 
-        // T5: the gaze browser's summon/wiring coordinator. Its window and web-source factories
-        // keep it headless-constructible; the VM rides the context (the DI singleton).
-        _browseCoordinator = new BrowseCoordinator(
-            () => new BrowseWindow(),
-            () => new WebView2BrowseHost());
+        // T5: the gaze browser's summon/wiring coordinator. Its window factory keeps it
+        // headless-constructible; the VM rides the context (the DI singleton). The web source
+        // is the WINDOW's own (review C2): the window creates and parents it in Show, and the
+        // coordinator drives that instance — a coordinator-built second host would navigate an
+        // orphan no one displays.
+        _browseCoordinator = new BrowseCoordinator(() => new BrowseWindow());
         _browseCoordinator.Initialize(context);
 
         // SettingsUiCoordinator is constructed LAST (7th): it consumes the suspend seams on the

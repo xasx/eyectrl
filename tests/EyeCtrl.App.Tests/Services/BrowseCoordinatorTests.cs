@@ -2,6 +2,8 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
@@ -32,16 +34,23 @@ public class BrowseCoordinatorTests
 {
     private const int DwellMs = 700; // ToolbarButtonDwellMs's default
 
+    /// <summary>The page→app envelopes the tests fire carry the fake host's secret (review
+    /// C3c) — an envelope without it fails the parse and registers nothing.</summary>
+    private const string Secret = "test-bridge-secret";
+
     // ── fakes ──
 
     private sealed class FakeWebSource : IBrowseWebSource
     {
         public event Action<string>? ElementMessageReceived;
+        public event Action? NavigationStarting;
         public event Action<string, bool>? NavigationCompleted;
         public event Action<bool>? BackPossibilityChanged;
         public event Action<bool>? ForwardPossibilityChanged;
         public event Action? Ready;
         public event Action<string>? Failed;
+
+        public string BridgeSecret { get; } = "test-bridge-secret";
 
         public List<Uri> Navigated { get; } = new();
         public List<string> NavigatedToString { get; } = new();
@@ -62,6 +71,7 @@ public class BrowseCoordinatorTests
         public void FireReady() => Ready?.Invoke();
         public void FireFailed(string reason) => Failed?.Invoke(reason);
         public void FireElement(string json) => ElementMessageReceived?.Invoke(json);
+        public void FireNavigationStarting() => NavigationStarting?.Invoke();
         public void FireNavigation(string url, bool ok) => NavigationCompleted?.Invoke(url, ok);
         public void FireBackPossibility(bool possible) => BackPossibilityChanged?.Invoke(possible);
     }
@@ -76,6 +86,10 @@ public class BrowseCoordinatorTests
         public string? LastAddressError;
         public PhysicalPoint Origin { get; set; } = new(100, 50);
         public bool OriginAvailable { get; set; } = true;
+        public PhysicalRect WebBounds { get; set; } = new(100, 50, 800, 600);
+        public bool WebBoundsAvailable { get; set; } = true;
+        public PhysicalRect WindowBounds { get; set; } = new(0, 0, 1920, 1040);
+        public bool UnderPoint { get; set; } = true;
         public List<(string Id, PhysicalRect Rect)> ChromeRects { get; set; } = new()
         {
             (BrowseViewModel.ChromeBackId, new PhysicalRect(500, 100, 48, 48)),
@@ -88,8 +102,11 @@ public class BrowseCoordinatorTests
         public List<(string? Id, double Progress)> ChromeProgress { get; } = new();
         public bool ChromeRectsAvailable { get; set; } = true;
 
+        public IBrowseWebSource? WebSource { get; set; }
+
         public event Action<Uri>? NavigateRequested;
         public event Action? SurfaceClosed;
+        public event Action? LayoutChanged;
 
         public void Show(BrowseViewModel vm) => ShownVm = vm;
         public void Close()
@@ -107,6 +124,20 @@ public class BrowseCoordinatorTests
             return OriginAvailable;
         }
 
+        public bool TryGetWebBounds(out PhysicalRect bounds)
+        {
+            bounds = WebBounds;
+            return WebBoundsAvailable;
+        }
+
+        public bool TryGetWindowBounds(out PhysicalRect bounds)
+        {
+            bounds = WindowBounds;
+            return true;
+        }
+
+        public bool IsUnderPoint(PhysicalPoint screenPoint) => UnderPoint;
+
         public bool TryGetChromeRects(out IReadOnlyList<(string Id, PhysicalRect Rect)> rects)
         {
             rects = ChromeRects;
@@ -123,6 +154,7 @@ public class BrowseCoordinatorTests
 
         public void FireNavigateRequested(Uri uri) => NavigateRequested?.Invoke(uri);
         public void FireSurfaceClosed() => SurfaceClosed?.Invoke();
+        public void FireLayoutChanged() => LayoutChanged?.Invoke();
     }
 
     private sealed class FakeToolbar : IToolbarOverlay
@@ -186,7 +218,8 @@ public class BrowseCoordinatorTests
 
         public void Initialize()
         {
-            Coordinator = new BrowseCoordinator(() => Surface, () => Web);
+            Surface.WebSource = Web; // review C2: the surface's OWN host is the only one
+            Coordinator = new BrowseCoordinator(() => Surface);
             Coordinator.Initialize(BuildContext());
         }
 
@@ -222,7 +255,7 @@ public class BrowseCoordinatorTests
         Check.That(kit.Surface.ShownVm).IsSameReferenceAs(kit.Vm);
         Check_THAT_VM_VISIBLE(kit);
         Check.That(kit.Web.NavigatedToString).HasSize(1);
-        Check.That(kit.Web.NavigatedToString[0]).IsEqualTo(BrowseCoordinator.StartPageHtml);
+        Check.That(kit.Web.NavigatedToString[0]).IsEqualTo(BrowseCoordinator.BuildStartPageHtml());
 
         // All six chrome rects the surface reported became the VM's dwell targets — including
         // the address box (review R1: without it the address bar is unreachable by gaze).
@@ -256,7 +289,7 @@ public class BrowseCoordinatorTests
         // The REAL envelope path: the fake host fires the page's JSON; the coordinator parses
         // it against the surface's origin (100,50) and applies the snapshot. css [10,20,30,40]
         // → physical (110,70,30,40), center (125,90).
-        kit.Web.FireElement("""{"type":"elements","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
         var center = new PhysicalPoint(125, 90);
 
         Hold(kit.Messenger, center, 0, DwellMs * 1000L + 1);
@@ -293,7 +326,7 @@ public class BrowseCoordinatorTests
 
         DwellOn(new PhysicalPoint(636, 124)); // home → re-navigates the start page
         Check.That(kit.Web.NavigatedToString).HasSize(2);
-        Check.That(kit.Web.NavigatedToString[1]).IsEqualTo(BrowseCoordinator.StartPageHtml);
+        Check.That(kit.Web.NavigatedToString[1]).IsEqualTo(BrowseCoordinator.BuildStartPageHtml());
 
         DwellOn(new PhysicalPoint(692, 124)); // reload
         Check.That(kit.Web.ReloadCalls).IsEqualTo(1);
@@ -309,13 +342,13 @@ public class BrowseCoordinatorTests
     }
 
     [Fact]
-    public void HostFailed_ShowsTheNotice_ClosesTheWindow_AndDisposesTheHost()
+    public void HostFailed_ShowsTheNotice_KeepsTheWindowOpen_AndDisposesTheHost()
     {
         var kit = new Kit();
         kit.Initialize();
         kit.SendShow();
 
-        const string reason = "The WebView2 Evergreen runtime is not installed.";
+        const string reason = "This PC is missing the browser component (WebView2). A helper can install it from Microsoft, then close and reopen the browser.";
         kit.Web.FireFailed(reason);
 
         // Review R3: the notice must be READABLE — the window stays open with the address-bar
@@ -340,20 +373,28 @@ public class BrowseCoordinatorTests
     }
 
     [Fact]
-    public void NavigationCompleted_ClearsTheWebTargets_ChromeSurvives()
+    public void NavigationStarting_ClearsTheWebTargets_ChromeSurvives()
     {
         var kit = new Kit();
         kit.Initialize();
         kit.SendShow();
 
-        kit.Web.FireElement("""{"type":"elements","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
         Check.That(kit.Vm.LiveTargetRects).Contains(new PhysicalRect(110, 70, 30, 40));
 
-        kit.Web.FireNavigation("https://example.test/", ok: true);
+        // Review I1: the clear rides NavigationStarting — NavigationCompleted fires after the
+        // new page's first snapshot, and clearing there wiped it.
+        kit.Web.FireNavigationStarting();
 
         Check.That(kit.Vm.LiveTargetRects).Not.Contains(new PhysicalRect(110, 70, 30, 40));
         // The chrome row survives the navigation.
         Check.That(kit.Vm.LiveTargetRects).Contains(new PhysicalRect(500, 100, 48, 48));
+
+        // The new page's own first snapshot lands AFTER the clear and is NOT wiped by the
+        // settled navigation (a static page's targets survive until the next navigation).
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":2,"dpr":1,"els":[{"i":"a2","k":"button","r":[30,40,30,40]}]}""");
+        kit.Web.FireNavigation("https://example.test/", ok: true);
+        Check.That(kit.Vm.LiveTargetRects).Contains(new PhysicalRect(130, 90, 30, 40));
     }
 
     [Fact]
@@ -363,7 +404,7 @@ public class BrowseCoordinatorTests
         kit.Initialize();
         kit.SendShow();
 
-        kit.Web.FireElement("""{"type":"elements","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
         var center = new PhysicalPoint(125, 90);
 
         // A REAL state edge, written from a NON-UI thread — the ScrollModeController hazard the
@@ -418,7 +459,7 @@ public class BrowseCoordinatorTests
         kit.Initialize();
         kit.SendShow();
 
-        kit.Web.FireElement("""{"type":"elements","gen":1,"dpr":1,"els":[{"i":"web_1","k":"button","r":[10,20,30,40]}]}""");
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"web_1","k":"button","r":[10,20,30,40]}]}""");
 
         kit.Vm.RaiseDwellProgressForTest(BrowseViewModel.ChromeBackId, 0.5);
         kit.Vm.RaiseDwellProgressForTest("web_1", 0.25);
@@ -469,5 +510,135 @@ public class BrowseCoordinatorTests
         kit.Surface.ChromeRectsAvailable = true;
         kit.Web.FireReady();
         Check.That(kit.Vm.LiveTargetRects).HasSize(6);
+    }
+
+    // ── external review round ──
+
+    [Fact]
+    public void Summon_DrivesTheSurfacesOwnWebSource()
+    {
+        // Review C2's regression class: the coordinator once built its OWN web source while the
+        // window displayed another — the driven one was an orphan nobody could see. The ctor
+        // takes no web-source factory any more; this pin fails the day one comes back.
+        var coordinatorSource = File.ReadAllText(
+            Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"));
+        Check.That(coordinatorSource.Contains("new BrowseCoordinator(")).IsTrue();
+        Check.That(coordinatorSource.Contains("new WebView2BrowseHost(")).IsFalse();
+    }
+
+    [Fact]
+    public void ElementEnvelope_WithoutTheSecret_NeverRegisters()
+    {
+        // Review C3c: any page can post an elements envelope; without the host's per-summon
+        // secret it fails the parse and no dwell target appears.
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+
+        kit.Web.FireElement("""{"type":"elements","gen":1,"dpr":1,"els":[{"i":"evil","k":"button","r":[10,20,30,40]}]}""");
+
+        Check.That(kit.Vm.LiveTargetRects).HasSize(6); // chrome only — the forged element is gone
+    }
+
+    [Fact]
+    public void ElementEnvelope_BeyondTheCap_IsDroppedWholesale()
+    {
+        // Review C3b: AddTarget rebuilds the detector snapshot per add, so an uncapped
+        // envelope is a UI-thread hang; the coordinator rejects beyond the script's cap.
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+
+        var elements = string.Join(",", Enumerable.Range(1, BrowseElementScript.MaxElements + 1)
+            .Select(i => $$"""{"i":"e{{i}}","k":"button","r":[10,20,30,40]}"""));
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{{elements}}]}""");
+
+        Check.That(kit.Vm.LiveTargetRects).HasSize(6); // chrome only
+    }
+
+    [Fact]
+    public void ElementRects_OutsideTheWebBounds_AreDropped_AndPartialRects_AreClippedToTheWebView()
+    {
+        // Review C3a — the decisive half of the trust boundary: the ±100k clamp bounds
+        // magnitudes, not locations, and the click is a real OS click at the rect's center.
+        // Web bounds are (100,50,800,600), origin (100,50): css [700,20,200,40] straddles the
+        // right edge → physical (800,70,200,40) clips to (800,70,100,40); css [2000,20,30,40]
+        // is fully outside → dropped.
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+
+        kit.Web.FireElement($$"""
+            {"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[
+                {"i":"straddle","k":"button","r":[700,20,200,40]},
+                {"i":"outside","k":"button","r":[2000,20,30,40]}]}
+            """);
+
+        Check.That(kit.Vm.LiveTargetRects).Contains(new PhysicalRect(800, 70, 100, 40));
+        Check.That(kit.Vm.LiveTargetRects).Not.Contains(new PhysicalRect(2100, 70, 30, 40));
+
+        // The click point is the CLIPPED rect's center, never the original one.
+        Hold(kit.Messenger, new PhysicalPoint(850, 90), 0, DwellMs * 1000L + 1);
+        Check.That(kit.Input.BareClickCount).IsEqualTo(1);
+        Check.That(kit.Input.LastBareClick).IsEqualTo(new PhysicalPoint(850, 90));
+    }
+
+    [Fact]
+    public void GazeUnderAnotherSurface_DoesNotAccumulate()
+    {
+        // Review I3: the keyboard/toolbar/ring can sit over the browser — a gaze point under
+        // THOSE surfaces must not complete a page dwell (its click would land in the surface
+        // on top).
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
+        var center = new PhysicalPoint(125, 90);
+
+        kit.Surface.UnderPoint = false;
+        Hold(kit.Messenger, center, 0, DwellMs * 4 * 1000L + 1);
+        Check.That(kit.Input.BareClickCount).IsEqualTo(0);
+
+        kit.Surface.UnderPoint = true;
+        Hold(kit.Messenger, center, DwellMs * 4 * 1000L + 1, DwellMs * 6 * 1000L + 1);
+        Check.That(kit.Input.BareClickCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void SurfaceLayoutChange_ReregistersTheChromeRow()
+    {
+        // Review M6: the chrome geometry was read once per summon — a moved/resized window
+        // left stale rects until close and re-summon. A layout change now re-reads.
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+        var oldCloseRect = kit.Surface.ChromeRects.Single(r => r.Id == BrowseViewModel.ChromeCloseId).Rect;
+
+        kit.Surface.ChromeRects = kit.Surface.ChromeRects
+            .Select(r => r.Id == BrowseViewModel.ChromeCloseId
+                ? (r.Id, new PhysicalRect(940, 100, 48, 48))
+                : r)
+            .ToList();
+        kit.Surface.FireLayoutChanged();
+
+        Check.That(kit.Vm.LiveTargetRects).Contains(new PhysicalRect(940, 100, 48, 48));
+        Check.That(kit.Vm.LiveTargetRects).Not.Contains(oldCloseRect);
+    }
+
+    [Fact]
+    public void WindowBounds_FeedTheNoteOccluder_AndClearOnHide()
+    {
+        // Review I4: the note gate occludes with the window's WHOLE bounds, not the dwell
+        // rects (a note outside the links would otherwise fire a click onto the page).
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+
+        Check.That(kit.Vm.WindowOccluderRects).Contains(kit.Surface.WindowBounds);
+
+        // Close tears everything down: the occluder empties with the window.
+        DwellOnChrome(kit, BrowseViewModel.ChromeCloseId);
+        Check.That(kit.Vm.WindowOccluderRects).IsEmpty();
     }
 }

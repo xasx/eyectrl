@@ -42,6 +42,9 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
     public event Action<string>? ElementMessageReceived;
 
     /// <inheritdoc />
+    public event Action? NavigationStarting;
+
+    /// <inheritdoc />
     public event Action<string, bool>? NavigationCompleted;
 
     /// <inheritdoc />
@@ -55,6 +58,9 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
 
     /// <inheritdoc />
     public event Action<string>? Failed;
+
+    /// <inheritdoc />
+    public string BridgeSecret { get; } = Guid.NewGuid().ToString("N");
 
     /// <inheritdoc />
     public async void Navigate(Uri uri)
@@ -130,11 +136,13 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
             await _control.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
             var core = _control.CoreWebView2;
 
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(BrowseElementScript.Source)
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(BrowseElementScript.CreateSource(BridgeSecret))
                 .ConfigureAwait(true);
 
             core.WebMessageReceived += OnWebMessageReceived;
+            core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
+            core.NewWindowRequested += OnNewWindowRequested;
             core.HistoryChanged += OnHistoryChanged;
 
             _core = core;
@@ -143,7 +151,9 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
         }
         catch (Exception ex)
         {
-            Failed?.Invoke(Describe(ex));
+            // No Failed raise here (review M8): the command that triggered this initialization
+            // is awaiting it and reports through its own catch — raising here too made every
+            // initialization failure fire the user-facing notice twice.
             throw;
         }
     }
@@ -168,8 +178,50 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
         return _environment;
     }
 
-    private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e) =>
-        ElementMessageReceived?.Invoke(e.TryGetWebMessageAsString());
+    private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        // The bridge script posts a JS OBJECT, so the string accessor throws for every
+        // snapshot (review C1) — WebMessageAsJson is the accessor for object posts.
+        string json;
+        try
+        {
+            json = e.WebMessageAsJson;
+        }
+        catch (ArgumentException)
+        {
+            return; // not our object envelope: drop
+        }
+
+        // Sender check (review C3c, host half): only the CURRENT top-level document may talk
+        // to the bridge. WebMessageReceived fires for the top document only (frame posts go
+        // to the never-subscribed CoreWebView2Frame event), so a mismatch means a document
+        // that has navigated away — its envelopes must not register targets into the new
+        // page. Strict equality; the string-typed start page is about:blank on both sides.
+        // The per-summon secret is the other half of the authentication (the parser's).
+        var senderUri = e.Source;
+        var current = _core?.Source;
+        if (string.IsNullOrEmpty(senderUri)
+            || current is null
+            || !string.Equals(senderUri, current, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        ElementMessageReceived?.Invoke(json);
+    }
+
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e) =>
+        NavigationStarting?.Invoke();
+
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        // Single-tab v1 (review I5): an unhandled request opens an unmanaged popup window —
+        // one the gaze chrome cannot drive and that can open behind the topmost browser.
+        // Redirect the same view instead; non-web schemes are suppressed outright.
+        e.Handled = true;
+        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+            _core?.Navigate(e.Uri);
+    }
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
@@ -190,13 +242,14 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
     /// a missing Evergreen runtime (CoreWebView2Environment.CreateAsync's typed exception) from
     /// a failed native-loader load under PublishSingleFile (Dll/FileNotFound). The sentences are
     /// user-facing (the coordinator shows the reason in the address bar), so they are keyed in
-    /// the overlays surface, not hard-coded.</summary>
+    /// the overlays surface, not hard-coded — and they never embed the exception message
+    /// (review M2: a raw message is developer jargon that can carry a user-name path).</summary>
     private static string Describe(Exception ex) => ex switch
     {
         WebView2RuntimeNotFoundException => StringTable.Current.T("overlays.browse.failed.evergreen"),
         DllNotFoundException => StringTable.Current.T("overlays.browse.failed.loader"),
         FileNotFoundException => StringTable.Current.T("overlays.browse.failed.loader"),
-        _ => StringTable.Current.T("overlays.browse.failed.initialize", ex.Message),
+        _ => StringTable.Current.T("overlays.browse.failed.initialize"),
     };
 
     public void Dispose()
@@ -204,7 +257,9 @@ internal sealed class WebView2BrowseHost : IBrowseWebSource
         if (_core is not null)
         {
             _core.WebMessageReceived -= OnWebMessageReceived;
+            _core.NavigationStarting -= OnNavigationStarting;
             _core.NavigationCompleted -= OnNavigationCompleted;
+            _core.NewWindowRequested -= OnNewWindowRequested;
             _core.HistoryChanged -= OnHistoryChanged;
         }
 

@@ -142,6 +142,16 @@ public partial class KeyboardWindow : OverlayWindow
 
     public KeyboardWindow(IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
     {
+        // The keyboard must never BE the foreground: its SendText injects keys into whatever
+        // window IS foreground, so a keyboard-foreground means typed keys go nowhere. The
+        // WS_EX_NOACTIVATE style alone does not prevent that — WPF's Show() calls Activate()
+        // when ShowActivated is still true, and programmatic activation ignores the style. In
+        // the old flows the theft was invisible (the keyboard was always summoned BEFORE the
+        // user focused a typing target); the browser's address-box flow focuses the target
+        // FIRST, and the show's activation silently un-focused it (owner feedback 2026-11-05).
+        // ShowActivated=false stops the Show() activation; an explicit Activate() call would
+        // still work, but the keyboard has none.
+        ShowActivated = false;
         InitializeComponent();
         Array.Fill(_slotDwellStartMs, long.MinValue);
         Array.Fill(_slotLastRunStartMs, long.MinValue);

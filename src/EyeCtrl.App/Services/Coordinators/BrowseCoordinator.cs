@@ -430,6 +430,14 @@ internal sealed class BrowseCoordinator : CoordinatorBase
                 break;
             case BrowseViewModel.ChromeAddressId:
                 _surface?.FocusAddressBox();
+                // Owner feedback 2026-11-05: dwelling the address box used to leave the gaze
+                // keyboard hidden — a second summon dwell before any typing could start. The
+                // field takes focus and the keyboard slides in with it (the SHOW message, not
+                // the toolbar's toggle: if the keyboard is already up, this must not hide it).
+                // The keyboard is a no-activate overlay, so it never steals the OS focus the
+                // address box just took, and its SendText lands in this window — the whole
+                // focusable-flip contract BrowseWindow was built on.
+                Context!.Messenger.Send(new KeyboardShowRequestedMessage());
                 break;
         }
     }

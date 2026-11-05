@@ -40,20 +40,33 @@ public static class Program
         try
         {
             var paths = SetupComposition.ProductionPaths();
-            if (!TryEnterSession(command, paths, Environment.ProcessPath, log, null, out var session))
-                return SetupExitCodes.Ok;
-
-            using (session)
-            {
-                return SetupComposition.CreateProduction(
-                    SetupComposition.PreferredStringsDirectory(command), log).Run(command);
-            }
+            return RunGuarded(
+                command, paths, Environment.ProcessPath, log, null,
+                () => SetupComposition.CreateProduction(
+                    SetupComposition.PreferredStringsDirectory(command), log).Run(command));
         }
         catch (Exception ex)
         {
             return HandleCrash(
                 command, ex, log, result => SetupComposition.TryRecordFailure(result, log));
         }
+    }
+
+    /// <summary>
+    /// C9 S6e fixup-06 M1: the guard's one wiring point, extracted so a test can prove that
+    /// <see cref="Main"/> ACTS on the refusal. A held session returns <see cref="SetupExitCodes.Busy"/>
+    /// without ever calling <paramref name="runComposition"/>; a free one calls it once and releases
+    /// the session (the same thread owns and releases it).
+    /// </summary>
+    internal static int RunGuarded(
+        ParsedSetupCommand command, SetupPaths paths, string? processPath, ISetupLog log,
+        string? mutexName, Func<int> runComposition)
+    {
+        if (!TryEnterSession(command, paths, processPath, log, mutexName, out var session))
+            return SetupExitCodes.Busy;
+
+        using (session)
+            return runComposition();
     }
 
     /// <summary>

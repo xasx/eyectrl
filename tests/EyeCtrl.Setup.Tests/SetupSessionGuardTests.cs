@@ -136,7 +136,7 @@ public sealed class SetupSessionGuardTests
     }
 
     [Fact]
-    public void ASecondInstance_ExitsBeforeTheComposition_AndLeavesTheFirstAlone()
+    public void ASecondInstance_ExitsBeforeTheComposition_WithTheBusyCode()
     {
         var name = NewName();
         using var first = SetupSessionGuard.TryEnter(TimeSpan.Zero, name);
@@ -144,23 +144,43 @@ public sealed class SetupSessionGuardTests
 
         var log = new RecordingSetupLog();
         var command = SetupCommandLine.Parse(["uninstall"]);
-        var refused = RunOnThread(() =>
-        {
-            var entered = Program.TryEnterSession(
-                command, Paths, Paths.InstalledSetupExePath, log, name, out var session);
-            try
-            {
-                return entered;
-            }
-            finally
-            {
-                session?.Dispose();
-            }
-        });
+        var runs = 0;
+        var exit = RunOnThread(() => Program.RunGuarded(
+            command, Paths, Paths.InstalledSetupExePath, log, name,
+            () => { runs++; return 0; }));
 
-        Check.WithCustomMessage("A second Setup instance entered the composition while the first held the session.")
-            .That(refused).IsFalse();
-        Check.That(log.Lines).HasElementThatMatches(line => line.Contains("another Setup session is already running"));
+        Check.WithCustomMessage("A refused second start did not report Busy (it would read as success in the wrapper).")
+            .That(exit).IsEqualTo(SetupExitCodes.Busy);
+        Check.WithCustomMessage("The refused instance ran the composition anyway (review-05 G6).")
+            .That(runs).IsZero();
+        Check.That(log.Lines).HasElementThatMatches(
+            line => line.Contains("another Setup session is already running"));
+    }
+
+    [Fact]
+    public void AFreeSession_RunsTheCompositionExactlyOnce_ThenReleasesIt()
+    {
+        var name = NewName();
+        var log = new RecordingSetupLog();
+        var command = SetupCommandLine.Parse(["uninstall"]);
+        var runs = 0;
+
+        var firstExit = Program.RunGuarded(
+            command, Paths, Paths.InstalledSetupExePath, log, name,
+            () => { runs++; return 42; });
+
+        Check.That(firstExit).IsEqualTo(42);
+        Check.That(runs).IsEqualTo(1);
+        Check.WithCustomMessage("The session was not released after the composition returned.")
+            .That(SetupSessionGuard.IsSessionLive(name)).IsFalse();
+
+        // The release is real, not a flag: the same name can be taken again immediately.
+        var secondExit = Program.RunGuarded(
+            command, Paths, Paths.InstalledSetupExePath, log, name,
+            () => { runs++; return 43; });
+
+        Check.That(secondExit).IsEqualTo(43);
+        Check.That(runs).IsEqualTo(2);
     }
 
     [Fact]

@@ -100,6 +100,13 @@ public static class SetupExitCodes
     /// done, so this is deliberately non-zero; S6c/S6f wait for a newer setup-last.json time.</summary>
     public const int HandedOff = 7;
 
+    /// <summary>
+    /// C9 S6e fixup-06 L1: a public mutating verb was refused because another Setup session is
+    /// already running. Nothing was changed and no record was written, so this must never read as
+    /// success (Install-EyeCtrl.ps1 -UntilExit prints it); the App ignores exit codes.
+    /// </summary>
+    public const int Busy = 8;
+
     /// <summary>Maps a result outcome to the process exit code the parent maps back.</summary>
     public static int For(SetupOutcome outcome) => outcome switch
     {

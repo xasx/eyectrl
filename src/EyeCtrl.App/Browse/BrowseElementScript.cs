@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Browse;
 
 using System;
+using EyeCtrl.Core.Browse;
 
 /// <summary>
 /// The bridge script injected into every document
@@ -17,13 +18,20 @@ using System;
 /// exits immediately there — frame elements are out of v1's scope, and frame posts would go to
 /// the never-subscribed <c>CoreWebView2Frame.WebMessageReceived</c> anyway.
 /// </para>
+/// <para>
+/// The script captures <c>chrome.webview.postMessage</c> ONCE, bound, at document creation
+/// (review r2 M3) — a page hooking the bridge afterwards cannot route its posts through the
+/// capture. This deters forgery by scripts that do not hook the bridge; a page that hooks the
+/// bridge before posting can still read or append to the real envelope, which is why the
+/// coordinator's clip and the parser's bounds are the load-bearing layers.
+/// </para>
 /// </summary>
 internal static class BrowseElementScript
 {
-    /// <summary>The per-snapshot element cap: a runaway page cannot flood the dwell registry.
-    /// The coordinator enforces the same cap host-side (review C3b) — a page that bypasses the
-    /// script and posts its own (secret-less) envelope cannot flood either way.</summary>
-    public const int MaxElements = 400;
+    /// <summary>The per-snapshot element cap the script enforces client-side; the parser
+    /// enforces the same number inside its loop (<see cref="WebElementMessageParser.MaxElements"/>,
+    /// pinned equal by the tests).</summary>
+    public const int MaxElements = WebElementMessageParser.MaxElements;
 
     /// <summary>The per-summon secret placeholder inside <see cref="Template"/>.</summary>
     private const string SecretPlaceholder = "__BRIDGE_SECRET__";
@@ -42,6 +50,11 @@ internal static class BrowseElementScript
     if (window.top !== window) return;
 
     var SECRET = '__BRIDGE_SECRET__';
+    // Captured ONCE, bound, at document creation (review r2 M3): a page hooking
+    // chrome.webview afterwards cannot route its posts through this capture. This deters
+    // forgery by scripts that do not hook the bridge; the coordinator's clip and the parser's
+    // bounds remain the load-bearing layers.
+    var send = window.chrome.webview.postMessage.bind(window.chrome.webview);
     var MAX = 400;
     var counter = 0;
     var gen = 0;
@@ -54,6 +67,10 @@ internal static class BrowseElementScript
         try { style = window.getComputedStyle(el); } catch (e) { return false; }
         if (!style || style.visibility === 'hidden' || style.display === 'none') return false;
         if (el.getAttribute('aria-hidden') === 'true' || el.hidden) return false;
+        // Inert subtrees and disabled controls never act on a click, so dwelling one fires
+        // nothing (review r2 M4): the guide's contract and the script now agree.
+        try { if (el.closest('[inert]')) return false; } catch (e) { /* old engines: no closest */ }
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
         var rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
     }
@@ -124,7 +141,7 @@ internal static class BrowseElementScript
         gen += 1;
         try { collect(els); } catch (e) { els = []; }
         try {
-            window.chrome.webview.postMessage({
+            send({
                 type: 'elements',
                 n: SECRET,
                 gen: gen,

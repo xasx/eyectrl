@@ -253,7 +253,7 @@ public class EventCoordinator : IEventCoordinator
         // is the WINDOW's own (review C2): the window creates and parents it in Show, and the
         // coordinator drives that instance — a coordinator-built second host would navigate an
         // orphan no one displays.
-        _browseCoordinator = new BrowseCoordinator(() => new BrowseWindow());
+        _browseCoordinator = new BrowseCoordinator(() => new BrowseWindow(), _modal);
         _browseCoordinator.Initialize(context);
 
         // SettingsUiCoordinator is constructed LAST (7th): it consumes the suspend seams on the

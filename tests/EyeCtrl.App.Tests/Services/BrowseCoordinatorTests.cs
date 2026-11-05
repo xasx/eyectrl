@@ -90,6 +90,10 @@ public class BrowseCoordinatorTests
         public bool WebBoundsAvailable { get; set; } = true;
         public PhysicalRect WindowBounds { get; set; } = new(0, 0, 1920, 1040);
         public bool UnderPoint { get; set; } = true;
+
+        /// <summary>Per-point override for the r2 M2 scenarios (the gaze point under the
+        /// browser, the element's center under another surface).</summary>
+        public Func<PhysicalPoint, bool>? UnderPointCheck { get; set; }
         public List<(string Id, PhysicalRect Rect)> ChromeRects { get; set; } = new()
         {
             (BrowseViewModel.ChromeBackId, new PhysicalRect(500, 100, 48, 48)),
@@ -103,6 +107,11 @@ public class BrowseCoordinatorTests
         public bool ChromeRectsAvailable { get; set; } = true;
 
         public IBrowseWebSource? WebSource { get; set; }
+
+        public (double Left, double Top, double Right, double Bottom)? Inset { get; private set; }
+
+        public void InsetForDockedToolbar(double left, double top, double right, double bottom) =>
+            Inset = (left, top, right, bottom);
 
         public event Action<Uri>? NavigateRequested;
         public event Action? SurfaceClosed;
@@ -136,7 +145,8 @@ public class BrowseCoordinatorTests
             return true;
         }
 
-        public bool IsUnderPoint(PhysicalPoint screenPoint) => UnderPoint;
+        public bool IsUnderPoint(PhysicalPoint screenPoint) =>
+            UnderPointCheck is { } check ? check(screenPoint) : UnderPoint;
 
         public bool TryGetChromeRects(out IReadOnlyList<(string Id, PhysicalRect Rect)> rects)
         {
@@ -219,7 +229,7 @@ public class BrowseCoordinatorTests
         public void Initialize()
         {
             Surface.WebSource = Web; // review C2: the surface's OWN host is the only one
-            Coordinator = new BrowseCoordinator(() => Surface);
+            Coordinator = new BrowseCoordinator(() => Surface, new ModalInteractionState());
             Coordinator.Initialize(BuildContext());
         }
 
@@ -425,8 +435,15 @@ public class BrowseCoordinatorTests
         Hold(kit.Messenger, center, 0, (DwellMs * 2 * 1000L) + 1); // far past the dwell time
         Check.That(kit.Input.BareClickCount).IsEqualTo(0);
 
-        // Resume — a real edge again, again from the worker thread.
-        worker = new Thread(() => kit.Im.ExitScrollMode());
+        // Resume — a real edge again, again from the worker thread. Exiting ScrollMode returns
+        // to the menu-visible state the mode was entered from; the shared suspension set (r2
+        // I4) holds the browser there too, so the test dismisses the menu before the resume
+        // hold — in production the user's gaze leaves the menu and the browser re-arms.
+        worker = new Thread(() =>
+        {
+            kit.Im.ExitScrollMode();
+            kit.Im.OnActionMenuDismissed();
+        });
         worker.Start();
         worker.Join();
         kit.Pump();
@@ -540,8 +557,114 @@ public class BrowseCoordinatorTests
     {
     }
 
+    // ── round-2 verdict (FIX-THEN-SHIP) ──
+
     [Fact]
-    public void Summon_DrivesTheSurfacesOwnWebSource()
+    public void Summon_WithADockedToolbar_InsetsTheSurfaceByItsBand_AndANonDockedOneDoesNot()
+    {
+        // Review r2 I1: the docked toolbar's band and the chrome row share the work-area edge,
+        // and the summon raises the toolbar above the browser — with the owner's settings
+        // (top, size 108) Reload and most of the address field were covered. The surface is
+        // inset by the band's thickness (size + the two 12-DIP margins + the 2×4 padding).
+        var dockedKit = new Kit();
+        dockedKit.Settings.Toolbar.IsDocked = true;
+        dockedKit.Settings.Toolbar.DockedEdge = "Top";
+        dockedKit.Settings.Toolbar.Size = 108;
+        dockedKit.Initialize();
+        dockedKit.SendShow();
+        Check.That(dockedKit.Surface.Inset).IsEqualTo((0.0, 140.0, 0.0, 0.0));
+
+        var floatingKit = new Kit();
+        floatingKit.Settings.Toolbar.IsDocked = false;
+        floatingKit.Initialize();
+        floatingKit.SendShow();
+        Check.That(floatingKit.Surface.Inset).IsNull();
+    }
+
+    [Fact]
+    public void Resummon_ReassertsTheToolbarAboveTheBrowser()
+    {
+        // Review r2 I3: a resting gaze on the toolbar's Browse button re-summons about a
+        // dwell+cooldown later, and the re-summon's ActivateToFront buried the toolbar — the
+        // universal exit. Every summon re-asserts the surfaces that live above the browser.
+        var kit = new Kit();
+        kit.Toolbar.IsVisibleValue = true;
+        kit.Initialize();
+        kit.SendShow();
+        Check.That(kit.Toolbar.RaiseToTopCalled).IsTrue();
+
+        kit.Toolbar.RaiseToTopCalled = false;
+        kit.SendShow();
+        Check.WithCustomMessage("the re-summon buried the toolbar (r2 I3)")
+            .That(kit.Toolbar.RaiseToTopCalled).IsTrue();
+    }
+
+    [Fact]
+    public void PageActivation_ClicksAtTheGazePoint_WhenTheCenterIsUnderAnotherSurface()
+    {
+        // Review r2 M2: the clipped center can sit under another EyeCtrl surface (a tall
+        // element partly under the keyboard) even though the gaze point does not — the click
+        // falls back to the completing gaze point, which the under-point gate just proved is
+        // the browser. The element's physical rect is (110,70,300,40): gaze (120,95) is inside
+        // it, its center (260,90) is "under another surface" per the probe.
+        var kit = new Kit();
+        kit.Surface.UnderPointCheck = point => point.X < 200;
+        kit.Initialize();
+        kit.SendShow();
+
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,300,40]}]}""");
+        Hold(kit.Messenger, new PhysicalPoint(120, 95), 0, DwellMs * 1000L + 1);
+
+        Check.That(kit.Input.BareClickCount).IsEqualTo(1);
+        Check.That(kit.Input.LastBareClick).IsEqualTo(new PhysicalPoint(120, 95));
+    }
+
+    [Fact]
+    public void ManualSelectionState_SuspendsBrowseDwell()
+    {
+        // Review r2 I4: the under-point gate sees through click-through windows — the
+        // ManualSelection magnifier is exactly that — so the states whose surfaces own the
+        // screen gate the accumulation by the SAME predicate the note gate uses.
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+
+        kit.Web.FireElement($$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"els":[{"i":"a1","k":"button","r":[10,20,30,40]}]}""");
+        var center = new PhysicalPoint(125, 90);
+
+        var worker = new Thread(() =>
+        {
+            kit.Im.SelectionMode = SelectionMode.ManualSelection;
+            kit.Im.OnFixationStarted(new PhysicalPoint(100, 100));
+            kit.Im.OnActivationButtonDwelled();
+        });
+        worker.Start();
+        worker.Join();
+        kit.Pump();
+        Check.That(kit.Im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
+
+        Hold(kit.Messenger, center, 0, DwellMs * 4 * 1000L + 1);
+        Check.That(kit.Input.BareClickCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AddressDwell_LabelsItsKeyboardSummon_BrowseAddress()
+    {
+        // Review r2 M10: the address dwell reuses the keyboard's show message; its E1 shown
+        // line must record the browse-address source, not the ring's.
+        var kit = new Kit();
+        var sources = new List<string>();
+        kit.Messenger.Register<BrowserCoordinatorKeyboardProbe, KeyboardShowRequestedMessage>(
+            new BrowserCoordinatorKeyboardProbe(), (_, m) => sources.Add(m.Source));
+        kit.Initialize();
+        kit.SendShow();
+
+        DwellOnChrome(kit, BrowseViewModel.ChromeAddressId);
+        Check.That(sources).ContainsExactly("browse-address");
+    }
+
+    [Fact]
+    public void TheCoordinatorWiring_TakesNoSecondWebSourceFactory()
     {
         // Review C2's regression class: the coordinator once built its OWN web source while the
         // window displayed another — the driven one was an orphan nobody could see. The ctor

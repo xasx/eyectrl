@@ -38,6 +38,7 @@ using Serilog;
 internal sealed class BrowseCoordinator : CoordinatorBase
 {
     private readonly Func<IBrowseWindowSurface> _createSurface;
+    private readonly ModalInteractionState _modalState;
 
     private BrowseViewModel? _vm;
     private IBrowseWindowSurface? _surface;
@@ -49,9 +50,10 @@ internal sealed class BrowseCoordinator : CoordinatorBase
     private bool _backPossible = true;
     private bool _forwardPossible = true;
 
-    public BrowseCoordinator(Func<IBrowseWindowSurface> createSurface)
+    public BrowseCoordinator(Func<IBrowseWindowSurface> createSurface, ModalInteractionState modalState)
     {
         _createSurface = createSurface ?? throw new ArgumentNullException(nameof(createSurface));
+        _modalState = modalState ?? throw new ArgumentNullException(nameof(modalState));
     }
 
     protected override void OnInitialize()
@@ -77,13 +79,20 @@ internal sealed class BrowseCoordinator : CoordinatorBase
     {
         var context = Context!;
         if (context.Dispatcher.CheckAccess())
-            ApplyScrollSuspension(state);
+            ApplyInteractionSuspension(state);
         else
-            context.Dispatcher.BeginInvoke(() => ApplyScrollSuspension(state));
+            context.Dispatcher.BeginInvoke(() => ApplyInteractionSuspension(state));
     }
 
-    private void ApplyScrollSuspension(InteractionState state) =>
-        _vm?.SetScrollSuspended(state == InteractionState.ScrollMode);
+    /// <summary>
+    /// External review r2 I4: the under-point gate (<c>WindowFromPoint</c>) sees through
+    /// click-through windows — the ManualSelection magnifier, the drag trail and the repeat
+    /// cursor are exactly that — so the states whose surfaces own the screen must gate the
+    /// accumulation themselves, by the SAME predicate the note gate uses
+    /// (<see cref="GazeSuspension.SuspendsGazeSurfaces"/>), not a ScrollMode-only copy.
+    /// </summary>
+    private void ApplyInteractionSuspension(InteractionState state) =>
+        _vm?.SetScrollSuspended(GazeSuspension.SuspendsGazeSurfaces(state));
 
     // ── summon ──
 
@@ -92,7 +101,12 @@ internal sealed class BrowseCoordinator : CoordinatorBase
         if (_surface is not null)
         {
             // The ring action never hides (the Keyboard show semantics): already up → to the front.
+            // Review r2 I3: the re-summon must NOT bury the overlays that live above the browser
+            // — a resting gaze on the toolbar's Browse button re-fires ~1.1 s after the first
+            // summon, and RaiseToTop lifted the browser over the toolbar (the universal exit),
+            // the keyboard and the cursor ring.
             _surface.ActivateToFront();
+            ReassertSurfacesAboveBrowser();
             return;
         }
 
@@ -106,6 +120,7 @@ internal sealed class BrowseCoordinator : CoordinatorBase
         _vm.Show();
 
         _surface = _createSurface();
+        ApplyDockedToolbarInset(_surface);
         WireSurface();
         WireViewModel();
 
@@ -127,15 +142,67 @@ internal sealed class BrowseCoordinator : CoordinatorBase
 
         TryRegisterChromeRects();
         TryReportWindowBounds();
-        _vm.SetScrollSuspended(Context.InteractionManager.CurrentState == InteractionState.ScrollMode);
+        _vm.SetScrollSuspended(GazeSuspension.SuspendsGazeSurfaces(Context.InteractionManager.CurrentState));
 
         // The toolbar is the one sibling that must stay REACHABLE over the browser: it is how
         // the user pauses/unpauses and reaches the ring while browsing. A hidden toolbar needs
         // nothing — its own later Show() enters the topmost band above Browse.
-        if (Context.OverlayManager.Toolbar.IsVisible)
-            Context.OverlayManager.Toolbar.RaiseToTop();
+        ReassertSurfacesAboveBrowser();
 
         EnsureStartPage();
+    }
+
+    /// <summary>
+    /// Review r2 I1: the docked toolbar's band and the browser's chrome row share the same
+    /// work-area edge, and the summon deliberately raises the toolbar above the browser —
+    /// with a top dock that covered Reload and most of the address field, with a right dock
+    /// it covered Close. The browser reserves the band out of its rect on the docked edge,
+    /// from the same settings the toolbar's own placement uses. Persistent: the auto-hidden
+    /// toolbar never covers the chrome row when it slides in.
+    /// </summary>
+    private void ApplyDockedToolbarInset(IBrowseWindowSurface surface)
+    {
+        var toolbar = Context!.Settings.Toolbar;
+        if (!toolbar.IsDocked)
+            return;
+
+        // The band's DIP thickness: the button size + the two 12-DIP margins + the toolbar
+        // window's 2×4 padding (the same arithmetic ToolbarButtonVisualTests pins).
+        var thickness = toolbar.Size + 32;
+        switch (toolbar.DockedEdge)
+        {
+            case "Top":
+                surface.InsetForDockedToolbar(0, thickness, 0, 0);
+                break;
+            case "Bottom":
+                surface.InsetForDockedToolbar(0, 0, 0, thickness);
+                break;
+            case "Left":
+                surface.InsetForDockedToolbar(thickness, 0, 0, 0);
+                break;
+            case "Right":
+                surface.InsetForDockedToolbar(0, 0, thickness, 0);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Re-asserts the surfaces that must stay reachable ABOVE the browser: the visible toolbar
+    /// (pause — the universal exit), a shown keyboard, and the cursor ring (r2 I3: of the app's
+    /// RaiseToTop sites none touched the ring, so from the first summon the owner's gaze
+    /// feedback sat under the opaque work-area window). Runs after the first Show and after
+    /// every ActivateToFront — a resting gaze on the toolbar's Browse button re-summons about
+    /// a dwell+cooldown later, and that re-summon must not bury the toolbar.
+    /// </summary>
+    private void ReassertSurfacesAboveBrowser()
+    {
+        if (Context.OverlayManager.Toolbar.IsVisible)
+            Context.OverlayManager.Toolbar.RaiseToTop();
+        if (_modalState.KeyboardVisible)
+            Context.OverlayManager.Keyboard.RaiseToTop();
+        // The ring is the owner's only gaze feedback — from the browser's first summon it sat
+        // under the opaque work-area window (r2 I3: no RaiseToTop site ever touched it).
+        Context.OverlayManager.CursorCircle.RaiseToTop();
     }
 
     private void WireWebSource()
@@ -174,18 +241,12 @@ internal sealed class BrowseCoordinator : CoordinatorBase
         if (!_surface.TryGetWebBounds(out var webBounds))
             return;
 
-        // Authentication (review C3c): the envelope must carry the host's per-summon secret.
+        // Authentication (review C3c) + bounds (r2 I6): the parser requires the host's
+        // per-summon secret, rejects envelopes beyond the byte bound, and fails the whole
+        // parse past the element cap — all inside the parse, on input a hostile page needs no
+        // secret to produce, so none of it can stall the UI thread before rejecting.
         if (!WebElementMessageParser.TryParse(json, origin, _bridgeSecret, out var snapshot))
             return;
-
-        // Host-side cap (review C3b): the script caps its own snapshots; a page that bypasses
-        // the script cannot flood the dwell registry (AddTarget rebuilds the snapshot array,
-        // so tens of thousands of elements would also stall the UI thread).
-        if (snapshot.Elements.Count > BrowseElementScript.MaxElements)
-        {
-            Log.Debug("Browse bridge: envelope beyond the element cap dropped");
-            return;
-        }
 
         _vm!.ApplySnapshot(ClippedToWebBounds(snapshot, webBounds));
     }
@@ -299,6 +360,10 @@ internal sealed class BrowseCoordinator : CoordinatorBase
     /// </summary>
     private void OnSurfaceLayoutChanged()
     {
+        // Review r2 M8: the closing window's late layout events must not re-register anything
+        // — Teardown has detached the surface's events, and this guard is the second half.
+        if (_surface is null || _vm is null)
+            return;
         _chromeRectsRegistered = false;
         TryRegisterChromeRects();
         TryReportWindowBounds();
@@ -313,10 +378,13 @@ internal sealed class BrowseCoordinator : CoordinatorBase
     /// </summary>
     private void TryReportWindowBounds()
     {
-        if (_vm is null)
+        // Review r2 M8: after teardown the surface is gone — the work-area fallback must not
+        // fire from a late layout event and occlude every note until the next summon. The VM's
+        // own IsVisible guard on ReportWindowBounds is the second layer.
+        if (_vm is null || _surface is null)
             return;
 
-        if (_surface is not null && _surface.TryGetWindowBounds(out var bounds))
+        if (_surface.TryGetWindowBounds(out var bounds))
         {
             _vm.ReportWindowBounds(bounds);
             return;
@@ -400,8 +468,18 @@ internal sealed class BrowseCoordinator : CoordinatorBase
 
     private void OnSurfaceClosed() => Teardown(closeWindow: false);
 
-    private void OnWebElementActivated(string id, PhysicalRect rect) =>
-        Context!.InputSimulator.LeftClick(rect.Center);
+    private void OnWebElementActivated(string id, PhysicalRect rect, PhysicalPoint gazePoint)
+    {
+        // Review r2 M2: the clipped center can sit under another EyeCtrl surface — a tall
+        // element partly under the keyboard — even though the gaze point does not (the
+        // under-point gate just proved the browser is under the GAZE point). Click where the
+        // user looked when the center is not on the browser; the gaze point is inside the
+        // element's rect by construction (the dwell hit it).
+        var point = _surface is not null && _surface.IsUnderPoint(rect.Center)
+            ? rect.Center
+            : gazePoint;
+        Context!.InputSimulator.LeftClick(point);
+    }
 
     private void OnChromeActivated(string id)
     {
@@ -438,7 +516,7 @@ internal sealed class BrowseCoordinator : CoordinatorBase
                 // is foreground, which is this window (the focusable-flip contract) — and since
                 // KeyboardWindow's Show no longer activates (ShowActivated=false, the same
                 // feedback round), the address box keeps the OS focus the keyboard types into.
-                Context!.Messenger.Send(new KeyboardShowRequestedMessage());
+                Context!.Messenger.Send(new KeyboardShowRequestedMessage(Source: "browse-address"));
                 break;
         }
     }
@@ -467,6 +545,14 @@ internal sealed class BrowseCoordinator : CoordinatorBase
 
         var surface = _surface;
         _surface = null;
+
+        // Review r2 M8/M13: detach the surface's events — a late SizeChanged/LocationChanged
+        // from the closing window must not re-register chrome rects or re-fill the note
+        // occluder after Hide emptied it (the work-area fallback would occlude every note
+        // until the next summon). The VM's events detach above; the surface's detach here.
+        surface.NavigateRequested -= OnNavigateRequested;
+        surface.SurfaceClosed -= OnSurfaceClosed;
+        surface.LayoutChanged -= OnSurfaceLayoutChanged;
 
         if (_vm is not null)
         {

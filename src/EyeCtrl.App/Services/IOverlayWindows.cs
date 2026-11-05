@@ -95,6 +95,14 @@ public interface ICursorCircleOverlay
     void FlashFired() { }
 
     /// <summary>
+    /// Re-inserts the ring at the top of the topmost band without moving or activating it
+    /// (external review r2 I3: the browser is a work-area opaque window, and from its first
+    /// summon the owner's gaze feedback sat under it — no RaiseToTop site ever touched the
+    /// ring). A default no-op so the overlay fakes that never observe it need no member.
+    /// </summary>
+    void RaiseToTop() { }
+
+    /// <summary>
     /// Switches the ring to its blocked look while the detector reports that Windows is discarding
     /// EyeCtrl's input (C10): a PAIRED DASH per band, never a dim or a colour change, because C1's
     /// lesson is that the owner's pointer must never get harder to see. It must not touch

@@ -855,7 +855,7 @@
     "args": []
   },
   "overlays.browse.start.hint": {
-    "text": "Type an address in the field above; the on-screen keyboard's Enter navigates. Links, buttons and fields on the page become gaze-dwell targets automatically: look at one to click it.",
+    "text": "Type an address or a search in the field above; the on-screen keyboard's Enter opens it. Links, buttons and fields on the page become gaze-dwell targets automatically: look at one to click it.",
     "who": "user",
     "where": "overlays",
     "fit": "prose",

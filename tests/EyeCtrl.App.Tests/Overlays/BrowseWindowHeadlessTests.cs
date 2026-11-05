@@ -242,6 +242,22 @@ public class BrowseWindowHeadlessTests
     }
 
     [Fact]
+    public void CreateSource_BakesTheSecretInOnce_CapturesTheBridge_AndPairsTheCap()
+    {
+        // Review r2 M7: a drifted placeholder would silently kill the bridge (C1's class) — the
+        // substitution, the capture-once bind (r2 M3) and the cap pairing are pinned.
+        var source = BrowseElementScript.CreateSource("s3cret");
+
+        Check.WithCustomMessage("the secret must appear exactly once — the var; the envelope posts the var")
+            .That(System.Text.RegularExpressions.Regex.Matches(source, "s3cret").Count).IsEqualTo(1);
+        Check.WithCustomMessage("the bridge must be captured once, bound, at creation (r2 M3)")
+            .That(source.Contains("window.chrome.webview.postMessage.bind(window.chrome.webview)", StringComparison.Ordinal)).IsTrue();
+        Check.WithCustomMessage("the script's client-side cap must equal the parser's (r2 M7)")
+            .That(BrowseElementScript.MaxElements).IsEqualTo(EyeCtrl.Core.Browse.WebElementMessageParser.MaxElements);
+        Check.That(source.Contains("var MAX = 400", StringComparison.Ordinal)).IsTrue();
+    }
+
+    [Fact]
     public void TheChromeRow_IsSizedForDwelling_AtTheToolbarSProvenButtonSize()
     {
         // Owner feedback from the first live smoke (2026-11-05): dwelling the 48-DIP chrome

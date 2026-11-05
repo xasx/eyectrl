@@ -1275,9 +1275,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 Intersects, out hit) || hit)
             return true;
 
-        // T5 review R2: the browser is a work-area, non-click-through window — a note beneath it
-        // would fire a click onto the browser page. Its dwell rects (chrome + reconciled page
-        // elements) gate the notes exactly like the lag mark's.
+        // T5 review R2 + external r1 I4/r2 M5: the browser is a work-area, non-click-through
+        // window — a note beneath it would fire a click onto the browser page. Its WHOLE window
+        // bounds gate the notes (the dwell rects stay with the D17 inventory).
         if (!TryReadOccluderRects(KnownOccluderSources.Browse,
                 () => _browseRects?.Invoke() ?? (IReadOnlyList<PhysicalRect>)Array.Empty<PhysicalRect>(),
                 Intersects, out hit) || hit)
@@ -2149,14 +2149,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// screen while they last. ActionMenuVisible and the two ManualSelection states show the menu
     /// and the full-screen magnifier, ScrollMode/Dragging/RepeatMode pin their own controls at the
     /// live gaze point (review 02 confirmed the set is complete). The keyboard is deliberately NOT
-    /// here — Done must stay live while typing; a covered note is caught by conjunct 4.</summary>
+    /// here — Done must stay live while typing; a covered note is caught by conjunct 4. The set
+    /// lives on <see cref="GazeSuspension"/> so the browse dwell shares it by reference, not by
+    /// copy (external review r2 I4).</summary>
     internal static bool InteractionStateSuspendsNotes(InteractionState state) =>
-        state is InteractionState.ActionMenuVisible
-            or InteractionState.ManualSelectionActive
-            or InteractionState.ManualSelectionActionMenuVisible
-            or InteractionState.ScrollMode
-            or InteractionState.Dragging
-            or InteractionState.RepeatMode;
+        GazeSuspension.SuspendsGazeSurfaces(state);
 
     /// <summary>The exercise flag's message (P2 D1). Idempotent: EyeCareService sends it once per
     /// transition; a duplicate changes nothing.</summary>

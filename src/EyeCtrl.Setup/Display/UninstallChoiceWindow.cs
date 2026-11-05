@@ -30,7 +30,8 @@ using EyeCtrl.Setup.Abstractions;
 /// and restart the gate. Losing activation alone does not drop them (Q8 is topmost, so it is
 /// usually not covered — the App's occlusion filter handles real coverage). fixup-06 M3(b) adds a
 /// resting-gaze gate: an Invoke that arrives before the window is armed restarts the gate for
-/// longer than the owner's dwell + cooldown, so a gaze that simply rests on Q8 never fires.
+/// longer than the worst dwell restart (2 × dwell + cooldown + a blink allowance; fixup-07 N1), so
+/// a gaze that simply rests on Q8 never fires, even across a blink.
 /// </para>
 ///
 /// <para>
@@ -66,14 +67,17 @@ internal class UninstallChoiceWindow : Window
     /// <param name="strings">The resolved table.</param>
     /// <param name="workArea">The work area to lay the window into; tests pass the owner's
     /// 1920 x 1152 DIP, production passes <see cref="SystemParameters.WorkArea"/>.</param>
-    /// <param name="restingGazeGate">fixup-06 M3(b): how long a pre-arm Invoke restarts the gate
-    /// for. Production passes the owner's dwell + cooldown + margin
-    /// (<see cref="SetupDwellTiming.RestingGate"/>); tests may pin a value.</param>
+    /// <param name="restingGazeGate">fixup-06 M3(b), widened by fixup-07 N1: how long a pre-arm
+    /// Invoke restarts the gate for. Production passes the owner's dwell + cooldown + blink
+    /// allowance + margin (<see cref="SetupDwellTiming.RestingGate"/>); tests may pin a value. The
+    /// value is floored at <see cref="ArmingDelay"/> (fixup-07 L1), so legal low settings cannot
+    /// arm Q8 earlier than its own 1 s rule.</param>
     public UninstallChoiceWindow(
         StringTable strings, Rect? workArea = null, TimeSpan? restingGazeGate = null)
     {
         _strings = strings;
-        _restingGazeGate = restingGazeGate ?? SetupDwellTiming.Default.RestingGate;
+        var gate = restingGazeGate ?? SetupDwellTiming.Default.RestingGate;
+        _restingGazeGate = gate < ArmingDelay ? ArmingDelay : gate;
 
         Title = strings.T("uninstall.choice.title");
         WindowStyle = WindowStyle.None;
@@ -166,8 +170,11 @@ internal class UninstallChoiceWindow : Window
     internal bool IsArming => _armTimer.IsEnabled;
 
     /// <summary>The current gate's length: <see cref="ArmingDelay"/> normally, the resting-gaze gate
-    /// after a pre-arm Invoke (fixup-06 M3b).</summary>
+    /// after a pre-arm Invoke (fixup-06 M3b, widened by fixup-07 N1).</summary>
     internal TimeSpan ArmingInterval => _armTimer.Interval;
+
+    /// <summary>The configured resting-gaze gate (after the fixup-07 L1 floor).</summary>
+    internal TimeSpan RestingGazeGate => _restingGazeGate;
 
     /// <summary>True while the window's 5-minute no-choice timer is running.</summary>
     internal bool IsChoiceTimerRunning => _choiceTimer.IsEnabled;
@@ -177,6 +184,14 @@ internal class UninstallChoiceWindow : Window
     internal Button DeleteButton { get; private set; } = null!;
     internal Button ConfirmDeleteButton { get; private set; } = null!;
     internal Button KeepDataButton { get; private set; } = null!;
+
+    /// <summary>
+    /// fixup-07 L2/M3e: the production window factory, extracted so a test can assert that the
+    /// owner's parsed dwell timing reaches the window. Dropping <c>ui.Dwell.RestingGate</c> here
+    /// would silently fall back to the default gate and shorten it for a slower dwell.
+    /// </summary>
+    internal static UninstallChoiceWindow CreateWindow(SetupUi ui) =>
+        new(ui.Strings, restingGazeGate: ui.Dwell.RestingGate);
 
     /// <summary>Shows the window modally and returns the choice; an unasked window is a cancel.</summary>
     internal UninstallChoice ShowChoice()
@@ -361,9 +376,10 @@ internal class UninstallChoiceWindow : Window
     /// <summary>
     /// fixup-06 M3(b): every button's Invoke arrives here. A pre-arm Invoke is the only signal
     /// Setup has that a gaze is resting on the window — the SDK's Invoke mode re-arms its detector
-    /// under a still gaze, so the next dwell would fire about dwell + cooldown later. Restart the
-    /// gate for longer than that: a gaze that never leaves never fires; a gaze that leaves for
-    /// longer than the gate and returns sees a normally armed window.
+    /// under a still gaze, so the next dwell would fire after another dwell. fixup-07 N1: the gate
+    /// also covers a blink/tracking-gap restart, so it never elapses inside the worst restart
+    /// rhythm. A gaze that never leaves never fires; one that leaves for longer than the gate and
+    /// returns sees a normally armed window.
     /// </summary>
     private void OnChoiceButton(UninstallChoiceAction action)
     {
@@ -543,8 +559,7 @@ public sealed class WpfUninstallChoice : IUninstallChoice
     {
         try
         {
-            return new UninstallChoiceWindow(_ui.Strings, restingGazeGate: _ui.Dwell.RestingGate)
-                .ShowChoice();
+            return UninstallChoiceWindow.CreateWindow(_ui).ShowChoice();
         }
         catch (Exception)
         {

@@ -348,8 +348,8 @@ public sealed class UninstallChoiceWindowTests
                 Check.WithCustomMessage($"Pre-arm Invoke {i + 1} fired a choice.")
                     .That(window.Result).IsNull();
                 Check.That(window.IsArmed).IsFalse();
-                Check.WithCustomMessage($"Pre-arm Invoke {i + 1} did not hold the gate past one dwell + cooldown.")
-                    .That(window.ArmingInterval).IsEqualTo(TimeSpan.FromMilliseconds(1500));
+                Check.WithCustomMessage($"Pre-arm Invoke {i + 1} did not hold the gate past the worst dwell restart.")
+                    .That(window.ArmingInterval).IsEqualTo(TimeSpan.FromMilliseconds(2800));
             }
 
             // The gaze left and the gate elapsed: the window is normally armed again.
@@ -361,15 +361,115 @@ public sealed class UninstallChoiceWindowTests
     }
 
     [Fact]
-    public void TheRestingGate_IsLongerThanTheOwnersDwellPlusCooldown()
+    public void TheRestingGate_CoversOneBlinkRestart_NotJustOneDwell()
     {
-        // The shadowing arithmetic of M3(b): the owner's file has 800 ms dwell / 400 ms cooldown.
+        // fixup-07 N1: at grace 0 a silence >= 150 ms restarts the dwell. A blink b ms into the
+        // dwell pushes the next Invoke to cooldown + x + b + dwell after the previous one, and x
+        // can be nearly a whole dwell. The gate must beat cooldown + 2*dwell + blink.
         var owner = new SetupDwellTiming(DefaultDwellMs: 800, CooldownMs: 400);
-        Check.That(owner.RestingGate).IsEqualTo(TimeSpan.FromMilliseconds(1500));
-        Check.That(owner.RestingGate.TotalMilliseconds)
-            .IsStrictlyGreaterThan(owner.DefaultDwellMs + owner.CooldownMs);
+        var worstRestartMs = owner.CooldownMs + (2 * owner.DefaultDwellMs) + SetupDwellTiming.BlinkAllowanceMs;
+
+        Check.That(owner.RestingGate).IsEqualTo(TimeSpan.FromMilliseconds(2800));
+        Check.WithCustomMessage(
+                $"A blink restart at {worstRestartMs} ms would land after the {owner.RestingGate.TotalMilliseconds} ms gate.")
+            .That(owner.RestingGate.TotalMilliseconds).IsStrictlyGreaterThan(worstRestartMs);
         Check.That(SetupDwellTiming.Default.RestingGate.TotalMilliseconds)
             .IsStrictlyGreaterThan(UninstallChoiceWindow.ArmingDelay.TotalMilliseconds);
+    }
+
+    [Fact]
+    public void APreArmInvoke_HoldsTheGatePastABlinkRestartRhythm()
+    {
+        // fixup-07 N1: the detector's own restart after one blink of the allowance must still land
+        // inside the gate, so that Invoke is ignored too (and restarts the gate again).
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+            var restartRhythmMs =
+                SetupDwellTiming.Default.CooldownMs
+                + (2 * SetupDwellTiming.Default.DefaultDwellMs)
+                + SetupDwellTiming.BlinkAllowanceMs;
+
+            for (var i = 0; i < 3; i++)
+            {
+                Click(window.KeepButton);
+                Check.That(window.Result).IsNull();
+                Check.That(window.IsArmed).IsFalse();
+                Check.WithCustomMessage(
+                        $"A blink-restart Invoke rhythm of {restartRhythmMs} ms armed the window.")
+                    .That(window.ArmingInterval.TotalMilliseconds).IsStrictlyGreaterThan(restartRhythmMs);
+            }
+        });
+    }
+
+    [Fact]
+    public void TheRestingGate_IsFlooredAtTheArmingDelay()
+    {
+        // fixup-07 L1: the gate must never arm Q8 earlier than its own 1 s rule. With N1's wider
+        // formula the legal minimum is already above the floor (200/0 -> 1.2 s), so the floor is
+        // exercised through the constructor's explicit gate.
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Check.That(window.RestingGazeGate).IsEqualTo(UninstallChoiceWindow.ArmingDelay);
+            Click(window.KeepButton);
+            Check.That(window.Result).IsNull();
+            Check.That(window.ArmingInterval).IsEqualTo(UninstallChoiceWindow.ArmingDelay);
+        }, TimeSpan.FromMilliseconds(900));
+
+        Check.WithCustomMessage("The legal minimum timing is below the floor; update this test.")
+            .That(new SetupDwellTiming(200, 0).RestingGate.TotalMilliseconds)
+            .IsStrictlyGreaterThan(UninstallChoiceWindow.ArmingDelay.TotalMilliseconds);
+    }
+
+    [Fact]
+    public void StartArming_ResetsARestingGateBackToTheArmingDelay()
+    {
+        // fixup-07 L2/M3c: after a pre-arm Invoke the gate is long; the next activation or screen
+        // switch must return to the ordinary 1 s, not inherit the resting gate.
+        WithActivationWindow(window =>
+        {
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Click(window.KeepButton);
+            Check.That(window.ArmingInterval).IsEqualTo(SetupDwellTiming.Default.RestingGate);
+            Check.That(window.IsArming).IsTrue();
+
+            window.RaiseActivated();
+            Check.WithCustomMessage("Reactivation kept the resting gate instead of resetting to 1 s.")
+                .That(window.ArmingInterval).IsEqualTo(UninstallChoiceWindow.ArmingDelay);
+        });
+    }
+
+    [Fact]
+    public void TheProductionFactory_PassesTheOwnersDwellTimingToTheWindow()
+    {
+        // fixup-07 L2/M3e: WpfUninstallChoice must hand the parsed owner timing to the window. A
+        // fallback to the default gate would be shorter than one dwell + cooldown for a slow dwell.
+        var paths = new SetupPaths(
+            @"C:\Program Files", @"C:\Users\test\AppData\Roaming", @"C:\Users\test\AppData\Local");
+        var files = new EyeCtrl.Setup.Tests.TestSupport.InMemoryFileSystem();
+        files.AddFile(
+            paths.SettingsPath,
+            """{"externalDwell":{"defaultDwellMs":1500,"cooldownMs":900}}""");
+        var ui = SetupUi.Load(paths, files);
+
+        RunSta(() =>
+        {
+            using var pipe = Dwell.UseTestPipeForTests(
+                "eyectrl_dwell_setup_test_" + Guid.NewGuid().ToString("N"));
+            var window = UninstallChoiceWindow.CreateWindow(ui);
+            try
+            {
+                Check.That(window.RestingGazeGate).IsEqualTo(ui.Dwell.RestingGate);
+                Check.WithCustomMessage("The factory dropped the owner's dwell timing.")
+                    .That(window.RestingGazeGate).IsEqualTo(TimeSpan.FromMilliseconds(4700));
+            }
+            finally
+            {
+                try { window.Close(); } catch (InvalidOperationException) { }
+            }
+        });
     }
 
     [Fact]
@@ -499,9 +599,10 @@ public sealed class UninstallChoiceWindowTests
     /// the OS delivers: it calls the very <c>OnActivated</c>/<c>OnDeactivated</c> overrides the
     /// production window runs. A window is never shown to make them fire.
     /// </summary>
-    private static void WithActivationWindow(Action<ActivationChoiceWindow> action) =>
+    private static void WithActivationWindow(
+        Action<ActivationChoiceWindow> action, TimeSpan? restingGate = null) =>
         WithWindowCore(action, () => new ActivationChoiceWindow(
-            English, OwnerWorkArea, TimeSpan.FromMilliseconds(1500)));
+            English, OwnerWorkArea, restingGate ?? SetupDwellTiming.Default.RestingGate));
 
     private static void WithWindowCore<T>(Action<T> action, Func<T> create)
         where T : UninstallChoiceWindow

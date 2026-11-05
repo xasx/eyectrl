@@ -215,23 +215,33 @@ public readonly record struct SetupUiSettings(string? ThemeName, UiLanguage Lang
 }
 
 /// <summary>
-/// The owner's external-dwell timing (C9 S6e fixup-06 M3b). <see cref="RestingGate"/> is the Q8
-/// gate a pre-arm Invoke restarts: longer than one whole dwell plus one cooldown, so the detector's
-/// own re-arm under a stationary gaze fires the next Invoke before the gate can elapse. A gaze
-/// that leaves for longer than the gate and returns sees a normal, armed window.
+/// The owner's external-dwell timing (C9 S6e fixup-06 M3b, widened by fixup-07 N1).
+/// <see cref="RestingGate"/> is the Q8 gate a pre-arm Invoke restarts. It covers a whole dwell
+/// RESTART after a blink or tracking gap, not just one clean dwell: at grace 0 a sample silence of
+/// 150 ms restarts the detector, so the next Invoke can arrive as late as
+/// <c>cooldown + 2 × dwell + a blink</c> after the previous one. A gaze that leaves for longer than
+/// the gate and returns sees a normal, armed window.
 /// </summary>
 /// <param name="DefaultDwellMs">The external dwell in milliseconds (the App's range is 200–3000).</param>
 /// <param name="CooldownMs">The post-activation cooldown in milliseconds (0–5000).</param>
 public readonly record struct SetupDwellTiming(int DefaultDwellMs, int CooldownMs)
 {
-    /// <summary>The margin over dwell + cooldown, so scheduling jitter cannot squeeze a real dwell
-    /// between two pre-arm Invokes.</summary>
+    /// <summary>The margin over the worst restart rhythm, so scheduling jitter cannot squeeze a
+    /// real dwell between two pre-arm Invokes.</summary>
     public const int MarginMs = 300;
+
+    /// <summary>The blink/tracking-gap allowance: one silence of up to this length anywhere in the
+    /// dwell must not let the gate elapse (the detector restarts at 150 ms; 500 ms covers a blink).</summary>
+    public const int BlinkAllowanceMs = 500;
 
     /// <summary>The App's defaults (<c>ExternalDwellSettings</c>): 800 ms dwell, 400 ms cooldown.</summary>
     public static SetupDwellTiming Default => new(800, 400);
 
-    /// <summary>One whole dwell + one cooldown + the margin = 1.5 s at the defaults.</summary>
-    public TimeSpan RestingGate =>
-        TimeSpan.FromMilliseconds(DefaultDwellMs + CooldownMs + MarginMs);
+    /// <summary>
+    /// <c>2 × dwell + cooldown + 500 ms blink allowance + 300 ms margin</c> = 2.8 s at the
+    /// defaults. Two dwells because a blink restarts the dwell from zero, and the restart can begin
+    /// at the end of the first one.
+    /// </summary>
+    public TimeSpan RestingGate => TimeSpan.FromMilliseconds(
+        (2 * DefaultDwellMs) + CooldownMs + BlinkAllowanceMs + MarginMs);
 }

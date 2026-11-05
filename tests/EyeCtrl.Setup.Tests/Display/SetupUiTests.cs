@@ -62,9 +62,9 @@ public sealed class SetupUiTests : IDisposable
         var parsed = SetupUi.ParseSettings(
             """{"externalDwell":{"defaultDwellMs":1200,"cooldownMs":900}}""");
         Check.That(parsed.Dwell).IsEqualTo(new SetupDwellTiming(1200, 900));
-        Check.That(parsed.Dwell.RestingGate).IsEqualTo(TimeSpan.FromMilliseconds(2400));
+        Check.That(parsed.Dwell.RestingGate).IsEqualTo(TimeSpan.FromMilliseconds(4100));
 
-        // Missing section/fields keeps the App defaults (800 / 400 -> 1.5 s).
+        // Missing section/fields keeps the App defaults (800 / 400 -> 2.8 s).
         Check.That(SetupUi.ParseSettings("{}").Dwell).IsEqualTo(SetupDwellTiming.Default);
         Check.That(SetupUi.ParseSettings("""{"externalDwell":{"cooldownMs":900}}""").Dwell)
             .IsEqualTo(new SetupDwellTiming(800, 900));

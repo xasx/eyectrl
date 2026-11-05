@@ -1,8 +1,10 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using Serilog;
 
@@ -27,7 +29,7 @@ public class OverlayWindow : Window
 
     /// <summary>
     /// The undocumented (read-only) z-band query: 1 = ZBID_DESKTOP, 2 = ZBID_UIACCESS,
-    /// 16 = ZBID_SYSTEM_TOOLS. Used by <see cref="LogBand"/> only; callers must tolerate a
+    /// 16 = ZBID_SYSTEM_TOOLS. Used by <see cref="ReadWindowBand"/> only; callers must tolerate a
     /// failure (older builds, or a window the shell does not band).
     /// </summary>
     [DllImport("user32.dll", EntryPoint = "GetWindowBand", SetLastError = true)]
@@ -59,29 +61,64 @@ public class OverlayWindow : Window
     public OverlayWindow()
     {
         FontFamily = Tokens.FontStandard;
+        IsVisibleChanged += OnOverlayVisibleChanged;
     }
 
     public bool IsClickThrough { get; init; }
 
     /// <summary>
-    /// Whether this window joins the UIAccess z-band (ZBID_UIACCESS, band 2) on its first show.
-    /// True for every overlay; the settings window overrides it false because it is an ordinary
-    /// window (Q13), deliberately outside the C9 F2 overlay-band scope.
+    /// Whether this window joins the UIAccess z-band (ZBID_UIACCESS, band 2) when its HWND is
+    /// created (the first show). True for every overlay; the settings window overrides it false
+    /// because it is an ordinary window (Q13), deliberately outside the C9 F2 overlay-band scope.
+    /// It still writes the read-only band line and still uses its own <see cref="RaiseToTop"/> calls.
     /// </summary>
     protected virtual bool EntersUiAccessBand => true;
 
     /// <summary>
-    /// The HWND the one-time band raise already ran for (<see cref="IntPtr.Zero"/> before that).
-    /// Keyed on the handle rather than a bool so a recreated HWND would still get the raise; the
-    /// ring team's constraint 1 forbids anything more frequent (a per-frame raise is the stutter
-    /// and z-order thrash bug).
+    /// Whether a fallback re-raise in this window needs the order repair. True for every overlay
+    /// except the cursor ring: the ring is hidden whenever the surface it could cover (backdrop,
+    /// magnifier, action menu, edge bar) is up, so raising it cannot bury an escape hatch
+    /// (ring-team review-01 (b)).
+    /// </summary>
+    protected virtual bool NeedsOrderRepairAfterBandFallback => true;
+
+    /// <summary>
+    /// The process token's UIAccess, set once at startup from the same read that writes C10's
+    /// token line. Outside a UIAccess process a topmost insert cannot reach ZBID_UIACCESS, so the
+    /// show-time verification is skipped entirely: dev, test and CI runs keep their old behaviour.
+    /// </summary>
+    internal static bool ProcessHasUiAccess { get; set; }
+
+    /// <summary>
+    /// The process-wide order repair, set once at startup to the overlay manager's
+    /// <see cref="EyeCtrl.App.Services.IOverlayManager.ReassertOverlayOrder"/>. The base cannot
+    /// resolve the manager (note and drag/scroll windows are created outside it), so the
+    /// composition wires it here once.
+    /// </summary>
+    internal static Action? ProcessReassertOverlayOrder { get; set; }
+
+    /// <summary>
+    /// Test seam for <see cref="ProcessHasUiAccess"/>: whether this window's show-time check may
+    /// read the band or raise at all.
+    /// </summary>
+    internal Func<bool> UiAccessEnabled { get; set; } = static () => ProcessHasUiAccess;
+
+    /// <summary>
+    /// Test seam for the band read: return the band, or null when it is unknown. Null (production)
+    /// uses the read-only <c>GetWindowBand</c> query.
+    /// </summary>
+    internal Func<IntPtr, uint?>? ReadBandForTest { get; set; }
+
+    /// <summary>
+    /// The HWND the one-time creation raise already ran for (<see cref="IntPtr.Zero"/> before
+    /// that). Keyed on the handle rather than a bool so a recreated HWND would still get the raise.
     /// </summary>
     private IntPtr _uiAccessBandHwnd;
 
     /// <summary>
     /// How many times this window called the native topmost insert, for the headless band gates:
     /// once from the HWND's creation, plus any explicit <see cref="RaiseToTop"/> (real ordering
-    /// triggers only). It never grows from a position update.
+    /// triggers) and at most one show-time fallback. It never grows from a position update.
     /// </summary>
     internal int BandRaiseCount { get; private set; }
 
@@ -94,6 +131,26 @@ public class OverlayWindow : Window
 
     private static void NativeSetWindowPosForBand(IntPtr hwnd, IntPtr insertAfter, uint flags) =>
         _ = SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, flags);
+
+    /// <summary>The queued show-time band check (one per hidden→visible transition), for the gates.</summary>
+    internal DispatcherOperation? PendingBandCheckForTest => _bandCheckOperation;
+
+    private DispatcherOperation? _bandCheckOperation;
+
+    /// <summary>Whether a band line has been written for <see cref="_bandLogHwnd"/>.</summary>
+    private bool _bandLogged;
+
+    /// <summary>The last band logged for <see cref="_bandLogHwnd"/>; null means unknown.</summary>
+    private uint? _lastLoggedBand;
+
+    /// <summary>The HWND the log/give-up state belongs to, so a recreated HWND starts fresh.</summary>
+    private IntPtr _bandLogHwnd;
+
+    /// <summary>The HWND whose fallback failed to reach band 2; no further attempts are made for it.</summary>
+    private IntPtr _fallbackGaveUpHwnd;
+
+    /// <summary>Set once when the platform has no <c>GetWindowBand</c> export (never retried).</summary>
+    private static bool _windowBandUnavailable;
 
     /// <summary>
     /// When true, this window is excluded from screen capture via WDA_EXCLUDEFROMCAPTURE. The
@@ -141,10 +198,11 @@ public class OverlayWindow : Window
     ///
     /// <para>
     /// Called from <see cref="OnSourceInitialized"/>: the HWND exists and <c>Show()</c> creates it
-    /// BEFORE the first visible frame, so the window never appears in band 1. ShowWindow uses
-    /// SW_SHOWNA for a non-activating overlay and does not change the z-order, so the band sticks.
-    /// Once per window lifetime, never from a position update: the ring moves on every gaze frame,
-    /// and raising there is exactly the re-assert storm this must not reintroduce.
+    /// before the first visible frame, so the window never appears in band 1. Whether the band
+    /// survives later hide/show cycles is NOT assumed: <see cref="CheckBandAfterShow"/> verifies it
+    /// on every show and self-heals only when the band reads exactly 1 (fixup-01 F1). Once per
+    /// HWND, never from a position update: the ring moves on every gaze frame, and raising there is
+    /// exactly the re-assert storm this must not reintroduce.
     /// </para>
     /// </summary>
     internal void RaiseIntoUiAccessBandOnce()
@@ -155,33 +213,142 @@ public class OverlayWindow : Window
 
         _uiAccessBandHwnd = hwnd;
         RaiseIntoBand(hwnd);
-        LogBand(hwnd);
     }
 
-    /// <summary>Per-overlay startup diagnostic: one read-only line with the band the HWND landed in.</summary>
-    private void LogBand(IntPtr hwnd)
+    /// <summary>
+    /// Schedules the show-time band verification, once per hidden→visible transition. The trigger
+    /// is <c>IsVisibleChanged</c>, NOT a <c>WM_WINDOWPOSCHANGED</c> hook: the ring's Left/Top
+    /// writes produce that message every gaze frame. The post runs at
+    /// <see cref="DispatcherPriority.Loaded"/> so the read sees the final post-ShowWindow state,
+    /// and a second transition while a post is pending is coalesced into the same check.
+    /// </summary>
+    private void OnOverlayVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
     {
-        try
+        if (e.NewValue is true)
+            ScheduleBandCheck();
+    }
+
+    private void ScheduleBandCheck()
+    {
+        if (!IsVisible) return;
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        if (_bandCheckOperation is { Status: DispatcherOperationStatus.Pending }) return;
+        _bandCheckOperation = Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded, new Action(CheckBandAfterShow));
+    }
+
+    /// <summary>
+    /// The show-time check (fixup-01 F1/F2). One read-only <c>GetWindowBand</c> per show, gated on
+    /// the process actually having UIAccess (outside it, a topmost insert cannot reach
+    /// ZBID_UIACCESS, so there is no read and no raise at all). The line is written on change only,
+    /// so the first show always logs and an unchanged re-show stays quiet. Only band 1 exactly is
+    /// acted on: band 2 or unknown does nothing.
+    /// </summary>
+    private void CheckBandAfterShow()
+    {
+        _bandCheckOperation = null;
+        if (!IsVisible) return;
+        if (!UiAccessEnabled()) return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        if (hwnd != _bandLogHwnd)
         {
-            if (GetWindowBandNative(hwnd, out var band))
+            // A recreated HWND starts a fresh history; the give-up is per HWND.
+            _bandLogHwnd = hwnd;
+            _bandLogged = false;
+            _lastLoggedBand = null;
+            _fallbackGaveUpHwnd = IntPtr.Zero;
+        }
+
+        var band = ReadBand(hwnd);
+        LogBandIfChanged(hwnd, band);
+
+        if (band != 1) return;              // band 2 or unknown: nothing to do
+        if (!EntersUiAccessBand) return;    // Settings: read-only line, never raised
+        if (hwnd == _fallbackGaveUpHwnd) return;
+
+        ApplyBandFallback(hwnd);
+    }
+
+    /// <summary>
+    /// One synchronous fallback re-raise for a demoted window, in the same show post as the read.
+    /// It logs the band before/after as a "fallback re-raise"; if the band still is not 2 the
+    /// window gives up for this HWND (one log, no loop, no retry on later shows). A non-ring
+    /// fallback also asks the overlay manager once to restore the visible ordering, because the
+    /// raise just put this window above everything shown before it.
+    /// </summary>
+    private void ApplyBandFallback(IntPtr hwnd)
+    {
+        RaiseIntoBand(hwnd);
+        var after = ReadBand(hwnd);
+        _bandLogged = true;
+        _lastLoggedBand = after;
+
+        Log.Information(
+            "Overlay band: {Overlay} hwnd=0x{Hwnd:X} fallback re-raise band {Before} -> {After}",
+            GetType().Name, hwnd.ToInt64(), 1,
+            after is { } afterValue ? afterValue.ToString(CultureInfo.InvariantCulture) : "unknown");
+
+        if (after != 2)
+        {
+            _fallbackGaveUpHwnd = hwnd;
+            Log.Warning(
+                "Overlay band: {Overlay} hwnd=0x{Hwnd:X} fallback re-raise did not reach band 2 "
+                + "(band {Band}); giving up for this HWND",
+                GetType().Name, hwnd.ToInt64(),
+                after is { } failedValue ? failedValue.ToString(CultureInfo.InvariantCulture) : "unknown");
+        }
+
+        if (NeedsOrderRepairAfterBandFallback)
+        {
+            try
             {
-                Log.Information(
-                    "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band={Band}",
-                    GetType().Name, hwnd.ToInt64(), band);
+                ProcessReassertOverlayOrder?.Invoke();
             }
-            else
+            catch (Exception ex)
             {
-                Log.Information(
-                    "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band=unknown (GetWindowBand failed, win32={Error})",
-                    GetType().Name, hwnd.ToInt64(), Marshal.GetLastWin32Error());
+                // A best-effort z-order repair must never take the process down from a show.
+                Log.Warning(ex, "Overlay band: the order repair after a fallback failed");
             }
         }
-        catch (Exception ex)
+    }
+
+    /// <summary>Writes the per-HWND band line at show time, on change only (the first show logs).</summary>
+    private void LogBandIfChanged(IntPtr hwnd, uint? band)
+    {
+        if (_bandLogged && band == _lastLoggedBand) return;
+        _bandLogged = true;
+        _lastLoggedBand = band;
+        Log.Information(
+            "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band={Band}",
+            GetType().Name, hwnd.ToInt64(),
+            band is { } value ? value.ToString(CultureInfo.InvariantCulture) : "unknown");
+    }
+
+    private uint? ReadBand(IntPtr hwnd) =>
+        ReadBandForTest is { } read ? read(hwnd) : ReadWindowBand(hwnd);
+
+    /// <summary>
+    /// The production read-only band query, failure-tolerant. A platform without the export is
+    /// remembered once; an unreadable window is simply unknown, and never acted on.
+    /// </summary>
+    private static uint? ReadWindowBand(IntPtr hwnd)
+    {
+        if (_windowBandUnavailable) return null;
+        try
         {
-            // A diagnostic must never be able to break an overlay's first show.
-            Log.Information(
-                "Overlay band: {Overlay} hwnd=0x{Hwnd:X} band=unknown ({Error})",
-                GetType().Name, hwnd.ToInt64(), ex.GetType().Name);
+            return GetWindowBandNative(hwnd, out var band) ? band : null;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _windowBandUnavailable = true;
+            return null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 
@@ -200,8 +367,9 @@ public class OverlayWindow : Window
     ///
     /// <para>
     /// For REAL ordering triggers only (a strip re-shown above notes, the gaze dot above the
-    /// magnifier / edge bar). The band membership itself is established once by
-    /// <see cref="RaiseIntoUiAccessBandOnce"/>; never call this from a position update or a
+    /// magnifier / edge bar). The band membership is established once by
+    /// <see cref="RaiseIntoUiAccessBandOnce"/> and verified on every show by
+    /// <see cref="CheckBandAfterShow"/>; never call this from a position update or a
     /// per-frame path — that is the stutter/z-order-thrash bug, and the focusable:false styles
     /// plus SWP_NOACTIVATE here are what keep the overlay from stealing the foreground.
     /// </para>

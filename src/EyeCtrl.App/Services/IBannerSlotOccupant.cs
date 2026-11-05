@@ -32,4 +32,8 @@ public interface IBannerSlotOccupant
     /// <summary>The banner's visible bounds in physical pixels while it is on screen (the note
     /// gate's aggregate slot source and the restart notice's keep-clear); false when it is not.</summary>
     bool TryGetVisibleBounds(out PhysicalRect bounds);
+
+    /// <summary>Re-raises the banner after a band fallback reordered the overlay band. Default
+    /// no-op for test doubles that never paint; production presenters raise their window.</summary>
+    void ReassertForOrder() { }
 }

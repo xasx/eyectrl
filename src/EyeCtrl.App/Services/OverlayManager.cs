@@ -23,6 +23,9 @@ public class OverlayManager : IOverlayManager
     private readonly IAppIconProvider _iconProvider;
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
+    private readonly Func<IBannerSlot>? _bannerSlot;
+    private readonly Func<BlockedInputBannerWindow>? _blockedInputBanner;
+    private bool _initialized;
 
     private CursorCircleWindow _cursorCircle = null!;
     /// <inheritdoc />
@@ -89,13 +92,16 @@ public class OverlayManager : IOverlayManager
     public IRepeatCursorOverlay RepeatCursor => _repeatCursor;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
-        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null,
+        Func<IBannerSlot>? bannerSlot = null, Func<BlockedInputBannerWindow>? blockedInputBanner = null)
     {
         _dispatcher = dispatcher;
         _logger = logger;
         _iconProvider = iconProvider;
         _sink = sink;
         _dwellRegistry = dwellRegistry;
+        _bannerSlot = bannerSlot;
+        _blockedInputBanner = blockedInputBanner;
     }
 
     /// <summary>
@@ -106,6 +112,36 @@ public class OverlayManager : IOverlayManager
     /// </summary>
     internal static CalibrationWindow CreateCalibrationWindow(EyeCtrlSettings settings) =>
         new(settings.Dwell);
+
+    /// <summary>
+    /// Re-raises the VISIBLE order-critical overlays, bottom to top, after a band fallback in a
+    /// non-ring window (C9 F2 fixup-01). A fallback inserts its window at the top of the band; if
+    /// that window is the backdrop it now covers the magnifier/menu (shown after it), and if it is
+    /// a note it covers the Resume strip. Raising only the visible windows in this fixed order
+    /// restores the designed stacking; the backdrop is deliberately not raised (it must stay at
+    /// the bottom of the modal stack).
+    /// </summary>
+    public void ReassertOverlayOrder()
+    {
+        if (!_initialized) return;
+
+        RaiseIfVisible(_manualSelectionOverlay);
+        RaiseIfVisible(_actionMenu);
+        RaiseIfVisible(_actionMenuModBarWindow);
+        RaiseIfVisible(_edgeButtonBarWindow);
+        RaiseIfVisible(_manualSelectionIndicator);
+        RaiseIfVisible(_pauseIndicator);
+
+        _bannerSlot?.Invoke().ReassertForOrder();
+        if (_blockedInputBanner?.Invoke() is { } banner)
+            RaiseIfVisible(banner);
+    }
+
+    private static void RaiseIfVisible(OverlayWindow window)
+    {
+        if (window.IsVisible)
+            window.RaiseToTop();
+    }
 
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
@@ -226,5 +262,6 @@ public class OverlayManager : IOverlayManager
         _repeatCursor.DataContext = viewModels.RepeatCursor;
 
         _logger.LogInformation("Overlay windows initialized successfully");
+        _initialized = true;
     }
 }

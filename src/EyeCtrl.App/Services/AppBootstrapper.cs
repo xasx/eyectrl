@@ -584,7 +584,11 @@ public class AppBootstrapper
             sp.GetRequiredService<ILogger<OverlayManager>>(),
             sp.GetRequiredService<IAppIconProvider>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
-            sp.GetRequiredService<IDwellDetectorRegistry>()));
+            sp.GetRequiredService<IDwellDetectorRegistry>(),
+            // Lazy: the banner slot and the safety banner are resolved only if a band fallback
+            // actually asks for the order repair, so this adds no construction-order coupling.
+            bannerSlot: () => sp.GetRequiredService<IBannerSlot>(),
+            blockedInputBanner: () => sp.GetRequiredService<BlockedInputBannerWindow>()));
 
         // Eye-care
         // B7: both surfaces carry A1's pause grace and read the live DwellSettings at session

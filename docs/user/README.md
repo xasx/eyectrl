@@ -14,11 +14,11 @@ dwell target automatically: **look at it until the ring completes, and the brows
 
 ### Summoning
 
-Open the ring's second layer (**More**), then dwell the **Browse** slot. The browser opens over
-the work area with a start page. Dwelling Browse again while it is open brings it to the front —
-the ring action never closes it. While the browser is still settling in (it has not passed its
-first end-to-end check yet), it ships **off the ring by default**: turn it on once in Settings →
-Action menu → visible actions (**Browse**), and later builds will offer it on the ring on their own.
+Summon the toolbar (slide it out from its docked edge), then dwell the **Browse** button — it
+sits next to Keyboard and Task switcher. The browser opens over the work area with a start page.
+Dwelling Browse again while it is open brings the browser to the front — the button never closes
+it. The ring's second layer also carries a Browse slot for as long as you turn it on in
+Settings → Action menu → visible actions.
 
 ### What stays above the browser
 

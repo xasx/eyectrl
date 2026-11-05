@@ -21,6 +21,26 @@ public sealed record SetupUpdateOffer(
     string InstalledVersion);
 
 /// <summary>
+/// How a Setup hand-off ended (C9 S6e fixup-06 M2). The Settings page must keep
+/// <see cref="RefusedWhileActive"/> silent: in the sitting's exact case the first dwell started
+/// Setup normally and a resting gaze re-fired the row 2.1 s later, so telling the owner that Setup
+/// failed (and to fetch the caregiver) would be false. Only <see cref="Failed"/> means nothing is
+/// running.
+/// </summary>
+public enum SetupHandoffStart
+{
+    /// <summary>The hand-off launched.</summary>
+    Started,
+
+    /// <summary>Refused by the activation guard: a Setup session is already live, or this row's
+    /// previous start is still settling. The first Setup's own window is the answer.</summary>
+    RefusedWhileActive,
+
+    /// <summary>The pre-flight refused, or the launch threw: nothing is running.</summary>
+    Failed,
+}
+
+/// <summary>
 /// C9 S6f's view of the installed Setup: what the „Erweitert" page may offer, and the three
 /// hand-offs it can start. Split from the WPF page sources so every decision (visibility matrix,
 /// policy gate, ShellExecute shape, clean exit) is headlessly testable with fakes.
@@ -68,18 +88,21 @@ public interface ISetupGateways
     /// pinned thumbprint (belt and braces after the catalog check), start
     /// <c>EyeCtrl.Setup.exe update "&lt;dir&gt;"</c> with ShellExecute from a neutral working
     /// directory, then exit cleanly — the lifecycle is <see cref="ISetupExitFlow" />, which must
-    /// never set the restart flag. False when refused or the launch threw; EyeCtrl then keeps running.
+    /// never set the restart flag. <see cref="SetupHandoffStart.Failed" /> when refused or the
+    /// launch threw; EyeCtrl then keeps running.
     /// </summary>
-    bool StartUpdateHandoff(SetupUpdateOffer offer);
+    SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer);
 
     /// <summary>Start the installed Setup's <c>rollback</c> with ShellExecute, then exit cleanly.
-    /// False when refused or the launch threw; EyeCtrl then keeps running.</summary>
-    bool StartRollbackHandoff();
+    /// <see cref="SetupHandoffStart.Failed" /> when refused or the launch threw; EyeCtrl then keeps
+    /// running.</summary>
+    SetupHandoffStart StartRollbackHandoff();
 
     /// <summary>Start the installed Setup's <c>uninstall</c> with ShellExecute. EyeCtrl keeps
-    /// running: its dwell is the input for Setup's own uninstall window. False when refused or the
-    /// launch threw.</summary>
-    bool StartUninstallHandoff();
+    /// running: its dwell is the input for Setup's own uninstall window.
+    /// <see cref="SetupHandoffStart.RefusedWhileActive" /> when Setup is already starting or
+    /// running (show nothing), <see cref="SetupHandoffStart.Failed" /> when the launch threw.</summary>
+    SetupHandoffStart StartUninstallHandoff();
 }
 
 /// <summary>Starts a process. <paramref name="workingDirectory" /> is the reviewed
@@ -332,10 +355,10 @@ public sealed class SetupGateways : ISetupGateways
     }
 
     /// <inheritdoc />
-    public bool StartUpdateHandoff(SetupUpdateOffer offer)
+    public SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer)
     {
         if (offer is null || !Installed)
-            return false;
+            return SetupHandoffStart.Failed;
 
         // The visibility check verified the whole catalog; the hand-off re-checks the one file
         // about to be started, against the pinned signer.
@@ -344,7 +367,7 @@ public sealed class SetupGateways : ISetupGateways
                 signature.SignerThumbprint, SetupConstants.PinnedThumbprint, StringComparison.OrdinalIgnoreCase))
         {
             _warn("update hand-off refused: the package Setup's signature does not match the pinned signer");
-            return false;
+            return SetupHandoffStart.Failed;
         }
 
         return LaunchHandoff(
@@ -352,20 +375,20 @@ public sealed class SetupGateways : ISetupGateways
     }
 
     /// <inheritdoc />
-    public bool StartRollbackHandoff()
+    public SetupHandoffStart StartRollbackHandoff()
     {
         if (!Installed)
-            return false;
+            return SetupHandoffStart.Failed;
 
         return LaunchHandoff(
             "rollback", _paths.InstalledSetupExePath, "rollback", signalCleanExit: true);
     }
 
     /// <inheritdoc />
-    public bool StartUninstallHandoff()
+    public SetupHandoffStart StartUninstallHandoff()
     {
         if (!Installed)
-            return false;
+            return SetupHandoffStart.Failed;
 
         // EyeCtrl keeps running — no heartbeat, no shutdown: the App's dwell is the input for
         // Setup's own uninstall window (S6e).
@@ -429,13 +452,14 @@ public sealed class SetupGateways : ISetupGateways
     /// <summary>
     /// The reviewed order (review 01 N3 / MUT2, fixup-05 guard): the guard first, then launch,
     /// and only a successful launch may signal the clean shutdown and exit. A throw keeps EyeCtrl
-    /// running with nothing gone and frees the row immediately.
+    /// running with nothing gone and frees the row immediately. A guard refusal is
+    /// <see cref="SetupHandoffStart.RefusedWhileActive"/> — the page shows nothing for it.
     /// </summary>
-    private bool LaunchHandoff(
+    private SetupHandoffStart LaunchHandoff(
         string verb, string executablePath, string arguments, bool signalCleanExit)
     {
         if (!TryBeginHandoff(verb))
-            return false;
+            return SetupHandoffStart.RefusedWhileActive;
 
         try
         {
@@ -445,7 +469,7 @@ public sealed class SetupGateways : ISetupGateways
         {
             HandoffFailed();
             _warn($"{verb} hand-off launch failed: {ex.GetType().Name}");
-            return false;
+            return SetupHandoffStart.Failed;
         }
 
         if (signalCleanExit)
@@ -454,7 +478,7 @@ public sealed class SetupGateways : ISetupGateways
             _exit.Shutdown();
         }
 
-        return true;
+        return SetupHandoffStart.Started;
     }
 
     /// <summary>

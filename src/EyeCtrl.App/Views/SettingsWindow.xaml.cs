@@ -460,6 +460,15 @@ public partial class SettingsWindow : OverlayWindow
         }
     }
 
+    /// <summary>
+    /// The settings window is an ORDINARY window (Q13), not an overlay: C9 F2 never raises it at
+    /// creation and never applies the show-time fallback to it. It still writes the read-only band
+    /// line on show, and its own <c>RaiseToTop</c> calls (the language deep link and safety setup)
+    /// still put it in ZBID_UIACCESS under UIAccess, exactly as on main — the exemption is from the
+    /// automatic raise, not from its own ordering calls.
+    /// </summary>
+    protected override bool EntersUiAccessBand => false;
+
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
         EyeCtrlSettings settings,

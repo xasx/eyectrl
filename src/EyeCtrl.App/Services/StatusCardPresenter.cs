@@ -156,6 +156,13 @@ internal sealed class StatusCardPresenter : IBannerSlotOccupant, IDisposable
     /// <inheritdoc />
     public bool TryGetVisibleBounds(out PhysicalRect bounds) => _window.TryGetVisibleBounds(out bounds);
 
+    /// <inheritdoc />
+    public void ReassertForOrder()
+    {
+        if (_window.IsVisible)
+            _window.RaiseToTop();
+    }
+
     private void OnHidden(object? sender, EventArgs e)
     {
         // Only the card's OWN hold/fade completion spends the state; an immediate hide (withdrawal,

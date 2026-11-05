@@ -116,6 +116,9 @@ public sealed class BannerSlot : IBannerSlot
     public IReadOnlyList<PhysicalRect> LiveBoundsOrEmpty() =>
         TryGetVisibleBounds(out var bounds) ? new[] { bounds } : Array.Empty<PhysicalRect>();
 
+    /// <inheritdoc />
+    public void ReassertForOrder() => _live?.ReassertForOrder();
+
     private void ShowNextIfFree()
     {
         // A loop, because an occupant may close synchronously inside ShowInSlot (nothing to show):

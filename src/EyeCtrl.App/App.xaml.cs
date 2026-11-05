@@ -270,6 +270,11 @@ public partial class App : Application
 
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
+            // C9 F2: the show-time band verification is meaningless without UIAccess (a topmost
+            // insert cannot reach ZBID_UIACCESS), so the cached token bit gates it for the process;
+            // the same wire points a non-ring fallback at the manager's order repair. Extracted so
+            // both assignments are unit-tested, with the call itself pinned by a source scan.
+            OverlayBandStartup.WireOverlayBand(selfToken, overlayManager);
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
                 quickActionsGridVm, modesMenuVm, repeatCursorVm,
                 _serviceProvider.GetRequiredService<ResumeStripViewModel>());

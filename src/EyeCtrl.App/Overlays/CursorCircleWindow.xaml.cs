@@ -37,6 +37,13 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         };
     }
 
+    /// <summary>
+    /// The ring is hidden whenever the backdrop, magnifier, action menu or edge bar is up, so a
+    /// fallback re-raise of the ring cannot bury a surface the user is acting on. It therefore
+    /// needs no process-wide order repair (ring-team review-01 (b), C9 F2 fixup-01).
+    /// </summary>
+    protected override bool NeedsOrderRepairAfterBandFallback => false;
+
     private readonly FiredFlash _firedFlash;
 
     /// <summary>

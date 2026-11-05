@@ -117,6 +117,15 @@ public interface IOverlayManager
     /// but it stays on this seam so the retirement did not churn every call site and test
     /// double.</param>
     void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType);
+
+    /// <summary>
+    /// Re-raises the VISIBLE order-critical overlays, bottom to top, after a band fallback in a
+    /// non-ring window (C9 F2 fixup-01): magnifier → action menu → modifier bar → edge bar →
+    /// gaze dot → Resume strip → banner/notices. A fallback puts its window at the top of the band,
+    /// which can bury the magnifier/menu under a re-raised backdrop or a note over the Resume
+    /// strip; the ring never needs it. Default no-op so existing test doubles need no change.
+    /// </summary>
+    void ReassertOverlayOrder() { }
 }
 
 /// <summary>

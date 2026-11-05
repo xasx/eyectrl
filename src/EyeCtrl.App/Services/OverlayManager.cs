@@ -11,6 +11,7 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
 /// Manages the lifecycle of overlay windows in the application.
@@ -23,6 +24,9 @@ public class OverlayManager : IOverlayManager
     private readonly IAppIconProvider _iconProvider;
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
+    private readonly Func<IBannerSlot>? _bannerSlot;
+    private readonly Func<BlockedInputBannerWindow>? _blockedInputBanner;
+    private bool _initialized;
 
     private CursorCircleWindow _cursorCircle = null!;
     /// <inheritdoc />
@@ -89,13 +93,48 @@ public class OverlayManager : IOverlayManager
     public IRepeatCursorOverlay RepeatCursor => _repeatCursor;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
-        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null,
+        Func<IBannerSlot>? bannerSlot = null, Func<BlockedInputBannerWindow>? blockedInputBanner = null)
     {
         _dispatcher = dispatcher;
         _logger = logger;
         _iconProvider = iconProvider;
         _sink = sink;
         _dwellRegistry = dwellRegistry;
+        _bannerSlot = bannerSlot;
+        _blockedInputBanner = blockedInputBanner;
+    }
+
+    /// <summary>
+    /// Test seam (C9 F2 fixup-02): a manager over six already-prepared order-critical windows, so
+    /// the real <see cref="ReassertOverlayOrder"/> walk is driveable headlessly. It only wires the
+    /// fields the repair reads; the production constructor still creates its windows in
+    /// <see cref="Initialize"/>.
+    /// </summary>
+    internal OverlayManager(
+        ManualSelectionOverlayWindow manualSelectionOverlay,
+        ActionMenuWindow actionMenu,
+        EdgeButtonBarWindow actionMenuModBar,
+        EdgeButtonBarWindow edgeButtonBar,
+        ManualSelectionGazeIndicatorWindow manualSelectionIndicator,
+        PauseIndicatorWindow pauseIndicator,
+        Func<IBannerSlot>? bannerSlot = null,
+        Func<BlockedInputBannerWindow>? blockedInputBanner = null,
+        GlassBackdropWindow? glassBackdrop = null)
+    {
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        _logger = NullLogger<OverlayManager>.Instance;
+        _iconProvider = null!;
+        _manualSelectionOverlay = manualSelectionOverlay;
+        _actionMenu = actionMenu;
+        _actionMenuModBarWindow = actionMenuModBar;
+        _edgeButtonBarWindow = edgeButtonBar;
+        _manualSelectionIndicator = manualSelectionIndicator;
+        _pauseIndicator = pauseIndicator;
+        _bannerSlot = bannerSlot;
+        _blockedInputBanner = blockedInputBanner;
+        _glassBackdrop = glassBackdrop!;
+        _initialized = true;
     }
 
     /// <summary>
@@ -106,6 +145,56 @@ public class OverlayManager : IOverlayManager
     /// </summary>
     internal static CalibrationWindow CreateCalibrationWindow(EyeCtrlSettings settings) =>
         new(settings.Dwell);
+
+    /// <summary>
+    /// One bottom-to-top repair step, named so the production order is assertable without painting.
+    /// </summary>
+    internal readonly record struct OverlayRepairStep(string Name, Action Raise);
+
+    /// <summary>
+    /// The production bottom-to-top repair order (C9 F2 fixup-01, pinned by fixup-02): magnifier →
+    /// action menu → modifier bar → edge bar → gaze dot → Resume strip → live banner-slot occupant
+    /// → blocked-input banner. The backdrop and the ring are deliberately absent: the backdrop must
+    /// stay at the bottom of the modal stack, and the ring is hidden whenever it could cover a
+    /// surface. <see cref="ReassertOverlayOrder"/> iterates exactly this list.
+    /// </summary>
+    internal IReadOnlyList<OverlayRepairStep> RepairSteps =>
+    [
+        new("magnifier", () => RaiseIfVisible(_manualSelectionOverlay)),
+        new("actionMenu", () => RaiseIfVisible(_actionMenu)),
+        new("modifierBar", () => RaiseIfVisible(_actionMenuModBarWindow)),
+        new("edgeBar", () => RaiseIfVisible(_edgeButtonBarWindow)),
+        new("gazeDot", () => RaiseIfVisible(_manualSelectionIndicator)),
+        new("resumeStrip", () => RaiseIfVisible(_pauseIndicator)),
+        new("bannerSlot", () => _bannerSlot?.Invoke().ReassertForOrder()),
+        new("blockedBanner", () =>
+        {
+            if (_blockedInputBanner?.Invoke() is { } banner)
+                RaiseIfVisible(banner);
+        }),
+    ];
+
+    /// <summary>
+    /// Re-raises the VISIBLE order-critical overlays, bottom to top, after a band fallback in a
+    /// non-ring window (C9 F2 fixup-01). A fallback inserts its window at the top of the band; if
+    /// that window is the backdrop it now covers the magnifier/menu (shown after it), and if it is
+    /// a note it covers the Resume strip. Raising only the visible windows in this fixed order
+    /// restores the designed stacking; the backdrop is deliberately not raised (it must stay at
+    /// the bottom of the modal stack).
+    /// </summary>
+    public void ReassertOverlayOrder()
+    {
+        if (!_initialized) return;
+
+        foreach (var step in RepairSteps)
+            step.Raise();
+    }
+
+    private static void RaiseIfVisible(OverlayWindow window)
+    {
+        if (window.IsVisible)
+            window.RaiseToTop();
+    }
 
     /// <summary>
     /// Initializes all overlay windows with their ViewModels and settings.
@@ -226,5 +315,6 @@ public class OverlayManager : IOverlayManager
         _repeatCursor.DataContext = viewModels.RepeatCursor;
 
         _logger.LogInformation("Overlay windows initialized successfully");
+        _initialized = true;
     }
 }

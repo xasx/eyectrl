@@ -31,4 +31,8 @@ public interface IBannerSlot
     /// <summary>The live bounds as a one-or-zero element list (the restart notice's keep-clear
     /// source, which concatenates physical rectangles).</summary>
     IReadOnlyList<PhysicalRect> LiveBoundsOrEmpty();
+
+    /// <summary>Re-raises the live occupant, if any, after a band fallback reordered the band.
+    /// Only the live banner is on screen, so nothing else needs the repair.</summary>
+    void ReassertForOrder() { }
 }

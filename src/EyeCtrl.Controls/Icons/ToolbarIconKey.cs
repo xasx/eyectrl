@@ -34,6 +34,8 @@ public enum ToolbarIconKey
     Settings,
     /// <summary>Two offset windows.</summary>
     TaskSwitcher,
+    /// <summary>A browser window: rounded body, title-bar divider, address-bar dash — the gaze browser's summon button (owner feedback 2026-11-05: the action menu was not the right place; the toolbar is where Keyboard and TaskSwitcher live).</summary>
+    Browse,
     /// <summary>Three stacked bars with the top one filled — a chosen mode among options; opens the modes menu.</summary>
     Modes,
     /// <summary>Mouse with its left button popped out of the outline — locked-action dwell mode, Left click (reuses the ActionIcons glyph).</summary>

@@ -237,6 +237,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Browse\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
       "Literal": "\"Keyboard\"",
       "Count": 1
     },

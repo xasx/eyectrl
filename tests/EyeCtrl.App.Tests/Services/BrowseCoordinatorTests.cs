@@ -527,6 +527,19 @@ public class BrowseCoordinatorTests
     }
 
     [Fact]
+    public void TheToolbarBrowseButton_SendsTheBrowseSummon()
+    {
+        // Owner feedback 2026-11-05: the action menu was not the right place for the browser's
+        // summon — the toolbar is where Keyboard and TaskSwitcher live, and the Browse button
+        // joined them there. This pin fails if the button's activation drifts away from the
+        // same message the ring action sends (the coordinator's show-or-bring-to-front).
+        var toolbarSource = File.ReadAllText(
+            Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.ViewModels", "ToolbarViewModel.cs"));
+        Check.That(toolbarSource.Contains(
+            "case \"Browse\": Messenger.Send(new BrowseShowRequestedMessage()); break;")).IsTrue();
+    }
+
+    [Fact]
     public void ElementEnvelope_WithoutTheSecret_NeverRegisters()
     {
         // Review C3c: any page can post an elements envelope; without the host's per-summon

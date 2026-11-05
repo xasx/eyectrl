@@ -39,7 +39,7 @@ public class ToolbarButtonVisualTests
     /// <summary>
     /// <paramref name="includeReset"/> defaults TRUE here — the opposite of
     /// <see cref="ToolbarTestHelpers.NewBoundToolbar"/>'s false — because this class's pre-Task-7
-    /// tests pin the seven-button band byte-for-byte (extents, anchor order, the Reset separator).
+    /// tests pin the eight-button band byte-for-byte (extents, anchor order, the Reset separator).
     /// Task 7's flag-off cases pass <c>false</c> explicitly; the flag passes straight through to
     /// <see cref="ToolbarWindow.Initialize"/>, never via <c>AdaptationSettings.Enabled</c>
     /// (fixture policy R2-M3).
@@ -66,7 +66,7 @@ public class ToolbarButtonVisualTests
     {
         var faces = Faces(NewInitialisedToolbar());
 
-        Check.WithCustomMessage("Seven rendered buttons expected.").That(faces).HasSize(7);
+        Check.WithCustomMessage("Eight rendered buttons expected.").That(faces).HasSize(8);
         foreach (var f in faces)
         {
             // A square tile hid ~21.5% dead area outside the inscribed hit circle. An Ellipse of
@@ -111,7 +111,7 @@ public class ToolbarButtonVisualTests
             .ToList();
 
         Check.WithCustomMessage("A button fell back to a glyph — no icon paths.")
-            .That(iconLefts).HasSize(7);
+            .That(iconLefts).HasSize(8);
 
         var visibleText = canvas.Children.OfType<TextBlock>().Where(t => t.Opacity > 0).ToList();
         Check.WithCustomMessage("This design has no text on the button faces.")
@@ -147,12 +147,13 @@ public class ToolbarButtonVisualTests
             .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t)))
             .ToDictionary(AutomationProperties.GetAutomationId, AutomationProperties.GetName);
 
-        Check.That(names).HasSize(7);
+        Check.That(names).HasSize(8);
         Check.That(names["Toolbar_Button_Pause"]).IsEqualTo("Pause");
         Check.That(names["Toolbar_Button_SelectionMode"]).IsEqualTo("Selection mode");
         Check.That(names["Toolbar_Button_Keyboard"]).IsEqualTo("Keyboard");
         Check.That(names["Toolbar_Button_Settings"]).IsEqualTo("Settings");
         Check.That(names["Toolbar_Button_TaskSwitcher"]).IsEqualTo("Task switcher");
+        Check.That(names["Toolbar_Button_Browse"]).IsEqualTo("Browse");
         Check.That(names["Toolbar_Button_Modes"]).IsEqualTo("Modes");
         Check.That(names["Toolbar_Button_ResetAdaptation"]).IsEqualTo("Reset adaptation");
     }
@@ -205,7 +206,7 @@ public class ToolbarButtonVisualTests
             .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t)))
             .OrderBy(Canvas.GetLeft)
             .ToList();
-        Check.That(anchors).HasSize(7);
+        Check.That(anchors).HasSize(8);
 
         foreach (var anchor in anchors)
         {
@@ -223,8 +224,8 @@ public class ToolbarButtonVisualTests
         Check.That(anchors.Select(AutomationProperties.GetAutomationId))
             .ContainsExactly("Toolbar_Button_Pause", "Toolbar_Button_SelectionMode",
                 "Toolbar_Button_Keyboard", "Toolbar_Button_Settings",
-                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_Modes",
-                "Toolbar_Button_ResetAdaptation");
+                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_Browse",
+                "Toolbar_Button_Modes", "Toolbar_Button_ResetAdaptation");
 
         foreach (var (anchor, face) in anchors.Zip(Faces(window).OrderBy(Canvas.GetLeft)))
         {
@@ -253,15 +254,16 @@ public class ToolbarButtonVisualTests
         // Pinned exactly rather than as "at most two distinct pitches": that weaker form passes
         // if every gap is uniformly wrong, and passes if the deliberate extra gap before Reset
         // vanishes entirely. At ButtonSize 120 the arithmetic is fully determined — margin 12,
-        // pitch 144, and a 24 px ResetGap that makes the last step 168.
-        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 732.0, 900.0);
-        Check.That(canvas.Width).IsEqualTo(1032.0);
+        // pitch 144, and a 24 px ResetGap that makes the last step 168. Browse joined after
+        // TaskSwitcher (owner feedback 2026-11-05), so the pre-Reset row is seven buttons.
+        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 732.0, 876.0, 1044.0);
+        Check.That(canvas.Width).IsEqualTo(1176.0);
         Check.That(canvas.Height).IsEqualTo(144.0);
     }
 
     /// <summary>
     /// The flag-OFF band (Task 7, D5/M5): six buttons, no Reset anchor, no separator, and the
-    /// extent shrunk by the whole Reset slot (pitch 144 + gap 24 = 168; 1032 − 168 = 864).
+    /// extent shrunk by the whole Reset slot (pitch 144 + gap 24 = 168; 1176 − 168 = 1008).
     /// Dropping the entry from the array makes the separator and the <see cref="ToolbarBand.ResetGap"/>
     /// disappear naturally — LayOut adds both only for <see cref="ToolbarBand.ResetId"/> — so this
     /// also pins that no orphaned separator or half-kept gap survives the shorter array.
@@ -283,16 +285,17 @@ public class ToolbarButtonVisualTests
         Check.That(AnchorsAlongTheBand(window).Select(AutomationProperties.GetAutomationId))
             .ContainsExactly("Toolbar_Button_Pause", "Toolbar_Button_SelectionMode",
                 "Toolbar_Button_Keyboard", "Toolbar_Button_Settings",
-                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_Modes");
-        Check.That(Faces(window)).HasSize(6);
+                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_Browse",
+                "Toolbar_Button_Modes");
+        Check.That(Faces(window)).HasSize(7);
         Check.WithCustomMessage("The Reset separator outlived the Reset button.")
             .That(canvas.Children.OfType<Line>()).IsEmpty();
 
         // Exact extent — margin 12, pitch 144, NO ResetGap — not "narrower than before": the
         // weaker form would pass on a band that kept half the gap or clipped the trailing margin.
         var lefts = Faces(window).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
-        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 732.0);
-        Check.That(canvas.Width).IsEqualTo(864.0);
+        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 732.0, 876.0);
+        Check.That(canvas.Width).IsEqualTo(1008.0);
         Check.That(canvas.Height).IsEqualTo(144.0);
     }
 
@@ -312,10 +315,10 @@ public class ToolbarButtonVisualTests
         Check.WithCustomMessage("Docking left dropped the Reset button from the band.")
             .That(AnchorsAlongTheBand(with).Select(AutomationProperties.GetAutomationId))
             .Contains("Toolbar_Button_" + ToolbarBand.ResetId);
-        // Vertical band: the extent moves to Y. 1032 is the seven-button extent, byte-for-byte
+        // Vertical band: the extent moves to Y. 1176 is the eight-button extent, byte-for-byte
         // the horizontal test's width — the flip must re-lay, not just rotate membership.
         Check.That(ButtonCanvas(with).Width).IsEqualTo(144.0);
-        Check.That(ButtonCanvas(with).Height).IsEqualTo(1032.0);
+        Check.That(ButtonCanvas(with).Height).IsEqualTo(1176.0);
 
         var without = NewInitialisedToolbar(includeReset: false);
         without.SetMode(isDocked: true, edge: "left");
@@ -323,7 +326,7 @@ public class ToolbarButtonVisualTests
             .That(AnchorsAlongTheBand(without).Select(AutomationProperties.GetAutomationId))
             .Not.Contains("Toolbar_Button_" + ToolbarBand.ResetId);
         Check.That(ButtonCanvas(without).Width).IsEqualTo(144.0);
-        Check.That(ButtonCanvas(without).Height).IsEqualTo(864.0);
+        Check.That(ButtonCanvas(without).Height).IsEqualTo(1008.0);
     }
 
     /// <summary>
@@ -438,17 +441,17 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void DwellProgress_DrivesTheArc_AndIsInvisibleAtRest()
     {
-        // includeReset: true — the count below is SEVEN buttons' worth of halo/progress Paths
-        // (the helper's default six-button band would make it twelve and fail).
+        // includeReset: true — the count below is EIGHT buttons' worth of halo/progress Paths
+        // (the helper's default seven-button band would make it fourteen and fail).
         var (window, vm) = NewBoundToolbar(includeReset: true);
 
-        // Seven buttons x (halo + progress arc) = 14 Paths, ALL collapsed at rest. Exact, not
-        // "at least one": a 1-of-14 bar would still pass if the wiring collapsed only whichever
-        // button happened to run last, leaving the other six arcs visible at zero length.
+        // Eight buttons x (halo + progress arc) = 16 Paths, ALL collapsed at rest. Exact, not
+        // "at least one": a 1-of-16 bar would still pass if the wiring collapsed only whichever
+        // button happened to run last, leaving the other seven arcs visible at zero length.
         var arcs = ButtonCanvas(window).Children.OfType<Path>()
             .Where(p => p.Visibility == Visibility.Collapsed).ToList();
-        Check.WithCustomMessage("All fourteen halo/progress Paths must be collapsed at rest.")
-            .That(arcs).HasSize(14);
+        Check.WithCustomMessage("All sixteen halo/progress Paths must be collapsed at rest.")
+            .That(arcs).HasSize(16);
 
         var pause = window.ButtonForTest("Pause");
         var keyboard = window.ButtonForTest("Keyboard");

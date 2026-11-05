@@ -113,16 +113,19 @@ public class OverlayBandWiringTests
                 glassBackdrop: backdrop);
 
             var names = manager.RepairSteps.Select(step => step.Name).ToList();
+            var expectedOrder = new[]
+            {
+                "magnifier", "actionMenu", "modifierBar", "edgeBar",
+                "gazeDot", "resumeStrip", "bannerSlot", "blockedBanner",
+            };
             Check.WithCustomMessage($"production repair list was: {string.Join(" > ", names)}")
-                .That(names).HasSize(8);
-            Check.That(names[0]).IsEqualTo("magnifier");
-            Check.That(names[1]).IsEqualTo("actionMenu");
-            Check.That(names[2]).IsEqualTo("modifierBar");
-            Check.That(names[3]).IsEqualTo("edgeBar");
-            Check.That(names[4]).IsEqualTo("gazeDot");
-            Check.That(names[5]).IsEqualTo("resumeStrip");
-            Check.That(names[6]).IsEqualTo("bannerSlot");
-            Check.That(names[7]).IsEqualTo("blockedBanner");
+                .That(names).HasSize(expectedOrder.Length);
+            for (var i = 0; i < expectedOrder.Length; i++)
+            {
+                Check.WithCustomMessage(
+                        $"repair step {i} must be {expectedOrder[i]}; list was: {string.Join(" > ", names)}")
+                    .That(names[i]).IsEqualTo(expectedOrder[i]);
+            }
             Check.WithCustomMessage("the repair must not include the backdrop or the ring")
                 .That(names.Contains("backdrop") || names.Contains("ring")).IsFalse();
 

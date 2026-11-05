@@ -389,6 +389,12 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/LoggingInitializer.cs",
+      "Literal": "\"{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}\"",
+      "Category": "log",
+      "Reason": "The Serilog file sink's output template (C10's log format); written to the log file only, never shown."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
       "Literal": "\"backdrop-close\"",
       "Category": "log",

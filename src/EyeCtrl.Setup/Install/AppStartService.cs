@@ -35,7 +35,8 @@ public sealed record AppStartOutcome(
 /// <list type="number">
 /// <item>within 30 s its token reads High IL and UIAccess 1;</item>
 /// <item>the process is still alive after 20 s;</item>
-/// <item>C10's startup token line says <c>UIAccess=True</c>.</item>
+/// <item>C10's startup token line says UIAccess (the value is a bool; Serilog renders it as
+/// <c>true</c>, per <see cref="EyeCtrl.Core.Input.AppStartupTokenLog"/>).</item>
 /// </list>
 /// A started-but-failed App is killed before the caller swaps back, so no process from the old
 /// folder can hold the rename.

@@ -15,6 +15,13 @@ public static class LoggingInitializer
     private const long MaxLogSizeBytes = 50 * 1024 * 1024; // 50 MB/day before a size roll
 
     /// <summary>
+    /// The one file-sink output template. Exposed to the tests so the startup token line's contract
+    /// (C10, read by Setup's pass rule) is rendered by the App's real format, not a copy of it.
+    /// </summary>
+    internal const string OutputTemplate =
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}";
+
+    /// <summary>
     /// Initializes Serilog with rolling file logging.
     /// </summary>
     /// <param name="logsDirectory">Directory where log files should be kept</param>
@@ -37,7 +44,7 @@ public static class LoggingInitializer
                 // properties it renders into the template, and a log file should not change
                 // shape with the machine's locale (CA1305 is an error here since T02).
                 formatProvider: CultureInfo.InvariantCulture,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
+                outputTemplate: OutputTemplate)
             .CreateLogger();
     }
 }

@@ -434,9 +434,10 @@ internal sealed class BrowseCoordinator : CoordinatorBase
                 // keyboard hidden — a second summon dwell before any typing could start. The
                 // field takes focus and the keyboard slides in with it (the SHOW message, not
                 // the toolbar's toggle: if the keyboard is already up, this must not hide it).
-                // The keyboard is a no-activate overlay, so it never steals the OS focus the
-                // address box just took, and its SendText lands in this window — the whole
-                // focusable-flip contract BrowseWindow was built on.
+                // The keyboard must never BE the foreground — its SendText types into whatever
+                // is foreground, which is this window (the focusable-flip contract) — and since
+                // KeyboardWindow's Show no longer activates (ShowActivated=false, the same
+                // feedback round), the address box keeps the OS focus the keyboard types into.
                 Context!.Messenger.Send(new KeyboardShowRequestedMessage());
                 break;
         }

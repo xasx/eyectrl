@@ -566,6 +566,25 @@ public class BrowseCoordinatorTests
     }
 
     [Fact]
+    public void TheKeyboardAndItsEdgeBar_NeverStealTheForegroundOnShow()
+    {
+        // Owner feedback 2026-11-05: summoning the keyboard un-focused the browser's address
+        // box — WPF's Show() calls Activate() when ShowActivated is true, and that programmatic
+        // activation ignores WS_EX_NOACTIVATE (the style every overlay already carries). The
+        // keyboard types into whatever window IS foreground, so it must never BE the
+        // foreground; its edge bar shows alongside it under the same contract. Pinned at the
+        // source: the theft is a property of the windows' Show, not of the browse flow alone.
+        var repoRoot = SourceScanner.RepoRoot().FullName;
+        var keyboardSource = File.ReadAllText(Path.Combine(repoRoot, "src", "EyeCtrl.App", "Overlays", "KeyboardWindow.xaml.cs"));
+        var edgeBarSource = File.ReadAllText(Path.Combine(repoRoot, "src", "EyeCtrl.App", "Overlays", "EdgeButtonBarWindow.xaml.cs"));
+
+        Check.WithCustomMessage("the keyboard's Show must not activate — it types into the foreground window")
+            .That(keyboardSource.Contains("ShowActivated = false;")).IsTrue();
+        Check.WithCustomMessage("the keyboard's edge bar shows alongside it under the same no-activation contract")
+            .That(edgeBarSource.Contains("ShowActivated = false;")).IsTrue();
+    }
+
+    [Fact]
     public void ElementEnvelope_WithoutTheSecret_NeverRegisters()
     {
         // Review C3c: any page can post an elements envelope; without the host's per-summon

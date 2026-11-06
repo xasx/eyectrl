@@ -103,4 +103,12 @@ internal sealed class SettingsPageContext
     /// An init property, not a constructor parameter, for the same stability reason as above.
     /// </summary>
     public ISetupGateways? SetupGateways { get; init; }
+
+    /// <summary>
+    /// C9 S6e fixup-08: the uninstall hand-off presenter. When present, the uninstall row starts
+    /// the hand-off through it, so Settings hides while Setup's own Q8 is up and comes back on
+    /// every outcome that does not remove EyeCtrl. Null in a degraded host (headless contexts):
+    /// the row then calls the gateways directly, unchanged.
+    /// </summary>
+    public IUninstallHandoffPresenter? UninstallHandoff { get; init; }
 }

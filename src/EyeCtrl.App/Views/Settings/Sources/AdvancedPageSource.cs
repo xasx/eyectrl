@@ -235,7 +235,12 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
             {
                 // fixup-06 M2: a guard refusal means Setup is already starting or running — its
                 // own window is the answer. Only a launch that failed shows the failure line.
-                if (gate.StartUninstallHandoff() == SetupHandoffStart.Failed)
+                // fixup-08: the presenter hides Settings on Started and brings it back by itself
+                // on every end that does not uninstall; a host without one keeps today's call.
+                var start = _ctx.UninstallHandoff is { } handoff
+                    ? handoff.Start(gate)
+                    : gate.StartUninstallHandoff();
+                if (start == SetupHandoffStart.Failed)
                     _ctx.ShowError(StringTable.Current.T("settings.advanced.setup.startFailed"));
             },
             ButtonKind.Danger, Width: 380, Height: 100)

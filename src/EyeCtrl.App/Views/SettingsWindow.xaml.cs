@@ -483,7 +483,8 @@ public partial class SettingsWindow : OverlayWindow
         Func<string?>? probeBlockReason = null,
         Action? requestProbe = null,
         Func<bool>? canResumeSession2 = null,
-        ISetupGateways? setupGateways = null)
+        ISetupGateways? setupGateways = null,
+        IUninstallHandoffPresenter? uninstallHandoff = null)
     {
         InitializeComponent();
 
@@ -666,6 +667,8 @@ public partial class SettingsWindow : OverlayWindow
             RunSafetySetup = () => StartSafetySetup(closeWhenDone: false),
             // C9 S6f: the „Erweitert" setup rows (null in headless hosts: the page omits them).
             SetupGateways = setupGateways,
+            // C9 S6e fixup-08: the uninstall row hides this window while Setup's Q8 is up.
+            UninstallHandoff = uninstallHandoff,
         };
 
         // C9 S6f (review 01 N2): start the catalog check OFF the UI thread as the window opens.
@@ -1180,6 +1183,31 @@ public partial class SettingsWindow : OverlayWindow
         RaiseToTop();
         if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
             ShowLanguageRow();
+    }
+
+    /// <summary>
+    /// C9 S6e fixup-08: lands the window on „Erweitert", the tab the uninstall row lives on, with
+    /// the sidebar page holding Advanced — the same three-part landing as the language deep link
+    /// (<see cref="ShowLanguageRow" />), including <see cref="RaiseToTop" /> instead of
+    /// <c>Activate()</c>: the restore must not steal the foreground from whatever the owner opened
+    /// while Settings was hidden. No modal can be up while the window is hidden (nothing can click
+    /// or dwell a hidden window), so there is no queue to consult here.
+    /// </summary>
+    internal void NavigateToAdvancedTab()
+    {
+        RaiseToTop();
+        ShowAdvancedTab();
+    }
+
+    /// <summary>Content tab + sidebar highlight + sidebar page, in that order (as the language
+    /// deep link does — without the sidebar page the sidebar contradicts the content).</summary>
+    private void ShowAdvancedTab()
+    {
+        ShowTab("Advanced");
+        _viewModel.ActiveTabId = "Advanced";
+        var index = Array.FindIndex(_visibleDefs, t => t.Id == "Advanced");
+        if (index >= 0)
+            SwitchTabPage(SettingsTabPagination.PageOf(index, _tabsPerPage));
     }
 
     /// <summary>

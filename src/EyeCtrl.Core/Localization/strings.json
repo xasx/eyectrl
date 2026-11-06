@@ -3253,13 +3253,6 @@
     "fit": "prose",
     "args": []
   },
-  "settings.diagnostics.subpixel.reason.paused": {
-    "text": "Resume first, then start the test.",
-    "who": "user",
-    "where": "settings",
-    "fit": "prose",
-    "args": []
-  },
   "settings.diagnostics.subpixel.reason.running": {
     "text": "A sub-pixel test is already running.",
     "who": "user",

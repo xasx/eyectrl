@@ -87,11 +87,16 @@ public class SubPixelProbePausedStartTests
 
         world.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
 
+        // F4: the start is posted at Background, not run inside the message delivery.
+        Check.WithCustomMessage("The probe start ran inline inside the StateChangedMessage delivery")
+            .That(world.Modal.ProbeOpen).IsFalse();
+        Check.That(world.Coordinator.LiveSessionForTest).IsNull();
+
+        world.Pump();
+
         Check.WithCustomMessage("The posted resume state change did not start the probe")
             .That(world.Modal.ProbeOpen).IsTrue();
         Check.That(world.Coordinator.LiveSessionForTest).IsNotNull();
-
-        world.Pump();
         Check.WithCustomMessage("The probe started twice (queued start plus the resume gate)")
             .That(world.Host.CountOf("SetProbeOpen")).IsEqualTo(1);
         Check.That(world.Host.Windows).HasSize(1);
@@ -170,6 +175,99 @@ public class SubPixelProbePausedStartTests
 
         world.Pump();
         Check.That(world.Modal.ProbeOpen).IsFalse();
+    }
+
+    [Fact]
+    public void TheResumeTimer_IsDisposedWhenTheResumeLands()
+    {
+        using var world = new ProbeTestWorld();
+        world.Engine.InteractionManager.TogglePause();
+        world.Coordinator.RequestStart(ManualClose(world));
+
+        var resumeTimer = world.Timers.Created
+            .Single(c => c.Interval == SubPixelProbeCoordinator.ResumeLandingTimeout).Timer;
+        Check.That(resumeTimer.Disposed).IsFalse();
+
+        world.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+
+        // The production timer is a repeating DispatcherTimer: a missed dispose leaves a 2 s tick
+        // running for every paused start (review 01 F3, M10).
+        Check.WithCustomMessage("The repeating resume timer survived a successful landing")
+            .That(resumeTimer.Disposed).IsTrue();
+
+        world.Pump();
+        Check.That(world.Modal.ProbeOpen).IsTrue();
+    }
+
+    [Fact]
+    public void ARequestThatThrowsAfterTheClosePosted_RetiresThePostedStart()
+    {
+        using var world = new ProbeTestWorld();
+        world.Engine.InteractionManager.TogglePause();
+
+        Check.ThatCode(() => world.Coordinator.RequestStart(() =>
+        {
+            world.Modal.SettingsOpen = false;
+            world.Modal.SettingsOpenChanged?.Invoke(false);   // the close posts BeginStart
+            throw new InvalidOperationException("close failed after the post");
+        })).Throws<InvalidOperationException>();
+
+        // The resume never ran; resume by hand, as a later user action would, then drain. The
+        // posted BeginStart must be stale, not a probe start (review 01 F3, M15).
+        world.Engine.InteractionManager.TogglePause();
+        world.Pump();
+
+        Check.WithCustomMessage("A request that threw after posting a start still started a probe")
+            .That(world.Modal.ProbeOpen).IsFalse();
+        Check.That(world.Coordinator.LiveSessionForTest).IsNull();
+    }
+
+    [Theory]
+    [InlineData("settings-requested")]
+    [InlineData("force-show-toolbar")]
+    public void AnInterlockBeforeTheResumeLands_RetiresThePendingStart(string trigger)
+    {
+        using var world = new ProbeTestWorld();
+        world.Engine.InteractionManager.TogglePause();
+        world.Coordinator.RequestStart(ManualClose(world));
+
+        switch (trigger)
+        {
+            case "settings-requested":
+                world.Messenger.Send(new SettingsRequestedMessage());
+                break;
+            case "force-show-toolbar":
+                world.Coordinator.InterlockForceShowToolbar(() => { });
+                break;
+        }
+
+        world.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        world.Pump();
+
+        Check.WithCustomMessage($"An interlock ({trigger}) did not retire the pending resume start")
+            .That(world.Modal.ProbeOpen).IsFalse();
+        Check.That(world.Coordinator.LiveSessionForTest).IsNull();
+    }
+
+    [Fact]
+    public void APausedMessageWhileTheResumeIsPending_AbandonsWithOneReport()
+    {
+        using var world = new ProbeTestWorld();
+        world.Engine.InteractionManager.TogglePause();
+        var refused = new List<ProbeRefusal>();
+        world.Coordinator.RefusalLogger = refused.Add;
+        world.Coordinator.RequestStart(ManualClose(world));
+
+        world.Messenger.Send(new StateChangedMessage(InteractionState.Paused));
+
+        Check.WithCustomMessage("A pause during the pending resume did not report exactly one refusal")
+            .That(refused).ContainsExactly(ProbeRefusal.Paused);
+        Check.That(world.Modal.ProbeOpen).IsFalse();
+
+        world.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        world.Pump();
+        Check.WithCustomMessage("The abandoned resume still started later")
+            .That(world.Modal.ProbeOpen).IsFalse();
     }
 
     [Fact]

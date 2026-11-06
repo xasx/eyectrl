@@ -416,7 +416,8 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     private static string ReasonText(ProbeRefusal refusal) => StringTable.Current.T(refusal switch
     {
-        ProbeRefusal.Paused => "settings.diagnostics.subpixel.reason.paused",
+        // ProbeRefusal.Paused is deliberately absent: since F5 the button resumes instead of
+        // refusing, and the queued-start/abandon paths log the enum, so no text is reachable.
         ProbeRefusal.NotAllowedState => "settings.diagnostics.subpixel.reason.state",
         ProbeRefusal.MenusOpen => "settings.diagnostics.subpixel.reason.menus",
         ProbeRefusal.EyeCareOn => "settings.diagnostics.subpixel.reason.eye_care",
@@ -581,9 +582,12 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         // Retire the BeginStart the Settings close posted: the gate is the one start now, so a
         // refused gate is reported once, not twice, and cannot be re-run by the older post.
+        // Post at Background (review 01 F4) so the other StateChangedMessage recipients and the
+        // close's queued work run first, exactly like the normal C10 path.
         int generation = ++_generation;
         Log.Information("probe start: resumed from pause first");
-        BeginStart(generation, pending.StartMode, pending.ResumedSession1Verdict);
+        Context.Dispatcher.BeginInvoke(DispatcherPriority.Background,
+            () => BeginStart(generation, pending.StartMode, pending.ResumedSession1Verdict));
     }
 
     /// <summary>

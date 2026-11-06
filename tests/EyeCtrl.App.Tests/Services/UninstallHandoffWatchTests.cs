@@ -509,4 +509,102 @@ public class UninstallHandoffWatchTests
             Path.Combine(Path.GetTempPath(), "eyectrl_f08_missing_" + Guid.NewGuid().ToString("N") + ".json")))
             .IsNull();
     }
+
+    // ── the PRODUCTION timings (review-09 N1) ──────────────────────────────────────────────────
+    //
+    // Every test above injects its own graces (30 s / 15 s / 10 min) so the synthetic clock can
+    // step across them quickly — which means a changed PRODUCTION default is invisible to them
+    // (mutant V4, VanishGrace = 1 s, survived the whole App suite). These use the watch's real
+    // defaults, so the production bound itself is pinned.
+
+    /// <summary>Drives the watch with no overridden graces: the production <see cref="UninstallHandoffWatch.VanishGrace" />,
+    /// start grace and cap.</summary>
+    private sealed class ProductionRig
+    {
+        public SetupResult? Record { get; set; }
+        public bool SessionLive { get; set; }
+        public DateTimeOffset Now { get; set; } = Anchor;
+        public List<(UninstallHandoffEnd End, SetupOutcome? Outcome)> Ends { get; } = [];
+        private Action? _next;
+
+        public void Begin()
+        {
+            var watch = new UninstallHandoffWatch(
+                readRecord: () => Record,
+                sessionLive: () => SessionLive,
+                schedule: (_, tick) =>
+                {
+                    _next = tick;
+                    return null;
+                },
+                utcNow: () => Now);
+            watch.Start(Anchor, (end, outcome) => Ends.Add((end, outcome)));
+        }
+
+        public void At(double seconds, bool sessionLive)
+        {
+            Now = Anchor.AddSeconds(seconds);
+            SessionLive = sessionLive;
+            _next!();
+        }
+    }
+
+    [Fact]
+    public void TheProductionVanishGrace_CoversTheRunCopyTakeover()
+    {
+        // A shorter bound ends the watch in the launcher → run-copy gap and restores Settings over
+        // the Q8 that is about to appear (review-08 H1). The run copy itself waits this long.
+        Check.WithCustomMessage(
+                "UninstallHandoffWatch.VanishGrace must be at least the run copy's takeover wait: "
+                + "anything shorter restores Settings in the launcher → run-copy gap.")
+            .That(UninstallHandoffWatch.VanishGrace >= SetupSessionGuard.HandoffTakeoverWait)
+            .IsTrue();
+    }
+
+    [Fact]
+    public void TheLauncherRunCopyGap_WithTheProductionTimings_DoesNotEndTheWatch()
+    {
+        var rig = new ProductionRig();
+        rig.Begin();
+
+        rig.At(0.5, sessionLive: true);       // the launcher holds the session
+        rig.At(1.0, sessionLive: false);      // launcher gone; the run copy is starting
+        rig.At(2.5, sessionLive: false);      // 1.5 s into the gap
+        Check.WithCustomMessage(
+                "The watch ended in the launcher → run-copy gap with the production bounds: "
+                + "Settings would come back over Q8 (F4).")
+            .That(rig.Ends).IsEmpty();
+
+        rig.At(3.0, sessionLive: true);       // the run copy is the session
+        Check.That(rig.Ends).IsEmpty();
+
+        // The owner cancels; the record lands while the result screen holds the session.
+        rig.At(60, sessionLive: true);
+        rig.Record = Uninstall(SetupOutcome.Cancelled, Anchor.AddSeconds(60));
+        rig.At(65, sessionLive: true);
+        Check.That(rig.Ends).IsEmpty();
+
+        rig.At(70.5, sessionLive: false);     // the result screen closed and Setup exited
+        Check.That(rig.Ends).HasSize(1);
+        Check.That(rig.Ends[0].End).IsEqualTo(UninstallHandoffEnd.NotUninstalled);
+        Check.That(rig.Ends[0].Outcome).IsEqualTo(SetupOutcome.Cancelled);
+    }
+
+    [Fact]
+    public void ACrashWithoutARecord_RestoresAtTheProductionBound_NotBefore()
+    {
+        var rig = new ProductionRig();
+        rig.Begin();
+
+        rig.At(0.5, sessionLive: true);
+        rig.At(30, sessionLive: true);        // Q8 up
+        rig.At(30.5, sessionLive: false);     // Setup died: gone, no record
+        rig.At(44.5, sessionLive: false);     // 14 s gone
+        Check.WithCustomMessage("the production vanish bound is shorter than the run-copy takeover")
+            .That(rig.Ends).IsEmpty();
+
+        rig.At(45.5, sessionLive: false);     // 15 s gone: restore
+        Check.That(rig.Ends).HasSize(1);
+        Check.That(rig.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+    }
 }

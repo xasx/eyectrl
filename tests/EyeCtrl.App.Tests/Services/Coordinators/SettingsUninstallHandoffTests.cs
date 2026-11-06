@@ -9,11 +9,12 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Setup;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// C9 S6e fixup-08: the Settings window's half of the uninstall hand-off. Settings hides only
 /// while Setup's own Q8 is up (it is band-2 topmost, Q8 can never be raised above it), releasing
-/// the claims it holds while open so the toolbar and ring stay usable, and it comes back on
+/// the claims it holds while open so the toolbar and the summon stay usable, and it comes back on
 /// „Erweitert" for every end that does not remove EyeCtrl. Never for an uninstall; never twice
 /// (the owner may reopen it manually while Q8 is up). All window calls go through a recorder: a
 /// test may never show a real window.
@@ -25,6 +26,8 @@ public class SettingsUninstallHandoffTests
         public bool IsVisible { get; private set; } = true;
         public int HideCalls { get; private set; }
         public int ShowOnAdvancedCalls { get; private set; }
+        public bool ThrowOnShow { get; set; }
+        public bool ThrowOnlyOnce { get; set; }
 
         public void Hide()
         {
@@ -35,6 +38,12 @@ public class SettingsUninstallHandoffTests
         public void ShowOnAdvanced()
         {
             ShowOnAdvancedCalls++;
+            if (ThrowOnShow)
+            {
+                ThrowOnShow = !ThrowOnlyOnce;
+                throw new InvalidOperationException("show failed");
+            }
+
             IsVisible = true;
         }
     }
@@ -61,18 +70,20 @@ public class SettingsUninstallHandoffTests
         public List<bool> SettingsOpenEvents { get; } = [];
         public SettingsUiCoordinator Coordinator { get; }
         public QuickActionsCoordinator QuickActions { get; }
+        public ToolbarLifecycleCoordinator Toolbar { get; }
+        public ToolbarAutoHideController AutoHide { get; }
         public Dispatcher Dispatcher { get; } = Dispatcher.CurrentDispatcher;
+        public WeakReferenceMessenger Messenger { get; } = new();
 
         public Harness()
         {
             var settings = new EyeCtrlSettings();
-            var messenger = new WeakReferenceMessenger();
             var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
             {
                 Settings = settings,
                 Dispatcher = Dispatcher,
-                Messenger = messenger,
-                CursorVM = new CursorCircleViewModel(settings, messenger) { IsVisible = true },
+                Messenger = Messenger,
+                CursorVM = new CursorCircleViewModel(settings, Messenger) { IsVisible = true },
                 OverlayManager = TestFakes.MakeOverlayManager(
                     cursorCircle: Ring,
                     trackStatus: new TestFakes.FakeTrackStatusOverlay()),
@@ -81,26 +92,50 @@ public class SettingsUninstallHandoffTests
             QuickActions = new QuickActionsCoordinator(Modal);
             QuickActions.InjectSummonForTesting(
                 new QuickActionsSummonController("left", 1920, 1080, 400, 5000));
+
+            // A real auto-hide controller, so the toolbar's "settings" suspension is observable on
+            // both edges (a null controller reports every state as suspended, which made the
+            // hide's release untestable — review-08 M2).
+            AutoHide = new ToolbarAutoHideController(
+                enabled: true, edge: "Top", screenW: 1920, screenH: 1080,
+                toolbarRect: new PhysicalRect(0, 0, 1920, 48),
+                hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50);
+            Toolbar = new ToolbarLifecycleCoordinator(Modal);
+            Toolbar.InjectAutoHideForTesting(AutoHide);
+
             Coordinator = new SettingsUiCoordinator(
                 Modal,
                 QuickActions,
-                new ToolbarLifecycleCoordinator(Modal),
-                new KeyboardCoordinator(
-                    Modal, new QuickActionsCoordinator(Modal), new ToolbarLifecycleCoordinator(Modal)));
+                Toolbar,
+                new KeyboardCoordinator(Modal, QuickActions, Toolbar));
             Coordinator.Initialize(context);
             QuickActions.Initialize(context);
             Modal.SettingsOpenChanged = open => SettingsOpenEvents.Add(open);
         }
 
-        /// <summary>The open Settings window as production has it: the flag set, the handle
-        /// attached. The real window cannot be constructed here, so the handle is the record.</summary>
+        /// <summary>
+        /// The open Settings window as production has it: the real open path's claims are TAKEN
+        /// (SettingsOpen + its event, the toolbar's auto-hide suspension, the summon claim, the
+        /// ring hidden), and the window handle is attached. The real window cannot be constructed
+        /// here, so the handle is a recorder.
+        /// </summary>
         public Harness Open()
         {
             Modal.SettingsOpen = true;
+            Modal.SettingsOpenChanged?.Invoke(true);
+            Toolbar.SetAutoHideSuspended("settings", true);
+            QuickActions.SetSummonSuspended("settings", true);
+            Ring.Hide();
             SettingsOpenEvents.Clear();
             Coordinator.SetHandoffWindowForTests(Window);
             return this;
         }
+
+        /// <summary>The owner's real Settings entry: the toolbar/tray/keyboard send this message.</summary>
+        public void RequestSettings() => Messenger.Send(new SettingsRequestedMessage());
+
+        /// <summary>Drains the dispatcher so the coordinator's registered handler runs.</summary>
+        public void Pump() => Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
         public void Dispose()
         {
@@ -109,20 +144,29 @@ public class SettingsUninstallHandoffTests
         }
     }
 
+    private static void AssertOpenClaims(Harness c, bool open, string because)
+    {
+        Check.WithCustomMessage($"{because}: SettingsOpen")
+            .That(c.Modal.SettingsOpen).IsEqualTo(open);
+        Check.WithCustomMessage($"{because}: the toolbar's auto-hide suspension")
+            .That(c.Toolbar.IsAutoHideSuspended).IsEqualTo(open);
+        Check.WithCustomMessage($"{because}: the quick-actions summon claim")
+            .That(c.QuickActions.IsSummonSuspended).IsEqualTo(open);
+    }
+
     [Fact]
     public void Hiding_ReleasesTheClaimsSettingsHeld_AndShowsTheRingAgain()
     {
         using var c = new Harness().Open();
+        AssertOpenClaims(c, open: true, "the open window");
 
         var hidden = c.Coordinator.HideSettingsForUninstallHandoff();
 
         Check.That(hidden).IsTrue();
         Check.That(c.Window.HideCalls).IsEqualTo(1);
         Check.That(c.Window.IsVisible).IsFalse();
-        Check.That(c.Modal.SettingsOpen).IsFalse();
+        AssertOpenClaims(c, open: false, "the hidden window");
         Check.That(c.SettingsOpenEvents).ContainsOnlyElementsThatMatch(open => !open);
-        Check.WithCustomMessage("Settings' summon claim survived the hide: the quick-actions summon stays dead")
-            .That(c.QuickActions.IsSummonSuspended).IsFalse();
         Check.That(c.Ring.ShowCalls).IsEqualTo(1);
     }
 
@@ -162,11 +206,10 @@ public class SettingsUninstallHandoffTests
 
         Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(1);
         Check.That(c.Window.IsVisible).IsTrue();
-        Check.That(c.Modal.SettingsOpen).IsTrue();
+        AssertOpenClaims(c, open: true, "the restored window");
         Check.WithCustomMessage("the restore did not announce Settings as open again")
             .That(c.SettingsOpenEvents[^1]).IsTrue();
-        Check.That(c.QuickActions.IsSummonSuspended).IsTrue();
-        Check.That(c.Ring.HideCalls).IsEqualTo(1);
+        Check.That(c.Ring.HideCalls).IsEqualTo(2);   // once on Open, once on the restore
     }
 
     [Fact]
@@ -182,25 +225,54 @@ public class SettingsUninstallHandoffTests
 
         Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(0);
         Check.That(c.Window.IsVisible).IsFalse();
-        Check.That(c.Modal.SettingsOpen).IsFalse();
+        AssertOpenClaims(c, open: false, "a completed uninstall");
     }
 
     [Fact]
-    public void AManualReopen_ShowsItOnce_AndTheLaterRestoreDoesNothing()
+    public void AManualReopenThroughTheRealEntry_ShowsItOnce_AndTheLaterRestoreDoesNothing()
     {
+        // Review-08 M3: the request goes through ShowSettingsWindow, the one line the toolbar,
+        // tray and keyboard row use — not the helper.
         using var c = new Harness().Open();
         c.Coordinator.HideSettingsForUninstallHandoff();
 
-        Check.That(c.Coordinator.ReopenHiddenSettingsWindowForUninstallHandoff()).IsTrue();
-        Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(1);
+        c.RequestSettings();
+        c.Pump();
 
-        // The owner is back on „Erweitert"; Setup ending later must not re-show or re-navigate.
+        Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(1);
+        Check.That(c.Window.IsVisible).IsTrue();
+        AssertOpenClaims(c, open: true, "the owner's reopen");
+
+        // Setup ending later must not re-show or re-navigate.
         c.Coordinator.RestoreSettingsAfterUninstallHandoff(
             UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
 
         Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(1);
         Check.That(c.Coordinator.ReopenHiddenSettingsWindowForUninstallHandoff()).IsFalse();
         Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AFailedShow_KeepsTheHiddenFlag_AndTheNextEntryRetries()
+    {
+        // Review-08 L1: a show that throws must not clear the flag, or a later Settings request
+        // would leave the owner with no window at all.
+        using var c = new Harness().Open();
+        c.Coordinator.HideSettingsForUninstallHandoff();
+        c.Window.ThrowOnShow = true;
+        c.Window.ThrowOnlyOnce = true;
+
+        c.Coordinator.RestoreSettingsAfterUninstallHandoff(
+            UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
+        Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(1);
+        Check.That(c.Window.IsVisible).IsFalse();
+
+        c.RequestSettings();
+        c.Pump();
+
+        Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(2);
+        Check.That(c.Window.IsVisible).IsTrue();
+        AssertOpenClaims(c, open: true, "the retried reopen");
     }
 
     [Fact]
@@ -212,7 +284,7 @@ public class SettingsUninstallHandoffTests
             UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
 
         Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(0);
-        Check.That(c.Ring.HideCalls).IsEqualTo(0);
+        Check.That(c.Ring.HideCalls).IsEqualTo(1);   // only the open path's
     }
 
     [Fact]
@@ -229,6 +301,6 @@ public class SettingsUninstallHandoffTests
 
         Check.That(c.Window.ShowOnAdvancedCalls).IsEqualTo(0);
         Check.That(c.Window.IsVisible).IsFalse();
-        Check.That(c.Modal.SettingsOpen).IsFalse();
+        AssertOpenClaims(c, open: false, "a closed window");
     }
 }

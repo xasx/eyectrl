@@ -42,26 +42,32 @@ public class UninstallHandoffPresenterTests
     {
         public DateTimeOffset StartedAt { get; private set; }
         public Action<UninstallHandoffEnd, SetupOutcome?>? Ended { get; private set; }
+        public int DisposeCalls { get; private set; }
 
         public void Start(DateTimeOffset handoffStartedAt, Action<UninstallHandoffEnd, SetupOutcome?> ended)
         {
             StartedAt = handoffStartedAt;
             Ended = ended;
         }
+
+        public void Dispose() => DisposeCalls++;
     }
 
     private sealed class FakeWatchFactory : IUninstallHandoffWatchFactory
     {
-        public FakeWatch Watch { get; } = new();
+        public List<FakeWatch> CreatedWatches { get; } = [];
+        public FakeWatch Watch => CreatedWatches[^1];
         public bool Throw { get; set; }
-        public int Created { get; private set; }
+        public int Created => CreatedWatches.Count;
 
         public IUninstallHandoffWatch Create()
         {
-            Created++;
             if (Throw)
                 throw new InvalidOperationException("watch factory failed");
-            return Watch;
+
+            var watch = new FakeWatch();
+            CreatedWatches.Add(watch);
+            return watch;
         }
     }
 
@@ -195,5 +201,32 @@ public class UninstallHandoffPresenterTests
         Check.That(harness.Restores).HasSize(1);
         Check.That(harness.Restores[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
         Check.That(harness.Warnings).HasSize(1);
+    }
+
+    [Fact]
+    public void ALaterHandoff_SupersedesTheEarlierWatch()
+    {
+        // Review-08 L2: after a manual reopen, an earlier watch can still be waiting when a second
+        // uninstall starts. Its end must not restore Settings over the second hand-off's Q8.
+        var harness = new Harness();
+        var presenter = harness.Create();
+
+        presenter.Start(harness.Gateways);
+        var first = harness.Watches.Watch;
+
+        presenter.Start(harness.Gateways);
+
+        Check.That(harness.Watches.Created).IsEqualTo(2);
+        Check.That(first.DisposeCalls).IsEqualTo(1);
+
+        // A stale end arrives anyway (a watch that ignores Dispose, or a callback already in
+        // flight): it is dropped by the generation check.
+        first.Ended!.Invoke(UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
+        Check.WithCustomMessage("a superseded hand-off's end restored Settings during the new one")
+            .That(harness.Restores).IsEmpty();
+
+        // The current watch still owns the restore.
+        harness.End(UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
+        Check.That(harness.Restores).HasSize(1);
     }
 }

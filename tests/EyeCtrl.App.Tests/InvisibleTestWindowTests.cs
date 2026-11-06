@@ -100,15 +100,25 @@ public class InvisibleTestWindowTests
 
     // ---- the assumption Opacity = 0 rests on: product code never raises the window's own Opacity ----------
 
-    /// <summary>Every window type the tests prepare with <c>Opacity = 0</c> (<see cref="InvisibleTestWindow.Prepare{T}"/>).</summary>
-    private static readonly string[] OpacityPreparedWindowTypes =
+    /// <summary>
+    /// Every window type the tests prepare with <c>Opacity = 0</c>
+    /// (<see cref="InvisibleTestWindow.Prepare{T}" />), with its product path stem (no extension).
+    /// SettingsWindow is the one outside <c>Overlays/</c>; it joined the list when
+    /// <c>SettingsWindowHandleTests</c> started showing the real window prepared (review-08 L3).
+    /// </summary>
+    private static readonly (string Name, string Stem)[] OpacityPreparedWindows =
     [
-        "ToolbarWindow", "EdgeButtonBarWindow", "EyeCareBannerWindow", "EyeCareExerciseWindow", "ActionMenuWindow",
-        "KeyboardWindow", "PauseIndicatorWindow", "ManualSelectionGazeIndicatorWindow", "TaskSwitcherWindow",
+        ("ToolbarWindow", "Overlays/ToolbarWindow"),
+        ("EdgeButtonBarWindow", "Overlays/EdgeButtonBarWindow"),
+        ("EyeCareBannerWindow", "Overlays/EyeCareBannerWindow"),
+        ("EyeCareExerciseWindow", "Overlays/EyeCareExerciseWindow"),
+        ("ActionMenuWindow", "Overlays/ActionMenuWindow"),
+        ("KeyboardWindow", "Overlays/KeyboardWindow"),
+        ("PauseIndicatorWindow", "Overlays/PauseIndicatorWindow"),
+        ("ManualSelectionGazeIndicatorWindow", "Overlays/ManualSelectionGazeIndicatorWindow"),
+        ("TaskSwitcherWindow", "Overlays/TaskSwitcherWindow"),
+        ("SettingsWindow", "Views/SettingsWindow"),
     ];
-
-    private static readonly string[] OpacityPreparedWindows =
-        OpacityPreparedWindowTypes.Select(t => $"Overlays/{t}.xaml.cs").ToArray();
 
     // `Opacity = ...` with no receiver (the window's own), `this.Opacity`, or an animation / SetValue of `OpacityProperty` on the
     // window itself (also with a qualified property name). Elements inside the window (`Banner.Opacity`, `x.Opacity`) have a receiver.
@@ -156,10 +166,10 @@ public class InvisibleTestWindowTests
     public void TheWindowsPreparedByOpacity_NeverWriteOrAnimateTheirOwnOpacity()
     {
         var ownWrite = OwnOpacityWrite;
-        foreach (var file in OpacityPreparedWindows)
+        foreach (var (name, stem) in OpacityPreparedWindows)
         {
-            var code = NoVisibleTestWindowGuardTests.StripCommentsAndStrings(Product(file));
-            Check.WithCustomMessage($"{file} writes the window's own Opacity: Opacity = 0 no longer hides it in a test")
+            var code = NoVisibleTestWindowGuardTests.StripCommentsAndStrings(Product($"{stem}.xaml.cs"));
+            Check.WithCustomMessage($"{name}.xaml.cs writes the window's own Opacity: Opacity = 0 no longer hides it in a test")
                 .That(ownWrite.IsMatch(code)).IsFalse();
         }
     }
@@ -181,9 +191,9 @@ public class InvisibleTestWindowTests
     [Fact]
     public void TheWindowsPreparedByOpacity_AreDeclaredLayeredInXaml()
     {
-        foreach (var name in OpacityPreparedWindowTypes)
+        foreach (var (name, stem) in OpacityPreparedWindows)
             Check.WithCustomMessage($"{name}.xaml must keep AllowsTransparency=\"True\"")
-                .That(Product($"Overlays/{name}.xaml")).Contains("AllowsTransparency=\"True\"");
+                .That(Product($"{stem}.xaml")).Contains("AllowsTransparency=\"True\"");
     }
 
     [Fact]
@@ -192,9 +202,9 @@ public class InvisibleTestWindowTests
         // The C# pins cannot see XAML: a Loaded storyboard, a style Setter or a trigger could raise the window's
         // Opacity after the show. The root element's own attributes, any <Setter Property="Opacity"> and any
         // animation whose TargetProperty names Opacity are rejected (element-level Opacity="0.9" attributes are fine).
-        foreach (var name in OpacityPreparedWindowTypes)
+        foreach (var (name, stem) in OpacityPreparedWindows)
         {
-            var xaml = Regex.Replace(Product($"Overlays/{name}.xaml"), @"<!--.*?-->", "", RegexOptions.Singleline);
+            var xaml = Regex.Replace(Product($"{stem}.xaml"), @"<!--.*?-->", "", RegexOptions.Singleline);
             var root = Regex.Match(xaml, @"<(?![?!/])[^>]*>", RegexOptions.Singleline).Value;
             Check.WithCustomMessage($"{name}.xaml: the root element sets Opacity").That(Regex.IsMatch(root, @"\sOpacity\s*=")).IsFalse();
             Check.WithCustomMessage($"{name}.xaml: a Setter targets Opacity").That(Regex.IsMatch(xaml, @"Property\s*=\s*""Opacity""")).IsFalse();

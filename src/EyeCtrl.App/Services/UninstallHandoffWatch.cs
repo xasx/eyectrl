@@ -10,10 +10,14 @@ using EyeCtrl.Setup;
 /// <param name="Done">Whether the hand-off is over.</param>
 /// <param name="SessionSeen">Whether Setup's session was observed live at any point (carried to
 /// the next poll).</param>
+/// <param name="SessionGoneSince">When the observed session was first seen missing (null while it
+/// is live, or before it was ever seen). Carried to the next poll, so the launcher → run-copy gap
+/// can be told from a real end.</param>
 /// <param name="End">The end, when <paramref name="Done" />.</param>
 /// <param name="Outcome">Setup's own recorded outcome, when this end came from the record.</param>
 internal readonly record struct UninstallWatchVerdict(
-    bool Done, bool SessionSeen, UninstallHandoffEnd End, SetupOutcome? Outcome);
+    bool Done, bool SessionSeen, DateTimeOffset? SessionGoneSince,
+    UninstallHandoffEnd End, SetupOutcome? Outcome);
 
 /// <summary>
 /// The pure part of the uninstall watch (C9 S6e fixup-08): what one poll knows, and whether the
@@ -57,11 +61,18 @@ internal static class UninstallHandoffOutcome
     /// closed itself (10 s for a cancel, 60 s for a failure), and only then does the process
     /// release the session mutex. Waiting for both is what keeps Settings from covering the
     /// failure text the owner has to read (the S6e review's N1 contrast work).</para>
-    /// <para><b>Never strand:</b> a session that vanishes without a record (Setup crashed), a
-    /// session that was never seen (the launch died before taking the mutex), and a watch that
-    /// outlives its cap all end as <see cref="UninstallHandoffEnd.Unknown" />, which restores
-    /// Settings. A successful uninstall ends as <see cref="UninstallHandoffEnd.Uninstalled" />
-    /// immediately: Setup stops the App in the same run, so there is nothing to restore.</para>
+    /// <para><b>The launcher → run-copy gap (review-08 H1).</b> The installed launcher starts the
+    /// run copy and returns at once, so for a moment NO process holds the session — the mutex is
+    /// re-taken only when the run copy's own <c>Program.Main</c> runs. A seen session that is
+    /// missing is therefore not an end until it has stayed missing for
+    /// <paramref name="vanishGrace" /> (the run copy's own takeover bound); a re-appearance resets
+    /// that window. A terminal record still ends at once: the gap has no record.</para>
+    /// <para><b>Never strand:</b> a session that vanishes and stays gone without a record (Setup
+    /// crashed), a session that was never seen (the launch died before taking the mutex), and a
+    /// watch that outlives its cap all end as <see cref="UninstallHandoffEnd.Unknown" />, which
+    /// restores Settings. A successful uninstall ends as
+    /// <see cref="UninstallHandoffEnd.Uninstalled" /> as soon as the record is read: Setup stops
+    /// the App in the same run, so there is nothing to restore.</para>
     /// </remarks>
     internal static UninstallWatchVerdict Evaluate(
         DateTimeOffset handoffStartedAt,
@@ -69,36 +80,48 @@ internal static class UninstallHandoffOutcome
         SetupResult? record,
         bool sessionLive,
         bool sessionSeen,
+        DateTimeOffset? sessionGoneSince,
         TimeSpan startGrace,
+        TimeSpan vanishGrace,
         TimeSpan maximumWatch)
     {
         var seen = sessionSeen || sessionLive;
+        var goneSince = sessionLive ? null : seen ? sessionGoneSince ?? now : sessionGoneSince;
         var outcome = Classify(record, handoffStartedAt);
 
         // EyeCtrl is being removed: Setup stops the App itself. Never bring Settings back — a
         // window raised over the removal would be the last thing the owner sees.
         if (outcome == SetupOutcome.Uninstalled)
-            return new UninstallWatchVerdict(true, seen, UninstallHandoffEnd.Uninstalled, outcome);
+            return new UninstallWatchVerdict(true, seen, goneSince, UninstallHandoffEnd.Uninstalled, outcome);
 
         // Setup is finished AND gone: the result screen has closed too.
         if (outcome is { } terminal && !sessionLive)
-            return new UninstallWatchVerdict(true, seen, UninstallHandoffEnd.NotUninstalled, terminal);
+            return new UninstallWatchVerdict(true, seen, goneSince, UninstallHandoffEnd.NotUninstalled, terminal);
 
         // The cap wins over everything except a completed uninstall above: after this long the
         // owner must not be left in front of a hidden Settings, even if the mutex is stuck.
         if (now - handoffStartedAt >= maximumWatch)
-            return new UninstallWatchVerdict(true, seen, UninstallHandoffEnd.Unknown, null);
+            return new UninstallWatchVerdict(true, seen, goneSince, UninstallHandoffEnd.Unknown, null);
 
-        // The session was live and is gone, but no terminal record arrived: Setup died mid-run.
-        if (!sessionLive && seen)
-            return new UninstallWatchVerdict(true, seen, UninstallHandoffEnd.Unknown, null);
+        if (sessionLive)
+            return new UninstallWatchVerdict(false, seen, goneSince, UninstallHandoffEnd.Unknown, null);
+
+        if (seen)
+        {
+            // Review-08 H1: the launcher released the session and the run copy has not taken it
+            // yet. Only a session that has stayed gone for the takeover window means Setup died.
+            var goneFor = now - (goneSince ?? now);
+            return goneFor >= vanishGrace
+                ? new UninstallWatchVerdict(true, seen, goneSince, UninstallHandoffEnd.Unknown, null)
+                : new UninstallWatchVerdict(false, seen, goneSince, UninstallHandoffEnd.Unknown, null);
+        }
 
         // No session ever appeared: the launch never became a Setup session (a Busy refusal, a
         // crash, a machine-slow start that passed the grace). Bounded, then restore.
-        if (!sessionLive && now - handoffStartedAt >= startGrace)
-            return new UninstallWatchVerdict(true, seen, UninstallHandoffEnd.Unknown, null);
+        if (now - handoffStartedAt >= startGrace)
+            return new UninstallWatchVerdict(true, seen, goneSince, UninstallHandoffEnd.Unknown, null);
 
-        return new UninstallWatchVerdict(false, seen, UninstallHandoffEnd.Unknown, null);
+        return new UninstallWatchVerdict(false, seen, goneSince, UninstallHandoffEnd.Unknown, null);
     }
 }
 
@@ -123,6 +146,16 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
     public static readonly TimeSpan StartGrace = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// How long a session that HAS been seen must stay missing before the watch calls it an end
+    /// (review-08 H1). The installed launcher starts the run copy and returns at once, so for a
+    /// moment no process holds the session; the run copy re-takes it within
+    /// <see cref="SetupSessionGuard.HandoffTakeoverWait" /> (15 s, the same bound the run copy
+    /// itself waits for its launcher). Anything shorter and a poll that lands in that gap would
+    /// bring Settings back over the Q8 that is about to appear — the very F4 this feature fixes.
+    /// </summary>
+    public static readonly TimeSpan VanishGrace = SetupSessionGuard.HandoffTakeoverWait;
+
+    /// <summary>
     /// The hard cap. Q8's own timeout is five minutes and a failure result stays up for 60 s, so
     /// this leaves room for both plus a slow machine; past it Settings comes back whatever the
     /// mutex says. Never strand the owner.
@@ -134,11 +167,13 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
     private readonly Func<TimeSpan, Action, IDisposable?> _schedule;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly TimeSpan _startGrace;
+    private readonly TimeSpan _vanishGrace;
     private readonly TimeSpan _maximumWatch;
 
     private DateTimeOffset _handoffStartedAt;
     private Action<UninstallHandoffEnd, SetupOutcome?>? _ended;
     private bool _sessionSeen;
+    private DateTimeOffset? _sessionGoneSince;
     private bool _finished;
     private IDisposable? _pending;
 
@@ -150,6 +185,7 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
     /// manually.</param>
     /// <param name="utcNow">The clock behind the grace and the cap.</param>
     /// <param name="startGrace">Overridable for tests; production uses <see cref="StartGrace" />.</param>
+    /// <param name="vanishGrace">Overridable for tests; production uses <see cref="VanishGrace" />.</param>
     /// <param name="maximumWatch">Overridable for tests; production uses <see cref="MaximumWatch" />.</param>
     public UninstallHandoffWatch(
         Func<SetupResult?> readRecord,
@@ -157,18 +193,22 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
         Func<TimeSpan, Action, IDisposable?> schedule,
         Func<DateTimeOffset>? utcNow = null,
         TimeSpan? startGrace = null,
-        TimeSpan? maximumWatch = null)
+        TimeSpan? maximumWatch = null,
+        TimeSpan? vanishGrace = null)
     {
         _readRecord = readRecord ?? throw new ArgumentNullException(nameof(readRecord));
         _sessionLive = sessionLive ?? throw new ArgumentNullException(nameof(sessionLive));
         _schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _startGrace = startGrace ?? StartGrace;
+        _vanishGrace = vanishGrace ?? VanishGrace;
         _maximumWatch = maximumWatch ?? MaximumWatch;
 
         if (_startGrace <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(startGrace));
-        if (_maximumWatch < _startGrace)
+        if (_vanishGrace <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(vanishGrace));
+        if (_maximumWatch < _startGrace || _maximumWatch < _vanishGrace)
             throw new ArgumentOutOfRangeException(nameof(maximumWatch));
     }
 
@@ -212,7 +252,7 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
 
             verdict = UninstallHandoffOutcome.Evaluate(
                 _handoffStartedAt, now, record, sessionLive,
-                _sessionSeen, _startGrace, _maximumWatch);
+                _sessionSeen, _sessionGoneSince, _startGrace, _vanishGrace, _maximumWatch);
         }
         catch (Exception)
         {
@@ -222,6 +262,7 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
         }
 
         _sessionSeen = verdict.SessionSeen;
+        _sessionGoneSince = verdict.SessionGoneSince;
         if (verdict.Done)
         {
             Finish(verdict.End, verdict.Outcome);

@@ -18,6 +18,7 @@ public class UninstallHandoffWatchTests
 {
     private static readonly DateTimeOffset Anchor = new(2026, 11, 6, 21, 24, 0, TimeSpan.Zero);
     private static readonly TimeSpan Grace = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan Vanish = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan Cap = TimeSpan.FromMinutes(10);
 
     private sealed class Harness
@@ -49,7 +50,8 @@ public class UninstallHandoffWatchTests
             },
             () => ThrowOnNow ? throw new InvalidOperationException("clock failed") : Now,
             startGrace: Grace,
-            maximumWatch: Cap);
+            maximumWatch: Cap,
+            vanishGrace: Vanish);
 
         public void Tick()
         {
@@ -214,7 +216,8 @@ public class UninstallHandoffWatchTests
         var verdict = UninstallHandoffOutcome.Evaluate(
             Anchor, Anchor.AddSeconds(5),
             Uninstall(SetupOutcome.Uninstalled, Anchor.AddSeconds(4)),
-            sessionLive: true, sessionSeen: true, Grace, Cap);
+            sessionLive: true, sessionSeen: true, sessionGoneSince: null,
+            startGrace: Grace, vanishGrace: Vanish, maximumWatch: Cap);
 
         Check.That(verdict.Done).IsTrue();
         Check.That(verdict.End).IsEqualTo(UninstallHandoffEnd.Uninstalled);
@@ -222,18 +225,117 @@ public class UninstallHandoffWatchTests
     }
 
     [Fact]
-    public void ASessionThatVanishesWithoutARecord_EndsAsUnknown()
+    public void ASessionThatVanishesWithoutARecord_EndsAsUnknown_AfterTheVanishWindow()
     {
+        // A crashed Setup must still restore Settings — but only after the launcher → run-copy
+        // takeover window, because during that window the missing session is normal.
         var harness = new Harness { SessionLive = true };
         harness.Begin();
 
         harness.Now = Anchor.AddSeconds(5);
         harness.SessionLive = false;
         harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
 
+        harness.Now = harness.Now.Add(Vanish).AddSeconds(-1);
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
+
+        harness.Now = harness.Now.AddSeconds(1);
+        harness.Tick();
         Check.That(harness.Ends).HasSize(1);
         Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
         Check.That(harness.Ends[0].Outcome).IsNull();
+    }
+
+    [Fact]
+    public void TheLauncherRunCopyGap_DoesNotEndTheWatch()
+    {
+        // Review-08 H1, the exact F4 regression: the installed launcher starts the run copy and
+        // returns at once, so a poll can see the session gone for a moment. The run copy takes it
+        // again; the record (a cancel here) is the end, not the gap.
+        var harness = new Harness { SessionLive = true };
+        harness.Begin();                       // the launcher holds the session
+
+        harness.Now = Anchor.AddSeconds(1);
+        harness.SessionLive = false;           // launcher exited, run copy still starting
+        harness.Tick();
+        Check.WithCustomMessage(
+                "The watch ended in the launcher → run-copy gap: Settings would come back over Q8 (F4).")
+            .That(harness.Ends).IsEmpty();
+
+        harness.Now = Anchor.AddSeconds(2);
+        harness.SessionLive = true;            // the run copy is now the session
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
+
+        // The owner cancels: the record is written, then the result screen holds the session for
+        // 10 s, then the session ends.
+        harness.Now = Anchor.AddMinutes(1);
+        harness.Record = Uninstall(SetupOutcome.Cancelled, harness.Now);
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
+
+        harness.Now = harness.Now.AddSeconds(10);
+        harness.SessionLive = false;
+        harness.Tick();
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.NotUninstalled);
+        Check.That(harness.Ends[0].Outcome).IsEqualTo(SetupOutcome.Cancelled);
+    }
+
+    [Fact]
+    public void AReappearingSession_RestartsTheVanishWindow()
+    {
+        var harness = new Harness { SessionLive = true };
+        harness.Begin();
+
+        harness.Now = Anchor.AddSeconds(1);
+        harness.SessionLive = false;           // first gap
+        harness.Tick();
+
+        harness.Now = Anchor.AddSeconds(10);
+        harness.SessionLive = true;            // back: the run copy took over
+        harness.Tick();
+
+        harness.Now = Anchor.AddSeconds(11);
+        harness.SessionLive = false;           // a second gap starts here
+        harness.Tick();
+
+        // 14 s after the SECOND disappearance (25 s after the first) is still inside the window.
+        harness.Now = Anchor.AddSeconds(11).Add(Vanish).AddSeconds(-1);
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
+
+        harness.Now = harness.Now.AddSeconds(1);
+        harness.Tick();
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+    }
+
+    [Fact]
+    public void TheFirstPoll_WithAStaleRecordAndNoSession_DoesNotEndTheWatch()
+    {
+        // Review-08 M1: production's first poll runs before the launcher takes its session, so the
+        // record IS read. The 05.11 sitting left a Cancelled record behind; the time check is what
+        // keeps it from ending a new hand-off at once.
+        var harness = new Harness
+        {
+            SessionLive = false,
+            Record = Uninstall(SetupOutcome.Cancelled, Anchor.AddMinutes(-30)),
+        };
+
+        harness.Begin();
+
+        Check.That(harness.ReadCalls).IsEqualTo(1);
+        Check.That(harness.Ends).IsEmpty();
+        Check.That(harness.Scheduled).HasSize(1);
+
+        // …and the run is still alive: a live session keeps it waiting.
+        harness.Now = Anchor.AddSeconds(2);
+        harness.SessionLive = true;
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
     }
 
     [Fact]

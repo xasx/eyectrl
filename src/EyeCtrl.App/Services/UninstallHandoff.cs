@@ -35,7 +35,7 @@ public enum UninstallHandoffEnd
 /// (<c>setup-last.json</c>, the same file the S6f notice reads) and Setup's own single-session
 /// mutex, which the launcher holds through the run-copy takeover and the elevated phase.
 /// </summary>
-public interface IUninstallHandoffWatch
+public interface IUninstallHandoffWatch : IDisposable
 {
     /// <summary>
     /// Starts the watch. <paramref name="ended" /> is called exactly once, on the thread that runs
@@ -90,6 +90,13 @@ public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Action<string> _warn;
 
+    // The watch of the hand-off that owns Settings right now, and a generation token. A later
+    // hand-off supersedes an earlier watch: the earlier one is disposed, and its end is dropped
+    // even if a watch (or a fake) still delivers one after Dispose — otherwise an old hand-off's
+    // end could restore Settings over the next hand-off's Q8 (review-08 L2).
+    private IUninstallHandoffWatch? _activeWatch;
+    private long _generation;
+
     /// <summary>Creates the presenter.</summary>
     /// <param name="hide">Hides Settings for the hand-off; returns whether it actually hid a
     /// visible window (false means there is nothing to bring back).</param>
@@ -141,17 +148,48 @@ public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
         if (!hidden)
             return start;
 
+        var generation = unchecked(++_generation);
         try
         {
-            _watches.Create().Start(startedAt, _restore);
+            // One hand-off owns Settings at a time: the previous watch may still be waiting after
+            // a manual reopen, and letting it end during THIS hand-off would restore Settings over
+            // the new Q8.
+            DisposeActiveWatch();
+
+            var watch = _watches.Create();
+            _activeWatch = watch;
+            watch.Start(startedAt, (end, outcome) =>
+            {
+                if (generation != Volatile.Read(ref _generation))
+                    return;
+
+                DisposeActiveWatch();
+                _restore(end, outcome);
+            });
         }
         catch (Exception ex)
         {
             // Never strand: if the watch cannot even start, Settings comes back at once.
             _warn($"uninstall hand-off: starting the completion watch failed: {ex.GetType().Name}");
+            DisposeActiveWatch();
             _restore(UninstallHandoffEnd.Unknown, null);
         }
 
         return start;
+    }
+
+    /// <summary>Stops and drops the current watch; safe when there is none.</summary>
+    private void DisposeActiveWatch()
+    {
+        var watch = _activeWatch;
+        _activeWatch = null;
+        try
+        {
+            watch?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _warn($"uninstall hand-off: stopping the previous watch failed: {ex.GetType().Name}");
+        }
     }
 }

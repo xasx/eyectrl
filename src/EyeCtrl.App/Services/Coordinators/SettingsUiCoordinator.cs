@@ -201,10 +201,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         // hand-off is the owner bringing it back manually (the toolbar, the tray, a keyboard
         // row). Show it now and cancel the automatic return — otherwise the watch would raise it
         // a second time when Setup ends. The hidden window kept its tab, so nothing is lost.
-        ReopenHiddenSettingsWindowForUninstallHandoff();
+        var reopened = ReopenHiddenSettingsWindowForUninstallHandoff();
 
         SettingsDeepLink.Dispatch(
-            windowOpen: _settingsWindow is not null,
+            windowOpen: reopened || _settingsWindow is not null,
             target: target,
             openWindow: OpenSettingsWindow,
             navigate: () => _settingsWindow?.NavigateToLanguageRow());

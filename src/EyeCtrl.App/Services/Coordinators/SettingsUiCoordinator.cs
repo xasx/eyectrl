@@ -452,7 +452,13 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         }
 
         if (!_settingsHiddenForUninstallHandoff)
+        {
+            // The owner already reopened it: nothing to show, but the end still belongs in the log.
+            Log.Information(
+                "Uninstall hand-off ended after the owner reopened Settings: {End} ({Outcome})",
+                end, outcome);
             return;
+        }
 
         BringSettingsBackAfterUninstallHandoff(reopenedByOwner: false);
         Log.Information(
@@ -483,13 +489,13 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     {
         if (!_settingsHiddenForUninstallHandoff) return;
 
-        _settingsHiddenForUninstallHandoff = false;
         var window = _handoffWindow;
 
         if (window is null)
         {
             // The window was closed while hidden: there is nothing to show, and the close path
             // has already released every flag.
+            _settingsHiddenForUninstallHandoff = false;
             return;
         }
 
@@ -498,7 +504,19 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         _toolbar.SetAutoHideSuspended("settings", true);
         _quickActions.SetSummonSuspended("settings", true);
         Context!.OverlayManager.CursorCircle.Hide();
-        window.ShowOnAdvanced();
+
+        try
+        {
+            window.ShowOnAdvanced();
+            _settingsHiddenForUninstallHandoff = false;
+        }
+        catch (Exception ex)
+        {
+            // Keep the flag so a later Settings request retries the show instead of reporting a
+            // window that is still hidden as open.
+            Log.Warning(ex, "Could not show the Settings window after the uninstall hand-off");
+            return;
+        }
 
         if (reopenedByOwner)
             Log.Information("Settings reopened by the owner during the uninstall hand-off");

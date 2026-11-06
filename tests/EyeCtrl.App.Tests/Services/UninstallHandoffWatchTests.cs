@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System;
+using System.IO;
+using System.Text.Json;
 using EyeCtrl.App.Services;
 using EyeCtrl.Setup;
 
@@ -26,12 +28,17 @@ public class UninstallHandoffWatchTests
         public List<(TimeSpan Delay, Action Tick)> Scheduled { get; } = [];
         public List<(UninstallHandoffEnd End, SetupOutcome? Outcome)> Ends { get; } = [];
         public int DisposedHandles { get; private set; }
+        public int ReadCalls { get; private set; }
         public bool ThrowOnRead { get; set; }
         public bool ThrowOnNow { get; set; }
         public bool ThrowOnSchedule { get; set; }
 
         public UninstallHandoffWatch Create() => new(
-            () => ThrowOnRead ? throw new InvalidOperationException("record read failed") : Record,
+            () =>
+            {
+                ReadCalls++;
+                return ThrowOnRead ? throw new InvalidOperationException("record read failed") : Record;
+            },
             () => SessionLive,
             (delay, tick) =>
             {
@@ -178,7 +185,7 @@ public class UninstallHandoffWatchTests
     }
 
     [Fact]
-    public void AnUninstalledRecord_EndsImmediately_EvenWhileTheSessionLingers()
+    public void AnUninstalledRecord_EndsAsUninstalled_WhenTheSessionGoes()
     {
         // Setup stops the App in the same run; Settings must never be raised over the removal.
         var harness = new Harness
@@ -188,10 +195,30 @@ public class UninstallHandoffWatchTests
         };
 
         harness.Begin();
+        Check.That(harness.Ends).IsEmpty();
+
+        harness.Now = Anchor.AddSeconds(6);
+        harness.SessionLive = false;
+        harness.Tick();
 
         Check.That(harness.Ends).HasSize(1);
         Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Uninstalled);
         Check.That(harness.Ends[0].Outcome).IsEqualTo(SetupOutcome.Uninstalled);
+    }
+
+    [Fact]
+    public void TheDecision_AnUninstalledRecord_EndsEvenWhileTheSessionLingers()
+    {
+        // Reached through the cap: the loop reads the record at the cap even if the mutex is
+        // stuck, and a completed uninstall must still keep Settings hidden.
+        var verdict = UninstallHandoffOutcome.Evaluate(
+            Anchor, Anchor.AddSeconds(5),
+            Uninstall(SetupOutcome.Uninstalled, Anchor.AddSeconds(4)),
+            sessionLive: true, sessionSeen: true, Grace, Cap);
+
+        Check.That(verdict.Done).IsTrue();
+        Check.That(verdict.End).IsEqualTo(UninstallHandoffEnd.Uninstalled);
+        Check.That(verdict.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
     }
 
     [Fact]
@@ -320,5 +347,64 @@ public class UninstallHandoffWatchTests
 
         Check.That(harness.Ends).IsEmpty();
         Check.That(harness.DisposedHandles).IsGreaterOrEqualThan(1);
+    }
+
+    [Fact]
+    public void TheRecordIsNotReadWhileSetupStillHoldsItsSession()
+    {
+        // Setup writes the record while it holds the session mutex, so a poll during the session
+        // must not open the file: a concurrent read can make Setup's replace fail, and its
+        // recorder only logs — the outcome would be lost.
+        var harness = new Harness { SessionLive = true };
+        harness.Begin();
+
+        Check.That(harness.ReadCalls).IsEqualTo(0);
+
+        harness.Now = Anchor.AddSeconds(5);
+        harness.Tick();
+        Check.That(harness.ReadCalls).IsEqualTo(0);
+
+        harness.SessionLive = false;
+        harness.Tick();
+        Check.That(harness.ReadCalls).IsGreaterOrEqualThan(1);
+    }
+
+    [Fact]
+    public void ReadRecord_ParsesTheShapeSetupWrites()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "eyectrl_f08_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var path = Path.Combine(root, "setup-last.json");
+            var written = new SetupResult
+            {
+                Verb = SetupVerb.Uninstall,
+                Outcome = SetupOutcome.Cancelled,
+                Time = Anchor,
+                Detail = "cancelled",
+            };
+            File.WriteAllText(path, JsonSerializer.Serialize(written, SetupJson.Options));
+
+            var read = UninstallHandoffWatchFactory.ReadRecord(path);
+
+            Check.That(read).IsNotNull();
+            Check.That(read!.Verb).IsEqualTo(SetupVerb.Uninstall);
+            Check.That(read.Outcome).IsEqualTo(SetupOutcome.Cancelled);
+            Check.That(read.Time).IsEqualTo(Anchor);
+            Check.That(read.Detail).IsEqualTo("cancelled");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch (Exception) { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public void ReadingAMissingRecord_ReturnsNull()
+    {
+        Check.That(UninstallHandoffWatchFactory.ReadRecord(
+            Path.Combine(Path.GetTempPath(), "eyectrl_f08_missing_" + Guid.NewGuid().ToString("N") + ".json")))
+            .IsNull();
     }
 }

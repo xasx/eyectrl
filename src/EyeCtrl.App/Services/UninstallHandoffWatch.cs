@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Services;
 
 using System;
+using System.IO;
+using System.Text.Json;
 using System.Windows.Threading;
 using EyeCtrl.Setup;
 
@@ -197,8 +199,19 @@ public sealed class UninstallHandoffWatch : IUninstallHandoffWatch, IDisposable
         UninstallWatchVerdict verdict;
         try
         {
+            var now = _utcNow();
+            var sessionLive = TrySessionLive();
+
+            // Read the record only when Setup can no longer be writing it: its session is gone,
+            // or the cap is reached. Setup writes the record while it still holds that mutex, so
+            // this makes the read race-free by construction — a concurrent read could otherwise
+            // make Setup's File.Move(overwrite) fail and lose the outcome (its recorder only logs).
+            var record = !sessionLive || now - _handoffStartedAt >= _maximumWatch
+                ? TryReadRecord()
+                : null;
+
             verdict = UninstallHandoffOutcome.Evaluate(
-                _handoffStartedAt, _utcNow(), TryReadRecord(), TrySessionLive(),
+                _handoffStartedAt, now, record, sessionLive,
                 _sessionSeen, _startGrace, _maximumWatch);
         }
         catch (Exception)
@@ -320,17 +333,42 @@ public sealed class UninstallHandoffWatchFactory : IUninstallHandoffWatchFactory
     }
 
     /// <summary>
-    /// The machine's watch: <c>%APPDATA%\EyeCtrl\setup-last.json</c> through the same read-only
-    /// store the S6f notice uses, and Setup's production session name. Nothing is written.
+    /// The machine's watch: <c>%APPDATA%\EyeCtrl\setup-last.json</c> through the same layout the
+    /// S6f notice uses, and Setup's production session name. Nothing is written.
     /// </summary>
     public static UninstallHandoffWatchFactory CreateForProduction()
     {
-        var files = SetupNoticeFiles.CreateForProduction();
+        var recordPath = SetupNoticeFiles.CreateForProduction().RecordPath;
         return new UninstallHandoffWatchFactory(
-            files.TryReadRecord,
+            () => ReadRecord(recordPath),
             () => SetupSessionGuard.IsSessionLive(),
             (delay, tick) => ScheduleOnce(delay, tick),
             () => DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Reads the record, allowing the writer's replace (<see cref="FileShare.ReadWrite" /> +
+    /// <see cref="FileShare.Delete" />). The watch calls this only once Setup's session is gone, so
+    /// it cannot race Setup's own write; the wide sharing mode is belt and braces for the cap read
+    /// and for a record that another party is still replacing.
+    /// </summary>
+    internal static SetupResult? ReadRecord(string recordPath)
+    {
+        try
+        {
+            if (!File.Exists(recordPath))
+                return null;
+
+            using var stream = new FileStream(
+                recordPath, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            return JsonSerializer.Deserialize<SetupResult>(reader.ReadToEnd(), SetupJson.Options);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     /// <inheritdoc />

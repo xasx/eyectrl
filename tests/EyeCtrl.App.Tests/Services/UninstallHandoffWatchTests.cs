@@ -1,0 +1,324 @@
+namespace EyeCtrl.App.Tests.Services;
+
+using System;
+using EyeCtrl.App.Services;
+using EyeCtrl.Setup;
+
+/// <summary>
+/// C9 S6e fixup-08: the watch over one uninstall hand-off. The hand-off crosses three processes
+/// (installed launcher → run copy → elevated child), so the end is read from Setup's one result
+/// record and its single-session mutex. These tests drive a fake clock and a captured schedule:
+/// the record is written before Setup's result screen and the session ends after it, so the watch
+/// must wait for both; and every way the wait can go wrong must still end — never strand the
+/// owner.
+/// </summary>
+public class UninstallHandoffWatchTests
+{
+    private static readonly DateTimeOffset Anchor = new(2026, 11, 6, 21, 24, 0, TimeSpan.Zero);
+    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan Cap = TimeSpan.FromMinutes(10);
+
+    private sealed class Harness
+    {
+        public SetupResult? Record { get; set; }
+        public bool SessionLive { get; set; }
+        public DateTimeOffset Now { get; set; } = Anchor;
+        public List<(TimeSpan Delay, Action Tick)> Scheduled { get; } = [];
+        public List<(UninstallHandoffEnd End, SetupOutcome? Outcome)> Ends { get; } = [];
+        public int DisposedHandles { get; private set; }
+        public bool ThrowOnRead { get; set; }
+        public bool ThrowOnNow { get; set; }
+        public bool ThrowOnSchedule { get; set; }
+
+        public UninstallHandoffWatch Create() => new(
+            () => ThrowOnRead ? throw new InvalidOperationException("record read failed") : Record,
+            () => SessionLive,
+            (delay, tick) =>
+            {
+                if (ThrowOnSchedule)
+                    throw new InvalidOperationException("schedule failed");
+                Scheduled.Add((delay, tick));
+                return new ActionDisposable(() => DisposedHandles++);
+            },
+            () => ThrowOnNow ? throw new InvalidOperationException("clock failed") : Now,
+            startGrace: Grace,
+            maximumWatch: Cap);
+
+        public void Tick()
+        {
+            var (_, tick) = Scheduled[^1];
+            tick();
+        }
+
+        public UninstallHandoffWatch Begin()
+        {
+            var watch = Create();
+            watch.Start(Anchor, (end, outcome) => Ends.Add((end, outcome)));
+            return watch;
+        }
+
+        private sealed class ActionDisposable : IDisposable
+        {
+            private readonly Action _dispose;
+            public ActionDisposable(Action dispose) => _dispose = dispose;
+            public void Dispose() => _dispose();
+        }
+    }
+
+    private static SetupResult Uninstall(SetupOutcome outcome, DateTimeOffset? time = null) =>
+        new()
+        {
+            Verb = SetupVerb.Uninstall,
+            Outcome = outcome,
+            Time = time ?? Anchor.AddSeconds(90),
+        };
+
+    [Fact]
+    public void ALiveSessionAndNoRecord_KeepsPolling()
+    {
+        var harness = new Harness { SessionLive = true };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).IsEmpty();
+        Check.That(harness.Scheduled).HasSize(1);
+        Check.That(harness.Scheduled[0].Delay).IsEqualTo(UninstallHandoffWatch.PollInterval);
+    }
+
+    [Fact]
+    public void AStaleRecordFromThePreviousRun_IsIgnored()
+    {
+        // The 05.11 sitting left a Cancelled uninstall record behind; a new hand-off must not read
+        // it as its own end.
+        var harness = new Harness
+        {
+            SessionLive = true,
+            Record = Uninstall(SetupOutcome.Cancelled, Anchor.AddMinutes(-30)),
+        };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).IsEmpty();
+        Check.That(harness.Scheduled).HasSize(1);
+    }
+
+    [Theory]
+    [InlineData(SetupVerb.Update, SetupOutcome.Cancelled)]
+    [InlineData(SetupVerb.Rollback, SetupOutcome.Failed)]
+    [InlineData(SetupVerb.Repair, SetupOutcome.AllFailed)]
+    public void ARecordForAnotherVerb_IsIgnored(SetupVerb verb, SetupOutcome outcome)
+    {
+        var harness = new Harness
+        {
+            SessionLive = true,
+            Record = new SetupResult { Verb = verb, Outcome = outcome, Time = Anchor.AddMinutes(5) },
+        };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).IsEmpty();
+    }
+
+    [Fact]
+    public void TheTransientHandedOffOutcome_IsNeverTerminal()
+    {
+        var harness = new Harness
+        {
+            SessionLive = true,
+            Record = Uninstall(SetupOutcome.HandedOff, Anchor.AddSeconds(2)),
+        };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).IsEmpty();
+    }
+
+    [Fact]
+    public void ACancelledRecord_WhileSetupStillShowsItsResult_WaitsForTheSessionToEnd()
+    {
+        // Setup records the result, then blocks until its result window closes (10 s for a
+        // cancel). Restoring Settings at the record write would cover that window — exactly the
+        // failure-text problem fixup-08 must not reintroduce.
+        var harness = new Harness { SessionLive = true };
+        harness.Begin();
+
+        harness.Now = Anchor.AddSeconds(60);
+        harness.Record = Uninstall(SetupOutcome.Cancelled, harness.Now);
+        harness.Tick();
+
+        Check.That(harness.Ends).IsEmpty();
+        Check.That(harness.Scheduled).HasSize(2);
+
+        harness.Now = harness.Now.AddSeconds(10);
+        harness.SessionLive = false;
+        harness.Tick();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.NotUninstalled);
+        Check.That(harness.Ends[0].Outcome).IsEqualTo(SetupOutcome.Cancelled);
+        Check.That(harness.Scheduled).HasSize(2);
+    }
+
+    [Theory]
+    [InlineData(SetupOutcome.Cancelled)]
+    [InlineData(SetupOutcome.Blocked)]
+    [InlineData(SetupOutcome.Failed)]
+    [InlineData(SetupOutcome.NotApplied)]
+    [InlineData(SetupOutcome.VerifyFailed)]
+    [InlineData(SetupOutcome.AllFailed)]
+    public void EveryNonUninstalledRecord_EndsAsNotUninstalled(SetupOutcome outcome)
+    {
+        var harness = new Harness { Record = Uninstall(outcome, Anchor.AddSeconds(5)) };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.NotUninstalled);
+        Check.That(harness.Ends[0].Outcome).IsEqualTo(outcome);
+    }
+
+    [Fact]
+    public void AnUninstalledRecord_EndsImmediately_EvenWhileTheSessionLingers()
+    {
+        // Setup stops the App in the same run; Settings must never be raised over the removal.
+        var harness = new Harness
+        {
+            SessionLive = true,
+            Record = Uninstall(SetupOutcome.Uninstalled, Anchor.AddSeconds(5)),
+        };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Uninstalled);
+        Check.That(harness.Ends[0].Outcome).IsEqualTo(SetupOutcome.Uninstalled);
+    }
+
+    [Fact]
+    public void ASessionThatVanishesWithoutARecord_EndsAsUnknown()
+    {
+        var harness = new Harness { SessionLive = true };
+        harness.Begin();
+
+        harness.Now = Anchor.AddSeconds(5);
+        harness.SessionLive = false;
+        harness.Tick();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+        Check.That(harness.Ends[0].Outcome).IsNull();
+    }
+
+    [Fact]
+    public void NoSessionEverSeen_WaitsForTheGrace_ThenEndsAsUnknown()
+    {
+        var harness = new Harness();
+        harness.Begin();
+        Check.That(harness.Ends).IsEmpty();
+
+        // One second short of the grace: still waiting (a slow ShellExecute start).
+        harness.Now = Anchor.Add(Grace).AddSeconds(-1);
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
+
+        harness.Now = Anchor.Add(Grace);
+        harness.Tick();
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+    }
+
+    [Fact]
+    public void ASessionStillHeldAtTheCap_EndsAsUnknown()
+    {
+        // Never strand: even a stuck session (or a probe that cannot answer) must not hold
+        // Settings hidden forever.
+        var harness = new Harness { SessionLive = true };
+        harness.Begin();
+
+        harness.Now = Anchor.Add(Cap).AddSeconds(-1);
+        harness.Tick();
+        Check.That(harness.Ends).IsEmpty();
+
+        harness.Now = Anchor.Add(Cap);
+        harness.Tick();
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+    }
+
+    [Fact]
+    public void AThrowingRecordRead_IsTreatedAsNoRecordYet_AndKeepsPolling()
+    {
+        // A transient share violation while Setup writes the record must not end the watch.
+        var harness = new Harness { SessionLive = true, ThrowOnRead = true };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).IsEmpty();
+        Check.That(harness.Scheduled).HasSize(1);
+
+        harness.ThrowOnRead = false;
+        harness.Now = Anchor.AddSeconds(5);
+        harness.Record = Uninstall(SetupOutcome.Cancelled, harness.Now);
+        harness.SessionLive = false;
+        harness.Tick();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.NotUninstalled);
+    }
+
+    [Fact]
+    public void AFaultInTheWatchItself_EndsAsUnknown_RatherThanWaiting()
+    {
+        // Never strand: a watch that cannot even read its clock has to fail closed into a restore.
+        var harness = new Harness { SessionLive = true, ThrowOnNow = true };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+    }
+
+    [Fact]
+    public void AWatchThatCannotScheduleTheNextPoll_EndsAsUnknown()
+    {
+        // No tick will ever arrive, so waiting would strand Settings off-screen.
+        var harness = new Harness { SessionLive = true, ThrowOnSchedule = true };
+
+        harness.Begin();
+
+        Check.That(harness.Ends).HasSize(1);
+        Check.That(harness.Ends[0].End).IsEqualTo(UninstallHandoffEnd.Unknown);
+    }
+
+    [Fact]
+    public void TheEndIsDeliveredExactlyOnce_AndAStragglerTickDoesNothing()
+    {
+        var harness = new Harness { Record = Uninstall(SetupOutcome.Cancelled, Anchor.AddSeconds(2)) };
+        var watch = harness.Begin();
+
+        Check.That(harness.Ends).HasSize(1);
+        var pendingCount = harness.Scheduled.Count;
+
+        // A tick from an already-disposed timer (or a second Anchor) must not call back again.
+        watch.Start(Anchor, (end, outcome) => harness.Ends.Add((end, outcome)));
+        if (harness.Scheduled.Count > pendingCount)
+            harness.Tick();
+
+        Check.That(harness.Ends).HasSize(1);
+    }
+
+    [Fact]
+    public void DisposeBeforeTheEnd_CallsNothing()
+    {
+        var harness = new Harness { SessionLive = true };
+        var watch = harness.Begin();
+
+        watch.Dispose();
+        harness.Now = Anchor.AddSeconds(5);
+        harness.SessionLive = false;
+        harness.Tick();
+
+        Check.That(harness.Ends).IsEmpty();
+        Check.That(harness.DisposedHandles).IsGreaterOrEqualThan(1);
+    }
+}

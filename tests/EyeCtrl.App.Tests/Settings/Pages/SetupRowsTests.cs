@@ -61,13 +61,15 @@ public class SetupRowsTests
         new(@"C:\inbox\2.0.0", @"C:\inbox\2.0.0\EyeCtrl.Setup.exe", "2.0.0", "1.0.0");
 
     private static SettingsWindowViewModel BuildRows(
-        FakeGateways gateways, out List<SettingsRowSpec> rows, List<string>? errors = null)
+        FakeGateways gateways, out List<SettingsRowSpec> rows, List<string>? errors = null,
+        IUninstallHandoffPresenter? uninstallHandoff = null)
     {
         var viewModel = QaTestSupport.MakeViewModel();
         var context = TestSettingsPageContext.Build(
             viewModel: viewModel,
             setupGateways: gateways,
-            showError: errors is null ? null : errors.Add);
+            showError: errors is null ? null : errors.Add,
+            uninstallHandoff: uninstallHandoff);
         rows = new AdvancedPageSource(context).Build().SelectMany(page => page.Rows).ToList();
         return viewModel;
     }
@@ -380,9 +382,57 @@ public class SetupRowsTests
         Check.That(errors).IsEmpty();
     }
 
-    [Fact]
-    public void EverySetupRow_IsAdvancedOnly()
+    /// <summary>Records the hand-off the page asks for; the real one hides Settings and watches
+    /// Setup (covered in <see cref="EyeCtrl.App.Tests.Services.UninstallHandoffPresenterTests" />).</summary>
+    private sealed class RecordingHandoffPresenter : IUninstallHandoffPresenter
     {
+        public SetupHandoffStart Result { get; set; } = SetupHandoffStart.Started;
+        public int Calls { get; private set; }
+        public ISetupGateways? LastGateways { get; private set; }
+
+        public SetupHandoffStart Start(ISetupGateways gateways)
+        {
+            Calls++;
+            LastGateways = gateways;
+            return Result;
+        }
+    }
+
+    [Fact]
+    public void UninstallActivation_GoesThroughTheHandoffPresenter()
+    {
+        // fixup-08: the row must start the hand-off through the presenter, which hides Settings
+        // on Started; calling the gateways directly would leave Settings over Q8.
+        var errors = new List<string>();
+        var gateways = new FakeGateways { Installed = true };
+        var presenter = new RecordingHandoffPresenter();
+        BuildRows(gateways, out var rows, errors, presenter);
+
+        Button(rows, "av_uninstall").OnActivate();
+
+        Check.That(presenter.Calls).IsEqualTo(1);
+        Check.That(presenter.LastGateways).IsSameReferenceAs(gateways);
+        Check.That(gateways.UninstallHandoffs).IsEqualTo(0);
+        Check.That(errors).IsEmpty();
+    }
+
+    [Fact]
+    public void AFailedHandoffThroughThePresenter_StillShowsTheFailureLine()
+    {
+        var errors = new List<string>();
+        var gateways = new FakeGateways { Installed = true };
+        var presenter = new RecordingHandoffPresenter { Result = SetupHandoffStart.Failed };
+        BuildRows(gateways, out var rows, errors, presenter);
+
+        Button(rows, "av_uninstall").OnActivate();
+
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).IsEqualTo(
+            StringTable.Current.T("settings.advanced.setup.startFailed"));
+    }
+
+    [Fact]
+    public void EverySetupRow_IsAdvancedOnly()    {
         BuildRows(
             new FakeGateways { Installed = true, UpdateOffer = Offer, PreviousAvailable = true },
             out var rows);

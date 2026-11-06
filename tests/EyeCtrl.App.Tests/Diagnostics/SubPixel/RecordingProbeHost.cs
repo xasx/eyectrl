@@ -325,7 +325,7 @@ internal sealed class FakeProbeTimerFactory
         }
     }
 
-    internal sealed record Creation(DispatcherPriority Priority, TimeSpan Interval, FakeTimer Timer);
+    internal sealed record Creation(DispatcherPriority Priority, TimeSpan Interval, FakeTimer Timer, Action Tick);
 
     private readonly List<Creation> _created = new();
 
@@ -336,7 +336,7 @@ internal sealed class FakeProbeTimerFactory
     public IDisposable Create(DispatcherPriority priority, TimeSpan interval, Action tick)
     {
         var timer = new FakeTimer();
-        _created.Add(new Creation(priority, interval, timer));
+        _created.Add(new Creation(priority, interval, timer, tick));
         return timer;
     }
 }

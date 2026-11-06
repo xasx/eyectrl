@@ -28,10 +28,41 @@ public class SubPixelProbePreconditionTests
         Check.That(Refusal(state)).IsNull();
 
     [Fact]
-    public void Paused_IsRefusedWithItsOwnReason()
+    public void Paused_IsStillTheQueuedStartsOwnRefusal()
     {
+        // F5: the BUTTON no longer refuses Paused (it resumes first), but the queued start's full
+        // precondition still has the term — a start must never run while the app is still paused.
         // "Resume first" is a distinct remedy from "leave drag/scroll/repeat" (review 03 F6).
         Check.That(Refusal(InteractionState.Paused)).IsEqualTo(ProbeRefusal.Paused);
+    }
+
+    [Fact]
+    public void TheButtonsPausedTerm_AllowsTheRequest_ButOtherTermsStillRefuse()
+    {
+        static ProbeRefusal? Button(
+            InteractionState state = InteractionState.Paused,
+            bool menus = false,
+            bool eyeCare = false,
+            bool adaptation = false,
+            bool sessionLive = false,
+            bool calibration = false) =>
+            SubPixelProbeCoordinator.ButtonRefusalFor(
+                state, menus, eyeCare, adaptation, sessionLive, calibration);
+
+        Check.WithCustomMessage("The button must let a paused dwell request the resume-then-start")
+            .That(Button()).IsNull();
+        Check.WithCustomMessage("a menu still blocks the button while paused")
+            .That(Button(menus: true)).IsEqualTo(ProbeRefusal.MenusOpen);
+        Check.WithCustomMessage("eye care still blocks the button while paused")
+            .That(Button(eyeCare: true)).IsEqualTo(ProbeRefusal.EyeCareOn);
+        Check.WithCustomMessage("adaptation still blocks the button while paused")
+            .That(Button(adaptation: true)).IsEqualTo(ProbeRefusal.AdaptationOn);
+        Check.WithCustomMessage("a live run still blocks the button while paused")
+            .That(Button(sessionLive: true)).IsEqualTo(ProbeRefusal.AlreadyRunning);
+        Check.WithCustomMessage("calibration still blocks the button while paused")
+            .That(Button(calibration: true)).IsEqualTo(ProbeRefusal.CalibrationActive);
+        Check.WithCustomMessage("a non-resumable state still refuses")
+            .That(Button(InteractionState.RepeatMode)).IsEqualTo(ProbeRefusal.NotAllowedState);
     }
 
     [Theory]
@@ -67,11 +98,15 @@ public class SubPixelProbePreconditionTests
 
         Check.That(world.Coordinator.GetBlockReason()).IsNull();   // FreeLook, all clean
 
-        // Paused is read from the real InteractionManager.
+        // Paused is read from the real InteractionManager. F5: the button allows it — the request
+        // resumes first — while the queued start's full precondition keeps the term.
         world.Engine.InteractionManager.TogglePause();
         Check.That(world.Engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Paused);
-        Check.WithCustomMessage("GetBlockReason must consult the live interaction state")
-            .That(world.Coordinator.GetBlockReason()).IsNotNull();
+        Check.WithCustomMessage("GetBlockReason still refuses the paused button; the request resumes instead")
+            .That(world.Coordinator.GetBlockReason()).IsNull();
+        Check.That(SubPixelProbeCoordinator.RefusalFor(
+                InteractionState.Paused, false, false, false, false, false, false))
+            .IsEqualTo(ProbeRefusal.Paused);
         world.Engine.InteractionManager.TogglePause();
 
         // A visible menu is read from the real VMs.

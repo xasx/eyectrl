@@ -53,6 +53,7 @@ public class DwellSurfaceCensusTests
         ["Backdrop"] = "cue — base wrapper",
         ["ExternalDwell"] = "excluded — owner declined",
         ["EyeCare"] = "cue — the banner's Start/Snooze rings and the exercise's Skip",
+        ["Browse"] = "cue — base wrapper",
     };
 
     [Fact]

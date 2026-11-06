@@ -95,16 +95,20 @@ $RequiredPackageExes = @('EyeCtrl.App.exe', 'EyeCtrl.Supervisor.exe')
 $SetupExeName = 'EyeCtrl.Setup.exe'
 
 # The loose natives a working installed build needs. Their absence is the silent self-extraction
-# signature (and, for the Tobii engine, a package without eye tracking).
+# signature (and, for the Tobii engine, a package without eye tracking). WebView2Loader.dll is
+# the gaze browser's native loader (T5/external review M12): Microsoft.Web.WebView2.Core.dll
+# P/Invokes it, so a package without it ships a browser that cannot start.
 $RequiredNativeDlls = @(
     'onnxruntime.dll',
     'tobii_stream_engine.dll',
     'wpfgfx_cor3.dll',
-    'PresentationNative_cor3.dll'
+    'PresentationNative_cor3.dll',
+    'WebView2Loader.dll'
 )
 
-# Build artifacts that must not ship to Program Files.
-$PackageNoiseExtensions = @('.pdb', '.lib')
+# Build artifacts that must not ship to Program Files. '.xml' covers the WebView2 managed
+# assemblies' IntelliSense doc files (review M12 — package noise, not user content).
+$PackageNoiseExtensions = @('.pdb', '.lib', '.xml')
 $PackageNoiseNames = @('README.md')
 
 function Write-Step([string]$Message)
@@ -449,7 +453,7 @@ function Remove-PackageNoise([string]$PackageDir)
             $removed++
         }
     }
-    Write-Note "pruned $removed build artifact(s) (*.pdb, *.lib, README.md)"
+    Write-Note "pruned $removed build artifact(s) (*.pdb, *.lib, *.xml, README.md)"
 }
 
 # ── Signing ─────────────────────────────────────────────────────────────────────────────────

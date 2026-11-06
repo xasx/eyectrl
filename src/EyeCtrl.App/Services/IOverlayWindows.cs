@@ -95,6 +95,14 @@ public interface ICursorCircleOverlay
     void FlashFired() { }
 
     /// <summary>
+    /// Re-inserts the ring at the top of the topmost band without moving or activating it
+    /// (external review r2 I3: the browser is a work-area opaque window, and from its first
+    /// summon the owner's gaze feedback sat under it — no RaiseToTop site ever touched the
+    /// ring). A default no-op so the overlay fakes that never observe it need no member.
+    /// </summary>
+    void RaiseToTop() { }
+
+    /// <summary>
     /// Switches the ring to its blocked look while the detector reports that Windows is discarding
     /// EyeCtrl's input (C10): a PAIRED DASH per band, never a dim or a colour change, because C1's
     /// lesson is that the owner's pointer must never get harder to see. It must not touch
@@ -201,6 +209,15 @@ public interface IToolbarOverlay
 
     /// <summary>Rebinds the buttons to the live view model after a mode or size change.</summary>
     void BindToViewModel();
+
+    /// <summary>
+    /// Re-asserts this window above sibling topmost overlays shown after it — the
+    /// <see cref="IPauseIndicatorOverlay.RaiseToTop"/> shape (OverlayWindow.RaiseToTop:
+    /// SetWindowPos HWND_TOPMOST | SWP_NOACTIVATE). The browse summon uses it so a visible
+    /// toolbar stays reachable over the browser window; a hidden one needs nothing (its own
+    /// later Show enters the topmost band above Browse).
+    /// </summary>
+    void RaiseToTop();
 
     // ── Slide transition ──
     // The auto-hide adapter drives these, so they have to be on the seam for it to be testable

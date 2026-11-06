@@ -68,6 +68,12 @@ public static class ToolbarIcons
             + "L4.8,14.2 A2.2,2.2 0 0 1 2.6,12 L2.6,6.8 A2.2,2.2 0 0 1 4.8,4.6 Z "
             + "M10.8,9.8 L19.2,9.8 A2.2,2.2 0 0 1 21.4,12 L21.4,17.2 A2.2,2.2 0 0 1 19.2,19.4 "
             + "L10.8,19.4 A2.2,2.2 0 0 1 8.6,17.2 L8.6,12 A2.2,2.2 0 0 1 10.8,9.8 Z"),
+        // The same browser-window glyph the action ring's Browse entry carries (the summon is
+        // one surface; the two homes draw it identically so it reads as the same thing).
+        [ToolbarIconKey.Browse] = IconGeometry.FromPathData(
+            "M6.5,5 L17.5,5 A2.5,2.5 0 0 1 20,7.5 L20,16.5 A2.5,2.5 0 0 1 17.5,19 L6.5,19 A2.5,2.5 0 0 1 4,16.5 L4,7.5 A2.5,2.5 0 0 1 6.5,5 Z"
+            + " M4,9.2 L20,9.2"
+            + " M6.6,7.1 L10.6,7.1"),
         // A mode stack: the filled top bar is the active mode, the two open bars below it the
         // alternatives — reads as "choose how input behaves", distinct from the gear (settings).
         [ToolbarIconKey.Modes] = IconGeometry.FromPathData(

@@ -326,7 +326,8 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>(),
                 HeldButtonMarker: heldButtonMarker,
                 CursorPositionProbe: _serviceProvider.GetRequiredService<ICursorPositionProbe>(),
-                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>());
+                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>(),
+                BrowseVM: _serviceProvider.GetRequiredService<BrowseViewModel>());
             _eventCoordinator.Initialize(coordinationContext);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in
@@ -1020,6 +1021,14 @@ public partial class App : Application
         // a per-startup migration would re-promote an action the user demoted on every launch.
         settings.ActionMenu.MigratePrimaryOnce();
         settings.ActionMenu.EnsureKeyboardActionOnce();
+        // The browse migration (EnsureBrowseActionOnce) is deliberately NOT called yet (external
+        // review I6, r2 disposition: still right): the toolbar Browse button is the primary
+        // summon for everyone, and the one-shot flag would stop a later build from re-offering
+        // the ring slot after an owner removed it in frustration. Call this in the same breath
+        // the browser ships its gaze verdict; until then the ring slot is available through the
+        // Settings toggle (settings.action_menu.visible.browse).
+        // Same once-only pattern as its siblings above, same reason.
+        // settings.ActionMenu.EnsureBrowseActionOnce();
         // Same once-only pattern: a persisted old-default toolbar size (80) would override the
         // new 120 (mis-dwell fix) forever without this bump.
         settings.Toolbar.MigrateSizeOnce();

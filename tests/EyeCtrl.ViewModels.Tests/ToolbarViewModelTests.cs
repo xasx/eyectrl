@@ -14,13 +14,16 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWithTheNineCoreButtons()
+    public void InitializesWithTheTenCoreButtons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
 
+        // Browse joined after TaskSwitcher (owner feedback 2026-11-05: the action menu was not
+        // the right place for the browser's summon — the toolbar is where Keyboard and
+        // TaskSwitcher live).
         Check.That(vm.Buttons.Select(b => b.Id)).ContainsExactly(
             "Pause", "SelectionMode", "Keyboard", "Calibrate",
-            "Settings", "TaskSwitcher", "Modes", "QuickActions", "ResetAdaptation");
+            "Settings", "TaskSwitcher", "Browse", "Modes", "QuickActions", "ResetAdaptation");
     }
 
     [Fact]

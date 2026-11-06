@@ -434,6 +434,26 @@
     "text": "Klicks werden blockiert: Windows lässt die Eingaben von EyeCtrl zurzeit nicht durch.",
     "src": "b341aa4d"
   },
+  "overlays.browse.failed.evergreen": {
+    "text": "Auf diesem PC fehlt die Browser-Komponente (WebView2). Ein Helfer kann sie von Microsoft installieren; danach den Browser schließen und neu öffnen.",
+    "src": "5158dec0"
+  },
+  "overlays.browse.failed.initialize": {
+    "text": "Der Browser konnte nicht gestartet werden. Browser schließen und neu öffnen; besteht der Fehler weiter, die EyeCtrl-Protokolldatei prüfen.",
+    "src": "2d688221"
+  },
+  "overlays.browse.failed.loader": {
+    "text": "Eine Browser-Komponente konnte nicht geladen werden. Browser schließen und neu öffnen; besteht der Fehler weiter, muss ein Helfer die EyeCtrl-Installation reparieren.",
+    "src": "18f889e2"
+  },
+  "overlays.browse.start.hint": {
+    "text": "Geben Sie oben eine Adresse oder einen Suchbegriff ein; die Eingabetaste der Bildschirmtastatur öffnet ihn. Links, Schaltflächen und Felder der Seite werden automatisch zu Blick-Verweilzielen: Hinsehen genügt zum Klicken.",
+    "src": "f1f344c1"
+  },
+  "overlays.browse.start.title": {
+    "text": "EyeCtrl-Browser",
+    "src": "867dc784"
+  },
   "overlays.edge.back": {
     "text": "Zurück",
     "src": "a9db9b1c"
@@ -666,6 +686,10 @@
     "text": "Zurück",
     "src": "d75ae8b1"
   },
+  "overlays.ring.browse": {
+    "text": "Browser",
+    "src": "72c20f2a"
+  },
   "overlays.ring.doubleClick": {
     "text": "2× Klick",
     "src": "a7920e39"
@@ -866,6 +890,10 @@
     "text": "Fenster auswählen – oder mit ✕ abbrechen",
     "src": "3a091918"
   },
+  "overlays.toolbar.browse": {
+    "text": "Browser",
+    "src": "943af779"
+  },
   "overlays.toolbar.keyboard": {
     "text": "Tastatur",
     "src": "1010edb8"
@@ -993,6 +1021,14 @@
   "settings.action_menu.reset.message": {
     "text": "Einstellungen unter „Aktionsmenü“ auf Standardwerte zurücksetzen?",
     "src": "32183536"
+  },
+  "settings.action_menu.visible.browse.description": {
+    "text": "Öffnet den Blicksteuerungs-Browser.",
+    "src": "8ace0d9a"
+  },
+  "settings.action_menu.visible.browse.label": {
+    "text": "Browser",
+    "src": "943af779"
   },
   "settings.action_menu.visible.double_click.description": {
     "text": "Zwei schnelle Klicks an der gewählten Stelle.",
@@ -2632,6 +2668,10 @@
   "settings.ring.back": {
     "text": "Zurück",
     "src": "d75ae8b1"
+  },
+  "settings.ring.browse": {
+    "text": "Browser",
+    "src": "72c20f2a"
   },
   "settings.ring.doubleClick": {
     "text": "2× Klick",

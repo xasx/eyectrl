@@ -833,6 +833,41 @@
     "args": [],
     "crisis": true
   },
+  "overlays.browse.failed.evergreen": {
+    "text": "This PC is missing the browser component (WebView2). A helper can install it from Microsoft, then close and reopen the browser.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.failed.initialize": {
+    "text": "The browser could not start. Close and reopen the browser; if it keeps failing, check the EyeCtrl log.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.failed.loader": {
+    "text": "A browser component failed to load. Close and reopen the browser; if it keeps failing, a helper needs to repair the EyeCtrl installation.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.start.hint": {
+    "text": "Type an address or a search in the field above; the on-screen keyboard's Enter opens it. Links, buttons and fields on the page become gaze-dwell targets automatically: look at one to click it.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.browse.start.title": {
+    "text": "EyeCtrl Browser",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.edge.back": {
     "text": "Back",
     "who": "user",
@@ -1241,6 +1276,13 @@
     "fit": "A105",
     "args": []
   },
+  "overlays.ring.browse": {
+    "text": "Browse",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
   "overlays.ring.doubleClick": {
     "text": "Double click",
     "who": "user",
@@ -1600,6 +1642,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.toolbar.browse": {
+    "text": "Browse",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.toolbar.keyboard": {
     "text": "Keyboard",
     "who": "user",
@@ -1838,6 +1887,20 @@
     "who": "user",
     "where": "settings",
     "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.browse.description": {
+    "text": "Opens the gaze browser.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.browse.label": {
+    "text": "Browse",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.action_menu.visible.double_click.description": {
@@ -4796,6 +4859,14 @@
     "fit": "A105",
     "args": [],
     "mirrors": "overlays.ring.back"
+  },
+  "settings.ring.browse": {
+    "text": "Browse",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": [],
+    "mirrors": "overlays.ring.browse"
   },
   "settings.ring.doubleClick": {
     "text": "Double click",

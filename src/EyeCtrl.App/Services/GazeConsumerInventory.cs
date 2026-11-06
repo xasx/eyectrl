@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The D17 gaze-consumer inventory (Task 11): the surfaces whose rects a preview panel must never
-/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the eight
+/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the nine
 /// named sources are:
 ///
 /// <list type="bullet">
@@ -55,6 +55,11 @@ using Microsoft.Extensions.Logging;
 /// button both hides it and lets its dwell accumulate THROUGH the panel's own reading surface.
 /// Reached through the bridge because the button is App-owned and instrumented-session-only;
 /// an ordinary session's source is permanently empty.</item>
+/// <item><b>Browse window</b> (T4) — <c>BrowseViewModel.LiveTargetRects</c>: the gaze browser's
+/// chrome row plus the page's reconciled element rects, read from the detector snapshot while
+/// the window is up (the notes' own-detector rule — the browser is a full work-area window whose
+/// dwell targets are exactly where gaze acts, so a preview panel over it is the R4-H1 harm
+/// again). Delegate-injected like the notes.</item>
 /// </list>
 /// <para>
 /// The class also implements <see cref="IOverlayCollision"/> (the seam Task 10's service already
@@ -65,9 +70,11 @@ using Microsoft.Extensions.Logging;
 /// (buttons are added/removed while a bar is up, which moves its rect without touching
 /// <c>IsVisible</c>), <c>NoteTargetsChangedMessage</c>,
 /// <c>ExternalDwellTargetsChangedMessage</c> (fix-wave F5),
-/// <c>RestartNoticeActiveMessage</c> (T15 merge: the card's show/hide moves a source in and out)
-/// and <c>LagMarkZoneMessage</c> (second merge: the host republishes the button's zone on show,
-/// hide and chrome-follow move — each moves the source in or out).
+/// <c>RestartNoticeActiveMessage</c> (T15 merge: the card's show/hide moves a source in and out),
+/// <c>LagMarkZoneMessage</c> (second merge: the host republishes the button's zone on show,
+/// hide and chrome-follow move — each moves the source in or out) and
+/// <c>BrowseTargetsChangedMessage</c> (T4: the browse VM announces every structural change,
+/// dispatcher-marshalled like the external-dwell message it mirrors).
 /// It is a superset, not an exact copy:
 /// the offer coordinator's <c>ExternalDwellActiveMessage</c> handler CLEARS offers rather than
 /// publishing zones, so that message serves a different purpose there — and it is NOT this
@@ -118,6 +125,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     private readonly Func<IReadOnlyList<PhysicalRect>> _noteTargetRects;
     private readonly Func<IReadOnlyList<PhysicalRect>> _restartNoticeTargetRects;
     private readonly Func<IReadOnlyList<PhysicalRect>> _lagMarkTargetRects;
+    private readonly Func<IReadOnlyList<PhysicalRect>> _browseTargetRects;
     private readonly ToolbarLifecycleBridge _bridge;
     private readonly IMessenger _messenger;
     private readonly ILogger? _logger;
@@ -152,6 +160,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     /// merge, <c>LagMarkBridge.LiveTargetRects</c>); a delegate for the same reason — the button
     /// is App-owned (instrumented sessions only) and reached through the bridge. Empty in an
     /// ordinary session: no host, no window, no source.</param>
+    /// <param name="browseTargetRects">The gaze browser's dwell-target rect source (T4,
+    /// <c>BrowseViewModel.LiveTargetRects</c>): the chrome row and the page's reconciled
+    /// elements, read from the detector snapshot while the window is up. Delegate-injected like
+    /// the notes — the VM's detector is the truth, and this class stays headless-constructible.</param>
     /// <param name="bridge">The late-bound toolbar lifecycle bridge: the attached coordinator's
     /// <c>ToolbarVisibilityChanged</c> is the slide/auto-hide trigger. Null-coordinator is
     /// tolerated (D14: a comfort feature's trigger set degrades, it does not crash the enable
@@ -170,6 +182,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         Func<IReadOnlyList<PhysicalRect>> noteTargetRects,
         Func<IReadOnlyList<PhysicalRect>> restartNoticeTargetRects,
         Func<IReadOnlyList<PhysicalRect>> lagMarkTargetRects,
+        Func<IReadOnlyList<PhysicalRect>> browseTargetRects,
         ToolbarLifecycleBridge bridge,
         IMessenger messenger,
         ILogger? logger = null)
@@ -187,6 +200,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
             ?? throw new ArgumentNullException(nameof(restartNoticeTargetRects));
         _lagMarkTargetRects = lagMarkTargetRects
             ?? throw new ArgumentNullException(nameof(lagMarkTargetRects));
+        _browseTargetRects = browseTargetRects ?? throw new ArgumentNullException(nameof(browseTargetRects));
         _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         _logger = logger;
@@ -222,6 +236,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _messenger.Register<GazeConsumerInventory, NoteTargetsChangedMessage>(this, OnNoteTargetsChanged);
         _messenger.Register<GazeConsumerInventory, RestartNoticeActiveMessage>(this, OnRestartNoticeActive);
         _messenger.Register<GazeConsumerInventory, LagMarkZoneMessage>(this, OnLagMarkZone);
+        _messenger.Register<GazeConsumerInventory, BrowseTargetsChangedMessage>(this, OnBrowseTargetsChanged);
     }
 
     /// <inheritdoc />
@@ -285,6 +300,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         // card's twin (click-through, non-modal, own detector), reached through the App-attached
         // bridge. Empty in an ordinary session (no instrumented host was ever built).
         rects.AddRange(_lagMarkTargetRects());
+
+        // The gaze browser (T4): the chrome row and the page's reconciled element rects, while
+        // the window is up — the same detector-snapshot rule as the notes.
+        rects.AddRange(_browseTargetRects());
         return rects;
     }
 
@@ -390,6 +409,14 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     // this inventory was constructed (the lazily-built inventory missing the host's Start send) is
     // still reported — the source reads current truth.
     private void OnLagMarkZone(GazeConsumerInventory recipient, LagMarkZoneMessage message)
+        => OnConsumersChanged();
+
+    // T4: the browse surface's structural trigger — a page snapshot reconciled, the chrome row
+    // (re)registered, web targets cleared for a navigation, or the window hid. The sender is the
+    // BrowseViewModel (dispatcher-marshalled), exactly the ExternalDwellTargetsChangedMessage
+    // shape: a page adding or moving targets under a visible panel must re-check before gaze is
+    // dwelling the new target. Live() reads the VM's detector, never a payload.
+    private void OnBrowseTargetsChanged(GazeConsumerInventory recipient, BrowseTargetsChangedMessage message)
         => OnConsumersChanged();
 
     private void OnConsumersChanged()

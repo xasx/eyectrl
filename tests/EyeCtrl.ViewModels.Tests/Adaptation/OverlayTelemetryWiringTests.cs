@@ -65,6 +65,8 @@ public class OverlayTelemetryWiringTests
         var expected = new Dictionary<string, DwellContext>
         {
             [nameof(ActionMenuViewModel)] = DwellContext.ActionMenu,
+            // T3: the gaze browser's dwell surface (chrome row + page elements).
+            [nameof(BrowseViewModel)] = DwellContext.Browse,
             [nameof(DragTrailViewModel)] = DwellContext.DragTrail,
             [nameof(EdgeButtonBarViewModel)] = DwellContext.EdgeButtonBar,
             [nameof(GlassBackdropViewModel)] = DwellContext.Backdrop,

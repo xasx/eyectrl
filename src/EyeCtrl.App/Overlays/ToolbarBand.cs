@@ -181,6 +181,7 @@ internal sealed class ToolbarBand
             ("Keyboard",        "Keyboard"),
             ("Settings",        "Settings"),
             ("TaskSwitcher",    "TaskSwitcher"),
+            ("Browse",          "Browse"),
             ("Modes",           "Modes"),
             ("ResetAdaptation", "ResetAdaptation"),
         };
@@ -345,6 +346,7 @@ internal sealed class ToolbarBand
         ("Keyboard", _) => StringTable.Current.T("overlays.toolbar.keyboard"),
         ("Settings", _) => StringTable.Current.T("overlays.toolbar.settings"),
         ("TaskSwitcher", _) => StringTable.Current.T("overlays.toolbar.taskSwitcher"),
+        ("Browse", _) => StringTable.Current.T("overlays.toolbar.browse"),
         ("Modes", _) => StringTable.Current.T("overlays.toolbar.modes"),
         (ResetId, _) => StringTable.Current.T("overlays.toolbar.resetAdaptation"),
         _ => id,

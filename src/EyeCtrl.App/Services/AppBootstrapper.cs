@@ -506,6 +506,10 @@ public class AppBootstrapper
         // B2a: the paused strip's Resume target. Not handed the dwell registry (see its ctor).
         services.AddSingleton<ResumeStripViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
+        // T4: the gaze browser's dwell surface — sink and dwell registry resolve through the
+        // container (the ctor guard's greedy-constructor contract). The window and coordinator
+        // arrive with T5; the D17 inventory already reads this VM's LiveTargetRects.
+        services.AddSingleton<BrowseViewModel>();
 
         // Scripted ground truth (Stage 2 ticket 3; self-contained again for ticket 6's bias probe).
         //
@@ -810,6 +814,7 @@ public class AppBootstrapper
             noteTargetRects: () => sp.GetRequiredService<NoteManager>().LiveTargetRects(),
             restartNoticeTargetRects: () => sp.GetRequiredService<RestartNoticeBridge>().LiveTargetRects(),
             lagMarkTargetRects: () => sp.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
+            browseTargetRects: () => sp.GetRequiredService<BrowseViewModel>().LiveTargetRects,
             sp.GetRequiredService<ToolbarLifecycleBridge>(),
             sp.GetRequiredService<IMessenger>()));
         services.AddSingleton<ToolbarLifecycleBridge>();

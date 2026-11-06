@@ -88,6 +88,7 @@ public class ActionMenuViewModelSymbolTests
             [InteractionAction.ScrollMode] = ActionIcon.ScrollMode,
             [InteractionAction.PinNote] = ActionIcon.PinNote,
             [InteractionAction.Keyboard] = ActionIcon.Keyboard,
+            [InteractionAction.Browse] = ActionIcon.Browse,
         };
 
         // Fails if a new InteractionAction is added without an icon.

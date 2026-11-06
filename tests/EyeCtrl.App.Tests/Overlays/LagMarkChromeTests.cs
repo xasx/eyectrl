@@ -54,6 +54,8 @@ public class LagMarkChromeTests
         public double ExtentDip => 0;
         public void Show() { }
         public void Hide() { }
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
         // Third parameter (includeReset) is this branch's band-membership flag (T7/D5): the
         // offers' collector never calls Initialize, but the interface signature is branch-wide.
         public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }

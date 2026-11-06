@@ -187,8 +187,13 @@ public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;
 
 /// <summary>Show the gaze keyboard (idempotent — never hides). Sent by the action-menu ring's
-/// Keyboard action; handled with the toolbar toggle's suppression semantics (spec ledger #1-#2).</summary>
-public record KeyboardShowRequestedMessage;
+/// Keyboard action and by the browse coordinator's address-box dwell; handled with the toolbar
+/// toggle's suppression semantics (spec ledger #1-#2). <paramref name="Source"/> labels the E1
+/// shown line's via field (external review r2 M10: the address summon is not the ring's).</summary>
+public record KeyboardShowRequestedMessage(string Source = "ring");
+/// <summary>Show the gaze browser (idempotent — never hides). Sent by the action-menu ring's
+/// Browse action; handled like the Keyboard show path — a surface summons, no input injected.</summary>
+public record BrowseShowRequestedMessage;
 /// <summary>Hide the gaze keyboard and release fixation suppression. Sent by the keyboard edge
 /// bar's Close button (spec ledger #13) — NOT the text-field seam message.</summary>
 public record KeyboardHideRequestedMessage;

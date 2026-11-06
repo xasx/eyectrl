@@ -32,6 +32,8 @@ public class InteractionActionEnumTests
     [InlineData(InteractionAction.ScrollRight, false)]
     [InlineData(InteractionAction.ScrollMode, false)]
     [InlineData(InteractionAction.PinNote, false)]
+    [InlineData(InteractionAction.Keyboard, false)]
+    [InlineData(InteractionAction.Browse, false)]
     public void IsRepeatableClick_ClassifiesOnlyTheClickFamily(InteractionAction action, bool expected)
     {
         Check.That(action.IsRepeatableClick()).IsEqualTo(expected);

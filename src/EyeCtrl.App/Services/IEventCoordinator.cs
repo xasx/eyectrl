@@ -103,4 +103,9 @@ public record EventCoordinationContext(
     // coordinator tests keep their contexts unchanged; production passes the same Platform probes
     // the verified input decorator uses.
     ICursorPositionProbe? CursorPositionProbe = null,
-    IInputIntegrityProbe? InputIntegrityProbe = null);
+    IInputIntegrityProbe? InputIntegrityProbe = null,
+    // T5: the browse dwell surface's singleton VM (AppBootstrapper's ViewModels block). Nullable
+    // with the UserDictionary precedent: the focused coordinator test contexts pass null, and
+    // the browse coordinator then binds the VM they handed it directly — production must pass
+    // the DI singleton or the D17 inventory would read a different VM than the one driven.
+    BrowseViewModel? BrowseVM = null);

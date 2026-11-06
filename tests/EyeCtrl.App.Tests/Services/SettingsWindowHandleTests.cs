@@ -20,7 +20,7 @@ using Xunit;
 /// PC by eye-tracking, so no test may paint a window.
 /// </summary>
 [Collection("WpfApplication")]
-public class SettingsHandoffWindowTests
+public class SettingsWindowHandleTests
 {
     [StaFact]
     public void Hide_ThenShowOnAdvanced_LeavesTheRealWindowVisibleOnTheAdvancedTab()
@@ -32,7 +32,7 @@ public class SettingsHandoffWindowTests
         {
             window = InvisibleTestWindow.Prepare(
                 OverlayClientOriginTests.BuildSettingsWindow(cleanups));
-            var handoff = new SettingsHandoffWindow(window);
+            var handoff = new SettingsWindowHandle(window);
 
             window.Show();
             var viewModel = (SettingsWindowViewModel)window.DataContext;
@@ -74,7 +74,7 @@ public class SettingsHandoffWindowTests
         {
             var window = InvisibleTestWindow.Prepare(
                 OverlayClientOriginTests.BuildSettingsWindow(cleanups));
-            var handoff = new SettingsHandoffWindow(window);
+            var handoff = new SettingsWindowHandle(window);
 
             Check.That(handoff.IsVisible).IsFalse();
             Check.That(window.IsVisible).IsFalse();

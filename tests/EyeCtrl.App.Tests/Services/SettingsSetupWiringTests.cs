@@ -24,7 +24,8 @@ public class SettingsSetupWiringTests
                 + "elevation policy until the App restarts (review 01 M1).")
             .That(source.Contains("privateFunc<ISetupGateways>?_setupGatewaysFactory;")).IsTrue();
         Check.That(source.Contains("publicvoidSetSetupGateways(Func<ISetupGateways>gatewaysFactory)")).IsTrue();
-        Check.That(source.Contains("setupGateways:_setupGatewaysFactory?.Invoke());")).IsTrue();
+        Check.That(source.Contains(
+            "setupGateways:_setupGatewaysFactory?.Invoke(),uninstallHandoff:UninstallHandoff);")).IsTrue();
     }
 
     [Fact]

@@ -20,7 +20,7 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public class SettingsUninstallHandoffTests
 {
-    private sealed class RecordingHandoffWindow : ISettingsHandoffWindow
+    private sealed class RecordingWindowHandle : ISettingsWindowHandle
     {
         public bool IsVisible { get; private set; } = true;
         public int HideCalls { get; private set; }
@@ -57,7 +57,7 @@ public class SettingsUninstallHandoffTests
     {
         public ModalInteractionState Modal { get; } = new();
         public RecordingRing Ring { get; } = new();
-        public RecordingHandoffWindow Window { get; } = new();
+        public RecordingWindowHandle Window { get; } = new();
         public List<bool> SettingsOpenEvents { get; } = [];
         public SettingsUiCoordinator Coordinator { get; }
         public QuickActionsCoordinator QuickActions { get; }

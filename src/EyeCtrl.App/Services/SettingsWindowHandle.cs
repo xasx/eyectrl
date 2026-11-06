@@ -9,7 +9,7 @@ using EyeCtrl.App.Views;
 /// test may never show a real window. Production wraps the real window; the tests record the
 /// calls.
 /// </summary>
-internal interface ISettingsHandoffWindow
+internal interface ISettingsWindowHandle
 {
     /// <summary>Whether the window is on screen. A hidden window is not.</summary>
     bool IsVisible { get; }
@@ -23,12 +23,12 @@ internal interface ISettingsHandoffWindow
 }
 
 /// <summary>The production handle over the real <see cref="SettingsWindow" />.</summary>
-internal sealed class SettingsHandoffWindow : ISettingsHandoffWindow
+internal sealed class SettingsWindowHandle : ISettingsWindowHandle
 {
     private readonly SettingsWindow _window;
 
     /// <summary>Wraps one open Settings window.</summary>
-    public SettingsHandoffWindow(SettingsWindow window) =>
+    public SettingsWindowHandle(SettingsWindow window) =>
         _window = window ?? throw new ArgumentNullException(nameof(window));
 
     /// <inheritdoc />

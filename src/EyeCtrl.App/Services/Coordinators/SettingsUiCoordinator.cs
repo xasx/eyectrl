@@ -39,7 +39,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     // C9 S6e fixup-08: the open window as the uninstall hand-off drives it, and whether THIS
     // hand-off hid it. Both are cleared when the window closes, so a watch that outlives it
     // cannot show a window nobody owns.
-    private ISettingsHandoffWindow? _handoffWindow;
+    private ISettingsWindowHandle? _handoffWindow;
     private bool _settingsHiddenForUninstallHandoff;
     // The probe entry (build plan C10): the Diagnostics button's reason probe and request action,
     // handed over once at startup by EventCoordinator after C7 exists.
@@ -270,7 +270,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
-            _handoffWindow = new SettingsHandoffWindow(_settingsWindow);
+            _handoffWindow = new SettingsWindowHandle(_settingsWindow);
         }
         catch
         {
@@ -509,7 +509,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     /// window in <see cref="OpenSettingsWindow" />; a test supplies a recorder, because a real
     /// Settings window may never be shown from a test.
     /// </summary>
-    internal void SetHandoffWindowForTests(ISettingsHandoffWindow? window) =>
+    internal void SetHandoffWindowForTests(ISettingsWindowHandle? window) =>
         _handoffWindow = window;
 
     protected override void OnDispose()

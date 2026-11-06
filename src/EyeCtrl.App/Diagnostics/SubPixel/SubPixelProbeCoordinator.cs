@@ -311,7 +311,13 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
             _pendingStart = null;
             _pendingStartMode = SubPixelProbeStartMode.FullRun;
             _pendingResumeVerdict = null;
-            if (!requestCompleted) ClearPendingResumeStart();
+            if (!requestCompleted)
+            {
+                // Retire the start the close may already have posted: a request that threw must
+                // not start a probe later (the same rule the close-throw test pins).
+                ClearPendingResumeStart();
+                _generation++;
+            }
         }
     }
 

@@ -29,7 +29,8 @@ internal static class TestSettingsPageContext
         SupervisionToggleService? supervision = null,
         UserDictionaryService? dictionary = null,
         Action? runSafetySetup = null,
-        ISetupGateways? setupGateways = null) => new(
+        ISetupGateways? setupGateways = null,
+        IUninstallHandoffPresenter? uninstallHandoff = null) => new(
         settings ?? new EyeCtrlSettings(),
         viewModel!, registry!, modelManagement!,
         calibration ?? new CalibrationService(),
@@ -44,5 +45,6 @@ internal static class TestSettingsPageContext
     {
         RunSafetySetup = runSafetySetup ?? (() => { }),
         SetupGateways = setupGateways,
+        UninstallHandoff = uninstallHandoff,
     };
 }

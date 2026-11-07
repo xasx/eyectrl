@@ -10,6 +10,7 @@ using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Setup;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
@@ -34,6 +35,12 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private AppRestartCoordinator? _restartCoordinator;
     private SupervisionToggleService? _supervisionToggle;
     private Func<ISetupGateways>? _setupGatewaysFactory;
+    private IUninstallHandoffPresenter? _uninstallHandoff;
+    // C9 S6e fixup-08: the open window as the uninstall hand-off drives it, and whether THIS
+    // hand-off hid it. Both are cleared when the window closes, so a watch that outlives it
+    // cannot show a window nobody owns.
+    private ISettingsWindowHandle? _handoffWindow;
+    private bool _settingsHiddenForUninstallHandoff;
     // The probe entry (build plan C10): the Diagnostics button's reason probe and request action,
     // handed over once at startup by EventCoordinator after C7 exists.
     private Func<string?>? _probeBlockReason;
@@ -190,8 +197,14 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     {
         if (Context is null) return;
 
+        // C9 S6e fixup-08: a Settings request while the window is hidden for the uninstall
+        // hand-off is the owner bringing it back manually (the toolbar, the tray, a keyboard
+        // row). Show it now and cancel the automatic return — otherwise the watch would raise it
+        // a second time when Setup ends. The hidden window kept its tab, so nothing is lost.
+        var reopened = ReopenHiddenSettingsWindowForUninstallHandoff();
+
         SettingsDeepLink.Dispatch(
-            windowOpen: _settingsWindow is not null,
+            windowOpen: reopened || _settingsWindow is not null,
             target: target,
             openWindow: OpenSettingsWindow,
             navigate: () => _settingsWindow?.NavigateToLanguageRow());
@@ -251,11 +264,13 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 probeBlockReason: _probeBlockReason,
                 requestProbe: _probeRequest,
                 canResumeSession2: _probeCanResume,
-                setupGateways: _setupGatewaysFactory?.Invoke());
+                setupGateways: _setupGatewaysFactory?.Invoke(),
+                uninstallHandoff: UninstallHandoff);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
+            _handoffWindow = new SettingsWindowHandle(_settingsWindow);
         }
         catch
         {
@@ -357,6 +372,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context is null) return;
 
         _settingsWindow = null;
+        // fixup-08: the window is gone, so there is no hidden window to bring back — a running
+        // uninstall watch must find nothing to show rather than a stale handle.
+        _handoffWindow = null;
+        _settingsHiddenForUninstallHandoff = false;
         _modal.SettingsOpen = false;
         _modal.SettingsOpenChanged?.Invoke(false);
         _toolbar.SetAutoHideSuspended("settings", false);
@@ -368,6 +387,148 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context.CursorVM.IsVisible && !_modal.ProbeOpen)
             Context.OverlayManager.CursorCircle.Show();
     }
+
+    // ── C9 S6e fixup-08: the uninstall hand-off's hide / come-back ────────────────────────────
+    //
+    // Owner decision 06.11: Settings hides when Setup's uninstall really starts and comes back by
+    // itself on every outcome that does not remove EyeCtrl. The reason is z-order, not taste:
+    // since #316 Settings sits in ZBID_UIACCESS (band 2) while Setup runs at uiAccess=false, so
+    // Setup's topmost Q8 can never be raised above it. Hiding is the only thing that works.
+
+    /// <summary>
+    /// The presenter the „Erweitert" page's uninstall row starts. Built once, lazily; every
+    /// hand-off creates a fresh one-shot watch.
+    /// </summary>
+    private IUninstallHandoffPresenter UninstallHandoff =>
+        _uninstallHandoff ??= new UninstallHandoffPresenter(
+            HideSettingsForUninstallHandoff,
+            RestoreSettingsAfterUninstallHandoff,
+            UninstallHandoffWatchFactory.CreateForProduction(),
+            warn: line => Log.Warning("{UninstallHandoff}", line));
+
+    /// <summary>
+    /// Hides the open Settings window for the hand-off, releasing the flags it holds while open —
+    /// the toolbar's auto-hide suspension, the quick-actions summon claim and the ring's hide — so
+    /// the owner keeps a usable toolbar and ring next to Setup's window. Returns whether a visible
+    /// window was hidden; false means there is nothing to bring back.
+    /// </summary>
+    internal bool HideSettingsForUninstallHandoff()
+    {
+        if (Context is null) return false;
+        if (_settingsHiddenForUninstallHandoff) return false;
+        if (_handoffWindow is not { IsVisible: true } window) return false;
+
+        window.Hide();
+        _settingsHiddenForUninstallHandoff = true;
+
+        _modal.SettingsOpen = false;
+        _modal.SettingsOpenChanged?.Invoke(false);
+        _toolbar.SetAutoHideSuspended("settings", false);
+        _quickActions.SetSummonSuspended("settings", false);
+        if (Context.CursorVM.IsVisible && !_modal.ProbeOpen)
+            Context.OverlayManager.CursorCircle.Show();
+
+        Log.Information("Settings hidden for the uninstall hand-off");
+        return true;
+    }
+
+    /// <summary>
+    /// The watch's end. Only <see cref="UninstallHandoffEnd.Uninstalled" /> keeps Settings hidden:
+    /// Setup stops the App in the same run, and a window raised over the removal would be the last
+    /// thing the owner sees. Everything else — cancel, „Nein, behalten", Esc, close, the 5-minute
+    /// timeout, a refusal, a failure, a watcher that never learned the outcome — brings it back.
+    /// A restore that arrives after the owner already reopened Settings (or after the window was
+    /// closed) does nothing.
+    /// </summary>
+    internal void RestoreSettingsAfterUninstallHandoff(
+        UninstallHandoffEnd end, SetupOutcome? outcome = null)
+    {
+        if (Context is null) return;
+
+        if (end == UninstallHandoffEnd.Uninstalled)
+        {
+            Log.Information("Settings stays hidden: the uninstall completed");
+            return;
+        }
+
+        if (!_settingsHiddenForUninstallHandoff)
+        {
+            // The owner already reopened it: nothing to show, but the end still belongs in the log.
+            Log.Information(
+                "Uninstall hand-off ended after the owner reopened Settings: {End} ({Outcome})",
+                end, outcome);
+            return;
+        }
+
+        BringSettingsBackAfterUninstallHandoff(reopenedByOwner: false);
+        Log.Information(
+            "Settings restored after the uninstall hand-off: {End} ({Outcome})", end, outcome);
+    }
+
+    /// <summary>
+    /// The owner's manual reopen while the uninstall hand-off hid the window: show it again on
+    /// „Erweitert" and cancel the automatic return. Returns whether a hidden window was brought
+    /// back. Internal so the headless contract can prove the one-shot property and that the later
+    /// watch end does not show it a second time.
+    /// </summary>
+    internal bool ReopenHiddenSettingsWindowForUninstallHandoff()
+    {
+        if (!_settingsHiddenForUninstallHandoff)
+            return false;
+
+        BringSettingsBackAfterUninstallHandoff(reopenedByOwner: true);
+        return true;
+    }
+
+    /// <summary>
+    /// Shows the hidden window again on „Erweitert" and re-takes the flags Settings holds while
+    /// open. One path for the automatic return and the owner's manual reopen, so the two can never
+    /// diverge; the second caller finds the flag already cleared and is a no-op.
+    /// </summary>
+    private void BringSettingsBackAfterUninstallHandoff(bool reopenedByOwner)
+    {
+        if (!_settingsHiddenForUninstallHandoff) return;
+
+        var window = _handoffWindow;
+
+        if (window is null)
+        {
+            // The window was closed while hidden: there is nothing to show, and the close path
+            // has already released every flag.
+            _settingsHiddenForUninstallHandoff = false;
+            return;
+        }
+
+        _modal.SettingsOpen = true;
+        _modal.SettingsOpenChanged?.Invoke(true);
+        _toolbar.SetAutoHideSuspended("settings", true);
+        _quickActions.SetSummonSuspended("settings", true);
+        Context!.OverlayManager.CursorCircle.Hide();
+
+        try
+        {
+            window.ShowOnAdvanced();
+            _settingsHiddenForUninstallHandoff = false;
+        }
+        catch (Exception ex)
+        {
+            // Keep the flag so a later Settings request retries the show instead of reporting a
+            // window that is still hidden as open.
+            Log.Warning(ex, "Could not show the Settings window after the uninstall hand-off");
+            return;
+        }
+
+        if (reopenedByOwner)
+            Log.Information("Settings reopened by the owner during the uninstall hand-off");
+    }
+
+    /// <summary>
+    /// Test seam: sets the window handle the hide/restore drives. Production assigns it once per
+    /// window in <see cref="OpenSettingsWindow" />; a test supplies a recorder, because a real
+    /// Settings window may never be shown from a test.
+    /// </summary>
+    internal void SetHandoffWindowForTests(ISettingsWindowHandle? window) =>
+        _handoffWindow = window;
 
     protected override void OnDispose()
     {
@@ -384,6 +545,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             try { _settingsWindow.Close(); }
             catch (Exception ex) { Log.Warning(ex, "Suppressed error closing settings window during shutdown"); }
             _settingsWindow = null;
+            _handoffWindow = null;
+            _settingsHiddenForUninstallHandoff = false;
         }
 
         if (Context is not null)

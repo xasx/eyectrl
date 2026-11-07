@@ -34,7 +34,7 @@ public class SettingsProbeWiringTests
             .That(source.Contains(
                 "context.UserDictionary,probeBlockReason:_probeBlockReason,"
                 + "requestProbe:_probeRequest,canResumeSession2:_probeCanResume,"
-                + "setupGateways:_setupGatewaysFactory?.Invoke());"))
+                + "setupGateways:_setupGatewaysFactory?.Invoke(),uninstallHandoff:UninstallHandoff);"))
             .IsTrue();
     }
 

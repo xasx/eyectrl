@@ -23,16 +23,20 @@ public enum DragSubState
 /// <see cref="DragTrailViewModel.SetPauseExitZoneProvider"/>, because that button can move, appear
 /// or stop being dwellable mid-drag). While the gaze is inside one, the drag must neither settle
 /// nor drop: that rest belongs to the button's own dwell (Cancel, Back or Pause).
+/// <see cref="Name"/> labels the zone in the drag's diagnostics only ("cancel", "back"); it never
+/// changes the hit test.
 /// </summary>
-public readonly record struct DragExitZone(PhysicalPoint Center, double RadiusPhysical);
+public readonly record struct DragExitZone(PhysicalPoint Center, double RadiusPhysical, string? Name = null);
 
 /// <summary>
 /// What the overlay draws for the drag's gaze-following drop target (C2): the hit circle itself
 /// (centre and the detector's LIVE radius, in physical px, so drawn = hit), the release dwell's
 /// progress, and whether that progress is held by the pause grace (drawn dimmed).
+/// <see cref="Hidden"/> (S8 B11): the gaze is on an exit, where no drop can happen, so nothing is
+/// drawn — the disc used to follow the gaze onto the ✕ and cover it.
 /// </summary>
 public readonly record struct DragReleaseDisc(
-    PhysicalPoint Center, double RadiusPhysical, double Progress, bool Paused);
+    PhysicalPoint Center, double RadiusPhysical, double Progress, bool Paused, bool Hidden = false);
 
 /// <summary>
 /// C7: the screen edges whose 10–30 px off-screen band may be a summon approach for the whole of
@@ -129,6 +133,15 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private DragSummonEdges _summonEdges;
     private bool _inExitZone;
 
+    // S8 B11: set on an exit entry, cleared by the first ON-SCREEN sample after it, which re-centres
+    // the hidden disc onto itself and shows it again. Not cleared by a withheld sample: that one may
+    // not move the disc (C6), so the disc stays hidden until a sample that may.
+    private bool _recentreOnReturn;
+
+    // S8 B11 diagnostics: this drag's exit entries, and the withheld samples of the current rest.
+    private int _exitZoneEntries;
+    private int _restWithheldCount;
+
     // C2: the spot the current release dwell belongs to — where the target was placed when the
     // dwell last restarted. Re-centres within SameSpotRadii of it keep the dwell.
     private PhysicalPoint _releaseSpot;
@@ -171,9 +184,25 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// <summary>Whether the release dwell is held by the pause grace (C2: drawn dimmed).</summary>
     [ObservableProperty] private bool _isReleasePaused;
 
+    /// <summary>
+    /// S8 B11: whether the drop disc is hidden because the gaze is on an exit (a Cancel/Back zone,
+    /// the live Pause zone, or past the disarm margin). No drop can happen there, so none is drawn.
+    /// </summary>
+    [ObservableProperty] private bool _isReleaseHidden;
+
     /// <summary>The drop target as the overlay draws it (C2).</summary>
     public DragReleaseDisc ReleaseDisc =>
-        new(ReleaseButtonCenter, ReleaseRadiusPhysical, ReleaseProgress, IsReleasePaused);
+        new(ReleaseButtonCenter, ReleaseRadiusPhysical, ReleaseProgress, IsReleasePaused, IsReleaseHidden);
+
+    /// <summary>S8 B11 diagnostics: how many times this drag has entered an exit.</summary>
+    internal int ExitZoneEntries => _exitZoneEntries;
+
+    /// <summary>
+    /// S8 B11 diagnostics: raised once per exit entry with the exit's name ("cancel", "back",
+    /// "pause", "off-screen") and the gaze sample that entered it. The view model has no logger;
+    /// <c>DragCoordinator</c> logs it at Debug.
+    /// </summary>
+    internal event Action<string, PhysicalPoint>? ExitZoneEntered;
 
     /// <summary>
     /// C2: the drop target's hit radius in physical px — the larger of an r50 disc
@@ -254,6 +283,11 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         SettleProgress = 0;
         ShowBack = false;
         _inExitZone = false;
+        // Not in SetupDwellTargets: Back's dismiss re-runs that while the gaze is still on Back,
+        // where the disc must stay hidden until the return.
+        _recentreOnReturn = false;
+        IsReleaseHidden = false;
+        _exitZoneEntries = 0;
         _armAnchor = null;
         _releaseArmed = false;
         _lastEligibleTimestampUs = null;
@@ -313,7 +347,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // C6: classify BEFORE the saccade rule, because a withheld sample (past the tolerance,
         // inside C4's disarm margin) may not move or restart the spot at all — not even through
         // StartNewSpot. The band itself is decided by ClassifyScreenBand below.
-        var band = ClassifyScreenBand(position);
+        var band = ClassifyScreenBand(position, out var exitName);
 
         // R2: a move of more than one radius within SaccadeWindowSamples samples is a saccade to a
         // new spot, however close that spot is to the old one. Decided BEFORE the detector, so the
@@ -321,7 +355,9 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         if (_lastEligibleTimestampUs is { } last && message.TimestampMicroseconds - last >= HistorySilenceUs)
             _recentGaze.Clear();
         _lastEligibleTimestampUs = message.TimestampMicroseconds;
-        if (band != ScreenSampleBand.Withheld)
+        // S8 B11: on-screen samples only — a saccade INTO an exit would otherwise move the hidden
+        // disc onto the ✕ through StartNewSpot. The exit's own entry is the clean break there.
+        if (band == ScreenSampleBand.OnScreen)
         {
             foreach (var earlier in _recentGaze)
             {
@@ -346,6 +382,14 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
                 _inExitZone = true;
                 DwellDetector.ResetAllState();
                 RestartSpot(position);
+
+                // S8 B11: no drop can happen on an exit, so no drop disc is drawn there — it used to
+                // follow the gaze onto the ✕ and cover it. The first on-screen sample after the
+                // visit re-centres it onto itself and shows it again (below).
+                IsReleaseHidden = true;
+                _recentreOnReturn = true;
+                _exitZoneEntries++;
+                ExitZoneEntered?.Invoke(exitName ?? "exit", position);
             }
 
             _settleDetector.Reset();
@@ -365,11 +409,23 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             // reset: not ResetAllState, not RestartSpot, not the settle. It is also not an exit,
             // so the next exit-zone visit still gets its clean break.
             _inExitZone = false;
+            _restWithheldCount++;
             DwellDetector.Update(position, message.TimestampMicroseconds, static _ => false);
         }
         else
         {
             _inExitZone = false;
+            if (_recentreOnReturn)
+            {
+                // S8 B11: the first on-screen sample after an exit visit re-centres the hidden disc
+                // onto ITSELF, unconditionally — not wherever the disc was left before the visit —
+                // and starts a fresh rest there: nothing from before the visit or inside it carries.
+                // Before the hit test below, so this sample is the new rest's first credited one.
+                _recentreOnReturn = false;
+                StartNewSpot(position);
+                IsReleaseHidden = false;
+            }
+
             if (_releaseArmed)
             {
                 // R3: a sample inside the circle as drawn is one the detector credits to this rest.
@@ -405,7 +461,9 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // re-centres onto it and the next sample, inside, resumes.
         // C6: a withheld sample does NOT follow: the disc belongs to the rest it was on, so one
         // stray sample past the edge cannot move it (and it never enters the rest centroid).
-        if (band != ScreenSampleBand.Withheld)
+        // S8 B11: neither does an exit sample — the disc is hidden there and must not slide onto
+        // the ✕; the return re-centres it instead.
+        if (band == ScreenSampleBand.OnScreen)
             FollowGaze(position);
 
         // R2: recorded LAST, after every reset this sample may have made, so the history always
@@ -441,9 +499,14 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// With no bounds published (tests, pre-fix wiring) only the explicit exit zones and the live
     /// Pause zone apply, exactly as before C6.
     /// </para>
+    /// <para>
+    /// <paramref name="exitName"/> names the exit for the diagnostics (S8 B11): the zone's own
+    /// name, "pause", or "off-screen"; null unless the band is <see cref="ScreenSampleBand.Exit"/>.
+    /// </para>
     /// </summary>
-    private ScreenSampleBand ClassifyScreenBand(PhysicalPoint point)
+    private ScreenSampleBand ClassifyScreenBand(PhysicalPoint point, out string? exitName)
     {
+        exitName = null;
         var band = ScreenSampleBand.OnScreen;
         if (_screenBounds is { } screen)
         {
@@ -451,7 +514,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             // withheld band, because the tolerance is by definition still "on screen".
             var disarm = Math.Max(_screenTolerancePhysical, InteractionManager.RepeatDisarmMarginPhysical);
             if (!IsWithinScreen(point, screen, disarm))
+            {
+                exitName = "off-screen";
                 return ScreenSampleBand.Exit;
+            }
             if (!IsWithinScreen(point, screen, _screenTolerancePhysical)
                 && IsPastASummonEdge(point, screen))
                 band = ScreenSampleBand.Withheld;
@@ -463,7 +529,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         {
             var radius = zone.RadiusPhysical;
             if (point.DistanceSquaredTo(zone.Center) <= radius * radius)
+            {
+                exitName = zone.Name ?? "zone";
                 return ScreenSampleBand.Exit;
+            }
         }
 
         // LIVE (G2): the toolbar Pause can move, appear or stop being dwellable while the drag
@@ -472,7 +541,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         {
             var radius = pause.RadiusPhysical;
             if (point.DistanceSquaredTo(pause.Center) <= radius * radius)
+            {
+                exitName = "pause";
                 return ScreenSampleBand.Exit;
+            }
         }
         return band;
     }
@@ -509,7 +581,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         }
         else
         {
-            CompleteDrag(point);
+            CompleteDrag(point, DragDropTrigger.Settle);
         }
     }
 
@@ -574,6 +646,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         _restSumX = 0;
         _restSumY = 0;
         _restCount = 0;
+        _restWithheldCount = 0;
         _recentGaze.Clear();
     }
 
@@ -609,7 +682,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     protected override void OnTargetActivated(string targetId)
     {
         if (targetId == ReleaseTargetId)
-            CompleteDrag(RestCentroid());
+            CompleteDrag(RestCentroid(), DragDropTrigger.ReleaseDwell);
     }
 
     protected override void OnTargetProgress(string targetId, double progress)
@@ -624,14 +697,19 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             IsReleasePaused = paused;
     }
 
-    private void CompleteDrag(PhysicalPoint dropPoint)
+    private void CompleteDrag(PhysicalPoint dropPoint, DragDropTrigger trigger)
     {
+        // S8 B11: what the drop was made of, read BEFORE the teardown below clears the target.
+        var diagnostics = new DragDropDiagnostics(
+            trigger, dropPoint, ReleaseButtonCenter, LiveReleaseRadius(),
+            _restCount, _restWithheldCount, _exitZoneEntries);
+
         IsDragActive = false;
         _settleDetector.Reset();
         DwellDetector.ClearTargets();
         ReleaseProgress = 0;
         DragState = DragSubState.FreeDrag;
-        Messenger.Send(new DragDropMessage(ClampDropPoint(dropPoint)));
+        Messenger.Send(new DragDropMessage(ClampDropPoint(dropPoint), diagnostics));
     }
 
     /// <summary>

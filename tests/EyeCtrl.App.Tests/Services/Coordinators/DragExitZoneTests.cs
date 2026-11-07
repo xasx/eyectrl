@@ -51,6 +51,31 @@ public class DragExitZoneTests
         });
     }
 
+    [Fact]
+    public void ARestOnCancel_SendsTheCancelButtonReason_AndHidesTheDisc()
+    {
+        // S8 B11: the drag-end log names the cause, so the ✕ must say it was the ✕. The disc is
+        // hidden for the whole rest on it and never re-centred onto it. Mutant M6 (the button's
+        // reason Unknown) → RED.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World();
+            world.ShowCancel();
+            var discBefore = world.Trail.ReleaseButtonCenter;
+            world.DriveRange(world.CancelCentre, 0, 300_000);
+
+            Check.That(world.Trail.IsReleaseHidden).IsTrue();
+            Check.WithCustomMessage("the drop disc moved onto the ✕.")
+                 .That(world.Trail.ReleaseButtonCenter).IsEqualTo(discBefore);
+
+            world.DriveRange(world.CancelCentre, 330_000, HoldEndUs);
+
+            Check.That(world.Drops).IsEqualTo(0);
+            Check.That(world.Cancels).IsEqualTo(1);
+            Check.That(world.CancelReason).IsEqualTo(DragCancelReason.CancelButton);
+        });
+    }
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(3.0)]
@@ -287,12 +312,13 @@ public class DragExitZoneTests
                 Settings.Dwell.DragRightEdgeButtonDwellMs);
             CancelCentre = Anchor + new PhysicalPoint(0, Cancel.VerticalOffset);
             BackCentre = Anchor + new PhysicalPoint(0, Back.VerticalOffset);
-            ExitRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+            // S8 B11: the zone the coordinator publishes (2 × r50), so this world stays the app's.
+            ExitRadius = DragCoordinator.ExitZoneRadiusPhysical;
 
             Trail.SetExitZones(new[]
             {
-                new DragExitZone(CancelCentre, ExitRadius),
-                new DragExitZone(BackCentre, ExitRadius),
+                new DragExitZone(CancelCentre, ExitRadius, "cancel"),
+                new DragExitZone(BackCentre, ExitRadius, "back"),
             });
 
             Messenger.Register<DragDropMessage>(this, (_, m) =>
@@ -300,7 +326,11 @@ public class DragExitZoneTests
                 Drops++;
                 DropPoint = m.DropPoint;
             });
-            Messenger.Register<DragCancelMessage>(this, (_, _) => Cancels++);
+            Messenger.Register<DragCancelMessage>(this, (_, m) =>
+            {
+                Cancels++;
+                CancelReason = m.Reason;
+            });
             Messenger.Register<DragDismissManualSelectionMessage>(this, (_, _) => Dismisses++);
             Messenger.Send(new StartDragTrailMessage(new PhysicalPoint(100, 100)));
 
@@ -323,6 +353,7 @@ public class DragExitZoneTests
         internal double ExitRadius { get; }
         internal int Drops { get; private set; }
         internal int Cancels { get; private set; }
+        internal DragCancelReason? CancelReason { get; private set; }
         internal int Dismisses { get; private set; }
         internal PhysicalPoint? DropPoint { get; private set; }
 

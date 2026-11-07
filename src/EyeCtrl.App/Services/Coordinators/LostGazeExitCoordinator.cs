@@ -157,7 +157,7 @@ internal sealed class LostGazeExitCoordinator : CoordinatorBase
             switch (observed)
             {
                 case InteractionState.Dragging:
-                    context.Messenger.Send(new DragCancelMessage());
+                    context.Messenger.Send(new DragCancelMessage(DragCancelReason.LostGaze));
                     break;
                 case InteractionState.ScrollMode:
                     context.Messenger.Send(new ExitScrollModeMessage());

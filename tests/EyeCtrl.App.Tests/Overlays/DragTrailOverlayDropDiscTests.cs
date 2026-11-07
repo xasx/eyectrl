@@ -93,6 +93,28 @@ public class DragTrailOverlayDropDiscTests
         });
     }
 
+    [StaFact]
+    public void AHiddenDisc_DrawsNothing_AndAShownOneDrawsAgain()
+    {
+        // S8 B11: on an exit the disc draws nothing at all — no wash, rim, arc or ✋ badge over the
+        // ✕ — even with progress on it; the next shown disc is drawn again.
+        WithOverlay(2.0, overlay =>
+        {
+            overlay.Update(Centre, Centre, 0, new DragReleaseDisc(Centre, 100, 0.4, false));
+            Check.That(overlay.DropRimForTest.Visibility).IsEqualTo(Visibility.Visible);
+
+            overlay.Update(Centre, Centre, 0, new DragReleaseDisc(Centre, 100, 0.4, false, Hidden: true));
+            Check.WithCustomMessage("a hidden drop disc still draws something.")
+                .That(overlay.DropDiscElementsForTest.Where(e => e.Visibility == Visibility.Visible))
+                .IsEmpty();
+
+            overlay.Update(Centre, Centre, 0, new DragReleaseDisc(Centre, 100, 0.4, false));
+            Check.That(overlay.DropRimForTest.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(overlay.ReleaseBadgeForTest.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(overlay.DropArcForTest.Visibility).IsEqualTo(Visibility.Visible);
+        });
+    }
+
     private static void WithOverlay(double scale, Action<DragTrailOverlay> body)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();

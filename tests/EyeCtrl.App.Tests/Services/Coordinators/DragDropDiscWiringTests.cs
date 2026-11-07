@@ -95,4 +95,51 @@ public class DragDropDiscWiringTests
             DpiHelper.Initialize(1.0, 1.0);
         }
     }
+
+    [Fact]
+    public void TheOverlay_HidesTheDiscOnTheCancelZone_AndShowsItOnTheReturn()
+    {
+        // S8 B11: the hidden flag reaches the overlay on the entry and the shown one on the return,
+        // through the REAL coordinator's zones (DPI 2.0, the owner's). Mutant M4 (Hidden always
+        // false) → the overlay draws a disc over the ✕.
+        DpiHelper.Initialize(2.0, 2.0);
+        var input = new TestFakes.FakeInputSimulator();
+        var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+        var context = madeContext with
+        {
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+        };
+        context.Settings.SelectionMode = SelectionMode.ManualSelection;
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var drag = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        drag.Initialize(context);
+        try
+        {
+            drag.OnDragStarted(new PhysicalPoint(300, 300));
+            Check.That(drag.LastSetupFailure).IsNull();
+
+            var cancelCentre = DragCoordinator.ExitAnchorPhysical
+                + new PhysicalPoint(0, DragCoordinator.CancelButtonVerticalOffsetPhysical);
+            var away = new PhysicalPoint(cancelCentre.X - 600, cancelCentre.Y);
+            var t = 0L;
+            for (var i = 0; i < 5; i++, t += StepUs)
+                context.Messenger.Send(new GazeCursorMovedMessage(away, t));
+            Check.That(overlay.Discs[^1].Hidden).IsFalse();
+
+            context.Messenger.Send(new GazeCursorMovedMessage(cancelCentre, t));
+            t += StepUs;
+            Check.WithCustomMessage("the overlay still draws the drop disc on the ✕.")
+                .That(overlay.Discs[^1].Hidden).IsTrue();
+            Check.That(overlay.Discs[^1].Center).IsEqualTo(away);
+
+            context.Messenger.Send(new GazeCursorMovedMessage(away, t));
+            Check.That(overlay.Discs[^1].Hidden).IsFalse();
+            Check.That(overlay.Discs[^1]).IsEqualTo(context.DragTrailVM.ReleaseDisc);
+        }
+        finally
+        {
+            drag.Dispose();
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
 }

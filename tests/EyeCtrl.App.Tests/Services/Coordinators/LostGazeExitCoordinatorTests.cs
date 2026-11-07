@@ -197,6 +197,26 @@ public class LostGazeExitCoordinatorTests
     }
 
     [StaFact]
+    public void Drag_LostGaze_NamesItsReason()
+    {
+        // S8 B11: the drag-end log names the cause, so the lost-gaze exit must say it was lost gaze.
+        // Mutation: the sender's reason left Unknown → RED.
+        using var w = new World();
+        w.EnterViaActionMenu(InteractionAction.Drag);
+        var reasons = new List<DragCancelReason>();
+        var recipient = new object();
+        CommunityToolkit.Mvvm.Messaging.IMessengerExtensions.Register<object, DragCancelMessage>(
+            w.Messenger, recipient, (_, m) => reasons.Add(m.Reason));
+
+        w.FeedFromPoolThread(500_000, valid: true);
+        w.FeedFromPoolThread(2_500_000, valid: false);
+        w.Pump();
+
+        Check.That(reasons).ContainsExactly(DragCancelReason.LostGaze);
+        GC.KeepAlive(recipient);
+    }
+
+    [StaFact]
     public void Scroll_LostGazeOnTheGazeThread_StopsScrollingOnTheUiThread()
     {
         using var w = new World();

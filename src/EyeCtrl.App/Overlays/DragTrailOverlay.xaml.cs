@@ -247,9 +247,26 @@ public partial class DragTrailOverlay : OverlayWindow, IDragTrailOverlay
     /// from 12 o'clock inside the rim, read exactly like every other gaze button's. While the pause
     /// grace holds the dwell the arc dims (<see cref="DwellPausedCue"/>), like the edge bar. The ✋
     /// badge rides the top of the disc, inside the arc, so it never sits on the ✊ at the cursor.
+    /// <para>
+    /// S8 B11: a <see cref="DragReleaseDisc.Hidden"/> disc (the gaze is on an exit, where nothing
+    /// can drop) draws nothing at all — no wash, rim, arc or badge over the ✕.
+    /// </para>
     /// </summary>
     private void DrawDropDisc(DragReleaseDisc release)
     {
+        var shown = release.Hidden ? Visibility.Collapsed : Visibility.Visible;
+        _dropFill.Visibility = shown;
+        _dropRimHalo.Visibility = shown;
+        _dropRim.Visibility = shown;
+        _releaseBg.Visibility = shown;
+        _releaseIcon.Visibility = shown;
+        if (release.Hidden)
+        {
+            _dropArc.Visibility = Visibility.Collapsed;
+            _dropArcHalo.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         var centre = new Point(
             DpiHelper.PhysicalToLogicalX(release.Center.X), DpiHelper.PhysicalToLogicalY(release.Center.Y));
         var radius = DpiHelper.PhysicalToLogicalX(release.RadiusPhysical);
@@ -317,6 +334,10 @@ public partial class DragTrailOverlay : OverlayWindow, IDragTrailOverlay
     internal Ellipse DropRimForTest => _dropRim;
     internal Path DropArcForTest => _dropArc;
     internal Ellipse ReleaseBadgeForTest => _releaseBg;
+
+    /// <summary>Test seam (S8 B11): every element of the drop disc, to assert none is drawn while hidden.</summary>
+    internal IReadOnlyList<UIElement> DropDiscElementsForTest =>
+        new UIElement[] { _dropFill, _dropRimHalo, _dropRim, _dropArcHalo, _dropArc, _releaseBg, _releaseIcon };
 
     public void Clear()
     {

@@ -102,6 +102,41 @@ public class DragEndLogTests
     }
 
     [StaFact]
+    public void AQueuedDrop_BehindAPauseCancel_LogsNoSecondEndLine()
+    {
+        // fixup-01 L2: the drop side of the once-per-drag guard. The view model sends the drop from
+        // gaze processing and the coordinator only QUEUES OnDragDrop; a Pause toggled before that
+        // item runs cancels synchronously (cause=pause). The queued drop then runs: its release is
+        // a no-op, and only the guard stops a second "cause=drop" line. Mutant X6 (the drop path
+        // ignores _dragEndPending) → two end lines.
+        using var h = new Harness();
+        h.StartDrag();
+        var drops = 0;
+        var recipient = new object();
+        h.Context.Messenger.Register<object, DragDropMessage>(recipient, (_, _) => drops++);
+
+        var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
+        var spot = new PhysicalPoint(screen.X + (screen.Width / 2), screen.Y + (screen.Height / 2));
+        h.Gaze(new PhysicalPoint(screen.X + (screen.Width / 4), screen.Y + (screen.Height / 4)), -30_000);
+        for (long t = 0; t <= 1_200_000 && drops == 0; t += 30_000)
+            h.Gaze(spot, t);
+        Check.WithCustomMessage("the rest never sent its drop.").That(drops).IsEqualTo(1);
+        Check.WithCustomMessage("the drop's teardown ran before the Pause (nothing was queued).")
+             .That(h.Input.MouseUpCount).IsEqualTo(0);
+
+        h.Context.InteractionManager.TogglePause();   // runs before the queued drop
+        h.Pump();                                       // now the queued drop runs
+
+        var lines = h.EndLines();
+        Check.WithCustomMessage($"expected exactly one end line, got [{string.Join(" | ", lines)}].")
+             .That(lines).HasSize(1);
+        Check.That(lines[0]).StartsWith("Drag: end cause=pause ");
+        Check.That(h.Input.MouseUpCount).IsEqualTo(1);
+        Check.That(h.Input.ButtonsBalanced).IsTrue();
+        GC.KeepAlive(recipient);
+    }
+
+    [StaFact]
     public void ATopEdgeDrop_ReleasesOnTheTopEdge_AndLogsMagnetTop()
     {
         // S8 B10 end to end: the coordinator publishes the real primary screen, the drop lands

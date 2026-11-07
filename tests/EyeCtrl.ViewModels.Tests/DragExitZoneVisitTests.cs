@@ -122,6 +122,43 @@ public class DragExitZoneVisitTests
     }
 
     [Fact]
+    public void AWithheldSampleAfterAnExit_KeepsTheDiscHiddenAndUnmoved_TheNextOnScreenSampleReCentresIt()
+    {
+        // fixup-01 L1 (decision 3): the owner's top-edge pattern — a look more than 30 px past the
+        // summon edge (an Exit), then hold wander 10–30 px past it (Withheld), then back on-screen.
+        // A withheld sample may not move the disc (C6), so it may not consume the re-centre either:
+        // the disc stays hidden where it was, and the first ON-SCREEN sample unhides it and
+        // re-centres it onto itself. The return sample is inside the disc as it was left (40 px
+        // from the rest, r = 100 px) and within one radius of the exit sample (no saccade), so only
+        // the explicit re-centre can move the disc there. Mutant X5 (the withheld branch unhides the
+        // disc and drops the re-centre) → RED on both checks.
+        WithDpi(2.0, () =>
+        {
+            using var world = new World();
+            var rest = new PhysicalPoint(1920, 60);
+            for (var i = 0; i < 6; i++)
+                world.Send(rest, i * StepUs);
+            Check.That(world.Trail.ReleaseButtonCenter).IsEqualTo(rest);
+
+            world.Send(new PhysicalPoint(1920, -40), 6 * StepUs);      // past the 30 px margin: Exit
+            Check.That(world.Trail.IsReleaseHidden).IsTrue();
+
+            world.Send(new PhysicalPoint(1920, -20), 7 * StepUs);      // 10–30 px past Top: Withheld
+            Check.WithCustomMessage("a withheld sample after the exit showed the disc again.")
+                 .That(world.Trail.IsReleaseHidden).IsTrue();
+            Check.WithCustomMessage("a withheld sample after the exit moved the disc.")
+                 .That(world.Trail.ReleaseButtonCenter).IsEqualTo(rest);
+
+            var back = new PhysicalPoint(1920, 20);                     // on-screen again
+            world.Send(back, 8 * StepUs);
+            Check.That(world.Trail.IsReleaseHidden).IsFalse();
+            Check.WithCustomMessage("the first on-screen sample after the withheld one did not re-centre the disc.")
+                 .That(world.Trail.ReleaseButtonCenter).IsEqualTo(back);
+            Check.That(world.Drops).IsEqualTo(0);
+        });
+    }
+
+    [Fact]
     public void ARestInsideTheZone_NeverDrops_EvenAtItsEdge()
     {
         // The zone is the whole no-drop area, not only the drawn ✕: a rest 150 px from the ✕

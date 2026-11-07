@@ -260,11 +260,68 @@ public record CalibrationClearRequestedMessage;
 /// </summary>
 public record StartDragTrailMessage(PhysicalPoint GrabOrigin);
 
-/// <summary>Sent by DragTrailViewModel when the drag should complete (drop at current cursor position).</summary>
-public record DragDropMessage(PhysicalPoint DropPoint);
+/// <summary>
+/// Sent by DragTrailViewModel when the drag should complete (drop at <paramref name="DropPoint"/>).
+/// <paramref name="Diagnostics"/> is what the drop was made of, for the coordinator's drag-end log
+/// line only (S8 B11); null when a caller has none.
+/// </summary>
+public record DragDropMessage(PhysicalPoint DropPoint, DragDropDiagnostics? Diagnostics = null);
+
+/// <summary>What completed a drop: the release disc's dwell or the Auto Selection settle.</summary>
+public enum DragDropTrigger
+{
+    /// <summary>The gaze-following release disc's dwell completed.</summary>
+    ReleaseDwell,
+
+    /// <summary>The Auto Selection settle completed.</summary>
+    Settle,
+}
+
+/// <summary>
+/// S8 B11: how one drop came about, filled by <c>DragTrailViewModel</c> at the moment of the drop
+/// and logged once by <c>DragCoordinator</c>. Coordinates only (physical px), no behaviour.
+/// </summary>
+/// <param name="Trigger">The release dwell or the settle.</param>
+/// <param name="RawPoint">The rest centroid (or the settle point) before <c>ClampDropPoint</c>.</param>
+/// <param name="DiscCenter">The drop disc's centre at the drop.</param>
+/// <param name="DiscRadiusPhysical">The drop disc's live radius at the drop.</param>
+/// <param name="RestCount">The rest's credited sample count.</param>
+/// <param name="RestWithheldCount">The withheld (C6) samples during that rest.</param>
+/// <param name="ExitZoneEntries">How many times this drag entered an exit (zone or off-screen).</param>
+/// <param name="ClampedPoint">The point after <c>ClampDropPoint</c>, before the edge magnet.</param>
+/// <param name="Magnet">The edge the S8 B10 magnet pulled the drop onto, or None.</param>
+public sealed record DragDropDiagnostics(
+    DragDropTrigger Trigger,
+    PhysicalPoint RawPoint,
+    PhysicalPoint DiscCenter,
+    double DiscRadiusPhysical,
+    int RestCount,
+    int RestWithheldCount,
+    int ExitZoneEntries,
+    PhysicalPoint ClampedPoint,
+    DragMagnetEdges Magnet);
+
+/// <summary>Why a drag was cancelled, for the coordinator's drag-end log line (S8 B11).</summary>
+public enum DragCancelReason
+{
+    /// <summary>A sender that names no reason.</summary>
+    Unknown,
+
+    /// <summary>The edge bar's „Ziehen abbrechen" (✕) button.</summary>
+    CancelButton,
+
+    /// <summary>The global Escape hatch.</summary>
+    Esc,
+
+    /// <summary>The lost-gaze exit.</summary>
+    LostGaze,
+
+    /// <summary>Pause during a drag (A5).</summary>
+    Pause,
+}
 
 /// <summary>Sent by the edge bar's cancel button (or the Escape key) to cancel the drag (MouseUp at origin).</summary>
-public record DragCancelMessage;
+public record DragCancelMessage(DragCancelReason Reason = DragCancelReason.Unknown);
 
 /// <summary>Sent by the edge bar's back button to dismiss mid-drag manual selection (back to free drag).</summary>
 public record DragDismissManualSelectionMessage;

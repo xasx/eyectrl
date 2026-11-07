@@ -300,8 +300,10 @@ public class DragToolbarPauseExitZoneTests
             Check.WithCustomMessage($"DPI {scale}/{mode}: an on-screen rest near the edge did not drop.")
                  .That(world.Drops).IsEqualTo(1);
             Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            // S8 B10: a drop within one disc radius of the top edge is released ON it (the edge
+            // magnet, so Windows maximizes); the rest's own X is kept.
             Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
-                 .IsEqualTo(near);
+                 .IsEqualTo(new PhysicalPoint(near.X, ScreenGeometry.PrimaryScreenBoundsPhysical().Y));
         }
         finally
         {
@@ -330,8 +332,10 @@ public class DragToolbarPauseExitZoneTests
                     $"DPI {scale}: a rest 5 px past the edge (inside the tolerance) did not drop.")
                  .That(world.Drops).IsEqualTo(1);
             Check.That(world.Input.MouseUpCount).IsEqualTo(1);
+            // S8 B10: inside the tolerance the point counts as on the top edge, so the edge magnet
+            // releases it AT the edge (it was released 5 px above it before B10).
             Check.That(world.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
-                 .IsEqualTo(justPast);
+                 .IsEqualTo(new PhysicalPoint(justPast.X, ScreenGeometry.PrimaryScreenBoundsPhysical().Y));
         }
         finally
         {

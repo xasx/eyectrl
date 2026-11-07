@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Tests.Services;
 using EyeCtrl.Core.Models;
@@ -88,6 +89,59 @@ public class DragDropDiscWiringTests
             Check.WithCustomMessage("the resumed (un-paused) state did not reach the overlay.")
                 .That(overlay.Discs[^1].Paused).IsFalse();
             Check.That(overlay.Discs[^1]).IsEqualTo(vm.ReleaseDisc);
+        }
+        finally
+        {
+            drag.Dispose();
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [Fact]
+    public void TheOverlay_HidesTheDiscOnTheCancelZone_AndShowsItOnTheReturn()
+    {
+        // S8 B11: the hidden flag reaches the overlay on the entry and the shown one on the return,
+        // through the REAL coordinator's zones (DPI 2.0, the owner's). Mutant M4 (Hidden always
+        // false) → the overlay draws a disc over the ✕.
+        DpiHelper.Initialize(2.0, 2.0);
+        var input = new TestFakes.FakeInputSimulator();
+        var (madeContext, _) = TestFakes.MakeDragContextWithBar(input);
+        var context = madeContext with
+        {
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+        };
+        context.Settings.SelectionMode = SelectionMode.ManualSelection;
+        var overlay = new TestFakes.FakeDragTrailOverlay();
+        var drag = new DragCoordinator { CreateTrailOverlay = () => overlay };
+        drag.Initialize(context);
+        try
+        {
+            drag.OnDragStarted(new PhysicalPoint(300, 300));
+            Check.That(drag.LastSetupFailure).IsNull();
+
+            var cancelCentre = DragCoordinator.ExitAnchorPhysical
+                + new PhysicalPoint(0, DragCoordinator.CancelButtonVerticalOffsetPhysical);
+            // drag-edge fixup-02: a fraction of the REAL screen, not a fixed offset from the ✕.
+            var screen = ScreenGeometry.PrimaryScreenBoundsPhysical();
+            var away = new PhysicalPoint(screen.X + (0.3 * screen.Width), cancelCentre.Y);
+            Check.WithCustomMessage(
+                    $"precondition: ({away.X:F0}, {away.Y:F0}) is not clear of the ✕ zone on the "
+                    + $"{screen.Width:F0} px screen.")
+                 .That(away.DistanceTo(cancelCentre)).IsStrictlyGreaterThan(DragCoordinator.ExitZoneRadiusPhysical);
+            var t = 0L;
+            for (var i = 0; i < 5; i++, t += StepUs)
+                context.Messenger.Send(new GazeCursorMovedMessage(away, t));
+            Check.That(overlay.Discs[^1].Hidden).IsFalse();
+
+            context.Messenger.Send(new GazeCursorMovedMessage(cancelCentre, t));
+            t += StepUs;
+            Check.WithCustomMessage("the overlay still draws the drop disc on the ✕.")
+                .That(overlay.Discs[^1].Hidden).IsTrue();
+            Check.That(overlay.Discs[^1].Center).IsEqualTo(away);
+
+            context.Messenger.Send(new GazeCursorMovedMessage(away, t));
+            Check.That(overlay.Discs[^1].Hidden).IsFalse();
+            Check.That(overlay.Discs[^1]).IsEqualTo(context.DragTrailVM.ReleaseDisc);
         }
         finally
         {

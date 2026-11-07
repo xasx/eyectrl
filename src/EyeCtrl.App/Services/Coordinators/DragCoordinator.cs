@@ -52,8 +52,28 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// </summary>
     internal static PhysicalPoint ExitAnchorPhysical => ScreenGeometry.SharedRightEdgeExitAnchor();
 
+    /// <summary>
+    /// S8 B11 (sitting 07.11, owner decision): the drag's Cancel and Back no-drop zones are this
+    /// many button radii wide, not the drawn button's own radius. With the zone equal to the ✕, the
+    /// equally large drop disc dropped the window on a look 1 px beside it (drag 10 ended 145 px
+    /// from the ✕ centre, radius 100 px). The buttons themselves — size and dwell — are unchanged;
+    /// the two zones overlap (centres 120 DIP apart), which is fine because both mean "no drop".
+    /// </summary>
+    internal const double DragExitZoneRadiusFactor = 2.0;
+
+    /// <summary>The Cancel/Back no-drop zone radius in physical px (100 DIP at the shipped sizes).</summary>
+    internal static double ExitZoneRadiusPhysical =>
+        DragExitZoneRadiusFactor * DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+
     private IDragTrailOverlay? _dragTrailOverlay;
     private PhysicalPoint _dragGrabOrigin;
+
+    /// <summary>
+    /// S8 B11: true from the press until the drag's end has been logged, so every drag end — drop,
+    /// Cancel, ESC, lost gaze, Pause — writes exactly ONE <c>Drag: end</c> line, even when a second
+    /// end path (a queued ESC behind a drop) runs after the first. UI thread only.
+    /// </summary>
+    private bool _dragEndPending;
 
     /// <summary>
     /// Builds the trail overlay. The default is production's real window; tests replace it with a
@@ -102,10 +122,11 @@ internal sealed class DragCoordinator : CoordinatorBase
         // release-first ordering and the exactly-once _osButtonHeld claim are preserved.
         context.InteractionManager.CancelDragForPause += OnPauseCancelDrag;
         context.DragTrailVM.PropertyChanged += OnDragTrailVMPropertyChanged;
+        context.DragTrailVM.ExitZoneEntered += OnExitZoneEntered;
         context.Messenger.Register<DragCoordinator, DragDropMessage>(this, (_, m) =>
             context.Dispatcher.BeginInvoke(() => OnDragDrop(m)));
-        context.Messenger.Register<DragCoordinator, DragCancelMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(OnDragCancel));
+        context.Messenger.Register<DragCoordinator, DragCancelMessage>(this, (_, m) =>
+            context.Dispatcher.BeginInvoke(() => OnDragCancel(m.Reason)));
 
         // DragDismissManualSelectionMessage is intentionally NOT registered here. Only
         // DragTrailViewModel reacts to it (transitions DragSubState back to FreeDrag). The old
@@ -135,7 +156,7 @@ internal sealed class DragCoordinator : CoordinatorBase
         context.Dispatcher.BeginInvoke(() =>
         {
             if (context.InteractionManager.CurrentState == InteractionState.Dragging)
-                context.Messenger.Send(new DragCancelMessage());
+                context.Messenger.Send(new DragCancelMessage(DragCancelReason.Esc));
         });
     }
 
@@ -159,7 +180,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     internal static EdgeButtonDefinition CreateCancelButtonDefinition(int dwellMs)
         => new(
             "Drag_cancel", "\u2715", dwellMs,
-            m => m.Send(new DragCancelMessage()),
+            m => m.Send(new DragCancelMessage(DragCancelReason.CancelButton)),
             VerticalOffset: CancelButtonVerticalOffsetPhysical,
             RadiusLogical: UIConstants.ButtonRadius,
             AccessibleName: StringTable.Current.T("overlays.edge.cancelDrag"));
@@ -262,12 +283,13 @@ internal sealed class DragCoordinator : CoordinatorBase
             // PX1: tell the trail which rests belong to the bar's own exits. Built from the SAME
             // anchor the bar draws at, so the zone cannot drift from the button. Both buttons are
             // supplied for the whole drag: Back's slot is the lower one whether or not its button
-            // is currently drawn, and a rest there must not drop either.
-            var exitRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
+            // is currently drawn, and a rest there must not drop either. S8 B11: each zone is
+            // DragExitZoneRadiusFactor button radii wide, so a near miss of the ✕ cannot drop.
+            var exitRadius = ExitZoneRadiusPhysical;
             var zones = new List<DragExitZone>
             {
-                new(anchor + new PhysicalPoint(0, CancelButtonVerticalOffsetPhysical), exitRadius),
-                new(anchor + new PhysicalPoint(0, BackButtonVerticalOffsetPhysical), exitRadius),
+                new(anchor + new PhysicalPoint(0, CancelButtonVerticalOffsetPhysical), exitRadius, "cancel"),
+                new(anchor + new PhysicalPoint(0, BackButtonVerticalOffsetPhysical), exitRadius, "back"),
             };
 
             // A5 fixup-01 F2 (owner decision): drag + Pause = CANCEL, never a drop. In Auto
@@ -308,6 +330,7 @@ internal sealed class DragCoordinator : CoordinatorBase
 
         Context.InputSimulator.MouseDown(grabOrigin);
         Volatile.Write(ref _osButtonHeld, 1);
+        _dragEndPending = true;
 
         // C3: the press is now real OS state, so record it where a process that never runs this
         // class's release paths can still find it. Written AFTER the press (the marker must never
@@ -346,6 +369,8 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// </summary>
     private void AbortDragAfterSetupFailure()
     {
+        // Not a drag end (the drag never became usable); the caller's Log.Error is its line.
+        _dragEndPending = false;
         ReleaseHeldButton(_dragGrabOrigin);
 
         try { Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag); }
@@ -489,10 +514,78 @@ internal sealed class DragCoordinator : CoordinatorBase
     internal void OnDragDrop(DragDropMessage msg)
     {
         ReleaseHeldButton(msg.DropPoint);
+        LogDropEnd(msg);
         Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag);
         Context?.InteractionManager.CompleteDrag();
         CloseDragOverlay();
     }
+
+    /// <summary>
+    /// S8 B11: the drop's one end line. A drop and a cancel used to be indistinguishable in the log
+    /// (both just "State → FreeLook"), so the sitting could not tell a near-miss drop from a
+    /// cancel. Logged after the release (the release stays first), once per drag.
+    /// </summary>
+    private void LogDropEnd(DragDropMessage msg)
+    {
+        if (!_dragEndPending) return;
+        _dragEndPending = false;
+
+        var final = msg.DropPoint;
+        if (msg.Diagnostics is not { } d)
+        {
+            Log.Information("Drag: end cause=drop final=({FinalX:F0}, {FinalY:F0})", final.X, final.Y);
+            return;
+        }
+
+        // S8 B10: the magnet's edge, and the clamped point it started from.
+        Log.Information(
+            "Drag: end cause=drop trigger={Trigger} magnet={Magnet} raw=({RawX:F0}, {RawY:F0}) "
+            + "clamped=({ClampedX:F0}, {ClampedY:F0}) final=({FinalX:F0}, {FinalY:F0}) "
+            + "disc=({DiscX:F0}, {DiscY:F0}) r={DiscRadius:F0} rest={RestCount} withheld={Withheld} "
+            + "exitEntries={ExitEntries}",
+            KebabCase(d.Trigger.ToString()), KebabCase(d.Magnet.ToString()),
+            d.RawPoint.X, d.RawPoint.Y, d.ClampedPoint.X, d.ClampedPoint.Y, final.X, final.Y,
+            d.DiscCenter.X, d.DiscCenter.Y, d.DiscRadiusPhysical,
+            d.RestCount, d.RestWithheldCount, d.ExitZoneEntries);
+    }
+
+    /// <summary>
+    /// S8 B11: the cancel's one end line — the cause, the grab origin (where the button is
+    /// released) and the drag's exit entries. Once per drag, like the drop's.
+    /// </summary>
+    private void LogCancelEnd(DragCancelReason reason)
+    {
+        if (!_dragEndPending) return;
+        _dragEndPending = false;
+
+        Log.Information(
+            "Drag: end cause={Cause} origin=({OriginX:F0}, {OriginY:F0}) exitEntries={ExitEntries}",
+            CauseName(reason), _dragGrabOrigin.X, _dragGrabOrigin.Y,
+            Context?.DragTrailVM.ExitZoneEntries ?? 0);
+    }
+
+    /// <summary>
+    /// The log vocabulary for a cancel's cause: the reason's name in kebab case
+    /// (<c>cancel-button</c>, <c>esc</c>, <c>lost-gaze</c>, <c>pause</c>, <c>unknown</c>). Derived,
+    /// not spelled out, so it cannot drift from the enum (and is no UI text for the ratchet).
+    /// </summary>
+    internal static string CauseName(DragCancelReason reason) => KebabCase(reason.ToString());
+
+    /// <summary>"LostGaze" → "lost-gaze".</summary>
+    private static string KebabCase(string pascal)
+    {
+        var text = new System.Text.StringBuilder(pascal.Length + 4);
+        for (var i = 0; i < pascal.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(pascal[i])) text.Append('-');
+            text.Append(char.ToLowerInvariant(pascal[i]));
+        }
+        return text.ToString();
+    }
+
+    /// <summary>S8 B11: one Debug line per exit entry (coordinates only).</summary>
+    private static void OnExitZoneEntered(string zone, PhysicalPoint gaze) =>
+        Log.Debug("Drag: exit entered zone={Zone} at ({X:F0}, {Y:F0})", zone, gaze.X, gaze.Y);
 
     /// <summary>
     /// Cancels an active drag: release the held button at the grab point, then tear the surface
@@ -503,7 +596,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// <see cref="OnDispose"/> (or the fatal-exit path) retries it; moving on is still safer than
     /// refusing to pause.
     /// </summary>
-    internal void OnDragCancel()
+    internal void OnDragCancel(DragCancelReason reason = DragCancelReason.Unknown)
     {
         try
         {
@@ -520,6 +613,8 @@ internal sealed class DragCoordinator : CoordinatorBase
             // can throw here.
             Log.Error(ex, "The drag release failed; the cancel continues and dispose will retry it.");
         }
+
+        LogCancelEnd(reason);
 
         try { Context?.OverlayManager.EdgeButtonBar.Hide(EdgeBarOwner.Drag); }
         catch (Exception ex) { Log.Error(ex, "Failed to hide the edge button bar while cancelling a drag."); }
@@ -547,7 +642,7 @@ internal sealed class DragCoordinator : CoordinatorBase
     {
         if (!RunOnUiThreadSynchronously(() =>
             {
-                OnDragCancel();
+                OnDragCancel(DragCancelReason.Pause);
                 ResetDragTrailVmToIdle();
             }))
             Log.Error("The Pause drag cancel could not run (the UI dispatcher is shutting down); "
@@ -574,6 +669,8 @@ internal sealed class DragCoordinator : CoordinatorBase
             case nameof(DragTrailViewModel.ReleaseRadiusPhysical):
             case nameof(DragTrailViewModel.ReleaseProgress):
             case nameof(DragTrailViewModel.IsReleasePaused):
+            // S8 B11: the disc hides on an exit entry and reappears on the return.
+            case nameof(DragTrailViewModel.IsReleaseHidden):
                 _dragTrailOverlay.Update(
                     vm.GrabOrigin, vm.CursorPosition, vm.SettleProgress, vm.ReleaseDisc);
                 break;
@@ -616,6 +713,7 @@ internal sealed class DragCoordinator : CoordinatorBase
         Context.InteractionManager.DragStarted -= OnDragStarted;
         Context.InteractionManager.CancelDragForPause -= OnPauseCancelDrag;
         Context.DragTrailVM.PropertyChanged -= OnDragTrailVMPropertyChanged;
+        Context.DragTrailVM.ExitZoneEntered -= OnExitZoneEntered;
         Context.EscapeHatch.EscapePressed -= OnEscapePressed;
         CloseDragOverlay();
     }

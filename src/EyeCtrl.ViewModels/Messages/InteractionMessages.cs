@@ -288,6 +288,8 @@ public enum DragDropTrigger
 /// <param name="RestCount">The rest's credited sample count.</param>
 /// <param name="RestWithheldCount">The withheld (C6) samples during that rest.</param>
 /// <param name="ExitZoneEntries">How many times this drag entered an exit (zone or off-screen).</param>
+/// <param name="ClampedPoint">The point after <c>ClampDropPoint</c>, before the edge magnet.</param>
+/// <param name="Magnet">The edge the S8 B10 magnet pulled the drop onto, or None.</param>
 public sealed record DragDropDiagnostics(
     DragDropTrigger Trigger,
     PhysicalPoint RawPoint,
@@ -295,7 +297,9 @@ public sealed record DragDropDiagnostics(
     double DiscRadiusPhysical,
     int RestCount,
     int RestWithheldCount,
-    int ExitZoneEntries);
+    int ExitZoneEntries,
+    PhysicalPoint ClampedPoint,
+    DragMagnetEdges Magnet);
 
 /// <summary>Why a drag was cancelled, for the coordinator's drag-end log line (S8 B11).</summary>
 public enum DragCancelReason

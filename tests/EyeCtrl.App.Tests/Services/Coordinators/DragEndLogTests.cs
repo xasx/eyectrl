@@ -89,6 +89,7 @@ public class DragEndLogTests
         Check.WithCustomMessage($"expected exactly one end line, got [{string.Join(" | ", lines)}].")
              .That(lines).HasSize(1);
         Check.That(lines[0]).StartsWith("Drag: end cause=drop trigger=");
+        Check.That(lines[0]).Contains(" magnet=none ");
         Check.That(lines[0]).Contains($"raw=({spot.X:F0}, {spot.Y:F0})");
         Check.That(lines[0]).Contains($"final=({spot.X:F0}, {spot.Y:F0})");
         Check.That(lines[0]).Contains($"disc=({spot.X:F0}, {spot.Y:F0})");
@@ -98,6 +99,35 @@ public class DragEndLogTests
         Check.WithCustomMessage("the ✕ visit wrote no Debug entry line.")
              .That(h.Sink.Messages.Count(m => m.StartsWith("Drag: exit entered zone=cancel ", StringComparison.Ordinal)))
              .IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void ATopEdgeDrop_ReleasesOnTheTopEdge_AndLogsMagnetTop()
+    {
+        // S8 B10 end to end: the coordinator publishes the real primary screen, the drop lands
+        // half a disc radius below its top edge, and the MouseUp — the release Windows' snap reads —
+        // reaches the input simulator AT the edge. Mutants: no magnet (N1) → the release stays
+        // below the edge; "magnet=" always none (N7) → the line says none.
+        using var h = new Harness();
+        h.StartDrag();
+
+        var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
+        var r = h.Context.DragTrailVM.ReleaseRadiusPhysical;
+        var rest = new PhysicalPoint(screen.X + (screen.Width / 3), screen.Y + (0.5 * r));
+        h.Gaze(new PhysicalPoint(screen.X + (screen.Width / 2), screen.Y + (screen.Height / 2)), -30_000);
+        for (long t = 0; t <= 1_200_000; t += 30_000)
+            h.Gaze(rest, t);
+        h.Pump();
+
+        Check.WithCustomMessage("the MouseUp did not reach the top edge.")
+             .That(h.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point)
+             .IsEqualTo(new PhysicalPoint(rest.X, screen.Y));
+        var lines = h.EndLines();
+        Check.That(lines).HasSize(1);
+        Check.That(lines[0]).Contains(" magnet=top ");
+        Check.That(lines[0]).Contains($"raw=({rest.X:F0}, {rest.Y:F0})");
+        Check.That(lines[0]).Contains($"clamped=({rest.X:F0}, {rest.Y:F0})");
+        Check.That(lines[0]).Contains($"final=({rest.X:F0}, {screen.Y:F0})");
     }
 
     [StaFact]

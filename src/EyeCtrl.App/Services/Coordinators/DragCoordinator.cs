@@ -537,12 +537,14 @@ internal sealed class DragCoordinator : CoordinatorBase
             return;
         }
 
+        // S8 B10: the magnet's edge, and the clamped point it started from.
         Log.Information(
-            "Drag: end cause=drop trigger={Trigger} raw=({RawX:F0}, {RawY:F0}) final=({FinalX:F0}, {FinalY:F0}) "
+            "Drag: end cause=drop trigger={Trigger} magnet={Magnet} raw=({RawX:F0}, {RawY:F0}) "
+            + "clamped=({ClampedX:F0}, {ClampedY:F0}) final=({FinalX:F0}, {FinalY:F0}) "
             + "disc=({DiscX:F0}, {DiscY:F0}) r={DiscRadius:F0} rest={RestCount} withheld={Withheld} "
             + "exitEntries={ExitEntries}",
-            KebabCase(d.Trigger.ToString()),
-            d.RawPoint.X, d.RawPoint.Y, final.X, final.Y,
+            KebabCase(d.Trigger.ToString()), KebabCase(d.Magnet.ToString()),
+            d.RawPoint.X, d.RawPoint.Y, d.ClampedPoint.X, d.ClampedPoint.Y, final.X, final.Y,
             d.DiscCenter.X, d.DiscCenter.Y, d.DiscRadiusPhysical,
             d.RestCount, d.RestWithheldCount, d.ExitZoneEntries);
     }

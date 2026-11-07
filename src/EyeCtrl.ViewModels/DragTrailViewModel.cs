@@ -64,6 +64,30 @@ public enum DragSummonEdges
 }
 
 /// <summary>
+/// S8 B10: screen edges for the drop-time edge magnet — the set it may pull a drop onto
+/// (<see cref="DragTrailViewModel.DragEdgeMagnetEdges"/>), and the one edge a drop was pulled onto
+/// (<see cref="None"/> when it was not).
+/// </summary>
+[Flags]
+public enum DragMagnetEdges
+{
+    /// <summary>No edge: the drop point was not moved.</summary>
+    None = 0,
+
+    /// <summary>The top edge: Windows maximizes a window released there.</summary>
+    Top = 1,
+
+    /// <summary>The bottom edge (the taskbar).</summary>
+    Bottom = 2,
+
+    /// <summary>The left edge: Windows snaps a window released there to the left half.</summary>
+    Left = 4,
+
+    /// <summary>The right edge: Windows snaps a window released there to the right half.</summary>
+    Right = 8,
+}
+
+/// <summary>
 /// C6/C7: how one gaze sample sits relative to the screen's off-screen bands (the same two bands C4
 /// applies to the repeat dwell). <see cref="OnScreen"/> and <see cref="Withheld"/> both keep the
 /// current rest alive; only <see cref="Exit"/> is the A5 H1 clean break (reset plus restart spot).
@@ -123,6 +147,23 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// detector's own continuity bound (<c>DwellDetector</c>'s 150 ms credited-gap clamp).
     /// </summary>
     private const long HistorySilenceUs = 150_000;
+
+    /// <summary>
+    /// S8 B10 (sitting 07.11, owner decision): the edges the drop-time magnet pulls a drop onto.
+    /// Windows maximizes a dragged window only when the button is released AT the top edge
+    /// (y = 0) and half-snaps it at the left or right edge, but the drop's MouseUp moves the cursor
+    /// to the rest centroid — inside the screen almost always, so snap never worked by gaze.
+    /// Never Bottom: the taskbar is there, and B9 ("not on the taskbar") must stay PASS.
+    /// </summary>
+    internal const DragMagnetEdges DragEdgeMagnetEdges =
+        DragMagnetEdges.Top | DragMagnetEdges.Left | DragMagnetEdges.Right;
+
+    /// <summary>
+    /// S8 B10 (owner decision 07.11): how close to a magnet edge, in drop-disc radii, a drop must
+    /// land to be pulled onto it — one radius (50 DIP at the r50 floor, 100 px on the owner's
+    /// display): a rest whose disc touches the edge means that edge.
+    /// </summary>
+    internal const double DragEdgeMagnetWidthRadii = 1.0;
 
     private readonly EyeCtrlSettings _settings;
     private readonly FixationDetector _settleDetector;
@@ -697,19 +738,94 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             IsReleasePaused = paused;
     }
 
+    /// <summary>
+    /// Ends the drag with a drop at <paramref name="dropPoint"/> (the rest centroid, or the Auto
+    /// Selection settle point). The point goes through two steps before it is sent: C7's
+    /// <see cref="ClampDropPoint"/> keeps it inside the published bounds, then S8 B10's
+    /// <see cref="ApplyEdgeMagnet"/> pulls a drop within one disc radius of the Top, Left or Right
+    /// edge onto that edge, so Windows' snap sees the release there. The disc radius is the LIVE hit
+    /// radius at the drop (C2: drawn = hit), read BEFORE the teardown below clears the target.
+    /// </summary>
     private void CompleteDrag(PhysicalPoint dropPoint, DragDropTrigger trigger)
     {
-        // S8 B11: what the drop was made of, read BEFORE the teardown below clears the target.
-        var diagnostics = new DragDropDiagnostics(
-            trigger, dropPoint, ReleaseButtonCenter, LiveReleaseRadius(),
-            _restCount, _restWithheldCount, _exitZoneEntries);
+        var discRadius = LiveReleaseRadius();
+        var discCenter = ReleaseButtonCenter;
 
         IsDragActive = false;
         _settleDetector.Reset();
         DwellDetector.ClearTargets();
         ReleaseProgress = 0;
         DragState = DragSubState.FreeDrag;
-        Messenger.Send(new DragDropMessage(ClampDropPoint(dropPoint), diagnostics));
+
+        var clamped = ClampDropPoint(dropPoint);
+        var (final, magnet) = ApplyEdgeMagnet(clamped, discRadius);
+
+        // S8 B11: what the drop was made of, for the coordinator's one drag-end log line.
+        var diagnostics = new DragDropDiagnostics(
+            trigger, dropPoint, discCenter, discRadius,
+            _restCount, _restWithheldCount, _exitZoneEntries, clamped, magnet);
+        Messenger.Send(new DragDropMessage(final, diagnostics));
+    }
+
+    /// <summary>
+    /// S8 B10: the drop-time edge magnet. A drop within <see cref="DragEdgeMagnetWidthRadii"/> disc
+    /// radii of an edge in <see cref="DragEdgeMagnetEdges"/> lands ON that edge — y = top for Top
+    /// (Windows maximizes), x = left or x = left + width for Left/Right (half snap;
+    /// <see cref="PhysicalPoint.ToNormalized"/> maps the right edge to the last column). In a
+    /// corner where an edge on each axis qualifies, only the NEARER edge snaps and a tie goes to
+    /// the vertical edge (owner: "top = maximize", not Windows' quarter snap). Runs after
+    /// <see cref="ClampDropPoint"/>, so a point still inside the tolerance past an edge counts as
+    /// on it. Nothing else changes: the sample bands, the rest centroid, the follow and saccade
+    /// rules and the exit zones (a drop never happens inside an exit zone, so the right-edge
+    /// magnet only acts above and below the edge bar). With no bounds published it is unchanged.
+    /// </summary>
+    private (PhysicalPoint Point, DragMagnetEdges Edge) ApplyEdgeMagnet(PhysicalPoint point, double discRadius)
+    {
+        if (_screenBounds is not { } screen) return (point, DragMagnetEdges.None);
+        var width = DragEdgeMagnetWidthRadii * discRadius;
+
+        // The nearer qualifying edge on each axis.
+        var (vertical, verticalDistance) = NearerMagnetEdge(
+            DragMagnetEdges.Top, point.Y - screen.Y,
+            DragMagnetEdges.Bottom, screen.Y + screen.Height - point.Y, width);
+        var (horizontal, horizontalDistance) = NearerMagnetEdge(
+            DragMagnetEdges.Left, point.X - screen.X,
+            DragMagnetEdges.Right, screen.X + screen.Width - point.X, width);
+
+        // A corner snaps only its nearer edge; a tie goes to the vertical one (Top).
+        var snapY = vertical != DragMagnetEdges.None
+                    && (horizontal == DragMagnetEdges.None || verticalDistance <= horizontalDistance);
+        var snapX = horizontal != DragMagnetEdges.None && !snapY;
+
+        var x = point.X;
+        var y = point.Y;
+        var edge = DragMagnetEdges.None;
+        if (snapY)
+        {
+            y = vertical == DragMagnetEdges.Top ? screen.Y : screen.Y + screen.Height;
+            edge |= vertical;
+        }
+        if (snapX)
+        {
+            x = horizontal == DragMagnetEdges.Left ? screen.X : screen.X + screen.Width;
+            edge |= horizontal;
+        }
+        return (new PhysicalPoint(x, y), edge);
+    }
+
+    /// <summary>
+    /// Of two opposite edges, the one in <see cref="DragEdgeMagnetEdges"/> within
+    /// <paramref name="width"/> of the point (the nearer one if both are), with its distance.
+    /// </summary>
+    private static (DragMagnetEdges Edge, double Distance) NearerMagnetEdge(
+        DragMagnetEdges first, double firstDistance,
+        DragMagnetEdges second, double secondDistance, double width)
+    {
+        var firstQualifies = (DragEdgeMagnetEdges & first) != 0 && firstDistance <= width;
+        var secondQualifies = (DragEdgeMagnetEdges & second) != 0 && secondDistance <= width;
+        if (firstQualifies && (!secondQualifies || firstDistance <= secondDistance))
+            return (first, firstDistance);
+        return secondQualifies ? (second, secondDistance) : (DragMagnetEdges.None, double.MaxValue);
     }
 
     /// <summary>
@@ -723,6 +839,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// injector's clamp. A point still inside the tolerance keeps C6/A5's behaviour exactly (the
     /// drag treats it as on-screen; the injector clamps the real click), so only the region C7 newly
     /// credits is pulled back. With no bounds published (tests, pre-fix wiring) it is unchanged.
+    /// S8 B10: the clamped point then goes through the edge magnet (<see cref="ApplyEdgeMagnet"/>),
+    /// which may move it onto the Top, Left or Right edge; the clamp itself is unchanged.
     /// </summary>
     private PhysicalPoint ClampDropPoint(PhysicalPoint point)
     {

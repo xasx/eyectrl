@@ -1782,10 +1782,6 @@
     "text": "Zuerst das Modusmenü, den Aufgabenwechsler und das Raster mit Kurzbefehlen schließen.",
     "src": "1e68e7ee"
   },
-  "settings.diagnostics.subpixel.reason.paused": {
-    "text": "Zuerst fortsetzen, dann den Test starten.",
-    "src": "72ef65fc"
-  },
   "settings.diagnostics.subpixel.reason.running": {
     "text": "Ein Subpixel-Test läuft bereits.",
     "src": "c18a2fd7"

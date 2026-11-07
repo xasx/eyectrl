@@ -21,7 +21,11 @@ using Serilog;
 /// <summary>Why the sub-pixel probe start was refused (W8). One member per precondition term.</summary>
 internal enum ProbeRefusal
 {
-    /// <summary>The interaction is paused: resume first.</summary>
+    /// <summary>
+    /// The interaction is paused and no resume is pending. The C10 button no longer refuses this
+    /// (F5: its request resumes first); the queued start keeps the term so a start can never run
+    /// while the app is still paused.
+    /// </summary>
     Paused,
 
     /// <summary>The state is neither FreeLook nor Fixation (RepeatMode, Dragging, ScrollMode, …).</summary>
@@ -145,6 +149,13 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// <summary>C7's own last-valid-sample backstop, independent of C5's eyes-closed exit.</summary>
     internal const long NoValidSampleMs = 12_000;
 
+    /// <summary>
+    /// How long the coordinator waits for the posted state change after resuming from Pause before
+    /// it abandons the start (F5). A timeout means the normal resume path's observers never ran;
+    /// starting then would skip them, and waiting forever would leave a pending start behind.
+    /// </summary>
+    internal static readonly TimeSpan ResumeLandingTimeout = TimeSpan.FromSeconds(2);
+
     /// <summary>The watchdog's tick interval.</summary>
     internal static readonly TimeSpan WatchdogInterval = TimeSpan.FromMilliseconds(250);
 
@@ -170,6 +181,21 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     /// <summary>The live run, or <c>null</c>. The only coordinator-level run state there is.</summary>
     private ProbeSession? _session;
+
+    /// <summary>
+    /// F5: a request that arrived while Paused resumed the state machine and is waiting for the
+    /// posted <c>StateChangedMessage</c> to prove the resume landed. <c>null</c> otherwise.
+    /// </summary>
+    private PendingResumeStart? _resumeStart;
+
+    /// <summary>The one-shot give-up for <see cref="_resumeStart"/>; disposed when it lands.</summary>
+    private IDisposable? _resumeTimeout;
+
+    /// <summary>What the pending resume will start once its state change lands.</summary>
+    private sealed record PendingResumeStart(
+        int Generation,
+        SubPixelProbeStartMode StartMode,
+        SubPixelAbSession1Verdict? ResumedSession1Verdict);
 
     /// <summary>
     /// Creates the coordinator. Effects go through <paramref name="host"/>; the context supplies the
@@ -248,6 +274,12 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// <summary>
     /// C10's request path (build plan C7 step 1): arms <c>PendingStart</c> around the synchronous
     /// Settings close, so a throw from the close still clears it (review 05 F8; W3 (f)).
+    /// <para>
+    /// <b>F5:</b> a request that arrives while the interaction is Paused resumes through the
+    /// state machine's normal <c>TogglePause</c> path and starts only when the posted
+    /// <c>StateChangedMessage</c> proves the resume landed — never straight after the resume call,
+    /// which other observers may not have seen yet.
+    /// </para>
     /// </summary>
     /// <param name="closeSettings">
     /// Closes the Settings window synchronously — during the call its <c>Closed</c> handler raises
@@ -261,19 +293,52 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         SubPixelAbSession1Verdict? resumedSession1Verdict = null)
     {
         ArgumentNullException.ThrowIfNull(closeSettings);
+        bool requestCompleted = false;
         try
         {
             _pendingStart = ++_generation;
             _pendingStartMode = startMode;
             _pendingResumeVerdict = resumedSession1Verdict;
+
+            // Close first: a throwing close must not leave the app resumed with no start queued.
             closeSettings();
+
+            ResumeThenQueueStart(_pendingStart.Value, startMode, resumedSession1Verdict);
+            requestCompleted = true;
         }
         finally
         {
             _pendingStart = null;
             _pendingStartMode = SubPixelProbeStartMode.FullRun;
             _pendingResumeVerdict = null;
+            if (!requestCompleted)
+            {
+                // Retire the start the close may already have posted: a request that threw must
+                // not start a probe later (the same rule the close-throw test pins).
+                ClearPendingResumeStart();
+                _generation++;
+            }
         }
+    }
+
+    /// <summary>
+    /// F5: resumes from Pause through the one normal path (<see cref="InteractionManager.TogglePause"/>,
+    /// the Resume strip's and toolbar's resume) and arms the start for the posted state change.
+    /// <c>RequestStart</c> runs on the UI thread (the Settings dwell activation), which
+    /// <c>TogglePause</c> requires.
+    /// </summary>
+    private void ResumeThenQueueStart(
+        int generation, SubPixelProbeStartMode startMode, SubPixelAbSession1Verdict? resumedSession1Verdict)
+    {
+        var context = Context;
+        if (context is null) return;
+        if (context.InteractionManager.CurrentState != InteractionState.Paused) return;
+
+        ClearPendingResumeStart();
+        _resumeStart = new PendingResumeStart(generation, startMode, resumedSession1Verdict);
+        _resumeTimeout = _timerFactory(DispatcherPriority.Normal, ResumeLandingTimeout, OnResumeTimeout);
+
+        context.InteractionManager.TogglePause();
     }
 
     /// <summary>
@@ -287,6 +352,12 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// and <see cref="BeginStart"/> re-checks the full precondition — SettingsOpen included — once
     /// the queued start runs, so a re-opened window still refuses (review 04 N3; fixup 01 B1).
     /// </para>
+    /// <para>
+    /// <b>Paused is not a refusal here (F5).</b> The owner decided that a paused dwell resumes
+    /// through the normal resume path and then starts the test. <see cref="RequestStart"/> performs
+    /// that resume; the other terms still refuse here, and the queued start re-checks the full
+    /// precondition (Paused included) after the state change.
+    /// </para>
     /// </summary>
     internal string? GetBlockReason()
     {
@@ -296,7 +367,9 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     /// <summary>
     /// The C10 reason's precondition: everything <see cref="RefusalFor"/> checks except
-    /// SettingsOpen, because the button is pressed from inside Settings.
+    /// SettingsOpen, because the button is pressed from inside Settings. Unlike the full
+    /// precondition, <see cref="InteractionState.Paused"/> is allowed — the request resumes first
+    /// (F5); every other term is unchanged and still refuses.
     /// </summary>
     internal static ProbeRefusal? ButtonRefusalFor(
         InteractionState state,
@@ -304,9 +377,18 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         bool eyeCareEnabled,
         bool adaptationEnabled,
         bool sessionLive,
-        bool calibrationActive) =>
-        RefusalFor(state, menusVisible, eyeCareEnabled, adaptationEnabled,
-            settingsOpen: false, sessionLive, calibrationActive);
+        bool calibrationActive)
+    {
+        if (state != InteractionState.Paused
+            && state is not (InteractionState.FreeLook or InteractionState.Fixation))
+            return ProbeRefusal.NotAllowedState;
+        if (menusVisible) return ProbeRefusal.MenusOpen;
+        if (eyeCareEnabled) return ProbeRefusal.EyeCareOn;
+        if (adaptationEnabled) return ProbeRefusal.AdaptationOn;
+        if (sessionLive) return ProbeRefusal.AlreadyRunning;
+        if (calibrationActive) return ProbeRefusal.CalibrationActive;
+        return null;
+    }
 
     /// <summary>
     /// The precondition, as a pure function so W8 can kill each term in isolation (the SP-4a gate
@@ -334,7 +416,8 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     private static string ReasonText(ProbeRefusal refusal) => StringTable.Current.T(refusal switch
     {
-        ProbeRefusal.Paused => "settings.diagnostics.subpixel.reason.paused",
+        // ProbeRefusal.Paused is deliberately absent: since F5 the button resumes instead of
+        // refusing, and the queued-start/abandon paths log the enum, so no text is reachable.
         ProbeRefusal.NotAllowedState => "settings.diagnostics.subpixel.reason.state",
         ProbeRefusal.MenusOpen => "settings.diagnostics.subpixel.reason.menus",
         ProbeRefusal.EyeCareOn => "settings.diagnostics.subpixel.reason.eye_care",
@@ -419,7 +502,10 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         if (open)
         {
             // Reopening cancels any posted start: its generation is stale now (review 04 N3; W3 (d)).
+            // F5: it also retires a resume-then-start that has not fired yet, silently (this is a
+            // cancellation, not a refusal).
             _generation++;
+            ClearPendingResumeStart();
             return;
         }
 
@@ -459,8 +545,87 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     private void OnStateChanged(StateChangedMessage message)
     {
-        if (message.NewState != InteractionState.Paused) return;
-        OnInterlock(ProbeAbortReason.Paused);
+        if (message.NewState == InteractionState.Paused)
+        {
+            // A pause that lands while the resume is still pending means the resume did not take:
+            // abandon instead of leaving a start armed (F5).
+            if (_resumeStart is not null) AbandonResumeStart();
+            OnInterlock(ProbeAbortReason.Paused);
+            return;
+        }
+
+        // F5: a post-resume state change is the gate for a paused request. Re-read the live state:
+        // the message was posted, so another pause may have landed after it.
+        OnResumeLanded();
+    }
+
+    /// <summary>
+    /// F5: the posted state change arrived. Start the pending run only if the live state has left
+    /// Paused; a later pause means the resume did not land and the start is abandoned.
+    /// </summary>
+    private void OnResumeLanded()
+    {
+        if (_resumeStart is not { } pending) return;
+        if (Context is null || pending.Generation != _generation)
+        {
+            ClearPendingResumeStart();
+            return;
+        }
+
+        if (Context.InteractionManager.CurrentState == InteractionState.Paused)
+        {
+            AbandonResumeStart();
+            return;
+        }
+
+        ClearPendingResumeStart();
+
+        // Retire the BeginStart the Settings close posted: the gate is the one start now, so a
+        // refused gate is reported once, not twice, and cannot be re-run by the older post.
+        // Post at Background (review 01 F4) so the other StateChangedMessage recipients and the
+        // close's queued work run first, exactly like the normal C10 path.
+        int generation = ++_generation;
+        Log.Information("probe start: resumed from pause first");
+        Context.Dispatcher.BeginInvoke(DispatcherPriority.Background,
+            () => BeginStart(generation, pending.StartMode, pending.ResumedSession1Verdict));
+    }
+
+    /// <summary>
+    /// F5's give-up: the resume never landed within <see cref="ResumeLandingTimeout"/> (or a pause
+    /// beat its state change). The posted <see cref="BeginStart"/> is retired by the generation
+    /// bump — otherwise it could start the probe with the resume's observers unrun.
+    /// </summary>
+    private void AbandonResumeStart()
+    {
+        if (_resumeStart is null) return;
+
+        ClearPendingResumeStart();
+        _generation++;
+        Log.Information("Sub-pixel probe start: the resume did not land; start abandoned");
+        ReportRefusal(ProbeRefusal.Paused);
+    }
+
+    private void OnResumeTimeout()
+    {
+        if (_resumeStart is not { } pending) return;
+        if (pending.Generation != _generation)
+        {
+            ClearPendingResumeStart();
+            return;
+        }
+
+        AbandonResumeStart();
+    }
+
+    private void ClearPendingResumeStart()
+    {
+        _resumeStart = null;
+        var timeout = _resumeTimeout;
+        _resumeTimeout = null;
+        if (timeout is null) return;
+
+        try { timeout.Dispose(); }
+        catch (Exception ex) { Log.Error(ex, "Stopping the sub-pixel probe resume timer failed"); }
     }
 
     private void OnGazeCursorMoved(GazeCursorMovedMessage message)
@@ -503,6 +668,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         if (_disposed || Context is null) return;
         if (generation != _generation) return;
         if (_session is not null) return;
+
+        // F5: the request resumed from Pause. The Settings-close drain must not start the run —
+        // it may still see Paused — so the posted StateChangedMessage starts it instead. The
+        // resume handler clears the gate first, so this is not a deferral for a normal request.
+        if (_resumeStart is { } resume && resume.Generation == generation) return;
 
         if (startMode == SubPixelProbeStartMode.ResumeSession2
             && !SubPixelProbeViewModel.CanResumeSession2(resumedSession1Verdict))
@@ -1001,6 +1171,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         // The generation bump retires any queued start, and the live session is restored (plan C7).
         _generation++;
         _disposed = true;
+        ClearPendingResumeStart();
 
         if (Context is not null)
         {

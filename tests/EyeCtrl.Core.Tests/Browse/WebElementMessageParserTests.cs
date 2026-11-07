@@ -333,16 +333,25 @@ public class WebElementMessageParserTests
     public void Parse_EnvelopeBeyondTheByteBound_FailsWithoutParsing()
     {
         // A legit 400-element envelope is ~40 KB; beyond the bound the parse fails before any
-        // JSON work — a multi-megabyte post must not cost the UI thread a parse.
-        var huge = new System.Text.StringBuilder();
-        huge.Append(' ');
-        while (huge.Length <= WebElementMessageParser.MaxEnvelopeChars)
-            huge.Append(" {\"i\":\"x\",\"k\":\"button\",\"r\":[0,0,1,1]}");
-        var json = Envelope(huge.ToString());
+        // JSON work — a multi-megabyte post must not cost the UI thread a parse. r3 m2: the
+        // fixture is now VALID JSON under the 400 cap with a padded ignored member, so the
+        // byte bound is the only thing that can reject it (the old fixture was invalid JSON
+        // over the cap — it failed at Parse, not at the bound, and the bound was unpinned).
+        var pad = new string('p', WebElementMessageParser.MaxEnvelopeChars);
+        var elements = string.Join(",", System.Linq.Enumerable.Range(1, WebElementMessageParser.MaxElements)
+            .Select(i => Element($"e{i}", "button", "0,0,1,1")));
+        var over = $$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"pad":"{{pad}}","els":[{{elements}}]}""";
 
-        var ok = Parse(json, default, out var snapshot);
+        var ok = Parse(over, default, out var snapshot);
         Check.That(ok).IsFalse();
         Check.That(snapshot).IsEqualTo(WebElementSnapshot.Empty);
+
+        // The control: the SAME envelope with a short pad parses — proving the fixture is
+        // well-formed and the bound (not the shape or the cap) is what rejected the one above.
+        var under = $$"""{"type":"elements","n":"{{Secret}}","gen":1,"dpr":1,"pad":"x","els":[{{elements}}]}""";
+        var parses = Parse(under, default, out var underSnapshot);
+        Check.That(parses).IsTrue();
+        Check.That(underSnapshot.Elements).HasSize(WebElementMessageParser.MaxElements);
     }
 
     [Fact]

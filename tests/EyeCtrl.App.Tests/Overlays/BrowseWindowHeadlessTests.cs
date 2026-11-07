@@ -239,6 +239,87 @@ public class BrowseWindowHeadlessTests
         requested = null;
         Check.That(window.TryNavigate("   ")).IsFalse();
         Check.That(requested).IsNull();
+
+        // r2 M1 + r3 m4: years, versions, bare numbers, inet_aton shorthands, userinfo and
+        // decimal-with-unit queries are SEARCHES — none reaches a dead host. (The M1 cases
+        // were fixed but never pinned; r3 m4's probe found the decimal-unit class navigating.)
+        foreach (var query in new[]
+                 {
+                     "42", "2001", "3.14", "1.2", "127.1", "0x7f.1", "v1.2", "1.2.3.4.5",
+                     "user@example.com", "3.5mm", "2.4ghz", "1.5kg", "10.5cm", "9.5x",
+                     "7.62x39", "2.0b", "%65xample.com", "javascript:alert(1)", "file:///etc/passwd",
+                 })
+        {
+            requested = null;
+            Check.WithCustomMessage($"'{query}' must land in the search arm").That(window.TryNavigate(query)).IsTrue();
+            Check.WithCustomMessage($"'{query}' must land in the search arm").That(requested!.Host).IsEqualTo("www.bing.com");
+        }
+
+        // Real hosts still navigate — including the punycode form of an IDN label (r3 m4's
+        // rule) and the file-less names that navigate and are accepted without a public
+        // suffix list.
+        foreach (var host in new[] { "example.com", "www.example.com", "node.js", "index.html", "readme.md", "example.xn--80akhbyknj4f" })
+        {
+            requested = null;
+            Check.WithCustomMessage($"'{host}' must navigate").That(window.TryNavigate(host)).IsTrue();
+            Check.WithCustomMessage($"'{host}' must navigate").That(requested!.Host).IsNotEqualTo("www.bing.com");
+        }
+    }
+
+    /// <summary>Extracts a method's body by brace counting, so a pin can be method-scoped
+    /// instead of a file-wide <c>Contains</c> (the r2 M7 lesson: a commented-out line passes a
+    /// scan). Callers pin bodies without raw-string literals or nested braces that would break
+    /// the count.</summary>
+    private static string MethodBody(string source, string signature)
+    {
+        var start = source.IndexOf(signature, System.StringComparison.Ordinal);
+        if (start < 0)
+            throw new InvalidOperationException($"signature not found: {signature}");
+        var open = source.IndexOf('{', start);
+        var depth = 0;
+        for (var i = open; i < source.Length; i++)
+        {
+            if (source[i] == '{')
+                depth++;
+            else if (source[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                    return source[(open + 1)..i];
+            }
+        }
+
+        throw new InvalidOperationException($"unbalanced braces after: {signature}");
+    }
+
+    [Fact]
+    public void FocusAddressBox_PinsTheFlipActivateAndSelectAllGuard_AtSource()
+    {
+        // r3 m3: the I5 mechanism is runtime-only (the flip and Activate need an HWND), so the
+        // pin is method-scoped at source: the flip, the activation and the r2 I2 SelectAll
+        // guard must all be present in the method body.
+        var source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Overlays", "BrowseWindow.xaml.cs"));
+        var body = MethodBody(source, "public void FocusAddressBox()");
+
+        Check.That(body).Contains("SetOverlayInteraction(clickThrough: false, focusable: true);");
+        Check.That(body).Contains("Activate();");
+        Check.WithCustomMessage("the re-dwell must preserve the typed text (r2 I2's SelectAll guard)")
+            .That(body).Contains("if (!AddressBox.IsKeyboardFocused)");
+        Check.That(body).Contains("AddressBox.SelectAll();");
+    }
+
+    [Fact]
+    public void TheWindowConstructor_PinsTheDpiChangedGeometryHook_AtSource()
+    {
+        // r3 m3 (M11): a same-monitor DPI change fires neither SizeChanged nor LocationChanged
+        // — the DpiChanged hook is the only thing that re-reads the geometry. The ctor body is
+        // pinned at source (the event needs an HWND to raise for real).
+        var source = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Overlays", "BrowseWindow.xaml.cs"));
+        var body = MethodBody(source, "public BrowseWindow()");
+
+        Check.That(body).Contains("DpiChanged += (_, _) => RaiseLayoutChanged();");
     }
 
     [Fact]

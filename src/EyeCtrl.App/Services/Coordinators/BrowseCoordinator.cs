@@ -73,6 +73,10 @@ internal sealed class BrowseCoordinator : CoordinatorBase
         // (the gaze thread included, ScrollModeController.cs's comment); DwellDetector.Update is
         // UI-thread-only, so marshal like ScrollModeController does (inline when already there).
         context.InteractionManager.StateChanged += OnInteractionStateChanged;
+
+        // r3 m5: a dock-edge or size change while the browser is up must re-apply the inset
+        // live (the re-summon path alone would leave Close covered until some other exit).
+        context.Settings.Toolbar.PropertyChanged += OnToolbarSettingsChanged;
     }
 
     private void OnInteractionStateChanged(InteractionState state)
@@ -106,6 +110,10 @@ internal sealed class BrowseCoordinator : CoordinatorBase
             // summon, and RaiseToTop lifted the browser over the toolbar (the universal exit),
             // the keyboard and the cursor ring.
             _surface.ActivateToFront();
+            // r3 m5: the docked band can have changed while the browser sat up (a Settings
+            // dock/size change) — re-derive the inset from the CURRENT settings. Idempotent:
+            // the window computes from its stored work-area base.
+            ApplyDockedToolbarInset(_surface);
             ReassertSurfacesAboveBrowser();
             return;
         }
@@ -163,12 +171,13 @@ internal sealed class BrowseCoordinator : CoordinatorBase
     private void ApplyDockedToolbarInset(IBrowseWindowSurface surface)
     {
         var toolbar = Context!.Settings.Toolbar;
-        if (!toolbar.IsDocked)
-            return;
 
-        // The band's DIP thickness: the button size + the two 12-DIP margins + the toolbar
-        // window's 2×4 padding (the same arithmetic ToolbarButtonVisualTests pins).
-        var thickness = toolbar.Size + 32;
+        // The band's DIP thickness from the SAME constants the toolbar's own placement uses
+        // (r3 m5: the restated literal could drift from the toolbar's real band) — zero when
+        // the toolbar is undocked, which restores the window's full work-area base.
+        var thickness = toolbar.IsDocked
+            ? toolbar.Size + (2 * Overlays.ToolbarBand.ButtonMargin) + (2 * Overlays.ToolbarWindow.BandPaddingDip)
+            : 0;
         switch (toolbar.DockedEdge)
         {
             case "Top":
@@ -186,16 +195,44 @@ internal sealed class BrowseCoordinator : CoordinatorBase
         }
     }
 
+    /// <summary>r3 m5: a dock-edge or size change while the browser is up re-derives the
+    /// inset — a switch to Right with a stale Top inset would cover Close, the exit. The
+    /// window's inset is absolute-from-its-stored-work-area-base, so re-applying never
+    /// compounds; the move/resize raises LayoutChanged and the coordinator's geometry re-read
+    /// re-registers the chrome row from the new rects (the r2 M6 pipeline).</summary>
+    private void OnToolbarSettingsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        var context = Context!;
+        if (context.Dispatcher.CheckAccess())
+            ReapplyDockedToolbarInsetIfUp();
+        else
+            context.Dispatcher.BeginInvoke(() => ReapplyDockedToolbarInsetIfUp());
+    }
+
+    private void ReapplyDockedToolbarInsetIfUp()
+    {
+        if (_surface is null || _vm is null || !_vm.IsVisible)
+            return;
+        ApplyDockedToolbarInset(_surface);
+    }
+
     /// <summary>
-    /// Re-asserts the surfaces that must stay reachable ABOVE the browser: the visible toolbar
-    /// (pause — the universal exit), a shown keyboard, and the cursor ring (r2 I3: of the app's
-    /// RaiseToTop sites none touched the ring, so from the first summon the owner's gaze
-    /// feedback sat under the opaque work-area window). Runs after the first Show and after
-    /// every ActivateToFront — a resting gaze on the toolbar's Browse button re-summons about
-    /// a dwell+cooldown later, and that re-summon must not bury the toolbar.
+    /// Re-asserts the surfaces that must stay reachable ABOVE the browser: main's band-fallback
+    /// repair (r3 I1 — its fixed walk covers the keyboard's edge bar, the Resume strip and the
+    /// banner-slot occupants that our own list omits; the r2-era rejection was about its step
+    /// list excluding the ring, which the explicit raises below keep covered), then the visible
+    /// toolbar (pause — the universal exit), a shown keyboard, and the cursor ring (r2 I3: of
+    /// the app's RaiseToTop sites none touched the ring, so from the first summon the owner's
+    /// gaze feedback sat under the opaque work-area window). Runs after the first Show, after
+    /// every ActivateToFront, and after the address box's activation (r3 I1: FocusAddressBox
+    /// Activate()s the window, which lifts it above those surfaces in exactly the I5 case —
+    /// the browser was not the active window).
     /// </summary>
     private void ReassertSurfacesAboveBrowser()
     {
+        // The manager's walk is guarded on its own initialization (a no-op in bare test kits),
+        // so it is safe before the surfaces exist.
+        Context.OverlayManager.ReassertOverlayOrder();
         if (Context.OverlayManager.Toolbar.IsVisible)
             Context.OverlayManager.Toolbar.RaiseToTop();
         if (_modalState.KeyboardVisible)
@@ -455,6 +492,7 @@ internal sealed class BrowseCoordinator : CoordinatorBase
         if (_webSource is null)
             return;
         _webSource.ElementMessageReceived -= OnElementMessage;
+        _webSource.NavigationStarting -= OnNavigationStarting;
         _webSource.NavigationCompleted -= OnNavigationCompleted;
         _webSource.Ready -= OnWebReady;
         _webSource.Failed -= OnWebFailed;
@@ -509,14 +547,23 @@ internal sealed class BrowseCoordinator : CoordinatorBase
             case BrowseViewModel.ChromeAddressId:
                 _surface?.FocusAddressBox();
                 // Owner feedback 2026-11-05: dwelling the address box used to leave the gaze
-                // keyboard hidden — a second summon dwell before any typing could start. The
-                // field takes focus and the keyboard slides in with it (the SHOW message, not
-                // the toolbar's toggle: if the keyboard is already up, this must not hide it).
-                // The keyboard must never BE the foreground — its SendText types into whatever
-                // is foreground, which is this window (the focusable-flip contract) — and since
-                // KeyboardWindow's Show no longer activates (ShowActivated=false, the same
-                // feedback round), the address box keeps the OS focus the keyboard types into.
-                Context!.Messenger.Send(new KeyboardShowRequestedMessage(Source: "browse-address"));
+                // keyboard hidden — a second summon dwell on the keyboard toggle, before any
+                // typing could start. The field takes focus and the keyboard slides in with it
+                // (the SHOW message, not the toolbar's toggle: if the keyboard is already up,
+                // this must not hide it). The keyboard must never BE the foreground — its
+                // SendText types into whatever is foreground, which is this window (the
+                // focusable-flip contract) — and since KeyboardWindow's Show no longer
+                // activates (ShowActivated=false, the same feedback round), the address box
+                // keeps the OS focus the keyboard types into.
+                // r3 I1: the flip's Activate() lifts this window to the top of the z-order —
+                // above a shown keyboard, its edge bar and the ring — exactly in the I5 case
+                // where the browser was NOT the active window. Re-assert immediately.
+                ReassertSurfacesAboveBrowser();
+                // r3 m6: when the foreground lock refuses the activation, the keyboard's
+                // SendText would type into whatever app holds the foreground — summon only on
+                // a real activation and leave the rest to a re-dwell.
+                if (_surface is { } up && up.IsActive)
+                    Context!.Messenger.Send(new KeyboardShowRequestedMessage(Source: "browse-address"));
                 break;
         }
     }
@@ -577,7 +624,10 @@ internal sealed class BrowseCoordinator : CoordinatorBase
     protected override void OnDispose()
     {
         if (Context is not null)
+        {
             Context.InteractionManager.StateChanged -= OnInteractionStateChanged;
+            Context.Settings.Toolbar.PropertyChanged -= OnToolbarSettingsChanged;
+        }
         Teardown(closeWindow: true);
     }
 }

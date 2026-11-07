@@ -176,6 +176,72 @@ public class BrowseViewModelTests
         Check.That(activations).IsEqualTo(2);
     }
 
+    [Fact]
+    public void ARestingGaze_KeepsTheLatchWhenItsTargetVanishesAndReturns()
+    {
+        // r3 I2: r2 M4's disabled filter drops a disable-on-submit button from the snapshot
+        // while the form posts, and the page re-adds the SAME id when it re-enables. The
+        // latch must survive the disappearance — it follows the fired target's last-known
+        // rect — and release only on gaze exit; a re-added target starts with no accumulated
+        // dwell, so without the latch the resting gaze re-submits one dwell later.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var rect = new PhysicalRect(500, 400, 200, 40);
+        var activations = 0;
+        vm.WebElementActivated += (_, _, _) => activations++;
+
+        vm.Show();
+        vm.ApplySnapshot(Snap(1, El("web_1", rect)));
+
+        DwellDrive.Hold(messenger, rect.Center, 0, 801_000);
+        Check.That(activations).IsEqualTo(1);
+
+        // The page disables Send: the next snapshot drops it, and the gaze keeps sampling
+        // THROUGH the gone-window — the latch must NOT release here (the old logic cleared it
+        // the moment TryGetLatchedRect failed).
+        vm.ApplySnapshot(Snap(2));
+        DwellDrive.Hold(messenger, rect.Center, 801_000, 901_000);
+
+        // The page re-enables Send: the same id registers fresh (a re-added target starts
+        // with no accumulated dwell — DwellDetector's re-add path).
+        vm.ApplySnapshot(Snap(3, El("web_1", rect)));
+
+        DwellDrive.Hold(messenger, rect.Center, 901_000, 2_201_000);
+        Check.That(activations).IsEqualTo(1);
+
+        // The gaze leaves the fired area: the latch releases and the target can fire again.
+        DwellDrive.Hold(messenger, new PhysicalPoint(500, 100), 2_101_000, 2_201_000);
+        DwellDrive.Hold(messenger, rect.Center, 2_201_000, 2_501_000);
+        Check.That(activations).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void TheChromeLatch_HoldsUnderARestingGaze_AndReleasesOnGazeExit()
+    {
+        // r3 m3: the chrome path shares the latch — the address box was r2 I2's motivating
+        // case (its re-dwell re-ran SelectAll and the next key wiped the typed text). The
+        // chrome latch is the same last-known-rect latch, so a resting gaze yields one
+        // activation and gaze exit re-arms.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        var closeRect = new PhysicalRect(900, 100, 48, 48);
+        var chromeActivations = 0;
+        vm.ChromeActivated += _ => chromeActivations++;
+
+        vm.Show();
+        vm.SetChromeTargets(new (string, PhysicalRect)[] { (BrowseViewModel.ChromeCloseId, closeRect) });
+
+        DwellDrive.Hold(messenger, closeRect.Center, 0, 801_000);
+        Check.That(chromeActivations).IsEqualTo(1);
+
+        DwellDrive.Hold(messenger, closeRect.Center, 801_000, 2_101_000);
+        Check.That(chromeActivations).IsEqualTo(1);
+
+        DwellDrive.Hold(messenger, new PhysicalPoint(500, 500), 2_101_000, 2_201_000);
+        DwellDrive.Hold(messenger, closeRect.Center, 2_201_000, 2_501_000);
+        Check.That(chromeActivations).IsEqualTo(2);
+    }
+
     // ---- the coordinator's under-point gate (external review I3) ----------------
 
     [Fact]

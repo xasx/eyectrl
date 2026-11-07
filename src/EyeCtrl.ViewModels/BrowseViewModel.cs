@@ -78,6 +78,12 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
     /// </summary>
     private string? _reArmLatch;
 
+    /// <summary>The latched area's last-known rect (r3 I2): set at fire time, refreshed while
+    /// the latched target still exists (a rebase moves it), and KEPT when it vanishes — the
+    /// page re-adding the same id must not re-fire under a resting gaze. Released only on
+    /// gaze exit, a navigation (ClearWebTargets), Show and Hide.</summary>
+    private PhysicalRect _latchedRect;
+
     /// <summary>Whether the coordinator suspended dwell accumulation (ScrollMode is sliding the
     /// page under the gaze — nothing may complete while elements move under a resting gaze).</summary>
     private bool _scrollSuspended;
@@ -249,8 +255,10 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
 
     /// <summary>
     /// Clears the page's dwell targets (navigation): chrome survives. The next page's snapshot
-    /// then reconciles against an empty web set, so every element registers fresh — nothing can
-    /// carry a dwell across a navigation.
+    /// then reconciles against an empty web set, so every element registers fresh. The re-arm
+    /// latch clears with the page (a navigation is a fresh start); note the pre-commit window:
+    /// the old document's posts still pass the sender check until commit, so targets can
+    /// re-register before it (v2's accepting window closes that — the V2-2 design).
     /// </summary>
     public void ClearWebTargets()
     {
@@ -262,6 +270,8 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
 
         _lastSnapshot = null;
         _webRects.Clear();
+        _reArmLatch = null;
+        _latchedRect = default;
         RaiseTargetsChanged();
     }
 
@@ -303,13 +313,19 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         // stale-false and silently disarms the pause suppression in OnTargetActivated.
         NoteSamplePaused(message.IsPaused);
 
-        // Review r2 I2: the just-fired target stays withheld until the gaze LEAVES it (the
-        // toolbar Pause rule, applied to every browse target). A sample outside the latched
-        // rect — or the latch's target being gone (navigation, layout change) — re-arms it.
-        if (_reArmLatch is { } latched
-            && (!TryGetLatchedRect(latched, out var latchedRect) || !latchedRect.Contains(message.Position)))
+        // Review r2 I2 + r3 I2: the just-fired target stays withheld until the gaze LEAVES its
+        // area (the toolbar Pause rule, applied to every browse target). The latch follows the
+        // fired target's last-known rect — refreshed while the target still exists (a rebase
+        // moves it), and KEPT when it vanishes (r2 M4's disabled filter drops a disable-on-
+        // submit button mid-page; the page re-adding the same id must not re-fire under a
+        // resting gaze). Released only on gaze exit — and on ClearWebTargets (a navigation is
+        // a fresh page), Show and Hide.
+        if (_reArmLatch is { } latched)
         {
-            _reArmLatch = null;
+            if (TryGetLatchedRect(latched, out var current))
+                _latchedRect = current;
+            if (!_latchedRect.Contains(message.Position))
+                _reArmLatch = null;
         }
 
         // External review I3: another EyeCtrl surface (keyboard, toolbar, ring) may sit over
@@ -343,6 +359,8 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
             if (LastSampleWasPaused && targetId != ChromeCloseId)
                 return;
             _reArmLatch = targetId;
+            if (_chromeRects.TryGetValue(targetId, out var chromeRect))
+                _latchedRect = chromeRect;
             ChromeActivated?.Invoke(targetId);
             Messenger.Send(new DwellActivationMessage());
             return;
@@ -357,6 +375,7 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
         if (_webRects.TryGetValue(targetId, out var rect))
         {
             _reArmLatch = targetId;
+            _latchedRect = rect;
             WebElementActivated?.Invoke(targetId, rect, _lastGatedGazePoint);
             Messenger.Send(new DwellActivationMessage());
         }
@@ -408,7 +427,8 @@ public partial class BrowseViewModel : DwellOverlayViewModelBase
     }
 
     /// <summary>The latched target's CURRENT rect (web or chrome), for the exit check — a
-    /// rebase moves it, and a target that is gone clears the latch (r2 I2).</summary>
+    /// rebase moves it. A target that is GONE no longer clears the latch (r3 I2): the caller
+    /// keeps the last-known rect and releases only on gaze exit.</summary>
     private bool TryGetLatchedRect(string id, out PhysicalRect rect)
     {
         if (_webRects.TryGetValue(id, out rect!))

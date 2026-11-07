@@ -68,9 +68,10 @@ internal static class BrowseElementScript
         if (!style || style.visibility === 'hidden' || style.display === 'none') return false;
         if (el.getAttribute('aria-hidden') === 'true' || el.hidden) return false;
         // Inert subtrees and disabled controls never act on a click, so dwelling one fires
-        // nothing (review r2 M4): the guide's contract and the script now agree.
+        // nothing (review r2 M4): the guide's contract and the script now agree. `:disabled`
+        // (r3) also covers an ancestor `<fieldset disabled>`, which `el.disabled` misses.
         try { if (el.closest('[inert]')) return false; } catch (e) { /* old engines: no closest */ }
-        if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+        if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return false;
         var rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
     }
@@ -223,9 +224,12 @@ internal static class BrowseElementScript
     /// <summary>
     /// The script source for one summon: the template with the bridge secret baked in
     /// (review C3c). The secret rides every envelope the script posts; the parser rejects
-    /// any envelope without it. Only this script knows the secret: it runs before the
-    /// page's own scripts (so none can observe the capture) and it never exposes the value
-    /// on <c>window</c>, so a page cannot read it out of the DOM.
+    /// any envelope without it. The secret deters forgery by scripts that do not hook the
+    /// bridge: this script runs before the page's own scripts (so none can observe the
+    /// capture at creation) and it never exposes the value on <c>window</c>, so a page
+    /// cannot read it out of the DOM — but a script that hooks
+    /// <c>chrome.webview.postMessage</c> can still read or forge envelopes, and the
+    /// coordinator's clip and the parser's bounds stay the load-bearing layers.
     /// </summary>
     public static string CreateSource(string secret)
     {

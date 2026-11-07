@@ -8,6 +8,7 @@ using System.Threading;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Browse;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Browse;
@@ -90,6 +91,10 @@ public class BrowseCoordinatorTests
         public bool WebBoundsAvailable { get; set; } = true;
         public PhysicalRect WindowBounds { get; set; } = new(0, 0, 1920, 1040);
         public bool UnderPoint { get; set; } = true;
+
+        /// <summary>r3 m6: the address dwell summons the gaze keyboard only when the surface
+        /// holds the OS foreground — the pin flips this to false.</summary>
+        public bool IsActive { get; set; } = true;
 
         /// <summary>Per-point override for the r2 M2 scenarios (the gaze point under the
         /// browser, the element's center under another surface).</summary>
@@ -206,6 +211,8 @@ public class BrowseCoordinatorTests
         public readonly EyeCtrlSettings Settings = new();
         public readonly FakeSurface Surface = new();
         public readonly FakeWebSource Web = new();
+        public readonly ModalInteractionState ModalState = new();
+        public readonly TestFakes.FakeCursorCircleOverlay Ring = new();
         public readonly BrowseViewModel Vm;
         public BrowseCoordinator Coordinator = null!;
         public long NextUs;
@@ -217,7 +224,7 @@ public class BrowseCoordinatorTests
             var baseContext = TestFakes.MakeContext(Input);
             return baseContext with
             {
-                OverlayManager = TestFakes.MakeOverlayManager(toolbar: Toolbar),
+                OverlayManager = TestFakes.MakeOverlayManager(toolbar: Toolbar, cursorCircle: Ring),
                 InteractionManager = Im,
                 Dispatcher = Dispatcher,
                 Messenger = Messenger,
@@ -229,7 +236,7 @@ public class BrowseCoordinatorTests
         public void Initialize()
         {
             Surface.WebSource = Web; // review C2: the surface's OWN host is the only one
-            Coordinator = new BrowseCoordinator(() => Surface, new ModalInteractionState());
+            Coordinator = new BrowseCoordinator(() => Surface, ModalState);
             Coordinator.Initialize(BuildContext());
         }
 
@@ -380,6 +387,135 @@ public class BrowseCoordinatorTests
         var rect = kit.Surface.ChromeRects.Single(r => r.Id == id).Rect;
         Hold(kit.Messenger, rect.Center, kit.NextUs, kit.NextUs + (DwellMs * 1000L) + 1);
         kit.NextUs += (DwellMs + 500) * 1000L;
+    }
+
+    [Fact]
+    public void ReassertSurfacesAboveBrowser_RaisesToolbarAndRing_AfterSummonAndAfterTheAddressDwell()
+    {
+        // r3 I1: the address dwell's Activate() lifts the browser to the top of the z-order —
+        // above a shown keyboard, its edge bar and the ring — exactly when the browser was NOT
+        // the active window (the I5 case). The re-assertion must run on that path too, and the
+        // ring raise must be observable (the kit now passes a recording ring fake; the
+        // keyboard raise shares the toolbar's guard shape — the manager exposes the concrete
+        // KeyboardWindow, so no recording fake exists for it without product churn).
+        var kit = new Kit();
+        kit.Toolbar.IsVisibleValue = true;
+        kit.Initialize();
+        kit.SendShow();
+        var ringAfterSummon = kit.Ring.RaiseToTopCalls;
+        Check.That(kit.Toolbar.RaiseToTopCalled).IsTrue();
+        Check.That(ringAfterSummon).IsGreaterOrEqualThan(1);
+
+        // The address dwell: FocusAddressBox Activate()s — the re-assertion follows it.
+        kit.Toolbar.RaiseToTopCalled = false;
+        var ringBefore = kit.Ring.RaiseToTopCalls;
+        DwellOnChrome(kit, BrowseViewModel.ChromeAddressId);
+        Check.That(kit.Toolbar.RaiseToTopCalled).IsTrue();
+        Check.That(kit.Ring.RaiseToTopCalls).IsStrictlyGreaterThan(ringBefore);
+    }
+
+    [Fact]
+    public void TheAddressDwell_SummonsTheKeyboardOnlyWhenTheSurfaceHoldsTheForeground()
+    {
+        // r3 m6: a refused Activate() leaves the OS foreground wherever it was — the gaze
+        // keyboard's SendText would type into THAT app, unseen under the browser. The summon
+        // runs only when the surface holds the foreground; the owner re-dwells.
+        var kit = new Kit();
+        var sources = new List<string>();
+        kit.Messenger.Register<BrowserCoordinatorKeyboardProbe, KeyboardShowRequestedMessage>(
+            new BrowserCoordinatorKeyboardProbe(), (_, m) => sources.Add(m.Source));
+        kit.Initialize();
+        kit.SendShow();
+
+        kit.Surface.IsActive = false;
+        DwellOnChrome(kit, BrowseViewModel.ChromeAddressId);
+        Check.That(sources).IsEmpty();
+
+        // Gaze exits the latched address box, so the re-dwell can fire (the leave-before-
+        // re-arm rule).
+        Hold(kit.Messenger, new PhysicalPoint(500, 500), kit.NextUs, kit.NextUs + 100_000);
+        kit.NextUs += 150_000;
+
+        kit.Surface.IsActive = true;
+        DwellOnChrome(kit, BrowseViewModel.ChromeAddressId);
+        Check.That(sources).ContainsExactly("browse-address");
+    }
+
+    [Fact]
+    public void TheDockedToolbarInset_CoversAllFourEdges_AtBothCommonSizes_AndRestoresTheBaseWhenUndocked()
+    {
+        // r3 m3/m5: the inset was pinned only for Top/108. Every edge at both common sizes
+        // reserves the same band arithmetic (Size + 2×ButtonMargin + 2×BandPaddingDip —
+        // 108→140, 120→152), and an undocked toolbar restores the full work-area base.
+        foreach (var size in new[] { 108.0, 120.0 })
+        {
+            var expected = size + 32;
+            foreach (var (edge, l, t, r, b) in new[]
+                     {
+                         ("Top", 0.0, expected, 0.0, 0.0),
+                         ("Bottom", 0.0, 0.0, 0.0, expected),
+                         ("Left", expected, 0.0, 0.0, 0.0),
+                         ("Right", 0.0, 0.0, expected, 0.0),
+                     })
+            {
+                var kit = new Kit();
+                kit.Settings.Toolbar.IsDocked = true;
+                kit.Settings.Toolbar.DockedEdge = edge;
+                kit.Settings.Toolbar.Size = size;
+                kit.Initialize();
+                kit.SendShow();
+                Check.That(kit.Surface.Inset).IsEqualTo((l, t, r, b));
+            }
+        }
+
+        var undocked = new Kit();
+        undocked.Settings.Toolbar.IsDocked = false;
+        undocked.Initialize();
+        undocked.SendShow();
+        Check.That(undocked.Surface.Inset).IsEqualTo((0.0, 0.0, 0.0, 0.0));
+    }
+
+    [Fact]
+    public void AReSummon_AndALiveSettingsChange_ReDeriveTheInset()
+    {
+        // r3 m5: a dock change while the browser is up (Settings mid-browse) must not leave a
+        // stale inset covering Close — the re-summon re-derives from the current settings,
+        // and a live ToolbarSettings change re-applies while the browser sits up.
+        var kit = new Kit();
+        kit.Settings.Toolbar.IsDocked = true;
+        kit.Settings.Toolbar.DockedEdge = "Top";
+        kit.Settings.Toolbar.Size = 108;
+        kit.Initialize();
+        kit.SendShow();
+        Check.That(kit.Surface.Inset).IsEqualTo((0.0, 140.0, 0.0, 0.0));
+
+        // The live change: the coordinator re-applies on the settings' PropertyChanged.
+        kit.Settings.Toolbar.DockedEdge = "Right";
+        kit.Pump();
+        Check.That(kit.Surface.Inset).IsEqualTo((0.0, 0.0, 140.0, 0.0));
+
+        // The re-summon path re-derives too (idempotent from the window's stored base).
+        kit.Settings.Toolbar.DockedEdge = "Left";
+        kit.SendShow();
+        Check.That(kit.Surface.Inset).IsEqualTo((140.0, 0.0, 0.0, 0.0));
+    }
+
+    [Fact]
+    public void ALayoutEventAfterTeardown_IsANoOp()
+    {
+        // r3 m3 (M8's class): the closing window can still raise SizeChanged/LocationChanged —
+        // Teardown detaches the surface's events, so a late LayoutChanged reaches nothing: no
+        // re-registration, no occluder refill, no resurrection of the hidden VM.
+        var kit = new Kit();
+        kit.Initialize();
+        kit.SendShow();
+        DwellOnChrome(kit, BrowseViewModel.ChromeCloseId);
+
+        Check.That(kit.Vm.IsVisible).IsFalse();
+        var progressBefore = kit.Surface.ChromeProgress.Count;
+        kit.Surface.FireLayoutChanged();
+        Check.That(kit.Vm.IsVisible).IsFalse();
+        Check.That(kit.Surface.ChromeProgress.Count).IsEqualTo(progressBefore);
     }
 
     [Fact]
@@ -578,7 +714,10 @@ public class BrowseCoordinatorTests
         floatingKit.Settings.Toolbar.IsDocked = false;
         floatingKit.Initialize();
         floatingKit.SendShow();
-        Check.That(floatingKit.Surface.Inset).IsNull();
+        // r3 m5: undocked applies the zero inset — the window computes absolutely from its
+        // work-area base, so the zero call is what restores the full base (and what un-docks
+        // a live dock change back to).
+        Check.That(floatingKit.Surface.Inset).IsEqualTo((0.0, 0.0, 0.0, 0.0));
     }
 
     [Fact]
@@ -688,23 +827,25 @@ public class BrowseCoordinatorTests
             "case \"Browse\": Messenger.Send(new BrowseShowRequestedMessage()); break;")).IsTrue();
     }
 
-    [Fact]
+    [StaFact]
     public void TheKeyboardAndItsEdgeBar_NeverStealTheForegroundOnShow()
     {
         // Owner feedback 2026-11-05: summoning the keyboard un-focused the browser's address
         // box — WPF's Show() calls Activate() when ShowActivated is true, and that programmatic
         // activation ignores WS_EX_NOACTIVATE (the style every overlay already carries). The
         // keyboard types into whatever window IS foreground, so it must never BE the
-        // foreground; its edge bar shows alongside it under the same contract. Pinned at the
-        // source: the theft is a property of the windows' Show, not of the browse flow alone.
-        var repoRoot = SourceScanner.RepoRoot().FullName;
-        var keyboardSource = File.ReadAllText(Path.Combine(repoRoot, "src", "EyeCtrl.App", "Overlays", "KeyboardWindow.xaml.cs"));
-        var edgeBarSource = File.ReadAllText(Path.Combine(repoRoot, "src", "EyeCtrl.App", "Overlays", "EdgeButtonBarWindow.xaml.cs"));
-
+        // foreground; its edge bar shows alongside it under the same contract. r3 m3: pinned
+        // by CONSTRUCTION now (a `Contains` scan passes on a commented-out line) — both
+        // windows set ShowActivated=false in their constructors and are built headlessly
+        // here, never shown. The windows' XAML needs the app's token dictionary — the gate
+        // merges it on demand (the InvisibleTestWindowTests precedent).
+        Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var keyboard = new KeyboardWindow();
+        var edgeBar = new EdgeButtonBarWindow();
         Check.WithCustomMessage("the keyboard's Show must not activate — it types into the foreground window")
-            .That(keyboardSource.Contains("ShowActivated = false;")).IsTrue();
+            .That(keyboard.ShowActivated).IsFalse();
         Check.WithCustomMessage("the keyboard's edge bar shows alongside it under the same no-activation contract")
-            .That(edgeBarSource.Contains("ShowActivated = false;")).IsTrue();
+            .That(edgeBar.ShowActivated).IsFalse();
     }
 
     [Fact]

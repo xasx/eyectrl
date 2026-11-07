@@ -41,6 +41,14 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
     private WebView2BrowseHost? _webHost;
     private bool _surfaceClosedRaised;
 
+    /// <summary>The work-area rect the ctor sized the window to (r3 m5): the docked-toolbar
+    /// inset is computed absolutely from this base, so re-applying it — a Settings dock/size
+    /// change or a re-summon — never compounds.</summary>
+    private double _baseLeft;
+    private double _baseTop;
+    private double _baseWidth;
+    private double _baseHeight;
+
     /// <summary>The web source this window created (lazily, on first
     /// <see cref="Show(BrowseViewModel)"/>); null before that and in headless tests — the
     /// coordinator reaches the runtime only through this, never through the concrete type.</summary>
@@ -92,6 +100,13 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         Height = SystemParameters.WorkArea.Height;
         Left = SystemParameters.WorkArea.Left;
         Top = SystemParameters.WorkArea.Top;
+
+        // r3 m5: snapshot the base BEFORE any inset — the inset is absolute-from-this-base,
+        // so re-applying (a Settings dock/size change or a re-summon) never compounds.
+        _baseLeft = Left;
+        _baseTop = Top;
+        _baseWidth = Width;
+        _baseHeight = Height;
 
         AddressBox.KeyDown += OnAddressKeyDown;
         Closing += (_, _) => RaiseSurfaceClosed();
@@ -158,13 +173,15 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
     /// <inheritdoc />
     public void InsetForDockedToolbar(double left, double top, double right, double bottom)
     {
-        // The ctor sized the window to the work area; the docked toolbar's band is reserved
-        // out of it on that edge (r2 I1) — persistent, so the chrome row never jumps when the
+        // The ctor sized the window to the work area and stored it as the base; the docked
+        // toolbar's band is reserved out of it on that edge (r2 I1) — computed absolutely
+        // from the base (r3 m5), so re-applying — a Settings dock/size change or a
+        // re-summon — never compounds. Persistent: the chrome row never jumps when the
         // auto-hidden toolbar slides in.
-        Left += left;
-        Top += top;
-        Width -= left + right;
-        Height -= top + bottom;
+        Left = _baseLeft + left;
+        Top = _baseTop + top;
+        Width = _baseWidth - left - right;
+        Height = _baseHeight - top - bottom;
     }
 
     /// <inheritdoc />
@@ -404,13 +421,19 @@ public partial class BrowseWindow : OverlayWindow, IBrowseWindowSurface
         return SearchFor(candidate);
     }
 
-    /// <summary>The last DNS label must carry an alphabetic character: "3.14" parses as an IPv4
-    /// shorthand (rejected above), "v1.2" ends in a digit (search), and a TLD is alphabetic by
-    /// definition — this keeps years, versions and numbers in the search arm (review r2 M1).</summary>
+    /// <summary>The last DNS label must be all alphabetic (a TLD is alphabetic by definition):
+    /// "3.14" parses as an IPv4 shorthand (rejected above), "v1.2" ends in a digit, and
+    /// decimal-with-unit queries like "3.5mm" or "2.4ghz" end in a digit-bearing label — all
+    /// stay in the search arm (review r2 M1 + r3 m4). The punycode form of an IDN label
+    /// ("xn--…") passes: Uri may hand back the ASCII form of a real IDN host.</summary>
     private static bool HasAlphabeticFinalLabel(string host)
     {
         var lastLabel = host[(host.LastIndexOf('.') + 1)..];
-        return lastLabel.Length >= 2 && lastLabel.Any(char.IsLetter);
+        if (lastLabel.Length < 2)
+            return false;
+        if (lastLabel.StartsWith("xn--", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return lastLabel.All(char.IsAsciiLetter);
     }
 
     /// <summary>

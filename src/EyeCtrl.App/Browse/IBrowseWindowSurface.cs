@@ -40,6 +40,12 @@ public interface IBrowseWindowSurface
     /// contract — and the topmost Z-order).</summary>
     public void ActivateToFront();
 
+    /// <summary>Whether the window currently holds the OS foreground (r3 m6: the gaze
+    /// keyboard's SendText types into the foreground window — summon it only on a real
+    /// activation, otherwise a refused <c>Activate()</c> would send the typing into whatever
+    /// app is in front, unseen under the browser).</summary>
+    public bool IsActive { get; }
+
     /// <summary>
     /// The web source this surface created and DISPLAYS (external review C2: exactly one host
     /// per summon — the coordinator drives this instance, never one of its own). Created by

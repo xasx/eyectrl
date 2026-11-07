@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Tests.Services;
 using EyeCtrl.Core.Models;
@@ -120,7 +121,13 @@ public class DragDropDiscWiringTests
 
             var cancelCentre = DragCoordinator.ExitAnchorPhysical
                 + new PhysicalPoint(0, DragCoordinator.CancelButtonVerticalOffsetPhysical);
-            var away = new PhysicalPoint(cancelCentre.X - 600, cancelCentre.Y);
+            // drag-edge fixup-02: a fraction of the REAL screen, not a fixed offset from the ✕.
+            var screen = ScreenGeometry.PrimaryScreenBoundsPhysical();
+            var away = new PhysicalPoint(screen.X + (0.3 * screen.Width), cancelCentre.Y);
+            Check.WithCustomMessage(
+                    $"precondition: ({away.X:F0}, {away.Y:F0}) is not clear of the ✕ zone on the "
+                    + $"{screen.Width:F0} px screen.")
+                 .That(away.DistanceTo(cancelCentre)).IsStrictlyGreaterThan(DragCoordinator.ExitZoneRadiusPhysical);
             var t = 0L;
             for (var i = 0; i < 5; i++, t += StepUs)
                 context.Messenger.Send(new GazeCursorMovedMessage(away, t));

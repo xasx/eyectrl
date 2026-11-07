@@ -166,9 +166,23 @@ public class DragCoordinatorExitZoneWiringTests
             // C2 fixup-02 T3: the drop arms only once the gaze has left the spot of the first
             // sample after the start (the hidden Drag menu item). One saccade from far away
             // first, or the no-drop rows below would pass by never arming the release target.
+            // drag-edge fixup-02: a tenth of the REAL screen in from the left, not anchor − 1600 px,
+            // which is off-screen (an Exit, not an ordinary sample) on a screen under ~1700 px.
+            var screen = ScreenGeometry.PrimaryScreenBoundsPhysical();
             var anchor = DragCoordinator.ExitAnchorPhysical;
-            context.Messenger.Send(new GazeCursorMovedMessage(
-                new PhysicalPoint(anchor.X - 1600, anchor.Y), -30_000));
+            var arm = new PhysicalPoint(screen.X + (0.1 * screen.Width), anchor.Y);
+            var leave = DragTrailViewModel.SameSpotRadii * context.DragTrailVM.ReleaseRadiusPhysical;
+            Check.WithCustomMessage(
+                    $"precondition: the rest ({at.X:F0}, {at.Y:F0}) is off the {screen.Width:F0}×{screen.Height:F0} px screen.")
+                 .That(at.X >= screen.X && at.X <= screen.X + screen.Width
+                       && at.Y >= screen.Y && at.Y <= screen.Y + screen.Height).IsTrue();
+            Check.WithCustomMessage(
+                    $"precondition: the arming sample ({arm.X:F0}, {arm.Y:F0}) is not a saccade away from the "
+                    + $"rest on the {screen.Width:F0} px screen, or it lies in a drag exit zone.")
+                 .That(arm.DistanceTo(at) > leave
+                       && arm.DistanceTo(anchor) > DragCoordinator.ExitZoneRadiusPhysical
+                          + Math.Abs(DragCoordinator.CancelButtonVerticalOffsetPhysical)).IsTrue();
+            context.Messenger.Send(new GazeCursorMovedMessage(arm, -30_000));
 
             // 900 ms at 30 Hz: past the 500 ms settle and the 600 ms release dwell.
             for (long t = 0; t <= 900_000; t += 30_000)

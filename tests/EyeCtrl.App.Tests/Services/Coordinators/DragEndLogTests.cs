@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 using Serilog.Core;
@@ -70,10 +71,18 @@ public class DragEndLogTests
         using var h = new Harness();
         h.StartDrag();
 
+        // fixup-02: every point is a fraction of the REAL primary screen. The fixed offsets this
+        // used (✕ − 1400 px, ✕ − 700 px) put the arming sample off-screen on CI's smaller screen,
+        // where it was an off-screen Exit, so the ✕ sample was no new entry and wrote no zone line.
+        var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
         var cancelCentre = DragCoordinator.ExitAnchorPhysical
             + new PhysicalPoint(0, DragCoordinator.CancelButtonVerticalOffsetPhysical);
-        var spot = new PhysicalPoint(cancelCentre.X - 700, cancelCentre.Y);
-        h.Gaze(new PhysicalPoint(cancelCentre.X - 1400, cancelCentre.Y), -30_000); // arms the drop
+        var arm = new PhysicalPoint(screen.X + (0.15 * screen.Width), cancelCentre.Y);
+        var spot = new PhysicalPoint(screen.X + (0.45 * screen.Width), cancelCentre.Y);
+        h.RequireOnScreenClearOfExitsAndEdges("the arming sample", arm);
+        h.RequireOnScreenClearOfExitsAndEdges("the rest", spot);
+        h.RequireFarApart("the arming sample", arm, "the rest", spot);
+        h.Gaze(arm, -30_000);                                                       // arms the drop
         h.Gaze(cancelCentre, 0);                                                    // one ✕ visit
         for (long t = 30_000; t <= 1_200_000; t += 30_000)
             h.Gaze(spot, t);
@@ -117,7 +126,11 @@ public class DragEndLogTests
 
         var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
         var spot = new PhysicalPoint(screen.X + (screen.Width / 2), screen.Y + (screen.Height / 2));
-        h.Gaze(new PhysicalPoint(screen.X + (screen.Width / 4), screen.Y + (screen.Height / 4)), -30_000);
+        var arm = new PhysicalPoint(screen.X + (screen.Width / 4), screen.Y + (screen.Height / 4));
+        h.RequireOnScreenClearOfExitsAndEdges("the arming sample", arm);
+        h.RequireOnScreenClearOfExitsAndEdges("the rest", spot);
+        h.RequireFarApart("the arming sample", arm, "the rest", spot);
+        h.Gaze(arm, -30_000);
         for (long t = 0; t <= 1_200_000 && drops == 0; t += 30_000)
             h.Gaze(spot, t);
         Check.WithCustomMessage("the rest never sent its drop.").That(drops).IsEqualTo(1);
@@ -149,7 +162,11 @@ public class DragEndLogTests
         var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
         var r = h.Context.DragTrailVM.ReleaseRadiusPhysical;
         var rest = new PhysicalPoint(screen.X + (screen.Width / 3), screen.Y + (0.5 * r));
-        h.Gaze(new PhysicalPoint(screen.X + (screen.Width / 2), screen.Y + (screen.Height / 2)), -30_000);
+        var arm = new PhysicalPoint(screen.X + (screen.Width / 2), screen.Y + (screen.Height / 2));
+        h.RequireOnScreenClearOfExitsAndEdges("the arming sample", arm);
+        h.RequireOnScreenClearOfExitsAndEdges("the rest", rest, magnetEdgeExpected: true);
+        h.RequireFarApart("the arming sample", arm, "the rest", rest);
+        h.Gaze(arm, -30_000);
         for (long t = 0; t <= 1_200_000; t += 30_000)
             h.Gaze(rest, t);
         h.Pump();
@@ -212,6 +229,49 @@ public class DragEndLogTests
 
         internal void Gaze(PhysicalPoint at, long t) =>
             Context.Messenger.Send(new GazeCursorMovedMessage(at, t));
+
+        /// <summary>
+        /// fixup-02 precondition: a scenario point must be on the real primary screen, outside both
+        /// drag exit zones and — unless the row means a magnet edge — farther than one disc radius
+        /// from every edge, whatever the screen size. A screen too small for the scenario then
+        /// fails here, by name, instead of as a misleading assertion later (the CI lesson: an
+        /// off-screen arming sample was an Exit and silently ate the ✕ entry).
+        /// </summary>
+        internal void RequireOnScreenClearOfExitsAndEdges(
+            string name, PhysicalPoint p, bool magnetEdgeExpected = false)
+        {
+            var s = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
+            var anchor = DragCoordinator.ExitAnchorPhysical;
+            var zone = DragCoordinator.ExitZoneRadiusPhysical;
+            var r = Context.DragTrailVM.ReleaseRadiusPhysical;
+            var where = $"{name} ({p.X:F0}, {p.Y:F0}) on the {s.Width:F0}×{s.Height:F0} px screen";
+
+            Check.WithCustomMessage($"precondition: {where} is off-screen.")
+                 .That(p.X >= s.X && p.X <= s.X + s.Width && p.Y >= s.Y && p.Y <= s.Y + s.Height).IsTrue();
+            foreach (var offset in new[]
+                     {
+                         DragCoordinator.CancelButtonVerticalOffsetPhysical,
+                         DragCoordinator.BackButtonVerticalOffsetPhysical,
+                     })
+            {
+                Check.WithCustomMessage($"precondition: {where} is inside a drag exit zone.")
+                     .That(p.DistanceTo(anchor + new PhysicalPoint(0, offset))).IsStrictlyGreaterThan(zone);
+            }
+            if (magnetEdgeExpected) return;
+            var nearest = Math.Min(Math.Min(p.X - s.X, s.X + s.Width - p.X), Math.Min(p.Y - s.Y, s.Y + s.Height - p.Y));
+            Check.WithCustomMessage($"precondition: {where} is within the edge magnet ({r:F0} px).")
+                 .That(nearest).IsStrictlyGreaterThan(r);
+        }
+
+        /// <summary>fixup-02 precondition: the arming sample must be a saccade away from the rest.</summary>
+        internal void RequireFarApart(string aName, PhysicalPoint a, string bName, PhysicalPoint b)
+        {
+            var leave = DragTrailViewModel.SameSpotRadii * Context.DragTrailVM.ReleaseRadiusPhysical;
+            Check.WithCustomMessage(
+                    $"precondition: {aName} and {bName} are only {a.DistanceTo(b):F0} px apart; the drop "
+                    + $"arms only after the gaze leaves {leave:F0} px.")
+                 .That(a.DistanceTo(b)).IsStrictlyGreaterThan(leave);
+        }
 
         internal void Pump()
         {

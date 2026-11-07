@@ -52,7 +52,15 @@ spawns popups.
 Scrolling reuses EyeCtrl's existing scroll machinery — the ring's scroll actions and **Scroll
 Mode** (the ring's scroll-mode slot) work over the browser exactly as over anything else. While
 Scroll Mode is active, page-element dwell is suspended, so a page sliding under your gaze cannot
-fire a click.
+fire a click. The same suspension applies while the ring's action menu, Manual Selection (the
+magnifier), a drag or the repeat cursor is up.
+
+### Clicking again
+
+To click the same thing twice — or anything now sitting under your gaze after it — **look away
+from it first, then back**. A fired target stays inert while your gaze rests on it, so a form's
+Send button cannot re-submit under a resting gaze; the same rule keeps the chrome buttons from
+re-firing.
 
 ### The chrome controls
 

@@ -80,10 +80,12 @@ order a forged envelope meets them (external review C3):
    `PointToScreen` pattern) and dropped when it does not intersect; the click point is the
    **clipped** rect's center. A page cannot register a dwell target outside the browser, however
    it lies about its own DOM.
-4. **Host-side cap (coordinator).** Envelopes beyond 400 elements are dropped wholesale
-   (`AddTarget` rebuilds the detector snapshot per add — tens of thousands of elements would
-   otherwise stall the UI thread, and a stalled UI thread is all input gone for a gaze-only
-   user).
+4. **Host-side bounds (parser).** The host reads only `e.Source` before anything else; the
+   sender check rejects anything not from the current document. An envelope beyond the **128 KB
+   byte bound** (`MaxEnvelopeChars`) fails before any JSON work, and the **400-element cap**
+   fails the whole parse at the 401st element, inside the parse loop (r2 I6: a multi-megabyte or
+   tens-of-thousands-element post must never cost the UI thread a parse — a stalled UI thread is
+   all input gone for a gaze-only user).
 
 **Residual, accepted:** a page can still place a target anywhere *inside* the browser's web view
 by lying about its own DOM — the worst case is a mis-click onto the page the user is looking at,
@@ -104,6 +106,9 @@ a[href], button, input, select, textarea, summary, [role=button], [role=link], [
 - `input[type=hidden]` and `input[type=password]` are **excluded** — the keyboard's
   password-privacy rule applies to the browse bridge too: no dwell target may sit on a field
   whose text is secret.
+- Disabled controls and inert subtrees are **excluded** (`:disabled` covers an ancestor
+  `<fieldset disabled>`; `aria-disabled`; `closest('[inert]')`) — dwelling a control that
+  cannot act would fire a click that does nothing (r2 M4).
 - Elements are visibility-filtered: `visibility: hidden`, `display: none`, `aria-hidden`,
   `[hidden]` and zero-area rects are skipped, and off-viewport elements are skipped (the
   viewport clip above).
@@ -133,7 +138,8 @@ A full snapshot is posted:
   scroll or a zoom repost instead of streaming).
 
 The script caps every snapshot at **400 elements** (`BrowseElementScript.MaxElements`) and the
-coordinator enforces the same cap on everything that arrives (trust model layer 4). The
+parser enforces the same cap on everything that arrives — inside the parse loop, behind the
+128 KB byte bound (trust model layer 4). The
 reconciler's move rule (T1: displacement of either axis beyond 24 physical px re-registers the
 element fresh and discards its accumulated dwell; smaller drift rebases in place and preserves
 it) lives in Core, not in the script.

@@ -31,6 +31,7 @@ using Xunit;
 /// through the coordinator's BeginInvoke; and a visible toolbar is re-asserted above the
 /// browser at summon while a hidden one is left alone.
 /// </summary>
+[Collection("WpfApplication")]
 public class BrowseCoordinatorTests
 {
     private const int DwellMs = 700; // ToolbarButtonDwellMs's default
@@ -838,7 +839,10 @@ public class BrowseCoordinatorTests
         // by CONSTRUCTION now (a `Contains` scan passes on a commented-out line) — both
         // windows set ShowActivated=false in their constructors and are built headlessly
         // here, never shown. The windows' XAML needs the app's token dictionary — the gate
-        // merges it on demand (the InvisibleTestWindowTests precedent).
+        // merges it on demand (the InvisibleTestWindowTests precedent) — and the file carries
+        // the WpfApplication collection (the isolation scan: the gate creates the process-wide
+        // Application). The asserts run BEFORE InvisibleTestWindow.Prepare — Prepare itself
+        // forces ShowActivated=false, so a post-Prepare assert would be vacuous.
         Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
         var keyboard = new KeyboardWindow();
         var edgeBar = new EdgeButtonBarWindow();
@@ -846,6 +850,8 @@ public class BrowseCoordinatorTests
             .That(keyboard.ShowActivated).IsFalse();
         Check.WithCustomMessage("the keyboard's edge bar shows alongside it under the same no-activation contract")
             .That(edgeBar.ShowActivated).IsFalse();
+        Fixtures.InvisibleTestWindow.Prepare(keyboard);
+        Fixtures.InvisibleTestWindow.Prepare(edgeBar);
     }
 
     [Fact]

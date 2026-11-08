@@ -31,11 +31,13 @@ public class DwellActivationGermanStringsTests
             Check.WithCustomMessage("settings.dwell.rest_fill.label")
                 .That(t.T("settings.dwell.rest_fill.label")).IsEqualTo("Füllzeit des Rings (ms)");
 
-            // The two descriptions resolve German too (and so differ from the English table's).
+            // The descriptions resolve German too (and so differ from the English table's) —
+            // including d_act's RestFill description (holistic fixup-01 F5).
             foreach (var key in new[]
                      {
                          "settings.dwell.activation_style.description",
                          "settings.dwell.rest_fill.description",
+                         "settings.dwell.activation.other_uses.description",
                      })
             {
                 Check.WithCustomMessage($"{key} resolved its English — the German entry is missing")
@@ -66,6 +68,9 @@ public class DwellActivationGermanStringsTests
             Check.That(combo.Label).IsEqualTo("Aktivierung");
             Check.That(rows.OfType<EyeCtrl.App.Views.Settings.SliderSpec>()
                 .Single(s => s.Id == "d_rest_fill").Label).IsEqualTo("Füllzeit des Rings (ms)");
+            var dAct = rows.OfType<EyeCtrl.App.Views.Settings.SliderSpec>().Single(s => s.Id == "d_act");
+            Check.That(dAct.Label).IsEqualTo("Aktivator (ms)");
+            Check.That(dAct.Description).StartsWith("Gilt für den Augenpflege-Hinweis");
         }
         finally
         {

@@ -12,8 +12,9 @@ using Xunit;
 /// members, pinned here as literals together with their display so an enum reorder can never move
 /// both sides in step); the slider below it is <c>d_rest_fill</c> (<see cref="DwellSettings.RestFillMs"/>)
 /// under the default RestFill and today's <c>d_act</c> (<see cref="DwellSettings.ActivationButtonDwellMs"/>)
-/// under OfferButton — one row at a time, swapped by the rebuild the combo's Set issues. The German
-/// strings are pinned in <c>DwellActivationGermanStringsTests</c> (Localization).
+/// under OfferButton, swapped by the rebuild the combo's Set issues. Under RestFill <c>d_act</c>
+/// stays reachable as an ADVANCED row (holistic fixup-01 F5), because other surfaces still follow
+/// it. The German strings are pinned in <c>DwellActivationGermanStringsTests</c> (Localization).
 /// </summary>
 public class DwellActivationRowsTests
 {
@@ -56,14 +57,35 @@ public class DwellActivationRowsTests
     }
 
     [Fact]
-    public void DefaultBuild_RestFill_HasNoButtonDwellSlider()
+    public void DefaultBuild_RestFill_ShowsTheButtonDwellAsAnAdvancedRow_WithItsOtherUses()
     {
-        var ids = new DwellPageSource(TestSettingsPageContext.Build()).Build()
-            .SelectMany(p => p.Rows).OfType<SliderSpec>().Select(s => s.Id).ToList();
+        // Holistic fixup-01 F5: ActivationButtonDwellMs still drives the eye-care banner, the
+        // restart notice, the blocked-input banner and the exercise ring when their own dwell is
+        // 0 — under RestFill the row stays reachable, as an ADVANCED row whose description names
+        // those uses (the style's own simple slider is d_rest_fill above it).
+        var settings = new EyeCtrlSettings();
+        var rows = new DwellPageSource(TestSettingsPageContext.Build(settings: settings)).Build()
+            .SelectMany(p => p.Rows).ToList();
+        var dAct = rows.OfType<SliderSpec>().Single(s => s.Id == "d_act");
 
-        Check.WithCustomMessage("under RestFill the button dwell row is replaced by the fill-time row")
-            .That(ids).Not.Contains("d_act");
+        Check.WithCustomMessage("under RestFill d_act is advanced-only (not the curated simple set)")
+            .That(dAct.Simple).IsFalse();
+        Check.WithCustomMessage("the advanced row names the surfaces that still follow it")
+            .That(dAct.Description).IsEqualTo(StringTableEmbedded(
+                "settings.dwell.activation.other_uses.description"));
+
+        var dRestFill = rows.OfType<SliderSpec>().Single(s => s.Id == "d_rest_fill");
+        Check.WithCustomMessage("the fill-time slider keeps its simple curation")
+            .That(dRestFill.Simple).IsTrue();
+
+        dAct.Set(950);
+        Check.WithCustomMessage("under RestFill d_act still writes the button dwell, and only it")
+            .That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(950);
+        Check.That(settings.Dwell.RestFillMs).IsEqualTo(700);
     }
+
+    private static string StringTableEmbedded(string key) =>
+        EyeCtrl.Core.Localization.StringTable.EmbeddedEnglish.T(key);
 
     [Fact]
     public void OfferButtonBuild_ShowsTheButtonDwellSlider_BoundToActivationButtonDwellMs()
@@ -80,10 +102,14 @@ public class DwellActivationRowsTests
             .That(ids).Not.Contains("d_rest_fill");
 
         var dAct = rows.OfType<SliderSpec>().Single(s => s.Id == "d_act");
+        Check.WithCustomMessage("under OfferButton d_act is the style's own slider, so it stays simple")
+            .That(dAct.Simple).IsTrue();
+        Check.That(dAct.Description).IsEqualTo(StringTableEmbedded("settings.dwell.activation.description"));
         dAct.Set(900);
         Check.That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(900);
         Check.WithCustomMessage("d_act must write the button dwell only")
-            .That(settings.Dwell.RestFillMs).IsEqualTo(700);    }
+            .That(settings.Dwell.RestFillMs).IsEqualTo(700);
+    }
 
     [Fact]
     public void TheChoice_SwitchesTheSetting_SavesAndRebuilds()
@@ -101,6 +127,23 @@ public class DwellActivationRowsTests
         Check.That(rec.ApplyAndSaveCount).IsEqualTo(1);
         Check.That(rec.RebuildContentCount).IsEqualTo(1);
         Check.That(row.Get()).IsEqualTo("OfferButton");
+    }
+
+    [Fact]
+    public void ReChoosingTheShownStyle_SavesAndRebuildsNothing()
+    {
+        // R3 review F6: the Settings detectors hold no target after a fire, so a gaze that stays
+        // on the chosen option re-fires it after the cooldown — and must not rerun the save, the
+        // page rebuild and the cue each time.
+        var settings = new EyeCtrlSettings();
+        var rec = new RecordingSettingsPageContext(settings);
+        var row = ActivationRow(rec.Context);
+
+        row.Set("RestFill");
+
+        Check.That(settings.Dwell.ActivationStyle).IsEqualTo(ActivationStyle.RestFill);
+        Check.That(rec.ApplyAndSaveCount).IsEqualTo(0);
+        Check.That(rec.RebuildContentCount).IsEqualTo(0);
     }
 
     [Fact]

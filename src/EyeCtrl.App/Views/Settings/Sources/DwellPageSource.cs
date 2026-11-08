@@ -12,61 +12,82 @@ internal sealed class DwellPageSource : ISettingsPageSource
     public IReadOnlyList<PageSpec> Build()
     {
         var d = _ctx.Settings.Dwell;
+        // The first page starts as a local list: the activation-style rows below are conditional
+        // (one row swaps with the style, one joins under RestFill only), which a collection
+        // expression cannot express inline.
+        var first = new List<SettingsRowSpec>
+        {
+            new SliderSpec("d_fix",
+                StringTable.Current.T("settings.dwell.fixation.label"), 100, 1000, 25, 0,
+                () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); })
+                { Description = StringTable.Current.T("settings.dwell.fixation.description") },
+            // R3 (rest activation): the style chooses HOW a rest activates — the ring fills at
+            // the spot (RestFill, the default since the owner's decision of 08.11) or today's
+            // button beside the ring (OfferButton, the fallback until a sitting passes).
+            new ComboBoxSpec("d_activation",
+                StringTable.Current.T("settings.dwell.activation_style.label"),
+                [
+                    StringTable.Current.T("settings.dwell.activation_style.option.rest_fill"),
+                    StringTable.Current.T("settings.dwell.activation_style.option.offer_button"),
+                ],
+                Enum.GetNames<Core.Settings.ActivationStyle>(),
+                () => d.ActivationStyle.ToString(),
+                v =>
+                {
+                    var parsed = Enum.Parse<Core.Settings.ActivationStyle>(v);
+                    // R3 review F6: re-picking the shown style saves and rebuilds nothing — a gaze
+                    // that stays on the option would otherwise re-fire the whole page rebuild.
+                    if (parsed == d.ActivationStyle) return;
+                    d.ActivationStyle = parsed;
+                    _ctx.ApplyAndSave();
+                    // Still required: the dwell slider right below swaps between the ring
+                    // fill time and the button dwell with the style — the Cursor tab's
+                    // colour-row pattern (a rebuild only ever fires from a completed dwell on
+                    // one of the combo's OPTIONS, never while the user dwells on the row
+                    // itself; see the memory note on rebuilds killing a running dwell).
+                    _ctx.RebuildContent();
+                })
+                { Description = StringTable.Current.T("settings.dwell.activation_style.description"), Simple = true },
+        };
+        if (d.ActivationStyle == Core.Settings.ActivationStyle.RestFill)
+        {
+            // The style owns which dwell the SIMPLE slider tunes: the fill time F under RestFill…
+            first.Add(new SliderSpec("d_rest_fill",
+                StringTable.Current.T("settings.dwell.rest_fill.label"), 200, 2000, 50, 0,
+                () => d.RestFillMs, v => { d.RestFillMs = (int)v; _ctx.ApplyAndSave(); })
+                { Description = StringTable.Current.T("settings.dwell.rest_fill.description"), Simple = true });
+            // …but the button dwell stays reachable (holistic fixup-01 F5): the eye-care banner,
+            // the restart notice, the blocked-input banner and the eye-care exercise ring follow
+            // ActivationButtonDwellMs when their own dwell is 0. An ADVANCED row under RestFill —
+            // the simple set already carries this style's own slider above.
+            first.Add(new SliderSpec("d_act",
+                StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
+                () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                { Description = StringTable.Current.T("settings.dwell.activation.other_uses.description") });
+        }
+        else
+        {
+            // Under OfferButton the button dwell IS the style's own slider, as today.
+            first.Add(new SliderSpec("d_act",
+                StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
+                () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                { Description = StringTable.Current.T("settings.dwell.activation.description"), Simple = true });
+        }
+        first.Add(new SliderSpec("d_menu",
+            StringTable.Current.T("settings.dwell.action_menu.label"), 200, 2000, 50, 0,
+            () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
+            { Description = StringTable.Current.T("settings.dwell.action_menu.description"), Simple = true });
+        first.Add(new SliderSpec("d_ManualSelection",
+            StringTable.Current.T("settings.dwell.manual_selection.label"), 200, 2000, 50, 0,
+            () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
+            { Description = StringTable.Current.T("settings.dwell.manual_selection.description") });
+        first.Add(new SliderSpec("d_manual_side",
+            StringTable.Current.T("settings.dwell.manual_selection_side.label"), 200, 2000, 50, 0,
+            () => d.ManualSelectionSideButtonDwellMs, v => { d.ManualSelectionSideButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+            { Description = StringTable.Current.T("settings.dwell.manual_selection_side.description") });
         return
         [
-            new PageSpec([
-                new SliderSpec("d_fix",
-                    StringTable.Current.T("settings.dwell.fixation.label"), 100, 1000, 25, 0,
-                    () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.dwell.fixation.description") },
-                // R3 (rest activation): the style chooses HOW a rest activates — the ring fills at
-                // the spot (RestFill, the default since the owner's decision of 08.11) or today's
-                // button beside the ring (OfferButton, the fallback until a sitting passes).
-                new ComboBoxSpec("d_activation",
-                    StringTable.Current.T("settings.dwell.activation_style.label"),
-                    [
-                        StringTable.Current.T("settings.dwell.activation_style.option.rest_fill"),
-                        StringTable.Current.T("settings.dwell.activation_style.option.offer_button"),
-                    ],
-                    Enum.GetNames<Core.Settings.ActivationStyle>(),
-                    () => d.ActivationStyle.ToString(),
-                    v =>
-                    {
-                        d.ActivationStyle = Enum.Parse<Core.Settings.ActivationStyle>(v);
-                        _ctx.ApplyAndSave();
-                        // Still required: the dwell slider right below swaps between the ring
-                        // fill time and the button dwell with the style — the Cursor tab's
-                        // colour-row pattern (a rebuild only ever fires from a completed dwell on
-                        // one of the combo's OPTIONS, never while the user dwells on the row
-                        // itself; see the memory note on rebuilds killing a running dwell).
-                        _ctx.RebuildContent();
-                    })
-                    { Description = StringTable.Current.T("settings.dwell.activation_style.description"), Simple = true },
-                // The style owns which dwell this row tunes: the fill time F under RestFill, the
-                // button dwell under OfferButton. One row at a time, swapped by the rebuild the
-                // combo's Set issues above.
-                d.ActivationStyle == Core.Settings.ActivationStyle.RestFill
-                    ? (SettingsRowSpec)new SliderSpec("d_rest_fill",
-                        StringTable.Current.T("settings.dwell.rest_fill.label"), 200, 2000, 50, 0,
-                        () => d.RestFillMs, v => { d.RestFillMs = (int)v; _ctx.ApplyAndSave(); })
-                        { Description = StringTable.Current.T("settings.dwell.rest_fill.description"), Simple = true }
-                    : new SliderSpec("d_act",
-                        StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
-                        () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                        { Description = StringTable.Current.T("settings.dwell.activation.description"), Simple = true },
-                new SliderSpec("d_menu",
-                    StringTable.Current.T("settings.dwell.action_menu.label"), 200, 2000, 50, 0,
-                    () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.dwell.action_menu.description"), Simple = true },
-                new SliderSpec("d_ManualSelection",
-                    StringTable.Current.T("settings.dwell.manual_selection.label"), 200, 2000, 50, 0,
-                    () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.dwell.manual_selection.description") },
-                new SliderSpec("d_manual_side",
-                    StringTable.Current.T("settings.dwell.manual_selection_side.label"), 200, 2000, 50, 0,
-                    () => d.ManualSelectionSideButtonDwellMs, v => { d.ManualSelectionSideButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.dwell.manual_selection_side.description") },
-            ]),
+            new PageSpec(first),
             new PageSpec([
                 new SliderSpec("d_tool",
                     StringTable.Current.T("settings.dwell.toolbar.label"), 200, 2000, 50, 0,

@@ -13,9 +13,16 @@ using Xunit;
 /// R3: the activation-outcome tracker — exactly ONE Information line per accepted activation,
 /// resolved at the session's end. Accept→action, accept→close-without-action (the unintended-open
 /// count), accept→Pause; an EXPIRED offer writes no outcome line (R1's <c>Offer expired unused</c>
-/// line already counts it); two accepts in a row produce two lines with the right ids. The exact
-/// line format is pinned in <see cref="TheOutcomeLine_HasTheExactFormatTheToolParses"/>; the
-/// adapter-side accept note is pinned in <see cref="GazeEngineAdapterActivationOutcomeTests"/>.
+/// line already counts it); two accepts in a row produce two lines with the right ids.
+/// <para>
+/// Holistic fixup-01 F2: every session opens UNARMED and arms only on its own entry state
+/// (<see cref="InteractionState.ActionMenuVisible"/> / <see cref="InteractionState.ManualSelectionActive"/>),
+/// exactly as the real flow delivers them — the tests below send the entry state right after
+/// <c>NoteAccepted</c>, and one test pins that a state change queued BEFORE the accept (the F2
+/// race's stale FreeLook) is ignored. The exact line format is pinned in
+/// <see cref="TheOutcomeLine_HasTheExactFormatTheToolParses"/>; the adapter-side accept note and
+/// the race itself are pinned in <see cref="GazeEngineAdapterActivationOutcomeTests"/>.
+/// </para>
 /// </summary>
 public class ActivationOutcomeLogTests
 {
@@ -26,7 +33,8 @@ public class ActivationOutcomeLogTests
         public long Tick() => Now;
     }
 
-    private sealed record Harness(ActivationOutcomeLog Tracker, List<string> Log, FakeClock Clock, WeakReferenceMessenger Messenger);
+    private sealed record Harness(
+        ActivationOutcomeLog Tracker, List<string> Log, FakeClock Clock, WeakReferenceMessenger Messenger);
 
     private static Harness Make()
     {
@@ -36,6 +44,14 @@ public class ActivationOutcomeLogTests
         var tracker = new ActivationOutcomeLog(messenger, lines.Add, clock.Tick);
         return new Harness(tracker, lines, clock, messenger);
     }
+
+    /// <summary>The session's own entry state as the real flow posts it: the accept's
+    /// <c>SetState</c> for the selection mode the accept ran under.</summary>
+    private static void Arm(Harness h, SelectionMode mode) =>
+        h.Messenger.Send(new StateChangedMessage(
+            mode == SelectionMode.ManualSelection
+                ? InteractionState.ManualSelectionActive
+                : InteractionState.ActionMenuVisible));
 
     [Fact]
     public void TheOutcomeLine_HasTheExactFormatTheToolParses()
@@ -57,6 +73,7 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(4, "rest", SelectionMode.ManualSelection);
+        Arm(h, SelectionMode.ManualSelection);
         h.Clock.Now += 2_500;
         h.Messenger.Send(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(1, 1)));
 
@@ -70,6 +87,52 @@ public class ActivationOutcomeLogTests
     }
 
     [Fact]
+    public void AStateChangeBeforeTheOwnEntryState_IsIgnored_TheSessionResolvesAtItsRealEnd()
+    {
+        // Holistic fixup-01 F2: the gaze thread can post a run-end FreeLook between the fire and
+        // the UI-thread accept, and the posted message is delivered AFTER NoteAccepted opened the
+        // session. Without the arming gate that stale FreeLook resolves the fresh session as
+        // `result=closed heldMs=0` and the real action finds no session left — a one-way bias on
+        // the owner's unintended-open count.
+        var h = Make();
+
+        h.Tracker.NoteAccepted(9, "rest", SelectionMode.None);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));   // queued BEFORE the accept
+        h.Messenger.Send(new StateChangedMessage(InteractionState.Fixation));   // older world too
+        h.Messenger.Send(new StateChangedMessage(InteractionState.Paused));     // even this must not land
+        Check.WithCustomMessage(
+                "nothing delivered before the session's own entry state may resolve it; logged: "
+                + string.Join(" | ", h.Log))
+            .That(h.Log).IsEmpty();
+
+        h.Clock.Now += 800;
+        Arm(h, SelectionMode.None);                                             // the accept's own entry state
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));   // the real end
+
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).IsEqualTo(
+            "Activation outcome #9 style=rest mode=None result=closed heldMs=800");
+    }
+
+    [Fact]
+    public void AnActionBeforeTheOwnEntryState_IsNotAttributedToTheSession()
+    {
+        // The belt to the arming gate's braces: an ActionRequested that predates the session's
+        // surfaces (impossible in the real flow — its menu does not exist yet) must not resolve
+        // the unarmed session either.
+        var h = Make();
+
+        h.Tracker.NoteAccepted(5, "rest", SelectionMode.None);
+        h.Messenger.Send(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(1, 1)));
+        Check.That(h.Log).IsEmpty();
+
+        Arm(h, SelectionMode.None);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).Contains("result=closed");
+    }
+
+    [Fact]
     public void Accept_ThenCloseWithoutAction_WritesExactlyOneClosedResultLine()
     {
         // The unintended-open count: Back, ✕, the timeout or looking away all end in the state
@@ -77,8 +140,9 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(9, "rest", SelectionMode.None);
+        Arm(h, SelectionMode.None);
         h.Clock.Now += 800;
-        h.Messenger.Send(new StateChangedMessage(InteractionState.ActionMenuVisible));  // interior
+        h.Messenger.Send(new StateChangedMessage(InteractionState.ManualSelectionActionMenuVisible));  // interior
         h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
 
         Check.That(h.Log).HasSize(1);
@@ -92,6 +156,7 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(5, "button", SelectionMode.AutoSelection);
+        Arm(h, SelectionMode.AutoSelection);
         h.Messenger.Send(new StateChangedMessage(InteractionState.Paused));
 
         Check.That(h.Log).HasSize(1);
@@ -119,6 +184,7 @@ public class ActivationOutcomeLogTests
 
         // And the interior states of a live session do not resolve it early either.
         h.Tracker.NoteAccepted(2, "rest", SelectionMode.ManualSelection);
+        Arm(h, SelectionMode.ManualSelection);
         foreach (var state in new[]
                  {
                      InteractionState.ManualSelectionActive,
@@ -149,9 +215,11 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(11, "rest", SelectionMode.None);
+        Arm(h, SelectionMode.None);
         h.Clock.Now += 300;
         h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         h.Tracker.NoteAccepted(12, "rest", SelectionMode.None);
+        Arm(h, SelectionMode.None);
         h.Clock.Now += 500;
         h.Messenger.Send(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(1, 1)));
 
@@ -168,11 +236,13 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(6, "rest", SelectionMode.ManualSelection);
+        Arm(h, SelectionMode.ManualSelection);
         h.Messenger.Send(new StateChangedMessage(InteractionState.Dragging));
         Check.That(h.Log).HasSize(1);
         Check.That(h.Log[0]).Contains("result=action");
 
         h.Tracker.NoteAccepted(7, "rest", SelectionMode.ManualSelection);
+        Arm(h, SelectionMode.ManualSelection);
         h.Messenger.Send(new StateChangedMessage(InteractionState.ScrollMode));
         Check.That(h.Log).HasSize(2);
         Check.That(h.Log[1]).Contains("result=action");
@@ -188,6 +258,7 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(8, "rest", SelectionMode.None);
+        Arm(h, SelectionMode.None);
         h.Messenger.Send(new StateChangedMessage(InteractionState.RepeatMode));
 
         Check.That(h.Log).HasSize(1);
@@ -205,6 +276,7 @@ public class ActivationOutcomeLogTests
         h.Tracker.NoteAccepted(1, "rest", SelectionMode.None);
         h.Clock.Now += 120;
         h.Tracker.NoteAccepted(2, "rest", SelectionMode.None);
+        Arm(h, SelectionMode.None);
         h.Clock.Now += 40;
         h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
 
@@ -220,6 +292,7 @@ public class ActivationOutcomeLogTests
         var h = Make();
 
         h.Tracker.NoteAccepted(3, "rest", SelectionMode.None);
+        Arm(h, SelectionMode.None);
         h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Check.That(h.Log).HasSize(1);
 

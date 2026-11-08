@@ -3323,6 +3323,13 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.activation.other_uses.description": {
+    "text": "Followed by the eye-care banner, the restart notice, the blocked-input banner and the exercise ring when their own dwell is 0.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
   "settings.dwell.activation_style.description": {
     "text": "How resting on a spot activates: the ring fills, or a button appears beside it.",
     "who": "user",

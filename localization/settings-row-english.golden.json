@@ -103,6 +103,12 @@
           "Modal": null
         },
         {
+          "Id": "d_act",
+          "Label": "Activation Button (ms)",
+          "Description": "Followed by the eye-care banner, the restart notice, the blocked-input banner and the exercise ring when their own dwell is 0.",
+          "Modal": null
+        },
+        {
           "Id": "d_menu",
           "Label": "Action Menu (ms)",
           "Description": "How long to rest on an action in the ring.",

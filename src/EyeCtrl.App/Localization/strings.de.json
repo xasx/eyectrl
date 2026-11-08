@@ -1822,6 +1822,10 @@
     "text": "Aktivator (ms)",
     "src": "3f69be87"
   },
+  "settings.dwell.activation.other_uses.description": {
+    "text": "Gilt für den Augenpflege-Hinweis, den Neustart-Hinweis, den Hinweis bei blockierten Klicks und den Übungsring, wenn deren eigene Verweilzeit 0 ist.",
+    "src": "22f2c834"
+  },
   "settings.dwell.activation_style.description": {
     "text": "Wie eine Ruhe-Aktivierung auslöst: Der Ring füllt sich, oder ein Knopf erscheint daneben.",
     "src": "b5e6b587"

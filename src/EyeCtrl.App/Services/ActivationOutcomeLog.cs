@@ -23,6 +23,14 @@ using EyeCtrl.ViewModels.Messages;
 /// from R1 already counts it.
 /// </para>
 /// <para>
+/// <b>The session arms on its own entry state</b> (holistic fixup-01 F2). <see cref="StateChangedMessage"/>
+/// is posted, and the gaze thread can post a run-end <c>FreeLook</c> between the fire and the
+/// UI-thread accept — a message delivered AFTER <see cref="NoteAccepted"/> opened the session. The
+/// accept's own <c>SetState(ActionMenuVisible | ManualSelectionActive)</c> posts its state message
+/// BEFORE <see cref="NoteAccepted"/> runs, so the session ignores every observation until that entry
+/// state arrives, and the stale FreeLook cannot resolve the fresh session as <c>closed</c>.
+/// </para>
+/// <para>
 /// Everything arrives on the UI thread: the accept inside the adapter's
 /// <see cref="ActivationCompletedMessage"/> handler, and both message types through the same
 /// dispatcher marshalling the adapter applies to its Core→UI traffic. No synchronization is needed,
@@ -36,8 +44,14 @@ internal sealed class ActivationOutcomeLog : IDisposable
     private readonly Func<long> _msClock;
     private Session? _open;
 
-    /// <summary>The accepted activation whose end has not been logged yet.</summary>
-    private sealed record Session(long OfferId, string Style, string Mode, long AcceptedAtMs);
+    /// <summary>The accepted activation whose end has not been logged yet. <see cref="Armed"/>
+    /// turns true when the session's own ENTRY state (<see cref="InteractionState.ActionMenuVisible"/>
+    /// or <see cref="InteractionState.ManualSelectionActive"/>) is delivered; until then every
+    /// observation is ignored, because it was queued before the accept (F2).</summary>
+    private sealed record Session(long OfferId, string Style, string Mode, long AcceptedAtMs)
+    {
+        public bool Armed { get; set; }
+    }
 
     public ActivationOutcomeLog(IMessenger messenger, Action<string> info, Func<long>? msClock = null)
     {
@@ -47,12 +61,14 @@ internal sealed class ActivationOutcomeLog : IDisposable
         _messenger.Register<ActivationOutcomeLog, StateChangedMessage>(
             this, static (tracker, message) => tracker.OnStateChanged(message.NewState));
         _messenger.Register<ActivationOutcomeLog, ActionRequestedMessage>(
-            this, static (tracker, _) => tracker.Resolve("action", null));
+            this, static (tracker, _) => tracker.ResolveIfArmed("action", null));
     }
 
     /// <summary>Notes the accepted offer. Called once per accept; a still-open session (a wiring
     /// anomaly — the state machine cannot accept twice without ending the first) is closed as
-    /// <c>other state=superseded</c> first, so the one-line-per-accept invariant holds either way.</summary>
+    /// <c>other state=superseded</c> first, so the one-line-per-accept invariant holds either way.
+    /// The session opens UNARMED: it arms only when its own entry state arrives (see
+    /// <see cref="OnStateChanged"/>).</summary>
     public void NoteAccepted(long offerId, string style, SelectionMode mode)
     {
         if (_open is not null)
@@ -62,8 +78,22 @@ internal sealed class ActivationOutcomeLog : IDisposable
 
     private void OnStateChanged(InteractionState state)
     {
-        if (_open is null)
+        if (_open is not { } session)
             return;
+        if (!session.Armed)
+        {
+            // Holistic fixup-01 F2: StateChangedMessage is POSTED, so a state change that was
+            // queued BEFORE the accept — the run-end FreeLook the gaze thread can post between the
+            // fire and the UI-thread completion — is delivered after NoteAccepted opened the
+            // session. The accept's own SetState(ActionMenuVisible | ManualSelectionActive) posts
+            // its StateChangedMessage BEFORE NoteAccepted runs, so everything delivered earlier
+            // than that one predates the session and is ignored: without the gate, the stale
+            // FreeLook would resolve the fresh session as `result=closed heldMs=0` and the real
+            // action would find no session left.
+            if (state is InteractionState.ActionMenuVisible or InteractionState.ManualSelectionActive)
+                session.Armed = true;
+            return;
+        }
         switch (state)
         {
             case InteractionState.FreeLook:
@@ -102,6 +132,16 @@ internal sealed class ActivationOutcomeLog : IDisposable
         _open = null;
         _info(OutcomeLine(
             session.OfferId, session.Style, session.Mode, result, _msClock() - session.AcceptedAtMs, state));
+    }
+
+    /// <summary>Resolve, but only for an ARMED session: an action cannot precede the session's own
+    /// entry state in the real flow (its surfaces do not exist yet), so anything earlier is not
+    /// this session's and must not be attributed to it.</summary>
+    private void ResolveIfArmed(string result, string? state)
+    {
+        if (_open is not { } session || !session.Armed)
+            return;
+        Resolve(result, state);
     }
 
     /// <summary>The exact line <c>tools/activation_log_metrics.py</c> parses; the invariant-culture

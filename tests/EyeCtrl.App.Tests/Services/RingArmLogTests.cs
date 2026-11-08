@@ -28,7 +28,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest [source: default]");
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest (rest offers run pin=OfferFollowing, hold=None) [source: default]");
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest (rest offers run pin=OfferFollowing, hold=None) [source: --ring-arm]");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: run-only (pin=RunOnly, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
+            + "go=0 ms corridor=1.25R, glideOut=0) activation=rest (rest offers run pin=OfferFollowing, hold=None) [source: --ring-arm]");
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
+            + "go=0 ms corridor=1.25R, glideOut=0) activation=rest (rest offers run pin=OfferFollowing, hold=None) [source: --ring-arm]");
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class RingArmLogTests
 
         Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest (rest offers run pin=OfferFollowing, hold=None) [source: --ring-arm]");
     }
 
     [Fact]

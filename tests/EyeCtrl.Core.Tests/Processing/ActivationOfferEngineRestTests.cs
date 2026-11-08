@@ -434,7 +434,75 @@ public class ActivationOfferEngineRestTests
         Check.That(engine.CurrentOffer).IsNull();
     }
 
+    // ── Chrome inside the rest area (holistic review-01 F3) ──────────────────
+
+    /// <summary>A toolbar docked at the right edge (240 px wide), a rest 50 px left of it, and a look
+    /// at a toolbar button 40 px inside the toolbar — 90 px from P, well inside H.</summary>
+    private static (PhysicalRect Toolbar, PhysicalPoint P, PhysicalPoint OnToolbar) BesideTheToolbar(int width, int height)
+    {
+        var toolbar = new PhysicalRect(width - 240, 0, 240, height);
+        var p = new PhysicalPoint(width - 290, height * 0.45);
+        return (toolbar, p, new PhysicalPoint(width - 200, p.Y));
+    }
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
+    public void ADwellOnAToolbarButtonInsideH_NeverFillsTheRing_AndTheRestExpiresUnfired(int width, int height, double scale)
+    {
+        // Mutant: in-chrome samples credit the fill → the toolbar dwell fires the rest offer.
+        var engine = NewRestEngine(width, height, scale);
+        var fired = new List<ActivationOffer>();
+        engine.OfferFired += fired.Add;
+        var (toolbar, p, onToolbar) = BesideTheToolbar(width, height);
+        engine.SetChromeZones(toolbar);
+        Check.That(onToolbar.DistanceTo(p)).IsStrictlyLessThan(H);
+
+        Check.That(Settle(engine, p, 0)).IsEqualTo(SettleOutcome.Created);
+        long us = Feed(engine, p, 0, samples: 10);                 // 250 ms filled on the word
+        us = Feed(engine, onToolbar, us, samples: 12);              // 300 ms on the toolbar button
+        Check.That(engine.DwellProgress).IsCloseTo(250.0 / 700.0, 1e-9);   // paused, not credited
+
+        Feed(engine, onToolbar, us, samples: 40);                   // the whole toolbar dwell
+        Check.That(fired).IsEmpty();
+        Check.That(engine.CurrentOffer).IsNull();                   // expired G after the word
+    }
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
+    public void BackOnTheWordWithinG_TheFillResumes(int width, int height, double scale)
+    {
+        var engine = NewRestEngine(width, height, scale);
+        var fired = new List<ActivationOffer>();
+        engine.OfferFired += fired.Add;
+        var (toolbar, p, onToolbar) = BesideTheToolbar(width, height);
+        engine.SetChromeZones(toolbar);
+        Settle(engine, p, 0);
+
+        long us = Feed(engine, p, 0, samples: 10);                 // 250 ms
+        us = Feed(engine, onToolbar, us, samples: 12);              // 300 ms on the toolbar: paused
+        us = Feed(engine, p, us, samples: SamplesToFill - 11);      // 17 more on the word: 675 ms
+        Check.That(fired).IsEmpty();
+        Feed(engine, p, us, samples: 1);
+        Check.That(fired).HasSize(1);
+    }
+
     // ── The re-arm latch ─────────────────────────────────────────────────────
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
+    public void AnAcceptedSettleInChromeBeyondH_ClearsTheLatch_ItIsARealLookAway(int width, int height, double scale)
+    {
+        var engine = NewRestEngine(width, height, scale);
+        var p = RestPointOf(width, height);
+        Settle(engine, p, 0);
+        long us = Feed(engine, p, 0, SamplesToFill);
+        engine.Accept(engine.CurrentOffer!.Id);
+        var chromePoint = Offset(p, 3 * H);
+        engine.SetChromeZones(new PhysicalRect(chromePoint.X - 20, chromePoint.Y - 20, 40, 40));
+
+        Check.That(Settle(engine, chromePoint, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
+        Check.That(engine.RearmLatch).IsNull();
+    }
 
     [Theory]
     [MemberData(nameof(Geometries))]
@@ -462,31 +530,54 @@ public class ActivationOfferEngineRestTests
 
     [Theory]
     [MemberData(nameof(Geometries))]
-    public void ASampleBeyondH_ClearsTheLatch_AndTheNextSettleOffersAgain(int width, int height, double scale)
+    public void ASettleBeyondH_ClearsTheLatch_AndMakesItsOwnOffer_ThenTheSpotOffersAgain(int width, int height, double scale)
     {
+        // Holistic review-01 F1: only a real rest elsewhere (an accepted settle past H) re-arms the spot.
         var engine = NewRestEngine(width, height, scale);
         var p = RestPointOf(width, height);
         Settle(engine, p, 0);
         long us = Feed(engine, p, 0, SamplesToFill);
         engine.Accept(engine.CurrentOffer!.Id);
 
-        // An INVALID sample far away is no evidence the eyes left: the latch stays.
-        us += FrameUs;
-        engine.Update(Offset(p, 3 * H), us, isValid: false);
-        Check.That(engine.RearmLatch).IsEqualTo(p);
-
-        us = Feed(engine, Offset(p, 1.1 * H), us, samples: 1);
+        var elsewhere = Offset(p, 1.1 * H);
+        us = Feed(engine, elsewhere, us, samples: 5);
+        Check.That(Settle(engine, elsewhere, us + FrameUs)).IsEqualTo(SettleOutcome.Created);
         Check.That(engine.RearmLatch).IsNull();
 
-        Check.That(Settle(engine, p, us + FrameUs)).IsEqualTo(SettleOutcome.Created);
+        // That rest is closed by a teardown, latching its own spot; a settle back at the first spot is
+        // past H from it, so it clears that latch and offers there again.
+        engine.Clear();
+        Check.That(engine.RearmLatch).IsEqualTo(elsewhere);
+        Check.That(Settle(engine, p, us + (2 * FrameUs))).IsEqualTo(SettleOutcome.Created);
+        Check.That(engine.RearmLatch).IsNull();
     }
 
     [Theory]
     [MemberData(nameof(Geometries))]
-    public void TheLatchBoundary_IsInclusive_ASampleAtExactlyHKeepsIt_AndASettleThereIsRefused(int width, int height, double scale)
+    public void SamplesNeverClearTheLatch_HoweverFarOrLong(int width, int height, double scale)
     {
-        // Review-01 X4 (the latch clears at exactly H, `>=`): the sample at exactly H would clear it.
+        // Holistic review-01 F1 (mutant: restore the sample-based clear): every close of the magnifier
+        // or a menu leaves the eye far from P, and the saccade straight back must still be refused.
         var engine = NewRestEngine(width, height, scale);
+        var p = RestPointOf(width, height);
+        Settle(engine, p, 0);
+        long us = Feed(engine, p, 0, SamplesToFill);
+        engine.Accept(engine.CurrentOffer!.Id);
+
+        us = Feed(engine, Offset(p, 5 * H), us, samples: 40);      // 1 s far away, valid, no settle
+        Check.That(engine.RearmLatch).IsEqualTo(p);
+        us = Feed(engine, p, us, samples: 10);
+        Check.That(Settle(engine, p, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
+    }
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
+    public void TheLatchBoundary_IsInclusive_ASettleAtExactlyHIsRefused_AndOnePastItClears(int width, int height, double scale)
+    {
+        // Review-01 X4, now on the settle (mutant: clear at exactly H, `>=`).
+        var engine = NewRestEngine(width, height, scale);
+        var refusals = new List<ActivationOfferRefusalReason>();
+        engine.OfferRefused += r => refusals.Add(r.Reason);
         var p = RestPointOf(width, height);
         Settle(engine, p, 0);
         long us = Feed(engine, p, 0, SamplesToFill);
@@ -494,11 +585,11 @@ public class ActivationOfferEngineRestTests
         var atH = Offset(p, H);
         Check.That(atH.DistanceTo(p)).IsEqualTo(H);                // exactly, no rounding
 
-        us = Feed(engine, atH, us, samples: 3);
-        Check.That(engine.RearmLatch).IsEqualTo(p);
         Check.That(Settle(engine, atH, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
+        Check.That(engine.RearmLatch).IsEqualTo(p);
+        Check.That(refusals).ContainsExactly(ActivationOfferRefusalReason.Rearm);
 
-        Feed(engine, Offset(p, H + 1), us + FrameUs, samples: 1);
+        Check.That(Settle(engine, Offset(p, H + 1), us + (2 * FrameUs))).IsEqualTo(SettleOutcome.Created);
         Check.That(engine.RearmLatch).IsNull();
     }
 
@@ -521,27 +612,6 @@ public class ActivationOfferEngineRestTests
         Check.That(Settle(engine, raw, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
         Check.That(refusals).HasSize(1);
         Check.That(refusals[0].Reason).IsEqualTo(ActivationOfferRefusalReason.Rearm);
-    }
-
-    [Theory]
-    [MemberData(nameof(Geometries))]
-    public void ASampleTheWiringMarksAsNotClearing_LeavesTheLatch_HoweverFar(int width, int height, double scale)
-    {
-        // The wiring passes mayClearRearmLatch: false outside FreeLook/Fixation (the magnifier, menus).
-        var engine = NewRestEngine(width, height, scale);
-        var p = RestPointOf(width, height);
-        Settle(engine, p, 0);
-        long us = Feed(engine, p, 0, SamplesToFill);
-        engine.Accept(engine.CurrentOffer!.Id);
-
-        for (int i = 0; i < 20; i++)
-        {
-            us += FrameUs;
-            engine.Update(Offset(p, 5 * H), us, isValid: true, mayClearRearmLatch: false);
-        }
-
-        Check.That(engine.RearmLatch).IsEqualTo(p);
-        Check.That(Settle(engine, p, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
     }
 
     [Theory]

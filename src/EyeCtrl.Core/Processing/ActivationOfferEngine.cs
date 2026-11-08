@@ -194,9 +194,11 @@ public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
 /// fired offer, or one closed by a command rather than by looking away (<see cref="Clear"/>,
 /// <see cref="Decline"/>, suspension, chrome re-validation, or a rebuild through
 /// <see cref="SeedRearmLatch"/>), sets the re-arm latch: a settle within H of that spot is refused
-/// (<see cref="ActivationOfferRefusalReason.Rearm"/>) until a valid sample has left it by more than H —
-/// a sample the wiring took in FreeLook or Fixation; the magnifier's, menus' and modes' samples never
-/// clear it (see <see cref="Update"/>).
+/// (<see cref="ActivationOfferRefusalReason.Rearm"/>) until an accepted settle lands more than H away —
+/// a real rest elsewhere. Samples never clear it: every close of the magnifier or a menu leaves the eye
+/// on a control far from P, and the saccade straight back must not re-arm the spot (holistic review-01
+/// F1). Settles are accepted only in Fixation, so the magnifier's, menus' and modes' gaze cannot clear
+/// it either. Inside the rest area, a sample on EyeCtrl's chrome counts as outside it (F3).
 /// </para>
 ///
 /// <para>
@@ -278,8 +280,8 @@ public sealed class ActivationOfferEngine
     private int _offerExpiryMs = DefaultOfferExpiryMs;
 
     // The rest style's re-arm latch L, or null: the rest centre of the last rest offer that fired or
-    // was closed by a command. Cleared by the first valid sample STRICTLY farther than H from it: the
-    // spot is inclusive (a sample or a settle at exactly H is still on it), like the fill's own area.
+    // was closed by a command. Cleared only by an accepted settle STRICTLY farther than H from it: the
+    // spot is inclusive (a settle at exactly H is still on it, and refused), like the fill's own area.
     private PhysicalPoint? _rearmLatch;
 
     /// <summary>What the current run is to the live offer — it decides what the run's end does to it.</summary>
@@ -517,6 +519,11 @@ public sealed class ActivationOfferEngine
 
         if (IsRestStyle)
         {
+            // The re-arm latch lets go only on a real rest elsewhere: an accepted settle strictly past
+            // H. That settle then makes its own offer as usual; one within H is refused below.
+            if (_rearmLatch is { } latch && point.DistanceTo(latch) > RestAreaRadiusPx)
+                _rearmLatch = null;
+
             // No second target: a settle within H of the rest centre is the same rest — the fill owns
             // it, and it must neither re-pin the ring nor restart the fill (OnButton, since B is the
             // rest point). Beyond H it replaces the offer below.
@@ -588,20 +595,8 @@ public sealed class ActivationOfferEngine
     /// One sample: raw validity and the filtered point. Drives the expiry, then the dwell. Feed every
     /// sample (including invalid ones) — the pause budget is measured across them.
     /// </summary>
-    /// <param name="point">The filtered point.</param>
-    /// <param name="timestampUs">The sample's timestamp.</param>
-    /// <param name="isValid">The raw sample's validity.</param>
-    /// <param name="mayClearRearmLatch">Whether this sample may clear the rest style's re-arm latch.
-    /// The wiring passes false outside FreeLook and Fixation: in the magnifier, a menu or a mode the
-    /// gaze roams far from P without having left it as a resting spot, and a latch cleared there would
-    /// let the same rest refill the moment the overlay closes.</param>
-    public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool mayClearRearmLatch = true)
+    public void Update(PhysicalPoint point, long timestampUs, bool isValid)
     {
-        // The re-arm latch lets go once the gaze has really left the spot: one valid sample strictly
-        // past H (exactly H is still on the spot — the refusal below uses the same inclusive bound).
-        if (_rearmLatch is { } latch && mayClearRearmLatch && isValid && point.DistanceTo(latch) > RestAreaRadiusPx)
-            _rearmLatch = null;
-
         if (_offer is null)
         {
             _lastSampleUs = timestampUs;
@@ -624,7 +619,11 @@ public sealed class ActivationOfferEngine
 
         if (!_fired)
         {
-            if (isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx)
+            // In the rest style the area H can reach into EyeCtrl's chrome (a rest beside the toolbar):
+            // a sample on the chrome is a look at that control, not the rest, so it counts as outside
+            // the area — it pauses the fill and neither credits nor extends it (holistic review-01 F3).
+            if (isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx
+                && !(IsRestStyle && InChrome(point)))
             {
                 // The offered run's samples extend the deadline while it holds (the in-hit sample
                 // itself extends it too, below).

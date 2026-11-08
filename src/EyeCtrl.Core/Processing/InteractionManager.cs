@@ -397,19 +397,10 @@ public class InteractionManager
     /// filtered point, <paramref name="isValid"/> the raw sample's validity: a sample the tracker
     /// reported invalid pauses the button dwell even though its held position looks valid.
     /// </summary>
-    /// <param name="point">The filtered point.</param>
-    /// <param name="timestampUs">The sample's timestamp.</param>
-    /// <param name="isValid">The raw sample's validity.</param>
-    /// <param name="stateSnapshot">The caller's one per-sample read of <see cref="CurrentState"/>
-    /// (GazeEngine passes its snapshot); null reads it once here. Only a FreeLook or Fixation sample
-    /// may clear the rest style's re-arm latch (rest activation R1, orchestrator 2026-11-08).</param>
-    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid,
-        InteractionState? stateSnapshot = null)
+    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid)
     {
         if (_activationOffers is null) return;
-        var state = stateSnapshot ?? CurrentState;
-        _activationOffers.Update(point, timestampUs, isValid,
-            mayClearRearmLatch: state is InteractionState.FreeLook or InteractionState.Fixation);
+        _activationOffers.Update(point, timestampUs, isValid);
         PublishActivationOfferState();
     }
 
@@ -538,11 +529,14 @@ public class InteractionManager
             // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
             // run that still holds) and stays there while the user looks at the button. RunOnly pins
             // and releases from the settles and the runs alone; the offer's lifecycle is silent. The
-            // corner fix's override keeps a clamped settle's pin at the RAW settle centroid.
+            // corner fix's override keeps a clamped settle's pin at the RAW settle centroid — for a
+            // Button offer only. A rest offer's ring is pinned at its P′, on screen: the ring carries
+            // the fill and must always stay visible (holistic review-01 F4); the fill is still
+            // counted around the raw settle.
             if (EffectiveRingPinPolicy == RingPinPolicy.OfferFollowing
                 && CurrentState == InteractionState.Fixation)
                 RaisePinRing(
-                    ringPinPoint ?? (offer.Style == OfferPlacementStyle.AtRestPoint ? offer.Button : offer.Point),
+                    offer.Style == OfferPlacementStyle.AtRestPoint ? offer.Point : ringPinPoint ?? offer.Point,
                     atOffer: true);
         }
         else if (hadOffer && EffectiveRingPinPolicy == RingPinPolicy.OfferFollowing
@@ -610,11 +604,9 @@ public class InteractionManager
                 if (toFreeLookWithOffer && !_ringPinnedAtOffer && !offerGoing
                     && _activationOffers?.CurrentOffer is { } offer)
                 {
-                    // A rest offer's ring belongs at its rest centre (the raw settle, which differs
-                    // from P only for a clamped corner settle) — where the show pinned it.
-                    RaisePinRing(
-                        offer.Style == OfferPlacementStyle.AtRestPoint ? offer.Button : offer.Point,
-                        atOffer: true);
+                    // The offer's P — for a rest offer that is P′, on screen, where its show pinned
+                    // the ring (holistic review-01 F4).
+                    RaisePinRing(offer.Point, atOffer: true);
                     // The gaze thread may have closed the offer between the id read above and this pin;
                     // its release then sits BEFORE the pin in the VM's queue, and with suppression up no
                     // settle comes to free it (S1). Re-read after a fence and release again: the VM's

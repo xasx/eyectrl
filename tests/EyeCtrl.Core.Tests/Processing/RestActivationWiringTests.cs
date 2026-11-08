@@ -145,10 +145,36 @@ public class RestActivationWiringTests
     }
 
     [Fact]
-    public void OnlyFreeLookAndFixationSamples_ClearTheLatch_TheMagnifiersDoNot()
+    public void ARebuildWithNoLiveOffer_CarriesTheOldEnginesLatch()
     {
-        // R1-M12 (any-state samples clear the latch): the magnifier's far samples would clear it, and
-        // the rest at P would refill the moment the magnifier closes.
+        // Holistic review-01 F7 / HM6 (a rebuild drops the old engine's LATCH when no offer is live):
+        // a ring-size or display change between the close and the look back would forget L.
+        var x = new ImHarness(RestEngine(3840, 2400, 2.0));
+        var refusals = new List<ActivationOfferRefusalReason>();
+        x.Im.ActivationOfferRefused += r => refusals.Add(r.Reason);
+        var p = new PhysicalPoint(1500, 1100);
+        x.OnsetAndSettle(p);
+        for (int i = 0; i < 28; i++) x.Sample(p);                  // fires: L = P
+        x.Im.RequestActivationOfferAccept(x.Im.ActivationOffers!.CurrentOffer!.Id);
+        x.Im.ApplyPendingActivationOfferRequests();
+        Check.That(x.Im.ActivationOffers.CurrentOffer).IsNull();
+        Check.That(x.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
+
+        var rebuilt = RestEngine(3840, 2400, 2.0);
+        x.Im.AttachActivationOffers(rebuilt);
+        Check.That(rebuilt.RearmLatch).IsEqualTo(p);
+
+        x.Im.OnFixationEnded();
+        x.OnsetAndSettle(p);
+        Check.That(rebuilt.CurrentOffer).IsNull();
+        Check.That(refusals).ContainsExactly(ActivationOfferRefusalReason.Rearm);
+    }
+
+    [Fact]
+    public void TheMagnifiersGaze_AndTheLookStraightBack_KeepTheLatch_OnlyARestElsewhereReArmsIt()
+    {
+        // R1-M12's case under the settle rule (holistic review-01 F1): neither the magnifier's far
+        // samples nor FreeLook samples after the close clear the latch; an accepted settle past H does.
         var x = new ImHarness(RestEngine(3840, 2400, 2.0));
         x.Im.SelectionMode = SelectionMode.ManualSelection;
         var refusals = new List<ActivationOfferRefusalReason>();
@@ -161,44 +187,75 @@ public class RestActivationWiringTests
         Check.That(fired).HasSize(1);
 
         Check.That(x.Im.OnActivationButtonDwelled(fired[0])).IsEqualTo(ActivationCompletionResult.Accepted);
-        Check.That(x.Im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
         x.Im.ApplyPendingActivationOfferRequests();               // the accept lands
-        for (int i = 0; i < 20; i++) x.Sample(new PhysicalPoint(p.X + 600, p.Y + 400));   // roaming in the magnifier
-        Check.That(x.Im.ActivationOffers!.RearmLatch).IsEqualTo(p);
-
+        var far = new PhysicalPoint(p.X + 600, p.Y + 400);
+        for (int i = 0; i < 20; i++) x.Sample(far);                // roaming in the magnifier
         x.Im.OnManualSelectionBack();                              // closed: back to FreeLook
         x.Im.ApplyPendingActivationOfferRequests();
-        Check.That(x.Im.CurrentState).IsEqualTo(InteractionState.FreeLook);
-        x.Sample(new PhysicalPoint(p.X + 30, p.Y));                // still near P
-        x.OnsetAndSettle(p);
+        for (int i = 0; i < 10; i++) x.Sample(far);                // still on the close control
+        Check.That(x.Im.ActivationOffers!.RearmLatch).IsEqualTo(p);
 
+        x.OnsetAndSettle(p);                                       // straight back: refused
         Check.That(x.Im.ActivationOffers.CurrentOffer).IsNull();
         Check.That(refusals).ContainsExactly(ActivationOfferRefusalReason.Rearm);
 
-        // A FreeLook sample beyond H clears it; the next settle offers.
+        // A real rest elsewhere (an accepted settle past H) re-arms; the next settle at P offers.
         x.Im.OnFixationEnded();
-        x.Sample(new PhysicalPoint(p.X + 200, p.Y));
+        x.OnsetAndSettle(far);
         Check.That(x.Im.ActivationOffers.RearmLatch).IsNull();
+        x.Im.OnFixationEnded();
         x.OnsetAndSettle(p);
-        Check.That(x.Im.ActivationOffers.CurrentOffer).IsNotNull();
+        Check.That(x.Im.ActivationOffers.CurrentOffer?.Button).IsEqualTo(p);
     }
 
     [Fact]
-    public void ACornerRest_ReturnsToItsRawP_WhenTheRunAfterAChromeSettleEnds()
+    public void ACornerRest150PxPastTheBezel_PinsTheRingAtPPrime_OnTheScreenEdge()
     {
-        // Review-01 X8 (the FreeLook re-pin at P′ instead of the raw P): a clamped corner rest pins the
-        // ring at the raw settle; a chrome settle during its life moves the pin off the offer, and the
-        // run's end must put it back where the rest's ring was, not on the clamped completion point.
+        // Holistic review-01 F4: the ring carries the fill and must stay visible; the fill area is
+        // still counted around the raw P.
+        var x = new ImHarness(RestEngine(3840, 2400, 2.0));
+        var raw = new PhysicalPoint(-150, 1000);
+
+        x.OnsetAndSettle(raw);
+
+        var offer = x.Im.ActivationOffers!.CurrentOffer!;
+        Check.That(offer.Point).IsEqualTo(new PhysicalPoint(0, 1000));
+        Check.That(offer.Button).IsEqualTo(raw);
+        Check.That(x.Pins).ContainsExactly(new PhysicalPoint(0, 1000));
+        Check.That(x.PinsAtOffer).ContainsExactly(true);
+    }
+
+    [Fact]
+    public void ACornerButtonOffer_KeepsTheRingAtTheRawP()
+    {
+        // The Button style's corner pin is unchanged (corner fix 2026-10-17).
+        var x = new ImHarness(ButtonEngine(3840, 2400, 2.0));
+        x.Im.RingPinPolicy = RingPinPolicy.OfferFollowing;
+        var raw = new PhysicalPoint(-150, 1000);
+
+        x.OnsetAndSettle(raw);
+
+        Check.That(x.Im.ActivationOffers!.CurrentOffer!.Point).IsEqualTo(new PhysicalPoint(0, 1000));
+        Check.That(x.Pins).ContainsExactly(raw);
+    }
+
+    [Fact]
+    public void ACornerRest_ReturnsToItsPPrime_WhenTheRunAfterAChromeSettleEnds()
+    {
+        // Review-01 X8, flipped by holistic review-01 F4: a clamped corner rest pins the ring at P′
+        // (on screen); a chrome settle during its life moves the pin off the offer, and the run's end
+        // must put it back at P′ — not at the raw P past the bezel.
         var x = new ImHarness(RestEngine(3840, 2400, 2.0));
         var raw = new PhysicalPoint(-150, -150);
+        var clamped = new PhysicalPoint(0, 0);
         var chromeSettle = new PhysicalPoint(600, 600);
         x.Im.SetActivationChromeZones(new PhysicalRect(500, 500, 200, 200));
 
         x.OnsetAndSettle(raw);
         var offer = x.Im.ActivationOffers!.CurrentOffer!;
-        Check.That(offer.Point).IsEqualTo(new PhysicalPoint(0, 0));
+        Check.That(offer.Point).IsEqualTo(clamped);
         Check.That(offer.Button).IsEqualTo(raw);
-        Check.That(x.Pins).ContainsExactly(raw);
+        Check.That(x.Pins).ContainsExactly(clamped);
 
         x.Im.OnFixationEnded();                                    // a glance to the toolbar-like chrome
         x.Im.OnFixationStarted(chromeSettle);
@@ -210,7 +267,7 @@ public class RestActivationWiringTests
         x.Im.OnFixationEnded();                                    // back to FreeLook while the rest lives
 
         Check.That(x.Im.ActivationOffers.CurrentOffer).IsNotNull();
-        Check.That(x.Pins[^1]).IsEqualTo(raw);
+        Check.That(x.Pins[^1]).IsEqualTo(clamped);
         Check.That(x.PinsAtOffer[^1]).IsTrue();
     }
 
@@ -356,20 +413,83 @@ public class RestActivationWiringTests
         Check.That(h.Im.ActivationOffers!.CurrentOffer).IsNull();
         Check.That(h.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
 
-        // In the magnifier the gaze roams far from P: GazeEngine's per-sample state snapshot keeps
-        // those samples from clearing the latch (R1-M12), so back in FreeLook a rest at P is refused.
-        var far = new PhysicalPoint(p.X + 700, p.Y + 500);
-        h.Feed(far, samples: 30);
-        h.Im.OnManualSelectionBack();
-        h.Feed(p, samples: 25);                                    // a whole new run: onset, settle
+        // The REAL close (holistic review-01 F1): the eye is on the edge bar's close control at the
+        // screen's right edge, inside the magnifier and still after the close, then goes straight
+        // back to the word. None of that clears the latch, so the rest at P is refused.
+        var edgeClose = new PhysicalPoint(3800, 1200);
+        h.Feed(edgeClose, samples: 20);                            // dwelling the close control
+        h.Im.OnManualSelectionBack();                              // the close: FreeLook at once
+        h.Feed(edgeClose, samples: 10);                            // still on the control, 300 ms
+        Check.That(h.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
+        h.Feed(p, samples: 45);                                    // straight back: onset, settle, 750 ms more
         Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.Fixation);
         Check.That(h.Im.ActivationOffers.CurrentOffer).IsNull();
+        Check.That(fired).HasSize(1);                              // no second fire, no reopen
         Check.That(h.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
 
-        // Looking away in FreeLook clears it; the next rest at P is offered again.
-        h.Feed(far, samples: 3);
+        // A real rest elsewhere (a settle past H) re-arms the spot; the next rest at P offers again.
+        var elsewhere = new PhysicalPoint(p.X + 700, p.Y + 500);
+        h.Feed(elsewhere, samples: 20);
         Check.That(h.Im.ActivationOffers.RearmLatch).IsNull();
         h.Feed(p, samples: 25);
         Check.That(h.Im.ActivationOffers.CurrentOffer?.Button).IsEqualTo(p);
+    }
+
+    [Fact]
+    public void AClickThroughTheActionMenu_ThenAStraightLookBack_DoesNotRefill()
+    {
+        // Holistic review-01 F1, the click path: the magnifier's precise dwell opens the action menu,
+        // whose buttons sit ≥ 340 px from the point; the click lands, the state is FreeLook while the
+        // eye is still on that button, and the look straight back must not refill and reopen.
+        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
+        settings.Dwell.FixationRadiusPixels = R;
+        using var h = new EngineHarness(settings);
+        var p = new PhysicalPoint(1500, 1100);
+        var fired = new List<ActivationOffer>();
+        var refusals = new List<ActivationOfferRefusalReason>();
+        h.Im.ActivationOfferFired += (offer, _) => fired.Add(offer);
+        h.Im.ActivationOfferRefused += r => refusals.Add(r.Reason);
+
+        h.Feed(p, samples: 45);
+        Check.That(fired).HasSize(1);
+        Check.That(h.Im.OnActivationButtonDwelled(fired[0])).IsEqualTo(ActivationCompletionResult.Accepted);
+        h.Feed(p, samples: 10);                                    // the accept lands; dwelling in the magnifier
+        h.Im.OnManualSelectionDwell(p);                            // the precise point: the action menu
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActionMenuVisible);
+
+        var menuButton = new PhysicalPoint(p.X, p.Y - 340);
+        h.Feed(menuButton, samples: 20);                           // dwelling the click button
+        h.Im.OnActionSelected(InteractionAction.LeftClick);        // the click: FreeLook at once
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        h.Feed(menuButton, samples: 10);                           // still on the button, 300 ms
+        h.Feed(p, samples: 45);                                    // straight back to the word
+
+        Check.That(fired).HasSize(1);
+        Check.That(h.Im.ActivationOffers!.CurrentOffer).IsNull();
+        Check.That(h.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
+        Check.That(refusals).Contains(ActivationOfferRefusalReason.Rearm);
+    }
+
+    [Fact]
+    public void ASaccadeAwayAndBack_WithNoSettleElsewhere_KeepsTheLatch()
+    {
+        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
+        settings.Dwell.FixationRadiusPixels = R;
+        using var h = new EngineHarness(settings);
+        var p = new PhysicalPoint(1500, 1100);
+        var fired = new List<ActivationOffer>();
+        h.Im.ActivationOfferFired += (offer, _) => fired.Add(offer);
+
+        h.Feed(p, samples: 45);
+        h.Im.OnActivationButtonDwelled(fired[0]);
+        h.Feed(p, samples: 1);
+        h.Im.OnManualSelectionBack();                              // closed where the eye was
+
+        var away = new PhysicalPoint(p.X + 600, p.Y);
+        h.Feed(away, samples: 8);                                  // 240 ms: no settle there
+        h.Feed(p, samples: 45);
+
+        Check.That(fired).HasSize(1);
+        Check.That(h.Im.ActivationOffers!.RearmLatch).IsEqualTo(p);
     }
 }

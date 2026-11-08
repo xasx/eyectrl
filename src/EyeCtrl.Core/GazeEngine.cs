@@ -952,8 +952,7 @@ public class GazeEngine : IDisposable
             // sample is classified against the sample the engine has already seen (the engine's
             // documented call order). Both see only non-gap samples; the engine additionally gets the
             // raw validity so a tracker-reported invalid sample pauses the button dwell.
-            InteractionManager.NoteActivationGazeSample(
-                filtered, gaze.TimestampMicroseconds, gaze.IsValid, interactionState);
+            InteractionManager.NoteActivationGazeSample(filtered, gaze.TimestampMicroseconds, gaze.IsValid);
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
         }
 

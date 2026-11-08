@@ -28,7 +28,10 @@ public class SettingsDwellRangeEqualityTests
         double Min,
         double Max,
         Func<EyeCtrlSettings, double> Get,
-        Action<EyeCtrlSettings, double> Set);
+        Action<EyeCtrlSettings, double> Set,
+        // R3: d_act exists on the page only under OfferButton (d_rest_fill replaces it under the
+        // default RestFill), so a case may name the style its build must pin.
+        ActivationStyle? Style = null);
 
     private static ISettingsPageSource Source(SettingsPageContext ctx, string name) => name switch
     {
@@ -41,8 +44,8 @@ public class SettingsDwellRangeEqualityTests
 
     public static TheoryData<string> Cases() => new()
     {
-        "d_fix", "d_act", "d_menu", "d_ManualSelection", "d_tool", "d_key", "d_pred", "d_rad",
-        "d_cooldown", "d_resume", "d_manual_side", "av_drag_release", "av_drag_right_edge",
+        "d_fix", "d_act", "d_rest_fill", "d_menu", "d_ManualSelection", "d_tool", "d_key", "d_pred",
+        "d_rad", "d_cooldown", "d_resume", "d_manual_side", "av_drag_release", "av_drag_right_edge",
         "av_scroll_stop", "av_backdrop_hide", "av_repeat_stop", "ec_banner_dwell",
         "g_restart_notice",
     };
@@ -53,7 +56,11 @@ public class SettingsDwellRangeEqualityTests
         "d_fix" => new("Dwell", id, 100, 1000,
             s => s.Dwell.FixationDetectionMs, (s, v) => s.Dwell.FixationDetectionMs = (int)v),
         "d_act" => new("Dwell", id, 200, 2000,
-            s => s.Dwell.ActivationButtonDwellMs, (s, v) => s.Dwell.ActivationButtonDwellMs = (int)v),
+            s => s.Dwell.ActivationButtonDwellMs, (s, v) => s.Dwell.ActivationButtonDwellMs = (int)v,
+            Style: ActivationStyle.OfferButton),
+        // R3: the ring fill time F under RestFill — the same 200–2000 guard as the button dwell.
+        "d_rest_fill" => new("Dwell", id, 200, 2000,
+            s => s.Dwell.RestFillMs, (s, v) => s.Dwell.RestFillMs = (int)v),
         "d_menu" => new("Dwell", id, 200, 2000,
             s => s.Dwell.ActionMenuDwellMs, (s, v) => s.Dwell.ActionMenuDwellMs = (int)v),
         "d_ManualSelection" => new("Dwell", id, 200, 2000,
@@ -100,6 +107,8 @@ public class SettingsDwellRangeEqualityTests
     {
         var c = CaseFor(id);
         var settings = new EyeCtrlSettings();
+        if (c.Style is { } style)
+            settings.Dwell.ActivationStyle = style;
         var slider = Source(TestSettingsPageContext.Build(settings), c.Source)
             .Build().SelectMany(p => p.Rows).OfType<SliderSpec>().Single(s => s.Id == id);
 
@@ -168,7 +177,10 @@ public class SettingsDwellRangeEqualityTests
     public void FromEveryStoredValue_OneMinusStepNeverThrows(string id)
     {
         var c = CaseFor(id);
-        var slider = Source(TestSettingsPageContext.Build(new EyeCtrlSettings()), c.Source)
+        var settings = new EyeCtrlSettings();
+        if (c.Style is { } style)
+            settings.Dwell.ActivationStyle = style;
+        var slider = Source(TestSettingsPageContext.Build(settings), c.Source)
             .Build().SelectMany(p => p.Rows).OfType<SliderSpec>().Single(s => s.Id == id);
 
         for (var stored = c.Min; stored <= c.Max; stored += 1)

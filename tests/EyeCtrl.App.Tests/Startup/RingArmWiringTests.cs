@@ -46,10 +46,13 @@ public class RingArmWiringTests
     {
         // Mutation: move the startup line inside `if (Specified)` → today's launches stop naming their
         // arm, and the readout can no longer spot a silent fallback after a supervisor relaunch.
+        // R3: the line's second argument is the LIVE activation style (Dwell.ActivationStyle), so
+        // the regex pins both the unguarded write and where activation=rest|button comes from.
         var text = AppSource();
         var statement = Regex.Match(text,
-            @"(?m)^\s*(?<statement>Log\s*\.\s*Information\s*\(\s*""\{RingArm\}""\s*,\s*RingArmLog\s*\.\s*StartupLine\s*\(\s*ringArmLaunch\s*\)\s*\)\s*;)\s*$");
-        Check.WithCustomMessage("App.xaml.cs no longer writes the Ring arm startup line")
+            @"(?m)^\s*(?<statement>Log\s*\.\s*Information\s*\(\s*""\{RingArm\}""\s*,\s*RingArmLog\s*\.\s*StartupLine\s*\(\s*ringArmLaunch\s*,\s*settings\s*\.\s*Dwell\s*\.\s*ActivationStyle\s*\)\s*\)\s*;)\s*$");
+        Check.WithCustomMessage("App.xaml.cs no longer writes the Ring arm startup line"
+            + " with the live activation style (Dwell.ActivationStyle)")
             .That(statement.Success).IsTrue();
         var above = text[..statement.Index].Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
         var lastLine = above[(above.LastIndexOf('\n') + 1)..].Trim();

@@ -91,9 +91,15 @@
           "Modal": null
         },
         {
-          "Id": "d_act",
-          "Label": "Activation Button (ms)",
-          "Description": "Dwell for the button that appears at your gaze.",
+          "Id": "d_activation",
+          "Label": "Activation",
+          "Description": "How resting on a spot activates: the ring fills, or a button appears beside it.",
+          "Modal": null
+        },
+        {
+          "Id": "d_rest_fill",
+          "Label": "Ring fill time (ms)",
+          "Description": "How long the ring takes to fill once your gaze has come to rest.",
           "Modal": null
         },
         {

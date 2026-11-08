@@ -533,6 +533,13 @@ public class AppBootstrapper
         services.AddSingleton<RingQuantizationProbe>(_ =>
             settings.Diagnostics.MeasureUiInstruments ? new RingQuantizationProbe() : null!);
 
+        // R3: one `Activation outcome` line per accepted activation, resolved at the session's end
+        // (an action, the return to FreeLook, or Pause). Constructed before the adapter resolves it,
+        // so its messenger registrations exist before the first accept can arrive.
+        services.AddSingleton(sp => new ActivationOutcomeLog(
+            sp.GetRequiredService<IMessenger>(),
+            line => Serilog.Log.Information("{ActivationOutcome}", line)));
+
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
             sp.GetRequiredService<GazeEngine>(),
@@ -541,7 +548,8 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>(),
             sp.GetRequiredService<IControlFinder>(),
-            sp.GetService<DispatchLatencyProbe>()));
+            sp.GetService<DispatchLatencyProbe>(),
+            noteOutcomeAccepted: sp.GetRequiredService<ActivationOutcomeLog>().NoteAccepted));
 
         // ManualSelectionDwellService (handles ManualSelection dwell detection and indicator updates)
         services.AddSingleton(sp => new ManualSelectionDwellService(

@@ -29,6 +29,12 @@ public class GazeEngineAdapter : IDisposable
     private readonly DispatchLatencyProbe? _dispatchProbe;
     private long _dispatchSamplesSinceReport;
 
+    // R3: the activation-outcome tracker's note seam, or null in tests that do not exercise it.
+    // A delegate (not the internal ActivationOutcomeLog type) because the adapter is public; the
+    // bootstrapper wires the tracker's NoteAccepted here. Invoked at the accept below, on the UI
+    // thread; the tracker resolves at the session's end (see ActivationOutcomeLog's doc).
+    private readonly Action<long, string, SelectionMode>? _noteOutcomeAccepted;
+
     // The magnifier fit rule's screen source (magnifier-default-zoom, Part 2). WPF's
     // SystemParameters report DIP; the test seam substitutes a screen without one.
     private readonly Func<(double WidthDip, double HeightDip)> _screenDip;
@@ -44,10 +50,12 @@ public class GazeEngineAdapter : IDisposable
         ILogger<GazeEngineAdapter> logger,
         IControlFinder controlFinder,
         DispatchLatencyProbe? dispatchProbe = null,
-        Func<(double WidthDip, double HeightDip)>? screenDip = null)
+        Func<(double WidthDip, double HeightDip)>? screenDip = null,
+        Action<long, string, SelectionMode>? noteOutcomeAccepted = null)
     {
         _logger = logger;
         _dispatchProbe = dispatchProbe;
+        _noteOutcomeAccepted = noteOutcomeAccepted;
         _screenDip = screenDip ?? (() =>
             (System.Windows.SystemParameters.PrimaryScreenWidth, System.Windows.SystemParameters.PrimaryScreenHeight));
         _gazeEngine = gazeEngine;
@@ -112,6 +120,12 @@ public class GazeEngineAdapter : IDisposable
                     _logger.LogInformation(
                         "Offer accepted #{Id} → {Mode} at P=({Px:F0},{Py:F0})",
                         offer.Id, _interactionManager.SelectionMode, offer.Point.X, offer.Point.Y);
+                    // R3: the outcome tracker notes the accepted offer (id, style, mode) right where
+                    // the accept is logged, and writes its one `Activation outcome` line when the
+                    // session ends. Declined and expired offers never get this far, so they write
+                    // no outcome line.
+                    _noteOutcomeAccepted?.Invoke(
+                        offer.Id, GazeEngine.OfferStyleWord(offer.Style), _interactionManager.SelectionMode);
                 }
                 else
                 {

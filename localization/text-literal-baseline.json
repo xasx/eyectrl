@@ -291,6 +291,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\" state=\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\"Activation outcome #{0} style={1} mode={2} result={3}{4} heldMs={5:0}\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
       "Literal": "\"adaptation-preview\"",
       "Count": 1

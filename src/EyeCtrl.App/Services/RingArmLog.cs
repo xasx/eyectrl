@@ -48,12 +48,14 @@ internal sealed class RingArmLog : IDisposable
 
     /// <summary>The one startup line, always written (the default included, so every log says which
     /// arm it ran): the readout detects a silent fallback — a relaunch that no longer runs the
-    /// requested arm — by it.</summary>
-    internal static string StartupLine(RingArmLaunch launch)
+    /// requested arm — by it. R3 appends <c>activation=rest|button</c> from the LIVE setting
+    /// (<see cref="EyeCtrl.Core.Settings.ActivationStyle"/>), so a log also names which activation
+    /// style the session ran with.</summary>
+    internal static string StartupLine(RingArmLaunch launch, EyeCtrl.Core.Settings.ActivationStyle activationStyle)
     {
         bool hybrid = launch.Arm == RingArm.Hybrid;
         return string.Format(CultureInfo.InvariantCulture,
-            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, go={5} ms corridor={6:0.##}R, glideOut=0) [source: {7}]",
+            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, go={5} ms corridor={6:0.##}R, glideOut=0) activation={8} [source: {7}]",
             launch.Arm switch
             {
                 RingArm.Hybrid => "hybrid",
@@ -66,7 +68,8 @@ internal sealed class RingArmLog : IDisposable
             hybrid ? CursorCircleViewModel.HybridFreezeProvenMs : 0,
             hybrid ? CursorCircleViewModel.HybridFreezeApproachMs : 0,
             CursorCircleViewModel.HybridGoCorridorFactor,
-            launch.Specified ? "--ring-arm" : "default");
+            launch.Specified ? "--ring-arm" : "default",
+            activationStyle == EyeCtrl.Core.Settings.ActivationStyle.OfferButton ? "button" : "rest");
     }
 
     /// <summary>The warning for an unknown <c>--ring-arm</c> value. The look's readout matches

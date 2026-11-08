@@ -256,7 +256,7 @@ public partial class App : Application
             cursorVm.RingHoldPolicy = ringArmLaunch.HoldPolicy;
             if (ringArmLaunch.UnknownValue is { } unknownRingArm)
                 Log.Warning("{RingArm}", RingArmLog.UnknownArmLine(unknownRingArm));
-            Log.Information("{RingArm}", RingArmLog.StartupLine(ringArmLaunch));
+            Log.Information("{RingArm}", RingArmLog.StartupLine(ringArmLaunch, settings.Dwell.ActivationStyle));
             if (ringArmLaunch.Specified)
                 _ringArmLog = new RingArmLog(im, cursorVm, line => Log.Information("{RingEvent}", line));
 

@@ -74,14 +74,22 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
     [Fact]
     public void Dwell_SliderSpans_StayInsideTheValidatedRanges()
     {
+        // R3: the activation-style row swaps between d_rest_fill (RestFill, the default) and
+        // d_act (OfferButton), so both builds are walked and their sliders merged by id — every
+        // span guard below is checked against the one build that actually shows the row.
         var sliders = new DwellPageSource(TestSettingsPageContext.Build()).Build()
+            .Concat(new DwellPageSource(TestSettingsPageContext.Build(
+                settings: new EyeCtrlSettings
+                    { Dwell = { ActivationStyle = ActivationStyle.OfferButton } })).Build())
             .SelectMany(p => p.Rows).OfType<SliderSpec>()
-            .ToDictionary(s => s.Id);
+            .GroupBy(s => s.Id)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var guards = new Dictionary<string, (double Min, double Max)>
         {
             ["d_fix"] = (100, 1000),
             ["d_act"] = (200, 2000),
+            ["d_rest_fill"] = (200, 2000),
             ["d_menu"] = (200, 2000),
             ["d_ManualSelection"] = (200, 2000),
             ["d_manual_side"] = (200, 2000),

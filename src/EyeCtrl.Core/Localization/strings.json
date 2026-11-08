@@ -3323,6 +3323,34 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.activation_style.description": {
+    "text": "How resting on a spot activates: the ring fills, or a button appears beside it.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.activation_style.label": {
+    "text": "Activation",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.activation_style.option.offer_button": {
+    "text": "Button next to the ring",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.activation_style.option.rest_fill": {
+    "text": "Ring fills",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.cooldown.description": {
     "text": "How long a new dwell must wait after an activation.",
     "who": "user",
@@ -3461,6 +3489,20 @@
     "who": "user",
     "where": "settings",
     "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.rest_fill.description": {
+    "text": "How long the ring takes to fill once your gaze has come to rest.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.rest_fill.label": {
+    "text": "Ring fill time (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.dwell.resume.description": {

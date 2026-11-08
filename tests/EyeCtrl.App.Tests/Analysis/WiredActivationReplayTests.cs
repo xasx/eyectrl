@@ -66,6 +66,7 @@ public class WiredActivationReplayTests
     private static RunResult Run(IReadOnlyList<GazePoint> samples, double fixationRadiusPx)
     {
         var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         settings.Dwell.FixationRadiusPixels = fixationRadiusPx;
         var provider = new TestFakes.FakeGazeProvider();
         using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);

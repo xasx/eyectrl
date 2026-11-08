@@ -28,6 +28,7 @@ public class GazeEngineActivationTelemetryTests
     private static EyeCtrlSettings Settings()
     {
         var s = new EyeCtrlSettings();
+        s.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         s.Cursor.FilterMode = GazeFilterMode.Direct;
         s.Dwell.FixationRadiusPixels = 90;
         s.Dwell.FixationDetectionMs = 300;

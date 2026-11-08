@@ -87,6 +87,7 @@ public class ReplaySliceFidelityTests
     private static void AssertEngineOnsetParity(GazeRecordingFile.Recording recording)
     {
         var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         settings.Dwell.FixationRadiusPixels = 75;   // the shipped radius; the ticket's round-3 addendum
         var candidate = FixationReplayGates.CentroidAtRadius(settings.Dwell.FixationRadiusPixels);
 

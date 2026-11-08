@@ -26,6 +26,7 @@ public class FixationCentroidRuleTests
         double radius = 75, int detectMs = 300, int activationDwellMs = 700)
     {
         var s = new EyeCtrlSettings();
+        s.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         s.Cursor.FilterMode = GazeFilterMode.Direct;
         s.Dwell.FixationRadiusPixels = radius;
         s.Dwell.FixationDetectionMs = detectMs;

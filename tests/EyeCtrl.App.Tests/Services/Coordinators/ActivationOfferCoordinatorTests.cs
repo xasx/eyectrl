@@ -50,6 +50,7 @@ public class ActivationOfferCoordinatorTests
         Func<IMessenger, INoteManager>? makeNotes = null)
     {
         var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         var messenger = new WeakReferenceMessenger();
         var provider = new TestFakes.FakeGazeProvider();
         var gazeEngine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);

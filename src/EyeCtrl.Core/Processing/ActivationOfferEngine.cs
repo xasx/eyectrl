@@ -18,12 +18,29 @@ using EyeCtrl.Core.Models;
 /// <param name="ExpiresAtUs">The sample-clock deadline: 1 s after the latest of the offered fixation's
 /// end, the last valid sample inside the hit area, and the last sample of a near-miss fixation. Never
 /// moves backwards.</param>
+/// <param name="Style">How the offer was placed. Under <see cref="OfferPlacementStyle.AtRestPoint"/>
+/// there is no second target: <see cref="Button"/> is the rest centre (the RAW settle point, where
+/// the fill is counted), <see cref="HitRadiusPx"/> is the rest area H, and <see cref="Point"/> is the
+/// completion point (P′ when the settle was clamped on-screen, otherwise the same point).</param>
 public sealed record ActivationOffer(
     long Id,
     PhysicalPoint Point,
     PhysicalPoint Button,
     double HitRadiusPx,
-    long ExpiresAtUs);
+    long ExpiresAtUs,
+    OfferPlacementStyle Style = OfferPlacementStyle.Button);
+
+/// <summary>Where an offer's dwell target sits (rest-activation plan, 2026-11-08).</summary>
+public enum OfferPlacementStyle
+{
+    /// <summary>The fallback: a button B beside the ring, placed by
+    /// <see cref="ActivationButtonPlacement"/>, dwelt within its hit radius.</summary>
+    Button,
+
+    /// <summary>The rest fill: the dwell is counted at the resting point itself, within
+    /// <see cref="ActivationOfferEngine.RestAreaFactor"/> × R; the ring fills there.</summary>
+    AtRestPoint,
+}
 
 /// <summary>What an accepted settle did to the offer — the engine's answer to
 /// <see cref="ActivationOfferEngine.NotifyFixationSettled"/>, used by the replay's counts.</summary>
@@ -68,6 +85,10 @@ public enum ActivationOfferRefusalReason
 
     /// <summary>EyeCtrl's own modal surfaces are up: nothing is offered at all.</summary>
     Suspended,
+
+    /// <summary>The rest style's re-arm latch: the last rest offer here fired or was closed by a
+    /// command, and the gaze has not left the spot (by more than the rest area) since.</summary>
+    Rearm,
 }
 
 /// <summary>One refused settle: the RAW settle point and why no offer followed.</summary>
@@ -163,6 +184,20 @@ public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
 /// </list>
 ///
 /// <para>
+/// <b>The rest style</b> (<see cref="OfferPlacementStyle.AtRestPoint"/>, the owner's decision of
+/// 2026-11-08) keeps creation's chrome, summon-band, suspension, clamp and refusal rules but has no
+/// second target: the dwell is counted at the RAW settle point within H =
+/// <see cref="RestAreaFactor"/> × R, the completion lands at P (P′ when clamped), and both the pause
+/// budget and the expiry are <see cref="RestFillGraceMs"/> after the last in-area sample — nothing
+/// else extends it, so there is no linger. A settle within H of the live offer is the same rest and
+/// changes nothing; one beyond H replaces it. There is no near miss, no pending and no re-offer. A
+/// fired offer, or one closed by a command rather than by looking away (<see cref="Clear"/>,
+/// <see cref="Decline"/>, suspension, chrome re-validation, or a rebuild through
+/// <see cref="SeedRearmLatch"/>), sets the re-arm latch: a settle within H of that spot is refused
+/// (<see cref="ActivationOfferRefusalReason.Rearm"/>) until a valid sample has left it by more than H.
+/// </para>
+///
+/// <para>
 /// Expected call order per sample: <see cref="Update"/> for the raw sample first, then
 /// <see cref="NotifyFixationSettled"/> for the same instant if the detector settled on it — the
 /// expiry is evaluated before the settle classification, exactly as the production wiring
@@ -193,6 +228,15 @@ public sealed class ActivationOfferEngine
     /// stands — no completion may land far off-screen (review B F4's intent).
     /// </summary>
     public const double CornerClampTolerancePx = 200.0;
+
+    /// <summary>The rest style's area H as a multiple of the engine's R: the gaze may wander up to
+    /// 1.5 R from the resting point while the ring fills (the owner's Q3 answer, 2026-11-08).</summary>
+    public const double RestAreaFactor = 1.5;
+
+    /// <summary>The rest style's grace G in ms: a blink or a glance away pauses the fill for up to
+    /// this long, and the offer expires this long after its last in-area sample (the owner's Q2
+    /// answer, 2026-11-08).</summary>
+    public const int RestFillGraceMs = 500;
 
     private readonly PhysicalRect _screenBoundsPx;
     private readonly double _scale;
@@ -231,6 +275,10 @@ public sealed class ActivationOfferEngine
     private RunRole _runRole = RunRole.None;
     private int _offerExpiryMs = DefaultOfferExpiryMs;
 
+    // The rest style's re-arm latch L, or null: the rest centre of the last rest offer that fired or
+    // was closed by a command. Cleared by the first valid sample farther than H from it.
+    private PhysicalPoint? _rearmLatch;
+
     /// <summary>What the current run is to the live offer — it decides what the run's end does to it.</summary>
     private enum RunRole
     {
@@ -254,7 +302,11 @@ public sealed class ActivationOfferEngine
     /// <param name="dwellMs">The effective activation dwell, from the effective-dwell map.</param>
     /// <param name="fixationRadiusPx">The live fixation radius in physical pixels; the no-move zone is
     /// hit radius + this around B.</param>
-    /// <param name="hitRadiusPx">The dwell's hit radius in physical pixels.</param>
+    /// <param name="hitRadiusPx">The dwell's hit radius in physical pixels (Button style only; the
+    /// rest style's area is <see cref="RestAreaFactor"/> × R).</param>
+    /// <param name="style">Where the dwell target sits. <see cref="OfferPlacementStyle.AtRestPoint"/>
+    /// also sets <see cref="OutsidePauseBudgetMs"/> and <see cref="OfferExpiryMs"/> to
+    /// <see cref="RestFillGraceMs"/>.</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown for a non-positive scale, radius or dwell,
     /// or for a non-finite geometry value.</exception>
     public ActivationOfferEngine(
@@ -263,7 +315,8 @@ public sealed class ActivationOfferEngine
         double ringSizeDip,
         int dwellMs,
         double fixationRadiusPx,
-        double hitRadiusPx = LayoutConstants.ActivationButtonHitRadiusPx)
+        double hitRadiusPx = LayoutConstants.ActivationButtonHitRadiusPx,
+        OfferPlacementStyle style = OfferPlacementStyle.Button)
     {
         if (!double.IsFinite(scale) || scale <= 0)
             throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be positive and finite.");
@@ -280,7 +333,27 @@ public sealed class ActivationOfferEngine
         DwellMs = dwellMs;
         _fixationRadiusPx = fixationRadiusPx;
         _hitRadiusPx = hitRadiusPx;
+        Style = style;
+        if (style == OfferPlacementStyle.AtRestPoint)
+        {
+            // The grace is both the pause budget and the expiry: past it the fill is lost and the
+            // offer closes (= cancel). No linger.
+            OutsidePauseBudgetMs = RestFillGraceMs;
+            _offerExpiryMs = RestFillGraceMs;
+        }
     }
+
+    /// <summary>Where the dwell target sits, fixed for the engine's lifetime: a style change builds a
+    /// new engine, as a ring-size change does.</summary>
+    public OfferPlacementStyle Style { get; }
+
+    /// <summary>The rest style's area H in physical px: <see cref="RestAreaFactor"/> × the live R.</summary>
+    public double RestAreaRadiusPx => RestAreaFactor * _fixationRadiusPx;
+
+    /// <summary>The re-arm latch's point L, or null when none is set (always null in Button style).</summary>
+    public PhysicalPoint? RearmLatch => _rearmLatch;
+
+    private bool IsRestStyle => Style == OfferPlacementStyle.AtRestPoint;
 
     /// <summary>The live offer, or null when none is up. Read by the ViewModel side (through the
     /// wiring's own messages) and by the replay.</summary>
@@ -327,6 +400,9 @@ public sealed class ActivationOfferEngine
             if (!double.IsFinite(value) || value <= 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "Fixation radius must be positive and finite.");
             _fixationRadiusPx = value;
+            // The rest area follows R in place: a live rest offer's counted area is H for the R in force.
+            if (IsRestStyle && _offer is not null)
+                _offer = _offer with { HitRadiusPx = RestAreaRadiusPx };
         }
     }
 
@@ -436,7 +512,18 @@ public sealed class ActivationOfferEngine
             return SettleOutcome.Locked;
         }
 
-        if (_offer is not null)
+        if (IsRestStyle)
+        {
+            // No second target: a settle within H of the rest centre is the same rest — the fill owns
+            // it, and it must neither re-pin the ring nor restart the fill (OnButton, since B is the
+            // rest point). Beyond H it replaces the offer below.
+            if (_offer is not null && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx)
+            {
+                _runRole = RunRole.None;
+                return SettleOutcome.OnButton;
+            }
+        }
+        else if (_offer is not null)
         {
             double distanceToButton = point.DistanceTo(_offer.Button);
             if (distanceToButton <= _offer.HitRadiusPx)
@@ -482,7 +569,8 @@ public sealed class ActivationOfferEngine
     /// </summary>
     public void NotifyFixationEnded(long timestampUs)
     {
-        if ((_runRole is RunRole.Offered or RunRole.NearMiss) && _offer is not null && !_fired)
+        // The rest style's expiry moves only with in-area samples: the run's end does not extend it.
+        if (!IsRestStyle && (_runRole is RunRole.Offered or RunRole.NearMiss) && _offer is not null && !_fired)
             ExtendExpiry(timestampUs);
 
         if (_runRole == RunRole.Pending)
@@ -499,6 +587,10 @@ public sealed class ActivationOfferEngine
     /// </summary>
     public void Update(PhysicalPoint point, long timestampUs, bool isValid)
     {
+        // The re-arm latch lets go once the gaze has really left the spot: one valid sample past H.
+        if (_rearmLatch is { } latch && isValid && point.DistanceTo(latch) > RestAreaRadiusPx)
+            _rearmLatch = null;
+
         if (_offer is null)
         {
             _lastSampleUs = timestampUs;
@@ -513,7 +605,7 @@ public sealed class ActivationOfferEngine
             // so a re-offer in the same call cannot alias it.
             var expired = _offer;
             double progressAtExpiry = PeakDwellProgress;
-            ExpireOrDecline(timestampUs);
+            ExpireOrDecline(timestampUs, closedByCommand: false);
             OfferExpired?.Invoke(expired, timestampUs, progressAtExpiry);
             _lastSampleUs = timestampUs;
             if (_offer is null) return;
@@ -541,6 +633,10 @@ public sealed class ActivationOfferEngine
                 if (_dwellUs >= DwellMs * 1000L)
                 {
                     _fired = true;
+                    // A fired rest offer latches its spot at once: whatever closes it later (accept,
+                    // decline, teardown), the same rest must not refill until the gaze has left.
+                    if (IsRestStyle)
+                        _rearmLatch = _offer.Button;
                     OfferFired?.Invoke(_offer);
                 }
             }
@@ -550,7 +646,8 @@ public sealed class ActivationOfferEngine
                     ExtendExpiry(timestampUs);
 
                 // The offered run's samples extend the deadline while it holds, even off the button.
-                if (_runRole == RunRole.Offered)
+                // Not in the rest style: only in-area samples extend it there (expiry = G).
+                if (_runRole == RunRole.Offered && !IsRestStyle)
                     ExtendExpiry(timestampUs);
 
                 PauseDwell(timestampUs);
@@ -591,7 +688,7 @@ public sealed class ActivationOfferEngine
     {
         if (_offer is null || _offer.Id != offerId)
             return;
-        ExpireOrDecline(_lastSampleUs);
+        ExpireOrDecline(_lastSampleUs, closedByCommand: true);
     }
 
     /// <summary>
@@ -602,6 +699,7 @@ public sealed class ActivationOfferEngine
     /// </summary>
     public void Clear()
     {
+        LatchClosedRestOffer();
         ClearOfferState();
         _pending = null;
         _runRole = RunRole.None;
@@ -620,7 +718,7 @@ public sealed class ActivationOfferEngine
             return;
         OffersSuspended = suspended;
         if (suspended && _offer is not null && !_fired)
-            ExpireOrDecline(_lastSampleUs);
+            ExpireOrDecline(_lastSampleUs, closedByCommand: true);
     }
 
     /// <summary>
@@ -635,9 +733,24 @@ public sealed class ActivationOfferEngine
     {
         if (_offer is null || _fired)
             return;
+        // The rest style re-checks exactly what creation checked: P′ outside chrome. Its area H has
+        // no button to keep clear of chrome, and testing it would close every rest near the toolbar
+        // on each chrome publish.
         if (InChrome(_offer.Point)
-            || ActivationButtonPlacement.IntersectsAnyZone(_offer.Button, _offer.HitRadiusPx, _chromeZones))
-            ExpireOrDecline(_lastSampleUs);
+            || (!IsRestStyle
+                && ActivationButtonPlacement.IntersectsAnyZone(_offer.Button, _offer.HitRadiusPx, _chromeZones)))
+            ExpireOrDecline(_lastSampleUs, closedByCommand: true);
+    }
+
+    /// <summary>
+    /// Sets the rest style's re-arm latch at <paramref name="point"/> (gaze thread): the wiring hands
+    /// a rebuilt engine the rest centre of the offer the old engine dropped, since a rebuild is a
+    /// close by command. Ignored in Button style, which has no latch.
+    /// </summary>
+    public void SeedRearmLatch(PhysicalPoint point)
+    {
+        if (IsRestStyle)
+            _rearmLatch = point;
     }
 
     /// <returns>True when an offer was placed; false when offers are suspended, P is off screen, or P
@@ -668,6 +781,9 @@ public sealed class ActivationOfferEngine
             target = ClampToScreen(point);
         }
 
+        if (IsRestStyle)
+            return MakeRestOffer(point, target, timestampUs);
+
         if (InChrome(target))
             return Refuse(point, ActivationOfferRefusalReason.InChrome);
 
@@ -689,6 +805,38 @@ public sealed class ActivationOfferEngine
         return true;
     }
 
+    // The rest style's half of MakeOffer, after suspension and the off-screen clamp. The rest centre
+    // (B, where the fill is counted, the same-rest test and the latch) is the RAW settle point — at a
+    // corner the gaze stays near it, up to T past the bezel, and would never reach an area round P′
+    // (orchestrator decision, 2026-11-08). P′ stays the completion point and the chrome check.
+    private bool MakeRestOffer(PhysicalPoint point, PhysicalPoint target, long timestampUs)
+    {
+        if (_rearmLatch is { } latch && point.DistanceTo(latch) <= RestAreaRadiusPx)
+            return Refuse(point, ActivationOfferRefusalReason.Rearm);
+
+        if (InChrome(target))
+            return Refuse(point, ActivationOfferRefusalReason.InChrome);
+
+        _offer = new ActivationOffer(
+            _nextOfferId++, target, point, RestAreaRadiusPx,
+            timestampUs + (OfferExpiryMs * 1000L), OfferPlacementStyle.AtRestPoint);
+        _fired = false;
+        _dwellUs = 0;
+        _peakDwellUs = 0;
+        _missSinceUs = null;
+        _runRole = RunRole.Offered;
+        _lastRefusalReason = null;
+        return true;
+    }
+
+    // A rest offer closed by a command (not by looking away) latches its rest centre: the same rest
+    // must not refill until the gaze has left it. Button style has no latch.
+    private void LatchClosedRestOffer()
+    {
+        if (IsRestStyle && _offer is not null)
+            _rearmLatch = _offer.Button;
+    }
+
     /// <summary>Records a refusal and answers false, raising <see cref="OfferRefused"/> only when
     /// the reason changed since the last one. <paramref name="point"/> is always the RAW settle
     /// point — the diagnosis names where the eye was.</summary>
@@ -703,11 +851,14 @@ public sealed class ActivationOfferEngine
     }
 
     // The offer is gone: either the deadline passed or the caller declined. The pending re-offer takes
-    // its place only while its run still holds.
-    private void ExpireOrDecline(long timestampUs)
+    // its place only while its run still holds. A close by command latches a rest offer's spot; an
+    // expiry (the user looked away) does not.
+    private void ExpireOrDecline(long timestampUs, bool closedByCommand)
     {
         if (_offer is null)
             return;
+        if (closedByCommand)
+            LatchClosedRestOffer();
         ClearOfferState();
 
         if (_pending is { } pending && _runActive)

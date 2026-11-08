@@ -273,13 +273,16 @@ public class GazeEngineAdapter : IDisposable
     // object, so the drawn feedback cannot disagree with the geometry the dwell is counted in.
     // The Information lines are the live check's pop-up and on-screen-share evidence (review B F2).
     private long _lastShownOfferId;
+    // The shown offer's style word, for the close line (the close event carries no offer).
+    private string _lastShownOfferStyle = "button";
 
     private void OnActivationOfferShown(ActivationOffer offer)
     {
         _lastShownOfferId = offer.Id;
+        _lastShownOfferStyle = GazeEngine.OfferStyleWord(offer.Style);
         _logger.LogInformation(
-            "Offer shown #{Id} P=({Px:F0},{Py:F0}) B=({Bx:F0},{By:F0})",
-            offer.Id, offer.Point.X, offer.Point.Y, offer.Button.X, offer.Button.Y);
+            "Offer shown #{Id} P=({Px:F0},{Py:F0}) B=({Bx:F0},{By:F0}) style={Style}",
+            offer.Id, offer.Point.X, offer.Point.Y, offer.Button.X, offer.Button.Y, _lastShownOfferStyle);
         // P and the offer engine's own R ride along for the ring: its near-miss rule and no-move zone
         // are the engine's, so R is read from the engine's zone radius (the field the zone test uses,
         // ActivationOfferEngine.cs:450), here on the gaze thread, never from the baseline setting. The
@@ -287,12 +290,13 @@ public class GazeEngineAdapter : IDisposable
         double fixationRadiusPx = _interactionManager.ActivationOffers?.FixationRadiusPx
             ?? _gazeEngine.EffectiveFixationRadiusPixels;
         _dispatcher.BeginInvoke(() => _messenger.Send(
-            new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx, offer.Point, fixationRadiusPx)));
+            new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx, offer.Point, fixationRadiusPx,
+                offer.Style)));
     }
 
     private void OnActivationOfferClosed()
     {
-        _logger.LogInformation("Offer closed #{Id}", _lastShownOfferId);
+        _logger.LogInformation("Offer closed #{Id} style={Style}", _lastShownOfferId, _lastShownOfferStyle);
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActivationButtonMessage()));
     }
 
@@ -301,7 +305,7 @@ public class GazeEngineAdapter : IDisposable
     // detected by id.
     private void OnActivationOfferFired(ActivationOffer offer, long timestampUs)
     {
-        _logger.LogInformation("Offer fired #{Id}", offer.Id);
+        _logger.LogInformation("Offer fired #{Id} style={Style}", offer.Id, GazeEngine.OfferStyleWord(offer.Style));
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActivationOfferFiredMessage(offer)));
     }
 
@@ -319,6 +323,7 @@ public class GazeEngineAdapter : IDisposable
         ActivationOfferRefusalReason.OffScreen => "off-screen",
         ActivationOfferRefusalReason.InChrome => "in chrome",
         ActivationOfferRefusalReason.NoSidePlaceable => "no side placeable",
+        ActivationOfferRefusalReason.Rearm => "rearm",
         _ => "suspended",
     };
 

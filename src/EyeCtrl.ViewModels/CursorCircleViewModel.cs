@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -46,6 +47,18 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// App's launch composition selects the arm (the hybrid, unless <c>--ring-arm</c> says otherwise).
     /// </summary>
     public RingHoldPolicy RingHoldPolicy { get; set; } = RingHoldPolicy.None;
+
+    /// <summary>
+    /// Whether the hybrid hold runs: <see cref="RingHoldPolicy.HybridFreeze"/> is selected AND the
+    /// latest offer shown is a button offer. A rest offer (rest activation, R1) has no button to
+    /// travel to, so for it the VM behaves as <see cref="RingHoldPolicy.None"/>: no keep, approach or
+    /// freeze hold, no go window, no corridor, and an immediate release. The flag follows each show
+    /// and outlives the hide, so the rest offer's own close release is immediate too.
+    /// </summary>
+    private bool HybridActive => RingHoldPolicy == RingHoldPolicy.HybridFreeze && !_restOffer;
+
+    // The latest ShowActivationButtonMessage carried a rest-style offer.
+    private bool _restOffer;
 
     /// <summary>One record per <see cref="PinRingMessage"/> processed, applied or refused; the look
     /// build's event log (App side) pairs each with Core's pin origin.</summary>
@@ -165,7 +178,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // The hybrid's hold runs BEFORE the follow and before _latestGaze moves: the freeze stops the
         // ring on the drawn point, and a release resolved here snaps to the previous sample — the same
         // order the replay model applies (its cursor step is last).
-        if (RingHoldPolicy == RingHoldPolicy.HybridFreeze)
+        if (HybridActive)
             AdvanceHybridHold(message);
 
         _latestGaze = message.Position;
@@ -201,17 +214,17 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     {
         // Only a fixation may pin. The check is against the last state the machine REPORTED, so a
         // release/exit that arrives before this message (F4's race) refuses the pin outright.
-        bool endsKeep = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+        bool endsKeep = HybridActive
             && !_holding && _approachUntilUs is not null && _lastState == InteractionState.Fixation;
         if (endsKeep)
             GoEnd(RingGoEndReason.Settled, _latestGaze, _lastFrameUs);
-        bool holdSuppressed = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+        bool holdSuppressed = HybridActive
             && (_holding || _approachUntilUs is not null);
         // A NEAR-MISS settle (inside a live offer's no-move zone AND strictly nearer B than P: the
         // engine's own NearMiss rule, ActivationOfferEngine.cs:452) must not glide the ring toward it;
         // the ring keeps following or holding. A settle on P's side of the zone is the engine's
         // "swallowed" pending re-offer (the owner looking back at the target): it pins as before.
-        bool nearOffer = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+        bool nearOffer = HybridActive
             && _offerLive
             && _offerPoint is { } offerPoint
             && message.Position.DistanceTo(_offerCenter) <= NoMoveZonePx
@@ -252,7 +265,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// </summary>
     public void Receive(ReleaseRingMessage message)
     {
-        if (RingHoldPolicy == RingHoldPolicy.HybridFreeze)
+        if (HybridActive)
         {
             if (!_holding && _approachUntilUs is null)
                 _pendingRunEndRelease = true;
@@ -302,6 +315,22 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// exits; the button's show/hide are NOT pin edges in any policy (the pin's lifetime is Core's).</summary>
     public void Receive(ShowActivationButtonMessage message)
     {
+        bool rest = message.Style == OfferPlacementStyle.AtRestPoint;
+        if (rest && HybridActive)
+        {
+            // The style switched under a button offer's leftovers: the hybrid stops owning the ring,
+            // so a deferred run-end release or a keep it still owed happens now (a hold already ended
+            // with the button offer's close). The rest offer's own pin follows this message.
+            bool releaseOwed = _approachUntilUs is not null || _pendingRunEndRelease;
+            _pendingRunEndRelease = false;
+            if (_approachUntilUs is not null)
+                GoEnd(RingGoEndReason.OfferClosed, _latestGaze, _lastFrameUs);
+            if (_holding)
+                EndHold(RingHoldEndReason.OfferClosed, release: true);
+            else if (releaseOwed)
+                ReleaseNowWithLog(RingReleaseCause.RunEnd);
+        }
+        _restOffer = rest;
         _offerLive = true;
         _offerCenter = message.ButtonCenter;
         _offerHitRadiusPx = message.HitRadiusPx;
@@ -360,7 +389,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public void Receive(HideActivationButtonMessage message)
     {
         _offerLive = false;
-        if (RingHoldPolicy != RingHoldPolicy.HybridFreeze)
+        if (!HybridActive)
             return;
 
         if (_holding)
@@ -545,7 +574,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // hold ends. A hiding STATE has already snapped the pin above, so the owed release below is a
         // no-op there; an EXTERNAL DWELL's hide changes no state, so without this release the pin
         // strands at the old hold point until Core's next release (fixup 01 F2).
-        if (!nowVisible && RingHoldPolicy == RingHoldPolicy.HybridFreeze)
+        if (!nowVisible && HybridActive)
         {
             bool releaseOwed = _holding || _approachUntilUs is not null || _pendingRunEndRelease;
             bool hadHold = _holding;

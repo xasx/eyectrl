@@ -40,6 +40,7 @@ public class ActivationOfferCornerClampTests
         public Harness()
         {
             var settings = new EyeCtrlSettings();
+            settings.Dwell.ActivationStyle = ActivationStyle.OfferButton;
             settings.Cursor.FilterMode = GazeFilterMode.Direct;
             settings.Cursor.CircleSize = 200;
             settings.Dwell.FixationRadiusPixels = 80;

@@ -10,6 +10,22 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _fixationDetectionMs = 300;
     /// <summary>Dwell time in milliseconds for activation buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _activationButtonDwellMs = 700;
+    /// <summary>
+    /// How a rest becomes an activation: the ring fills at the resting point
+    /// (<see cref="Settings.ActivationStyle.RestFill"/>, the default since the owner's decision of
+    /// 2026-11-08) or a button is offered beside it (<see cref="Settings.ActivationStyle.OfferButton"/>,
+    /// the fallback). A new property, so an existing settings file picks the default from the
+    /// initializer.
+    /// </summary>
+    [ObservableProperty] private ActivationStyle _activationStyle = ActivationStyle.RestFill;
+    /// <summary>
+    /// The rest fill's time F in milliseconds under <see cref="Settings.ActivationStyle.RestFill"/>:
+    /// how long the ring fills after the settle before the activation fires. Valid range: 200–2000,
+    /// like <see cref="ActivationButtonDwellMs"/>, which stays the OfferButton dwell (it is also read
+    /// by the eye-care banner, the restart notice and the General page). A new property, so an
+    /// existing settings file picks the default from the initializer.
+    /// </summary>
+    [ObservableProperty] private int _restFillMs = 700;
     /// <summary>Dwell time in milliseconds for action menu buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _actionMenuDwellMs = 600;
     /// <summary>Dwell time in milliseconds for manual selection action menu buttons. Valid range: 200–2000.</summary>
@@ -164,6 +180,20 @@ public partial class DwellSettings : ObservableObject, IValidatable
                 $"{nameof(ActivationButtonDwellMs)} must be between 200 and 2000");
     }
 
+    partial void OnRestFillMsChanging(int value)
+    {
+        if (value < 200 || value > 2000)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(RestFillMs)} must be between 200 and 2000");
+    }
+
+    partial void OnActivationStyleChanging(ActivationStyle value)
+    {
+        if (!Enum.IsDefined(value))
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(ActivationStyle)} must be a defined style");
+    }
+
     partial void OnActionMenuDwellMsChanging(int value)
     {
         if (value < 200 || value > 2000)
@@ -292,6 +322,10 @@ public partial class DwellSettings : ObservableObject, IValidatable
         return ValidationHelper.CollectErrors(
             ValidationHelper.ValidateRange(FixationDetectionMs, 100, 1000, nameof(FixationDetectionMs)),
             ValidationHelper.ValidateRange(ActivationButtonDwellMs, 200, 2000, nameof(ActivationButtonDwellMs)),
+            ValidationHelper.ValidateRange(RestFillMs, 200, 2000, nameof(RestFillMs)),
+            Enum.IsDefined(ActivationStyle)
+                ? null
+                : $"{nameof(ActivationStyle)} must be a defined style, but was {(int)ActivationStyle}",
             ValidationHelper.ValidateRange(ActionMenuDwellMs, 200, 2000, nameof(ActionMenuDwellMs)),
             ValidationHelper.ValidateRange(ManualSelectionActionMenuDwellMs, 200, 2000, nameof(ManualSelectionActionMenuDwellMs)),
             ValidationHelper.ValidateRange(ToolbarButtonDwellMs, 200, 2000, nameof(ToolbarButtonDwellMs)),

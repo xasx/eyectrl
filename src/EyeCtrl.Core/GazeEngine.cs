@@ -405,8 +405,16 @@ public class GazeEngine : IDisposable
             if (e.PropertyName is nameof(DwellSettings.FixationRadiusPixels)
                                or nameof(DwellSettings.FixationDetectionMs)
                                or nameof(DwellSettings.ActivationButtonDwellMs)
+                               or nameof(DwellSettings.RestFillMs)
+                               or nameof(DwellSettings.ActivationStyle)
                                or nameof(DwellSettings.DwellCooldownMs))
                 RequestFixationReconfiguration();
+
+            // The activation style decides where the offer's target sits, which is fixed per engine:
+            // a style change rebuilds it once on the gaze thread, as a ring-size change does, and the
+            // InteractionManager's effective pin policy follows the attached engine's style.
+            if (e.PropertyName == nameof(DwellSettings.ActivationStyle))
+                _activationOfferRebuildRequested = true;
         };
         _settings.Dwell.PropertyChanged += _dwellSettingsChangedHandler;
 
@@ -475,9 +483,15 @@ public class GazeEngine : IDisposable
     // live detector on the next gaze sample. Context is Other because AdaptationController stores fills
     // under Other; passing ActivationButton would miss every stored fill. When adaptation is off,
     // Effective returns the baseline exactly (the disabled ⇒ effective == baseline invariant).
+    //
+    // The baseline is the active style's: the rest fill time F under RestFill, the button dwell under
+    // OfferButton (rest-activation R1). ActivationButtonDwellMs itself is left alone — the eye-care
+    // banner, the restart notice and the General page read it as the button dwell.
     private int EffectiveActivationDwellMs()
     {
-        double baseline = _settings.Dwell.ActivationButtonDwellMs;
+        double baseline = _settings.Dwell.ActivationStyle == ActivationStyle.RestFill
+            ? _settings.Dwell.RestFillMs
+            : _settings.Dwell.ActivationButtonDwellMs;
         double effective = _effectiveSettings?.Effective(AdaptationKnob.DwellTime, DwellContext.Other, baseline)
             ?? baseline;
         return (int)Math.Clamp(
@@ -582,18 +596,21 @@ public class GazeEngine : IDisposable
         if (_activationOfferGeometry is not { } geometry)
             return;
 
+        var style = _settings.Dwell.ActivationStyle == ActivationStyle.RestFill
+            ? OfferPlacementStyle.AtRestPoint
+            : OfferPlacementStyle.Button;
         var offers = new ActivationOfferEngine(
             geometry.ScreenBoundsPx,
             geometry.Scale,
             _settings.Cursor.CircleSize,
             EffectiveActivationDwellMs(),
-            EffectiveFixationRadius())
-        {
-            // Decision 3's linger was set by the user from the ticket 7 replay report (750 ms), down
-            // from the engine's 1 s default. The default is left alone so the report's lever table
-            // keeps its baseline.
-            OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs,
-        };
+            EffectiveFixationRadius(),
+            style: style);
+        // Decision 3's linger was set by the user from the ticket 7 replay report (750 ms), down
+        // from the engine's 1 s default. The default is left alone so the report's lever table
+        // keeps its baseline. The rest style has no linger: its engine set the expiry to G itself.
+        if (style == OfferPlacementStyle.Button)
+            offers.OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs;
         InteractionManager.AttachActivationOffers(offers);
         LogOfferEngineConfiguration(offers);
     }
@@ -601,16 +618,37 @@ public class GazeEngine : IDisposable
     // The live check's setup-sanity line (review B F2): the constants the product is actually running.
     // Low-rate (configure, ring change, display change, and an effective R/dwell move), so it is not
     // gated behind a diagnostics flag.
+    // The rest style adds its area H and grace G; the text up to "linger" is unchanged for the
+    // session scripts that read it.
     private void LogOfferEngineConfiguration(ActivationOfferEngine offers)
-        => _logger?.LogInformation(
-            "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms",
-            offers.ScreenBoundsPx.Width,
-            offers.ScreenBoundsPx.Height,
-            offers.Scale,
-            offers.RingSizeDip,
-            offers.FixationRadiusPx,
-            offers.DwellMs,
-            offers.OfferExpiryMs);
+    {
+        if (offers.Style == OfferPlacementStyle.AtRestPoint)
+            _logger?.LogInformation(
+                "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms, style=rest, H {H} px, G {G} ms",
+                offers.ScreenBoundsPx.Width,
+                offers.ScreenBoundsPx.Height,
+                offers.Scale,
+                offers.RingSizeDip,
+                offers.FixationRadiusPx,
+                offers.DwellMs,
+                offers.OfferExpiryMs,
+                offers.RestAreaRadiusPx,
+                offers.OutsidePauseBudgetMs);
+        else
+            _logger?.LogInformation(
+                "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms, style=button",
+                offers.ScreenBoundsPx.Width,
+                offers.ScreenBoundsPx.Height,
+                offers.Scale,
+                offers.RingSizeDip,
+                offers.FixationRadiusPx,
+                offers.DwellMs,
+                offers.OfferExpiryMs);
+    }
+
+    /// <summary>The <c>style=</c> word the offer log lines carry: <c>rest</c> or <c>button</c>.</summary>
+    public static string OfferStyleWord(OfferPlacementStyle style)
+        => style == OfferPlacementStyle.AtRestPoint ? "rest" : "button";
 
     // Runs on the gaze thread. Applies the current effective tolerance to the LIVE detector in place. No
     // rebuild, so an in-progress fixation is preserved across an adaptation step: the controller relaxes and
@@ -757,7 +795,8 @@ public class GazeEngine : IDisposable
         // Every expiry is logged for the live check, before the telemetry threshold below: a glance
         // that did not complete is exactly what the "no chase" and completion-count readings need.
         _logger?.LogInformation(
-            "Offer expired unused #{Id} (dwell {Progress:P0})", offer.Id, progressAtExpiry);
+            "Offer expired unused #{Id} (dwell {Progress:P0}) style={Style}",
+            offer.Id, progressAtExpiry, OfferStyleWord(offer.Style));
 
         // The same threshold the age-based abandonment used: below it the gaze merely passed over the
         // button, not an attempt the user gave up on.

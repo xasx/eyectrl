@@ -11,6 +11,7 @@ public class GazeEngineFixationReconfigurationTests
     private static EyeCtrlSettings Settings(double radius, int detectMs)
     {
         var s = new EyeCtrlSettings();
+        s.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         s.Cursor.FilterMode = GazeFilterMode.Direct; // passthrough: filtered == raw
         s.Dwell.FixationRadiusPixels = radius;
         s.Dwell.FixationDetectionMs = detectMs;

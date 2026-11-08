@@ -28,8 +28,14 @@ using EyeCtrl.Core.Processing;
 /// The engine's effective fixation radius R in physical pixels (adaptation included), or null where the
 /// sender has none. The no-move zone around B is <see cref="HitRadiusPx"/> + R.
 /// </param>
+/// <param name="Style">
+/// The offer's placement style. Under <see cref="OfferPlacementStyle.AtRestPoint"/> (rest activation)
+/// <see cref="ButtonCenter"/> is the rest centre and <see cref="HitRadiusPx"/> the rest area: there is
+/// no button to travel to, so the ring's hybrid hold stands aside for the offer.
+/// </param>
 public record ShowActivationButtonMessage(PhysicalPoint ButtonCenter, double HitRadiusPx,
-    PhysicalPoint? OfferPoint = null, double? FixationRadiusPx = null);
+    PhysicalPoint? OfferPoint = null, double? FixationRadiusPx = null,
+    OfferPlacementStyle Style = OfferPlacementStyle.Button);
 
 public record HideActivationButtonMessage;
 

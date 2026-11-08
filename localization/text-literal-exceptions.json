@@ -1452,6 +1452,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"rearm\"",
+      "Category": "log",
+      "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
       "Literal": "\"suspended\"",
       "Category": "log",
       "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."

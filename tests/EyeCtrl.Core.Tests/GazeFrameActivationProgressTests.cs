@@ -22,6 +22,7 @@ public class GazeFrameActivationProgressTests
     private static EyeCtrlSettings Settings()
     {
         var s = new EyeCtrlSettings();
+        s.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         s.Cursor.FilterMode = GazeFilterMode.Direct;
         s.Dwell.FixationRadiusPixels = 75;
         s.Dwell.FixationDetectionMs = 300;

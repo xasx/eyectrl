@@ -63,6 +63,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
         var live = Run(samples, config);
 
         var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationStyle = ActivationStyle.OfferButton;
         settings.Dwell.FixationRadiusPixels = config.RadiusPx;
         settings.Dwell.FixationDetectionMs = config.OnsetMs;
         settings.Dwell.ActivationButtonDwellMs = config.ButtonDwellMs;

@@ -48,6 +48,7 @@ public class ActivationOfferWiringTests
         public Harness(EffectiveSettingsProvider? effective = null, EyeCtrlSettings? settings = null)
         {
             settings ??= new EyeCtrlSettings();
+            settings.Dwell.ActivationStyle = ActivationStyle.OfferButton;
             settings.Cursor.FilterMode = GazeFilterMode.Direct;
             settings.Dwell.FixationRadiusPixels = 90;
             settings.Dwell.FixationDetectionMs = 300;

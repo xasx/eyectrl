@@ -83,6 +83,20 @@ public class InteractionManager
     public RingPinPolicy RingPinPolicy { get; set; } = RingPinPolicy.OfferFollowing;
 
     /// <summary>
+    /// The pin policy actually in force: <see cref="RingPinPolicy.OfferFollowing"/> while the attached
+    /// offer engine places rest offers (rest activation, R1 — the ring pins at P on the rest offer's
+    /// show and releases on its close, whatever the launch arm), otherwise <see cref="RingPinPolicy"/>,
+    /// the launch arm. It changes only when an engine is attached, on the gaze thread, so it moves
+    /// together with the engine rebuild a style change requests.
+    /// </summary>
+    public RingPinPolicy EffectiveRingPinPolicy =>
+        _restOffersAttached ? RingPinPolicy.OfferFollowing : RingPinPolicy;
+
+    // Whether the attached engine is the rest style. Written on the gaze thread by
+    // AttachActivationOffers, read on both threads (SetState runs on the dispatcher too).
+    private volatile bool _restOffersAttached;
+
+    /// <summary>
     /// Whether the most recent <see cref="PinRing"/> was raised for the offer's lifecycle (the
     /// offer's P) rather than an accepted settle. The look build's event log reads it synchronously
     /// where the event is raised; it is not part of the ring's behaviour.
@@ -320,6 +334,12 @@ public class InteractionManager
             previous.OfferFired -= OnActivationOfferFired;
             previous.OfferExpired -= OnActivationOfferExpired;
             previous.OfferRefused -= OnActivationOfferRefused;
+            // A rebuild drops the old engine's offer, which is a close by command: a rest offer's spot
+            // (or the latch it already held) carries into a rest-style successor (rest activation R1).
+            if (previous.CurrentOffer is { Style: OfferPlacementStyle.AtRestPoint } dropped)
+                engine.SeedRearmLatch(dropped.Button);
+            else if (previous.RearmLatch is { } latch)
+                engine.SeedRearmLatch(latch);
         }
         _activationOffers = engine;
         engine.SetChromeZones(_activationChromeZones);
@@ -328,7 +348,11 @@ public class InteractionManager
         engine.OfferFired += OnActivationOfferFired;
         engine.OfferExpired += OnActivationOfferExpired;
         engine.OfferRefused += OnActivationOfferRefused;
+        // The old offer's close is published under the pin policy it was shown with, so its ring
+        // release is not lost when the style (and with it the effective policy) changes; only then
+        // does the new engine's policy take over.
         PublishActivationOfferState();
+        _restOffersAttached = engine.Style == OfferPlacementStyle.AtRestPoint;
     }
 
     /// <summary>
@@ -506,11 +530,13 @@ public class InteractionManager
             // run that still holds) and stays there while the user looks at the button. RunOnly pins
             // and releases from the settles and the runs alone; the offer's lifecycle is silent. The
             // corner fix's override keeps a clamped settle's pin at the RAW settle centroid.
-            if (RingPinPolicy == RingPinPolicy.OfferFollowing
+            if (EffectiveRingPinPolicy == RingPinPolicy.OfferFollowing
                 && CurrentState == InteractionState.Fixation)
-                RaisePinRing(ringPinPoint ?? offer.Point, atOffer: true);
+                RaisePinRing(
+                    ringPinPoint ?? (offer.Style == OfferPlacementStyle.AtRestPoint ? offer.Button : offer.Point),
+                    atOffer: true);
         }
-        else if (hadOffer && RingPinPolicy == RingPinPolicy.OfferFollowing
+        else if (hadOffer && EffectiveRingPinPolicy == RingPinPolicy.OfferFollowing
                  && (CurrentState != InteractionState.Fixation || !_ringPinnedThisRun))
         {
             // The offer is gone: the ring goes back to the gaze (snap out) — unless the run that is
@@ -548,7 +574,7 @@ public class InteractionManager
             // DeclineOffer and completed activations, and the engine is gaze-thread state (review A F1).
             RequestActivationRunEnd(_lastSampleTimestampUs);
             FixationEnded?.Invoke();
-            if (RingPinPolicy == RingPinPolicy.RunOnly)
+            if (EffectiveRingPinPolicy == RingPinPolicy.RunOnly)
             {
                 // RunOnly (the look build): every exit from Fixation releases the ring, before
                 // StateChanged below; nothing here consults the offer.
@@ -575,7 +601,11 @@ public class InteractionManager
                 if (toFreeLookWithOffer && !_ringPinnedAtOffer && !offerGoing
                     && _activationOffers?.CurrentOffer is { } offer)
                 {
-                    RaisePinRing(offer.Point, atOffer: true);
+                    // A rest offer's ring belongs at its rest centre (the raw settle, which differs
+                    // from P only for a clamped corner settle) — where the show pinned it.
+                    RaisePinRing(
+                        offer.Style == OfferPlacementStyle.AtRestPoint ? offer.Button : offer.Point,
+                        atOffer: true);
                     // The gaze thread may have closed the offer between the id read above and this pin;
                     // its release then sits BEFORE the pin in the VM's queue, and with suppression up no
                     // settle comes to free it (S1). Re-read after a fence and release again: the VM's
@@ -642,7 +672,7 @@ public class InteractionManager
 
         // RunOnly (the look build): the accepted settle is the ring's anchor — swallowed settles
         // included — raised right after the settled event and before the offer's publish below.
-        if (RingPinPolicy == RingPinPolicy.RunOnly)
+        if (EffectiveRingPinPolicy == RingPinPolicy.RunOnly)
         {
             RaisePinRing(point, atOffer: false);
             _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);

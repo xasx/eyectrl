@@ -148,7 +148,7 @@ public class NoVisibleTestWindowGuardTests
     {
         Group(MeasureOnly,
             "CalibrationWindowVisualPinsTests.cs", "CornerRadiusClampTests.cs", "CursorRingRenderTests.cs", "Diagnostics/ProbeRingParityTests.cs",
-            "Overlays/CursorRingBlockedLookTests.cs",
+            "Overlays/CursorRingBlockedLookTests.cs", "CursorRingFillRenderTests.cs",
             "GlyphSizeCouplingTests.cs", "InvisibleTestWindowTests.cs", "OverlayFontTests.cs", "TaskSwitcherDwellPositionTests.cs",
             "ToolbarButtonVisualTests.cs",
             "ToolbarPausedTargetAlignmentTests.cs", "TestSupport/ArcLabelFit.cs",

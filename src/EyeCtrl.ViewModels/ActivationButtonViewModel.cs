@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
@@ -50,6 +51,15 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     /// </summary>
     public double HitRadiusPixels { get; private set; }
 
+    /// <summary>
+    /// The placement style of the offer currently shown. The default is the historical button shape;
+    /// under <see cref="OfferPlacementStyle.AtRestPoint"/> (rest activation, R1) this VM stays the
+    /// headless fire → <see cref="ActivationCompletedMessage"/> relay, but there is no second target
+    /// and no button window: the coordinator reads this to keep <c>ActivationButtonWindow</c> hidden
+    /// while the ring draws the fill (R2).
+    /// </summary>
+    public OfferPlacementStyle OfferStyle { get; private set; } = OfferPlacementStyle.Button;
+
     // One completion per shown offer. Reset on show; a message that arrives after hide is ignored,
     // which is what keeps "fire then immediate close" and "close then a late fire" from ever
     // producing two completions or a completion for a button that is down.
@@ -65,6 +75,7 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     /// <inheritdoc />
     public void Receive(ShowActivationButtonMessage message)
     {
+        OfferStyle = message.Style;
         ButtonCenter = message.ButtonCenter;
         HitRadiusPixels = message.HitRadiusPx;
         DwellProgress = 0;

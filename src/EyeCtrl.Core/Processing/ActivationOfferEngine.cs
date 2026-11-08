@@ -194,7 +194,9 @@ public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
 /// fired offer, or one closed by a command rather than by looking away (<see cref="Clear"/>,
 /// <see cref="Decline"/>, suspension, chrome re-validation, or a rebuild through
 /// <see cref="SeedRearmLatch"/>), sets the re-arm latch: a settle within H of that spot is refused
-/// (<see cref="ActivationOfferRefusalReason.Rearm"/>) until a valid sample has left it by more than H.
+/// (<see cref="ActivationOfferRefusalReason.Rearm"/>) until a valid sample has left it by more than H —
+/// a sample the wiring took in FreeLook or Fixation; the magnifier's, menus' and modes' samples never
+/// clear it (see <see cref="Update"/>).
 /// </para>
 ///
 /// <para>
@@ -585,10 +587,17 @@ public sealed class ActivationOfferEngine
     /// One sample: raw validity and the filtered point. Drives the expiry, then the dwell. Feed every
     /// sample (including invalid ones) — the pause budget is measured across them.
     /// </summary>
-    public void Update(PhysicalPoint point, long timestampUs, bool isValid)
+    /// <param name="point">The filtered point.</param>
+    /// <param name="timestampUs">The sample's timestamp.</param>
+    /// <param name="isValid">The raw sample's validity.</param>
+    /// <param name="mayClearRearmLatch">Whether this sample may clear the rest style's re-arm latch.
+    /// The wiring passes false outside FreeLook and Fixation: in the magnifier, a menu or a mode the
+    /// gaze roams far from P without having left it as a resting spot, and a latch cleared there would
+    /// let the same rest refill the moment the overlay closes.</param>
+    public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool mayClearRearmLatch = true)
     {
         // The re-arm latch lets go once the gaze has really left the spot: one valid sample past H.
-        if (_rearmLatch is { } latch && isValid && point.DistanceTo(latch) > RestAreaRadiusPx)
+        if (_rearmLatch is { } latch && mayClearRearmLatch && isValid && point.DistanceTo(latch) > RestAreaRadiusPx)
             _rearmLatch = null;
 
         if (_offer is null)

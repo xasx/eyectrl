@@ -145,6 +145,45 @@ public class RestActivationWiringTests
     }
 
     [Fact]
+    public void OnlyFreeLookAndFixationSamples_ClearTheLatch_TheMagnifiersDoNot()
+    {
+        // R1-M12 (any-state samples clear the latch): the magnifier's far samples would clear it, and
+        // the rest at P would refill the moment the magnifier closes.
+        var x = new ImHarness(RestEngine(3840, 2400, 2.0));
+        x.Im.SelectionMode = SelectionMode.ManualSelection;
+        var refusals = new List<ActivationOfferRefusalReason>();
+        x.Im.ActivationOfferRefused += r => refusals.Add(r.Reason);
+        var p = new PhysicalPoint(1500, 1100);
+        var fired = new List<ActivationOffer>();
+        x.Im.ActivationOfferFired += (offer, _) => fired.Add(offer);
+        x.OnsetAndSettle(p);
+        for (int i = 0; i < 28; i++) x.Sample(p);
+        Check.That(fired).HasSize(1);
+
+        Check.That(x.Im.OnActivationButtonDwelled(fired[0])).IsEqualTo(ActivationCompletionResult.Accepted);
+        Check.That(x.Im.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
+        x.Im.ApplyPendingActivationOfferRequests();               // the accept lands
+        for (int i = 0; i < 20; i++) x.Sample(new PhysicalPoint(p.X + 600, p.Y + 400));   // roaming in the magnifier
+        Check.That(x.Im.ActivationOffers!.RearmLatch).IsEqualTo(p);
+
+        x.Im.OnManualSelectionBack();                              // closed: back to FreeLook
+        x.Im.ApplyPendingActivationOfferRequests();
+        Check.That(x.Im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        x.Sample(new PhysicalPoint(p.X + 30, p.Y));                // still near P
+        x.OnsetAndSettle(p);
+
+        Check.That(x.Im.ActivationOffers.CurrentOffer).IsNull();
+        Check.That(refusals).ContainsExactly(ActivationOfferRefusalReason.Rearm);
+
+        // A FreeLook sample beyond H clears it; the next settle offers.
+        x.Im.OnFixationEnded();
+        x.Sample(new PhysicalPoint(p.X + 200, p.Y));
+        Check.That(x.Im.ActivationOffers.RearmLatch).IsNull();
+        x.OnsetAndSettle(p);
+        Check.That(x.Im.ActivationOffers.CurrentOffer).IsNotNull();
+    }
+
+    [Fact]
     public void AStyleSwitchUnderALiveRestOffer_StillReleasesItsPin()
     {
         // The old offer's close is published under the policy it was shown with; publishing it under
@@ -285,5 +324,21 @@ public class RestActivationWiringTests
         h.Feed(p, samples: 1);                                     // the accept lands on the gaze thread
         Check.That(h.Im.ActivationOffers!.CurrentOffer).IsNull();
         Check.That(h.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
+
+        // In the magnifier the gaze roams far from P: GazeEngine's per-sample state snapshot keeps
+        // those samples from clearing the latch (R1-M12), so back in FreeLook a rest at P is refused.
+        var far = new PhysicalPoint(p.X + 700, p.Y + 500);
+        h.Feed(far, samples: 30);
+        h.Im.OnManualSelectionBack();
+        h.Feed(p, samples: 25);                                    // a whole new run: onset, settle
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.Fixation);
+        Check.That(h.Im.ActivationOffers.CurrentOffer).IsNull();
+        Check.That(h.Im.ActivationOffers.RearmLatch).IsEqualTo(p);
+
+        // Looking away in FreeLook clears it; the next rest at P is offered again.
+        h.Feed(far, samples: 3);
+        Check.That(h.Im.ActivationOffers.RearmLatch).IsNull();
+        h.Feed(p, samples: 25);
+        Check.That(h.Im.ActivationOffers.CurrentOffer?.Button).IsEqualTo(p);
     }
 }

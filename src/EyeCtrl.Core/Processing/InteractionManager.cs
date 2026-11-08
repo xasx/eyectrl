@@ -397,10 +397,19 @@ public class InteractionManager
     /// filtered point, <paramref name="isValid"/> the raw sample's validity: a sample the tracker
     /// reported invalid pauses the button dwell even though its held position looks valid.
     /// </summary>
-    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid)
+    /// <param name="point">The filtered point.</param>
+    /// <param name="timestampUs">The sample's timestamp.</param>
+    /// <param name="isValid">The raw sample's validity.</param>
+    /// <param name="stateSnapshot">The caller's one per-sample read of <see cref="CurrentState"/>
+    /// (GazeEngine passes its snapshot); null reads it once here. Only a FreeLook or Fixation sample
+    /// may clear the rest style's re-arm latch (rest activation R1, orchestrator 2026-11-08).</param>
+    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid,
+        InteractionState? stateSnapshot = null)
     {
         if (_activationOffers is null) return;
-        _activationOffers.Update(point, timestampUs, isValid);
+        var state = stateSnapshot ?? CurrentState;
+        _activationOffers.Update(point, timestampUs, isValid,
+            mayClearRearmLatch: state is InteractionState.FreeLook or InteractionState.Fixation);
         PublishActivationOfferState();
     }
 

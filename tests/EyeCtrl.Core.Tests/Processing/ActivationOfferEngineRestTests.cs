@@ -483,6 +483,27 @@ public class ActivationOfferEngineRestTests
 
     [Theory]
     [MemberData(nameof(Geometries))]
+    public void ASampleTheWiringMarksAsNotClearing_LeavesTheLatch_HoweverFar(int width, int height, double scale)
+    {
+        // The wiring passes mayClearRearmLatch: false outside FreeLook/Fixation (the magnifier, menus).
+        var engine = NewRestEngine(width, height, scale);
+        var p = RestPointOf(width, height);
+        Settle(engine, p, 0);
+        long us = Feed(engine, p, 0, SamplesToFill);
+        engine.Accept(engine.CurrentOffer!.Id);
+
+        for (int i = 0; i < 20; i++)
+        {
+            us += FrameUs;
+            engine.Update(Offset(p, 5 * H), us, isValid: true, mayClearRearmLatch: false);
+        }
+
+        Check.That(engine.RearmLatch).IsEqualTo(p);
+        Check.That(Settle(engine, p, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
+    }
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
     public void AnExpiry_SetsNoLatch(int width, int height, double scale)
     {
         // R1-M5 (an expiry sets the latch). The expiry is found by an in-area sample after a long

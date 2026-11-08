@@ -546,6 +546,112 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(cursorCircle.FillCalls[0].Paused).IsFalse();
     }
 
+    [Fact]
+    public void ARestOfferReplacingAButtonOfferWithoutAHideEdge_HidesTheButtonWindow()
+    {
+        // review-01 F4 / RV-M16: Core closes before it shows today, so this is belt and braces. A
+        // rest offer arriving while the button window is up (no IsVisible edge — the VM stays
+        // visible) must take it down; ShowAt never calls Show, so the style gate alone would leave
+        // the halo beside the filling ring.
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = new EyeCtrlSettings(),
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+        Subscribe(coordinator, "OnActivationVMPropertyChanged", activationVm);
+
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(1400, 800), 150));
+        Check.That(activationButton.Calls).ContainsExactly("ShowAt", "Show");
+
+        var rest = new PhysicalPoint(1000, 1000);
+        messenger.Send(new ShowActivationButtonMessage(
+            rest, 120, rest, 80, EyeCtrl.Core.Processing.OfferPlacementStyle.AtRestPoint));
+
+        Check.WithCustomMessage("the button window must be taken down by the rest replacement")
+            .That(activationButton.Calls[^1]).IsEqualTo("HideImmediate");
+        Check.That(activationButton.ShownAt).HasSize(1);   // no ShowAt for the rest offer
+    }
+
+    [Fact]
+    public void RestFillPause_ReachesTheWindow_ThroughTheRealPropertyChangedWiring()
+    {
+        // review-01 F2 / RV-M20: during the grace the engine's progress stands still, so ONLY
+        // IsFillPaused changes. Deleting that case used to survive; this drives the real VM through
+        // an excursion with the real handler subscribed to its PropertyChanged event.
+        var cursorCircle = new RecordingCursorCircle();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.FixationRadiusPixels = 80;
+        var cursorVm = new CursorCircleViewModel(settings, messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: cursorCircle),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+        Subscribe(coordinator, "OnCursorVMPropertyChanged", cursorVm);
+
+        var p = new PhysicalPoint(1000, 1000);
+        messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        messenger.Send(new ShowActivationButtonMessage(
+            p, 120, p, 80, EyeCtrl.Core.Processing.OfferPlacementStyle.AtRestPoint));
+        messenger.Send(new PinRingMessage(p));
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(p, 30_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.2)));
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(p, 60_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.4)));
+
+        var outside = new PhysicalPoint(p.X + 130, p.Y);
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(outside, 90_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.4)));
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(outside, 120_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.4)));
+
+        // The pause edge: same progress, only the paused flag changed.
+        Check.WithCustomMessage("the paused look never reached the window")
+            .That(cursorCircle.FillCalls.Exists(c => c.Paused)).IsTrue();
+        var pausedCall = cursorCircle.FillCalls.FindLast(c => c.Paused);
+        Check.That(pausedCall.Progress).IsCloseTo(0.4, 1e-12);
+
+        // Two credited frames end the excursion; the window sees paused=false again.
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(p, 150_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.5)));
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(p, 180_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.6)));
+
+        Check.That(cursorCircle.FillCalls[^1].Progress).IsCloseTo(0.6, 1e-12);
+        Check.WithCustomMessage("the end of the pause never reached the window")
+            .That(cursorCircle.FillCalls[^1].Paused).IsFalse();
+    }
+
+    /// <summary>
+    /// Subscribes one of the coordinator's private property handlers to a view model's real
+    /// <see cref="System.ComponentModel.INotifyPropertyChanged.PropertyChanged"/> event, so the test
+    /// exercises the production event wiring rather than invoking a chosen property name by hand.
+    /// </summary>
+    private static void Subscribe<TViewModel>(
+        OverlayVmBindingCoordinator coordinator, string handlerName, TViewModel vm)
+        where TViewModel : System.ComponentModel.INotifyPropertyChanged
+    {
+        var method = typeof(OverlayVmBindingCoordinator)
+            .GetMethod(handlerName, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var handler = (System.ComponentModel.PropertyChangedEventHandler)Delegate.CreateDelegate(
+            typeof(System.ComponentModel.PropertyChangedEventHandler), coordinator, method);
+        vm.PropertyChanged += handler;
+    }
+
     private static void InvokeBackdropHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
     {
         var method = typeof(OverlayVmBindingCoordinator)

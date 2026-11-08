@@ -302,10 +302,12 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     //
     // The arc is the ring's OWN stack, heavier (FiredFlash.PeakStack: same colours and opacities,
     // only wider), from 12 o'clock clockwise at FillProgress × 360°. It is built from the REST
-    // stack, like C1's fired flash, and is drawn solid: the ring's style dashes (BiTonal's, and
-    // C10's blocked look) stay on the ring's own bands, which the fill never repaints. The fill is
-    // a progress mark whose leading edge must be locatable; the unfilled part of the ring keeps
-    // every cue. No colour of its own, no wash, no disc — the two bands keep the two polarities.
+    // stack, like C1's fired flash. A solid style draws it solid, over the blocked look's dashes
+    // (the block cue stays on the unfilled ring and the fill is never fainter than the ring). A
+    // dashed style (BiTonal) keeps PeakStack's interleave, because that style's equal-width bands
+    // carry their two polarities in the dashes and a solid fill would flatten them to one colour.
+    // The fill is a progress mark whose leading edge must be locatable; no colour of its own, no
+    // wash, no disc — the two bands keep the two polarities.
 
     private double _fillProgress;
     private bool _fillPaused;
@@ -342,12 +344,18 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         Apply(FillArcOuter, peak.Outer, Tokens.BrushStrokeHalo);
         Apply(FillArcCore, peak.Core, Tokens.BrushAccent);
 
-        // Solid in every style (see the section comment above): clear the band's dash geometry that
-        // Apply copied. Both bands stay the ring's colours, opacities and (heavier) widths.
-        FillArcOuter.StrokeDashArray = new DoubleCollection();
-        FillArcOuter.StrokeDashOffset = 0;
-        FillArcCore.StrokeDashArray = new DoubleCollection();
-        FillArcCore.StrokeDashOffset = 0;
+        // A solid style's fill is one solid sweep (it draws over the blocked dashes; see the section
+        // comment), so the dash geometry Apply copied is cleared. A DASHED style keeps PeakStack's
+        // interleave: BiTonal's two bands are equal width and carry their two polarities in the
+        // dashes, so a solid fill would paint the mark band over the halo and leave one pale band
+        // (the r01 F1 / CursorRingStacks.Blocked hazard). The ring must stay visible in every style.
+        if (rest.Outer.DashPeriod <= 0 && rest.Core.DashPeriod <= 0)
+        {
+            FillArcOuter.StrokeDashArray = new DoubleCollection();
+            FillArcOuter.StrokeDashOffset = 0;
+            FillArcCore.StrokeDashArray = new DoubleCollection();
+            FillArcCore.StrokeDashOffset = 0;
+        }
 
         ApplyFill();
     }

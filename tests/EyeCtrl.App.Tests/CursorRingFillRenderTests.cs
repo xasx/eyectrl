@@ -270,9 +270,24 @@ public class CursorRingFillRenderTests
             Check.That(scene.Window.FillArcOuter.StrokeThickness).IsEqualTo(heavier.Outer.Thickness);
             Check.That(scene.Window.FillArcCore.StrokeThickness).IsEqualTo(heavier.Core.Thickness);
 
-            // The fill is a solid sweep in every style; the ring keeps its own dashes.
-            Check.That(scene.Window.FillArcOuter.StrokeDashArray).IsEmpty();
-            Check.That(scene.Window.FillArcCore.StrokeDashArray).IsEmpty();
+            // A solid style's fill is solid (the ring keeps its own dashes); a dashed style keeps
+            // PeakStack's interleave, because BiTonal's equal-width bands carry the polarity in the
+            // dashes and a solid fill would flatten them to one pale band (review-01 F1).
+            if (style == CursorRingStyle.BiTonalSegments)
+            {
+                var outerUnits = heavier.Outer.DashPeriod / heavier.Outer.Thickness;
+                var coreUnits = heavier.Core.DashPeriod / heavier.Core.Thickness;
+                Check.That(scene.Window.FillArcOuter.StrokeDashArray).ContainsExactly(outerUnits, outerUnits);
+                Check.That(scene.Window.FillArcCore.StrokeDashArray).ContainsExactly(coreUnits, coreUnits);
+                Check.That(scene.Window.FillArcOuter.StrokeDashOffset).IsEqualTo(0.0);
+                Check.That(scene.Window.FillArcCore.StrokeDashOffset)
+                    .IsEqualTo(heavier.Core.DashOffset / heavier.Core.Thickness);
+            }
+            else
+            {
+                Check.That(scene.Window.FillArcOuter.StrokeDashArray).IsEmpty();
+                Check.That(scene.Window.FillArcCore.StrokeDashArray).IsEmpty();
+            }
         }
 
         Check.That(peak.Outer.Thickness).IsStrictlyGreaterThan(owner.Outer.Thickness);
@@ -335,6 +350,94 @@ public class CursorRingFillRenderTests
         {
             DpiHelper.Initialize(priorX, priorY);
         }
+    }
+
+    [StaFact]
+    public void ARingSizeChangeWhileFilling_RedrawsTheArcAtTheNewGeometry()
+    {
+        // review-01 F4 / RV-M15: RebuildFill must re-apply the CURRENT fill. Without that call the
+        // arc keeps the old geometry until the next progress change, which during a pause can be a
+        // long wait. The 0.25 arc's bounds width is the band's centre-line radius.
+        using var scene = new FillScene(1.0, OwnerLook(), Colors.White);
+        scene.Window.UpdateFill(0.25, paused: false);
+
+        var before = ((PathGeometry)scene.Window.FillArcOuter.Data!).Bounds;
+        Check.That(before.Width).IsCloseTo((Size - 12.5) / 2, 1e-6);         // 93.75
+
+        scene.Window.UpdateAppearance(new CursorSettings
+        {
+            RingStyle = CursorRingStyle.AchromaticReticle,
+            CircleSize = 160,
+            CircleThickness = Thickness,
+            CircleOpacity = 1.0,
+            CircleColor = "#A5F3FC",
+        });
+
+        Check.That(scene.Window.FillArcOuter.Visibility).IsEqualTo(Visibility.Visible);
+        var after = ((PathGeometry)scene.Window.FillArcOuter.Data!).Bounds;
+        Check.That(after.Width).IsCloseTo((160 - 12.5) / 2, 1e-6);           // 73.75
+    }
+
+    /// <summary>The three ring styles the settings page offers.</summary>
+    public static TheoryData<CursorRingStyle> RingStyles() => new()
+    {
+        CursorRingStyle.AchromaticReticle,
+        CursorRingStyle.WeightedSandwich,
+        CursorRingStyle.BiTonalSegments,
+    };
+
+    [StaTheory]
+    [MemberData(nameof(RingStyles))]
+    public void EveryRingStyle_KeepsThreeToOneOnWhiteAndBlack_LiveAndPaused_AtDpi1And2(CursorRingStyle style)
+    {
+        // review-01 F1: the fill must keep every style visible. The BiTonal defect was invisible to a
+        // "best pixel anywhere" gate because its antialias fringe cleared 3:1 while the band BODY was
+        // 1.25:1 on white; the probe below samples the bands' centre lines only.
+        var priorX = DpiHelper.ScaleX;
+        var priorY = DpiHelper.ScaleY;
+        try
+        {
+            var stack = CursorRingStacks.For(
+                style, Size, Thickness, 1.0, "#A5F3FC", Hex(Tokens.StrokeHalo), Hex(Tokens.TextPrimary));
+            var peak = FiredFlash.PeakStack(stack, Size);
+
+            foreach (var scale in new[] { 1.0, 2.0 })
+                foreach (var (hex, backdrop) in new[] { ("#FFFFFF", Colors.White), ("#000000", Colors.Black) })
+                    foreach (var paused in new[] { false, true })
+                    {
+                        using var scene = new FillScene(scale, OwnerLook(style), backdrop);
+                        scene.Window.UpdateFill(1.0, paused);
+                        var raster = scene.Render();
+
+                        var best = BestBandBodyContrast(raster, peak, backdrop);
+                        Check.WithCustomMessage(
+                                $"{style} on {hex} (paused={paused}, dpi={scale}): the filled ring is only "
+                                + $"{best:F2}:1; the floor is 3:1.")
+                            .That(best).IsGreaterOrEqualThan(3.0);
+                    }
+        }
+        finally
+        {
+            DpiHelper.Initialize(priorX, priorY);
+        }
+    }
+
+    /// <summary>
+    /// The best contrast on the fill bands' CENTRE LINES — the body of each band, never the
+    /// antialias fringe at its edges. The fringe is exactly what let the BiTonal one-colour defect
+    /// pass a "best pixel" gate (body 1.25:1 on white, fringe ~3.1:1).
+    /// </summary>
+    private static double BestBandBodyContrast(ProbeRaster raster, CursorRingStack peak, Color backdrop)
+    {
+        var best = 1.0;
+        foreach (var thickness in new[] { peak.Outer.Thickness, peak.Core.Thickness })
+        {
+            var radius = (Size - thickness) / 2;
+            for (var angle = 0.0; angle < 360.0; angle += 0.5)
+                best = Math.Max(best, Contrast(raster.AtAngle(angle, radius), backdrop));
+        }
+
+        return best;
     }
 
     [StaFact]

@@ -20,10 +20,11 @@
                  Width="250" Height="250"
                  Canvas.Left="0" Canvas.Top="0"/>
         <!-- Rest activation R2: the fill. Two arcs in the ring's own two bands, HEAVIER (the
-             FiredFlash.PeakStack weights) and solid, drawn from 12 o'clock clockwise over the ring.
-             Collapsed at rest; the window's UpdateFill sets their geometry, brushes and the paused
-             opacity. Declared after the rest bands so the fill paints over them and before the
-             fired flash, whose one brief confirm must stay on top. -->
+             FiredFlash.PeakStack weights), drawn from 12 o'clock clockwise over the ring: solid
+             where the ring is solid, and keeping a dashed style's interleave (BiTonal). Collapsed at
+             rest; the window's UpdateFill sets their geometry, brushes and the paused opacity.
+             Declared after the rest bands so the fill paints over them and before the fired flash,
+             whose one brief confirm must stay on top. -->
         <Path x:Name="FillArcOuter" Visibility="Collapsed" IsHitTestVisible="False"
               Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="4"/>
         <Path x:Name="FillArcCore" Visibility="Collapsed" IsHitTestVisible="False"

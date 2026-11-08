@@ -210,10 +210,17 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 // Belt and braces for a replacement (ticket 8 fixup, review A F4/C18): Core closes the
                 // old offer before showing the new one, so the IsVisible edge above repositions — but a
                 // ButtonCenter change while already visible must reposition too, or the halo would sit
-                // at the old B while the new B counts. A rest offer has no button window at all (R2).
-                if (Context.ActivationVM.IsVisible
-                    && Context.ActivationVM.OfferStyle != OfferPlacementStyle.AtRestPoint)
+                // at the old B while the new B counts. A rest offer has no button window at all (R2),
+                // and a rest offer REPLACING a Button one without a hide edge must take it down here
+                // (fixup-01 F4: ShowAt never calls Show, so the style gate alone would leave it up).
+                if (Context.ActivationVM.IsVisible)
                 {
+                    if (Context.ActivationVM.OfferStyle == OfferPlacementStyle.AtRestPoint)
+                    {
+                        activationButton.HideImmediate();
+                        break;
+                    }
+
                     activationButton.ShowAt(
                         Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
                 }

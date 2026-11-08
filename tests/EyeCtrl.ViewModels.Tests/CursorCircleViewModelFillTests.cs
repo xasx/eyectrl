@@ -182,10 +182,11 @@ public class CursorCircleViewModelFillTests
     }
 
     [Fact]
-    public void AnExcursion_PausesTheFill_AndTheReturnClearsIt()
+    public void AnExcursion_PausesTheFill_AndTwoCreditedFramesEndIt()
     {
         // The engine credits only samples inside H; the progress stands still while the gaze is in
-        // the grace. Two still, out-of-area frames are the pause; a rising in-area frame ends it.
+        // the grace. Two still, out-of-area frames are the pause; TWO rising in-area frames end it
+        // (fixup-01 F3's hysteresis — one credited frame cannot, or a boundary dither strobes).
         var rig = new Rig();
         rig.RestAt(P);
         rig.Frame(P, 0.4);
@@ -201,8 +202,57 @@ public class CursorCircleViewModelFillTests
         Check.That(rig.Vm.IsFillPaused).IsTrue();
 
         rig.Frame(P, 0.55);
-        Check.That(rig.Vm.IsFillPaused).IsFalse();
+        Check.That(rig.Vm.IsFillPaused).IsTrue();       // the first credited frame is not enough
         Check.That(rig.Vm.FillProgress).IsCloseTo(0.55, 1e-12);
+
+        rig.Frame(P, 0.65);
+        Check.That(rig.Vm.IsFillPaused).IsFalse();      // the second consecutive one ends the dim
+        Check.That(rig.Vm.FillProgress).IsCloseTo(0.65, 1e-12);
+    }
+
+    [Fact]
+    public void ADitheringGazeAcrossH_GivesOnePauseAndOneRelease_NotAStrobe()
+    {
+        // The probe trace from review-01 F3: out, out, in, out, out, in, … — each return credits a
+        // single sample and then the gaze leaves again. Without hysteresis the dim toggles every
+        // third frame (~11 Hz). One excursion may show "paused" once and end it once.
+        var rig = new Rig();
+        rig.RestAt(P);
+        rig.Frame(P, 0.2);
+
+        int pausedChanges = 0;
+        bool last = rig.Vm.IsFillPaused;
+        rig.Vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(CursorCircleViewModel.IsFillPaused)) return;
+            if (rig.Vm.IsFillPaused != last)
+            {
+                last = rig.Vm.IsFillPaused;
+                pausedChanges++;
+            }
+        };
+
+        var outside = new PhysicalPoint(P.X + H + 10, P.Y);
+        double progress = 0.2;
+        for (var round = 0; round < 5; round++)
+        {
+            rig.Frame(outside, progress);
+            rig.Frame(outside, progress);
+            progress += 0.01;
+            rig.Frame(P, progress);            // a single credited sample per return
+        }
+
+        Check.That(rig.Vm.IsFillPaused).IsTrue();
+        Check.WithCustomMessage($"the dither toggled the paused look {pausedChanges} times; it must be at most 2 (one enter, no release).")
+            .That(pausedChanges).IsEqualTo(1);
+
+        // Two consecutive credited frames end the excursion exactly once.
+        progress += 0.01;
+        rig.Frame(P, progress);
+        progress += 0.01;
+        rig.Frame(P, progress);
+        Check.That(rig.Vm.IsFillPaused).IsFalse();
+        Check.That(pausedChanges).IsEqualTo(2);
     }
 
     [Fact]

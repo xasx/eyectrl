@@ -65,9 +65,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private bool _restOffer;
 
     // The rest fill's frame bookkeeping: the last valid frame's progress and how many valid frames
-    // in a row have not raised it. Both are reset with the fill.
+    // in a row have not raised it (the pause entry) or have raised it (the pause release).
     private double _lastFillFrameProgress;
     private int _fillStillFrames;
+    private int _fillRisingFrames;
 
     /// <summary>One record per <see cref="PinRingMessage"/> processed, applied or refused; the look
     /// build's event log (App side) pairs each with Core's pin origin.</summary>
@@ -165,8 +166,9 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// True while a live rest offer's fill is held in its grace: the gaze has left the rest area
-    /// H and the progress has stopped rising, so the window draws the arc dimmed. Cleared on a
-    /// rising frame, at either end of the fill, and by every reset listed on
+    /// H and the progress has stopped rising, so the window draws the arc dimmed. Entered after two
+    /// valid still frames outside H, left after <see cref="FillPausedReleaseFrames"/> consecutive
+    /// credited frames, and cleared at either end of the fill and by every reset listed on
     /// <see cref="FillProgress"/>. Derived from the frames: the engine's progress only stands
     /// still (with the offer alive) when the sample in grace was not credited.
     /// </summary>
@@ -176,6 +178,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// (60 ms at 30 ms) debounces a single out-of-area sample, while the engine's grace is 500 ms;
     /// the fill is dimmed for the rest of the excursion.</summary>
     public const int FillPausedStillFrames = 2;
+
+    /// <summary>Consecutive credited frames that end the paused look (fixup-01 F3). Symmetric with
+    /// the entry rule: one rising frame cannot clear it, so a gaze dithering across H — out, out,
+    /// in, out, … credits a single sample per return — cannot strobe the dim at ~11 Hz.</summary>
+    public const int FillPausedReleaseFrames = 2;
 
     /// <summary>
     /// The one position channel for pin edges and glide frames, forwarded by the binding coordinator to
@@ -264,19 +271,37 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         {
             _lastFillFrameProgress = progress;
             _fillStillFrames = 0;
+            _fillRisingFrames = 0;
             IsFillPaused = false;
             return;
         }
 
         if (progress > _lastFillFrameProgress)
+        {
             _fillStillFrames = 0;
+            _fillRisingFrames++;
+        }
         else
+        {
+            _fillRisingFrames = 0;
             _fillStillFrames++;
+        }
 
         _lastFillFrameProgress = progress;
 
         bool outsideRestArea = message.Position.DistanceTo(_offerCenter) > _offerHitRadiusPx;
-        IsFillPaused = outsideRestArea && _fillStillFrames >= FillPausedStillFrames;
+        if (IsFillPaused)
+        {
+            // Hysteresis (fixup-01 F3): one rising frame cannot end the dim. A gaze dithering across
+            // H reads out, out, in, out, … and each return credits exactly one sample; clearing on
+            // it would strobe the look at ~11 Hz. Two consecutive credited frames end the pause.
+            if (_fillRisingFrames >= FillPausedReleaseFrames)
+                IsFillPaused = false;
+        }
+        else if (outsideRestArea && _fillStillFrames >= FillPausedStillFrames)
+        {
+            IsFillPaused = true;
+        }
     }
 
     /// <summary>Clears the rest fill: nothing drawn, not paused, and a fresh frame bookkeeping for
@@ -287,6 +312,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         IsFillPaused = false;
         _lastFillFrameProgress = 0;
         _fillStillFrames = 0;
+        _fillRisingFrames = 0;
     }
 
     /// <summary>

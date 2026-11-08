@@ -78,6 +78,11 @@ public class ComboCodeIdentityTests
         ["c_pos_style"] = (["Crosshair", "Pin"], ["Crosshair", "Pin"]),
         ["c_ring_style"] = (["Weighted sandwich", "Bi-tonal segments", "Achromatic reticle"],
                             ["WeightedSandwich", "BiTonalSegments", "AchromaticReticle"]),
+        // R3 (rest activation): the „Aktivierung" choice. Display order IS the semantic order —
+        // RestFill (the default) first — and the codes are the enum members the settings JSON
+        // persists.
+        ["d_activation"] = (["Ring fills", "Button next to the ring"],
+                            ["RestFill", "OfferButton"]),
         ["s_mode"] = (["None", "Manual Selection", "Auto Selection"],
                       ["None", "ManualSelection", "AutoSelection"]),
         ["lay_pos"] = (["At Gaze", "At Center"], ["At Gaze", "At Center"]),
@@ -138,7 +143,7 @@ public class ComboCodeIdentityTests
             combos.AddRange(CombosOf(models));
         }
 
-        Check.That(combos.Select(c => c.Id)).HasSize(15);
+        Check.That(combos.Select(c => c.Id)).HasSize(16);
         foreach (var id in PreChangeSavedValues.Keys)
             Check.That(combos.Select(c => c.Id)).Contains(id);
         Check.That(combos.Select(c => c.Id)).Contains(

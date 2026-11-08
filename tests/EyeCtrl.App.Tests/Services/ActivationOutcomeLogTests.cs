@@ -1,0 +1,232 @@
+namespace EyeCtrl.App.Tests.Services;
+
+using System.Linq;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Services;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
+using NFluent;
+using Xunit;
+
+/// <summary>
+/// R3: the activation-outcome tracker — exactly ONE Information line per accepted activation,
+/// resolved at the session's end. Accept→action, accept→close-without-action (the unintended-open
+/// count), accept→Pause; an EXPIRED offer writes no outcome line (R1's <c>Offer expired unused</c>
+/// line already counts it); two accepts in a row produce two lines with the right ids. The exact
+/// line format is pinned in <see cref="TheOutcomeLine_HasTheExactFormatTheToolParses"/>; the
+/// adapter-side accept note is pinned in <see cref="GazeEngineAdapterActivationOutcomeTests"/>.
+/// </summary>
+public class ActivationOutcomeLogTests
+{
+    /// <summary>A deterministic clock the tracker reads: start + an offset the test advances.</summary>
+    private sealed class FakeClock
+    {
+        public long Now;
+        public long Tick() => Now;
+    }
+
+    private sealed record Harness(ActivationOutcomeLog Tracker, List<string> Log, FakeClock Clock, WeakReferenceMessenger Messenger);
+
+    private static Harness Make()
+    {
+        var lines = new List<string>();
+        var clock = new FakeClock { Now = 10_000 };
+        var messenger = new WeakReferenceMessenger();
+        var tracker = new ActivationOutcomeLog(messenger, lines.Add, clock.Tick);
+        return new Harness(tracker, lines, clock, messenger);
+    }
+
+    [Fact]
+    public void TheOutcomeLine_HasTheExactFormatTheToolParses()
+    {
+        Check.That(ActivationOutcomeLog.OutcomeLine(
+                12, "rest", "ManualSelection", "closed", 1500))
+            .IsEqualTo("Activation outcome #12 style=rest mode=ManualSelection result=closed heldMs=1500");
+        Check.That(ActivationOutcomeLog.OutcomeLine(
+                3, "button", "None", "action", 249.6))
+            .IsEqualTo("Activation outcome #3 style=button mode=None result=action heldMs=250");
+        Check.That(ActivationOutcomeLog.OutcomeLine(
+                7, "rest", "AutoSelection", "other", 61, "RepeatMode"))
+            .IsEqualTo("Activation outcome #7 style=rest mode=AutoSelection result=other state=RepeatMode heldMs=61");
+    }
+
+    [Fact]
+    public void Accept_ThenAction_WritesExactlyOneActionResultLine()
+    {
+        var h = Make();
+
+        h.Tracker.NoteAccepted(4, "rest", SelectionMode.ManualSelection);
+        h.Clock.Now += 2_500;
+        h.Messenger.Send(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(1, 1)));
+
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).IsEqualTo(
+            "Activation outcome #4 style=rest mode=ManualSelection result=action heldMs=2500");
+
+        // The FreeLook that follows the action must not write a second line.
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(1);
+    }
+
+    [Fact]
+    public void Accept_ThenCloseWithoutAction_WritesExactlyOneClosedResultLine()
+    {
+        // The unintended-open count: Back, ✕, the timeout or looking away all end in the state
+        // machine's return to FreeLook with no action on the way.
+        var h = Make();
+
+        h.Tracker.NoteAccepted(9, "rest", SelectionMode.None);
+        h.Clock.Now += 800;
+        h.Messenger.Send(new StateChangedMessage(InteractionState.ActionMenuVisible));  // interior
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).IsEqualTo(
+            "Activation outcome #9 style=rest mode=None result=closed heldMs=800");
+    }
+
+    [Fact]
+    public void Accept_ThenPause_WritesExactlyOnePausedResultLine()
+    {
+        var h = Make();
+
+        h.Tracker.NoteAccepted(5, "button", SelectionMode.AutoSelection);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.Paused));
+
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).Contains("result=paused");
+        // Resume (Paused → FreeLook) is not a second end for the same session.
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(1);
+    }
+
+    [Fact]
+    public void AnExpiryOrCloseOfTheOffer_WritesNoOutcomeLine()
+    {
+        // Only an ACCEPT notes a session. An expired (cancelled) offer — and the offer-closed
+        // traffic that follows every offer death — must produce no outcome line; R1's
+        // `Offer expired unused` line already counts cancels.
+        var h = Make();
+
+        h.Messenger.Send(new HideActivationButtonMessage());
+        h.Messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(1, 1), 10));
+        h.Messenger.Send(new HideActivationButtonMessage());
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+
+        Check.WithCustomMessage("no accept, no outcome line; logged: " + string.Join(" | ", h.Log))
+            .That(h.Log).IsEmpty();
+
+        // And the interior states of a live session do not resolve it early either.
+        h.Tracker.NoteAccepted(2, "rest", SelectionMode.ManualSelection);
+        foreach (var state in new[]
+                 {
+                     InteractionState.ManualSelectionActive,
+                     InteractionState.ManualSelectionActionMenuVisible,
+                     InteractionState.Fixation,
+                     InteractionState.ActionMenuVisible,
+                 })
+            h.Messenger.Send(new StateChangedMessage(state));
+        Check.WithCustomMessage("the session's own states never end it; logged: " + string.Join(" | ", h.Log))
+            .That(h.Log).IsEmpty();
+
+        // The offer's OWN close follows every accept (RequestActivationOfferAccept closes the
+        // accepted offer, and the adapter marshals its hide): that hide must not end the session
+        // either — only the activation's surfaces ending (FreeLook / an action / Pause) may.
+        h.Messenger.Send(new HideActivationButtonMessage());
+        Check.WithCustomMessage(
+                "the accepted offer's own hide must not resolve the session; logged: "
+                + string.Join(" | ", h.Log))
+            .That(h.Log).IsEmpty();
+
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(1);
+    }
+
+    [Fact]
+    public void TwoAcceptsInARow_TwoLinesWithTheRightIds()
+    {
+        var h = Make();
+
+        h.Tracker.NoteAccepted(11, "rest", SelectionMode.None);
+        h.Clock.Now += 300;
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        h.Tracker.NoteAccepted(12, "rest", SelectionMode.None);
+        h.Clock.Now += 500;
+        h.Messenger.Send(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(1, 1)));
+
+        Check.That(h.Log).HasSize(2);
+        Check.That(h.Log[0]).IsEqualTo(
+            "Activation outcome #11 style=rest mode=None result=closed heldMs=300");
+        Check.That(h.Log[1]).IsEqualTo(
+            "Activation outcome #12 style=rest mode=None result=action heldMs=500");
+    }
+
+    [Fact]
+    public void ADragOrScrollStart_IsAnActionResult()
+    {
+        var h = Make();
+
+        h.Tracker.NoteAccepted(6, "rest", SelectionMode.ManualSelection);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.Dragging));
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).Contains("result=action");
+
+        h.Tracker.NoteAccepted(7, "rest", SelectionMode.ManualSelection);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.ScrollMode));
+        Check.That(h.Log).HasSize(2);
+        Check.That(h.Log[1]).Contains("result=action");
+
+        // The drag's own end (back to FreeLook) resolves nothing further.
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(2);
+    }
+
+    [Fact]
+    public void AnUnexpectedState_IsNamedAsOther()
+    {
+        var h = Make();
+
+        h.Tracker.NoteAccepted(8, "rest", SelectionMode.None);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.RepeatMode));
+
+        Check.That(h.Log).HasSize(1);
+        Check.That(h.Log[0]).IsEqualTo(
+            "Activation outcome #8 style=rest mode=None result=other state=RepeatMode heldMs=0");
+    }
+
+    [Fact]
+    public void ASecondAcceptBeforeTheFirstEnds_ClosesTheFirstAsSuperseded()
+    {
+        // The state machine cannot accept twice without ending the first session; this pins the
+        // invariant (one line per accept) against a future wiring change anyway.
+        var h = Make();
+
+        h.Tracker.NoteAccepted(1, "rest", SelectionMode.None);
+        h.Clock.Now += 120;
+        h.Tracker.NoteAccepted(2, "rest", SelectionMode.None);
+        h.Clock.Now += 40;
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+
+        Check.That(h.Log).HasSize(2);
+        Check.That(h.Log[0]).Contains("#1").And.Contains("result=other state=superseded");
+        Check.That(h.Log[1]).IsEqualTo(
+            "Activation outcome #2 style=rest mode=None result=closed heldMs=40");
+    }
+
+    [Fact]
+    public void Dispose_Unsubscribes_TheLogGoesSilent()
+    {
+        var h = Make();
+
+        h.Tracker.NoteAccepted(3, "rest", SelectionMode.None);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(1);
+
+        h.Tracker.Dispose();
+
+        h.Tracker.NoteAccepted(4, "rest", SelectionMode.None);
+        h.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(h.Log).HasSize(1);
+    }
+}

@@ -19,10 +19,41 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.dwell.fixation.label"), 100, 1000, 25, 0,
                     () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.fixation.description") },
-                new SliderSpec("d_act",
-                    StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
-                    () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.dwell.activation.description"), Simple = true },
+                // R3 (rest activation): the style chooses HOW a rest activates — the ring fills at
+                // the spot (RestFill, the default since the owner's decision of 08.11) or today's
+                // button beside the ring (OfferButton, the fallback until a sitting passes).
+                new ComboBoxSpec("d_activation",
+                    StringTable.Current.T("settings.dwell.activation_style.label"),
+                    [
+                        StringTable.Current.T("settings.dwell.activation_style.option.rest_fill"),
+                        StringTable.Current.T("settings.dwell.activation_style.option.offer_button"),
+                    ],
+                    Enum.GetNames<Core.Settings.ActivationStyle>(),
+                    () => d.ActivationStyle.ToString(),
+                    v =>
+                    {
+                        d.ActivationStyle = Enum.Parse<Core.Settings.ActivationStyle>(v);
+                        _ctx.ApplyAndSave();
+                        // Still required: the dwell slider right below swaps between the ring
+                        // fill time and the button dwell with the style — the Cursor tab's
+                        // colour-row pattern (a rebuild only ever fires from a completed dwell on
+                        // one of the combo's OPTIONS, never while the user dwells on the row
+                        // itself; see the memory note on rebuilds killing a running dwell).
+                        _ctx.RebuildContent();
+                    })
+                    { Description = StringTable.Current.T("settings.dwell.activation_style.description"), Simple = true },
+                // The style owns which dwell this row tunes: the fill time F under RestFill, the
+                // button dwell under OfferButton. One row at a time, swapped by the rebuild the
+                // combo's Set issues above.
+                d.ActivationStyle == Core.Settings.ActivationStyle.RestFill
+                    ? (SettingsRowSpec)new SliderSpec("d_rest_fill",
+                        StringTable.Current.T("settings.dwell.rest_fill.label"), 200, 2000, 50, 0,
+                        () => d.RestFillMs, v => { d.RestFillMs = (int)v; _ctx.ApplyAndSave(); })
+                        { Description = StringTable.Current.T("settings.dwell.rest_fill.description"), Simple = true }
+                    : new SliderSpec("d_act",
+                        StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
+                        () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                        { Description = StringTable.Current.T("settings.dwell.activation.description"), Simple = true },
                 new SliderSpec("d_menu",
                     StringTable.Current.T("settings.dwell.action_menu.label"), 200, 2000, 50, 0,
                     () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
@@ -94,6 +125,8 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     {
                         var def = new Core.Settings.DwellSettings();
                         d.FixationDetectionMs = def.FixationDetectionMs;
+                        d.ActivationStyle = def.ActivationStyle;
+                        d.RestFillMs = def.RestFillMs;
                         d.ActivationButtonDwellMs = def.ActivationButtonDwellMs;
                         d.ActionMenuDwellMs = def.ActionMenuDwellMs;
                         d.ManualSelectionActionMenuDwellMs = def.ManualSelectionActionMenuDwellMs;

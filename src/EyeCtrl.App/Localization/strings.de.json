@@ -1822,6 +1822,22 @@
     "text": "Aktivator (ms)",
     "src": "3f69be87"
   },
+  "settings.dwell.activation_style.description": {
+    "text": "Wie eine Ruhe-Aktivierung auslöst: Der Ring füllt sich, oder ein Knopf erscheint daneben.",
+    "src": "b5e6b587"
+  },
+  "settings.dwell.activation_style.label": {
+    "text": "Aktivierung",
+    "src": "814ac48e"
+  },
+  "settings.dwell.activation_style.option.offer_button": {
+    "text": "Knopf neben dem Ring",
+    "src": "b0f13a5f"
+  },
+  "settings.dwell.activation_style.option.rest_fill": {
+    "text": "Ring füllt sich",
+    "src": "d2335f21"
+  },
   "settings.dwell.cooldown.description": {
     "text": "Wie lange ein neues Verweilen nach einer Auslösung warten muss.",
     "src": "1c2d2800"
@@ -1901,6 +1917,14 @@
   "settings.dwell.reset.message": {
     "text": "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?",
     "src": "ba2414da"
+  },
+  "settings.dwell.rest_fill.description": {
+    "text": "Wie lange sich der Ring füllt, nachdem der Blick zur Ruhe gekommen ist.",
+    "src": "ac2391ec"
+  },
+  "settings.dwell.rest_fill.label": {
+    "text": "Füllzeit des Rings (ms)",
+    "src": "49a460dd"
   },
   "settings.dwell.resume.description": {
     "text": "Wie lange der Blick in der Pause auf „Fortsetzen“ ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste plus 200 ms.",

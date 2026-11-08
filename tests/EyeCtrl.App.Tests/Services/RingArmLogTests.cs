@@ -23,12 +23,12 @@ public class RingArmLogTests
     public void StartupLine_Default_RunsHybrid_PrintsTheHybridParameters_AndTheDefaultSource()
     {
         // Since the owner's look, a launch with no --ring-arm runs the hybrid (B); the line names it
-        // so the readout can see which arm actually ran.
+        // so the readout can see which arm actually ran. R3: activation= names the live style too.
         var launch = RingArmArgument.Parse(new[] { "EyeCtrl.exe" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
+        Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) [source: default]");
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest [source: default]");
     }
 
     [Fact]
@@ -36,9 +36,9 @@ public class RingArmLogTests
     {
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=hybrid" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
+        Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
     }
 
     [Fact]
@@ -46,9 +46,9 @@ public class RingArmLogTests
     {
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=run-only" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
+        Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: run-only (pin=RunOnly, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+            + "go=0 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
     }
 
     [Fact]
@@ -56,9 +56,9 @@ public class RingArmLogTests
     {
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=today" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
+        Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+            + "go=0 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
     }
 
     [Fact]
@@ -68,9 +68,21 @@ public class RingArmLogTests
         // the fallback is visible in the readout.
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=fast" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
+        Check.That(RingArmLog.StartupLine(launch, ActivationStyle.RestFill)).IsEqualTo(
             "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=rest [source: --ring-arm]");
+    }
+
+    [Fact]
+    public void StartupLine_OfferButtonStyle_PrintsActivationButton()
+    {
+        // R3: the startup line names the live activation style — rest (above) or button — so a log
+        // says which activation the session ran with, taken from Dwell.ActivationStyle at launch.
+        var launch = RingArmArgument.Parse(new[] { "EyeCtrl.exe" });
+
+        Check.That(RingArmLog.StartupLine(launch, ActivationStyle.OfferButton)).IsEqualTo(
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
+            + "go=500 ms corridor=1.25R, glideOut=0) activation=button [source: default]");
     }
 
     [Fact]

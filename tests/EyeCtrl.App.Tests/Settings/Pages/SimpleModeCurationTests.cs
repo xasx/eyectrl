@@ -56,6 +56,23 @@ public class SimpleModeCurationTests
                 "Slider:c_opacity", "Slider:c_size", "Button:c_reset");
     }
 
+    [Fact]
+    public void Dwell_OfferButton_d_actIsSimple()
+    {
+        // R3: the conditional dwell slider is Simple in BOTH its forms — under OfferButton the
+        // curated set shows d_act (the button dwell) where the default build shows d_rest_fill,
+        // so the branch swap cannot silently drop the row out of simple mode (the Cursor tab's
+        // AchromaticReticle precedent).
+        var settings = new EyeCtrlSettings { Dwell = { ActivationStyle = ActivationStyle.OfferButton } };
+        var ctx = TestSettingsPageContext.Build(settings: settings);
+        var rows = SimpleFilter(ctx, "Dwell");
+
+        Check.That(rows.Select(Describe)).ContainsExactly(
+            "Combo:d_activation", "Slider:d_act", "Slider:d_menu", "Slider:d_tool",
+            "Slider:d_key", "Slider:d_pred", "Slider:d_rad", "Slider:d_pause_grace",
+            "Toggle:d_cue_sound", "Toggle:d_status_chime", "Button:d_reset");
+    }
+
     public static TheoryData<string> SupervisionBranches() => new() { "connected", "disconnected", "unavailable" };
 
     [Theory]
@@ -177,9 +194,12 @@ public class SimpleModeCurationTests
         // dwell is the one dwell control a caregiver is expected to find); it builds after d_cooldown.
         // d_status_chime is B3's tracker-disconnect chime: Simple because the owner hears it by
         // default and must be able to turn it off; it builds after d_cue_sound.
-        "Dwell" => ["Slider:d_act", "Slider:d_menu", "Slider:d_tool", "Slider:d_key",
-            "Slider:d_pred", "Slider:d_rad", "Slider:d_pause_grace", "Toggle:d_cue_sound",
-            "Toggle:d_status_chime", "Button:d_reset"],
+        // R3: d_activation (the style choice) and d_rest_fill (the fill time under the default
+        // RestFill) are Simple — the owner tunes both in a sitting; under OfferButton the row below
+        // the combo is d_act instead (pinned by Dwell_OfferButton_d_actIsSimple below).
+        "Dwell" => ["Combo:d_activation", "Slider:d_rest_fill", "Slider:d_menu", "Slider:d_tool",
+            "Slider:d_key", "Slider:d_pred", "Slider:d_rad", "Slider:d_pause_grace",
+            "Toggle:d_cue_sound", "Toggle:d_status_chime", "Button:d_reset"],
         "Keyboard" => ["Combo:k_layout", "Slider:k_size", "Toggle:k_pred", "Combo:k_lang",
             "Toggle:k_sound", "Button:k_reset"],
         _ => throw new ArgumentException($"Unknown simple tab {tab}")

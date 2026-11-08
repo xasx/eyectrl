@@ -19,6 +19,15 @@
                  Stroke="{StaticResource BrushAccent}" StrokeThickness="2"
                  Width="250" Height="250"
                  Canvas.Left="0" Canvas.Top="0"/>
+        <!-- Rest activation R2: the fill. Two arcs in the ring's own two bands, HEAVIER (the
+             FiredFlash.PeakStack weights) and solid, drawn from 12 o'clock clockwise over the ring.
+             Collapsed at rest; the window's UpdateFill sets their geometry, brushes and the paused
+             opacity. Declared after the rest bands so the fill paints over them and before the
+             fired flash, whose one brief confirm must stay on top. -->
+        <Path x:Name="FillArcOuter" Visibility="Collapsed" IsHitTestVisible="False"
+              Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="4"/>
+        <Path x:Name="FillArcCore" Visibility="Collapsed" IsHitTestVisible="False"
+              Stroke="{StaticResource BrushAccent}" StrokeThickness="2"/>
         <!-- Wave C C1: the "fired" flash, a weight step. Collapsed at rest; FiredFlash shows both
              for one brief step. They are the two bands again (same colours and opacities, set in
              UpdateAppearance), only wider, outer then core like the rest pair, so the ring turns

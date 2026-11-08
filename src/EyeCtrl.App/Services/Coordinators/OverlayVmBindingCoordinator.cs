@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -160,6 +161,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 // The pin is the "you're holding" signal: the ring goes bold and stops moving.
                 cursorCircle.SetPinned(Context.CursorVM.IsPinned);
                 break;
+            case nameof(CursorCircleViewModel.FillProgress):
+            case nameof(CursorCircleViewModel.IsFillPaused):
+                // Rest activation R2: the ring draws the fill itself. One call carries both values;
+                // either property's change applies the same current pair, so the order they arrive
+                // in cannot leave the arc at the other's stale state.
+                cursorCircle.UpdateFill(Context.CursorVM.FillProgress, Context.CursorVM.IsFillPaused);
+                break;
         }
     }
 
@@ -176,6 +184,15 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
+                    if (Context.ActivationVM.OfferStyle == OfferPlacementStyle.AtRestPoint)
+                    {
+                        // Rest activation (R2): there is no second target, so there is no button
+                        // window — the ring draws the fill itself. HideImmediate also clears a
+                        // window left over from a Button offer replaced by this rest one.
+                        activationButton.HideImmediate();
+                        break;
+                    }
+
                     // Centred on the offer's B, sized for the offer's hit radius — both carried on the
                     // show message, so the drawn feedback cannot disagree with the counted area.
                     // Positioned BEFORE showing — the other order presents the previous halo at the new
@@ -193,8 +210,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 // Belt and braces for a replacement (ticket 8 fixup, review A F4/C18): Core closes the
                 // old offer before showing the new one, so the IsVisible edge above repositions — but a
                 // ButtonCenter change while already visible must reposition too, or the halo would sit
-                // at the old B while the new B counts.
-                if (Context.ActivationVM.IsVisible)
+                // at the old B while the new B counts. A rest offer has no button window at all (R2).
+                if (Context.ActivationVM.IsVisible
+                    && Context.ActivationVM.OfferStyle != OfferPlacementStyle.AtRestPoint)
                 {
                     activationButton.ShowAt(
                         Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);

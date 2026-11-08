@@ -450,6 +450,102 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(glassBackdrop.HideButtonPaused).IsFalse();
     }
 
+    [Fact]
+    public void RestOffer_DoesNotShowTheActivationButtonWindow()
+    {
+        // R2-M5: the rest style has no second target, so the button window must stay out of it —
+        // the ring draws the fill instead. The Button style keeps today's show (pinned above).
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = new EyeCtrlSettings(),
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        var rest = new PhysicalPoint(1000, 1000);
+        messenger.Send(new ShowActivationButtonMessage(
+            rest, 120, rest, 80, EyeCtrl.Core.Processing.OfferPlacementStyle.AtRestPoint));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        Check.That(activationButton.ShownAt).IsEmpty();
+        Check.That(activationButton.Calls).Not.Contains("Show");
+    }
+
+    [Fact]
+    public void AButtonOfferAfterARestOffer_ShowsTheWindowAgain()
+    {
+        // The style is read per show, so a fallback Button offer is not silenced by a previous rest.
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = new EyeCtrlSettings(),
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        var p = new PhysicalPoint(1000, 1000);
+        messenger.Send(new ShowActivationButtonMessage(
+            p, 120, p, 80, EyeCtrl.Core.Processing.OfferPlacementStyle.AtRestPoint));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+        messenger.Send(new HideActivationButtonMessage());
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(1400, 800), 150));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        Check.That(activationButton.ShownAt).HasSize(1);
+        Check.That(activationButton.Calls).ContainsExactly("HideImmediate", "HideImmediate", "ShowAt", "Show");
+    }
+
+    [Fact]
+    public void RestFill_IsForwardedToTheRing()
+    {
+        // R2: FillProgress/IsFillPaused reach the window through the one UpdateFill call.
+        var cursorCircle = new RecordingCursorCircle();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.FixationRadiusPixels = 80;
+        var cursorVm = new CursorCircleViewModel(settings, messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: cursorCircle),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        var p = new PhysicalPoint(1000, 1000);
+        messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        messenger.Send(new ShowActivationButtonMessage(
+            p, 120, p, 80, EyeCtrl.Core.Processing.OfferPlacementStyle.AtRestPoint));
+        messenger.Send(new PinRingMessage(p));
+        messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(p, 30_000, IsInGap: false, ActivationProgress: 0, ButtonDwellProgress: 0.42)));
+
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.FillProgress));
+
+        Check.That(cursorCircle.FillCalls).HasSize(1);
+        Check.That(cursorCircle.FillCalls[0].Progress).IsCloseTo(0.42, 1e-12);
+        Check.That(cursorCircle.FillCalls[0].Paused).IsFalse();
+    }
+
     private static void InvokeBackdropHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
     {
         var method = typeof(OverlayVmBindingCoordinator)
@@ -472,13 +568,14 @@ public class OverlayVmBindingCoordinatorTests
     }
 
     /// <summary>Private nested fake (repo convention: no mocking library): records the pins, moves,
-    /// and the show/hide forwarding (the paused ring's whole mechanism).</summary>
+    /// the fill, and the show/hide forwarding (the paused ring's whole mechanism).</summary>
     private sealed class RecordingCursorCircle : ICursorCircleOverlay
     {
         public int ShowCalls { get; private set; }
         public int HideCalls { get; private set; }
         public List<bool> PinnedCalls { get; } = new();
         public List<(PhysicalPoint Target, bool Glide)> MoveCalls { get; } = new();
+        public List<(double Progress, bool Paused)> FillCalls { get; } = new();
 
         public void Show() => ShowCalls++;
         public void Hide() => HideCalls++;
@@ -486,6 +583,7 @@ public class OverlayVmBindingCoordinatorTests
         public void MoveTo(PhysicalPoint point, bool glide) => MoveCalls.Add((point, glide));
         public void UpdateAppearance(CursorSettings settings) { }
         public void SetPinned(bool pinned) => PinnedCalls.Add(pinned);
+        public void UpdateFill(double progress, bool paused) => FillCalls.Add((progress, paused));
     }
 
     /// <summary>Records where the halo was placed, the radius it was sized for, and the call order.</summary>

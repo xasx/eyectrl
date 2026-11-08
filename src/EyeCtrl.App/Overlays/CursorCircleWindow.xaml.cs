@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
@@ -238,6 +239,10 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         var stack = _restStack.Value;
         ApplyStack();
 
+        // R2: the fill's bands are the same stack, heavier; rebuilt here with the rest look so a
+        // settings change and a live fill can never disagree about colours or widths.
+        RebuildFill(stack);
+
         Width = size;
         Height = size;
         Circle.Width = size;
@@ -293,6 +298,124 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         Apply(Circle, stack.Core, Tokens.BrushAccent);
     }
 
+    // ── Rest activation R2: the fill ──
+    //
+    // The arc is the ring's OWN stack, heavier (FiredFlash.PeakStack: same colours and opacities,
+    // only wider), from 12 o'clock clockwise at FillProgress × 360°. It is built from the REST
+    // stack, like C1's fired flash, and is drawn solid: the ring's style dashes (BiTonal's, and
+    // C10's blocked look) stay on the ring's own bands, which the fill never repaints. The fill is
+    // a progress mark whose leading edge must be locatable; the unfilled part of the ring keeps
+    // every cue. No colour of its own, no wash, no disc — the two bands keep the two polarities.
+
+    private double _fillProgress;
+    private bool _fillPaused;
+    private CursorRingStack? _fillPeak;
+    private double _fillCentre;
+    private FillArc? _fillOuter;
+    private FillArc? _fillCore;
+
+    /// <summary>One band's fill geometry: the reusable partial arc (mutated per frame, never
+    /// reallocated) and the cached full ring for progress 1.</summary>
+    private sealed record FillArc(PathGeometry Geometry, ArcSegment Segment, double Radius, Geometry Full);
+
+    /// <summary>
+    /// The rest fill from the ring's view model: the arc's fraction (0..1) and whether the fill is
+    /// held in its grace. Display only; 0 collapses the arc, and a non-finite value is treated as 0.
+    /// </summary>
+    public void UpdateFill(double progress, bool paused)
+    {
+        _fillProgress = double.IsFinite(progress) ? Math.Clamp(progress, 0.0, 1.0) : 0.0;
+        _fillPaused = paused;
+        ApplyFill();
+    }
+
+    /// <summary>Rebuilds the fill's bands and geometry for a new ring size/thickness/colour. The
+    /// current progress is re-applied, so a settings change mid-fill never strands a stale arc.</summary>
+    private void RebuildFill(CursorRingStack rest)
+    {
+        var peak = FiredFlash.PeakStack(rest, _size);
+        _fillPeak = peak;
+        _fillCentre = _size / 2.0;
+        _fillOuter = BuildFillArc(_size, peak.Outer.Thickness);
+        _fillCore = BuildFillArc(_size, peak.Core.Thickness);
+
+        Apply(FillArcOuter, peak.Outer, Tokens.BrushStrokeHalo);
+        Apply(FillArcCore, peak.Core, Tokens.BrushAccent);
+
+        // Solid in every style (see the section comment above): clear the band's dash geometry that
+        // Apply copied. Both bands stay the ring's colours, opacities and (heavier) widths.
+        FillArcOuter.StrokeDashArray = new DoubleCollection();
+        FillArcOuter.StrokeDashOffset = 0;
+        FillArcCore.StrokeDashArray = new DoubleCollection();
+        FillArcCore.StrokeDashOffset = 0;
+
+        ApplyFill();
+    }
+
+    /// <summary>
+    /// One band's arc: a path whose stroke is centred on <c>(size − thickness) / 2</c>, so its
+    /// OUTER edge lands on the ring's outer edge exactly as the ellipse bands do. A Path strokes
+    /// centred while a Shape's ellipse strokes inside its bounds; the radius formula is what makes
+    /// the two coincide. Reusing <see cref="DwellArcButton.UpdateArc"/> keeps the per-frame path
+    /// allocation-free: the figure and segment are built once and only their end point moves.
+    /// </summary>
+    private FillArc BuildFillArc(double size, double thickness)
+    {
+        double radius = Math.Max(0, (size - thickness) / 2);
+        var start = new Point(_fillCentre, _fillCentre - radius);
+        var segment = new ArcSegment
+        {
+            Point = start,
+            Size = new Size(radius, radius),
+            IsLargeArc = false,
+            SweepDirection = SweepDirection.Clockwise,
+        };
+        var figure = new PathFigure { StartPoint = start, IsClosed = false };
+        figure.Segments.Add(segment);
+        var geometry = new PathGeometry();
+        geometry.Figures.Add(figure);
+
+        // ArcSegment cannot draw a closed circle (start == end is degenerate), so the full ring is
+        // its own cached, frozen ellipse with the same centre line and stroke.
+        var full = new EllipseGeometry(new Point(_fillCentre, _fillCentre), radius, radius);
+        full.Freeze();
+
+        return new FillArc(geometry, segment, radius, full);
+    }
+
+    private void ApplyFill()
+    {
+        if (_fillPeak is not { } peak || _fillOuter is not { } outer || _fillCore is not { } core
+            || _fillProgress <= 0)
+        {
+            FillArcOuter.Visibility = Visibility.Collapsed;
+            FillArcCore.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        // Paused is the shared dwell-paused cue's opacity (0.7), applied to BOTH bands: measured at
+        // ≥ 3:1 on white and black for the owner's AchromaticReticle, and still plainly visible.
+        double pausedOpacity = DwellPausedCue.OpacityFor(_fillPaused);
+        FillArcOuter.Opacity = peak.Outer.Opacity * pausedOpacity;
+        FillArcCore.Opacity = peak.Core.Opacity * pausedOpacity;
+
+        if (_fillProgress >= 1)
+        {
+            FillArcOuter.Data = outer.Full;
+            FillArcCore.Data = core.Full;
+        }
+        else
+        {
+            FillArcOuter.Data = outer.Geometry;
+            FillArcCore.Data = core.Geometry;
+            DwellArcButton.UpdateArc(outer.Segment, new Point(_fillCentre, _fillCentre), outer.Radius, _fillProgress);
+            DwellArcButton.UpdateArc(core.Segment, new Point(_fillCentre, _fillCentre), core.Radius, _fillProgress);
+        }
+
+        FillArcOuter.Visibility = Visibility.Visible;
+        FillArcCore.Visibility = Visibility.Visible;
+    }
+
     /// <summary>
     /// Paints one band onto one ellipse. The brush is built and frozen here, once per
     /// settings change and never per frame — see the note in HaloZOrderTests about why this
@@ -302,7 +425,7 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     /// <param name="band">The band's colour, width, opacity and dash geometry.</param>
     /// <param name="fallback">Used when the band's hex is unparseable, which only the
     /// user-supplied mark colour can be.</param>
-    private static void Apply(Ellipse target, RingBand band, SolidColorBrush fallback)
+    private static void Apply(Shape target, RingBand band, SolidColorBrush fallback)
     {
         try
         {

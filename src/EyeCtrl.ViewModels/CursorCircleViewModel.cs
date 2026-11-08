@@ -60,6 +60,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     // The latest ShowActivationButtonMessage carried a rest-style offer.
     private bool _restOffer;
 
+    // The rest fill's frame bookkeeping: the last valid frame's progress and how many valid frames
+    // in a row have not raised it. Both are reset with the fill.
+    private double _lastFillFrameProgress;
+    private int _fillStillFrames;
+
     /// <summary>One record per <see cref="PinRingMessage"/> processed, applied or refused; the look
     /// build's event log (App side) pairs each with Core's pin origin.</summary>
     public event Action<RingPinProcessedEvent>? RingPinProcessed;
@@ -145,6 +150,30 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     [ObservableProperty] private bool _isVisible = true;
 
     /// <summary>
+    /// Rest activation R2: how far the rest fill has swept around the ring, 0..1. It follows the
+    /// offer engine's <see cref="GazeFrame.ButtonDwellProgress"/> from the frames this VM already
+    /// receives, but only while the ring is pinned to a live rest-style offer — a Button offer
+    /// keeps today's halo and reads 0 here. It is 0 on the offer's hide, on release, and whenever
+    /// the ring is hidden (Paused, RepeatMode, a menu, external dwell). Gap frames keep the last
+    /// value, like the engine's own ledger does.
+    /// </summary>
+    [ObservableProperty] private double _fillProgress;
+
+    /// <summary>
+    /// True while a live rest offer's fill is held in its grace: the gaze has left the rest area
+    /// H and the progress has stopped rising, so the window draws the arc dimmed. Cleared on a
+    /// rising frame, at either end of the fill, and by every reset listed on
+    /// <see cref="FillProgress"/>. Derived from the frames: the engine's progress only stands
+    /// still (with the offer alive) when the sample in grace was not credited.
+    /// </summary>
+    [ObservableProperty] private bool _isFillPaused;
+
+    /// <summary>Valid frames a rest fill must stand still before the pause look shows. Two frames
+    /// (60 ms at 30 ms) debounces a single out-of-area sample, while the engine's grace is 500 ms;
+    /// the fill is dimmed for the rest of the excursion.</summary>
+    public const int FillPausedStillFrames = 2;
+
+    /// <summary>
     /// The one position channel for pin edges and glide frames, forwarded by the binding coordinator to
     /// <c>ICursorCircleOverlay.MoveTo</c>. <see cref="Position"/> stays the channel for ordinary
     /// gaze-following writes and its existing readers; during a glide only this property moves, so the
@@ -175,6 +204,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(GazeCursorMovedMessage message)
     {
+        // The rest fill is a per-sample read of the offer engine's ledger. It runs before the
+        // glide/hold paths below and does not touch the position channel.
+        AdvanceRestFill(message);
+
         // The hybrid's hold runs BEFORE the follow and before _latestGaze moves: the freeze stops the
         // ring on the drawn point, and a release resolved here snaps to the previous sample — the same
         // order the replay model applies (its cursor step is last).
@@ -195,6 +228,61 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // exactly where UpdateVisibility's reappear snap put it.
         if (IsVisible && !IsPinned)
             Position = message.Position;
+    }
+
+    /// <summary>
+    /// Reads the rest fill from one frame. The arc exists only on a rest-style offer whose ring is
+    /// pinned and visible; every other state reads 0 through <see cref="ResetFill"/> (a Button
+    /// offer never writes here, so its halo is untouched). A gap frame carries no evidence about
+    /// either the progress or the exit that would pause it, so both hold their last value.
+    /// <para>
+    /// The pause is derived, not published: the engine credits only samples inside the rest area H,
+    /// so with the offer still alive a progress that has not risen over
+    /// <see cref="FillPausedStillFrames"/> valid frames, while the gaze is outside H, is exactly
+    /// the grace. A single out-of-area sample never dims the arc.
+    /// </para>
+    /// </summary>
+    private void AdvanceRestFill(GazeCursorMovedMessage message)
+    {
+        if (!_restOffer || !_offerLive || !IsPinned || !IsVisible || message.IsInGap)
+            return;
+
+        double progress = message.Frame.ButtonDwellProgress;
+        if (!double.IsFinite(progress))
+            progress = 0.0;
+        progress = Math.Clamp(progress, 0.0, 1.0);
+
+        FillProgress = progress;
+
+        // Neither end of the fill is "paused": 0 is nothing drawn, 1 is the fired wait for the
+        // accept/decline (the engine reports 1.0 while it waits).
+        if (progress <= 0 || progress >= 1)
+        {
+            _lastFillFrameProgress = progress;
+            _fillStillFrames = 0;
+            IsFillPaused = false;
+            return;
+        }
+
+        if (progress > _lastFillFrameProgress)
+            _fillStillFrames = 0;
+        else
+            _fillStillFrames++;
+
+        _lastFillFrameProgress = progress;
+
+        bool outsideRestArea = message.Position.DistanceTo(_offerCenter) > _offerHitRadiusPx;
+        IsFillPaused = outsideRestArea && _fillStillFrames >= FillPausedStillFrames;
+    }
+
+    /// <summary>Clears the rest fill: nothing drawn, not paused, and a fresh frame bookkeeping for
+    /// the next offer. Called on every show, hide, release and hiding state.</summary>
+    private void ResetFill()
+    {
+        FillProgress = 0;
+        IsFillPaused = false;
+        _lastFillFrameProgress = 0;
+        _fillStillFrames = 0;
     }
 
     /// <summary>
@@ -265,6 +353,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// </summary>
     public void Receive(ReleaseRingMessage message)
     {
+        ResetFill();
+
         if (HybridActive)
         {
             if (!_holding && _approachUntilUs is null)
@@ -315,6 +405,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// exits; the button's show/hide are NOT pin edges in any policy (the pin's lifetime is Core's).</summary>
     public void Receive(ShowActivationButtonMessage message)
     {
+        // A new offer is a new fill: the arc must not carry the previous offer's sweep for even one
+        // frame. The first frame after the pin sets it.
+        ResetFill();
+
         bool rest = message.Style == OfferPlacementStyle.AtRestPoint;
         if (rest && HybridActive)
         {
@@ -389,6 +483,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public void Receive(HideActivationButtonMessage message)
     {
         _offerLive = false;
+        ResetFill();
+
         if (!HybridActive)
             return;
 
@@ -569,6 +665,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
             Position = _latestGaze;
 
         IsVisible = nowVisible;
+
+        // A hidden ring draws no fill. This is the Paused/RepeatMode/menu path and the external
+        // dwell's hide; the offer may still be alive behind it, so a mere re-show must not bring a
+        // stale arc back (the next frame sets the live value).
+        if (!nowVisible)
+            ResetFill();
 
         // A hidden ring cannot hold: the hybrid drops the deferred run-end and the approach, and the
         // hold ends. A hiding STATE has already snapped the pin above, so the owed release below is a

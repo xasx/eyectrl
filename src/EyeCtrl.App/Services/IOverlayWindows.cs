@@ -95,6 +95,17 @@ public interface ICursorCircleOverlay
     void FlashFired() { }
 
     /// <summary>
+    /// Rest activation R2: the rest fill drawn ON the ring — an arc from 12 o'clock clockwise at
+    /// <paramref name="progress"/> × 360°, in the ring's own stack (heavier), dimmed while
+    /// <paramref name="paused"/>. Display only: no position, pin, visibility or appearance change,
+    /// and never a colour of its own. A default no-op so the many overlay fakes that never observe
+    /// it need no member; the real window implements it.
+    /// </summary>
+    /// <param name="progress">The fill fraction, 0..1; 0 hides the arc.</param>
+    /// <param name="paused">True while the fill is held in its grace (gaze outside the rest area).</param>
+    void UpdateFill(double progress, bool paused) { }
+
+    /// <summary>
     /// Switches the ring to its blocked look while the detector reports that Windows is discarding
     /// EyeCtrl's input (C10): a PAIRED DASH per band, never a dim or a colour change, because C1's
     /// lesson is that the owner's pointer must never get harder to see. It must not touch

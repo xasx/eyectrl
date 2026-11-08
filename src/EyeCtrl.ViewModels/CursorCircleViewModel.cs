@@ -57,7 +57,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// </summary>
     private bool HybridActive => RingHoldPolicy == RingHoldPolicy.HybridFreeze && !_restOffer;
 
-    // The latest ShowActivationButtonMessage carried a rest-style offer.
+    // The latest ShowActivationButtonMessage carried a rest-style offer. After a RestFill → OfferButton
+    // switch it stays set until the first Button show (review-01 F2), and that is harmless: every Button
+    // show clears it, so while it is stale no Button offer is live, and with no Button offer the hybrid
+    // has nothing to hold or approach — its deferred release resolves to a plain release on the next
+    // sample (rule a's else). The only difference is that one sample, at settings time only.
     private bool _restOffer;
 
     /// <summary>One record per <see cref="PinRingMessage"/> processed, applied or refused; the look

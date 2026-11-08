@@ -184,6 +184,37 @@ public class RestActivationWiringTests
     }
 
     [Fact]
+    public void ACornerRest_ReturnsToItsRawP_WhenTheRunAfterAChromeSettleEnds()
+    {
+        // Review-01 X8 (the FreeLook re-pin at P′ instead of the raw P): a clamped corner rest pins the
+        // ring at the raw settle; a chrome settle during its life moves the pin off the offer, and the
+        // run's end must put it back where the rest's ring was, not on the clamped completion point.
+        var x = new ImHarness(RestEngine(3840, 2400, 2.0));
+        var raw = new PhysicalPoint(-150, -150);
+        var chromeSettle = new PhysicalPoint(600, 600);
+        x.Im.SetActivationChromeZones(new PhysicalRect(500, 500, 200, 200));
+
+        x.OnsetAndSettle(raw);
+        var offer = x.Im.ActivationOffers!.CurrentOffer!;
+        Check.That(offer.Point).IsEqualTo(new PhysicalPoint(0, 0));
+        Check.That(offer.Button).IsEqualTo(raw);
+        Check.That(x.Pins).ContainsExactly(raw);
+
+        x.Im.OnFixationEnded();                                    // a glance to the toolbar-like chrome
+        x.Im.OnFixationStarted(chromeSettle);
+        x.Sample(chromeSettle);
+        x.Im.OnFixationSettled(chromeSettle);                      // refused in chrome: pins at the settle
+        Check.That(x.Pins[^1]).IsEqualTo(chromeSettle);
+        Check.That(x.PinsAtOffer[^1]).IsFalse();
+
+        x.Im.OnFixationEnded();                                    // back to FreeLook while the rest lives
+
+        Check.That(x.Im.ActivationOffers.CurrentOffer).IsNotNull();
+        Check.That(x.Pins[^1]).IsEqualTo(raw);
+        Check.That(x.PinsAtOffer[^1]).IsTrue();
+    }
+
+    [Fact]
     public void AStyleSwitchUnderALiveRestOffer_StillReleasesItsPin()
     {
         // The old offer's close is published under the policy it was shown with; publishing it under

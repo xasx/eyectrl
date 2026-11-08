@@ -278,7 +278,8 @@ public sealed class ActivationOfferEngine
     private int _offerExpiryMs = DefaultOfferExpiryMs;
 
     // The rest style's re-arm latch L, or null: the rest centre of the last rest offer that fired or
-    // was closed by a command. Cleared by the first valid sample farther than H from it.
+    // was closed by a command. Cleared by the first valid sample STRICTLY farther than H from it: the
+    // spot is inclusive (a sample or a settle at exactly H is still on it), like the fill's own area.
     private PhysicalPoint? _rearmLatch;
 
     /// <summary>What the current run is to the live offer — it decides what the run's end does to it.</summary>
@@ -596,7 +597,8 @@ public sealed class ActivationOfferEngine
     /// let the same rest refill the moment the overlay closes.</param>
     public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool mayClearRearmLatch = true)
     {
-        // The re-arm latch lets go once the gaze has really left the spot: one valid sample past H.
+        // The re-arm latch lets go once the gaze has really left the spot: one valid sample strictly
+        // past H (exactly H is still on the spot — the refusal below uses the same inclusive bound).
         if (_rearmLatch is { } latch && mayClearRearmLatch && isValid && point.DistanceTo(latch) > RestAreaRadiusPx)
             _rearmLatch = null;
 

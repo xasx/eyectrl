@@ -803,6 +803,12 @@ public class GazeEngine : IDisposable
         if (_telemetry is null || progressAtExpiry < TelemetryThresholds.AbandonProgress)
             return;
 
+        // A rest offer's expiry is the normal look-away cancel (and an ordinary reading pause), not a
+        // failed attempt: reported as Abandoned it would feed SustainFailure, and adaptation would then
+        // shorten F and widen H — more accidental opens (R1 review-01 F1). The log line above stays.
+        if (offer.Style == OfferPlacementStyle.AtRestPoint)
+            return;
+
         _telemetry.Report(new DwellOutcome(
             timestampUs,
             DwellContext.ActivationButton,

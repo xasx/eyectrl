@@ -483,6 +483,48 @@ public class ActivationOfferEngineRestTests
 
     [Theory]
     [MemberData(nameof(Geometries))]
+    public void TheLatchBoundary_IsInclusive_ASampleAtExactlyHKeepsIt_AndASettleThereIsRefused(int width, int height, double scale)
+    {
+        // Review-01 X4 (the latch clears at exactly H, `>=`): the sample at exactly H would clear it.
+        var engine = NewRestEngine(width, height, scale);
+        var p = RestPointOf(width, height);
+        Settle(engine, p, 0);
+        long us = Feed(engine, p, 0, SamplesToFill);
+        engine.Accept(engine.CurrentOffer!.Id);
+        var atH = Offset(p, H);
+        Check.That(atH.DistanceTo(p)).IsEqualTo(H);                // exactly, no rounding
+
+        us = Feed(engine, atH, us, samples: 3);
+        Check.That(engine.RearmLatch).IsEqualTo(p);
+        Check.That(Settle(engine, atH, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
+
+        Feed(engine, Offset(p, H + 1), us + FrameUs, samples: 1);
+        Check.That(engine.RearmLatch).IsNull();
+    }
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
+    public void AFiredCornerRest_RefusesARe_SettleAtTheSameRawP_AsRearm(int width, int height, double scale)
+    {
+        // Review-01 X9 (the refusal measured from the clamped P′): the raw P is 212 px from P′, beyond
+        // H, so the re-settle would be offered again.
+        var engine = NewRestEngine(width, height, scale);
+        var refusals = new List<ActivationOfferRefusal>();
+        engine.OfferRefused += refusals.Add;
+        var raw = new PhysicalPoint(-150, -150);
+        Settle(engine, raw, 0);
+        long us = Feed(engine, raw, 0, SamplesToFill);
+        Check.That(engine.IsFired).IsTrue();
+        engine.Accept(engine.CurrentOffer!.Id);
+        Check.That(engine.RearmLatch).IsEqualTo(raw);
+
+        Check.That(Settle(engine, raw, us + FrameUs)).IsEqualTo(SettleOutcome.NoOffer);
+        Check.That(refusals).HasSize(1);
+        Check.That(refusals[0].Reason).IsEqualTo(ActivationOfferRefusalReason.Rearm);
+    }
+
+    [Theory]
+    [MemberData(nameof(Geometries))]
     public void ASampleTheWiringMarksAsNotClearing_LeavesTheLatch_HoweverFar(int width, int height, double scale)
     {
         // The wiring passes mayClearRearmLatch: false outside FreeLook/Fixation (the magnifier, menus).

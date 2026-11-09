@@ -102,7 +102,7 @@ public class RingStayOwnerScenarioTests
             _engine.InteractionManager.RingPinPolicy = AppLaunch.PinPolicy;              // App.xaml.cs
             _engine.ConfigureActivationOffers(Screen, OwnerScale);
             Ring = new CursorCircleViewModel(settings, _messenger) { RingHoldPolicy = AppLaunch.HoldPolicy };
-            Button = new ActivationButtonViewModel(_messenger, settings);
+            Button = new ActivationButtonViewModel(_messenger);   // F1: one sign for every mode, no settings
             _adapter = new GazeEngineAdapter(_engine, settings, _messenger, Dispatcher.CurrentDispatcher,
                 NullLogger<GazeEngineAdapter>.Instance, new StubControlFinder(), screenDip: () => (1920, 1200));
 

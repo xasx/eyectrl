@@ -69,6 +69,15 @@ jobs:
       - name: Self-test the keyboard log parser
         run: python tools/kb_log_metrics_test.py
 
+      # tools/activation_log_metrics.py counts the activation-offer day-log lines (offers shown /
+      # expired / never looked at / fired = accepted + declined / action-vs-closed of the accepted,
+      # first look) — the owner's sittings read the unintended-open count from them, so a wrong
+      # regex would steer the activation tuning with nothing red. It reads both the current lines
+      # and the 1.3.0 sitting build's `style=` lines. Same stdlib-unittest shape as the keyboard
+      # parser's self-test.
+      - name: Self-test the activation log parser
+        run: python tools/activation_log_metrics_test.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

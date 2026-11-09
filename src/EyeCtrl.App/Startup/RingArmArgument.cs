@@ -12,8 +12,9 @@ internal enum RingArm
     /// look made the hybrid the default.</summary>
     Today,
 
-    /// <summary>B: the run-only pin with the hybrid freeze hold (500/90/150) — the default since
-    /// the owner's look picked it (2026-10-16).</summary>
+    /// <summary>B: the run-only pin with the hybrid hold (the stay zone, and the freeze: grace 500 ms,
+    /// proven 90 ms, exits keyed to <see cref="EyeCtrl.Core.LayoutConstants.ActivationButtonHitRadiusPx"/>)
+    /// — the default since the owner's look picked it (2026-10-16).</summary>
     Hybrid,
 
     /// <summary>C: the run-only pin, no hold — the dance reference, a diagnostic arm.</summary>

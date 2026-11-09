@@ -314,7 +314,9 @@ public class GazeEngineAdapter : IDisposable
     // detected by id.
     private void OnActivationOfferFired(ActivationOffer offer, long timestampUs)
     {
-        _logger.LogInformation("Offer fired #{Id}", offer.Id);
+        // firstLookMs (round-button B1): the show-to-first-look time the fired offer carries; the
+        // metrics tool reports its median.
+        _logger.LogInformation("Offer fired #{Id} firstLookMs={FirstLookMs}", offer.Id, offer.FirstLookLogValue);
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActivationOfferFiredMessage(offer)));
     }
 

@@ -756,8 +756,11 @@ public class GazeEngine : IDisposable
     {
         // Every expiry is logged for the live check, before the telemetry threshold below: a glance
         // that did not complete is exactly what the "no chase" and completion-count readings need.
+        // firstLookMs (round-button B1) is `none` for an offer that was never looked at — the
+        // "popped up while reading" count tools/activation_log_metrics.py reports.
         _logger?.LogInformation(
-            "Offer expired unused #{Id} (dwell {Progress:P0})", offer.Id, progressAtExpiry);
+            "Offer expired unused #{Id} (dwell {Progress:P0}) firstLookMs={FirstLookMs}",
+            offer.Id, progressAtExpiry, offer.FirstLookLogValue);
 
         // The same threshold the age-based abandonment used: below it the gaze merely passed over the
         // button, not an attempt the user gave up on.

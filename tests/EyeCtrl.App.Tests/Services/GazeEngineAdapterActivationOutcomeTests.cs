@@ -267,6 +267,44 @@ public class GazeEngineAdapterActivationOutcomeTests
     }
 
     [StaFact]
+    public void TheOfferFiredLine_CarriesTheShowToFirstLookTime()
+    {
+        // Round-button B1: `Offer fired #N firstLookMs=…`, the time from the offer's show to the
+        // first look into the button's area, which the metrics tool takes the median of. The first
+        // sample on B is the first look (Direct filter: the engine sees the raw point).
+        var settings = DefaultSettings();
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var messenger = new WeakReferenceMessenger();
+        var logger = new RecordingLogger<GazeEngineAdapter>();
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, messenger, Dispatcher.CurrentDispatcher, logger, new StubControlFinder());
+
+        long us = 0;
+        for (int i = 0; i < 20; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(P.X, P.Y, us, true));
+        }
+        var offer = engine.InteractionManager.ActivationOffers!.CurrentOffer!;
+        long firstLookUs = us + 33_000;
+        for (int i = 0; i < 25; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
+        }
+
+        var fired = logger.Lines.Where(l => l.StartsWith("Offer fired #", StringComparison.Ordinal)).ToList();
+        Check.WithCustomMessage("lines: " + string.Join(" | ", logger.Lines)).That(fired).HasSize(1);
+        long expectedMs = (firstLookUs - offer.ShownAtUs) / 1000;
+        Check.That(expectedMs).IsStrictlyGreaterThan(0L);
+        Check.That(fired[0].Equals($"Offer fired #{offer.Id} firstLookMs={expectedMs}", StringComparison.Ordinal))
+            .IsTrue();
+    }
+
+    [StaFact]
     public void AnAutoSelectionDecline_WritesNoOutcomeLine()
     {
         // R3 review F4/O9: a fire that is then DECLINED writes `Offer fired` and

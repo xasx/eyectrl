@@ -314,6 +314,8 @@ public class RingArmLogTests
         // The origin is Core's truth (RingPinnedAtOffer), snapshotted where the event is raised: with
         // a real engine the offer's appearance is an OFFER pin.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Dwell.FixationRadiusPixels = 90;
         settings.Dwell.FixationDetectionMs = 300;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
@@ -353,6 +355,8 @@ public class RingArmLogTests
         // while the VM has not seen its onset (its last state is FreeLook); the applied pin after it
         // is the chrome settle. Mutant: dequeue only on applied pins → the settle pin logs as offer.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Dwell.FixationRadiusPixels = 90;
         settings.Dwell.FixationDetectionMs = 300;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;

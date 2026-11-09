@@ -82,6 +82,7 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
         {
             ["d_fix"] = (100, 1000),
             ["d_act"] = (200, 2000),
+            ["d_act_show"] = (500, 2500),
             ["d_menu"] = (200, 2000),
             ["d_ManualSelection"] = (200, 2000),
             ["d_manual_side"] = (200, 2000),

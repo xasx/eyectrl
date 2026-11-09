@@ -314,7 +314,7 @@ public class FixationDetector
         }
 
         long dt = timestampMicroseconds - _lastFedUs;
-        if (dt > _gapAbortUs)
+        if (IsPastGapBudget(timestampMicroseconds))
         {
             // Eyes were lost past the pause budget: the run is dead; this sample starts a fresh one.
             EndRun(FixationEndReason.EyesLostPastGapBudget);
@@ -323,7 +323,7 @@ public class FixationDetector
         }
 
         // Tested BEFORE it is added: the mean must not drift toward a sample that is already outside R.
-        if (currentPoint.DistanceTo(_centroid.Value) > _radiusPixels)
+        if (IsOutsideRadius(currentPoint))
         {
             EndRun(FixationEndReason.GazeLeft);
             StartRun(currentPoint, timestampMicroseconds);
@@ -342,6 +342,23 @@ public class FixationDetector
         FireSettleIfDue();
         FireActivationIfDue(timestampMicroseconds);
     }
+
+    /// <summary>
+    /// Whether this sample, fed next, would continue the open run rather than end it — the same tests
+    /// <see cref="Update(PhysicalPoint, long, bool)"/> applies (valid, within the gap budget, and within
+    /// <see cref="RadiusPixels"/> of the running centroid before it is added). False when no run is
+    /// open. Read-only: it changes no state. The activation offer's show delay (round button B3) asks
+    /// it on the sample that would show the button, so a button never appears as the eye leaves.
+    /// </summary>
+    public bool ContinuesRun(PhysicalPoint point, long timestampMicroseconds, bool isValid)
+        => isValid
+           && _centroid is not null
+           && !IsPastGapBudget(timestampMicroseconds)
+           && !IsOutsideRadius(point);
+
+    private bool IsPastGapBudget(long timestampMicroseconds) => timestampMicroseconds - _lastFedUs > _gapAbortUs;
+
+    private bool IsOutsideRadius(PhysicalPoint point) => point.DistanceTo(_centroid!.Value) > _radiusPixels;
 
     /// <summary>
     /// Returns progress toward the onset requirement as a 0.0–1.0 ratio of credited valid-time age to

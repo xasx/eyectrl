@@ -45,6 +45,8 @@ public class ActivationOfferCornerClampTests
             settings.Dwell.FixationRadiusPixels = 80;
             settings.Dwell.FixationDetectionMs = 300;
             settings.Dwell.ActivationButtonDwellMs = 700;
+            // Pinned at the settle (500 = no show delay); round button B3's delay has its own tests.
+            settings.Dwell.OfferShowAfterMs = 500;
             settings.SelectionMode = SelectionMode.ManualSelection;
             Engine = new GazeEngine(Provider, Input, settings);
             Engine.ConfigureActivationOffers(Screen, scale: 2.0);

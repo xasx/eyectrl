@@ -68,6 +68,12 @@ public enum SettleOutcome
 
     /// <summary>A fired offer was in flight: the settle changed nothing.</summary>
     Locked,
+
+    /// <summary>The settle would have created or replaced the offer, but the show delay holds it back
+    /// (round button B3): it is a candidate that becomes the offer on the first sample at which the
+    /// rest has lasted <see cref="ActivationOfferEngine.OfferShowAfterMs"/>, and is dropped silently if
+    /// the run ends first. A live older offer is left as it is until then.</summary>
+    Deferred,
 }
 
 /// <summary>Why no offer was made for an accepted settle (corner fix 2026-10-17, F3).</summary>
@@ -156,7 +162,10 @@ public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
 /// <item><b>Creation.</b> Only an accepted settle makes an offer, and only when P is outside every
 /// chrome zone and the placement function finds a side whose hit area does not intersect one. The
 /// offer's B is at <c>ring/2 + 55 DIP</c> from P, on the diagonal toward the screen centre,
-/// clamped on screen (see <see cref="ActivationButtonPlacement"/>).</item>
+/// clamped on screen (see <see cref="ActivationButtonPlacement"/>). With a show delay
+/// (<see cref="OfferShowAfterMs"/> past the settle age) the settle only records a candidate, which
+/// <see cref="Update"/> turns into the offer once the rest has lasted the delay, and the run's end
+/// drops.</item>
 /// <item><b>Replacement.</b> A settle outside the live offer's no-move zone (hit radius + R around B)
 /// replaces it. Inside the zone, a settle is classified by where it lands: inside the hit area it is
 /// the user on the button and changes nothing (the dwell owns it, and it is never remembered);
@@ -212,6 +221,12 @@ public sealed class ActivationOfferEngine
     /// </summary>
     public const double CornerClampTolerancePx = 200.0;
 
+    /// <summary>The rest length (ms) at which the offer shows, by default: the detector's default settle
+    /// age, so the extra wait after the settle is 0 and the button appears at the settle exactly as
+    /// before round button B3. The product applies <c>DwellSettings.OfferShowAfterMs</c> instead; the
+    /// default stays here so the replays that pin the engine's baselines keep their numbers.</summary>
+    public const int DefaultOfferShowAfterMs = FixationDetector.DefaultFixationSettleMs;
+
     private readonly PhysicalRect _screenBoundsPx;
     private readonly double _scale;
     private readonly double _ringSizeDip;
@@ -248,6 +263,14 @@ public sealed class ActivationOfferEngine
     private PhysicalPoint? _pending;
     private RunRole _runRole = RunRole.None;
     private int _offerExpiryMs = DefaultOfferExpiryMs;
+    private int _offerShowAfterMs = DefaultOfferShowAfterMs;
+    private int _settleAgeMs = FixationDetector.DefaultFixationSettleMs;
+
+    // The show delay's candidate (round button B3): a settle that would have made an offer, held until
+    // the rest has lasted OfferShowAfterMs. Plain value fields, so the sample path never allocates.
+    private bool _hasCandidate;
+    private PhysicalPoint _candidatePoint;
+    private long _candidateShowAtUs;
 
     /// <summary>What the current run is to the live offer — it decides what the run's end does to it.</summary>
     private enum RunRole
@@ -365,6 +388,46 @@ public sealed class ActivationOfferEngine
         }
     }
 
+    /// <summary>
+    /// How long, in ms, the rest on a spot must last before its offer shows (round button B3). The rest
+    /// is measured from the same origin as the settle: the settle fires at <see cref="SettleAgeMs"/> of
+    /// rest, so the offer shows on the first sample at least <c>OfferShowAfterMs − SettleAgeMs</c>
+    /// (floored at 0) after the settle, on the sample clock. At or below the settle age the offer shows
+    /// at the settle, exactly as before. Settable in place: the live setting reaches the next settle.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
+    public int OfferShowAfterMs
+    {
+        get => _offerShowAfterMs;
+        set
+        {
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Show delay must not be negative.");
+            _offerShowAfterMs = value;
+        }
+    }
+
+    /// <summary>
+    /// The rest length, in ms, at which the detector settles — <c>max(FixationTimeMs,
+    /// FixationSettleMs)</c> — pushed by the wiring so <see cref="OfferShowAfterMs"/> is measured from
+    /// the run's own origin. Defaults to <see cref="FixationDetector.DefaultFixationSettleMs"/>.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
+    public int SettleAgeMs
+    {
+        get => _settleAgeMs;
+        set
+        {
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Settle age must not be negative.");
+            _settleAgeMs = value;
+        }
+    }
+
+    /// <summary>The RAW settle point of the candidate waiting for its show, or null when none waits.
+    /// The wiring reads it to keep a clamped offer's ring pin at the raw settle centroid.</summary>
+    public PhysicalPoint? OfferCandidatePoint => _hasCandidate ? _candidatePoint : null;
+
     /// <summary>Dwell progress of the live offer, 0.0–1.0; 0 when none is up. Published for the
     /// halo (ticket 8 puts it on the GazeFrame) and read by the replay.</summary>
     public double DwellProgress
@@ -441,6 +504,7 @@ public sealed class ActivationOfferEngine
     /// <returns>What the settle did, for the replay's counts (and the wiring's telemetry later).</returns>
     public SettleOutcome NotifyFixationSettled(PhysicalPoint point, long timestampUs)
     {
+        _hasCandidate = false;   // a later settle supersedes a waiting one, whatever it does
         _runActive = true;
         _nearMissRunActive = false;
         if (timestampUs > _lastSampleUs)
@@ -488,6 +552,22 @@ public sealed class ActivationOfferEngine
             // Outside the no-move zone: a fresh settle elsewhere replaces the live offer.
         }
 
+        // The show delay (round button B3): a settle that would create or replace the offer is held as
+        // a candidate until the rest has lasted OfferShowAfterMs. A live older offer is NOT closed here
+        // — it is replaced only when the candidate shows, and runs out on its own clock if the run ends
+        // first. The refusals are MakeOffer's, evaluated at the show.
+        long showDelayUs = Math.Max(0L, (long)OfferShowAfterMs - SettleAgeMs) * 1000L;
+        if (showDelayUs > 0)
+        {
+            _pending = null;
+            _nearMissRunActive = false;
+            _runRole = RunRole.None;
+            _hasCandidate = true;
+            _candidatePoint = point;
+            _candidateShowAtUs = timestampUs + showDelayUs;
+            return SettleOutcome.Deferred;
+        }
+
         bool hadOffer = _offer is not null;
         return MakeOffer(point, timestampUs)
             ? (hadOffer ? SettleOutcome.Replaced : SettleOutcome.Created)
@@ -506,16 +586,46 @@ public sealed class ActivationOfferEngine
         if (_runRole == RunRole.Pending)
             _pending = null;
 
+        // A candidate needs its run still holding: the rest ended before the show delay, so nothing
+        // shows, and nothing is reported (round button B3).
+        _hasCandidate = false;
         _runRole = RunRole.None;
         _runActive = false;
         _nearMissRunActive = false;
     }
 
     /// <summary>
-    /// One sample: raw validity and the filtered point. Drives the expiry, then the dwell. Feed every
-    /// sample (including invalid ones) — the pause budget is measured across them.
+    /// One sample: raw validity and the filtered point. Drives the expiry, then the dwell, then the show
+    /// delay's candidate. Feed every sample (including invalid ones) — the pause budget is measured
+    /// across them.
     /// </summary>
-    public void Update(PhysicalPoint point, long timestampUs, bool isValid)
+    /// <param name="point">The filtered point.</param>
+    /// <param name="timestampUs">The sample timestamp.</param>
+    /// <param name="isValid">The raw sample's validity.</param>
+    /// <param name="continuesRun">Whether this sample continues the settled run, by the fixation
+    /// detector's own rule (<see cref="FixationDetector.ContinuesRun"/>) — the production wiring passes
+    /// it. Null (a standalone engine: the replays, the tests) falls back to "valid and within
+    /// <see cref="FixationRadiusPx"/> of the candidate's settle point".</param>
+    public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null)
+    {
+        AdvanceOffer(point, timestampUs, isValid);
+
+        // The candidate shows on the first sample at which its rest has lasted OfferShowAfterMs (">=":
+        // a rest of exactly the delay shows), through MakeOffer as a settle at this sample would —
+        // after the live offer saw the sample, the order Update-then-settle always had. The fired lock
+        // still wins: a candidate never shows over a fired offer. B3 fixup-01: and only on a sample
+        // that still belongs to the rest — a button appearing exactly as the eye leaves is the very
+        // pop-up that pulls the eye. Otherwise it keeps waiting, and the run's end drops it.
+        if (_hasCandidate && timestampUs >= _candidateShowAtUs
+            && (continuesRun ?? (isValid && point.DistanceTo(_candidatePoint) <= _fixationRadiusPx)))
+        {
+            _hasCandidate = false;
+            if (!_fired)
+                MakeOffer(_candidatePoint, timestampUs);
+        }
+    }
+
+    private void AdvanceOffer(PhysicalPoint point, long timestampUs, bool isValid)
     {
         if (_offer is null)
         {
@@ -602,6 +712,7 @@ public sealed class ActivationOfferEngine
 
         ClearOfferState();
         _pending = null;   // the activation completed: nothing re-offers for this session
+        _hasCandidate = false;
         _runRole = RunRole.None;
     }
 
@@ -627,6 +738,7 @@ public sealed class ActivationOfferEngine
     {
         ClearOfferState();
         _pending = null;
+        _hasCandidate = false;
         _runRole = RunRole.None;
         _runActive = false;
         _nearMissRunActive = false;

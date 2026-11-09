@@ -86,6 +86,23 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private int _resumeDwellMs = 1000;
 
+    /// <summary>
+    /// How long, in milliseconds, the gaze must rest on one spot before the activation button appears
+    /// (round button B3; 09.11 sitting: a button that popped up after 0.5 s pulled the next look onto
+    /// itself and fired by accident). Measured from the start of the rest, like the 500 ms settle; 500
+    /// shows the button at the settle, as before. The button's own dwell and the ring are unaffected.
+    /// Valid range: 500–2500. A new property, so an existing file picks up the default from the
+    /// initializer.
+    /// </summary>
+    [ObservableProperty] private int _offerShowAfterMs = 1000;
+
+    partial void OnOfferShowAfterMsChanging(int value)
+    {
+        if (value < 500 || value > 2500)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(OfferShowAfterMs)} must be between 500 and 2500");
+    }
+
     partial void OnResumeDwellMsChanging(int value)
     {
         if (value < 500 || value > 3000)
@@ -309,6 +326,7 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(BackdropHideButtonDwellMs, 200, 2000, nameof(BackdropHideButtonDwellMs)),
             ValidationHelper.ValidateRange(DwellPauseGraceMs, 0, 1000, nameof(DwellPauseGraceMs)),
             ValidationHelper.ValidateRange(ResumeDwellMs, 500, 3000, nameof(ResumeDwellMs)),
+            ValidationHelper.ValidateRange(OfferShowAfterMs, 500, 2500, nameof(OfferShowAfterMs)),
             RestartNoticeDwellMs == 0 || RestartNoticeDwellMs is >= 200 and <= 3000
                 ? null
                 : $"{nameof(RestartNoticeDwellMs)} must be 0 or between 200 and 3000, but was {RestartNoticeDwellMs}",

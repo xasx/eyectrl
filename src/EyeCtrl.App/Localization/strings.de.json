@@ -346,13 +346,9 @@
     "text": "Sprache / Language",
     "src": "49ec8cf6"
   },
-  "overlays.activationButton.label.magnifier": {
-    "text": "Lupe",
-    "src": "e70714a9"
-  },
-  "overlays.activationButton.label.menu": {
-    "text": "Menü",
-    "src": "819d59ef"
+  "overlays.activationButton.name": {
+    "text": "Aktionsmenü",
+    "src": "11df39ca"
   },
   "overlays.adaptationPreview.direction.atBaseline": {
     "text": "am Ausgangswert",

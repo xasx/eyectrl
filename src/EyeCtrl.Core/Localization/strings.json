@@ -667,18 +667,11 @@
     "args": [],
     "crisis": true
   },
-  "overlays.activationButton.label.magnifier": {
-    "text": "Magnifier",
+  "overlays.activationButton.name": {
+    "text": "Action menu",
     "who": "user",
     "where": "overlays",
-    "fit": "A76",
-    "args": []
-  },
-  "overlays.activationButton.label.menu": {
-    "text": "Menu",
-    "who": "user",
-    "where": "overlays",
-    "fit": "A76",
+    "fit": "row",
     "args": []
   },
   "overlays.adaptationPreview.direction.atBaseline": {

@@ -1,8 +1,13 @@
 namespace EyeCtrl.App.Tests.Overlays;
 
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Core;
@@ -11,6 +16,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using NFluent;
 using Xunit;
+using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 
 /// <summary>
 /// B2's activation button, headless and at the user's ScaleX 2.0. The face is a static 100 DIP disc
@@ -126,46 +132,75 @@ public class ActivationButtonWindowTests
         }
     }
 
-    [StaFact]
-    public void SetContent_NamesTheAction_AndDrawsItsGlyph()
+    [StaTheory]
+    [InlineData(SelectionMode.ManualSelection)]
+    [InlineData(SelectionMode.AutoSelection)]
+    [InlineData(SelectionMode.None)]
+    public void EverySelectionMode_DrawsTheOneRingMenuSign_AndNoText(SelectionMode mode)
     {
-        // The word and the glyph both follow the mode the offer was shown in. Mutation: keep one
-        // label for both modes → the second assertion goes red.
+        // F1: the owner's sign in every selection mode — six open circles around a filled centre
+        // dot — and no word at all. The face takes no mode argument any more; running the face once
+        // per mode pins that the same sign is what each one gets.
+        // Mutation: the old magnifier back → the stroke data changes; the label back → a TextBlock
+        // appears in the tree.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new ActivationButtonWindow();
         try
         {
-            Check.That(StringTable.Current.T("overlays.activationButton.label.magnifier"))
-                .IsEqualTo(StringTable.EmbeddedEnglish.T("overlays.activationButton.label.magnifier"));
-            Check.That(StringTable.EmbeddedEnglish.T("overlays.activationButton.label.magnifier"))
-                .IsEqualTo("Magnifier");
-            Check.That(StringTable.EmbeddedEnglish.T("overlays.activationButton.label.menu"))
-                .IsEqualTo("Menu");
-
-            window.SetContent(ActivationButtonContent.Magnifier);
-            Check.That(window.Face.Content).IsEqualTo(ActivationButtonContent.Magnifier);
-            Check.That(window.Face.UpperLabel.Text)
-                .IsEqualTo(StringTable.Current.T("overlays.activationButton.label.magnifier"));
-            Check.That(window.Face.LowerLabel.Text).IsEqualTo(window.Face.UpperLabel.Text);
-            Check.That(window.Face.UpperIconStroke).IsNotNull();
+            Check.WithCustomMessage($"{mode}: the face lost its ring-menu stroke")
+                .That(window.Face.UpperIconStroke).IsNotNull();
             Check.That(window.Face.UpperIconStroke!.Data)
-                .IsSameReferenceAs(ActivationIcons.Magnifier.Stroke);
-            Check.That(window.Face.UpperIconFill).IsNull();
-
-            window.SetContent(ActivationButtonContent.Menu);
-            Check.That(window.Face.Content).IsEqualTo(ActivationButtonContent.Menu);
-            Check.That(window.Face.UpperLabel.Text)
-                .IsEqualTo(StringTable.Current.T("overlays.activationButton.label.menu"));
-            Check.That(window.Face.UpperIconStroke).IsNull();
+                .IsSameReferenceAs(ActivationIcons.RingMenu.Stroke);
             Check.That(window.Face.UpperIconFill).IsNotNull();
             Check.That(window.Face.UpperIconFill!.Data)
-                .IsSameReferenceAs(ActionIcons.For(ActionIcon.More).Fill);
+                .IsSameReferenceAs(ActivationIcons.RingMenu.Fill);
+            Check.That(window.Face.LowerIconStroke!.Data)
+                .IsSameReferenceAs(ActivationIcons.RingMenu.Stroke);
             Check.That(window.Face.LowerIconFill!.Data)
-                .IsSameReferenceAs(ActionIcons.For(ActionIcon.More).Fill);
+                .IsSameReferenceAs(ActivationIcons.RingMenu.Fill);
+
+            // The face is the tree root: this window is never shown, so its own visual tree is not
+            // connected yet; the face's children are.
+            Check.WithCustomMessage("the activation button draws a text element; F1 removed the word")
+                .That(Descendants(window.Face).OfType<TextBlock>().ToList()).IsEmpty();
         }
         finally
         {
             window.Close();
+        }
+    }
+
+    [StaFact]
+    public void TheWindow_CarriesTheActionMenuAccessibleName()
+    {
+        // F1 removed the visible word; the sign still needs a name for UIA. Mutation: drop the
+        // AutomationProperties.SetName → the window has no name.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new ActivationButtonWindow();
+        try
+        {
+            Check.That(StringTable.EmbeddedEnglish.T("overlays.activationButton.name"))
+                .IsEqualTo("Action menu");
+            Check.That(System.Windows.Automation.AutomationProperties.GetName(window))
+                .IsEqualTo(StringTable.Current.T("overlays.activationButton.name"));
+            Check.That(ShippedGerman.Load().T("overlays.activationButton.name"))
+                .IsEqualTo("Aktionsmenü");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>Every visual descendant of <paramref name="root"/>.</summary>
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            yield return child;
+            foreach (var nested in Descendants(child))
+                yield return nested;
         }
     }
 

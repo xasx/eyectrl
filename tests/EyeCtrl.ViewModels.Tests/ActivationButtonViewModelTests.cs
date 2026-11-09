@@ -4,7 +4,6 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
@@ -274,73 +273,13 @@ public class ActivationButtonViewModelTests
         Check.That(vm.DwellProgress).IsEqualTo(0);
     }
 
-    // ── B2: the face names the action the offer opens ─────────────────────────
-
-    private static ActivationButtonViewModel WithMode(SelectionMode mode)
-    {
-        var settings = new EyeCtrlSettings { SelectionMode = mode };
-        return new ActivationButtonViewModel(new WeakReferenceMessenger(), settings);
-    }
-
-    [Fact]
-    public void Show_NamesTheMagnifier_InManualSelection()
-    {
-        var vm = WithMode(SelectionMode.ManualSelection);
-        vm.Receive(Show());
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
-    }
-
-    [Theory]
-    [InlineData(SelectionMode.AutoSelection)]
-    [InlineData(SelectionMode.None)]
-    public void Show_NamesTheMenu_InEveryOtherMode(SelectionMode mode)
-    {
-        var vm = WithMode(mode);
-        vm.Receive(Show());
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Menu);
-    }
-
-    [Fact]
-    public void AModeChangeWhileTheOfferIsUp_DoesNotRelabelIt()
-    {
-        // The face names the mode at the moment the offer is shown; the next offer follows the new
-        // mode. Mutation: read the mode in the window instead of locking it on show → red.
-        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
-        var messenger = new WeakReferenceMessenger();
-        var vm = new ActivationButtonViewModel(messenger, settings);
-
-        messenger.Send(Show());
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
-
-        settings.SelectionMode = SelectionMode.None;
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
-
-        messenger.Send(new HideActivationButtonMessage());
-        messenger.Send(Show());
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Menu);
-    }
-
-    [Fact]
-    public void AReplaceWithoutAHide_RelabelsToTheNewMode()
-    {
-        // F4: Core may replace an offer without closing the button first, and the mode can change
-        // between the two. The second show must name the menu even though the button never hid.
-        // Mutation: assign Content after ButtonCenter (the old order) → the coordinator's
-        // reposition reads the previous Magnifier and the face stays stale.
-        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
-        var messenger = new WeakReferenceMessenger();
-        var vm = new ActivationButtonViewModel(messenger, settings);
-
-        messenger.Send(Show());
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
-
-        settings.SelectionMode = SelectionMode.AutoSelection;
-        messenger.Send(Show());          // a replacement, with no Hide in between
-
-        Check.WithCustomMessage("the replacement kept the previous mode's face")
-            .That(vm.Content).IsEqualTo(ActivationButtonContent.Menu);
-        Check.That(vm.IsVisible).IsTrue();
-    }
+    // ── B2/F1: one sign, no per-mode face ─────────────────────────────────────
+    //
+    // The B2 tests that named a magnifier in ManualSelection and a menu in every other mode were
+    // removed with the per-mode content choice (F1): the VM no longer reads SelectionMode, and the
+    // window has one sign. The mode-independence is pinned where the choice used to reach the
+    // window: OverlayVmBindingCoordinatorTests.ActivationVisible_PositionsTheHaloBeforeShowingIt
+    // and ActivationButtonWindowTests.EverySelectionMode_DrawsTheOneRingMenuSign_AndNoText.
 
     // ── B2: the paused fill, derived with R2's hysteresis ─────────────────────
 

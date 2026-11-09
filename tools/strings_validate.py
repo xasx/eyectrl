@@ -94,8 +94,6 @@ WHO_VALUES = ["caretaker", "user", "both"]
 FIT_CLASSES = [
     "A105",
     "A68",
-    # B2: the activation button's word; one line inside the 100 DIP disc's inner-face chord.
-    "A76",
     "A44",
     "A56",
     "A208",

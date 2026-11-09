@@ -173,6 +173,23 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// </summary>
     internal Action<ProbeRefusal>? RefusalLogger { get; set; }
 
+    /// <summary>
+    /// N2: the visible one-line notice a FAILED resumed start shows — the resume-landing timeout or
+    /// a gate that refuses after the resume. It rides the App's existing transient notice card (the
+    /// restart/setup card, <see cref="RestartNoticeHost"/>'s presenter): dismissible by its dwell
+    /// button, gone by itself after the hold, taken down when Settings or a probe opens, and never
+    /// fed gaze while a screen-owning surface is up. The arguments are the message and the close
+    /// button's label, already localized.
+    /// <para>
+    /// App.xaml.cs attaches the card after startup composition — the coordinator is built before
+    /// the card exists — so this is a settable property, like <see cref="RefusalLogger"/>. A re-pause
+    /// never reaches it (the owner chose that; see <see cref="AbandonResumeStart"/>), and the
+    /// normal, not-paused request path keeps its activation-time refusal text. <c>null</c> keeps a
+    /// failed start log-only, and a throwing sink must never break the abandonment path.
+    /// </para>
+    /// </summary>
+    internal Action<string, string>? StartFailedNoticeSink { get; set; }
+
     private int _generation;
     private int? _pendingStart;
     private SubPixelProbeStartMode _pendingStartMode = SubPixelProbeStartMode.FullRun;
@@ -464,6 +481,30 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         Log.Information("Sub-pixel probe start refused: {Refusal}", refusal);
     }
 
+    /// <summary>
+    /// N2: the card's one-line failure notice, in the running language like every other probe
+    /// string (<see cref="ReasonText"/>); the close button carries the card's "✓ OK"
+    /// acknowledgement — the same text the restart-refusal and setup notices show, on the probe's
+    /// own settings-surface key (D3: one key per surface). Best-effort: a failure here is logged,
+    /// never thrown into the timeout or refusal path that called it.
+    /// </summary>
+    private void ShowStartFailedNotice()
+    {
+        var sink = StartFailedNoticeSink;
+        if (sink is null) return;
+
+        try
+        {
+            sink(
+                StringTable.Current.T("settings.diagnostics.subpixel.notice.start_failed"),
+                StringTable.Current.T("settings.diagnostics.subpixel.notice.ok"));
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Showing the sub-pixel probe start-failure notice failed");
+        }
+    }
+
     private ProbeRefusal? CurrentRefusal()
     {
         if (Context is null) return ProbeRefusal.SettingsOpen;
@@ -548,8 +589,9 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         if (message.NewState == InteractionState.Paused)
         {
             // A pause that lands while the resume is still pending means the resume did not take:
-            // abandon instead of leaving a start armed (F5).
-            if (_resumeStart is not null) AbandonResumeStart();
+            // abandon instead of leaving a start armed (F5). The owner re-paused — their own
+            // choice, so no notice (N2); only the log line as before.
+            if (_resumeStart is not null) AbandonResumeStart(notifyOwner: false);
             OnInterlock(ProbeAbortReason.Paused);
             return;
         }
@@ -574,7 +616,9 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         if (Context.InteractionManager.CurrentState == InteractionState.Paused)
         {
-            AbandonResumeStart();
+            // A pause landed between the posted message and this read: the owner re-paused —
+            // their own choice, so no notice (N2), only the log line.
+            AbandonResumeStart(notifyOwner: false);
             return;
         }
 
@@ -587,15 +631,25 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         int generation = ++_generation;
         Log.Information("probe start: resumed from pause first");
         Context.Dispatcher.BeginInvoke(DispatcherPriority.Background,
-            () => BeginStart(generation, pending.StartMode, pending.ResumedSession1Verdict));
+            () => BeginStart(generation, pending.StartMode, pending.ResumedSession1Verdict,
+                fromResumedStart: true));
     }
 
     /// <summary>
     /// F5's give-up: the resume never landed within <see cref="ResumeLandingTimeout"/> (or a pause
     /// beat its state change). The posted <see cref="BeginStart"/> is retired by the generation
     /// bump — otherwise it could start the probe with the resume's observers unrun.
+    /// <para>
+    /// <b>N2:</b> a TIMEOUT abandons the start while the app is resumed, Settings is already
+    /// closed and no probe exists — nothing on screen says why, so the owner gets the notice
+    /// card's one-line failure notice (<paramref name="notifyOwner"/>). A RE-PAUSE is the owner's
+    /// own choice (their dwell, or the tray's): the pause strip is the visible answer, so it
+    /// stays log-only as before and shows no notice.
+    /// </para>
     /// </summary>
-    private void AbandonResumeStart()
+    /// <param name="notifyOwner">Whether the failure is invisible without a notice. <c>true</c>
+    /// only for the resume-landing timeout; the re-pause abandons pass <c>false</c>.</param>
+    private void AbandonResumeStart(bool notifyOwner)
     {
         if (_resumeStart is null) return;
 
@@ -603,6 +657,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         _generation++;
         Log.Information("Sub-pixel probe start: the resume did not land; start abandoned");
         ReportRefusal(ProbeRefusal.Paused);
+        if (notifyOwner) ShowStartFailedNotice();
     }
 
     private void OnResumeTimeout()
@@ -614,7 +669,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
             return;
         }
 
-        AbandonResumeStart();
+        AbandonResumeStart(notifyOwner: true);
     }
 
     private void ClearPendingResumeStart()
@@ -662,8 +717,16 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// <param name="generation">The generation the start was posted with.</param>
     /// <param name="startMode">The run to start.</param>
     /// <param name="resumedSession1Verdict">The persisted convicting verdict a resume continues from.</param>
+    /// <param name="fromResumedStart">
+    /// Whether THIS posted call is the resumed start's gate (N2): only then does a refusal here
+    /// show the notice card's failure notice. The normal C10 path keeps its activation-time
+    /// refusal text and stays log-only here.
+    /// </param>
     internal void BeginStart(
-        int generation, SubPixelProbeStartMode startMode, SubPixelAbSession1Verdict? resumedSession1Verdict)
+        int generation,
+        SubPixelProbeStartMode startMode,
+        SubPixelAbSession1Verdict? resumedSession1Verdict,
+        bool fromResumedStart = false)
     {
         if (_disposed || Context is null) return;
         if (generation != _generation) return;
@@ -685,6 +748,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         if (refusal is not null)
         {
             ReportRefusal(refusal.Value);
+
+            // N2: the resumed start's refusal leaves the owner resumed, Settings closed, no probe
+            // and no word — the notice card says the start did not happen. The normal path keeps
+            // its activation-time refusal text and stays log-only.
+            if (fromResumedStart) ShowStartFailedNotice();
             return;
         }
 

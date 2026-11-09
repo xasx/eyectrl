@@ -3225,6 +3225,20 @@
     "fit": "prose",
     "args": []
   },
+  "settings.diagnostics.subpixel.notice.ok": {
+    "text": "✓ OK",
+    "who": "user",
+    "where": "settings",
+    "fit": "modal170",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.notice.start_failed": {
+    "text": "The sub-pixel test did not start. Open it again from Diagnostics.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
   "settings.diagnostics.subpixel.reason.adaptation": {
     "text": "Turn adaptation off first; it can open its own window.",
     "who": "user",

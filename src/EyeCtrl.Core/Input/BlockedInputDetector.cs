@@ -39,9 +39,11 @@ public sealed record BlockedInputState(
 /// <b>Action verification</b> (<see cref="ReportAction"/>): a click or pointed scroll batch starts
 /// with an absolute move to P. If the cursor after equals the cursor before (within
 /// <see cref="StaticTolerancePixels"/>) while the before position was far from P (beyond
-/// <see cref="TargetTolerancePixels"/>), the move did not happen — one hit. A subsequent action
-/// whose cursor lands within the target tolerance is a verified move and CLEARS the state. A cursor
-/// that moved somewhere other than P is an external writer: it neither raises nor clears.
+/// <see cref="TargetTolerancePixels"/>), the move did not happen — one hit, counted only once the
+/// delayed confirmation's pre-move AND post-move reads both still show the old spot (L3). A
+/// subsequent action whose cursor lands within the target tolerance is a verified move and CLEARS
+/// the state. A cursor that moved somewhere other than P is an external writer: it neither raises
+/// nor clears.
 /// </item>
 /// <item>
 /// <b>FreeLook sampler</b> (<see cref="ReportMoveCommand(PhysicalPoint)"/>): every
@@ -163,9 +165,10 @@ public sealed class BlockedInputDetector
     /// <summary>
     /// Reports one completed click, double-click or pointed scroll: the cursor read just before the
     /// injection and just after it. An unreadable cursor is ignored (no evidence either way). A miss
-    /// is only a CANDIDATE here: it is counted after a second read
+    /// is only a CANDIDATE here: it is counted after a re-read
     /// (<see cref="MissConfirmationDelayMilliseconds"/>) shows the cursor still static, so a cursor
-    /// read that lags <c>SendInput</c> cannot raise a false block.
+    /// read that lags <c>SendInput</c> cannot raise a false block. When the FreeLook stream also
+    /// supplies its pre-move read, that read AND the post-move read must both stay static (L3).
     /// </summary>
     /// <param name="target">The point the batch's leading absolute move aimed at.</param>
     /// <param name="cursorBefore">The cursor before the batch, or null when unreadable.</param>
@@ -229,11 +232,18 @@ public sealed class BlockedInputDetector
     /// <summary>
     /// Reports one commanded move together with the cursor read taken BEFORE the move was written.
     /// That read is the evidence N1 needs: a click that lands BY the next frame's pre-move read is
-    /// visible here, while the post-move read would see only the gaze point this call just wrote
-    /// (and would call a landed click a miss when the gaze is still on the button). A landing later
-    /// than that read is overwritten by this frame's own FreeLook move; the 40 ms confirmation then
-    /// sees the gaze, which is the documented one-frame window. The overload with no pre-move read
-    /// keeps the post-move behaviour for direct callers.
+    /// visible here, while a read taken after the move would see only the gaze point this call just
+    /// wrote (and would call a landed click a miss when the gaze is still on the button).
+    ///
+    /// <para>
+    /// L3: the due-miss confirmation needs BOTH this pre-move read and the post-move read taken just
+    /// after this move, each still within <see cref="StaticTolerancePixels"/> of the click's
+    /// <c>before</c>. A click that lands later than this read is overwritten by this frame's own
+    /// FreeLook move, so the post-move read sees our gaze point rather than <c>before</c> and the
+    /// candidate is dropped. Only a gaze that itself rests within tolerance of <c>before</c> leaves
+    /// both reads static; that is the remaining one-frame window. The overload with no pre-move
+    /// read keeps the single post-move read for direct callers.
+    /// </para>
     /// </summary>
     /// <param name="commanded">The point EyeCtrl just asked the OS to move to.</param>
     /// <param name="cursorBeforeMove">The cursor before this move, or null when unreadable. A null
@@ -368,10 +378,15 @@ public sealed class BlockedInputDetector
     }
 
     /// <summary>
-    /// Confirms every miss candidate whose re-read is due. A candidate becomes a miss only when the
-    /// cursor is still within <see cref="StaticTolerancePixels"/> of where it was before the
-    /// injection; a candidate whose cursor has moved is dropped (the read lagged, or an external
-    /// writer moved it). Runs under the detector lock.
+    /// Confirms every miss candidate whose re-read is due. L3: when the caller supplied a pre-move
+    /// read, a candidate becomes a miss only when BOTH that read and the post-move read are still
+    /// within <see cref="StaticTolerancePixels"/> of where the cursor was before the injection. The
+    /// post-move read is taken here, after this FreeLook move was written: in a real block that move
+    /// is dropped, so the cursor is still at <c>before</c>, while a click that landed in between was
+    /// overwritten by our own move and reads as a cursor away from <c>before</c>. A read that is
+    /// unreadable, or one that has left <c>before</c>, drops the candidate (the read lagged, or an
+    /// external writer moved it). Without a supplied pre-move read (direct callers) the single
+    /// post-move read decides, as before. Runs under the detector lock.
     /// </summary>
     /// <param name="now">The current clock reading.</param>
     /// <param name="cursorOverride">A cursor read supplied by the caller (the pre-move read), or
@@ -383,8 +398,14 @@ public sealed class BlockedInputDetector
         long now, PhysicalPoint? cursorOverride, bool hasCursorOverride)
     {
         BlockedInputState? transition = null;
-        PhysicalPoint? rawCursor = null;
-        var hasRead = false;
+
+        // Both reads serve every due candidate: they all describe the same instant. The pre-move
+        // read is the caller's; the post-move read is taken here, after our own move.
+        var preMove = hasCursorOverride && cursorOverride is { } rawPre
+            ? ClampToScreen(rawPre)
+            : (PhysicalPoint?)null;
+        PhysicalPoint? postMove = null;
+        var hasPostMoveRead = false;
 
         for (var i = _pendingMisses.Count - 1; i >= 0; i--)
         {
@@ -392,21 +413,28 @@ public sealed class BlockedInputDetector
             if (now < pending.DueAtMs)
                 continue;
 
-            // One read serves every due candidate: they all describe the same instant. The old
-            // per-candidate read was a second observer after the move, which N1 showed is wrong.
-            if (!hasRead)
+            if (!hasPostMoveRead)
             {
-                rawCursor = hasCursorOverride ? cursorOverride : ReadCursor();
-                hasRead = true;
+                postMove = ReadCursor() is { } rawPost ? ClampToScreen(rawPost) : null;
+                hasPostMoveRead = true;
             }
 
             _pendingMisses.RemoveAt(i);
 
-            if (rawCursor is not { } raw)
+            // L3, the pre-move half: a supplied null is "unreadable", and a read that has left
+            // `before` was already explained by DropPending. Either way there is no miss here.
+            var preStatic = !hasCursorOverride
+                || (preMove is { } pre && pre.DistanceTo(pending.Before) <= StaticTolerancePixels);
+            if (hasCursorOverride && !preStatic)
+                continue;
+
+            if (postMove is not { } current)
                 continue; // unreadable: no evidence, drop the candidate
 
-            var current = ClampToScreen(raw);
-            var stillStatic = current.DistanceTo(pending.Before) <= StaticTolerancePixels;
+            // L3: BOTH halves must see the old spot. In a block every move is dropped, so both
+            // stay frozen; a landing can leave only the post-move read away from `before`.
+            var postStatic = current.DistanceTo(pending.Before) <= StaticTolerancePixels;
+            var stillStatic = preStatic && postStatic;
 
             if (stillStatic)
             {

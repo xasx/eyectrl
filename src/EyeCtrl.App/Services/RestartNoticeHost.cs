@@ -42,6 +42,17 @@ public sealed class RestartNoticeHost : IDisposable
     /// <summary>How long "restart not possible" stays when nobody dwells OK.</summary>
     internal static readonly TimeSpan RefusedHold = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How long the probe's start-failure notice (N2) stays when nobody dwells OK (fixup-01 F2).
+    /// Deliberately SHORTER than <see cref="RefusedHold"/>: while the card is up the activation
+    /// offers are suspended ("restart notice", ActivationOfferCoordinator), and this owner
+    /// controls the PC by gaze only — the 30 s the refusals get would leave no gaze click for
+    /// half a minute right after they asked a test to run, and dwelling the card's OK is one
+    /// more fixation task, which is hard. Fifteen seconds reads one line and hands the screen
+    /// back.
+    /// </summary>
+    internal static readonly TimeSpan StartFailedHold = TimeSpan.FromSeconds(15);
+
     private readonly IMessenger _messenger;
     private readonly IRestartNoticePresenter _presenter;
     private readonly Func<bool> _isSettingsOpen;
@@ -108,6 +119,23 @@ public sealed class RestartNoticeHost : IDisposable
         var target = _targetLanguage();
         Log.Information("Restart notice: showing 'restart not possible' (no Settings window is open)");
         _presenter.ShowNotice(reason, RestartNotices.RefusedChoices(target)[0].Label, RefusedHold);
+    }
+
+    /// <summary>
+    /// N2 (fixup-01 F3): the sub-pixel probe's start-failure notice, through the same card and the
+    /// same guard as the restart notices: while Settings or the probe is open, the open surface
+    /// owns the screen and the card stays down. Unreachable today — reopening Settings retires the
+    /// failed start before either N2 path can fire — but this is the host's own rule, so the
+    /// notice goes through it instead of around it.
+    /// </summary>
+    /// <param name="message">The notice text, already localized.</param>
+    /// <param name="closeLabel">The close button's label, in the same language.</param>
+    public void ShowProbeStartFailed(string message, string closeLabel)
+    {
+        if (_isSettingsOpen() || _isProbeOpen()) return;
+
+        Log.Information("Restart notice: showing the probe's start-failure notice");
+        _presenter.ShowNotice(message, closeLabel, StartFailedHold);
     }
 
     /// <summary>

@@ -176,10 +176,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// <summary>
     /// N2: the visible one-line notice a FAILED resumed start shows — the resume-landing timeout or
     /// a gate that refuses after the resume. It rides the App's existing transient notice card (the
-    /// restart/setup card, <see cref="RestartNoticeHost"/>'s presenter): dismissible by its dwell
-    /// button, gone by itself after the hold, taken down when Settings or a probe opens, and never
-    /// fed gaze while a screen-owning surface is up. The arguments are the message and the close
-    /// button's label, already localized.
+    /// restart/setup card): production attaches <c>RestartNoticeHost.ShowProbeStartFailed</c>,
+    /// which applies the host's Settings/probe guard and the short <c>StartFailedHold</c>. The card
+    /// is dismissible by its dwell button, gone by itself after the hold, taken down when Settings
+    /// or a probe opens, and never fed gaze while a screen-owning surface is up. The arguments are
+    /// the message and the close button's label, already localized.
     /// <para>
     /// App.xaml.cs attaches the card after startup composition — the coordinator is built before
     /// the card exists — so this is a settable property, like <see cref="RefusalLogger"/>. A re-pause
@@ -750,9 +751,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
             ReportRefusal(refusal.Value);
 
             // N2: the resumed start's refusal leaves the owner resumed, Settings closed, no probe
-            // and no word — the notice card says the start did not happen. The normal path keeps
-            // its activation-time refusal text and stays log-only.
-            if (fromResumedStart) ShowStartFailedNotice();
+            // and no word — the notice card says the start did not happen. A Paused refusal here
+            // is the owner's own re-pause (fixup-01 F4), which shows no notice, exactly like the
+            // abandon paths. The normal path keeps its activation-time refusal text and stays
+            // log-only.
+            if (fromResumedStart && refusal != ProbeRefusal.Paused) ShowStartFailedNotice();
             return;
         }
 

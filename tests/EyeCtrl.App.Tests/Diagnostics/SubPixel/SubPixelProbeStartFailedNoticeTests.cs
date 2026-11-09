@@ -39,6 +39,14 @@ public class SubPixelProbeStartFailedNoticeTests
         return notices;
     }
 
+    /// <summary>Arms a paused request with a caller-supplied notice sink.</summary>
+    private static void StartPausedRequest(ProbeTestWorld world, Action<string, string> sink)
+    {
+        world.Coordinator.StartFailedNoticeSink = sink;
+        world.Engine.InteractionManager.TogglePause();
+        world.Coordinator.RequestStart(ManualClose(world));
+    }
+
     [Fact]
     public void TheResumeTimeout_ShowsExactlyOneNotice()
     {
@@ -161,6 +169,62 @@ public class SubPixelProbeStartFailedNoticeTests
         Check.WithCustomMessage("The normal path's queued refusal showed a start-failure notice")
             .That(notices).IsEmpty();
         Check.That(refused).ContainsExactly(ProbeRefusal.EyeCareOn);
+        Check.That(world.Modal.ProbeOpen).IsFalse();
+    }
+
+    [Fact]
+    public void AThrowingSink_DoesNotBreakTheAbandonment()
+    {
+        // fixup-01 F5 (review M-G): the notice is best-effort. A card that cannot show (its
+        // presenter throws) must not break the abandonment that called it — the generation bump,
+        // the refusal log line and the retired start all still happen, and no exception escapes
+        // the timeout tick.
+        using var world = new ProbeTestWorld();
+        var refused = new List<ProbeRefusal>();
+        world.Coordinator.RefusalLogger = refused.Add;
+        int sinkCalls = 0;
+        StartPausedRequest(world, (_, _) =>
+        {
+            sinkCalls++;
+            throw new InvalidOperationException("the notice card is down");
+        });
+
+        world.Timers.Created
+            .Single(c => c.Interval == SubPixelProbeCoordinator.ResumeLandingTimeout)
+            .Tick();
+
+        Check.WithCustomMessage("the timeout did not call the throwing sink exactly once")
+            .That(sinkCalls).IsEqualTo(1);
+        Check.WithCustomMessage("a throwing sink broke the abandonment's refusal log line")
+            .That(refused).ContainsExactly(ProbeRefusal.Paused);
+        Check.That(world.Coordinator.LiveSessionForTest).IsNull();
+
+        world.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        world.Pump();
+        Check.WithCustomMessage("the abandoned start fired later")
+            .That(world.Modal.ProbeOpen).IsFalse();
+    }
+
+    [Fact]
+    public void APausedRefusalOnTheResumedStart_ShowsNoNotice()
+    {
+        // fixup-01 F4: if the owner pauses again between the resume landing and the posted
+        // start's run, that queued BeginStart (fromResumedStart: true) refuses with Paused — and
+        // a Paused refusal IS the owner's own re-pause, so the code must match the comment and
+        // show no notice, only the log line.
+        using var world = new ProbeTestWorld();
+        var refused = new List<ProbeRefusal>();
+        world.Coordinator.RefusalLogger = refused.Add;
+        var notices = StartPausedRequest(world);
+
+        world.Messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        world.Engine.InteractionManager.TogglePause();
+        world.Pump();
+
+        Check.WithCustomMessage("the queued resumed start did not keep today's refusal log line")
+            .That(refused).ContainsExactly(ProbeRefusal.Paused);
+        Check.WithCustomMessage("a Paused refusal on the resumed path showed the start-failure notice")
+            .That(notices).IsEmpty();
         Check.That(world.Modal.ProbeOpen).IsFalse();
     }
 

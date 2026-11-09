@@ -544,16 +544,17 @@ public partial class App : Application
             // trials. The probe opening takes a card that is up down too.
             _eventCoordinator.ProbeOpenChanged += _restartNoticeHost.OnProbeOpenChanged;
 
-            // N2: a resumed sub-pixel start that fails AFTER the resume — the resume-landing
-            // timeout, or a gate that refuses once the queued start runs — used to leave the owner
-            // resumed, Settings closed, no probe and only a log line. The card is the App's
-            // existing transient notice (the restart/setup card): dismissible by its dwell button,
-            // gone by itself after RefusedHold, taken down when Settings or a probe opens, and fed
-            // gaze only while neither is up. A re-pause shows nothing: the owner chose it, the
-            // pause strip is the answer. The strings resolve in the RUNNING language (the probe's
-            // other strings do too), not the restart flow's target language.
-            _eventCoordinator.AttachProbeStartFailedNoticeSink((text, closeLabel) =>
-                _restartNoticeHost.Presenter.ShowNotice(text, closeLabel, RestartNoticeHost.RefusedHold));
+            // N2 (fixup-01): a resumed sub-pixel start that fails AFTER the resume — the
+            // resume-landing timeout, or a gate that refuses once the queued start runs — used to
+            // leave the owner resumed, Settings closed, no probe and only a log line. The card is
+            // the App's existing transient notice (the restart/setup card): dismissible by its
+            // dwell button, gone by itself after the host's short StartFailedHold, taken down when
+            // Settings or a probe opens, and fed gaze only while neither is up. The show goes
+            // through the host's ShowProbeStartFailed, so the card is subject to the host's
+            // Settings/probe guard like every other notice. A re-pause shows nothing: the owner
+            // chose it, the pause strip is the answer. The strings resolve in the RUNNING language
+            // (the probe's other strings do too), not the restart flow's target language.
+            _eventCoordinator.AttachProbeStartFailedNoticeSink(_restartNoticeHost.ShowProbeStartFailed);
 
             // C9 S6f: the one-time setup-last notice (rolled back / degraded / failed). It rides
             // the same card as the restart notices — the host's presenter already forwards gaze

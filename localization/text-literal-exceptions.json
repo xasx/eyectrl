@@ -347,6 +347,18 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\" state=\"",
+      "Category": "log",
+      "Reason": "The `Activation outcome` line's optional state= suffix (only result=other names one) -- a log-only fragment tools/activation_log_metrics.py parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\"Activation outcome #{0} mode={1} result={2}{3} heldMs={4:0}\"",
+      "Category": "log",
+      "Reason": "The `Activation outcome` line's format (round-button B1, salvaged from #322's R3: the owner's unintended-open count) -- a log-only line tools/activation_log_metrics.py parses; never shown."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
       "Literal": "\"adaptation-preview\"",
       "Category": "id",

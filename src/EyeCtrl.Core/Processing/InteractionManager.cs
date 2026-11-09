@@ -376,8 +376,14 @@ public class InteractionManager
     public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid)
     {
         if (_activationOffers is null) return;
+        var candidate = _activationOffers.OfferCandidatePoint;
         _activationOffers.Update(point, timestampUs, isValid);
-        PublishActivationOfferState();
+        // A delayed offer (round button B3) shows here rather than at its settle. The corner fix's pin
+        // override still applies: a clamped candidate's offer keeps the ring at the RAW settle point.
+        var live = _activationOffers.CurrentOffer;
+        PublishActivationOfferState(
+            ringPinPoint: candidate is { } raw && _activationOffers.OfferCandidatePoint is null
+                          && live is not null && live.Point != raw ? raw : null);
     }
 
     /// <summary>
@@ -667,7 +673,8 @@ public class InteractionManager
         // ring: it belongs to the offer's P until the offer closes, and re-pinning on the user's own
         // button dwell is exactly the dance the live check found. Everything else pins here: a created
         // or replaced offer (already pinned by the publish), and a settle with no offer at all (chrome,
-        // an unplaceable side, no engine yet), which keeps the old pin-at-settle behaviour.
+        // an unplaceable side, no engine yet), which keeps the old pin-at-settle behaviour. A deferred
+        // settle (round button B3's show delay) pins nothing yet: its offer pins at the show.
         if (outcome is null or SettleOutcome.NoOffer)
             RaisePinRing(point, atOffer: false);
     }

@@ -52,6 +52,9 @@ public class ActivationOfferWiringTests
             settings.Dwell.FixationRadiusPixels = 90;
             settings.Dwell.FixationDetectionMs = 300;
             settings.Dwell.ActivationButtonDwellMs = 700;
+            // These rows pin the offer at the settle (SettleAt's 600 ms hold); round button B3's show
+            // delay has its own wiring tests (ActivationOfferShowDelayWiringTests). 500 = at the settle.
+            settings.Dwell.OfferShowAfterMs = 500;
             Settings = settings;
             Engine = new GazeEngine(Provider, Input, settings, effectiveSettings: effective);
             Engine.ConfigureActivationOffers(Screen, scale: 2.0);

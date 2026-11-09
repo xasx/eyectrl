@@ -3323,6 +3323,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.activation_show_after.description": {
+    "text": "How long you look at one spot before the activator appears.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.activation_show_after.label": {
+    "text": "Activator appears after (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.cooldown.description": {
     "text": "How long a new dwell must wait after an activation.",
     "who": "user",

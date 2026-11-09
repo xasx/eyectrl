@@ -32,6 +32,8 @@ public class GazeEngineActivationTelemetryTests
         s.Dwell.FixationRadiusPixels = 90;
         s.Dwell.FixationDetectionMs = 300;
         s.Dwell.ActivationButtonDwellMs = 700;
+        // Pinned at the settle (500 = no show delay); round button B3's delay has its own tests.
+        s.Dwell.OfferShowAfterMs = 500;
         return s;
     }
 

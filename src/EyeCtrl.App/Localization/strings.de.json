@@ -1822,6 +1822,14 @@
     "text": "Aktivator (ms)",
     "src": "3f69be87"
   },
+  "settings.dwell.activation_show_after.description": {
+    "text": "Wie lange Sie auf eine Stelle schauen, bevor der Aktivator erscheint.",
+    "src": "03aeb2d9"
+  },
+  "settings.dwell.activation_show_after.label": {
+    "text": "Aktivator erscheint nach (ms)",
+    "src": "3887e935"
+  },
   "settings.dwell.cooldown.description": {
     "text": "Wie lange ein neues Verweilen nach einer Auslösung warten muss.",
     "src": "1c2d2800"

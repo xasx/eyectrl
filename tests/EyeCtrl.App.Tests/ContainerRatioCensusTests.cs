@@ -156,6 +156,15 @@ public class ContainerRatioCensusTests
                     + "neighbours take Solo; the ring's preview path restates the same value in "
                     + "ActionMenuRingPainter)."),
             ],
+            // B2: the activation button's drawn icon. It shares its 100 DIP disc with the word
+            // underneath, so it is mid-weight content rather than the face's whole content —
+            // DwellArcButton's Medium arm in the same labelled situation. 100 x 0.32 = 32 DIP.
+            ["src/EyeCtrl.Controls/ActivationButtonFace.cs"] =
+            [
+                ("Medium", 2, "the icon in the activation button's own face (B2): an icon above "
+                    + "its word on a 100 DIP disc, i.e. one of two pieces of content, not the "
+                    + "whole face. The two reads are the canvas Width and Height."),
+            ],
         };
 
     [Fact]

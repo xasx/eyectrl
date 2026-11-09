@@ -232,16 +232,16 @@ public class InvisibleTestWindowTests
     }
 
     [Fact]
-    public void TheHaloTests_NeverCreateTheWindowHandleBeforeShowAt()
+    public void TheActivationButtonWindowTests_NeverCreateTheWindowHandleBeforeShowAt()
     {
-        // test-windows-invisible fixup 02: PrepareCloaked's early HWND made the halo tests' fake-DPI read-back off by one pixel
-        // on CI (real DPI 1.0, faked 2.0). The halo tests never show a window, so they need no helper and no early handle.
+        // test-windows-invisible fixup 02: PrepareCloaked's early HWND made the centring tests' fake-DPI read-back off by one pixel
+        // on CI (real DPI 1.0, faked 2.0). The window tests never show a window, so they need no helper and no early handle.
         var code = NoVisibleTestWindowGuardTests.StripCommentsAndStrings(
-            File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName, "tests", "EyeCtrl.App.Tests", "FixationHaloRenderTests.cs")));
+            File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName, "tests", "EyeCtrl.App.Tests", "Overlays", "ActivationButtonWindowTests.cs")));
         foreach (var forbidden in new[] { "PrepareCloaked", "EnsureHandle", "WindowInteropHelper", "InvisibleTestWindow" })
-            Check.WithCustomMessage($"FixationHaloRenderTests uses {forbidden}: an HWND created before ShowAt rounds Left/Top through the real DPI")
+            Check.WithCustomMessage($"ActivationButtonWindowTests uses {forbidden}: an HWND created before ShowAt rounds Left/Top through the real DPI")
                 .That(code.Contains(forbidden, StringComparison.Ordinal)).IsFalse();
-        Check.WithCustomMessage("the halo tests exist and call ShowAt")
+        Check.WithCustomMessage("the activation-button window tests exist and call ShowAt")
             .That(Regex.IsMatch(code, @"new\s+ActivationButtonWindow\s*\(\s*\)[\s\S]*\.ShowAt\s*\(")).IsTrue();
     }
 

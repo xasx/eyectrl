@@ -863,7 +863,7 @@ public class NoVisibleTestWindowGuardTests
     private static readonly string ApiAlternation = string.Join("|", ShowingApis);
 
     // ActivationButtonWindow.ShowAt only positions the window and starts its fade-in; the product calls Show() afterwards
-    // (OverlayVmBindingCoordinator). A test that calls ShowAt alone never shows it (FixationHaloRenderTests), so ShowAt is
+    // (OverlayVmBindingCoordinator). A test that calls ShowAt alone never shows it (Overlays/ActivationButtonWindowTests), so ShowAt is
     // not a showing API on THAT window type; its Show() still is.
     private static readonly string ApiAlternationWithoutShowAt = string.Join("|", ShowingApis.Where(a => a != "ShowAt"));
 

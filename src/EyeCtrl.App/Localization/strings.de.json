@@ -1763,7 +1763,7 @@
     "src": "d1e09c8b"
   },
   "settings.diagnostics.subpixel.description": {
-    "text": "Startet einen kurzen bildschirmfüllenden A/B-Test der Subpixel-Position des Cursorrings. Tastatur, Toolbar und Ring kommen danach zurück; die Einstellungen bleiben geschlossen.",
+    "text": "Startet einen kurzen bildschirmfüllenden A/B-Test der Subpixel-Position des Cursorrings. Tastatur, Symbolleiste und Ring kommen danach zurück; die Einstellungen bleiben geschlossen.",
     "src": "24316cbc"
   },
   "settings.diagnostics.subpixel.notice.ok": {
@@ -1771,7 +1771,7 @@
     "src": "707b3797"
   },
   "settings.diagnostics.subpixel.notice.start_failed": {
-    "text": "Der Subpixel-Sichttest wurde nicht gestartet. Bitte unter „Diagnose“ erneut starten.",
+    "text": "Der Subpixel-Sichttest konnte nicht gestartet werden. Bitte unter „Diagnose“ erneut starten.",
     "src": "a5bcaee9"
   },
   "settings.diagnostics.subpixel.reason.adaptation": {

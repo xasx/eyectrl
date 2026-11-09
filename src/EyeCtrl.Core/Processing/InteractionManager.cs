@@ -379,7 +379,13 @@ public class InteractionManager
     {
         if (_activationOffers is null) return;
         var candidate = _activationOffers.OfferCandidatePoint;
-        _activationOffers.Update(point, timestampUs, isValid, continuesRun);
+        // Holistic review F4: a sample fed after the state left Fixation does not continue the settled
+        // run, so a waiting button never shows on it. A Pause or keyboard toggle can land on the
+        // dispatcher between this sample's request drain and its feed; without this the button would
+        // be published here and torn down by the next drain, a one-sample flash. The candidate's run
+        // is always a Fixation run, so nothing else changes.
+        _activationOffers.Update(point, timestampUs, isValid,
+            CurrentState == InteractionState.Fixation ? continuesRun : false);
         // A delayed offer (round button B3) shows here rather than at its settle. The corner fix's pin
         // override still applies: a clamped candidate's offer keeps the ring at the RAW settle point.
         var live = _activationOffers.CurrentOffer;

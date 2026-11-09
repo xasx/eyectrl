@@ -85,6 +85,26 @@ public class ActivationOfferShowDelayTests
     }
 
     [Fact]
+    public void ADelayedOffer_StaysUpWhileItsRestHolds_PastItsLinger()
+    {
+        // Holistic review-01 F6 (the reviewer's probe): the delayed show goes through MakeOffer, so
+        // the offer's run is Offered and the rest's own samples keep pushing its expiry out — the
+        // button stays while the owner still rests on the word. Mutation MC: reset the run role right
+        // after the delayed MakeOffer → the button expires ~0.75 s after it appears, red.
+        var engine = NewEngine();
+        int expired = 0;
+        engine.OfferExpired += (_, _, _) => expired++;
+        engine.Update(P, 0, true);
+        Check.That(engine.NotifyFixationSettled(P, 0)).IsEqualTo(SettleOutcome.Deferred);
+        for (long ts = FrameUs; ts <= 600_000; ts += FrameUs) engine.Update(P, ts, true);
+        var shown = engine.CurrentOffer;
+        Check.That(shown).IsNotNull();
+        for (long ts = 630_000; ts <= 3_600_000; ts += FrameUs) engine.Update(P, ts, true);
+        Check.That(expired).IsEqualTo(0);
+        Check.That(engine.CurrentOffer?.Id).IsEqualTo(shown!.Id);
+    }
+
+    [Fact]
     public void TheCandidate_IsDroppedAtTheRunsEnd()
     {
         // Mutation: drop "_hasCandidate = false" in NotifyFixationEnded → the offer shows after the

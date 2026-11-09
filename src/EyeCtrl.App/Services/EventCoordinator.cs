@@ -86,6 +86,21 @@ public class EventCoordinator : IEventCoordinator
     internal bool IsProbeOpen => _modal.ProbeOpen;
 
     /// <summary>
+    /// N2: attaches the notice card as the probe coordinator's start-failure notice sink. Called
+    /// by App.xaml.cs AFTER startup composition — the coordinator is built in
+    /// <see cref="Initialize"/>, the card (<c>RestartNoticeHost</c> and its presenter) later — so
+    /// the sink cannot ride a constructor. A dropped call (no coordinator yet, or none any more)
+    /// leaves a failed resumed start log-only, never broken.
+    /// </summary>
+    /// <param name="show">Receives the notice message and the close button's label, both already
+    /// localized; called on the UI thread.</param>
+    internal void AttachProbeStartFailedNoticeSink(Action<string, string> show)
+    {
+        ArgumentNullException.ThrowIfNull(show);
+        if (_probe is not null) _probe.StartFailedNoticeSink = show;
+    }
+
+    /// <summary>
     /// Raised on the UI thread after <see cref="IsProbeOpen"/> flips. A wrapper over
     /// <c>ModalInteractionState.ProbeOpenChanged</c>, whose contract says subscribers read the flag,
     /// not the argument (a re-entrant flip delivers a stale value): always <c>+=</c> / <c>-=</c>

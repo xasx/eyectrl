@@ -354,4 +354,75 @@ public class RestartNoticeHostTests
                 @"_eventCoordinator\s*\.\s*ProbeOpenChanged\s*\+=\s*_restartNoticeHost\s*\.\s*OnProbeOpenChanged"))
             .IsTrue();
     }
+
+    // ────── N2 (fixup-01): the sub-pixel probe's start-failure notice rides the same card ──────
+
+    [Fact]
+    public void TheProbeStartFailedNotice_ShowsWithTheShortHold_WhenNoSurfaceIsOpen()
+    {
+        var rig = new Rig();
+
+        rig.Host.ShowProbeStartFailed("The sub-pixel test did not start.", "✓ OK");
+
+        Check.That(rig.Presenter.Notices).HasSize(1);
+        var notice = rig.Presenter.Notices[0];
+        Check.That(notice.Message).IsEqualTo("The sub-pixel test did not start.");
+        Check.That(notice.CloseLabel).IsEqualTo("✓ OK");
+        // fixup-01 F2, pinned as the VALUE: the card suspends the activation offers while it is up,
+        // and this owner is gaze-only — the refusals' 30 s would leave no gaze click for half a
+        // minute right after they asked a test to run. A mutant back to RefusedHold fails here.
+        Check.That(notice.Hold).IsEqualTo(TimeSpan.FromSeconds(15));
+        Check.That(RestartNoticeHost.StartFailedHold).IsEqualTo(TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public void TheProbeStartFailedNotice_StaysDownWhileSettingsOrTheProbeIsOpen()
+    {
+        // fixup-01 F3: the host's own guard (ShowRefused's), so the card never shows over a
+        // surface that owns the screen.
+        var settings = new Rig { SettingsOpen = true };
+        settings.Host.ShowProbeStartFailed("text", "✓ OK");
+        Check.WithCustomMessage("the start-failure card showed over an open Settings window")
+            .That(settings.Presenter.Notices).IsEmpty();
+
+        var probe = new Rig { ProbeOpen = true };
+        probe.Host.ShowProbeStartFailed("text", "✓ OK");
+        Check.WithCustomMessage("the start-failure card showed over an open probe")
+            .That(probe.Presenter.Notices).IsEmpty();
+
+        // And it speaks as soon as the surface is gone — the suppression is not sticky.
+        probe.ProbeOpen = false;
+        probe.Host.ShowProbeStartFailed("text", "✓ OK");
+        Check.That(probe.Presenter.Notices).HasSize(1);
+    }
+
+    [Fact]
+    public void TheProbeStartFailedNotice_IsAttachedAfterTheHostIsBuilt()
+    {
+        // N2 fixup-01 F1: the sink reaches production through two lines no container can see, so
+        // both are source-pinned (this one, BannerSlotWiringTests.cs:315 block style; the
+        // EventCoordinator half in EventCoordinatorTests). The App half: the attach must exist,
+        // route through the host's guarded method, and sit AFTER the host construction — before
+        // it, _restartNoticeHost is null, the attach drops, and every start failure is log-only.
+        var app = LocalizationTestData.SourceFiles()
+            .Single(file => file.Relative == "src/EyeCtrl.App/App.xaml.cs").Text;
+
+        int host = app.IndexOf("_restartNoticeHost = new RestartNoticeHost(", StringComparison.Ordinal);
+        Check.WithCustomMessage("App.xaml.cs no longer builds the restart notice host")
+            .That(host).IsStrictlyGreaterThan(-1);
+
+        int attach = app.IndexOf("AttachProbeStartFailedNoticeSink(", StringComparison.Ordinal);
+        Check.WithCustomMessage("App.xaml.cs no longer attaches the probe's start-failure notice sink")
+            .That(attach).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "the sink is attached BEFORE the restart notice host exists: the wiring would drop " +
+                "it and every start failure would be log-only again")
+            .That(attach).IsStrictlyGreaterThan(host);
+
+        var statement = app[attach..Math.Min(app.Length, attach + 220)];
+        Check.WithCustomMessage(
+                "the sink no longer routes through the host's guarded ShowProbeStartFailed " +
+                "(fixup-01 F3): the card would show over Settings or the probe again")
+            .That(statement.Contains("_restartNoticeHost.ShowProbeStartFailed", StringComparison.Ordinal)).IsTrue();
+    }
 }

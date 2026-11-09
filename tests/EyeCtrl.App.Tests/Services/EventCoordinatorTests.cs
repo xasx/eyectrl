@@ -209,6 +209,26 @@ public class EventCoordinatorTests
     }
 
     [Fact]
+    public void AttachProbeStartFailedNoticeSink_SetsTheProbeSink()
+    {
+        // N2 fixup-01 F1: the start-failure notice reaches the coordinator only through this body
+        // (the App.xaml.cs attach is pinned in RestartNoticeHostTests). A source pin, the same
+        // precedent as Initialize_WiresTheProbeCoordinator: EventCoordinator is not constructed in
+        // tests. Dropping the assignment leaves a failed resumed start log-only with every
+        // behavioural test green.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "AttachProbeStartFailedNoticeSink no longer sets the probe's StartFailedNoticeSink: " +
+                "a failed resumed start goes back to log-only")
+            .That(source.Contains("if(_probeisnotnull)_probe.StartFailedNoticeSink=show;")).IsTrue();
+    }
+
+    [Fact]
     public void CloseSettingsWindowForProbe_ClosesSynchronously()
     {
         // The C10 request path needs a SYNCHRONOUS close: the PendingStart window is closed by the

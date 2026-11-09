@@ -255,7 +255,22 @@ public class ActivationOfferWiringTests
             offer.Button.Y + ((offer.Point.Y - offer.Button.Y) * t));
     }
 
+    /// <summary>The point at <paramref name="fromButtonPx"/> from B, perpendicular to the line P-B. At the
+    /// 200-px hit (F2) a near miss can no longer lie on the line toward P: at |B-P| = 360 the band "outside
+    /// the hit, nearer B than P" (200..180 px from B) is empty there, so the near miss sits beside B.</summary>
+    private static PhysicalPoint BesideB(ActivationOffer offer, double fromButtonPx)
+    {
+        double length = offer.Point.DistanceTo(offer.Button);
+        double ux = (offer.Button.X - offer.Point.X) / length, uy = (offer.Button.Y - offer.Point.Y) / length;
+        return new PhysicalPoint(offer.Button.X - (uy * fromButtonPx), offer.Button.Y + (ux * fromButtonPx));
+    }
+
     private const double HarnessRadiusPx = 90;
+
+    /// <summary>A swallowed settle's distance from B, toward P: outside the hit area, inside the no-move
+    /// zone (hit + R), nearer P than B and more than R from P (a run of its own) — 240 px from B, 120 from P
+    /// at the harness's |B-P| = 360 (was hit + R - 10 = 230 at the 150-px hit).</summary>
+    private static double SwallowedFromButtonPx(ActivationOffer offer) => offer.HitRadiusPx + 40;
 
     [Fact]
     public void ANearMissSettle_LeavesTheRingAtP()
@@ -265,7 +280,7 @@ public class ActivationOfferWiringTests
         // the button on it. Mutation: re-pin on an Extended settle → PinPoints gains the near miss.
         using var h = new Harness();
         var offer = h.SettleAt(P);
-        var nearMiss = TowardP(offer, offer.HitRadiusPx + 15);
+        var nearMiss = BesideB(offer, offer.HitRadiusPx + 15);
         Check.That(nearMiss.DistanceTo(offer.Button)).IsStrictlyLessThan(nearMiss.DistanceTo(P));
         Check.That(nearMiss.DistanceTo(P)).IsStrictlyGreaterThan(HarnessRadiusPx);   // a run of its own
 
@@ -286,7 +301,7 @@ public class ActivationOfferWiringTests
         // re-offer). The ring stays at P. Mutation: re-pin on a Pending settle → PinPoints gains it.
         using var h = new Harness();
         var offer = h.SettleAt(P);
-        var swallowed = TowardP(offer, offer.HitRadiusPx + HarnessRadiusPx - 10);
+        var swallowed = TowardP(offer, SwallowedFromButtonPx(offer));
         Check.That(swallowed.DistanceTo(P)).IsStrictlyLessThan(swallowed.DistanceTo(offer.Button));
         Check.That(swallowed.DistanceTo(P)).IsStrictlyGreaterThan(HarnessRadiusPx);
 
@@ -305,7 +320,7 @@ public class ActivationOfferWiringTests
         // ring must mark it. Mutation: pin only from a settle's publish → the ring stays at the old P.
         using var h = new Harness();
         var first = h.SettleAt(P);
-        var swallowed = TowardP(first, first.HitRadiusPx + HarnessRadiusPx - 10);
+        var swallowed = TowardP(first, SwallowedFromButtonPx(first));
 
         h.Feed(swallowed, samples: 40);                       // 1.2 s: past the 750 ms linger, still holding
 
@@ -1051,7 +1066,7 @@ public class ActivationOfferWiringTests
         var offer = h.SettleAt(P);
         Check.That(h.PinPoints).ContainsExactly(P);
 
-        var swallowed = TowardP(offer, offer.HitRadiusPx + HarnessRadiusPx - 10);
+        var swallowed = TowardP(offer, SwallowedFromButtonPx(offer));
         h.Feed(swallowed, samples: 20);
 
         Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);   // swallowed, not replaced

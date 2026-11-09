@@ -17,28 +17,27 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 {
     private readonly EyeCtrlSettings _settings;
 
-    /// <summary>The hybrid's grace: the engine's own outside-pause budget (500 ms), so the hold lives
+    /// <summary>The freeze hold's grace: the engine's own outside-pause budget (500 ms), so the hold lives
     /// exactly as long as the button dwell would survive an excursion ("The hybrid, precisely").</summary>
     public const int HybridFreezeGraceMs = 500;
 
-    /// <summary>In-hit samples after which the hold has proven itself: three (90 ms at 30 ms frames).</summary>
+    /// <summary>In-hit samples after which the freeze hold has proven itself: three (90 ms at 30 ms frames).</summary>
     public const int HybridFreezeProvenSamples = 3;
 
     /// <summary>The nominal proven time the startup line prints: three 30 ms samples. The RULE is the
     /// sample count above, not elapsed time.</summary>
     public const int HybridFreezeProvenMs = 90;
 
-    /// <summary>The going-for-it keep's time limit T: how long a run-end release is deferred while the
-    /// eye is on its way to the button (inside the P-B corridor or B's no-move zone). It equals the
-    /// hold's grace and the engine's outside-pause budget, so the ring waits exactly as long as the
-    /// button's dwell survives an excursion. (Named for the approach window it widens.)</summary>
-    public const int HybridFreezeApproachMs = 500;
+    /// <summary>The stay's grace G (owner's pick, 5th sitting 2026-11-09, option A): how long the gaze
+    /// must be clearly outside the stay zone before the ring leaves the word. It equals the engine's
+    /// outside-pause budget, so the ring waits exactly as long as the button's fill does.</summary>
+    public const int HybridStayGraceMs = 500;
 
-    /// <summary>The going-for-it corridor's half-width as a multiple of the engine's effective R: the
-    /// axis-offset keep reaches 1.25 R either side of the segment P-B (100 px at R = 80), so an approach
-    /// that drifts a little wide of the axis still counts as on its way to the button. Only the corridor
-    /// widens; B's no-move zone still uses R itself.</summary>
-    public const double HybridGoCorridorFactor = 1.25;
+    /// <summary>The stay zone's corridor half-width as a multiple of the engine's effective R: the zone
+    /// reaches 1.25 R either side of the segment P-B (100 px at R = 80), so an approach that drifts a
+    /// little wide of the axis still counts as on its way to the button. Only the corridor widens; B's
+    /// no-move zone still uses R itself.</summary>
+    public const double HybridStayCorridorFactor = 1.25;
 
     /// <summary>
     /// The ring hold policy (<c>--ring-arm</c> sets it once at startup; never a setting). The class
@@ -58,18 +57,18 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// state's clear, or the hybrid's deferred run-end resolution.</summary>
     public event Action<RingReleaseEvent>? RingReleased;
 
-    /// <summary>A hybrid hold started.</summary>
+    /// <summary>A hybrid (freeze) hold started.</summary>
     public event Action<RingHoldStartEvent>? RingHoldStarted;
 
-    /// <summary>A hybrid hold ended.</summary>
+    /// <summary>A hybrid (freeze) hold ended.</summary>
     public event Action<RingHoldEndEvent>? RingHoldEnded;
 
-    /// <summary>The going-for-it keep began: the run-end pin at P is kept while the gaze is on its way
-    /// to B.</summary>
-    public event Action<RingGoStartEvent>? RingGoStarted;
+    /// <summary>The stay began: the run-end pin at P is kept while the button is up and the gaze is in
+    /// its stay zone.</summary>
+    public event Action<RingStayStartEvent>? RingStayStarted;
 
-    /// <summary>The going-for-it keep ended (hit entry, left the corridor, timeout, offer closed, hidden).</summary>
-    public event Action<RingGoEndEvent>? RingGoEnded;
+    /// <summary>The stay ended (left the zone for the grace, offer closed, hidden, settled elsewhere).</summary>
+    public event Action<RingStayEndEvent>? RingStayEnded;
 
     // Effective visibility = the interaction state allows a cursor AND no external-dwell target
     // is currently active. Two independent inputs are combined into the single IsVisible so there
@@ -107,8 +106,13 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private long _holdStartUs;
     private int _inHitCount;
     private long? _outsideSinceUs;
-    private long? _approachUntilUs;
-    private long _goStartUs;
+    // The stay (F2): the run-end pin kept while the button is up and the gaze is in the stay zone.
+    private bool _staying;
+    private long _stayStartUs;
+    private long? _stayOutsideSinceUs;
+    // A settle pin was applied and its run has not ended (no ReleaseRing since): Core's RunOnly pin is
+    // live, so an offer's close during a stay keeps it for the run's own release.
+    private bool _runPinHeld;
     private bool _pendingRunEndRelease;
     private bool _offerLive;
     private PhysicalPoint _offerCenter;
@@ -192,26 +196,24 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// Under <see cref="RingHoldPolicy.HybridFreeze"/> a pin while holding is ignored: "while holding,
     /// settles and run ends are ignored, so there is no re-pin and no snap". It is likewise ignored
     /// while an offer is live and the point is a near miss: inside its no-move zone and nearer B than P.
-    /// A settle during the going-for-it keep ENDS the keep (the eye has stopped: it is no longer going
-    /// for the button, and the detector's settle can come no earlier than the keep's time limit) and is
-    /// then processed as without a keep: it pins, or a near miss is refused and the ring follows.
+    /// During a stay, a near miss is refused and the stay goes on (the eye is at the button); a settle
+    /// on P's side inside the stay zone re-pins and the stay goes on there; a settle outside the stay
+    /// zone ends the stay (settled elsewhere) and pins.
     /// </para>
     /// </summary>
     public void Receive(PinRingMessage message)
     {
         // Only a fixation may pin. The check is against the last state the machine REPORTED, so a
         // release/exit that arrives before this message (F4's race) refuses the pin outright.
-        bool endsKeep = RingHoldPolicy == RingHoldPolicy.HybridFreeze
-            && !_holding && _approachUntilUs is not null && _lastState == InteractionState.Fixation;
-        if (endsKeep)
-            GoEnd(RingGoEndReason.Settled, _latestGaze, _lastFrameUs);
-        bool holdSuppressed = RingHoldPolicy == RingHoldPolicy.HybridFreeze
-            && (_holding || _approachUntilUs is not null);
+        bool hybrid = RingHoldPolicy == RingHoldPolicy.HybridFreeze;
+        if (hybrid && _staying && _lastState == InteractionState.Fixation && !InStayZone(message.Position))
+            EndStay(RingStayEndReason.Settled, _latestGaze, _lastFrameUs);
+        bool holdSuppressed = hybrid && _holding;
         // A NEAR-MISS settle (inside a live offer's no-move zone AND strictly nearer B than P: the
         // engine's own NearMiss rule, ActivationOfferEngine.cs:452) must not glide the ring toward it;
-        // the ring keeps following or holding. A settle on P's side of the zone is the engine's
+        // the ring keeps following, holding or staying. A settle on P's side of the zone is the engine's
         // "swallowed" pending re-offer (the owner looking back at the target): it pins as before.
-        bool nearOffer = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+        bool nearOffer = hybrid
             && _offerLive
             && _offerPoint is { } offerPoint
             && message.Position.DistanceTo(_offerCenter) <= NoMoveZonePx
@@ -224,10 +226,6 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
             bool decidedByNearOffer = nearOffer && !holdSuppressed && _lastState == InteractionState.Fixation;
             RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, 0, Applied: false,
                 IgnoredNearOffer: decidedByNearOffer));
-            // The keep ended on this settle and the pin was refused (a near miss): the owed run-end
-            // release happens now, so the ring follows rather than staying pinned at P with no keep.
-            if (endsKeep)
-                ReleaseNowWithLog(RingReleaseCause.RunEnd);
             return;
         }
 
@@ -237,6 +235,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         _glideStartUs = -1;
         _gliding = true;
         IsPinned = true;
+        _runPinHeld = true;
         RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, dist, Applied: true));
     }
 
@@ -246,15 +245,16 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// cancels a glide that was still in flight, so nothing keeps interpolating toward a stale pin.
     /// <para>
     /// Under <see cref="RingHoldPolicy.HybridFreeze"/> the release is deferred to the next sample
-    /// (where the landing gaze decides between keeping the pin, the approach window and the release),
-    /// and is ignored entirely while holding or approaching — no snap under a hold.
+    /// (where the landing gaze decides between the stay and the release), and is ignored entirely while
+    /// holding or staying — no snap under a hold or a stay.
     /// </para>
     /// </summary>
     public void Receive(ReleaseRingMessage message)
     {
         if (RingHoldPolicy == RingHoldPolicy.HybridFreeze)
         {
-            if (!_holding && _approachUntilUs is null)
+            _runPinHeld = false;
+            if (!_holding && !_staying)
                 _pendingRunEndRelease = true;
             RingReleaseProcessed?.Invoke(new RingReleaseProcessedEvent(ReleasedNow: false, Dist: 0));
             return;
@@ -298,8 +298,9 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         UpdateVisibility();
     }
 
-    /// <summary>The offer's B and hit radius (physical px), for the hybrid's freeze and its hold
-    /// exits; the button's show/hide are NOT pin edges in any policy (the pin's lifetime is Core's).</summary>
+    /// <summary>The offer's B and hit radius (physical px), for the hybrid's stay zone, freeze and hold
+    /// exits; the button's show/hide are NOT pin edges in any policy (the pin's lifetime is Core's). A
+    /// new show re-keys the stay zone to its own B and P.</summary>
     public void Receive(ShowActivationButtonMessage message)
     {
         _offerLive = true;
@@ -316,7 +317,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     /// <summary>The engine's effective fixation radius R from the show message (the baseline setting where
     /// the message did not carry it): the no-move zone's margin, and — times
-    /// <see cref="HybridGoCorridorFactor"/> — the corridor's half-width.</summary>
+    /// <see cref="HybridStayCorridorFactor"/> — the corridor's half-width.</summary>
     private double ZoneRadiusPx => _offerFixationRadiusPx ?? _settings.Dwell.FixationRadiusPixels;
 
     /// <summary>The distance from the gaze to the segment P-B, or null where the show message carried
@@ -324,12 +325,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private double? AxisOffsetPx(PhysicalPoint gaze) =>
         _offerPoint is { } p ? DistanceToSegment(gaze, p, _offerCenter) : null;
 
-    /// <summary>Whether the gaze is on its way to B: inside B's no-move zone, or within 1.25 R of the
-    /// segment P-B (a capsule of half-width <see cref="HybridGoCorridorFactor"/> × R). Without P it is
-    /// today's zone test.</summary>
-    private bool InGo(PhysicalPoint gaze) =>
+    /// <summary>The stay zone Z: on, near or on its way to B — inside B's no-move zone (hit + R, the
+    /// engine's own "attempt" zone), or within 1.25 R of the segment P-B (a capsule of half-width
+    /// <see cref="HybridStayCorridorFactor"/> × R). Without P it is B's no-move zone alone.</summary>
+    private bool InStayZone(PhysicalPoint gaze) =>
         gaze.DistanceTo(_offerCenter) <= NoMoveZonePx
-        || (AxisOffsetPx(gaze) is { } off && off <= ZoneRadiusPx * HybridGoCorridorFactor);
+        || (AxisOffsetPx(gaze) is { } off && off <= ZoneRadiusPx * HybridStayCorridorFactor);
 
     private static double DistanceToSegment(PhysicalPoint g, PhysicalPoint a, PhysicalPoint b)
     {
@@ -340,23 +341,27 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
-    /// <summary>The keep begins: the pin at P stays while the gaze is on its way to B, for at most T.</summary>
-    private void GoStart(PhysicalPoint gaze, long ts)
+    /// <summary>The stay begins: the pin at P is kept while the button is up and the gaze is in Z.</summary>
+    private void StartStay(PhysicalPoint gaze, long ts)
     {
-        _approachUntilUs = ts + (HybridFreezeApproachMs * 1000L);
-        _goStartUs = ts;
-        RingGoStarted?.Invoke(new RingGoStartEvent(_drawn.DistanceTo(gaze), AxisOffsetPx(gaze)));
+        _staying = true;
+        _stayStartUs = ts;
+        _stayOutsideSinceUs = null;
+        RingStayStarted?.Invoke(new RingStayStartEvent(_drawn.DistanceTo(gaze), AxisOffsetPx(gaze)));
     }
 
-    /// <summary>The keep ends, whatever follows (the hold's start, or a release).</summary>
-    private void GoEnd(RingGoEndReason reason, PhysicalPoint gaze, long ts)
+    /// <summary>The stay ends, whatever follows (a release, a pin elsewhere, or Core's own run end).</summary>
+    private void EndStay(RingStayEndReason reason, PhysicalPoint gaze, long ts)
     {
-        _approachUntilUs = null;
-        RingGoEnded?.Invoke(new RingGoEndEvent(reason, (ts - _goStartUs) / 1000.0, AxisOffsetPx(gaze)));
+        _staying = false;
+        _stayOutsideSinceUs = null;
+        RingStayEnded?.Invoke(new RingStayEndEvent(reason, (ts - _stayStartUs) / 1000.0, AxisOffsetPx(gaze)));
     }
 
-    /// <summary>The live offer went: a hold ends with its release (the <c>offer-closed</c> hold end),
-    /// and an approach in flight is cleared and released.</summary>
+    /// <summary>The live offer went (fired, expired, declined, replaced, taken away): a hold ends with its
+    /// release (the <c>offer-closed</c> hold end), and a stay ends and releases — unless a settle pinned
+    /// the ring during the stay and that run still holds (the swallowed settle of a pending re-offer):
+    /// Core's RunOnly pin is then the truth, and its run end releases it, re-keyed to the next offer.</summary>
     public void Receive(HideActivationButtonMessage message)
     {
         _offerLive = false;
@@ -365,18 +370,18 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
         if (_holding)
             EndHold(RingHoldEndReason.OfferClosed, release: true);
-        else if (_approachUntilUs is not null)
+        else if (_staying)
         {
-            GoEnd(RingGoEndReason.OfferClosed, _latestGaze, _lastFrameUs);
-            ReleaseNowWithLog(RingReleaseCause.OfferClosed);
+            EndStay(RingStayEndReason.OfferClosed, _latestGaze, _lastFrameUs);
+            if (!_runPinHeld)
+                ReleaseNowWithLog(RingReleaseCause.OfferClosed);
         }
     }
 
     /// <summary>
-    /// The hybrid's per-sample rules, in the ticket's order a–d, applied to the drawn ring before the
-    /// ordinary follow (e in <see cref="Receive(GazeCursorMovedMessage)"/>). Distances are physical
-    /// px; R is the engine's <see cref="DwellSettings.FixationRadiusPixels"/>, as the engine itself
-    /// uses it for the no-move zone.
+    /// The hybrid's per-sample rules, in order a–d, applied to the drawn ring before the ordinary follow
+    /// (e in <see cref="Receive(GazeCursorMovedMessage)"/>). Distances are physical px; R is the engine's
+    /// effective fixation radius from the show message, as the engine itself uses it for the no-move zone.
     /// </summary>
     private void AdvanceHybridHold(GazeCursorMovedMessage message)
     {
@@ -387,39 +392,34 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
         if (_pendingRunEndRelease)
         {
-            // a. The deferred run-end release: the landing gaze decides. Into the hit area it keeps
-            // the pin as the hold's beginning; on its way to B (the P-B corridor or B's no-move zone)
-            // it waits out the going-for-it window T; anywhere else (no offer, or nothing pinned) the
-            // release happens.
+            // a. The deferred run-end release: the landing gaze decides. With a button up and the gaze
+            // in the stay zone (on, near or on its way to B), the pin stays; anywhere else (no offer, or
+            // nothing pinned) the release happens.
             _pendingRunEndRelease = false;
-            if (_offerLive && IsPinned && gaze.DistanceTo(_offerCenter) <= _offerHitRadiusPx)
-                StartHold(ts, RingHoldStartKind.Keep, inPlace: false);
-            else if (_offerLive && IsPinned && InGo(gaze))
-                GoStart(gaze, ts);
+            if (_offerLive && IsPinned && InStayZone(gaze))
+                StartStay(gaze, ts);
             else
                 ReleaseNowWithLog(RingReleaseCause.RunEnd);
         }
-        else if (_approachUntilUs is { } until && _offerLive)
+        else if (_staying)
         {
-            // b. The going-for-it window: entering the hit area starts the hold with the ring still
-            // where it was pinned; leaving the corridor (and the zone) releases on that frame, and so
-            // does running out of window T (a snap).
-            double d = gaze.DistanceTo(_offerCenter);
-            if (d <= _offerHitRadiusPx)
+            // b. The stay: inside Z the outside timer resets; clearly outside it for G, the ring follows.
+            if (InStayZone(gaze))
+                _stayOutsideSinceUs = null;
+            else
             {
-                GoEnd(RingGoEndReason.Hit, gaze, ts);
-                StartHold(ts, RingHoldStartKind.Approach, inPlace: false);
-            }
-            else if (!InGo(gaze) || ts >= until)
-            {
-                GoEnd(InGo(gaze) ? RingGoEndReason.Timeout : RingGoEndReason.Left, gaze, ts);
-                ReleaseNowWithLog(RingReleaseCause.RunEnd);
+                _stayOutsideSinceUs ??= ts;
+                if (ts - _stayOutsideSinceUs.Value >= HybridStayGraceMs * 1000L)
+                {
+                    EndStay(RingStayEndReason.Left, gaze, ts);
+                    ReleaseNowWithLog(RingReleaseCause.RunEnd);
+                }
             }
         }
 
         if (_offerLive && IsVisible)
         {
-            // c. Holding bookkeeping, then the freeze-before-follow for any other entry.
+            // c. Freeze-hold bookkeeping, then the freeze-before-follow for a following ring's entry.
             double d = gaze.DistanceTo(_offerCenter);
             if (_holding)
             {
@@ -440,7 +440,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
                         EndHold(proven ? RingHoldEndReason.Left : RingHoldEndReason.Unproven, release: true);
                 }
             }
-            else if (_approachUntilUs is null && d <= _offerHitRadiusPx)
+            else if (!_staying && d <= _offerHitRadiusPx)
             {
                 StartHold(ts, RingHoldStartKind.Freeze, inPlace: true);
             }
@@ -454,7 +454,6 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private void StartHold(long ts, RingHoldStartKind kind, bool inPlace)
     {
         _holding = true;
-        _approachUntilUs = null;
         _outsideSinceUs = null;
         _holdStartUs = ts;
         _inHitCount = 0;
@@ -541,17 +540,17 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
         IsVisible = nowVisible;
 
-        // A hidden ring cannot hold: the hybrid drops the deferred run-end and the approach, and the
+        // A hidden ring cannot hold: the hybrid drops the deferred run-end and the stay, and the
         // hold ends. A hiding STATE has already snapped the pin above, so the owed release below is a
         // no-op there; an EXTERNAL DWELL's hide changes no state, so without this release the pin
         // strands at the old hold point until Core's next release (fixup 01 F2).
         if (!nowVisible && RingHoldPolicy == RingHoldPolicy.HybridFreeze)
         {
-            bool releaseOwed = _holding || _approachUntilUs is not null || _pendingRunEndRelease;
+            bool releaseOwed = _holding || _staying || _pendingRunEndRelease;
             bool hadHold = _holding;
             _pendingRunEndRelease = false;
-            if (_approachUntilUs is not null)
-                GoEnd(RingGoEndReason.Hidden, _latestGaze, _lastFrameUs);
+            if (_staying)
+                EndStay(RingStayEndReason.Hidden, _latestGaze, _lastFrameUs);
             if (hadHold)
                 EndHold(RingHoldEndReason.Hidden, release: true);
             else if (releaseOwed)

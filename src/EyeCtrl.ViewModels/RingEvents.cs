@@ -17,23 +17,20 @@ public enum RingHoldPolicy
     None,
 
     /// <summary>The look's hybrid — the launch default since the owner's look picked it (2026-10-16):
-    /// within a live offer's hit area the ring stops where it is drawn
-    /// (or keeps the pin it was on) and holds, ignoring settles and run ends; it releases on the
-    /// grace expiry (an unproven hold also on leaving the no-move zone), on the offer's close, and
-    /// on a hiding state. See the constants on <see cref="CursorCircleViewModel"/>.</summary>
+    /// while a button is up, a run's pin at P STAYS while the gaze is on, near or on its way to the
+    /// button (the stay zone, 5th sitting 2026-11-09), and lets go only after the gaze has been clearly
+    /// elsewhere for the grace, on the offer's close, or on a settle elsewhere; a FOLLOWING ring that
+    /// reaches the hit area stops where it is drawn and holds (the freeze), ignoring settles and run
+    /// ends, until its own grace (an unproven hold also on leaving the no-move zone), the offer's close
+    /// or a hiding state. See the constants on <see cref="CursorCircleViewModel"/>.</summary>
     HybridFreeze,
 }
 
-/// <summary>Which of the hybrid's three hold starts fired.</summary>
+/// <summary>Which hold start fired. Since the stay zone (F2), the run's pin at P is kept by the stay
+/// (<see cref="RingStayStartEvent"/>), so the only hold left is the freeze.</summary>
 public enum RingHoldStartKind
 {
-    /// <summary>The deferred run-end release landed inside the hit area: the hold kept the existing pin.</summary>
-    Keep,
-
-    /// <summary>The eye crossed into the hit area during the going-for-it window (<c>HybridFreezeApproachMs</c>).</summary>
-    Approach,
-
-    /// <summary>Any other entry of the eye into the hit area: the ring froze where it was drawn.</summary>
+    /// <summary>A following ring's gaze entered the hit area: the ring froze where it was drawn.</summary>
     Freeze,
 }
 
@@ -56,10 +53,11 @@ public enum RingHoldEndReason
 /// <summary>What caused a ring release, for the look's readout (<c>run-end</c> etc. in the log).</summary>
 public enum RingReleaseCause
 {
-    /// <summary>The run's end (or, in the hybrid, its deferred resolution at the next sample).</summary>
+    /// <summary>The run's end (or, in the hybrid, its deferred resolution: at the next sample, or when
+    /// the stay ends because the gaze left the zone or the ring was hidden).</summary>
     RunEnd,
 
-    /// <summary>The live offer closed (an approach-window clear; the shipped offer-following release).</summary>
+    /// <summary>The live offer closed (the stay's end; the shipped offer-following release).</summary>
     OfferClosed,
 
     /// <summary>A hybrid hold ended with a release (grace expiry, unproven exit, offer close).</summary>
@@ -93,35 +91,31 @@ public readonly record struct RingReleaseEvent(RingReleaseCause Cause, double Di
 /// <summary>A hybrid hold started.</summary>
 public readonly record struct RingHoldStartEvent(RingHoldStartKind Kind);
 
-/// <summary>Why a going-for-it keep ended (the run-end pin at P kept while the gaze is on its way to B).</summary>
-public enum RingGoEndReason
+/// <summary>Why a stay ended (the run-end pin at P kept while a button is up and the gaze is in its
+/// stay zone: on or near the button, or on the way between word and button).</summary>
+public enum RingStayEndReason
 {
-    /// <summary>The gaze entered the hit area: the hold starts with the ring still at P.</summary>
-    Hit,
-
-    /// <summary>The gaze left the P-B corridor (and B's no-move zone): the ring follows on that frame.</summary>
+    /// <summary>The gaze sat outside the stay zone for the grace (<c>HybridStayGraceMs</c>): the ring
+    /// follows.</summary>
     Left,
 
-    /// <summary>The time limit T passed with the gaze still on its way: the ring follows.</summary>
-    Timeout,
-
-    /// <summary>The live offer closed during the keep.</summary>
+    /// <summary>The live offer closed (fired, expired, declined, replaced or taken away).</summary>
     OfferClosed,
 
     /// <summary>A hiding state (or the external dwell) took the ring away.</summary>
     Hidden,
 
-    /// <summary>The eye stopped and the detector settled (a settle pin reached the ring during the keep):
-    /// the pin is then processed as without a keep.</summary>
+    /// <summary>The eye settled outside the stay zone: the pin there is applied.</summary>
     Settled,
 }
 
-/// <summary>A going-for-it keep began. <see cref="Dist"/> is the drawn ring to the gaze; <see cref="Off"/>
-/// is the gaze's distance to the segment P-B (null where the offer's P is unknown).</summary>
-public readonly record struct RingGoStartEvent(double Dist, double? Off);
+/// <summary>A stay began. <see cref="Dist"/> is the drawn ring to the gaze; <see cref="Off"/> is the
+/// gaze's distance to the segment P-B (null where the offer's P is unknown).</summary>
+public readonly record struct RingStayStartEvent(double Dist, double? Off);
 
-/// <summary>A going-for-it keep ended, <see cref="Ms"/> after it began (the message clock).</summary>
-public readonly record struct RingGoEndEvent(RingGoEndReason Reason, double Ms, double? Off);
+/// <summary>A stay ended, <see cref="Ms"/> after it began (the message clock), with the gaze's distance
+/// to the segment P-B at the end.</summary>
+public readonly record struct RingStayEndEvent(RingStayEndReason Reason, double Ms, double? Off);
 
 /// <summary>A hybrid hold ended, with how long it lasted (the message clock; end-of-run ends use the
 /// last delivered sample).</summary>

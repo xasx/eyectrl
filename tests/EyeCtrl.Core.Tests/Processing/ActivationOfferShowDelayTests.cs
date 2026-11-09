@@ -227,12 +227,13 @@ public class ActivationOfferShowDelayTests
         var old = OldOfferAtP(engine, runEndUs: 100_000);
         var b = old.Button;
         double ux = (b.X - P.X) / b.DistanceTo(P), uy = (b.Y - P.Y) / b.DistanceTo(P);
-        double d = b.DistanceTo(P);
 
         Check.That(engine.NotifyFixationSettled(b, 200_000)).IsEqualTo(SettleOutcome.OnButton);
         engine.NotifyFixationEnded(220_000);
 
-        var nearMiss = new PhysicalPoint(P.X + ((d - 170) * ux), P.Y + ((d - 170) * uy));   // 170 px from B, 190 from P
+        // Past B: 220 px from B (outside the 200-px hit, inside hit + R), 580 from P. At the 200-px hit
+        // the old spot 170 px from B toward P is ON the button.
+        var nearMiss = new PhysicalPoint(b.X + (220 * ux), b.Y + (220 * uy));
         Check.That(engine.NotifyFixationSettled(nearMiss, 250_000)).IsEqualTo(SettleOutcome.Extended);
         engine.NotifyFixationEnded(270_000);
 

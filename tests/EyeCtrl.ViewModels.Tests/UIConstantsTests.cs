@@ -45,8 +45,9 @@ public class UIConstantsTests
     public void ActivationButtonHitRadius_IsItsOwnPhysicalConstant()
     {
         // Ticket 7 (N4): the dwell target is physical pixels and its own constant. Mutation: bump or
-        // reuse SharedButtonRadius for it → red on the size that roughly ten other buttons read.
-        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(150.0);
+        // reuse SharedButtonRadius for it → red on the size that roughly ten other buttons read. 200 px
+        // since F2 (5th sitting, 2026-11-09: the owner's answer Q-hit = a; was 150).
+        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(200.0);
         Check.That(LayoutConstants.SharedButtonRadius).IsEqualTo(50.0);
         Check.That(LayoutConstants.ActivationButtonHitRadiusPx)
             .IsNotEqualTo(LayoutConstants.SharedButtonRadius);

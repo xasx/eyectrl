@@ -79,7 +79,8 @@ public class RingArmLookOracleTests
     // ── Outcomes through the real engine + VM (the oracle alone cannot tell a shared design flaw) ──
 
     private sealed record WiredRun(
-        List<(int Sample, string Event)> Log, List<ShowActivationButtonMessage> Offers, PhysicalPoint[] Position, bool[] Pinned)
+        List<(int Sample, string Event)> Log, List<ShowActivationButtonMessage> Offers, PhysicalPoint[] Position, bool[] Pinned,
+        PhysicalPoint[] Gaze)
     {
         public IEnumerable<string> Events => Log.Select(l => l.Event);
 
@@ -117,13 +118,16 @@ public class RingArmLookOracleTests
 
         var position = new PhysicalPoint[samples.Count];
         var pinned = new bool[samples.Count];
+        // The gaze the VM itself was fed on each sample (the engine's filtered point, not the raw script).
+        var gaze = new PhysicalPoint[samples.Count];
+        messenger.Register<GazeCursorMovedMessage>(gaze, (_, m) => gaze[Math.Min(current, samples.Count - 1)] = m.Position);
         Walk(samples, SessionEnd, RingPinPolicy.RunOnly, messenger: messenger, afterSample: i =>
         {
             position[i] = drawn;
             pinned[i] = vm.IsPinned;
             current = i + 1;
         });
-        return new WiredRun(log, offers, position, pinned);
+        return new WiredRun(log, offers, position, pinned, gaze);
     }
 
     [Fact]
@@ -171,8 +175,8 @@ public class RingArmLookOracleTests
     [Fact]
     public void Outcome_DriftEndedRun_GoingForTheButton_StaysStillAtP_ThroughTheButtonVisit()
     {
-        // F3, now with the stay: the run ends through fixation drift, 66 px from P (outside B's zone, inside
-        // the corridor): the stay starts, the eye reaches the button and dwells, and the ring never moves
+        // F3, now with the stay: after a drifted run the eye goes for the button; the run ends on the way,
+        // on the P-B axis: the stay starts, the eye reaches the button and dwells, and the ring never moves
         // and never freezes elsewhere until the stay ends (the fire closes the offer).
         var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.ToButton));
         var events = run.Events.ToList();
@@ -220,24 +224,76 @@ public class RingArmLookOracleTests
         }
     }
 
-    [Fact]
-    public void Outcome_DriftEndedRun_LookingAway_FollowsAfterTheGrace()
+    /// <summary>The stay zone Z of the offer that was up at <paramref name="sample"/>, by the VM's rule: B's
+    /// no-move zone (hit + R) or within <see cref="CursorCircleViewModel.HybridStayCorridorFactor"/> R of P-B.</summary>
+    private static Func<PhysicalPoint, bool> StayZoneAt(WiredRun run, int sample)
     {
-        // F3, the other way: the same drift-ended run, then the eye looks 500 px to the side. Whatever the
-        // landing (a stay if the run ended in the corridor), the ring is released no later than the grace
-        // after the eye left the zone, and follows.
-        var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.Away));
-        var events = run.Events.ToList();
-        Check.WithCustomMessage(string.Join(" | ", events)).That(events).Contains("release RunEnd");
+        int shown = run.Log.Where(l => l.Event == "offer" && l.Sample <= sample).Count();
+        var offer = run.Offers[shown - 1];
+        var b = offer.ButtonCenter;
+        var p = offer.OfferPoint!.Value;
+        double r = offer.FixationRadiusPx!.Value;
+        return g => g.DistanceTo(b) <= offer.HitRadiusPx + r
+                    || DistanceToSegment(g, p, b) <= r * CursorCircleViewModel.HybridStayCorridorFactor;
+    }
+
+    [Fact]
+    public void Outcome_DriftEndedRun_LookingAway_TheRingFollowsAtOnce()
+    {
+        // F3, the other way (F2 review R5: pinned to one branch, no `if`). The drift stays within R of the
+        // running centroid, so the run holds through it; it ends on the first sample of the look 500 px to
+        // the side, and that landing is already outside Z. No stay: the run-end release lands on that very
+        // sample and the ring follows. Mutant: a stay without the zone check → a stay starts, red.
+        var samples = GoingForItChains.Drift(GoingForItChains.DriftKind.Away);
+        var run = RunWired(samples);
+        var trace = string.Join(" | ", run.Log.Select(l => $"{l.Sample}:{l.Event}"));
+        Check.WithCustomMessage(trace).That(run.Events).Not.Contains("stay start");
+
         int released = run.FirstSample("release RunEnd");
+        Check.WithCustomMessage(trace).That(released).IsGreaterOrEqualThan(0);
+        const int firstAwaySample = 30 + 14 + 20;   // Drift: Hold 900 ms at P, Move 14 samples, Hold 600 ms
+        Check.WithCustomMessage("the release is on the run-end landing, the first sample of the look away: " + trace)
+            .That(released).IsEqualTo(firstAwaySample);
+        Check.That(StayZoneAt(run, released)(run.Gaze[released])).IsFalse();
         Check.That(run.Pinned[released]).IsFalse();
+        Check.That(run.Position[released]).IsEqualTo(run.Gaze[released]);
+    }
+
+    [Fact]
+    public void Outcome_DriftEndedRun_SetsOffThenTurnsAway_StaysThenFollowsAfterTheGrace()
+    {
+        // F2 review R5, the stay branch made deterministic: after the same drift the eye sets off along the
+        // P-B axis (the run ends there, in the corridor, outside B's no-move zone: the stay STARTS), then turns
+        // away behind P. The ring is held exactly the grace past the first sample outside Z: the stay ends
+        // `Left` and releases 17 frames after it (t0 + 510 ms at 30 ms frames). Mutant: the stay never
+        // starts → red.
+        var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.TurnAway));
+        var trace = string.Join(" | ", run.Log.Select(l => $"{l.Sample}:{l.Event}"));
         int stay = run.FirstSample("stay start");
-        if (stay >= 0)
-        {
-            Check.That(events).Contains("stay end Left");
-            // The eye leaves for the side in 5 samples (150 ms), so the release comes within 500 ms + 150 ms.
-            Check.That(released - stay).IsLessOrEqualThan((500 + 150) / 30 + 1);
-        }
+        Check.WithCustomMessage("setting off for B must start a stay: " + trace).That(stay).IsGreaterOrEqualThan(0);
+
+        var inZone = StayZoneAt(run, stay);
+        Check.That(inZone(run.Gaze[stay])).IsTrue();
+
+        int firstOutside = Enumerable.Range(stay + 1, run.Gaze.Length - stay - 1).First(i => !inZone(run.Gaze[i]));
+        int left = run.FirstSample("stay end Left");
+        int released = run.FirstSample("release RunEnd");
+        // The first sample with (now − first outside) ≥ the grace: 17 frames on, at +510 ms.
+        int graceFrames = (CursorCircleViewModel.HybridStayGraceMs + 29) / 30;
+        Check.WithCustomMessage(trace).That(left).IsEqualTo(firstOutside + graceFrames);
+        Check.WithCustomMessage(trace).That(released).IsEqualTo(left);
+        Check.That(run.Pinned[released]).IsFalse();
+        for (int i = stay; i < released; i++)
+            Check.WithCustomMessage($"sample {i}: pinned through the stay").That(run.Pinned[i]).IsTrue();
+    }
+
+    private static double DistanceToSegment(PhysicalPoint g, PhysicalPoint a, PhysicalPoint b)
+    {
+        double vx = b.X - a.X, vy = b.Y - a.Y, wx = g.X - a.X, wy = g.Y - a.Y;
+        double len2 = (vx * vx) + (vy * vy);
+        double t = len2 <= 0 ? 0 : Math.Clamp(((wx * vx) + (wy * vy)) / len2, 0, 1);
+        double dx = wx - (t * vx), dy = wy - (t * vy);
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
     [Fact]

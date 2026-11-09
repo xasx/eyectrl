@@ -943,6 +943,30 @@ public class CursorCircleViewModelHybridTests
         Check.That(rig.Vm.Position).IsEqualTo(q);
     }
 
+    [Fact]
+    public void Stay_S15_NoButtonNoStay_ARunEndInTheGoneOffersZone_Releases()
+    {
+        // F2 review-01 R1: the button closes while the settle's run still holds (the pin stays, Core's
+        // run end will free it), then the run ends with the gaze 240 px below the OLD B — inside the
+        // stale zone the Hide leaves behind (B, P and R are not cleared). With no button up there is
+        // nothing to stay for: the run end releases onto the gaze. Mutant X2 (drop `_offerLive &&` from
+        // the stay start) → a stay keyed to the gone offer, the ring stuck on the old word, red.
+        var rig = new Rig();
+        rig.PinAt(P);
+        rig.OfferAt(OwnerB, OwnerHit, P);
+        rig.OfferCloses();
+        Check.That(rig.Vm.IsPinned).IsTrue();                     // the run still holds: Core's pin
+
+        rig.RunEnds();
+        var landing = Below(OwnerB, 240);
+        rig.Frame(landing);
+
+        Check.That(rig.StayStarts).IsEmpty();
+        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(landing);
+    }
+
     // ── The stay's corridor (half-width 1.25 R around the segment P-B) ──────────────────────────────
     // P = (1000,1000), B = (1400,1000): 400 px apart on a horizontal axis; hit 150, R 80 (zone 230), so
     // the corridor reaches where B's zone does not.

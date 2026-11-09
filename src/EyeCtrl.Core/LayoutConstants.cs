@@ -32,16 +32,19 @@ public static class LayoutConstants
 
     /// <summary>
     /// Radius of the activation offer's dwell target in PHYSICAL pixels, never DPI-converted
-    /// (re-check N4). 150 px is the user's choice after the measured corner bias (75–130 px): the old
+    /// (re-check N4). 150 px was the user's choice after the measured corner bias (75–130 px): the old
     /// 100 px target (a 50 DIP <see cref="SharedButtonRadius"/>) let a biased near miss fall outside it,
-    /// and the offer would then move away from the attempt.
+    /// and the offer would then move away from the attempt. 200 px since the 5th sitting (2026-11-09,
+    /// owner answer Q-hit = a): the owner looks AT the round button, and the reported gaze landed
+    /// 150–230 px from its centre, just outside the old hit area. The drawn disc stays 100 DIP; it is not
+    /// sized from this radius.
     /// <para>
     /// This is deliberately its own constant: <see cref="SharedButtonRadius"/> sizes about ten other
     /// buttons and must not move with this one. Do not derive it through a logical-to-physical
     /// conversion — bias and R live in physical pixels.
     /// </para>
     /// </summary>
-    public const double ActivationButtonHitRadiusPx = 150.0;
+    public const double ActivationButtonHitRadiusPx = 200.0;
 
     /// <summary>
     /// Radius of action menu buttons in logical pixels.

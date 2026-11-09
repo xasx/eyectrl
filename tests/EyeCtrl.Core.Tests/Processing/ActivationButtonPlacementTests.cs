@@ -112,9 +112,10 @@ public class ActivationButtonPlacementTests
     [Fact]
     public void Place_ClampsSoTheWholeHitCircleStaysOnScreen()
     {
-        // Mutation: return the unclamped centre → the flipped candidate below lands at (-54.6, -154.6)
-        // instead of on the screen margin, red.
-        var p = new PhysicalPoint(1000, 100);   // near the top edge; the preferred side faces down-right
+        // Mutation: return the unclamped centre → the flipped candidate below lands at (745.4, -204.6)
+        // instead of on the screen margin, red. (y 50: at the 200-px hit a settle at y 100 would clamp
+        // the flip to 273 px from P, inside hit + R = 275, and drop it.)
+        var p = new PhysicalPoint(1000, 50);   // near the top edge; the preferred side faces down-right
         var preferred = Place(p).ButtonCenter;
         var result = Place(p, new[] { new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40) });
 
@@ -148,7 +149,7 @@ public class ActivationButtonPlacementTests
         // floor (offsetPx stays ring/2 + 55 DIP) → both placements below return Placed == false, red;
         // floor at dropDistance WITHOUT the clearance (ticket 7 fixup-02 re-check, R2) → the exact
         // distances below land on hit + R and these close-to checks go red.
-        // ScaleX 1.0 with ring 250, R75: the plan's offset is 180 px, inside 150 + 75.
+        // ScaleX 1.0 with ring 250, R75: the plan's offset is 180 px, inside 200 + 75.
         var lowScale = ActivationButtonPlacement.Place(
             new PhysicalPoint(1000, 1000), 250, LayoutConstants.ActivationButtonOffset, 1.0,
             HitPx, 75, Screen);
@@ -156,7 +157,7 @@ public class ActivationButtonPlacementTests
         Check.That(lowScale.ButtonCenter.DistanceTo(new PhysicalPoint(1000, 1000)))
             .IsCloseTo(HitPx + 75 + ActivationButtonPlacement.MinimumClearancePx, 1e-6);
 
-        // ScaleX 2.0 with ring 60, R90: the plan's offset is 170 px, inside 150 + 90.
+        // ScaleX 2.0 with ring 60, R90: the plan's offset is 170 px, inside 200 + 90.
         var smallRing = ActivationButtonPlacement.Place(
             new PhysicalPoint(1000, 1000), 60, LayoutConstants.ActivationButtonOffset, 2.0,
             HitPx, 90, Screen);
@@ -174,14 +175,15 @@ public class ActivationButtonPlacementTests
     [Fact]
     public void Place_DropsAClammedCandidateThatSitsBetweenHitAndHitPlusR()
     {
-        // Review A, N2: the guard must use hit + R, not hit alone — a candidate 212 px from P is
-        // outside the hit area but inside the hold zone, where a hold's wobble toward B could still
-        // reach it. Mutation: use buttonRadiusPx alone as the drop distance → this is placed, red.
-        var p = new PhysicalPoint(300, 300);
+        // Review A, N2: the guard must use hit + R, not hit alone — a candidate 226 px from P is
+        // outside the hit area (200) but inside the hold zone (275), where a hold's wobble toward B
+        // could still reach it. Mutation: use buttonRadiusPx alone as the drop distance → this is
+        // placed, red. (P moved from (300,300) with the 200-px hit: the flip clamps to (200,200).)
+        var p = new PhysicalPoint(360, 360);
         var preferred = Place(p).ButtonCenter;
         var result = Place(p, new[] { new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40) });
 
-        Check.That(result.ButtonCenter.DistanceTo(p)).IsCloseTo(212.13, 0.1);
+        Check.That(result.ButtonCenter.DistanceTo(p)).IsCloseTo(226.27, 0.1);
         Check.That(result.Placed).IsFalse();
     }
 

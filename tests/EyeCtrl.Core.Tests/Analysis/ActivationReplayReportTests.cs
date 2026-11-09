@@ -53,14 +53,15 @@ public class ActivationReplayReportTests(ITestOutputHelper output)
         // shares are equal and this reds.
         var recording = GazeRecordingFile.Read(FixturePath);
         var inputs = ActivationReplayReport.Inputs.UserGeometry();
-
         var longLinger = ActivationReplayReport.Headline(recording, inputs.WithExpiry(1000));
         var shortLinger = ActivationReplayReport.Headline(recording, inputs.WithExpiry(400));
 
         Check.That(longLinger.OnScreenShare).IsStrictlyGreaterThan(shortLinger.OnScreenShare);
         Check.That(shortLinger.OnScreenShare).IsStrictlyGreaterThan(0.0);
-        // Pop-ups are the same offers either way: the linger moves their life, not their count.
-        Check.That(shortLinger.PopUpsPerMinute).IsEqualTo(longLinger.PopUpsPerMinute);
+        // A longer linger never adds pop-ups: it moves their life. At the 150-px hit the counts were equal;
+        // since F2's 200-px hit (no-move zone 275 px) a lingering offer swallows or extends more of the next
+        // settles, so the 1000 ms linger shows fewer (26.2 vs 30.9 per minute on this fixture).
+        Check.That(longLinger.PopUpsPerMinute).IsLessOrEqualThan(shortLinger.PopUpsPerMinute);
     }
 
     [Fact]

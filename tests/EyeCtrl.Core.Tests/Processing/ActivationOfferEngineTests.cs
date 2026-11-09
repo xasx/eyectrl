@@ -137,9 +137,11 @@ public class ActivationOfferEngineTests
         var offer = engine.CurrentOffer!;
         Check.That(offer.ExpiresAtUs).IsEqualTo(1_000_000);
 
-        var nearMiss = PointAtDistanceFromB(160);   // outside the 150 hit area, nearer B than P
-        Check.That(nearMiss.DistanceTo(offer.Button)).IsCloseTo(160, 1e-6);
-        Check.That(nearMiss.DistanceTo(P)).IsCloseTo(200, 1e-6);
+        // Past B on the line: outside the 200 hit area, inside the 275 zone, nearer B than P. (At the
+        // 200-px hit no point toward P is both outside the hit and nearer B: 360 / 2 = 180 < 200.)
+        var nearMiss = PointAtDistanceFromB(-220);
+        Check.That(nearMiss.DistanceTo(offer.Button)).IsCloseTo(220, 1e-6);
+        Check.That(nearMiss.DistanceTo(P)).IsCloseTo(580, 1e-6);
 
         engine.NotifyFixationSettled(nearMiss, 500_000);
         Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);            // never replaced
@@ -298,20 +300,20 @@ public class ActivationOfferEngineTests
     [Fact]
     public void HitRadius_IsThePhysicalConstant_NotTheSharedButtonRadius()
     {
-        // Mutation: use SharedButtonRadius (50 DIP → 100 px) as the hit radius → the 149 px sample
-        // falls outside and the dwell never progresses, red.
+        // Mutation: use SharedButtonRadius (50 DIP → 100 px) as the hit radius → the 199 px sample
+        // falls outside and the dwell never progresses, red. 200 px since F2 (5th sitting, Q-hit = a).
         var engine = NewEngine();
         engine.NotifyFixationSettled(P, 0);
-        Check.That(engine.CurrentOffer!.HitRadiusPx).IsEqualTo(150.0);
-        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(150.0);
+        Check.That(engine.CurrentOffer!.HitRadiusPx).IsEqualTo(200.0);
+        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(200.0);
         Check.That(LayoutConstants.SharedButtonRadius).IsEqualTo(50.0);
 
-        engine.Update(PointAtDistanceFromB(149), FrameUs, isValid: true);
+        engine.Update(PointAtDistanceFromB(199), FrameUs, isValid: true);
         Check.That(engine.DwellProgress).IsStrictlyGreaterThan(0.0);
 
         double credited = engine.DwellProgress;
-        engine.Update(PointAtDistanceFromB(151), 2 * FrameUs, isValid: true);
-        Check.That(engine.DwellProgress).IsEqualTo(credited);   // 151 px: outside, no credit
+        engine.Update(PointAtDistanceFromB(201), 2 * FrameUs, isValid: true);
+        Check.That(engine.DwellProgress).IsEqualTo(credited);   // 201 px: outside, no credit
     }
 
     // ── Expiry ───────────────────────────────────────────────────────────────

@@ -449,10 +449,11 @@ public class ActivationButtonRenderTests
                     + "dots give 6")
                 .That(centreRuns).IsEqualTo(12);
 
-            // 3. The hole at each of the six centres is the face colour.
+            // 3. The hole at each of the six centres is the face colour. The circles start at
+            //    12 o'clock, so the probe angles must too (review-02 N1: 0° started in a gap).
             for (int i = 0; i < 6; i++)
             {
-                double angle = i * Math.PI / 3;
+                double angle = (i * Math.PI / 3) - (Math.PI / 2);
                 double x = (ActivationButtonFace.Diameter / 2) + (ringRadius * Math.Cos(angle));
                 double y = (ActivationButtonFace.Diameter / 2) + (ringRadius * Math.Sin(angle));
                 Check.WithCustomMessage(

@@ -35,6 +35,17 @@ public partial class DiagnosticsSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private bool _measureUiInstruments;
 
+    /// <summary>
+    /// Whether the cursor ring's events (pin, release, stay, hold) are written to the log, as an explicit
+    /// <c>--ring-arm</c> launch already does (<c>diagnostics.logRingEvents</c>).
+    /// <para>
+    /// Default <c>false</c>. A settings-file key only, with no settings row: Setup never passes
+    /// <c>--ring-arm</c>, so a measurement sitting's prep sets this key instead. Read once at startup; it
+    /// records no gaze coordinates beyond the ring's own pin points and changes no behaviour.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private bool _logRingEvents;
+
     /// <inheritdoc />
     /// <remarks>
     /// Deliberately empty. Every setting here is a bool, which has no invalid value, and a range check

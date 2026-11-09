@@ -23,7 +23,25 @@ public sealed record ActivationOffer(
     PhysicalPoint Point,
     PhysicalPoint Button,
     double HitRadiusPx,
-    long ExpiresAtUs);
+    long ExpiresAtUs)
+{
+    /// <summary>The sample-clock timestamp the offer was made at (its settle, or the sample a
+    /// pending re-offer took over on) — the zero of <see cref="FirstLookMs"/>.</summary>
+    public long ShownAtUs { get; init; }
+
+    /// <summary>
+    /// The time on the sample clock from the offer being shown to its first valid sample inside the
+    /// hit area (the engine's own hit test, <c>distance &lt;= HitRadiusPx</c>), or null while there
+    /// has been none (round-button B1). Set once per offer, by the engine on the gaze thread, and
+    /// carried by the offer the <c>Offer fired</c> / <c>Offer expired unused</c> events hand out.
+    /// </summary>
+    public double? FirstLookMs { get; init; }
+
+    /// <summary><see cref="FirstLookMs"/> as the log lines write it: whole ms in the invariant
+    /// culture, or <c>none</c> when the button was never looked at.</summary>
+    public string FirstLookLogValue =>
+        FirstLookMs is { } ms ? ms.ToString("0", System.Globalization.CultureInfo.InvariantCulture) : "none";
+}
 
 /// <summary>What an accepted settle did to the offer — the engine's answer to
 /// <see cref="ActivationOfferEngine.NotifyFixationSettled"/>, used by the replay's counts.</summary>
@@ -523,6 +541,11 @@ public sealed class ActivationOfferEngine
         {
             if (isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx)
             {
+                // The first look (round-button B1): the first valid in-hit sample, on the sample
+                // clock from the show. One record copy per offer lifetime, never per sample.
+                if (_offer.FirstLookMs is null)
+                    _offer = _offer with { FirstLookMs = (timestampUs - _offer.ShownAtUs) / 1000.0 };
+
                 // The offered run's samples extend the deadline while it holds (the in-hit sample
                 // itself extends it too, below).
                 ExtendExpiry(timestampUs);
@@ -679,7 +702,10 @@ public sealed class ActivationOfferEngine
 
         _offer = new ActivationOffer(
             _nextOfferId++, target, placement.ButtonCenter, _hitRadiusPx,
-            timestampUs + (OfferExpiryMs * 1000L));
+            timestampUs + (OfferExpiryMs * 1000L))
+        {
+            ShownAtUs = timestampUs,
+        };
         _fired = false;
         _dwellUs = 0;
         _peakDwellUs = 0;

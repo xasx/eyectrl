@@ -277,9 +277,10 @@ public class ActivationButtonViewModelTests
     //
     // The B2 tests that named a magnifier in ManualSelection and a menu in every other mode were
     // removed with the per-mode content choice (F1): the VM no longer reads SelectionMode, and the
-    // window has one sign. The mode-independence is pinned where the choice used to reach the
-    // window: OverlayVmBindingCoordinatorTests.ActivationVisible_PositionsTheHaloBeforeShowingIt
-    // and ActivationButtonWindowTests.EverySelectionMode_DrawsTheOneRingMenuSign_AndNoText.
+    // window has one sign. Mode independence is structural (the VM takes no settings and the face
+    // takes no mode); the face's one sign is pinned by
+    // ActivationButtonWindowTests.TheFace_DrawsTheOneRingMenuSign_AndNoText, and the coordinator's
+    // show path by OverlayVmBindingCoordinatorTests.ActivationVisible_PositionsTheHaloBeforeShowingIt.
 
     // ── B2: the paused fill, derived with R2's hysteresis ─────────────────────
 

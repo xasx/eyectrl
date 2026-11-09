@@ -16,7 +16,6 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using NFluent;
 using Xunit;
-using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 
 /// <summary>
 /// B2's activation button, headless and at the user's ScaleX 2.0. The face is a static 100 DIP disc
@@ -132,22 +131,20 @@ public class ActivationButtonWindowTests
         }
     }
 
-    [StaTheory]
-    [InlineData(SelectionMode.ManualSelection)]
-    [InlineData(SelectionMode.AutoSelection)]
-    [InlineData(SelectionMode.None)]
-    public void EverySelectionMode_DrawsTheOneRingMenuSign_AndNoText(SelectionMode mode)
+    [StaFact]
+    public void TheFace_DrawsTheOneRingMenuSign_AndNoText()
     {
-        // F1: the owner's sign in every selection mode — six open circles around a filled centre
-        // dot — and no word at all. The face takes no mode argument any more; running the face once
-        // per mode pins that the same sign is what each one gets.
+        // F1: the owner's sign — six open circles around a filled centre dot — and no word at all.
+        // Mode independence is structural: the face takes no mode argument, and the VM takes no
+        // settings, so no mode can reach this face. (Review-01 F2: the old three-mode theory ran the
+        // same assertions three times without using its parameter.)
         // Mutation: the old magnifier back → the stroke data changes; the label back → a TextBlock
         // appears in the tree.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new ActivationButtonWindow();
         try
         {
-            Check.WithCustomMessage($"{mode}: the face lost its ring-menu stroke")
+            Check.WithCustomMessage("the face lost its ring-menu stroke")
                 .That(window.Face.UpperIconStroke).IsNotNull();
             Check.That(window.Face.UpperIconStroke!.Data)
                 .IsSameReferenceAs(ActivationIcons.RingMenu.Stroke);

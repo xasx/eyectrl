@@ -302,6 +302,30 @@ public class ActivationButtonRenderTests
     private static Rect Bounds(FrameworkElement element, FrameworkElement ancestor) =>
         element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
 
+    /// <summary>
+    /// The rendered ring radius (DIP), measured along the vertical ray through the 12 o'clock
+    /// circle: that circle's ink spans from <c>R - r - s/2</c> to <c>R + r + s/2</c>, so the
+    /// midpoint of the first and last ink pixel is the ring radius. The scan starts outside the
+    /// centre dot and stops before anything else.
+    /// </summary>
+    private static double RingRadiusDip(Probe probe, Color face)
+    {
+        double first = double.NaN;
+        double last = double.NaN;
+        for (double radius = 8.0; radius <= 34.0; radius += 0.25)
+        {
+            if (Distance(probe.At(ActivationButtonFace.Diameter / 2, (ActivationButtonFace.Diameter / 2) - radius), face) <= Tolerance)
+                continue;
+            if (double.IsNaN(first)) first = radius;
+            last = radius;
+        }
+
+        Check.WithCustomMessage("no 12 o'clock circle ink was found on the vertical ray")
+            .That(double.IsNaN(first)).IsFalse();
+        Check.That(double.IsNaN(last)).IsFalse();
+        return (first + last) / 2.0;
+    }
+
     private static void WithTheme(ITheme theme, Action body)
     {
         var prior = Tokens.Current;
@@ -388,10 +412,14 @@ public class ActivationButtonRenderTests
     [InlineData(2.0)]
     public void TheSign_IsSixOpenCircles_WithGaps(double scale)
     {
-        // The board's look: six distinct small circles, not a ring, a lens or five. The probe scans
-        // the circle through the centres of the six small circles (the glyph's own outer bound
-        // less the stroke's half width) and counts painted arcs. Mutation: five circles → 5;
-        // the old magnifier → 1.
+        // The board's look: six distinct small OPEN circles, not filled dots, a ring or a lens.
+        // Three rendered probes, each of which tells the open rings from filled dots:
+        //   1. outside the rings, through their outer edge: the board's six circles give 6 arcs
+        //      with clear gaps (a five-circle or a lens mutant fails here);
+        //   2. on the ring through the six small CENTRES: an open circle is crossed twice there
+        //      (inner and outer ink bands), so the board gives 12 runs — six filled dots give 6
+        //      (review-01 R1);
+        //   3. each small circle's centre pixel is the face colour (the hole), not ink.
         WithTheme(MidnightTheme.Instance, () =>
         {
             using var scene = new Scene(Colors.White, 0, hostDip: 100, scale: scale);
@@ -399,15 +427,39 @@ public class ActivationButtonRenderTests
             var face = probe.At(20, 50);
 
             double glyphScale = (ActivationButtonFace.Diameter * ContainerRatio.Solo) / ActionIcons.GridSize;
-            // The path's bounds are the circles' centres' envelope; its half height is the ring's
-            // centre radius plus one small radius — the circle through the six small centres.
-            double scanRadius = (ActivationIcons.RingMenu.Stroke!.Bounds.Height / 2) * glyphScale;
-            int runs = probe.InkRunsOnCircle(face, scanRadius);
 
+            // 1. The path's bounds are the circles' centres' envelope; its half height is the ring
+            //    radius plus one small radius, i.e. the circles' OUTER edge.
+            double outerEdgeRadius = (ActivationIcons.RingMenu.Stroke!.Bounds.Height / 2) * glyphScale;
+            int outerRuns = probe.InkRunsOnCircle(face, outerEdgeRadius);
             Check.WithCustomMessage(
-                    $"the sign paints {runs} arc(s) on the circle through the small circles' "
-                    + $"centres at x{scale}; the board's six circles give 6")
-                .That(runs).IsEqualTo(6);
+                    $"the sign paints {outerRuns} arc(s) on the circles' outer edge at x{scale}; "
+                    + "the board's six circles give 6")
+                .That(outerRuns).IsEqualTo(6);
+
+            // 2. The ring radius itself, the true circle through the centres. Measured on the
+            //    rendered 12 o'clock circle: along the vertical ray its full ink extent is
+            //    symmetric about the ring radius (inner band R-r-s/2 .. outer R+r+s/2), so the
+            //    midpoint of the first and last ink pixel is R.
+            double ringRadius = RingRadiusDip(probe, face);
+            int centreRuns = probe.InkRunsOnCircle(face, ringRadius);
+            Check.WithCustomMessage(
+                    $"the sign paints {centreRuns} arc(s) on the circle through the small circles' "
+                    + $"centres at x{scale}; six OPEN circles give 12 (two bands each), six filled "
+                    + "dots give 6")
+                .That(centreRuns).IsEqualTo(12);
+
+            // 3. The hole at each of the six centres is the face colour.
+            for (int i = 0; i < 6; i++)
+            {
+                double angle = i * Math.PI / 3;
+                double x = (ActivationButtonFace.Diameter / 2) + (ringRadius * Math.Cos(angle));
+                double y = (ActivationButtonFace.Diameter / 2) + (ringRadius * Math.Sin(angle));
+                Check.WithCustomMessage(
+                        $"small circle {i} at x{scale} has ink in its centre; the owner's sign is "
+                        + "six OPEN circles")
+                    .That(Distance(probe.At(x, y), face)).IsLessOrEqualThan((int)Tolerance);
+            }
 
             // The centre dot is filled, not open.
             var dot = probe.InkContrast(

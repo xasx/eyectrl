@@ -331,6 +331,113 @@ public class BlockedInputDetectorTests
     }
 
     [Fact]
+    public void ARealBlockWithBothReadsStatic_IsStillConfirmed()
+    {
+        // L3: a real block leaves BOTH reads frozen. The pre-move read is the old spot and the
+        // post-move read (after our own FreeLook move was dropped) is still the old spot, so two
+        // confirmed misses block exactly as before.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+        Check.WithCustomMessage("one confirmed miss is not enough evidence.")
+            .That(h.Detector.IsBlocked).IsFalse();
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+
+        Check.That(h.Detector.IsBlocked).IsTrue();
+        Check.That(h.Detector.CurrentState.Trigger).Contains("re-read");
+    }
+
+    [Fact]
+    public void ALateLandingSeenOnlyByThePostMoveRead_DropsThePendingMiss()
+    {
+        // L3: both candidates are due. The pre-move read still sees the old spot, but the click
+        // landed after that read, and our own FreeLook move to the same point leaves the cursor at
+        // the target by the time the post-move read runs. Only that read can see the move happened;
+        // one read away from `before` drops the candidate.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Cursor.Position = target; // the late landing, visible only to the post-move read
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+
+        Check.WithCustomMessage("a landing the post-move read saw was counted as a miss")
+            .That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void APostMoveReadAtTheClickTarget_ClearsALiveBlock()
+    {
+        // L3: a late landing the post-move read sees is positive evidence. While blocked it must
+        // clear the block, not only drop an unblocked candidate.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.ConfirmMisses();
+        Check.That(h.Detector.IsBlocked).IsTrue();
+
+        h.Detector.ReportAction(target, stuck, stuck); // queues a candidate while blocked
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Cursor.Position = target; // the click landed after the pre-move read
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+        Check.That(h.Detector.CurrentState.Trigger).IsEqualTo("delayed verified action move");
+    }
+
+    [Fact]
+    public void AnUnreadablePreMoveRead_IsNotReplacedByThePostMoveRead()
+    {
+        // L3: a supplied null is "unreadable", not "read after the move". The post-move read must
+        // not stand in for it, or a read failure would confirm the candidate by itself.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: null);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
+    public void AnUnreadablePostMoveRead_IsNotTreatedAsStatic()
+    {
+        // L3: the post-move read is evidence only when it actually happened. A failed read must
+        // drop the candidate, not fall back to `before` — that would let a read failure confirm a
+        // miss on its own. The pre-move read here is a real static observation.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Cursor.Position = null; // the post-move probe fails
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
     public void APreMoveReadElsewhere_DropsThePendingMiss_AsAnExternalWriter()
     {
         var h = new Harness();

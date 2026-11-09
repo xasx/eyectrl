@@ -78,9 +78,12 @@ public sealed class PhysicalAppDataDeletion : IAppDataDeletion
         var failed = new List<string>();
         try
         {
-            if (Directory.Exists(_paths.AppDataRoot))
-                Directory.Delete(_paths.AppDataRoot, recursive: true);
-            return new AppDataDeletionResult(true, []);
+            // review-01 F2: report whether there was a folder to remove, so the log line cannot
+            // claim a removal that never happened.
+            if (!Directory.Exists(_paths.AppDataRoot))
+                return new AppDataDeletionResult(true, []);
+            Directory.Delete(_paths.AppDataRoot, recursive: true);
+            return new AppDataDeletionResult(true, [], Removed: true);
         }
         catch (Exception)
         {
@@ -112,6 +115,6 @@ public sealed class PhysicalAppDataDeletion : IAppDataDeletion
             }
         }
 
-        return new AppDataDeletionResult(failed.Count == 0, failed);
+        return new AppDataDeletionResult(failed.Count == 0, failed, Removed: failed.Count == 0);
     }
 }

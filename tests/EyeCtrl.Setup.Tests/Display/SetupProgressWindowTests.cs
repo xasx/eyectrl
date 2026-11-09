@@ -316,10 +316,12 @@ public sealed class SetupProgressWindowTests
             Check.WithCustomMessage("A stage created a second window.").That(created).IsEqualTo(1);
             Check.WithCustomMessage("A stage showed the progress window again.").That(shown).IsEqualTo(1);
 
-            // The result uses the same one window and never shows it a second time. The display
-            // owns the window's STA thread, so the test closes it there.
+            // The result uses the same one window and never shows it a second time. Queue the
+            // close at ApplicationIdle: the dispatcher's default-priority ShowResult call runs
+            // first, so Finish's result half is exercised (review-01 F1), then the idle close lets
+            // Wait return. A Finish that re-shows the window (mutant T5b) then counts a second Show.
             var shownWindow = window!;
-            shownWindow.Dispatcher.Invoke(shownWindow.Close);
+            shownWindow.Dispatcher.BeginInvoke(shownWindow.Close, DispatcherPriority.ApplicationIdle);
             display.Finish(new SetupResult { Verb = verb, Outcome = SetupOutcome.Ok, Version = "1.0.0" });
 
             Check.That(created).IsEqualTo(1);

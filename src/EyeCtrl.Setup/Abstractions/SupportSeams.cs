@@ -104,8 +104,10 @@ public interface IUninstallChoice
     UninstallChoiceAnswer Ask();
 }
 
-/// <summary>What one app-data deletion could not remove.</summary>
-public readonly record struct AppDataDeletionResult(bool Succeeded, IReadOnlyList<string> FailedFiles);
+/// <summary>What one app-data deletion did: success, what stayed, and whether the folder existed
+/// and was actually removed (review-01 F2: the log must not claim a removal when there was none).</summary>
+public readonly record struct AppDataDeletionResult(
+    bool Succeeded, IReadOnlyList<string> FailedFiles, bool Removed = false);
 
 /// <summary>
 /// The Q8 deletion seam: the ONLY way <c>%APPDATA%\EyeCtrl</c> may be deleted. It is called after

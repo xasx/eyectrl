@@ -42,8 +42,12 @@ public sealed class FakeRegistryStore : IRegistryStore
         _values.GetValueOrDefault((hive, Normalize(subKey), valueName)) as int?;
 
     /// <inheritdoc />
-    public string? ReadString(RegistryHive hive, string subKey, string valueName) =>
-        _values.GetValueOrDefault((hive, Normalize(subKey), valueName)) as string;
+    public string? ReadString(RegistryHive hive, string subKey, string valueName)
+    {
+        if (ThrowOnReadString is { } throwing && string.Equals(valueName, throwing, StringComparison.Ordinal))
+            throw new IOException($"simulated read failure for {valueName}");
+        return _values.GetValueOrDefault((hive, Normalize(subKey), valueName)) as string;
+    }
 
     /// <inheritdoc />
     public void WriteString(RegistryHive hive, string subKey, string valueName, string value)
@@ -81,6 +85,9 @@ public sealed class FakeRegistryStore : IRegistryStore
     /// <inheritdoc />
     public IReadOnlyList<string> ReadValueNames(RegistryHive hive, string subKey) =>
         Names(hive, subKey);
+
+    /// <summary>When set, a <see cref="ReadString"/> for this value name throws (review-01 F4).</summary>
+    public string? ThrowOnReadString { get; set; }
 
     private static string Normalize(string key) => key.TrimEnd('\\').ToUpperInvariant();
 }

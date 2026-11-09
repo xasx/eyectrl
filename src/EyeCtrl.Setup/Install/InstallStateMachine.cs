@@ -519,11 +519,10 @@ public sealed class InstallStateMachine
     }
 
     /// <summary>Removes the installed folders and the run folders (uninstall, elevated). Logs each
-    /// folder that was there and went (O6b); a name only, never a file's contents.</summary>
+    /// folder as it goes (O6b, review-01 F5), so a later failure still shows what was removed.</summary>
     public void RemoveInstalledFolders()
     {
         RequireAllInstallPaths();
-        var removed = new List<string>();
         foreach (var folder in new[]
                  {
                      _paths.InstallRoot, _paths.PreviousRoot,
@@ -533,14 +532,11 @@ public sealed class InstallStateMachine
             if (!_fileSystem.DirectoryExists(folder))
                 continue;
             _fileSystem.DeleteDirectory(folder, recursive: true);
-            removed.Add(Path.GetFileName(folder));
+            _log.Info($"Uninstall removed the folder {Path.GetFileName(folder)}.");
         }
 
         // The journal lives under EyeCtrl.run, which survives as the current run copy's parent.
         _journal.Clear();
-
-        if (removed.Count > 0)
-            _log.Info("Uninstall removed folders: " + string.Join(", ", removed) + ".");
     }
 
     /// <summary>Removes every HKCU Run/RunOnce value whose name starts with <c>EyeCtrl</c>, naming

@@ -219,8 +219,9 @@ public sealed class ElevatedOperations
                     "dataIncomplete:" + string.Join(";", deletion.FailedFiles));
             }
 
-            // O6b: name the removal, never its contents.
-            _log.Info("Uninstall removed the app-data folder.");
+            // O6b: name the removal, never its contents. review-01 F2: only when a folder existed.
+            if (deletion.Removed)
+                _log.Info("Uninstall removed the app-data folder.");
         }
 
         return ElevatedPhaseResult.Ok;

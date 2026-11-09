@@ -64,14 +64,26 @@ public sealed class AppsAndFeaturesWriter
         }
     }
 
-    /// <summary>Removes the entry and says so (O6b); a missing entry is a no-op and logs nothing.</summary>
+    /// <summary>Removes the entry and says so (O6b); a missing entry is a no-op and logs nothing.
+    /// review-01 F4: the read is a logging aid only and has its own try, so a throwing read can
+    /// never skip the removal (it defaults to "the entry was there").</summary>
     public void Remove()
     {
         _guard.RequireUninstallKey(SetupConstants.UninstallKeyPath);
+
+        var existed = true;
         try
         {
-            var existed = _registry.ReadString(
+            existed = _registry.ReadString(
                 RegistryHive.LocalMachine, SetupConstants.UninstallKeyPath, "DisplayName") is not null;
+        }
+        catch (Exception)
+        {
+            // The deletion below is the operation; the line is diagnostics.
+        }
+
+        try
+        {
             _registry.DeleteKey(RegistryHive.LocalMachine, SetupConstants.UninstallKeyPath);
             if (existed)
                 _log.Info("Uninstall removed the Apps & Features entry.");

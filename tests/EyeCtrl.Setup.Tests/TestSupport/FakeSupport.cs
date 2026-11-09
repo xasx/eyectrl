@@ -109,8 +109,8 @@ public sealed class FakeUninstallChoice : IUninstallChoice
 /// <summary>A fake app-data deletion seam.</summary>
 public sealed class FakeAppDataDeletion : IAppDataDeletion
 {
-    /// <summary>The result.</summary>
-    public AppDataDeletionResult Result { get; set; } = new(true, []);
+    /// <summary>The result. Defaults to "the folder existed and went", the confirmed-delete shape.</summary>
+    public AppDataDeletionResult Result { get; set; } = new(true, [], Removed: true);
 
     /// <summary>The calls made.</summary>
     public int Calls { get; private set; }

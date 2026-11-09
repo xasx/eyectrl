@@ -187,12 +187,64 @@ public class UninstallWorkflowTests
         var result = harness.Workflow.Uninstall(quiet: false, keepData: false);
 
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
-        Check.That(harness.Logging.Lines).Contains(
-            "INF Uninstall removed folders: EyeCtrl, EyeCtrl.previous, EyeCtrl.staging, EyeCtrl.failed.");
+        // review-01 F5: one line per folder as it goes, so a later failure still shows the rest.
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the folder EyeCtrl.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the folder EyeCtrl.previous.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the folder EyeCtrl.staging.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the folder EyeCtrl.failed.");
         Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Run value EyeCtrl.");
         Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Run value EyeCtrlRepair.");
         Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Apps & Features entry.");
         Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the app-data folder.");
+    }
+
+    [Fact]
+    public void AnUninstallWithoutAnAppDataFolder_DoesNotClaimItRemovedOne()
+    {
+        // review-01 F2: a missing folder used to be reported as a removal.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.AppData.Result = new AppDataDeletionResult(true, []);
+
+        var result = harness.Workflow.Uninstall(quiet: false, keepData: false);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
+        Check.That(harness.Logging.Lines).Not.Contains("INF Uninstall removed the app-data folder.");
+    }
+
+    [Fact]
+    public void AThrowingArpRead_DoesNotSkipTheRemoval()
+    {
+        // review-01 F4: the DisplayName read is diagnostics; a read failure must never leave the
+        // Apps & Features entry behind.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.AppsAndFeatures.Register("1.0.0");
+        harness.Registry.ThrowOnReadString = "DisplayName";
+
+        var result = harness.Workflow.Uninstall(quiet: true, keepData: null);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
+        Check.That(harness.Registry.Get(
+            RegistryHive.LocalMachine, SetupConstants.UninstallKeyPath, "DisplayName")).IsNull();
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Apps & Features entry.");
+    }
+
+    [Fact]
+    public void APartialFolderRemoval_LeavesEachRemovedFolderInTheLog()
+    {
+        // review-01 F5: EyeCtrl goes, EyeCtrl.previous is locked; the line for EyeCtrl must be
+        // there before the failure, not lost with the aggregate line after the loop.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.SeedPrevious("0.9.0");
+        harness.Files.FailDeleteAt = 2;
+
+        var result = harness.Workflow.Uninstall(quiet: true, keepData: null);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Failed);
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the folder EyeCtrl.");
+        Check.That(harness.Logging.Lines).Not.Contains("INF Uninstall removed the folder EyeCtrl.previous.");
     }
 
     [Fact]
@@ -205,7 +257,7 @@ public class UninstallWorkflowTests
         var result = harness.Workflow.Uninstall(quiet: false, keepData: true);
 
         Check.That(result.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
-        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed folders: EyeCtrl.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the folder EyeCtrl.");
         Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Apps & Features entry.");
         Check.That(harness.Logging.Lines).Not.Contains("INF Uninstall removed the app-data folder.");
     }

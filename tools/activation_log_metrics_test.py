@@ -31,7 +31,8 @@ TWO GENERATIONS of line must parse (round-button B1):
   and expired. Shapes as the adapter and engine tests pin them (GazeEngineAdapterActivation-
   OutcomeTests, GazeEngineOfferFirstLookLogTests, ActivationOutcomeLogTests).
 
-    shown #1..#5 (5); #1 expired never looked at (none), #2 expired after a glance (420);
+    shown #1..#5 (5); #1 expired never looked at (none), #2 expired after a late glance (900 —
+    a median that wrongly mixed expired offers in would read 700, not 500);
     #3 fired (300) accepted → closed 1200 ms; #4 fired (500) accepted → action 2100 ms;
     #5 fired (700) DECLINED (no control found).
     noise and damaged lines: no count moves.
@@ -114,7 +115,7 @@ CURRENT = "\n".join([
     "2026-11-10 09:00:00.800 [INF] [EyeCtrl.Core.GazeEngine] Offer expired unused #1 (dwell 0 %) firstLookMs=none",
     "2026-11-10 09:00:00.800 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer closed #1",
     "2026-11-10 09:00:01.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #2 P=(2000,1200) B=(1745,945)",
-    "2026-11-10 09:00:02.100 [INF] [EyeCtrl.Core.GazeEngine] Offer expired unused #2 (dwell 34 %) firstLookMs=420",
+    "2026-11-10 09:00:02.100 [INF] [EyeCtrl.Core.GazeEngine] Offer expired unused #2 (dwell 34 %) firstLookMs=900",
     "2026-11-10 09:00:03.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #3 P=(400,400) B=(655,655)",
     "2026-11-10 09:00:03.800 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer fired #3 firstLookMs=300",
     "2026-11-10 09:00:03.801 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] State → \"ManualSelectionActive\"",

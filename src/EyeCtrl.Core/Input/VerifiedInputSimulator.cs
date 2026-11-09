@@ -48,9 +48,12 @@ public sealed class VerifiedInputSimulator : IInputSimulator
     public void MoveCursor(PhysicalPoint point)
     {
         // N1: read BEFORE our own move writes over the spot. A click that has landed by this read
-        // is visible here; reading after this MoveCursor would see only the gaze point it just
-        // wrote, which is exactly the button the owner is still looking at. A landing later than
-        // this read is overwritten by the move itself, so it cannot be seen at all (one-frame window).
+        // is visible here; a read taken before the move sees only the old spot, never the gaze point
+        // this MoveCursor is about to write (which is exactly the button the owner is still looking
+        // at). L3: the detector takes a second read after our move and needs both to stay at
+        // `before`, so a landing applied between the two reads also drops the candidate. A landing
+        // applied after the detector's post-move read is still counted as a miss: the window is
+        // narrowed by one SendInput call, not closed.
         var cursorBeforeMove = ReadCursor();
         _inner.MoveCursor(point);
         _detector.ReportMoveCommand(point, cursorBeforeMove);

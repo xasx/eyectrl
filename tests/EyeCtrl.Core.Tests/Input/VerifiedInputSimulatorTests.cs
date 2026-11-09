@@ -121,6 +121,26 @@ public class VerifiedInputSimulatorTests
     }
 
     [Fact]
+    public void TheConfirmationRead_HappensAfterOurMove_SoALateLandingDoesNotBlock()
+    {
+        // L3's ordering, pinned at the decorator: the detector's post-move read must be taken after
+        // _inner.MoveCursor. Two clicks missed while the cursor stayed at Start; on the due frame the
+        // fake's MoveCursor lands the cursor on the commanded point, standing for the late landing
+        // this frame's own move overwrites. The post-move read then sees the target, not `before`,
+        // so neither candidate may become a miss. Reporting before the move would read Start twice
+        // and block.
+        var h = new Harness(moveOnClick: false, moveOnMove: true);
+
+        h.Simulator.LeftClick(Target);
+        h.Simulator.LeftClick(Target);
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Simulator.MoveCursor(Target);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
     public void AModifiedWheelScroll_IsVerified_BecauseItsBatchLeadsWithAMove()
     {
         var h = new Harness(moveOnClick: false);
@@ -169,10 +189,10 @@ public class VerifiedInputSimulatorTests
 
     private sealed class Harness
     {
-        public Harness(bool moveOnClick)
+        public Harness(bool moveOnClick, bool moveOnMove = false)
         {
             Cursor = new FakeCursor(Start);
-            Inner = new FakeInput(Cursor, moveOnClick);
+            Inner = new FakeInput(Cursor, moveOnClick, moveOnMove);
             Clock = new FakeClock();
             Detector = new BlockedInputDetector(
                 Cursor, new FakeIntegrity(), nowMilliseconds: () => Clock.NowMs);
@@ -206,11 +226,13 @@ public class VerifiedInputSimulatorTests
     {
         private readonly FakeCursor _cursor;
         private readonly bool _moveOnClick;
+        private readonly bool _moveOnMove;
 
-        public FakeInput(FakeCursor cursor, bool moveOnClick)
+        public FakeInput(FakeCursor cursor, bool moveOnClick, bool moveOnMove)
         {
             _cursor = cursor;
             _moveOnClick = moveOnClick;
+            _moveOnMove = moveOnMove;
         }
 
         public int LeftClicks { get; private set; }
@@ -235,7 +257,8 @@ public class VerifiedInputSimulatorTests
         public void MoveCursor(PhysicalPoint point)
         {
             Moves++;
-            if (_moveOnClick) _cursor.Position = point;
+            // moveOnMove models a successful absolute move: the cursor lands on the commanded point.
+            if (_moveOnClick || _moveOnMove) _cursor.Position = point;
         }
 
         public void LeftClick(PhysicalPoint point) { LeftClicks++; Land(point); }

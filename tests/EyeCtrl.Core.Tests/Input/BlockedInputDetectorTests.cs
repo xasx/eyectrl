@@ -418,6 +418,26 @@ public class BlockedInputDetectorTests
     }
 
     [Fact]
+    public void AnUnreadablePostMoveRead_IsNotTreatedAsStatic()
+    {
+        // L3: the post-move read is evidence only when it actually happened. A failed read must
+        // drop the candidate, not fall back to `before` — that would let a read failure confirm a
+        // miss on its own. The pre-move read here is a real static observation.
+        var h = new Harness();
+        var target = new PhysicalPoint(10, 10);
+        var stuck = new PhysicalPoint(300, 300);
+
+        h.Detector.ReportAction(target, stuck, stuck);
+        h.Detector.ReportAction(target, stuck, stuck);
+
+        h.Clock.Advance(BlockedInputDetector.MissConfirmationDelayMilliseconds);
+        h.Cursor.Position = null; // the post-move probe fails
+        h.Detector.ReportMoveCommand(target, cursorBeforeMove: stuck);
+
+        Check.That(h.Detector.IsBlocked).IsFalse();
+    }
+
+    [Fact]
     public void APreMoveReadElsewhere_DropsThePendingMiss_AsAnExternalWriter()
     {
         var h = new Harness();

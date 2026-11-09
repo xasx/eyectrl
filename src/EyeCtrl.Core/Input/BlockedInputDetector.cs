@@ -238,11 +238,13 @@ public sealed class BlockedInputDetector
     /// <para>
     /// L3: the due-miss confirmation needs BOTH this pre-move read and the post-move read taken just
     /// after this move, each still within <see cref="StaticTolerancePixels"/> of the click's
-    /// <c>before</c>. A click that lands later than this read is overwritten by this frame's own
-    /// FreeLook move, so the post-move read sees our gaze point rather than <c>before</c> and the
-    /// candidate is dropped. Only a gaze that itself rests within tolerance of <c>before</c> leaves
-    /// both reads static; that is the remaining one-frame window. The overload with no pre-move
-    /// read keeps the single post-move read for direct callers.
+    /// <c>before</c>. A click applied between the two reads is seen by the post-move read — it leaves
+    /// the cursor at the click target, or at the gaze point this move overwrote it with — so the
+    /// candidate is dropped. The window is narrowed by the duration of one <c>SendInput</c> call,
+    /// not closed: a click applied after the post-move read is still counted as a miss, and a gaze
+    /// that itself rests within tolerance of <c>before</c> leaves both reads static and cannot be
+    /// told from a dropped move. The overload with no pre-move read keeps the single post-move read
+    /// for direct callers.
     /// </para>
     /// </summary>
     /// <param name="commanded">The point EyeCtrl just asked the OS to move to.</param>
@@ -382,8 +384,10 @@ public sealed class BlockedInputDetector
     /// read, a candidate becomes a miss only when BOTH that read and the post-move read are still
     /// within <see cref="StaticTolerancePixels"/> of where the cursor was before the injection. The
     /// post-move read is taken here, after this FreeLook move was written: in a real block that move
-    /// is dropped, so the cursor is still at <c>before</c>, while a click that landed in between was
-    /// overwritten by our own move and reads as a cursor away from <c>before</c>. A read that is
+    /// is dropped, so the cursor is still at <c>before</c>, while a click applied between the two
+    /// reads leaves the cursor away from <c>before</c> and drops the candidate. The window is
+    /// narrowed, not closed: a click applied after this read is still counted as a miss, and a gaze
+    /// within tolerance of <c>before</c> cannot be told from a dropped move. A read that is
     /// unreadable, or one that has left <c>before</c>, drops the candidate (the read lagged, or an
     /// external writer moved it). Without a supplied pre-move read (direct callers) the single
     /// post-move read decides, as before. Runs under the detector lock.
@@ -431,8 +435,11 @@ public sealed class BlockedInputDetector
             if (postMove is not { } current)
                 continue; // unreadable: no evidence, drop the candidate
 
-            // L3: BOTH halves must see the old spot. In a block every move is dropped, so both
-            // stay frozen; a landing can leave only the post-move read away from `before`.
+            // L3: BOTH halves must see the old spot — the pre-move half is the guard above (a
+            // supplied read that left `before` or was unreadable already dropped the candidate), so
+            // `preStatic` is true here. It stays in the expression so the rule reads as the
+            // two-read AND it is. In a block every move is dropped, so both reads stay frozen; a
+            // landing in between leaves the post read away from `before`.
             var postStatic = current.DistanceTo(pending.Before) <= StaticTolerancePixels;
             var stillStatic = preStatic && postStatic;
 

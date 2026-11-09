@@ -3,7 +3,6 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
@@ -44,13 +43,6 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     [ObservableProperty] private bool _isVisible;
 
     /// <summary>
-    /// What the face names, locked in when the offer is shown (B2). <see cref="SelectionMode.ManualSelection"/>
-    /// opens the magnifier, every other mode the action menu. Read by the window through the binding
-    /// coordinator, so a mode change while the offer is up leaves this offer's face as it was.
-    /// </summary>
-    [ObservableProperty] private ActivationButtonContent _content;
-
-    /// <summary>
     /// True while the button's fill is held in the engine's pause grace: the gaze has left the
     /// button and the progress has stopped rising, so the window draws the fill dimmed (B2, port of
     /// R2's <c>CursorCircleViewModel.IsFillPaused</c>). Entered after
@@ -72,7 +64,6 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     /// out, out, in, out, … credits a single sample per return — cannot strobe the dim at ~11 Hz.</summary>
     public const int FillPausedReleaseFrames = 2;
 
-    private readonly EyeCtrlSettings _settings;
     private double _lastFillProgress;
     private int _fillStillFrames;
     private int _fillRisingFrames;
@@ -91,35 +82,18 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     // producing two completions or a completion for a button that is down.
     private bool _completionSent;
 
-    /// <summary>Initializes a new instance of the <see cref="ActivationButtonViewModel"/> class.
-    /// Used by tests that do not care which face the button draws; the production container resolves
-    /// the settings-taking overload.</summary>
-    /// <param name="messenger">The messenger the overlay message stream rides.</param>
-    public ActivationButtonViewModel(IMessenger messenger)
-        : this(messenger, new EyeCtrlSettings())
-    {
-    }
-
     /// <summary>Initializes a new instance of the <see cref="ActivationButtonViewModel"/> class.</summary>
     /// <param name="messenger">The messenger the overlay message stream rides.</param>
-    /// <param name="settings">The live settings; <see cref="EyeCtrlSettings.SelectionMode"/> picks the
-    /// button's face at show time.</param>
-    public ActivationButtonViewModel(IMessenger messenger, EyeCtrlSettings settings)
+    public ActivationButtonViewModel(IMessenger messenger)
         : base(messenger)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-        _settings = settings;
     }
 
     /// <inheritdoc />
     public void Receive(ShowActivationButtonMessage message)
     {
-        // F4: Content BEFORE ButtonCenter. The coordinator repositions on the ButtonCenter change
-        // while the button is still visible (a replace without a hide); assigning the content first
-        // means that synchronous reposition already carries the new offer's face.
-        Content = _settings.SelectionMode == SelectionMode.ManualSelection
-            ? ActivationButtonContent.Magnifier
-            : ActivationButtonContent.Menu;
+        // F1: one sign for every selection mode, so the show carries no face choice. The position
+        // is all the window needs before it is shown.
         ButtonCenter = message.ButtonCenter;
         HitRadiusPixels = message.HitRadiusPx;
         ResetFillPause(0);

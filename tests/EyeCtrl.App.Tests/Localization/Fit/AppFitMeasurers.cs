@@ -83,7 +83,6 @@ internal static class AppFitMeasurers
         {
             ["A105"] = Ring,
             ["A68"] = ModifierBar,
-            ["A76"] = ActivationButtonLabel,
             ["A44"] = (_, text) => ToggleStateWord(text),
             ["A208"] = (_, text) => ModeToggleLabel(text),
             ["A56"] = ShortCaption,
@@ -287,28 +286,6 @@ internal static class AppFitMeasurers
         // A synthetic text (the over-long probe, a pseudo-locale string under an unknown key)
         // measures under the most common slot icon.
         return ActionIconMap.For(InteractionAction.LeftClick);
-    }
-
-    /// <summary>
-    /// A76 (B2): the activation button's word, through the production face at the user's 2.0. One
-    /// line within <see cref="ActivationButtonFace.LabelRoomDip"/> — the disc's inner-face chord at
-    /// the label's bottom edge, less the 2 DIP ink clearance each side — is measured on the real
-    /// <c>NoWrap</c> TextBlock's natural width, never its assigned <c>ActualWidth</c> (a NoWrap
-    /// block reports the box it was given and clips the overflow silently).
-    /// </summary>
-    private static FitVerdict ActivationButtonLabel(string key, string text)
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var face = new ActivationButtonFace();
-        face.SetContent(
-            key == "overlays.activationButton.label.magnifier"
-                ? ActivationButtonContent.Magnifier
-                : ActivationButtonContent.Menu,
-            text);
-        using var host = FitHost.Open(face, family: Tokens.FontStandard);
-        return OneLine(
-            face.UpperLabel, text, face.LabelRoomDip,
-            $"disc chord less {ActivationButtonFace.LabelInkClearance} DIP each side");
     }
 
     /// <summary>

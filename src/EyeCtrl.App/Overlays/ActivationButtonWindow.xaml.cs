@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Media.Animation;
 using EyeCtrl.Controls;
 using EyeCtrl.Core.Localization;
@@ -10,19 +11,19 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
 /// <summary>
-/// The activation feedback (B2): a solid round button centred on the offered button's centre B,
+/// The activation feedback (B2/F1): a solid round button centred on the offered button's centre B,
 /// drawn where the dwell is counted.
 ///
 /// <para>
-/// The face is a static 100 DIP disc with the toolbar's look and, per the mode the offer was made
-/// in, a magnifier + „Lupe" or a menu + „Menü" (see <see cref="ActivationButtonFace"/>). The dwell
-/// fills the disc from the bottom in the accent colour; full = it fires. There is no growth, no
-/// motion and no arc head.
+/// The face is a static 100 DIP disc with the toolbar's look and the one sign the action menu
+/// gives it — a little ring menu, six open circles around a dot (<see cref="ActivationButtonFace"/>).
+/// The sign is the same in every selection mode; there is no word. The dwell fills the disc from
+/// the bottom in the accent colour; full = it fires. There is no growth, no motion and no arc head.
 /// </para>
 ///
 /// <para>
-/// The window only positions itself and forwards progress/content/paused to the face. It is sized
-/// around the disc plus a small edge margin, with no clamp: B is already clamped by the placement
+/// The window only positions itself and forwards progress/paused to the face. It is sized around
+/// the disc plus a small edge margin, with no clamp: B is already clamped by the placement
 /// function, and clamping again here would move the drawn centre off the counted point.
 /// </para>
 /// </summary>
@@ -45,17 +46,20 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
         _face = new ActivationButtonFace();
         Content = _face;
         Opacity = 0;
+        // The word is gone (F1), so the sign alone must carry a name for UIA: the same short
+        // "Action menu" the sign depicts, never a mode name.
+        AutomationProperties.SetName(this, StringTable.Current.T("overlays.activationButton.name"));
     }
 
     /// <summary>
     /// Centres the disc on <paramref name="buttonCenter"/> — the offer's B, in physical pixels.
     ///
     /// <para>
-    /// <paramref name="hitRadiusPixels"/> is the offer's counted hit radius, carried by the show
-    /// message for the offer contract. The drawn disc is deliberately smaller than it (100 DIP
-    /// across versus a 150 px hit radius): the dwell is still counted exactly where the engine
-    /// counts it, and "drawn = counted" means the drawn centre is B, not that the drawn size equals
-    /// the hit size.
+    /// <paramref name="hitRadiusPixels"/> is the offer's counted hit radius
+    /// (<see cref="EyeCtrl.Core.LayoutConstants.ActivationButtonHitRadiusPx"/>), carried by the
+    /// show message for the offer contract. The drawn disc is deliberately smaller than it (100 DIP
+    /// across): the dwell is still counted exactly where the engine counts it, and
+    /// "drawn = counted" means the drawn centre is B, not that the drawn size equals the hit size.
     /// </para>
     /// </summary>
     public void ShowAt(PhysicalPoint buttonCenter, double hitRadiusPixels)
@@ -99,19 +103,6 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
         UpdateDwellProgress(0);
         SetFillPaused(false);
         base.Hide();
-    }
-
-    /// <summary>
-    /// Draws the disc face for <paramref name="content"/>. Called before the window is shown, so a
-    /// mode change while the offer is up leaves this offer's face as it was.
-    /// </summary>
-    /// <param name="content">Which action completion opens (magnifier or action menu).</param>
-    public void SetContent(ActivationButtonContent content)
-    {
-        var label = content == ActivationButtonContent.Magnifier
-            ? StringTable.Current.T("overlays.activationButton.label.magnifier")
-            : StringTable.Current.T("overlays.activationButton.label.menu");
-        _face.SetContent(content, label);
     }
 
     /// <summary>Moves the fill's top edge and the content copies' clips for <paramref name="progress"/>.</summary>

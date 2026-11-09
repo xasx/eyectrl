@@ -129,13 +129,6 @@ public interface IActivationButtonOverlay
     void UpdateDwellProgress(double progress);
 
     /// <summary>
-    /// Names the action completion opens on the face. Set before <see cref="ShowAt"/> so the face
-    /// is complete before the first visible frame.
-    /// </summary>
-    /// <param name="content">The magnifier or the menu face.</param>
-    void SetContent(ActivationButtonContent content);
-
-    /// <summary>
     /// Dims the held fill while the engine's pause grace runs (B2). Display only: the fill's value,
     /// colour and clip are untouched.
     /// </summary>

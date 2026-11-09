@@ -371,12 +371,12 @@ public class GazeEngineAdapterActivationOutcomeTests
     }
 
     [StaFact]
-    public void TheButtonsLabel_IsChosenFromTheModeAtTheDelayedShow_NotAtTheSettle()
+    public void TheButton_IsShownAtTheDelayedShow_NotAtTheSettle()
     {
-        // M1 part 3: B2 locks the label when ShowActivationButtonMessage arrives, and B3 sends it at
-        // the delayed show, not at the settle. A mode change in the wait between the two must
-        // therefore be the one the label names. Mutation: show (or label) the button at the settle →
-        // the VM is visible at the settle and names the menu, red.
+        // M1 part 3: B3 sends ShowActivationButtonMessage at the delayed show, not at the settle.
+        // Since F1 there is no per-mode label to lock, but the show timing still matters: nothing
+        // may be shown at the settle. Mutation: show the button at the settle → the VM is visible
+        // at the settle, red.
         var settings = DefaultSettings(SelectionMode.None);
         var provider = new TestFakes.FakeGazeProvider();
         using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
@@ -386,7 +386,7 @@ public class GazeEngineAdapterActivationOutcomeTests
         using var adapter = new GazeEngineAdapter(
             engine, settings, messenger, Dispatcher.CurrentDispatcher,
             NullLogger<GazeEngineAdapter>.Instance, new StubControlFinder());
-        var vm = new ActivationButtonViewModel(messenger, settings);
+        var vm = new ActivationButtonViewModel(messenger);
 
         // The offer engine is built on the first sample, so it is read after each one.
         long us = 0;
@@ -399,9 +399,9 @@ public class GazeEngineAdapterActivationOutcomeTests
         Check.That(offers.OfferCandidatePoint).IsNotNull();
         Pump();
         Check.WithCustomMessage("the settle made a candidate, not an offer").That(offers.CurrentOffer).IsNull();
-        Check.WithCustomMessage("nothing is shown (or labelled) at the settle").That(vm.IsVisible).IsFalse();
+        Check.WithCustomMessage("nothing is shown at the settle").That(vm.IsVisible).IsFalse();
 
-        settings.SelectionMode = SelectionMode.ManualSelection;   // in the wait before the show
+        settings.SelectionMode = SelectionMode.ManualSelection;   // in the wait before the show (no mode-dependent face since F1)
 
         for (int i = 0; i < 40 && offers.CurrentOffer is null; i++)
         {
@@ -412,7 +412,6 @@ public class GazeEngineAdapterActivationOutcomeTests
 
         Check.That(offers.CurrentOffer).IsNotNull();
         Check.That(vm.IsVisible).IsTrue();
-        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
     }
 
     [StaFact]

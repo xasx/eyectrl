@@ -176,11 +176,8 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    // What the face names, then where it sits — both before showing. The content is
-                    // locked when the offer was shown, so a mode change cannot relabel a live offer;
-                    // positioning runs first so the other order never presents the previous fill at
-                    // the new point for a frame.
-                    activationButton.SetContent(Context.ActivationVM.Content);
+                    // Position first, then the held flag, then show: the other order never presents
+                    // the previous fill at the new point for a frame.
                     activationButton.ShowAt(
                         Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
                     activationButton.SetFillPaused(Context.ActivationVM.IsFillPaused);
@@ -198,20 +195,12 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 // at the old B while the new B counts.
                 if (Context.ActivationVM.IsVisible)
                 {
-                    activationButton.SetContent(Context.ActivationVM.Content);
                     activationButton.ShowAt(
                         Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
                 }
                 break;
             case nameof(ActivationButtonViewModel.DwellProgress):
                 activationButton.UpdateDwellProgress(Context.ActivationVM.DwellProgress);
-                break;
-            case nameof(ActivationButtonViewModel.Content):
-                // F4: a replace without a hide can change the face while the button is up. The
-                // ButtonCenter edge already relabels on a reposition; this covers a Content change
-                // that arrives on its own.
-                if (Context.ActivationVM.IsVisible)
-                    activationButton.SetContent(Context.ActivationVM.Content);
                 break;
             case nameof(ActivationButtonViewModel.IsFillPaused):
                 activationButton.SetFillPaused(Context.ActivationVM.IsFillPaused);

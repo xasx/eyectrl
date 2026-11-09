@@ -114,11 +114,14 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     /// <inheritdoc />
     public void Receive(ShowActivationButtonMessage message)
     {
-        ButtonCenter = message.ButtonCenter;
-        HitRadiusPixels = message.HitRadiusPx;
+        // F4: Content BEFORE ButtonCenter. The coordinator repositions on the ButtonCenter change
+        // while the button is still visible (a replace without a hide); assigning the content first
+        // means that synchronous reposition already carries the new offer's face.
         Content = _settings.SelectionMode == SelectionMode.ManualSelection
             ? ActivationButtonContent.Magnifier
             : ActivationButtonContent.Menu;
+        ButtonCenter = message.ButtonCenter;
+        HitRadiusPixels = message.HitRadiusPx;
         ResetFillPause(0);
         _completionSent = false;
         IsVisible = true;

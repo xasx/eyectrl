@@ -475,6 +475,8 @@ internal static class TestFakes
         public void Hide() { }
         public void HideImmediate() { }
         public void UpdateDwellProgress(double progress) { }
+        public void SetContent(ActivationButtonContent content) { }
+        public void SetFillPaused(bool paused) { }
     }
 
     /// <summary>Records escape-hint show/hide calls so a coordinator test can assert on them

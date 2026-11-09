@@ -320,6 +320,28 @@ public class ActivationButtonViewModelTests
         Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Menu);
     }
 
+    [Fact]
+    public void AReplaceWithoutAHide_RelabelsToTheNewMode()
+    {
+        // F4: Core may replace an offer without closing the button first, and the mode can change
+        // between the two. The second show must name the menu even though the button never hid.
+        // Mutation: assign Content after ButtonCenter (the old order) → the coordinator's
+        // reposition reads the previous Magnifier and the face stays stale.
+        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ActivationButtonViewModel(messenger, settings);
+
+        messenger.Send(Show());
+        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
+
+        settings.SelectionMode = SelectionMode.AutoSelection;
+        messenger.Send(Show());          // a replacement, with no Hide in between
+
+        Check.WithCustomMessage("the replacement kept the previous mode's face")
+            .That(vm.Content).IsEqualTo(ActivationButtonContent.Menu);
+        Check.That(vm.IsVisible).IsTrue();
+    }
+
     // ── B2: the paused fill, derived with R2's hysteresis ─────────────────────
 
     private static readonly PhysicalPoint Inside = new(500 + 20, 300 + 20);

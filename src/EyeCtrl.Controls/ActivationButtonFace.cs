@@ -44,6 +44,14 @@ public sealed class ActivationButtonFace : Grid
     /// <summary>Rim width in DIP, the toolbar button's own 2 DIP edge.</summary>
     public const double RimThickness = 2;
 
+    /// <summary>
+    /// The fill stops this far inside the rim's inner edge, in DIP. The face-coloured band it leaves
+    /// keeps a visible boundary between the accent and the rim once the disc fills (F3): in the
+    /// Contrast theme the rim is white, so without the band a white page would meet the cyan accent
+    /// through a white rim as the fill rose.
+    /// </summary>
+    public const double FillInset = 2;
+
     /// <summary>The face's ink keeps this much clear of the disc's inner edge, in DIP.</summary>
     public const double LabelInkClearance = 2;
 
@@ -99,12 +107,13 @@ public sealed class ActivationButtonFace : Grid
         {
             Width = Diameter,
             Height = Diameter,
-            // The fill lives INSIDE the rim: its radius is the disc's radius less the rim's width,
-            // so at full progress the accent never paints over the border.
+            // The fill lives INSIDE the rim, with a face-coloured band between them (FillInset), so
+            // the disc keeps a visible edge as the accent rises — including the Contrast theme,
+            // whose white rim would otherwise meet the cyan fill on a white page.
             Clip = new EllipseGeometry(
                 new Point(Diameter / 2, Diameter / 2),
-                (Diameter / 2) - RimThickness,
-                (Diameter / 2) - RimThickness),
+                (Diameter / 2) - RimThickness - FillInset,
+                (Diameter / 2) - RimThickness - FillInset),
         };
         clipped.Children.Add(Fill);
         clipped.Children.Add(_upperContent);
@@ -225,8 +234,12 @@ public sealed class ActivationButtonFace : Grid
 
     private static Canvas NewIconCanvas() => new()
     {
-        Width = Diameter * ContainerRatio.Medium,
-        Height = Diameter * ContainerRatio.Medium,
+        // F2: the owner's board draws a glyph about 38 DIP across on the 100 DIP disc. At
+        // ContainerRatio.Large (0.40 → 40 DIP) the lens alone is ~30 DIP (the board's lens is
+        // 2 x 13 + 3.6 ≈ 29.6) and the whole lens + handle ~36 DIP; Medium (32 DIP) drew only
+        // ~24 DIP of lens, two thirds of the pick.
+        Width = Diameter * ContainerRatio.Large,
+        Height = Diameter * ContainerRatio.Large,
         HorizontalAlignment = HorizontalAlignment.Center,
     };
 

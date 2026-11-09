@@ -206,6 +206,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(ActivationButtonViewModel.DwellProgress):
                 activationButton.UpdateDwellProgress(Context.ActivationVM.DwellProgress);
                 break;
+            case nameof(ActivationButtonViewModel.Content):
+                // F4: a replace without a hide can change the face while the button is up. The
+                // ButtonCenter edge already relabels on a reposition; this covers a Content change
+                // that arrives on its own.
+                if (Context.ActivationVM.IsVisible)
+                    activationButton.SetContent(Context.ActivationVM.Content);
+                break;
             case nameof(ActivationButtonViewModel.IsFillPaused):
                 activationButton.SetFillPaused(Context.ActivationVM.IsFillPaused);
                 break;

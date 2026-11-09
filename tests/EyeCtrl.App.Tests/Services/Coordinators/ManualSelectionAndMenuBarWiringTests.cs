@@ -292,5 +292,7 @@ public class ManualSelectionAndMenuBarWiringTests
         public void Hide() { }
         public void HideImmediate() { }
         public void UpdateDwellProgress(double progress) { }
+        public void SetContent(ActivationButtonContent content) { }
+        public void SetFillPaused(bool paused) { }
     }
 }

@@ -148,6 +148,27 @@ public class ActivationButtonRenderTests
             return last < first ? 0 : (last - first + 1) / _scale;
         }
 
+        /// <summary>The painted horizontal span (DIP) on one row inside an x range, against a
+        /// background colour — the lens-size probe scans the lens's centre row this way.</summary>
+        public double SpanDip(Color background, double yDip, double x0, double x1)
+        {
+            int y = Math.Clamp((int)Math.Round((yDip + _offset) * _scale), 0, _width - 1);
+            int from = Math.Max(0, (int)Math.Ceiling((x0 + _offset) * _scale));
+            int to = Math.Min(_width - 1, (int)Math.Floor((x1 + _offset) * _scale));
+            int first = int.MaxValue;
+            int last = int.MinValue;
+            for (var x = from; x <= to; x++)
+            {
+                var i = ((y * _width) + x) * 4;
+                var pixel = Color.FromRgb(_pixels[i + 2], _pixels[i + 1], _pixels[i]);
+                if (Distance(pixel, background) <= 24) continue;
+                first = Math.Min(first, x);
+                last = Math.Max(last, x);
+            }
+
+            return last < first ? 0 : (last - first + 1) / _scale;
+        }
+
         /// <summary>
         /// The median contrast of the ink BODY inside <paramref name="rectDip"/>: pixels whose
         /// rendered colour is within a small tolerance of the copy's brush composited over the local
@@ -241,6 +262,31 @@ public class ActivationButtonRenderTests
     }
 
     [StaFact]
+    public void TheMagnifier_MatchesTheBoardsLensSize()
+    {
+        // F2: the owner's board (look-b-word) draws the lens at 2 x 13 + 3.6 ≈ 29.6 DIP on the
+        // 100 DIP disc. Scaled by ContainerRatio.Large the build draws ≈29.7; the old Medium arm
+        // gave ≈23.7. Rendered pixels, so a silent shrink goes red.
+        WithTheme(MidnightTheme.Instance, () =>
+        {
+            using var scene = new Scene(Colors.White, 0);
+            var probe = scene.Render();
+            var icon = Bounds(scene.Face.UpperIconCanvas, scene.Face);
+            double scale = icon.Width / ActionIcons.GridSize;
+            double lensY = icon.Top + (10.5 * scale);
+            double x0 = icon.Left + (2.5 * scale) - 2;
+            double x1 = icon.Left + (18.5 * scale) + 2;
+
+            var face = probe.At(20, 50);
+            double span = probe.SpanDip(face, lensY, x0, x1);
+            Check.WithCustomMessage($"the drawn lens is {span:F1} DIP across; the board's is 29.6")
+                .That(span).IsStrictlyGreaterThan(28.0);
+            Check.WithCustomMessage($"the drawn lens is {span:F1} DIP across; the board's is 29.6")
+                .That(span).IsStrictlyLessThan(31.5);
+        });
+    }
+
+    [StaFact]
     public void TheFill_RisesFromTheBottom()
     {
         // Paint only: at half progress the bottom half is accent and the top half is the face.
@@ -249,14 +295,14 @@ public class ActivationButtonRenderTests
         {
             using var empty = new Scene(Colors.White, 0);
             var emptyProbe = empty.Render();
-            var face = emptyProbe.At(20, 80);
+            var face = emptyProbe.At(50, 94);
             Check.That(empty.Face.FillHeightDip).IsEqualTo(0);
 
             using var half = new Scene(Colors.White, 0.5);
             Check.That(half.Face.FillHeightDip).IsCloseTo(50, 1e-9);
             var halfProbe = half.Render();
-            var bottom = halfProbe.At(20, 80);
-            var top = halfProbe.At(20, 20);
+            var bottom = halfProbe.At(50, 94);
+            var top = halfProbe.At(50, 6);
             Check.WithCustomMessage("the bottom half is still the face, not the accent fill")
                 .That(Distance(bottom, face)).IsStrictlyGreaterThan(30);
             Check.WithCustomMessage("the top half is not the face: the fill came from the top")
@@ -266,9 +312,9 @@ public class ActivationButtonRenderTests
             Check.That(full.Face.FillHeightDip).IsCloseTo(100, 1e-9);
             var fullProbe = full.Render();
             Check.WithCustomMessage("a full disc is not fully filled")
-                .That(Distance(fullProbe.At(20, 80), fullProbe.At(20, 20))).IsStrictlyLessThan(10);
+                .That(Distance(fullProbe.At(50, 94), fullProbe.At(50, 6))).IsStrictlyLessThan(10);
             Check.WithCustomMessage("a full disc still shows the face above the centre")
-                .That(Distance(fullProbe.At(20, 20), face)).IsStrictlyGreaterThan(30);
+                .That(Distance(fullProbe.At(50, 6), face)).IsStrictlyGreaterThan(30);
         });
     }
 
@@ -296,10 +342,13 @@ public class ActivationButtonRenderTests
             Check.That(((RectangleGeometry)full.Face.UpperContent.Clip).Bounds.Height).IsEqualTo(0);
             Check.That(((RectangleGeometry)full.Face.LowerContent.Clip).Bounds.Height).IsCloseTo(100, 1e-9);
 
-            // The clip host's ellipse keeps the fill inside the rim.
+            // The clip host's ellipse keeps the fill inside the rim AND leaves the 2 DIP face band
+            // that separates accent from rim at full progress (F3).
             var discClip = (EllipseGeometry)((Grid)half.Face.Children[1]).Clip;
-            Check.That(discClip.RadiusX)
-                .IsCloseTo((ActivationButtonFace.Diameter / 2) - ActivationButtonFace.RimThickness, 1e-9);
+            Check.That(discClip.RadiusX).IsCloseTo(
+                (ActivationButtonFace.Diameter / 2)
+                - ActivationButtonFace.RimThickness
+                - ActivationButtonFace.FillInset, 1e-9);
         });
     }
 
@@ -340,9 +389,9 @@ public class ActivationButtonRenderTests
 
             var liveProbe = live.Render();
             var heldProbe = held.Render();
-            var livePixel = liveProbe.At(20, 80);
-            var heldPixel = heldProbe.At(20, 80);
-            var face = liveProbe.At(20, 20);
+            var livePixel = liveProbe.At(50, 94);
+            var heldPixel = heldProbe.At(50, 94);
+            var face = liveProbe.At(50, 6);
             Check.WithCustomMessage("the held fill is not dimmer than the live one")
                 .That(Contrast(heldPixel, face)).IsStrictlyLessThan(Contrast(livePixel, face));
             Check.WithCustomMessage("the held fill vanished")
@@ -365,7 +414,7 @@ public class ActivationButtonRenderTests
 
                 using var full = new Scene(page, 1);
                 var fullProbe = full.Render();
-                var fill = fullProbe.At(20, 80);
+                var fill = fullProbe.At(50, 94);
 
                 // 1. content over the face (text colour): label and icon body.
                 var upperLabel = emptyProbe.InkContrast(
@@ -391,19 +440,29 @@ public class ActivationButtonRenderTests
                 Check.WithCustomMessage($"{themeName}/{pageName}: fill on the face {fillVersusFace:F2}:1")
                     .That(fillVersusFace).IsGreaterOrEqualThan(3.0);
 
-                // 4. the disc's visible edge against the page: the rim, or the face where the rim
-                //    is the page colour (Contrast's white rim on a white page). The stronger of the
-                //    two is the edge the eye actually gets.
-                var rim = emptyProbe.At(50, 1);
-                var edge = Math.Max(Contrast(rim, page), Contrast(face, page));
-                Check.WithCustomMessage(
-                        $"{themeName}/{pageName}: the disc edge is {edge:F2}:1 (rim {Contrast(rim, page):F2})")
-                    .That(edge).IsGreaterOrEqualThan(3.0);
+                // 4. the disc's visible edge against the page at progress 0, 0.5 and 1 (F3): the rim,
+                //    or the face band just inside it where the rim is the page colour (Contrast's
+                //    white rim on a white page). The band must survive as the fill rises — without
+                //    the 2 DIP inset the bottom edge becomes cyan-vs-white through a white rim.
+                var edgeLog = new System.Text.StringBuilder();
+                foreach (var progress in new[] { 0.0, 0.5, 1.0 })
+                {
+                    using var edgeScene = new Scene(page, progress);
+                    var edgeProbe = edgeScene.Render();
+                    var band = edgeProbe.At(50, 97);   // r = 47: face between fill clip (46) and rim (48)
+                    var rim = edgeProbe.At(50, 99);
+                    var edgeAt = Math.Max(Contrast(rim, page), Contrast(band, page));
+                    Check.WithCustomMessage(
+                            $"{themeName}/{pageName} at p={progress}: the disc edge is {edgeAt:F2}:1 "
+                            + $"(rim {Contrast(rim, page):F2}, band {Contrast(band, page):F2})")
+                        .That(edgeAt).IsGreaterOrEqualThan(3.0);
+                    edgeLog.Append($" p{progress}={edgeAt:F2}(rim {Contrast(rim, page):F2})");
+                }
 
                 _output.WriteLine(
                     $"MEASURED {themeName}/{pageName}: label-face={upperLabel:F2} icon-face={upperIcon:F2} "
                     + $"label-fill={lowerLabel:F2} icon-fill={lowerIcon:F2} fill-face={fillVersusFace:F2} "
-                    + $"edge={edge:F2} rim={Contrast(rim, page):F2} face-page={Contrast(face, page):F2}");
+                    + $"edge:{edgeLog} face-page={Contrast(face, page):F2}");
             }
         });
     }
@@ -418,7 +477,7 @@ public class ActivationButtonRenderTests
         {
             using var held = new Scene(Colors.White, 0.5, paused: true);
             var probe = held.Render();
-            var fill = probe.At(20, 80);
+            var fill = probe.At(50, 94);
             var contrast = probe.InkContrast(
                 Bounds(held.Face.LowerLabel, held.Face), held.Face.LowerLabel.Foreground, fill);
             Check.WithCustomMessage($"{themeName}: label on the held fill {contrast:F2}:1")

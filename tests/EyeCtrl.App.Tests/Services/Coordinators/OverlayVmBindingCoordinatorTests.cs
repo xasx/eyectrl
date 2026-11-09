@@ -393,7 +393,41 @@ public class OverlayVmBindingCoordinatorTests
     public void ActivationVisible_PositionsTheHaloBeforeShowingIt()
     {
         // The stale-flash order (A-F4): Show() first presents the window where the PREVIOUS show left
-        // it, at the previous radius, for a frame. Positioning must come first.
+        // it, at the previous radius, for a frame. Positioning must come first, and the mode face and
+        // the held flag are set before the window is shown (B2 F1).
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
+        var activationVm = new ActivationButtonViewModel(messenger, settings);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        messenger.Send(new ShowActivationButtonMessage(
+            new PhysicalPoint(1200, 800), LayoutConstants.ActivationButtonHitRadiusPx));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        Check.That(activationButton.Calls)
+            .ContainsExactly("SetContent", "ShowAt", "SetFillPaused", "Show");
+        Check.WithCustomMessage("a ManualSelection offer must name the magnifier")
+            .That(activationButton.Contents).ContainsExactly(ActivationButtonContent.Magnifier);
+        Check.WithCustomMessage("the show path must start un-dimmed")
+            .That(activationButton.FillPaused).IsEqualTo(false);
+    }
+
+    [Fact]
+    public void ActivationPausedFlip_ReachesTheWindow()
+    {
+        // B2 F1: the held fill's dim is driven from the VM's derived flag. Mutation: drop the
+        // IsFillPaused branch → the fake never sees a pause.
         var activationButton = new RecordingActivationButton();
         var messenger = new WeakReferenceMessenger();
         var activationVm = new ActivationButtonViewModel(messenger);
@@ -413,7 +447,48 @@ public class OverlayVmBindingCoordinatorTests
             new PhysicalPoint(1200, 800), LayoutConstants.ActivationButtonHitRadiusPx));
         InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
 
-        Check.That(activationButton.Calls).ContainsExactly("ShowAt", "Show");
+        activationVm.IsFillPaused = true;
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsFillPaused));
+        Check.WithCustomMessage("the held flag did not reach the window")
+            .That(activationButton.FillPaused).IsEqualTo(true);
+
+        activationVm.IsFillPaused = false;
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsFillPaused));
+        Check.That(activationButton.FillPaused).IsEqualTo(false);
+    }
+
+    [Fact]
+    public void ActivationContentChange_WhileVisible_RelabelsTheWindow()
+    {
+        // B2 F4: the face can change while the button is up (a replace without a hide). Mutation:
+        // drop the Content branch → the fake keeps the previous face.
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings { SelectionMode = SelectionMode.ManualSelection };
+        var activationVm = new ActivationButtonViewModel(messenger, settings);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        messenger.Send(new ShowActivationButtonMessage(
+            new PhysicalPoint(1200, 800), LayoutConstants.ActivationButtonHitRadiusPx));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+        Check.That(activationButton.Contents).ContainsExactly(ActivationButtonContent.Magnifier);
+
+        activationVm.Content = ActivationButtonContent.Menu;
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.Content));
+
+        Check.WithCustomMessage("the live face did not follow the content change")
+            .That(activationButton.Contents).ContainsExactly(
+                ActivationButtonContent.Magnifier, ActivationButtonContent.Menu);
     }
 
     // C5 H3: the backdrop VM's held-dwell flag reaches the window. The window's own remembered
@@ -493,6 +568,8 @@ public class OverlayVmBindingCoordinatorTests
     {
         public List<(PhysicalPoint Position, double RadiusPixels)> ShownAt { get; } = new();
         public List<string> Calls { get; } = new();
+        public List<ActivationButtonContent> Contents { get; } = new();
+        public bool? FillPaused { get; private set; }
 
         public void Show() => Calls.Add("Show");
 
@@ -505,6 +582,18 @@ public class OverlayVmBindingCoordinatorTests
         public void Hide() { }
         public void HideImmediate() => Calls.Add("HideImmediate");
         public void UpdateDwellProgress(double progress) { }
+
+        public void SetContent(ActivationButtonContent content)
+        {
+            Calls.Add("SetContent");
+            Contents.Add(content);
+        }
+
+        public void SetFillPaused(bool paused)
+        {
+            Calls.Add("SetFillPaused");
+            FillPaused = paused;
+        }
     }
 
     [Fact]
@@ -540,8 +629,10 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(activationButton.ShownAt).HasSize(2);
         Check.That(activationButton.ShownAt[1].Position.X).IsEqualTo(700);
         Check.That(activationButton.ShownAt[1].Position.Y).IsEqualTo(500);
-        Check.That(activationButton.Calls)
-            .ContainsExactly("ShowAt", "Show", "HideImmediate", "ShowAt", "Show");
+        Check.That(activationButton.Calls).ContainsExactly(
+            "SetContent", "ShowAt", "SetFillPaused", "Show",
+            "HideImmediate",
+            "SetContent", "ShowAt", "SetFillPaused", "Show");
     }
 
     [Fact]

@@ -6,8 +6,9 @@ using EyeCtrl.App.Tests.Localization;
 /// <summary>
 /// App.xaml.cs is integration wiring that cannot be composed headlessly; pin the <c>--ring-arm</c>
 /// block's shape: parsed beside <c>--paused</c>, both policies set from the launch, the startup line
-/// ALWAYS written, the event log constructed only when the argument was given, and disposed in
-/// OnExit. (The LagMark host's source pins are the same pattern.)
+/// ALWAYS written (naming whether ring events are on), the event log created through
+/// <c>RingArmLog.Create</c> from the launch and the settings' <c>diagnostics.logRingEvents</c>, and
+/// disposed in OnExit. (The LagMark host's source pins are the same pattern.)
 /// </summary>
 public class RingArmWiringTests
 {
@@ -48,7 +49,8 @@ public class RingArmWiringTests
         // arm, and the readout can no longer spot a silent fallback after a supervisor relaunch.
         var text = AppSource();
         var statement = Regex.Match(text,
-            @"(?m)^\s*(?<statement>Log\s*\.\s*Information\s*\(\s*""\{RingArm\}""\s*,\s*RingArmLog\s*\.\s*StartupLine\s*\(\s*ringArmLaunch\s*\)\s*\)\s*;)\s*$");
+            @"(?m)^\s*(?<statement>Log\s*\.\s*Information\s*\(\s*""\{RingArm\}""\s*,\s*RingArmLog\s*\.\s*StartupLine\s*\(\s*ringArmLaunch\s*,"
+            + @"\s*RingArmLog\s*\.\s*LogsEvents\s*\(\s*ringArmLaunch\s*,\s*settings\s*\.\s*Diagnostics\s*\)\s*\)\s*\)\s*;)\s*$");
         Check.WithCustomMessage("App.xaml.cs no longer writes the Ring arm startup line")
             .That(statement.Success).IsTrue();
         var above = text[..statement.Index].Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
@@ -60,12 +62,17 @@ public class RingArmWiringTests
     }
 
     [Fact]
-    public void TheEventLog_ExistsOnlyWhenTheArgumentWasGiven_AndIsDisposed()
+    public void TheEventLog_IsCreatedFromTheLaunchAndTheSettingsKey_AndIsDisposed()
     {
+        // F2: Setup never passes --ring-arm, so the settings key must reach the one construction site.
+        // Mutation: construct the log under `if (ringArmLaunch.Specified)` again, or pass a fresh
+        // DiagnosticsSettings → a sitting gets no ring events.
         var text = AppSource();
-        Check.WithCustomMessage("the RingArmLog is no longer constructed under the launch's Specified gate")
+        Check.WithCustomMessage("the RingArmLog is no longer created through RingArmLog.Create(launch, settings.Diagnostics, ...)")
             .That(Regex.IsMatch(text,
-                @"if\s*\(\s*ringArmLaunch\s*\.\s*Specified\s*\)\s*\r?\n\s*_ringArmLog\s*=\s*new\s+RingArmLog\s*\(\s*im\s*,\s*cursorVm\s*,")).IsTrue();
+                @"_ringArmLog\s*=\s*RingArmLog\s*\.\s*Create\s*\(\s*ringArmLaunch\s*,\s*settings\s*\.\s*Diagnostics\s*,\s*im\s*,\s*cursorVm\s*,")).IsTrue();
+        Check.WithCustomMessage("App.xaml.cs constructs a RingArmLog directly, past RingArmLog.Create")
+            .That(text.Contains("new RingArmLog(", StringComparison.Ordinal)).IsFalse();
         Check.WithCustomMessage("OnExit no longer disposes the ring arm log")
             .That(Regex.IsMatch(text, @"_ringArmLog\s*\?\.\s*Dispose\s*\(\s*\)")).IsTrue();
     }

@@ -13,7 +13,8 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// The ring-arm look build's log lines (ticket ring-arm-look-build, "Log lines (exact; invariant
 /// culture; physical px)"). The startup line is always written; the event lines exist only when
-/// <c>--ring-arm</c> was given, and the session scripts parse them — every format is pinned here.
+/// <c>--ring-arm</c> was given or the settings file sets <c>diagnostics.logRingEvents</c>, and the
+/// session scripts parse them — every format is pinned here.
 /// </summary>
 public class RingArmLogTests
 {
@@ -26,9 +27,9 @@ public class RingArmLogTests
         // so the readout can see which arm actually ran.
         var launch = RingArmArgument.Parse(new[] { "EyeCtrl.exe" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
-            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) [source: default]");
+        Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 200 px) or corridor 1.25R, "
+            + "stay grace=500 ms, freeze grace=500 ms once proven 90 ms, glideOut=0, ringEvents=off) [source: default]");
     }
 
     [Fact]
@@ -36,9 +37,9 @@ public class RingArmLogTests
     {
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=hybrid" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
-            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+        Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 200 px) or corridor 1.25R, "
+            + "stay grace=500 ms, freeze grace=500 ms once proven 90 ms, glideOut=0, ringEvents=on) [source: --ring-arm]");
     }
 
     [Fact]
@@ -46,9 +47,9 @@ public class RingArmLogTests
     {
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=run-only" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
-            "Ring arm: run-only (pin=RunOnly, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+        Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
+            "Ring arm: run-only (pin=RunOnly, hold=None, stay zone=none, stay grace=0 ms, "
+            + "freeze grace=0 ms once proven 0 ms, glideOut=0, ringEvents=on) [source: --ring-arm]");
     }
 
     [Fact]
@@ -56,9 +57,9 @@ public class RingArmLogTests
     {
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=today" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
-            "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
-            + "go=0 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+        Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
+            "Ring arm: today (pin=OfferFollowing, hold=None, stay zone=none, stay grace=0 ms, "
+            + "freeze grace=0 ms once proven 0 ms, glideOut=0, ringEvents=on) [source: --ring-arm]");
     }
 
     [Fact]
@@ -68,9 +69,9 @@ public class RingArmLogTests
         // the fallback is visible in the readout.
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=fast" });
 
-        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
-            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
-            + "go=500 ms corridor=1.25R, glideOut=0) [source: --ring-arm]");
+        Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 200 px) or corridor 1.25R, "
+            + "stay grace=500 ms, freeze grace=500 ms once proven 90 ms, glideOut=0, ringEvents=on) [source: --ring-arm]");
     }
 
     [Fact]
@@ -97,14 +98,12 @@ public class RingArmLogTests
         Check.That(RingArmLog.IgnoredPinLine(atOffer: false, new PhysicalPoint(1234.6, 998.4)))
             .IsEqualTo("Ring pin (settle) at=(1235,998) ignored=near-offer");
 
-        Check.That(RingArmLog.GoStartLine(40.4, 3.6)).IsEqualTo("Ring go start dist=40 off=4");
-        Check.That(RingArmLog.GoStartLine(40.4, null)).IsEqualTo("Ring go start dist=40 off=na");
-        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Hit, 241.4, 12.2)).IsEqualTo("Ring go end (hit) ms=241 off=12");
-        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Left, 90, 100)).IsEqualTo("Ring go end (left) ms=90 off=100");
-        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Timeout, 510, 5)).IsEqualTo("Ring go end (timeout) ms=510 off=5");
-        Check.That(RingArmLog.GoEndLine(RingGoEndReason.OfferClosed, 30, 0)).IsEqualTo("Ring go end (offer-closed) ms=30 off=0");
-        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Hidden, 30, null)).IsEqualTo("Ring go end (hidden) ms=30 off=na");
-        Check.That(RingArmLog.GoEndLine(RingGoEndReason.Settled, 480, 7)).IsEqualTo("Ring go end (settled) ms=480 off=7");
+        Check.That(RingArmLog.StayStartLine(40.4, 3.6)).IsEqualTo("Ring stay start dist=40 off=4");
+        Check.That(RingArmLog.StayStartLine(40.4, null)).IsEqualTo("Ring stay start dist=40 off=na");
+        Check.That(RingArmLog.StayEndLine(RingStayEndReason.Left, 1241.4, 312.2)).IsEqualTo("Ring stay end (left) ms=1241 off=312");
+        Check.That(RingArmLog.StayEndLine(RingStayEndReason.OfferClosed, 30, 0)).IsEqualTo("Ring stay end (offer-closed) ms=30 off=0");
+        Check.That(RingArmLog.StayEndLine(RingStayEndReason.Hidden, 30, null)).IsEqualTo("Ring stay end (hidden) ms=30 off=na");
+        Check.That(RingArmLog.StayEndLine(RingStayEndReason.Settled, 480, 7)).IsEqualTo("Ring stay end (settled) ms=480 off=7");
 
         Check.That(RingArmLog.ReleaseLine(RingReleaseCause.RunEnd, 123.6))
             .IsEqualTo("Ring release (run-end) dist=124");
@@ -115,8 +114,6 @@ public class RingArmLogTests
         Check.That(RingArmLog.ReleaseLine(RingReleaseCause.HidingState, 12.5))
             .IsEqualTo("Ring release (state) dist=13");
 
-        Check.That(RingArmLog.HoldStartLine(RingHoldStartKind.Keep)).IsEqualTo("Ring hold start (keep)");
-        Check.That(RingArmLog.HoldStartLine(RingHoldStartKind.Approach)).IsEqualTo("Ring hold start (approach)");
         Check.That(RingArmLog.HoldStartLine(RingHoldStartKind.Freeze)).IsEqualTo("Ring hold start (freeze)");
 
         Check.That(RingArmLog.HoldEndLine(RingHoldEndReason.Left, 967.4))
@@ -235,13 +232,13 @@ public class RingArmLogTests
     }
 
     [Fact]
-    public void TheLog_WritesTheGoLines_ForEachWayTheKeepEnds()
+    public void TheLog_WritesTheStayLines_ForEachWayTheStayEnds()
     {
-        // The going-for-it keep's lines, through the real VM: start (ring-to-gaze distance, the gaze's
-        // distance to the P-B segment), and one end line per reason with the time since the start.
-        // P = (1000,1000), B = (1400,1000), hit 150, R 80, frames 30 ms. Mutant M10: the go-end reasons
-        // swapped (left <-> timeout) -> the timeout and left lines read wrongly.
-        List<string> Go(Action<Action<PhysicalPoint>, Action<InteractionState>, Action, Action<PhysicalPoint>> script)
+        // The stay's lines, through the real VM: start (ring-to-gaze distance, the gaze's distance to the
+        // P-B segment), and one end line per reason with the time since the start. P = (1000,1000),
+        // B = (1400,1000), hit 150, R 80, frames 30 ms. Mutant: the stay-end reasons swapped
+        // (left <-> settled) -> those lines read wrongly.
+        List<string> Stay(Action<Action<PhysicalPoint>, Action<InteractionState>, Action, Action<PhysicalPoint>> script)
         {
             var log = new List<string>();
             var messenger = new WeakReferenceMessenger();
@@ -264,49 +261,83 @@ public class RingArmLogTests
             log.Clear();
             script(Frame, s => messenger.Send(new StateChangedMessage(s)), () => messenger.Send(new HideActivationButtonMessage()),
                 at => messenger.Send(new PinRingMessage(at)));
-            return log.Where(l => l.StartsWith("Ring go ", StringComparison.Ordinal)).ToList();
+            return log.Where(l => l.StartsWith("Ring stay ", StringComparison.Ordinal)).ToList();
         }
 
-        Check.That(Go((frame, _, _, _) =>
+        Check.That(Stay((frame, _, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
-            for (int i = 0; i < 17; i++) frame(new PhysicalPoint(1100, 1000));
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (timeout) ms=510 off=0");
+            for (int i = 0; i < 40; i++) frame(new PhysicalPoint(1100, 1000));   // 1.2 s in the corridor: no end
+        })).ContainsExactly("Ring stay start dist=100 off=0");
 
-        Check.That(Go((frame, _, _, _) =>
+        Check.That(Stay((frame, _, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
-            frame(new PhysicalPoint(1100, 1130));                 // 130 px off the axis (> 1.25 R = 100)
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (left) ms=30 off=130");
+            for (int i = 0; i < 18; i++) frame(new PhysicalPoint(1100, 1130));   // 130 px off the axis (> 1.25 R)
+        })).ContainsExactly("Ring stay start dist=100 off=0", "Ring stay end (left) ms=540 off=130");
 
-        Check.That(Go((frame, _, _, _) =>
-        {
-            frame(new PhysicalPoint(1100, 1000));
-            frame(new PhysicalPoint(1300, 1000));
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (hit) ms=30 off=0");
-
-        Check.That(Go((frame, _, hide, _) =>
+        Check.That(Stay((frame, _, hide, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             frame(new PhysicalPoint(1100, 1000));
             hide();
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (offer-closed) ms=30 off=0");
+        })).ContainsExactly("Ring stay start dist=100 off=0", "Ring stay end (offer-closed) ms=30 off=0");
 
-        Check.That(Go((frame, state, _, _) =>
+        Check.That(Stay((frame, state, _, _) =>
         {
             frame(new PhysicalPoint(1100, 1000));
             frame(new PhysicalPoint(1100, 1000));
             state(InteractionState.Paused);
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (hidden) ms=30 off=0");
+        })).ContainsExactly("Ring stay start dist=100 off=0", "Ring stay end (hidden) ms=30 off=0");
 
-        Check.That(Go((frame, state, _, settle) =>
+        Check.That(Stay((frame, state, _, settle) =>
         {
             frame(new PhysicalPoint(1100, 1000));
-            frame(new PhysicalPoint(1100, 1000));
+            frame(new PhysicalPoint(700, 1500));                  // clearly elsewhere: the grace runs
             state(InteractionState.Fixation);
-            settle(new PhysicalPoint(1100, 1000));
-        })).ContainsExactly("Ring go start dist=100 off=0", "Ring go end (settled) ms=30 off=0");
+            settle(new PhysicalPoint(700, 1500));
+        })).ContainsExactly("Ring stay start dist=100 off=0", "Ring stay end (settled) ms=30 off=583");
     }
+
+    // ── The setting: diagnostics.logRingEvents (F2) ──────────────────────────
+
+    [Fact]
+    public void LogsEvents_ByTheArgument_OrByTheSettingsKey_AndOffByDefault()
+    {
+        // Setup never passes --ring-arm, so a sitting gets ring events only through the settings key.
+        // Mutant: the logger ignores the setting → the default launch with the key on logs nothing.
+        var defaultLaunch = RingArmArgument.Parse(Array.Empty<string>());
+        var argLaunch = RingArmArgument.Parse(new[] { "--ring-arm=hybrid" });
+
+        Check.That(new DiagnosticsSettings().LogRingEvents).IsFalse();
+        Check.That(RingArmLog.LogsEvents(defaultLaunch, new DiagnosticsSettings())).IsFalse();
+        Check.That(RingArmLog.LogsEvents(defaultLaunch, new DiagnosticsSettings { LogRingEvents = true })).IsTrue();
+        Check.That(RingArmLog.LogsEvents(argLaunch, new DiagnosticsSettings())).IsTrue();
+    }
+
+    [Fact]
+    public void Create_WithTheSettingsKey_WiresTheLogger_ForTheDefaultArm_AndWithoutItReturnsNull()
+    {
+        var launch = RingArmArgument.Parse(Array.Empty<string>());
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger) { RingHoldPolicy = launch.HoldPolicy };
+        var im = new InteractionManager { RingPinPolicy = launch.PinPolicy };
+        im.PinRing += p => messenger.Send(new PinRingMessage(p));
+        im.StateChanged += s => messenger.Send(new StateChangedMessage(s));
+        var log = new List<string>();
+
+        Check.That(RingArmLog.Create(launch, new DiagnosticsSettings(), im, vm, log.Add)).IsNull();
+
+        using var sink = RingArmLog.Create(launch, new DiagnosticsSettings { LogRingEvents = true }, im, vm, log.Add);
+        Check.That(sink).IsNotNull();
+        var p = new PhysicalPoint(1000, 1000);
+        messenger.Send(new GazeCursorMovedMessage(p, 30_000));
+        im.OnFixationStarted(p);
+        im.OnFixationSettled(p);
+        Check.That(log).ContainsExactly("Ring pin (settle) at=(1000,1000) dist=0");
+    }
+
+    // (The App's construction site is pinned in Startup/RingArmWiringTests.)
 
     [Fact]
     public void TheLog_ReportsAnOfferPin_FromTheWiredEngine()

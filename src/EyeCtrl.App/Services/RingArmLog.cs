@@ -5,14 +5,16 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using EyeCtrl.App.Startup;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
 /// <summary>
 /// The ring-arm look build's log lines (ticket ring-arm-look-build, "Log lines (exact; invariant
 /// culture; physical px)"). The startup line is written by the App for every launch; this class adds
-/// the per-event lines — only constructed when <c>--ring-arm</c> was given — and the session scripts
-/// parse them.
+/// the per-event lines — constructed when <c>--ring-arm</c> was given or the settings file sets
+/// <c>diagnostics.logRingEvents</c> (<see cref="Create"/>) — and the session scripts parse them.
 /// <para>
 /// Each pin's origin is Core's truth (<see cref="InteractionManager.RingPinnedAtOffer"/>),
 /// snapshotted where the event is raised (the gaze thread) into a queue and paired with the VM's
@@ -40,20 +42,33 @@ internal sealed class RingArmLog : IDisposable
         vm.RingReleased += OnReleased;
         vm.RingHoldStarted += OnHoldStarted;
         vm.RingHoldEnded += OnHoldEnded;
-        vm.RingGoStarted += OnGoStarted;
-        vm.RingGoEnded += OnGoEnded;
+        vm.RingStayStarted += OnStayStarted;
+        vm.RingStayEnded += OnStayEnded;
     }
+
+    /// <summary>Whether this launch logs the ring's events: an explicit <c>--ring-arm</c>, or the
+    /// settings-file key <c>diagnostics.logRingEvents</c> (F2: Setup never passes the argument, so a
+    /// sitting needs the key to get ring events at all).</summary>
+    internal static bool LogsEvents(RingArmLaunch launch, DiagnosticsSettings diagnostics) =>
+        launch.Specified || diagnostics.LogRingEvents;
+
+    /// <summary>The App's one construction site: the event logger for the arm the App actually runs, or
+    /// null when <see cref="LogsEvents"/> says this launch logs none.</summary>
+    internal static RingArmLog? Create(RingArmLaunch launch, DiagnosticsSettings diagnostics,
+        InteractionManager im, CursorCircleViewModel vm, Action<string> info) =>
+        LogsEvents(launch, diagnostics) ? new RingArmLog(im, vm, info) : null;
 
     // ── The exact line formats ───────────────────────────────────────────────
 
     /// <summary>The one startup line, always written (the default included, so every log says which
     /// arm it ran): the readout detects a silent fallback — a relaunch that no longer runs the
-    /// requested arm — by it.</summary>
-    internal static string StartupLine(RingArmLaunch launch)
+    /// requested arm — by it. It names the stay's zone (B's no-move zone hit + R, with the hit radius,
+    /// or the P-B corridor) and grace, the freeze hold's grace, and whether ring events are logged.</summary>
+    internal static string StartupLine(RingArmLaunch launch, bool ringEvents)
     {
         bool hybrid = launch.Arm == RingArm.Hybrid;
         return string.Format(CultureInfo.InvariantCulture,
-            "Ring arm: {0} (pin={1}, hold={2}, grace={3} ms once proven {4} ms, go={5} ms corridor={6:0.##}R, glideOut=0) [source: {7}]",
+            "Ring arm: {0} (pin={1}, hold={2}, stay zone={3}, stay grace={4} ms, freeze grace={5} ms once proven {6} ms, glideOut=0, ringEvents={7}) [source: {8}]",
             launch.Arm switch
             {
                 RingArm.Hybrid => "hybrid",
@@ -62,10 +77,14 @@ internal sealed class RingArmLog : IDisposable
             },
             launch.PinPolicy == RingPinPolicy.RunOnly ? "RunOnly" : "OfferFollowing",
             hybrid ? "HybridFreeze" : "None",
+            hybrid
+                ? string.Format(CultureInfo.InvariantCulture, "hit+R (hit {0:0} px) or corridor {1:0.##}R",
+                    LayoutConstants.ActivationButtonHitRadiusPx, CursorCircleViewModel.HybridStayCorridorFactor)
+                : "none",
+            hybrid ? CursorCircleViewModel.HybridStayGraceMs : 0,
             hybrid ? CursorCircleViewModel.HybridFreezeGraceMs : 0,
             hybrid ? CursorCircleViewModel.HybridFreezeProvenMs : 0,
-            hybrid ? CursorCircleViewModel.HybridFreezeApproachMs : 0,
-            CursorCircleViewModel.HybridGoCorridorFactor,
+            ringEvents ? "on" : "off",
             launch.Specified ? "--ring-arm" : "default");
     }
 
@@ -98,9 +117,8 @@ internal sealed class RingArmLog : IDisposable
     internal static string HoldStartLine(RingHoldStartKind kind) =>
         string.Format(CultureInfo.InvariantCulture, "Ring hold start ({0})", kind switch
         {
-            RingHoldStartKind.Keep => "keep",
-            RingHoldStartKind.Approach => "approach",
-            _ => "freeze",
+            RingHoldStartKind.Freeze => "freeze",
+            _ => kind.ToString(),
         });
 
     internal static string HoldEndLine(RingHoldEndReason reason, double heldMs) =>
@@ -112,19 +130,17 @@ internal sealed class RingArmLog : IDisposable
             _ => "hidden",
         }, heldMs);
 
-    /// <summary>The going-for-it keep began: the ring-to-gaze distance and the gaze's distance to the
-    /// segment P-B (na where P is unknown).</summary>
-    internal static string GoStartLine(double dist, double? off) =>
-        string.Format(CultureInfo.InvariantCulture, "Ring go start dist={0:0} off={1}", dist, OffText(off));
+    /// <summary>The stay began: the ring-to-gaze distance and the gaze's distance to the segment P-B
+    /// (na where P is unknown).</summary>
+    internal static string StayStartLine(double dist, double? off) =>
+        string.Format(CultureInfo.InvariantCulture, "Ring stay start dist={0:0} off={1}", dist, OffText(off));
 
-    internal static string GoEndLine(RingGoEndReason reason, double ms, double? off) =>
-        string.Format(CultureInfo.InvariantCulture, "Ring go end ({0}) ms={1:0} off={2}", reason switch
+    internal static string StayEndLine(RingStayEndReason reason, double ms, double? off) =>
+        string.Format(CultureInfo.InvariantCulture, "Ring stay end ({0}) ms={1:0} off={2}", reason switch
         {
-            RingGoEndReason.Hit => "hit",
-            RingGoEndReason.Left => "left",
-            RingGoEndReason.Timeout => "timeout",
-            RingGoEndReason.OfferClosed => "offer-closed",
-            RingGoEndReason.Settled => "settled",
+            RingStayEndReason.Left => "left",
+            RingStayEndReason.OfferClosed => "offer-closed",
+            RingStayEndReason.Settled => "settled",
             _ => "hidden",
         }, ms, OffText(off));
 
@@ -170,9 +186,9 @@ internal sealed class RingArmLog : IDisposable
 
     private void OnHoldEnded(RingHoldEndEvent e) => _info(HoldEndLine(e.Reason, e.HeldMs));
 
-    private void OnGoStarted(RingGoStartEvent e) => _info(GoStartLine(e.Dist, e.Off));
+    private void OnStayStarted(RingStayStartEvent e) => _info(StayStartLine(e.Dist, e.Off));
 
-    private void OnGoEnded(RingGoEndEvent e) => _info(GoEndLine(e.Reason, e.Ms, e.Off));
+    private void OnStayEnded(RingStayEndEvent e) => _info(StayEndLine(e.Reason, e.Ms, e.Off));
 
     public void Dispose()
     {
@@ -184,7 +200,7 @@ internal sealed class RingArmLog : IDisposable
         _vm.RingReleased -= OnReleased;
         _vm.RingHoldStarted -= OnHoldStarted;
         _vm.RingHoldEnded -= OnHoldEnded;
-        _vm.RingGoStarted -= OnGoStarted;
-        _vm.RingGoEnded -= OnGoEnded;
+        _vm.RingStayStarted -= OnStayStarted;
+        _vm.RingStayEnded -= OnStayEnded;
     }
 }

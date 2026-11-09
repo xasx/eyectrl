@@ -96,7 +96,7 @@ internal static class GoingForItChains
     }
 
     /// <summary>
-    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (190 px from B,
+    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (240 px from B,
     /// beside the button, much nearer B than P): the first post-run frame is inside B's no-move zone, so the
     /// keep starts; the eye stays, the detector settles there 500 ms after the new run's anchor, so the
     /// settle reaches the ring on the keep's time-limit frame, ends the keep, and D refuses it as a near miss.
@@ -105,7 +105,7 @@ internal static class GoingForItChains
     internal static List<GazePoint> GapToNearMiss()
     {
         var (p, b, pt) = Geometry();
-        var miss = pt(p.DistanceTo(b), 190);
+        var miss = pt(p.DistanceTo(b), 240);
         return new Chain(61).Hold(p.X, p.Y, 1200).Skip(700).Hold(miss.X, miss.Y, 960)
             .Hold(1000, 1700, 1500).Samples;
     }
@@ -156,8 +156,8 @@ internal static class GoingForItChains
         Add("to B: stop halfway 600 ms", Start(25).Move(mid.X, mid.Y, 3).Hold(mid.X, mid.Y, 600).Move(b.X, b.Y, 3).Hold(b.X, b.Y, 800));
         var off = Pt(d, 120);
         Add("to B: lands 120 px off-axis", Start(26).Move(off.X, off.Y, 4).Hold(off.X, off.Y, 800));
-        var miss = Pt(d, 190);
-        Add("near miss: parks 190 px from B", Start(27).Move(miss.X, miss.Y, 4).Hold(miss.X, miss.Y, 1500));
+        var miss = Pt(d, 240);
+        Add("near miss: parks 240 px from B", Start(27).Move(miss.X, miss.Y, 4).Hold(miss.X, miss.Y, 1500));
         var perp = Pt(0, 500);
         Add("away: perpendicular 500 px", Start(28).Move(perp.X, perp.Y, 3).Hold(perp.X, perp.Y, 1200));
         var back = Pt(-500, 0);
@@ -188,7 +188,7 @@ internal static class GoingForItChains
         var early = Pt(60, 20);
         Add("to B: run ends 40 px from P, stops 60 px past P for 300 ms, then to B", Gapped(42).Hold(near.X, near.Y, 60).Move(early.X, early.Y, 2).Hold(early.X, early.Y, 300).Move(b.X, b.Y, 6).Hold(b.X, b.Y, 800));
         Add("to B: run ends 40 px from P, stops 60 px past P for 600 ms (the keep times out)", Gapped(43).Hold(near.X, near.Y, 60).Move(early.X, early.Y, 2).Hold(early.X, early.Y, 600).Move(b.X, b.Y, 6).Hold(b.X, b.Y, 800));
-        Add("near miss: run ends 40 px from P, parks 190 px from B", Gapped(44).Hold(near.X, near.Y, 60).Move(miss.X, miss.Y, 6).Hold(miss.X, miss.Y, 1500));
+        Add("near miss: run ends 40 px from P, parks 240 px from B", Gapped(44).Hold(near.X, near.Y, 60).Move(miss.X, miss.Y, 6).Hold(miss.X, miss.Y, 1500));
         Add("away: run ends 40 px from P, then perpendicular 500 px", Gapped(45).Hold(near.X, near.Y, 60).Move(perp.X, perp.Y, 3).Hold(perp.X, perp.Y, 1200));
         var swerve = Pt(150, 130);
         Add("away: run ends 40 px from P, swerves 130 px off the axis", Gapped(46).Hold(near.X, near.Y, 60).Move(swerve.X, swerve.Y, 4).Hold(swerve.X, swerve.Y, 1200));

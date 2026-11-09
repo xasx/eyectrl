@@ -65,15 +65,49 @@ public enum UninstallChoice
     Cancel,
 }
 
+/// <summary>
+/// O6a: which Q8 route produced a cancel. The record's <c>detail</c> stays <c>cancelled</c> for
+/// all of them (the App and the wrapper read it); this names the route in the log only.
+/// </summary>
+public enum UninstallCancelPath
+{
+    /// <summary>Not a cancel, or the path is not known.</summary>
+    None,
+
+    /// <summary>The Cancel button on the first screen.</summary>
+    Button,
+
+    /// <summary>Screen 2's safe answer, "keep the data".</summary>
+    KeepData,
+
+    /// <summary>Esc.</summary>
+    Escape,
+
+    /// <summary>The window was closed (Alt+F4, its close path, or a foreign close).</summary>
+    Close,
+
+    /// <summary>The 5-minute no-choice timeout.</summary>
+    Timeout,
+
+    /// <summary>The window could not be shown at all.</summary>
+    Unavailable,
+}
+
+/// <summary>The Q8 answer: the choice and, for a cancel, the route that produced it.</summary>
+public readonly record struct UninstallChoiceAnswer(
+    UninstallChoice Choice, UninstallCancelPath CancelPath = UninstallCancelPath.None);
+
 /// <summary>Asks the owner whether the data stays. <c>--quiet</c> never calls this.</summary>
 public interface IUninstallChoice
 {
     /// <summary>Returns the owner's choice; S6a's default is <see cref="UninstallChoice.Keep"/>.</summary>
-    UninstallChoice Ask();
+    UninstallChoiceAnswer Ask();
 }
 
-/// <summary>What one app-data deletion could not remove.</summary>
-public readonly record struct AppDataDeletionResult(bool Succeeded, IReadOnlyList<string> FailedFiles);
+/// <summary>What one app-data deletion did: success, what stayed, and whether the folder existed
+/// and was actually removed (review-01 F2: the log must not claim a removal when there was none).</summary>
+public readonly record struct AppDataDeletionResult(
+    bool Succeeded, IReadOnlyList<string> FailedFiles, bool Removed = false);
 
 /// <summary>
 /// The Q8 deletion seam: the ONLY way <c>%APPDATA%\EyeCtrl</c> may be deleted. It is called after

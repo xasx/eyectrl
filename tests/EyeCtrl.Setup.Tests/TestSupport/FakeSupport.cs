@@ -92,22 +92,25 @@ public sealed class FakeUninstallChoice : IUninstallChoice
     /// <summary>The answer.</summary>
     public UninstallChoice Choice { get; set; } = UninstallChoice.Keep;
 
+    /// <summary>O6a: the route a <see cref="UninstallChoice.Cancel"/> answer reports.</summary>
+    public UninstallCancelPath CancelPath { get; set; } = UninstallCancelPath.Button;
+
     /// <summary>The calls made.</summary>
     public int Calls { get; private set; }
 
     /// <inheritdoc />
-    public UninstallChoice Ask()
+    public UninstallChoiceAnswer Ask()
     {
         Calls++;
-        return Choice;
+        return new(Choice, Choice == UninstallChoice.Cancel ? CancelPath : UninstallCancelPath.None);
     }
 }
 
 /// <summary>A fake app-data deletion seam.</summary>
 public sealed class FakeAppDataDeletion : IAppDataDeletion
 {
-    /// <summary>The result.</summary>
-    public AppDataDeletionResult Result { get; set; } = new(true, []);
+    /// <summary>The result. Defaults to "the folder existed and went", the confirmed-delete shape.</summary>
+    public AppDataDeletionResult Result { get; set; } = new(true, [], Removed: true);
 
     /// <summary>The calls made.</summary>
     public int Calls { get; private set; }

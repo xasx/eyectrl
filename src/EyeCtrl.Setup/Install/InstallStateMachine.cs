@@ -518,7 +518,8 @@ public sealed class InstallStateMachine
         return SwapOutcome.Success(changed);
     }
 
-    /// <summary>Removes the installed folders and the run folders (uninstall, elevated).</summary>
+    /// <summary>Removes the installed folders and the run folders (uninstall, elevated). Logs each
+    /// folder as it goes (O6b, review-01 F5), so a later failure still shows what was removed.</summary>
     public void RemoveInstalledFolders()
     {
         RequireAllInstallPaths();
@@ -528,15 +529,18 @@ public sealed class InstallStateMachine
                      _paths.StagingRoot, _paths.FailedRoot,
                  })
         {
-            if (_fileSystem.DirectoryExists(folder))
-                _fileSystem.DeleteDirectory(folder, recursive: true);
+            if (!_fileSystem.DirectoryExists(folder))
+                continue;
+            _fileSystem.DeleteDirectory(folder, recursive: true);
+            _log.Info($"Uninstall removed the folder {Path.GetFileName(folder)}.");
         }
 
         // The journal lives under EyeCtrl.run, which survives as the current run copy's parent.
         _journal.Clear();
     }
 
-    /// <summary>Removes every HKCU Run/RunOnce value whose name starts with <c>EyeCtrl</c>.</summary>
+    /// <summary>Removes every HKCU Run/RunOnce value whose name starts with <c>EyeCtrl</c>, naming
+    /// each one it removed (O6b).</summary>
     public void RemoveRunValues()
     {
         foreach (var (hive, key) in new[]
@@ -551,6 +555,7 @@ public sealed class InstallStateMachine
                     continue;
                 _guard.RequireRunValue(hive, key, name);
                 _registry.DeleteValue(hive, key, name);
+                _log.Info($"Uninstall removed the Run value {name}.");
             }
         }
     }

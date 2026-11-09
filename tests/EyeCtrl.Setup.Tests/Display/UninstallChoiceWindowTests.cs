@@ -186,7 +186,83 @@ public sealed class UninstallChoiceWindowTests
         });
 
         WithWindow(window =>
-            Check.That(window.ResolveUnaskedResult()).IsEqualTo(UninstallChoice.Cancel));
+            Check.That(window.ResolveAnswer().Choice).IsEqualTo(UninstallChoice.Cancel));
+    }
+
+    [Fact]
+    public void EveryCancelRoute_NamesItsPath()
+    {
+        // O6a: the log must say which of the five routes cancelled, not just that it cancelled.
+        WithWindow(window =>
+        {
+            Arm(window);
+            Click(window.CancelButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
+            Check.That(window.CancelPath).IsEqualTo(UninstallCancelPath.Button);
+        });
+
+        WithWindow(window =>
+        {
+            Arm(window);
+            Click(window.DeleteButton);
+            Arm(window);
+            Click(window.KeepDataButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
+            Check.That(window.CancelPath).IsEqualTo(UninstallCancelPath.KeepData);
+        });
+
+        WithWindow(window =>
+        {
+            RaiseEscape(window);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
+            Check.That(window.CancelPath).IsEqualTo(UninstallCancelPath.Escape);
+        });
+
+        WithWindow(window =>
+        {
+            _ = new WindowInteropHelper(window).EnsureHandle();
+            window.Close();
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
+            Check.That(window.CancelPath).IsEqualTo(UninstallCancelPath.Close);
+        });
+
+        WithWindow(window =>
+        {
+            window.ExpireForTests();
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Cancel);
+            Check.That(window.CancelPath).IsEqualTo(UninstallCancelPath.Timeout);
+        });
+
+        WithWindow(window =>
+        {
+            // A window that could not be shown at all is still a cancel, but names no route.
+            var answer = window.ResolveAnswer();
+            Check.That(answer.Choice).IsEqualTo(UninstallChoice.Cancel);
+            Check.That(answer.CancelPath).IsEqualTo(UninstallCancelPath.Unavailable);
+        });
+    }
+
+    [Fact]
+    public void ANonCancelAnswer_HasNoCancelPath()
+    {
+        WithWindow(window =>
+        {
+            Arm(window);
+            Click(window.KeepButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Keep);
+            Check.That(window.CancelPath).IsEqualTo(UninstallCancelPath.None);
+            Check.That(window.ResolveAnswer().CancelPath).IsEqualTo(UninstallCancelPath.None);
+        });
+
+        WithWindow(window =>
+        {
+            Arm(window);
+            Click(window.DeleteButton);
+            Arm(window);
+            Click(window.ConfirmDeleteButton);
+            Check.That(window.Result).IsEqualTo(UninstallChoice.Delete);
+            Check.That(window.ResolveAnswer().CancelPath).IsEqualTo(UninstallCancelPath.None);
+        });
     }
 
     [Fact]

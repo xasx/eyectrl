@@ -218,6 +218,9 @@ public sealed class ElevatedOperations
                     ElevatedPhaseStatus.Failed,
                     "dataIncomplete:" + string.Join(";", deletion.FailedFiles));
             }
+
+            // O6b: name the removal, never its contents.
+            _log.Info("Uninstall removed the app-data folder.");
         }
 
         return ElevatedPhaseResult.Ok;

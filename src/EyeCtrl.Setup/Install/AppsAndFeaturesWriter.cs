@@ -64,13 +64,17 @@ public sealed class AppsAndFeaturesWriter
         }
     }
 
-    /// <summary>Removes the entry.</summary>
+    /// <summary>Removes the entry and says so (O6b); a missing entry is a no-op and logs nothing.</summary>
     public void Remove()
     {
         _guard.RequireUninstallKey(SetupConstants.UninstallKeyPath);
         try
         {
+            var existed = _registry.ReadString(
+                RegistryHive.LocalMachine, SetupConstants.UninstallKeyPath, "DisplayName") is not null;
             _registry.DeleteKey(RegistryHive.LocalMachine, SetupConstants.UninstallKeyPath);
+            if (existed)
+                _log.Info("Uninstall removed the Apps & Features entry.");
         }
         catch (Exception ex)
         {

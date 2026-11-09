@@ -60,7 +60,7 @@ public sealed class WindowsSetupEnvironment : ISetupEnvironment
 public sealed class KeepUninstallChoice : IUninstallChoice
 {
     /// <inheritdoc />
-    public UninstallChoice Ask() => UninstallChoice.Keep;
+    public UninstallChoiceAnswer Ask() => new(UninstallChoice.Keep);
 }
 
 /// <summary>The S6e deletion seam's production implementation: delete <c>%APPDATA%\EyeCtrl</c> and

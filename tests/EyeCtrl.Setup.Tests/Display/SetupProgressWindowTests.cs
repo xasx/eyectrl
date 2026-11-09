@@ -281,6 +281,52 @@ public sealed class SetupProgressWindowTests
         });
     }
 
+    [Theory]
+    [InlineData(SetupVerb.Update)]
+    [InlineData(SetupVerb.Rollback)]
+    public void EveryStage_ShowsTheOneProgressWindowOnce(SetupVerb verb)
+    {
+        // S6e r03 L1 / mutant T5: a display is one screen lifecycle. A Show() per stage would
+        // restart the window (and take the foreground again); the owner must see it appear once.
+        RunSta(() =>
+        {
+            var created = 0;
+            var shown = 0;
+            SetupProgressWindow? window = null;
+            using var display = new WpfSetupDisplay(
+                verb,
+                SetupUi.English,
+                AppData,
+                createWindow: () =>
+                {
+                    created++;
+                    window = new SetupProgressWindow(English, verb, close: () => { });
+                    return window;
+                },
+                showWindow: w =>
+                {
+                    shown++;
+                    // A real HWND without a paint, so Closed can fire when the test closes it.
+                    _ = new WindowInteropHelper(w).EnsureHandle();
+                });
+
+            foreach (var stage in Enum.GetValues<SetupStage>())
+                display.Stage(stage);
+
+            Check.WithCustomMessage("A stage created a second window.").That(created).IsEqualTo(1);
+            Check.WithCustomMessage("A stage showed the progress window again.").That(shown).IsEqualTo(1);
+
+            // The result uses the same one window and never shows it a second time. The display
+            // owns the window's STA thread, so the test closes it there.
+            var shownWindow = window!;
+            shownWindow.Dispatcher.Invoke(shownWindow.Close);
+            display.Finish(new SetupResult { Verb = verb, Outcome = SetupOutcome.Ok, Version = "1.0.0" });
+
+            Check.That(created).IsEqualTo(1);
+            Check.That(shown).IsEqualTo(1);
+        });
+    }
+
     [Fact]
     public void TheFactory_ShowsOnlyForTheThreeDisplayVerbs()
     {

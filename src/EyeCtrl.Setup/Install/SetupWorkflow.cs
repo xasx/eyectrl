@@ -308,10 +308,16 @@ public sealed class SetupWorkflow
         }
         else
         {
-            var choice = _uninstallChoice.Ask();
-            if (choice == UninstallChoice.Cancel)
+            var answer = _uninstallChoice.Ask();
+            if (answer.Choice == UninstallChoice.Cancel)
+            {
+                // O6a: the record's detail stays "cancelled" for every route (the App and the
+                // wrapper read it); this line names the route in the log.
+                _log.Info($"Uninstall cancel path: {CancelPathToken(answer.CancelPath)}");
                 return Finish(SetupVerb.Uninstall, SetupOutcome.Cancelled, null, null, "cancelled", display: display);
-            keep = choice == UninstallChoice.Keep;
+            }
+
+            keep = answer.Choice == UninstallChoice.Keep;
         }
 
         var currentRunId = CurrentRunId();
@@ -612,15 +618,36 @@ public sealed class SetupWorkflow
             ProcessId = processId,
         };
 
-        if (outcome != SetupOutcome.HandedOff)
+        var terminal = $"{verb}: {outcome}" + (detail is null ? string.Empty : $" ({detail})");
+
+        if (outcome == SetupOutcome.HandedOff)
         {
-            // Record first: a display failure must never lose the terminal result.
-            _recorder.Write(result);
-            display?.Finish(result);
+            _log.Info(terminal);
+            return result;
         }
 
-        _log.Info($"{verb}: {outcome}" + (detail is null ? string.Empty : $" ({detail})"));
+        // Record first: a display failure must never lose the terminal result.
+        _recorder.Write(result);
+
+        // O7: write the terminal line at record time, before display.Finish waits out the result
+        // window (10 s, or 60 s after a failure). The line and the record now share one instant.
+        _log.Info(terminal);
+        display?.Finish(result);
+        if (display is not null)
+            _log.Info($"{verb}: result window closed.");
+
         return result;
     }
+
+    /// <summary>O6a: the log word for a Q8 cancel route.</summary>
+    private static string CancelPathToken(UninstallCancelPath path) => path switch
+    {
+        UninstallCancelPath.Button => "button",
+        UninstallCancelPath.KeepData => "keep",
+        UninstallCancelPath.Escape => "escape",
+        UninstallCancelPath.Close => "close",
+        UninstallCancelPath.Timeout => "timeout",
+        _ => "unknown",
+    };
 }
 

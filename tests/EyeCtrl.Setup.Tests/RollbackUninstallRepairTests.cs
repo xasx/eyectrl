@@ -141,6 +141,75 @@ public class UninstallWorkflowTests
         Check.That(harness.AppData.Calls).IsEqualTo(0);
     }
 
+    [Theory]
+    [InlineData(UninstallCancelPath.Button, "button")]
+    [InlineData(UninstallCancelPath.KeepData, "keep")]
+    [InlineData(UninstallCancelPath.Escape, "escape")]
+    [InlineData(UninstallCancelPath.Close, "close")]
+    [InlineData(UninstallCancelPath.Timeout, "timeout")]
+    [InlineData(UninstallCancelPath.Unavailable, "unknown")]
+    public void ACancel_LogsTheRouteThatProducedIt(UninstallCancelPath path, string token)
+    {
+        // O6a: one line names the route, before the terminal line; the record's detail stays
+        // byte-identical ("cancelled") for every route.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.Choice.Choice = UninstallChoice.Cancel;
+        harness.Choice.CancelPath = path;
+
+        var result = harness.Workflow.Uninstall(quiet: false, keepData: null);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Cancelled);
+        Check.That(result.Detail).IsEqualTo("cancelled");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall cancel path: " + token);
+        Check.WithCustomMessage("The cancel route was logged after the terminal line.")
+            .That(harness.Logging.Lines.IndexOf("INF Uninstall cancel path: " + token))
+            .IsStrictlyLessThan(harness.Logging.Lines.IndexOf("INF Uninstall: Cancelled (cancelled)"));
+    }
+
+    [Fact]
+    public void AnUninstall_LogsEveryRemoval()
+    {
+        // O6b: the elevated job used to log only the held-button check; name what went, never a
+        // file's contents.
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.SeedPrevious("0.9.0");
+        harness.SeedStaging("2.0.0");
+        harness.SeedVersionFolder(harness.Paths.FailedRoot, "0.8.0");
+        harness.AppsAndFeatures.Register("1.0.0");
+        harness.Registry.SeedString(
+            RegistryHive.CurrentUser, SetupConstants.RunKeyPath, "EyeCtrl", "x");
+        harness.Registry.SeedString(
+            RegistryHive.CurrentUser, SetupConstants.RunOnceKeyPath,
+            SetupConstants.RepairRunOnceName, "y");
+
+        var result = harness.Workflow.Uninstall(quiet: false, keepData: false);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
+        Check.That(harness.Logging.Lines).Contains(
+            "INF Uninstall removed folders: EyeCtrl, EyeCtrl.previous, EyeCtrl.staging, EyeCtrl.failed.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Run value EyeCtrl.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Run value EyeCtrlRepair.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Apps & Features entry.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the app-data folder.");
+    }
+
+    [Fact]
+    public void AKeepDataUninstall_DoesNotClaimTheAppDataWasRemoved()
+    {
+        var harness = new SetupHarness();
+        harness.SeedInstalled("1.0.0");
+        harness.AppsAndFeatures.Register("1.0.0");
+
+        var result = harness.Workflow.Uninstall(quiet: false, keepData: true);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Uninstalled);
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed folders: EyeCtrl.");
+        Check.That(harness.Logging.Lines).Contains("INF Uninstall removed the Apps & Features entry.");
+        Check.That(harness.Logging.Lines).Not.Contains("INF Uninstall removed the app-data folder.");
+    }
+
     [Fact]
     public void ABlockedPolicy_LeavesEyeCtrlRunning()
     {

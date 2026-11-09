@@ -62,6 +62,7 @@ internal class UninstallChoiceWindow : Window
     private bool _armed;
     private bool _showingConfirm;
     private bool _closingForResult;
+    private UninstallCancelPath _cancelPath;
 
     /// <summary>Builds the window from the resolved table. Nothing is shown until <see cref="ShowChoice"/>.</summary>
     /// <param name="strings">The resolved table.</param>
@@ -193,15 +194,27 @@ internal class UninstallChoiceWindow : Window
     internal static UninstallChoiceWindow CreateWindow(SetupUi ui) =>
         new(ui.Strings, restingGazeGate: ui.Dwell.RestingGate);
 
-    /// <summary>Shows the window modally and returns the choice; an unasked window is a cancel.</summary>
-    internal UninstallChoice ShowChoice()
+    /// <summary>
+    /// Shows the window modally and returns the answer; an unasked window is a cancel whose route
+    /// is <see cref="UninstallCancelPath.Unavailable"/> (O6a).
+    /// </summary>
+    internal UninstallChoiceAnswer ShowChoice()
     {
         ShowDialog();
-        return Result ?? UninstallChoice.Cancel;
+        return ResolveAnswer();
     }
 
-    /// <summary>The result a window that was never answered resolves to.</summary>
-    internal UninstallChoice ResolveUnaskedResult() => Result ?? UninstallChoice.Cancel;
+    /// <summary>O6a: the route that produced the last cancel; <see cref="UninstallCancelPath.None"/>
+    /// unless <see cref="Result"/> is <see cref="UninstallChoice.Cancel"/>.</summary>
+    internal UninstallCancelPath CancelPath => _cancelPath;
+
+    /// <summary>The answer a window that was never answered resolves to.</summary>
+    internal UninstallChoiceAnswer ResolveAnswer() => Result switch
+    {
+        null => new(UninstallChoice.Cancel, UninstallCancelPath.Unavailable),
+        UninstallChoice.Cancel => new(UninstallChoice.Cancel, _cancelPath),
+        var choice => new(choice.Value),
+    };
 
     /// <summary>Completes the 1 s arming delay without waiting for a dispatcher timer.</summary>
     internal void CompleteArmingForTests()
@@ -409,7 +422,11 @@ internal class UninstallChoiceWindow : Window
                 Complete(UninstallChoice.Keep);
                 break;
             case UninstallChoiceAction.Cancel:
+                _cancelPath = UninstallCancelPath.Button;
+                Complete(UninstallChoice.Cancel);
+                break;
             case UninstallChoiceAction.KeepData:
+                _cancelPath = UninstallCancelPath.KeepData;
                 Complete(UninstallChoice.Cancel);
                 break;
             case UninstallChoiceAction.Delete:
@@ -482,14 +499,20 @@ internal class UninstallChoiceWindow : Window
     {
         _choiceTimer.Stop();
         if (Result is null)
+        {
+            _cancelPath = UninstallCancelPath.Timeout;
             Complete(UninstallChoice.Cancel);
+        }
     }
 
     private void OnEscape()
     {
         _choiceTimer.Stop();
         if (Result is null)
+        {
+            _cancelPath = UninstallCancelPath.Escape;
             Complete(UninstallChoice.Cancel);
+        }
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
@@ -520,6 +543,8 @@ internal class UninstallChoiceWindow : Window
         {
             _armTimer.Stop();
             _choiceTimer.Stop();
+            if (Result is null)
+                _cancelPath = UninstallCancelPath.Close;
             Result ??= UninstallChoice.Cancel;
         }
 
@@ -555,7 +580,7 @@ public sealed class WpfUninstallChoice : IUninstallChoice
     public WpfUninstallChoice(SetupUi ui) => _ui = ui;
 
     /// <inheritdoc />
-    public UninstallChoice Ask()
+    public UninstallChoiceAnswer Ask()
     {
         try
         {
@@ -563,7 +588,7 @@ public sealed class WpfUninstallChoice : IUninstallChoice
         }
         catch (Exception)
         {
-            return UninstallChoice.Cancel;
+            return new(UninstallChoice.Cancel, UninstallCancelPath.Unavailable);
         }
     }
 }

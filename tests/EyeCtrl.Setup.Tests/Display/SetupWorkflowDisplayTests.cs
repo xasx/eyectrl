@@ -33,6 +33,31 @@ public class SetupWorkflowDisplayTests
     }
 
     [Fact]
+    public void TheTerminalLine_IsWrittenBeforeTheResultWindowWaits()
+    {
+        // O7: the line used to be stamped after display.Finish, which waits 10 s (60 s after a
+        // failure), so correlating the log with the record needed that offset. The line now shares
+        // the record's instant, and a separate close line records when the window ended.
+        var harness = new SetupHarness();
+        var factory = new RecordingDisplayFactory(harness.Logging);
+        var package = SeedUpdatable(harness);
+        var workflow = Workflow(harness, factory);
+
+        var result = workflow.Update(package);
+
+        Check.That(result.Outcome).IsEqualTo(SetupOutcome.Ok);
+        var display = factory.Single(SetupVerb.Update);
+        Check.WithCustomMessage("The terminal line was not in the log when the result window was shown.")
+            .That(display.LinesAtFinish).Contains("INF Update: Ok");
+        Check.WithCustomMessage("The terminal line was written after the result window's wait.")
+            .That(display.LinesAtFinish.Last()).IsEqualTo("INF Update: Ok");
+        Check.That(harness.Logging.Lines.Last()).IsEqualTo("INF Update: result window closed.");
+        Check.WithCustomMessage("The close line is not after the terminal line.")
+            .That(harness.Logging.Lines.IndexOf("INF Update: Ok"))
+            .IsStrictlyLessThan(harness.Logging.Lines.IndexOf("INF Update: result window closed."));
+    }
+
+    [Fact]
     public void Rollback_ReportsEveryStage_ThenTheResult()
     {
         var harness = new SetupHarness();
@@ -157,11 +182,15 @@ public class SetupWorkflowDisplayTests
 
     private sealed class RecordingDisplayFactory : ISetupDisplayFactory
     {
+        private readonly RecordingSetupLog? _log;
+
+        public RecordingDisplayFactory(RecordingSetupLog? log = null) => _log = log;
+
         public List<(SetupVerb Verb, RecordingDisplay Display)> Created { get; } = [];
 
         public ISetupDisplay Create(SetupVerb verb)
         {
-            var display = new RecordingDisplay();
+            var display = new RecordingDisplay(_log);
             Created.Add((verb, display));
             return display;
         }
@@ -176,15 +205,27 @@ public class SetupWorkflowDisplayTests
 
     private sealed class RecordingDisplay : ISetupDisplay
     {
+        private readonly RecordingSetupLog? _log;
+
+        public RecordingDisplay(RecordingSetupLog? log = null) => _log = log;
+
         public List<SetupStage> Stages { get; } = [];
 
         public List<SetupResult> Results { get; } = [];
+
+        /// <summary>O7: the log as it stood when the result window was asked to finish.</summary>
+        public List<string> LinesAtFinish { get; } = [];
 
         public bool Disposed { get; private set; }
 
         public void Stage(SetupStage stage) => Stages.Add(stage);
 
-        public void Finish(SetupResult result) => Results.Add(result);
+        public void Finish(SetupResult result)
+        {
+            Results.Add(result);
+            if (_log is not null)
+                LinesAtFinish.AddRange(_log.Lines);
+        }
 
         public void Dispose() => Disposed = true;
     }

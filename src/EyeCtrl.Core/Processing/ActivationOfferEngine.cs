@@ -581,15 +581,25 @@ public sealed class ActivationOfferEngine
     /// delay's candidate. Feed every sample (including invalid ones) — the pause budget is measured
     /// across them.
     /// </summary>
-    public void Update(PhysicalPoint point, long timestampUs, bool isValid)
+    /// <param name="point">The filtered point.</param>
+    /// <param name="timestampUs">The sample timestamp.</param>
+    /// <param name="isValid">The raw sample's validity.</param>
+    /// <param name="continuesRun">Whether this sample continues the settled run, by the fixation
+    /// detector's own rule (<see cref="FixationDetector.ContinuesRun"/>) — the production wiring passes
+    /// it. Null (a standalone engine: the replays, the tests) falls back to "valid and within
+    /// <see cref="FixationRadiusPx"/> of the candidate's settle point".</param>
+    public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null)
     {
         AdvanceOffer(point, timestampUs, isValid);
 
         // The candidate shows on the first sample at which its rest has lasted OfferShowAfterMs (">=":
         // a rest of exactly the delay shows), through MakeOffer as a settle at this sample would —
         // after the live offer saw the sample, the order Update-then-settle always had. The fired lock
-        // still wins: a candidate never shows over a fired offer.
-        if (_hasCandidate && timestampUs >= _candidateShowAtUs)
+        // still wins: a candidate never shows over a fired offer. B3 fixup-01: and only on a sample
+        // that still belongs to the rest — a button appearing exactly as the eye leaves is the very
+        // pop-up that pulls the eye. Otherwise it keeps waiting, and the run's end drops it.
+        if (_hasCandidate && timestampUs >= _candidateShowAtUs
+            && (continuesRun ?? (isValid && point.DistanceTo(_candidatePoint) <= _fixationRadiusPx)))
         {
             _hasCandidate = false;
             if (!_fired)

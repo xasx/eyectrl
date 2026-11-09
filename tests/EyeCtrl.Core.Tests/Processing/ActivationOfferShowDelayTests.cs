@@ -265,6 +265,62 @@ public class ActivationOfferShowDelayTests
         Check.That(engine.CurrentOffer).IsNull();
     }
 
+    // ── fixup-01: the crossing sample must still belong to the rest ──────────
+
+    [Fact]
+    public void ACrossingSampleOutsideTheRadius_ShowsNothing_AndTheRunsEndDropsTheCandidate()
+    {
+        // Mutation: drop the continues-run check at the show → the button appears exactly as the eye
+        // leaves, red.
+        var engine = NewEngine();
+        engine.Update(P, 0, true);
+        engine.NotifyFixationSettled(P, 0);
+        Feed(engine, P, FrameUs, 480_000);
+
+        var away = new PhysicalPoint(P.X + 76, P.Y);   // just past R = 75 from the settle point
+        engine.Update(away, 510_000, true);
+        Check.That(engine.CurrentOffer).IsNull();
+        Check.That(engine.OfferCandidatePoint).IsEqualTo(P);   // still waiting: only the run's end drops it
+
+        engine.NotifyFixationEnded(510_000);
+        Feed(engine, P, 540_000, 1_500_000);
+        Check.That(engine.CurrentOffer).IsNull();
+    }
+
+    [Fact]
+    public void ABlinkCrossingSample_KeepsWaiting_AndTheOfferShowsWhenTheRestRecoversInside()
+    {
+        // Mutation: drop the continues-run check → the offer shows on the invalid crossing sample, red.
+        var engine = NewEngine();
+        engine.Update(P, 0, true);
+        engine.NotifyFixationSettled(P, 0);
+        Feed(engine, P, FrameUs, 480_000);
+
+        Feed(engine, P, 510_000, 540_000, valid: false);   // the blink spans the show time
+        Check.That(engine.CurrentOffer).IsNull();
+
+        engine.Update(P, 570_000, true);
+        var offer = engine.CurrentOffer;
+        Check.That(offer).IsNotNull();
+        Check.That(offer!.ExpiresAtUs).IsEqualTo(570_000 + (ActivationOfferEngine.DefaultOfferExpiryMs * 1000L));
+    }
+
+    [Fact]
+    public void TheWiringsVerdict_WinsOverTheStandaloneFallback()
+    {
+        // The product passes the detector's own rule; a sample it says ends the run never shows, even
+        // inside R of the settle point, and one it says continues the run shows.
+        var engine = NewEngine();
+        engine.Update(P, 0, true);
+        engine.NotifyFixationSettled(P, 0);
+
+        engine.Update(P, WaitUs, true, continuesRun: false);
+        Check.That(engine.CurrentOffer).IsNull();
+
+        engine.Update(P, WaitUs + FrameUs, true, continuesRun: true);
+        Check.That(engine.CurrentOffer).IsNotNull();
+    }
+
     [Fact]
     public void NegativeValues_AreRejected()
     {

@@ -166,8 +166,9 @@ public sealed class ActivationButtonFace : Grid
 
     /// <summary>
     /// The one-line horizontal room the label has, in DIP, measured after layout: the chord of the
-    /// disc's inner circle at the label's bottom edge, less <see cref="LabelInkClearance"/> on both
-    /// sides. Consumed by the <c>A76</c> fit gate, which measures the label's natural width.
+    /// content clip (the rim's inner edge less <see cref="FillInset"/>, where both content copies are
+    /// cut) at the label's bottom edge, less <see cref="LabelInkClearance"/> on both sides. Consumed by
+    /// the <c>A76</c> fit gate, which measures the label's natural width.
     /// </summary>
     public double LabelRoomDip
     {
@@ -175,7 +176,9 @@ public sealed class ActivationButtonFace : Grid
         {
             var labelBottom = _upperLabel.TranslatePoint(new Point(0, _upperLabel.ActualHeight), this).Y;
             double belowCentre = Math.Max(0, labelBottom - (Diameter / 2));
-            double innerRadius = (Diameter / 2) - RimThickness;
+            // The content copies sit in the same inset clip as the fill (B2 review-02 N1), so the
+            // room ends there, not at the rim.
+            double innerRadius = (Diameter / 2) - RimThickness - FillInset;
             if (belowCentre >= innerRadius)
                 return 0;
             double chord = 2 * Math.Sqrt((innerRadius * innerRadius) - (belowCentre * belowCentre));

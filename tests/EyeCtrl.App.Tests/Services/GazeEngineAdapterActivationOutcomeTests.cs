@@ -58,19 +58,23 @@ public class GazeEngineAdapterActivationOutcomeTests
         return settings;
     }
 
-    /// <summary>Settle at P (the real detector settles on these samples, and the offer appears),
-    /// then dwell on the offered button B well past the 500 ms default dwell. Returns the last
-    /// sample's timestamp.</summary>
+    /// <summary>1.32 s of rest at 33 ms frames: past the product's 1000 ms show delay (round button
+    /// B3), so the offer is up. B1 wrote these at 20 samples (660 ms), when the settle showed it.</summary>
+    private const int RestSamples = 40;
+
+    /// <summary>Rest at P (the real detector settles on these samples, and the offer appears once the
+    /// rest passes the show delay), then dwell on the offered button B well past the 500 ms default
+    /// dwell. Returns the last sample's timestamp.</summary>
     private static long SettleThenDwellOnTheButton(TestFakes.FakeGazeProvider provider, GazeEngine engine)
     {
         long us = 0;
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < RestSamples; i++)
         {
             us += 33_000;
             provider.Raise(new GazePoint(P.X, P.Y, us, true));
         }
         var offer = engine.InteractionManager.ActivationOffers!.CurrentOffer;
-        Check.WithCustomMessage("the settle at P must have made an offer").That(offer).IsNotNull();
+        Check.WithCustomMessage("the rest at P must have shown an offer").That(offer).IsNotNull();
         for (int i = 0; i < 25; i++)
         {
             us += 33_000;
@@ -154,8 +158,11 @@ public class GazeEngineAdapterActivationOutcomeTests
     public void AnOfferTornDownWithoutAnAccept_WritesNoOutcomeLine()
     {
         // The expiry/cancel shape: the offer dies (a clear here stands in for the expiry) before
-        // any completion, so no accept is noted and no outcome line may appear.
+        // any completion, so no accept is noted and no outcome line may appear. The settle is driven
+        // by hand, so the offer must appear AT the settle: the pre-B3 timing (500 = the settle age,
+        // no show delay) rather than the product's 1000.
         var settings = DefaultSettings();
+        settings.Dwell.OfferShowAfterMs = 500;
         var provider = new TestFakes.FakeGazeProvider();
         using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
         engine.ConfigureActivationOffers(Screen, scale: 2.0);
@@ -283,7 +290,7 @@ public class GazeEngineAdapterActivationOutcomeTests
             engine, settings, messenger, Dispatcher.CurrentDispatcher, logger, new StubControlFinder());
 
         long us = 0;
-        for (int i = 0; i < 20; i++)
+        for (int i = 0; i < RestSamples; i++)
         {
             us += 33_000;
             provider.Raise(new GazePoint(P.X, P.Y, us, true));
@@ -302,6 +309,110 @@ public class GazeEngineAdapterActivationOutcomeTests
         Check.That(expectedMs).IsStrictlyGreaterThan(0L);
         Check.That(fired[0].Equals($"Offer fired #{offer.Id} firstLookMs={expectedMs}", StringComparison.Ordinal))
             .IsTrue();
+    }
+
+    /// <summary>Rests at P one sample at a time until the delayed offer shows; returns the settle
+    /// sample (the candidate appears) and the show sample (the offer appears), both observed from
+    /// outside the offer.</summary>
+    private static (long SettleUs, long ShowUs) RestUntilTheDelayedShow(TestFakes.FakeGazeProvider provider, GazeEngine engine)
+    {
+        // The offer engine is built on the first sample, so it is read after each one.
+        long us = 0, settleUs = 0;
+        for (int i = 0; i < 60 && engine.InteractionManager.ActivationOffers?.CurrentOffer is null; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(P.X, P.Y, us, true));
+            if (settleUs == 0 && engine.InteractionManager.ActivationOffers?.OfferCandidatePoint is not null)
+                settleUs = us;
+        }
+
+        var offers = engine.InteractionManager.ActivationOffers!;
+        Check.WithCustomMessage("the rest must have settled into a candidate first").That(settleUs).IsStrictlyGreaterThan(0L);
+        Check.WithCustomMessage("the rest must have shown the offer").That(offers.CurrentOffer).IsNotNull();
+        // The product's 1000 ms over the detector's 500 ms settle age: the show is the first sample at
+        // least 500 ms after the settle.
+        Check.That(us - settleUs).IsGreaterOrEqualThan(500_000L);
+        Check.That(us - settleUs).IsStrictlyLessThan(533_000L);
+        return (settleUs, us);
+    }
+
+    [StaFact]
+    public void TheOfferFiredLine_AtTheProductShowDelay_CountsTheFirstLookFromTheShow_NotTheSettle()
+    {
+        // M1 (B1 review-01 F2), through the real GazeEngine and the adapter's own line at the product
+        // default 1000: the button appears ~500 ms after the settle, the eye is on it one frame
+        // later, and the line says 33 — the show-to-look time, read independently of the offer's own
+        // ShownAtUs. Mutant: date the delayed show by the candidate's settle → ~533+, red.
+        var settings = DefaultSettings();
+        Check.That(settings.Dwell.OfferShowAfterMs).IsEqualTo(1000);
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var messenger = new WeakReferenceMessenger();
+        var logger = new RecordingLogger<GazeEngineAdapter>();
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, messenger, Dispatcher.CurrentDispatcher, logger, new StubControlFinder());
+
+        var (_, showUs) = RestUntilTheDelayedShow(provider, engine);
+        var offer = engine.InteractionManager.ActivationOffers!.CurrentOffer!;
+        Check.That(offer.ShownAtUs).IsEqualTo(showUs);
+
+        long us = showUs;
+        for (int i = 0; i < 25; i++)   // the first look one frame after the show, then past the dwell
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
+        }
+
+        var fired = logger.Lines.Where(l => l.StartsWith("Offer fired #", StringComparison.Ordinal)).ToList();
+        Check.WithCustomMessage("lines: " + string.Join(" | ", logger.Lines)).That(fired).HasSize(1);
+        Check.That(fired[0]).IsEqualTo($"Offer fired #{offer.Id} firstLookMs=33");
+    }
+
+    [StaFact]
+    public void TheButtonsLabel_IsChosenFromTheModeAtTheDelayedShow_NotAtTheSettle()
+    {
+        // M1 part 3: B2 locks the label when ShowActivationButtonMessage arrives, and B3 sends it at
+        // the delayed show, not at the settle. A mode change in the wait between the two must
+        // therefore be the one the label names. Mutation: show (or label) the button at the settle →
+        // the VM is visible at the settle and names the menu, red.
+        var settings = DefaultSettings(SelectionMode.None);
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var messenger = new WeakReferenceMessenger();
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, messenger, Dispatcher.CurrentDispatcher,
+            NullLogger<GazeEngineAdapter>.Instance, new StubControlFinder());
+        var vm = new ActivationButtonViewModel(messenger, settings);
+
+        // The offer engine is built on the first sample, so it is read after each one.
+        long us = 0;
+        for (int i = 0; i < 40 && engine.InteractionManager.ActivationOffers?.OfferCandidatePoint is null; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(P.X, P.Y, us, true));
+        }
+        var offers = engine.InteractionManager.ActivationOffers!;
+        Check.That(offers.OfferCandidatePoint).IsNotNull();
+        Pump();
+        Check.WithCustomMessage("the settle made a candidate, not an offer").That(offers.CurrentOffer).IsNull();
+        Check.WithCustomMessage("nothing is shown (or labelled) at the settle").That(vm.IsVisible).IsFalse();
+
+        settings.SelectionMode = SelectionMode.ManualSelection;   // in the wait before the show
+
+        for (int i = 0; i < 40 && offers.CurrentOffer is null; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(P.X, P.Y, us, true));
+        }
+        Pump();
+
+        Check.That(offers.CurrentOffer).IsNotNull();
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Content).IsEqualTo(ActivationButtonContent.Magnifier);
     }
 
     [StaFact]

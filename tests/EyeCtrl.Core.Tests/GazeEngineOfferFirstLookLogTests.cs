@@ -39,6 +39,10 @@ public class GazeEngineOfferFirstLookLogTests
         return (engine, provider, logger);
     }
 
+    /// <summary>1.2 s of rest at 30 ms frames: past the product's 1000 ms show delay (round button B3),
+    /// so the offer is up. B1 wrote these at 20 samples (600 ms), when the settle showed the button.</summary>
+    private const int RestSamples = 40;
+
     private static long Feed(ScriptedGazeProvider p, PhysicalPoint point, long fromUs, int samples)
     {
         long ts = fromUs;
@@ -72,7 +76,7 @@ public class GazeEngineOfferFirstLookLogTests
         var (engine, provider, logger) = Build();
         using var _ = engine;
 
-        long ts = Feed(provider, new PhysicalPoint(1000, 1000), 0, samples: 20);   // the settle makes the offer
+        long ts = Feed(provider, new PhysicalPoint(1000, 1000), 0, samples: RestSamples);   // the rest shows the offer
         Check.That(engine.InteractionManager.ActivationOffers!.CurrentOffer).IsNotNull();
         FeedAway(provider, ts, samples: 40);                                       // > the linger → expiry
 
@@ -87,7 +91,7 @@ public class GazeEngineOfferFirstLookLogTests
         var (engine, provider, logger) = Build();
         using var _ = engine;
 
-        long ts = Feed(provider, new PhysicalPoint(1000, 1000), 0, samples: 20);
+        long ts = Feed(provider, new PhysicalPoint(1000, 1000), 0, samples: RestSamples);
         var offer = engine.InteractionManager.ActivationOffers!.CurrentOffer!;
         long firstLookUs = ts;
         ts = Feed(provider, offer.Button, ts, samples: 4);                         // a glance, no fire

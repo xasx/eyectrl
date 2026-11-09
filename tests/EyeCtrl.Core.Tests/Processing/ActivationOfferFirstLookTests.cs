@@ -178,4 +178,84 @@ public class ActivationOfferFirstLookTests
         Check.That(replacement.ShownAtUs).IsEqualTo(ts);
         Check.That(replacement.FirstLookMs).IsNull();
     }
+
+    // ── M1 (B1 review-01 F2): the show is dated by the sample that SHOWS the button ──
+
+    [Fact]
+    public void ADelayedShow_IsDatedByTheCrossingSample_AndTheFirstLookCountsFromIt()
+    {
+        // B3's show delay at the product's 1000 ms (the settle age is the detector's 500, so the
+        // candidate waits 500 ms after the settle). The button appears on the first sample at least
+        // 500 ms after the settle — +510 at 30 ms frames — and the first look one frame later is 30 ms
+        // after the SHOW. Mutant: date the show by the candidate's settle → ShownAtUs = the settle and
+        // firstLookMs = 540, red. (C4, "the previous sample", is equivalent on this path: Update has
+        // already advanced the sample clock to the crossing sample when the candidate shows; the
+        // re-offer test below is the one it reds.)
+        var engine = new ActivationOfferEngine(Screen, Scale, RingDip, 700, FixationR) { OfferShowAfterMs = 1000 };
+        var fired = new List<ActivationOffer>();
+        engine.OfferFired += fired.Add;
+
+        engine.Update(P, ShownUs, true);
+        Check.That(engine.NotifyFixationSettled(P, ShownUs)).IsEqualTo(SettleOutcome.Deferred);
+
+        long showUs = ShownUs;
+        for (int i = 0; i < 40 && engine.CurrentOffer is null; i++)
+        {
+            showUs += FrameUs;
+            engine.Update(P, showUs, true);
+        }
+
+        var offer = engine.CurrentOffer;
+        Check.That(offer).IsNotNull();
+        Check.That(showUs).IsEqualTo(ShownUs + 510_000);
+        Check.WithCustomMessage("the show is the crossing sample, not the settle")
+            .That(offer!.ShownAtUs).IsEqualTo(showUs);
+
+        engine.Update(offer.Button, showUs + FrameUs, true);   // the first look, one frame after the show
+        Check.That(engine.CurrentOffer!.FirstLookMs).IsEqualTo(30.0);
+
+        Feed(engine, offer.Button, showUs + (2 * FrameUs), 30);   // past the 700 ms dwell → fires
+        Check.That(fired).HasSize(1);
+        Check.WithCustomMessage("firstLookMs = first look − show, not first look − settle")
+            .That(fired[0].FirstLookMs).IsEqualTo(30.0);
+        Check.That(fired[0].FirstLookLogValue).IsEqualTo("30");
+    }
+
+    [Fact]
+    public void APendingReOffer_IsDatedByTheExpirySample_NotThePreviousOne()
+    {
+        // The other MakeOffer-from-Update path: the live offer expires, and the swallowed settle's
+        // pending point takes over on that same sample, BEFORE the sample clock advances to it. P's
+        // side of the no-move zone: 150 px from P toward B, 210 px from B (ActivationOfferEngineTests'
+        // PsidePoint). Its samples neither hit nor extend, so the 1 s deadline (ShownUs + 1 s) passes
+        // on the 24th sample, at +1020. Mutant C4 (ShownAtUs = the previous sample's timestamp) →
+        // the re-offer is dated +990 and the next frame's first look reads 60, red.
+        var engine = NewEngine();
+        var first = Settle(engine);
+        double unitX = (first.Button.X - P.X) / P.DistanceTo(first.Button);
+        double unitY = (first.Button.Y - P.Y) / P.DistanceTo(first.Button);
+        var pSide = new PhysicalPoint(P.X + (150 * unitX), P.Y + (150 * unitY));
+
+        // The pending settle comes with no sample before it: a sample of the still-Offered run would
+        // push the deadline (ActivationOfferEngineTests' swallowed-settle test has the same shape).
+        long ts = ShownUs + 300_000;
+        Check.That(engine.NotifyFixationSettled(pSide, ts)).IsEqualTo(SettleOutcome.Pending);
+
+        for (int i = 0; i < 60 && engine.CurrentOffer!.Id == first.Id; i++)
+        {
+            ts += FrameUs;
+            engine.Update(pSide, ts, true);
+        }
+
+        var reOffer = engine.CurrentOffer!;
+        Check.That(reOffer.Id).IsEqualTo(first.Id + 1);
+        Check.That(reOffer.Point).IsEqualTo(pSide);
+        Check.That(ts).IsEqualTo(ShownUs + 1_020_000);
+        Check.WithCustomMessage("the re-offer is shown on the expiry sample")
+            .That(reOffer.ShownAtUs).IsEqualTo(ts);
+
+        engine.Update(reOffer.Button, ts + FrameUs, true);
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(reOffer.Id);
+        Check.That(engine.CurrentOffer.FirstLookMs).IsEqualTo(30.0);
+    }
 }

@@ -63,6 +63,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
         var live = Run(samples, config);
 
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay), like RingPinModeReplayTests.Run: round button B3's
+        // delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Dwell.FixationRadiusPixels = config.RadiusPx;
         settings.Dwell.FixationDetectionMs = config.OnsetMs;
         settings.Dwell.ActivationButtonDwellMs = config.ButtonDwellMs;

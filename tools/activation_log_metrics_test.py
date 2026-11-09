@@ -138,6 +138,24 @@ CURRENT = "\n".join([
     "2026-11-10 09:00:13.300 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #15 P=(1,1) B=(1,",
 ]) + "\n"
 
+# Review-01 F1: offers that die WITHOUT expiring or firing write only `Offer closed`. While reading,
+# a delayed offer on the next resting word replaces the live, never-looked-at one: #1 is replaced
+# by #2 (the eye never went to #1), #2 is looked at and fires, #3 is cleared by a pause, and #4 is
+# still live when the log ends. So: shown 4, expired 0, fired 1, closed otherwise 3, and "never
+# looked at" (expired only) stays 0 — the bucket is what keeps that from reading as "none ignored".
+REPLACED = "\n".join([
+    "2026-11-10 11:00:00.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #1 P=(500,500) B=(755,755)",
+    "2026-11-10 11:00:01.200 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer closed #1",
+    "2026-11-10 11:00:01.200 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #2 P=(900,500) B=(1155,755)",
+    "2026-11-10 11:00:01.900 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer fired #2 firstLookMs=400",
+    "2026-11-10 11:00:01.910 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer accepted #2 → \"ManualSelection\" at P=(900,500)",
+    "2026-11-10 11:00:03.000 [INF] [] Activation outcome #2 mode=ManualSelection result=action heldMs=1090",
+    "2026-11-10 11:00:05.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #3 P=(1500,900) B=(1755,1155)",
+    "2026-11-10 11:00:05.400 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] State → \"Paused\"",
+    "2026-11-10 11:00:05.400 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer closed #3",
+    "2026-11-10 11:00:09.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #4 P=(700,700) B=(955,955)",
+]) + "\n"
+
 # A tiny day for the gap notes: a fire whose app died before the decision, and an accept whose
 # session was still open at the day boundary (or the app quit) — no outcome line for it.
 GAPS = "\n".join([
@@ -221,6 +239,62 @@ class CurrentDay(unittest.TestCase):
         self.assertEqual(self.m["accepted_without_outcome"], 0)
 
 
+class ClosedOtherwise(unittest.TestCase):
+    """Review-01 F1: offers that neither expired nor fired are counted, not silently dropped."""
+
+    def test_a_replaced_unlooked_at_offer_lands_in_closed_otherwise(self) -> None:
+        m = metrics_of(REPLACED)
+        self.assertEqual(m["offers_shown_total"], 4)
+        self.assertEqual(m["expired_total"], 0)
+        self.assertEqual(m["fired_total"], 1)
+        self.assertEqual(m["closed_otherwise"], {"rest": 0, "button": 3})
+        self.assertEqual(m["closed_otherwise_total"], 3)
+        self.assertEqual(m["expired_never_looked_at"], 0)
+
+    def test_the_other_days_have_none(self) -> None:
+        self.assertEqual(metrics_of(CURRENT)["closed_otherwise_total"], 0)
+        m = metrics_of(SITTING_130)
+        self.assertEqual(m["closed_otherwise"], {"rest": 0, "button": 0})
+        self.assertEqual(m["closed_otherwise_total"], 0)
+
+    def test_the_130_split_is_per_style(self) -> None:
+        # A rest offer replaced in a 1.3.0 log: the split names its style.
+        m = metrics_of(SITTING_130 + "x Offer shown #20 P=(1,1) B=(1,1) style=rest\n")
+        self.assertEqual(m["closed_otherwise"], {"rest": 1, "button": 0})
+
+    def test_the_cli_names_the_bucket_and_labels_never_looked_at_as_expired_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "eyectrl-20261110.log"
+            log.write_text(REPLACED, encoding="utf-8")
+            done = run_cli(str(log))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        collapsed = " ".join(done.stdout.split())
+        self.assertIn("closed otherwise 3 (shown - expired - fired: replaced by a new rest, chrome,"
+                      " pause or teardown; first look unknown", collapsed)
+        self.assertIn("never looked at 0 (EXPIRED offers with firstLookMs=none only", collapsed)
+
+
+class Median(unittest.TestCase):
+    def test_an_even_count_takes_the_mean_of_the_two_middle_values(self) -> None:
+        m = metrics_of("\n".join(f"x Offer fired #{i} firstLookMs={v}"
+                                 for i, v in enumerate([700, 300, 500, 400], start=1)))
+        self.assertEqual(m["median_fired_first_look_ms"], 450)
+
+    def test_an_odd_count_takes_the_middle_value(self) -> None:
+        m = metrics_of("\n".join(f"x Offer fired #{i} firstLookMs={v}"
+                                 for i, v in enumerate([700, 300, 500], start=1)))
+        self.assertEqual(m["median_fired_first_look_ms"], 500)
+
+    def test_a_half_ms_median_prints_without_noise(self) -> None:
+        text = "\n".join(f"x Offer fired #{i} firstLookMs={v}" for i, v in enumerate([300, 401], start=1))
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "eyectrl-20261110.log"
+            log.write_text(text + "\n", encoding="utf-8")
+            done = run_cli(str(log))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("median first look, fired 350.5 ms", done.stdout)
+
+
 class LineForms(unittest.TestCase):
     def test_a_line_without_style_is_the_button_and_an_old_rest_line_stays_rest(self) -> None:
         events = alm.parse([
@@ -283,12 +357,14 @@ class Cli(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         collapsed = " ".join(done.stdout.split())
         self.assertIn("offers shown 5 expired 2", collapsed)   # no per-style split without rest offers
-        self.assertIn("never looked at 1 (expired with firstLookMs=none)", collapsed)
-        self.assertIn("fired 3 accepted 2 declined 1 (no control found 1)", collapsed)
+        self.assertIn("never looked at 1 (EXPIRED offers with firstLookMs=none only", collapsed)
+        self.assertIn("closed otherwise 0 (shown - expired - fired", collapsed)
+        self.assertIn("fired 3 closed otherwise 0", collapsed)
+        self.assertIn("accepted 2 declined 1 (no control found 1)", collapsed)
         self.assertIn("UNINTENDED OPENS", done.stdout)
         self.assertIn("median first look, fired 500 ms", collapsed)
         self.assertIn("median held, closed 1200 ms", collapsed)
-        self.assertNotIn("rest", done.stdout)
+        self.assertNotRegex(done.stdout, r"\brest \d")   # no per-style split without rest offers
         self.assertNotIn("NOTE", done.stdout)
 
     def test_prints_the_style_split_for_a_130_log(self) -> None:

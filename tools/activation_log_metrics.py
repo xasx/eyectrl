@@ -33,12 +33,18 @@ Read-outs (overall, and per style when an old log has rest offers in it)
 ------------------------------------------------------------------------
 * offers shown     the `Offer shown` count
 * expired          the `Offer expired unused` count (an expiry writes NO outcome line, by design)
-* never looked at  of the expired, how many carry `firstLookMs=none` (the button popped up and
-                   the eye never went to it); old lines without the field are not counted here
+* never looked at  of the EXPIRED offers only, how many carry `firstLookMs=none` (the button
+                   popped up and the eye never went to it); old lines without the field are not
+                   counted here. Offers that died another way are in `closed otherwise`.
 * fired            the `Offer fired` count — and `fired = accepted + declined`: a fire is DECIDED
                    on the UI thread (accepted, or declined with its reason), and a gap means a
                    crash or quit landed between the fire and the decision
-* first look       the median `firstLookMs` of the fired offers that carry one
+* closed otherwise `shown - expired - fired` (review-01 F1): offers replaced by a new rest, taken
+                   away by chrome, a pause or a teardown. They write only `Offer closed`, with no
+                   first look, so they may hide more never-looked-at pop-ups. An offer still live
+                   at the end of the log counts here too (off by at most 1).
+* first look       the median `firstLookMs` of the fired offers that carry one (an even count
+                   takes the mean of the two middle values)
 * of accepted      the `Activation outcome` results: `action` (the session did something),
                    `closed` (magnifier or menu closed unused — the UNINTENDED-OPEN count),
                    `paused`, `other`. An accept still open at a day boundary, a crash or a quit
@@ -104,9 +110,13 @@ def parse(lines) -> list[dict[str, str]]:
     return events
 
 
-def _median(values: list[int]) -> int | None:
+def _median(values: list[int]) -> float | None:
+    """The median; for an even count, the mean of the two middle values."""
     values = sorted(values)
-    return values[len(values) // 2] if values else None
+    if not values:
+        return None
+    mid = len(values) // 2
+    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
 
 
 def metrics(events: list[dict[str, str]]) -> dict:
@@ -137,6 +147,12 @@ def metrics(events: list[dict[str, str]]) -> dict:
                                        if e["event"] == "expired" and e["first_look"] == "none"),
         "fired": {s: fired[s] for s in STYLES},
         "fired_total": sum(fired.values()),
+        # Review-01 F1: an offer that neither expired nor fired died another way — replaced by a
+        # new rest, taken away by chrome, a pause or a teardown — and writes only `Offer closed`,
+        # with no first look. Shown here so "never looked at" is not a silent lower bound. An
+        # offer still live at the end of the log lands here too (off by at most 1).
+        "closed_otherwise": {s: shown[s] - expired[s] - fired[s] for s in STYLES},
+        "closed_otherwise_total": sum(shown.values()) - sum(expired.values()) - sum(fired.values()),
         "median_fired_first_look_ms": _median(first_looks),
         # A fire is decided on the UI thread: accepted or declined (with its reason).
         "accepted": accepted,
@@ -157,6 +173,9 @@ def render(m: dict) -> str:
     # The per-style split only matters for a 1.3.0 log that mixed rest and button offers.
     split = any(m[k]["rest"] for k in ("offers_shown", "expired", "fired"))
 
+    def ms(value) -> str:
+        return f"{value:g}"
+
     def pair(d: dict) -> str:
         return f"   ({'  '.join(f'{s} {d[s]}' for s in STYLES)})" if split else ""
 
@@ -166,8 +185,12 @@ def render(m: dict) -> str:
         f"offers shown       {m['offers_shown_total']:>5}{pair(m['offers_shown'])}",
         f"expired            {m['expired_total']:>5}{pair(m['expired'])}  "
         "(no fire; writes no outcome line)",
-        f"  never looked at  {m['expired_never_looked_at']:>5}   (expired with firstLookMs=none)",
+        f"  never looked at  {m['expired_never_looked_at']:>5}   (EXPIRED offers with firstLookMs=none only;"
+        " see closed otherwise)",
         f"fired              {m['fired_total']:>5}{pair(m['fired'])}",
+        f"closed otherwise   {m['closed_otherwise_total']:>5}{pair(m['closed_otherwise'])}  "
+        "(shown - expired - fired: replaced by a new rest, chrome, pause or teardown; first look"
+        " unknown; an offer live at the log's end counts here too)",
         f"accepted           {m['accepted']:>5}   declined {m['declined']}"
         + (f"  ({', '.join(f'{k} {v}' for k, v in sorted(m['declined_reasons'].items()))})"
            if m["declined_reasons"] else ""),
@@ -181,9 +204,9 @@ def render(m: dict) -> str:
             out.append(f"  {s:<7} action {r.get('action', 0):>4}   closed {r.get('closed', 0):>4}"
                        f"   paused {r.get('paused', 0):>3}   other {r.get('other', 0):>3}")
     if m["median_fired_first_look_ms"] is not None:
-        out.append(f"median first look, fired {m['median_fired_first_look_ms']} ms")
+        out.append(f"median first look, fired {ms(m['median_fired_first_look_ms'])} ms")
     if m["median_closed_held_ms"] is not None:
-        out.append(f"median held, closed {m['median_closed_held_ms']} ms")
+        out.append(f"median held, closed {ms(m['median_closed_held_ms'])} ms")
     if m["accepted_without_outcome"]:
         out.append(f"NOTE  {m['accepted_without_outcome']} accepted with no outcome line"
                    " (day boundary, crash or quit)")

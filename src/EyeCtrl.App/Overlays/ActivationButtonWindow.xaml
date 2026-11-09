@@ -4,20 +4,8 @@
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
-        Width="160" Height="160">
-    <Canvas>
-        <!-- The activation button's halo: two symmetric, concentric full circles centred on the
-             button. Halo first (spec §4.1.3): later siblings paint on top, so the wider band must
-             come first. There is deliberately NO arc head and no offset placement — the progress
-             scalar moves the radius of both circles, so the feedback never draws a mark away from
-             the point the dwell is counted at, and its outer radius never exceeds the hit radius.
-             ShowAt resizes the window around the max radius before it is shown, so these design-time
-             dimensions are only what the designer sees. -->
-        <Ellipse x:Name="ProgressHalo"
-                 Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="7"
-                 Canvas.Left="0" Canvas.Top="0"/>
-        <Ellipse x:Name="ProgressRing"
-                 Stroke="{StaticResource BrushAccent}" StrokeThickness="5"
-                 Canvas.Left="0" Canvas.Top="0"/>
-    </Canvas>
+        Width="104" Height="104">
+    <!-- The face is built in code-behind (ActivationButtonFace): one static disc whose fill line
+         and two content clips move with the dwell. ShowAt sizes this window around the disc and
+         centres it on B; these design-time dimensions are only what the designer sees. -->
 </overlays:OverlayWindow>

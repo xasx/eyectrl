@@ -51,6 +51,12 @@ public static class StringTableSchema
         "A105",
         // The Shift/Ctrl/Alt modifier bar (D8): the same ink rule at radius 50.
         "A68",
+        // The activation button's word (B2): one line inside the 100 DIP disc. The room is the
+        // chord of the disc's inner face at the label's bottom edge, less the 2 DIP ink clearance
+        // each side — ActivationButtonFace.LabelRoomDip derives the live figure. The class id keeps
+        // its original name; the live room is narrower since F2 raised the icon to 40 DIP, and the
+        // measurer reads the live figure, never this number.
+        "A76",
         // A toggle's On/Off state word: one line in the 44 DIP left of the switch's track.
         "A44",
         // A short caption: one line ≤ 56 DIP (the eye-care banner's 64 DIP rings less 8).

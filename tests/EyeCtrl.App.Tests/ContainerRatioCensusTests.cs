@@ -156,6 +156,18 @@ public class ContainerRatioCensusTests
                     + "neighbours take Solo; the ring's preview path restates the same value in "
                     + "ActionMenuRingPainter)."),
             ],
+            // B2: the activation button's drawn icon. It shares its 100 DIP disc with the word
+            // underneath, so it is a prominent glyph in its cell rather than the face's whole
+            // content — ContainerRatio.Large, the bucket the dimmer's own 0.4 observes. 100 x 0.40
+            // = 40 DIP, which draws the owner's board lens at ~29.7 DIP across (the board: 29.6).
+            // The two reads are the canvas Width and Height.
+            ["src/EyeCtrl.Controls/ActivationButtonFace.cs"] =
+            [
+                ("Large", 2, "the icon in the activation button's own face (B2): an icon above its "
+                    + "word on a 100 DIP disc. F2 raised it from Medium (32 DIP) to Large (40 DIP) "
+                    + "to match the owner's look-b-word board; the two reads are the canvas Width "
+                    + "and Height."),
+            ],
         };
 
     [Fact]

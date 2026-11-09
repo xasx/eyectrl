@@ -61,9 +61,9 @@ public class ActivationButtonGeometryTests
     [InlineData(2.0)]
     public void TheDrawnDisc_StaysInsideTheCountedHitRadius(double scale)
     {
-        // Drawn < counted: the dwell still counts the 150 px hit circle, and the disc is smaller.
-        // Mutation: draw at the hit radius (150 px) → the 2.0 arm is exactly equal and the 3.0
-        // arm (the face at 150 DIP) would already have broken ring clearance.
+        // Drawn < counted: the dwell still counts LayoutConstants.ActivationButtonHitRadiusPx, and
+        // the drawn disc is smaller. Mutation: draw the disc at the hit radius → the 2.0 arm is
+        // exactly equal (red) and the 3.0 arm's face would already have broken ring clearance.
         double drawnRadiusPx = ActivationButtonFace.Diameter / 2 * scale;
         Check.That(drawnRadiusPx)
             .IsLessOrEqualThan(LayoutConstants.ActivationButtonHitRadiusPx);

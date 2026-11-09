@@ -19,8 +19,9 @@ using Xunit;
 
 /// <summary>
 /// B2's activation button, headless and at the user's ScaleX 2.0. The face is a static 100 DIP disc
-/// centred on the offer's B; the drawn size is deliberately smaller than the 150 px hit radius, so
-/// "drawn = counted" is about the CENTRE, not the size.
+/// centred on the offer's B; the drawn size is deliberately smaller than
+/// <see cref="LayoutConstants.ActivationButtonHitRadiusPx"/>, so "drawn = counted" is about the
+/// CENTRE, not the size.
 ///
 /// <para>
 /// NOTE (test-windows-invisible): none of these tests ever SHOWS the window — <c>ShowAt</c> only

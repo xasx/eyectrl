@@ -55,11 +55,11 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
     /// Centres the disc on <paramref name="buttonCenter"/> — the offer's B, in physical pixels.
     ///
     /// <para>
-    /// <paramref name="hitRadiusPixels"/> is the offer's counted hit radius, carried by the show
-    /// message for the offer contract. The drawn disc is deliberately smaller than it (100 DIP
-    /// across versus a 150 px hit radius): the dwell is still counted exactly where the engine
-    /// counts it, and "drawn = counted" means the drawn centre is B, not that the drawn size equals
-    /// the hit size.
+    /// <paramref name="hitRadiusPixels"/> is the offer's counted hit radius
+    /// (<see cref="EyeCtrl.Core.LayoutConstants.ActivationButtonHitRadiusPx"/>), carried by the
+    /// show message for the offer contract. The drawn disc is deliberately smaller than it (100 DIP
+    /// across): the dwell is still counted exactly where the engine counts it, and
+    /// "drawn = counted" means the drawn centre is B, not that the drawn size equals the hit size.
     /// </para>
     /// </summary>
     public void ShowAt(PhysicalPoint buttonCenter, double hitRadiusPixels)

@@ -32,8 +32,9 @@ using EyeCtrl.Core.Models;
 ///
 /// <para>
 /// <b>The disc never grows or moves.</b> Progress only moves the fill's top edge and the two clips;
-/// the hit area stays the offer engine's 150 px radius, which is larger than the drawn disc. The
-/// paused look dims the fill alone (<see cref="DwellPausedCue"/>), leaving the sign crisp and
+/// the hit area stays the offer engine's
+/// <see cref="LayoutConstants.ActivationButtonHitRadiusPx"/>, which is larger than the drawn disc.
+/// The paused look dims the fill alone (<see cref="DwellPausedCue"/>), leaving the sign crisp and
 /// readable while the value is held.
 /// </para>
 ///

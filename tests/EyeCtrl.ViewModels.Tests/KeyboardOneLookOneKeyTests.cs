@@ -16,8 +16,12 @@ using EyeCtrl.Core.Settings;
 ///
 /// <para>
 /// Item 1 B, the second half of the file: a SHOW arms the same one-shot landing guard the
-/// un-yield uses. Two of eight ring-opened shows typed a letter 432–453 ms after the keyboard
-/// appeared, because a gaze already resting where a key materializes simply started its dwell.
+/// un-yield uses, but only for a gaze already where the keyboard appears — the first key-area
+/// sample must be the first sample after the show or arrive within
+/// <see cref="KeyboardViewModel.ShowLandingReactionWindowUs"/>. Two of eight ring-opened shows
+/// typed a letter 432–453 ms after the keyboard appeared, because a gaze already resting where a
+/// key materializes simply started its dwell. A show anchor is released by a look off the key
+/// area as well as by the half-key travel, so a deliberate look away and back types.
 /// </para>
 /// </summary>
 public class KeyboardOneLookOneKeyTests
@@ -152,6 +156,50 @@ public class KeyboardOneLookOneKeyTests
     }
 
     [Fact]
+    public void NonContiguousOffSamples_DoNotRearmTheKey()
+    {
+        // F2: a leave is 120 ms CONTIGUOUS. Short off runs with a sample back on the fired key
+        // between them never add up: three off samples (60 ms) then one on-key sample, repeated.
+        var (vm, fired) = FiredEnter();
+
+        var t = 1_030_000;
+        for (var i = 0; i < 8; i++)
+        {
+            Feed(vm, Letter, t, t + 60_000);
+            vm.ProcessKeyGaze(TwoKeys, Enter, true, t + 90_000, Boxes);
+            t += 120_000;
+        }
+
+        // Now rest on the fired key: if the short runs had added up, the key would fire here.
+        Feed(vm, Enter, t, t + 1_000_000);
+        Check.WithCustomMessage("non-contiguous off runs added up to a leave, so a resting gaze re-armed")
+            .That(fired).ContainsExactly("enter");
+
+        // A contiguous leave of at least 120 ms does re-arm it.
+        t += 1_030_000;
+        Feed(vm, Letter, t, t + 150_000);
+        Feed(vm, Enter, t + 180_000, t + 1_500_000);
+
+        Check.That(fired).ContainsExactly("enter", "enter");
+    }
+
+    [Fact]
+    public void ALeaveDuringTheCooldown_StillRearmsTheKey()
+    {
+        // F3: the leave clock must see the samples during the post-activation cooldown, which
+        // return before any dwell decision. Fire at 600 ms, cooldown ends at 1 s.
+        var (vm, fired) = Rig();
+        Feed(vm, Enter, 0, 600_000);
+        Check.That(fired).ContainsExactly("enter");
+
+        Feed(vm, Letter, 630_000, 780_000);       // a 150 ms leave, wholly inside the cooldown
+        Feed(vm, Enter, 810_000, 2_500_000);      // back; the cooldown ends at 1 s
+
+        // After the cooldown the re-armed Enter dwells and fires again.
+        Check.That(fired).ContainsExactly("enter", "enter");
+    }
+
+    [Fact]
     public void OnlyTheFiredKeyIsLatched_OtherTargetsAndNoKeyAreNot()
     {
         var (vm, _) = FiredEnter();
@@ -255,9 +303,9 @@ public class KeyboardOneLookOneKeyTests
     }
 
     [Theory]
-    [InlineData(1_000_000, false)]  // exactly at the 1000 ms boundary: still the landing (`<=`)
-    [InlineData(1_200_000, true)]   // after it: the gaze has seen the shown grid, so it types
-    public void ShowLanding_TheGuardWindowExpiresAfterTheFirstSample(long firstKeySampleUs, bool types)
+    [InlineData(150_000, false)]  // exactly at the 150 ms reaction boundary: still the landing (`<=`)
+    [InlineData(180_000, true)]   // after it: a visually guided look, so it types
+    public void ShowLanding_TheReactionWindowExpiresAfterTheFirstSample(long firstKeySampleUs, bool types)
     {
         var (vm, fired) = Rig();
         vm.ArmLandingSuppressionAfterShow();
@@ -266,11 +314,42 @@ public class KeyboardOneLookOneKeyTests
         Feed(vm, Enter, firstKeySampleUs, firstKeySampleUs + 1_500_000);
 
         if (types)
-            Check.WithCustomMessage("a first key-area sample after the guard window was still suppressed")
+            Check.WithCustomMessage("a first key-area sample after the reaction window was still suppressed")
                 .That(fired).ContainsExactly("enter");
         else
-            Check.WithCustomMessage("the first key-area sample exactly at the guard boundary fired")
+            Check.WithCustomMessage("the first key-area sample exactly at the reaction boundary fired")
                 .That(fired).IsEmpty();
+    }
+
+    [Fact]
+    public void ADeliberateFirstLookAtAKeyAfterTheShow_Types()
+    {
+        // F1: the show guard is for a gaze ALREADY on the keys. A look that travels to a key
+        // 500 ms after the show is a deliberate reaction to the keyboard appearing (the owner log
+        // has a real first key at 851 ms) and must dwell normally, not become a dead key.
+        var (vm, fired) = Rig();
+        vm.ArmLandingSuppressionAfterShow();
+        vm.ProcessKeyGaze(TwoKeys, Clear, false, 0, Boxes);   // first sample after the show: elsewhere
+        Feed(vm, Letter, 500_000, 1_500_000);                 // deliberately looks at a key
+
+        Check.That(fired).ContainsExactly("key_0_0");
+    }
+
+    [Fact]
+    public void RestAtShow_ThenLookAwayFromTheKeyAreaAndBack_Types()
+    {
+        // F1: a show anchor is released by RearmLeaveUs of continuous off-key-area gaze, the same
+        // rule as the leave latch. Before the fixup it held until an in-grid move, so looking away
+        // and back did not recover the key — for this owner a stuck key is worse than a repeat.
+        var (vm, fired) = Rig();
+        vm.ArmLandingSuppressionAfterShow();
+        Feed(vm, Enter, 0, 800_000);                          // rest at show: anchored, no fire
+        Check.That(fired).IsEmpty();
+
+        Feed(vm, Clear, 830_000, 980_000, inside: false);     // 150 ms off the key area
+        Feed(vm, Enter, 1_010_000, 2_500_000);                // back: a deliberate look
+
+        Check.That(fired).ContainsExactly("enter");
     }
 
     private static KeyboardLayout Layout() => new()

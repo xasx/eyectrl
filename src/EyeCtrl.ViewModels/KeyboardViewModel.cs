@@ -53,6 +53,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // samples), so its guard starts the window on the first sample after the show. True between
     // ArmLandingSuppressionAfterShow and that sample; one-shot. See ArmLandingSuppressionAfterShow.
     private bool _landingSuppressionStartsOnNextSample;
+    // True when the pending arm came from a SHOW (not the un-yield): only that landing is released
+    // by a look off the key area, and only it uses the short reaction window.
+    private bool _landingSuppressionFromShow;
+    // The live suppression anchor was armed by a show's landing, so it also releases on a
+    // contiguous off-key-area look (see ProcessKeyGaze). Swap/move/un-yield anchors never do.
+    private bool _landingAnchorFromShow;
+    private long? _showAnchorOffKeyStartedUs;
 
     // "One look, one key": the key that last fired, while it still owes a leave. Until the gaze
     // has been continuously off it for RearmLeaveUs, that key cannot start a new dwell — the
@@ -70,6 +77,17 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// setting (the on/off switch is <see cref="KeyboardSettings.LandingGuardAfterUnYield"/>).
     /// </summary>
     internal const long LandingGuardWindowUs = 1000 * MathConstants.MicrosecondsPerMillisecond;
+
+    /// <summary>
+    /// How soon after the first sample following a SHOW a landing can still be the gaze that was
+    /// ALREADY resting where the keyboard appeared. The ticket's defect is exactly that gaze
+    /// (owner log: first keys at −18 ms and 3 ms after the show); a look that travels to the
+    /// keyboard later is a deliberate reaction to it and must type. Visually guided saccade
+    /// latency is well above 150 ms, so a first key-area sample within this window cannot be a
+    /// response to the keyboard appearing. This is the show's window only — the un-yield keeps
+    /// <see cref="LandingGuardWindowUs"/>.
+    /// </summary>
+    internal const long ShowLandingReactionWindowUs = 150 * MathConstants.MicrosecondsPerMillisecond;
 
     /// <summary>
     /// Longest interval between two DELIVERED gaze samples that may still count as continuous
@@ -432,10 +450,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _nearestKeyEnteredTimestamp = 0;
         _lastOnKeyTimestampUs = 0;
         _lastSampleTimestampUs = 0;
-        _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
         _landingSuppressionPending = false;
         _landingSuppressionStartsOnNextSample = false;
+        _landingSuppressionFromShow = false;
+        ClearSuppressionAnchor();
         ClearRearmLatch();
         FinishHoldOn(capped: false);
         _slipCandidate = null;
@@ -499,12 +518,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 timestampUs, sinceLastSampleUs);
 
         // A SHOW's landing arm has no gaze timestamp to date its window from (the keyboard appears
-        // between samples), so its 1000 ms window starts at the FIRST sample after the show. The
-        // landing itself is still the first in-key sample, handled by the one-shot check below.
+        // between samples), so its reaction window starts at the FIRST sample after the show. Only
+        // a gaze already on the keys — or arriving within ShowLandingReactionWindowUs, below
+        // reaction latency — is the defect the show guard exists for; a later landing is a
+        // deliberate look at the keyboard and types normally.
         if (_landingSuppressionPending && _landingSuppressionStartsOnNextSample)
         {
             _landingSuppressionStartsOnNextSample = false;
-            _landingSuppressionDeadlineUs = timestampUs + LandingGuardWindowUs;
+            _landingSuppressionDeadlineUs = timestampUs + ShowLandingReactionWindowUs;
         }
 
         // "One look, one key": advance the fired key's leave clock on EVERY delivered sample —
@@ -518,6 +539,33 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 ? KeyTargeting.PickKey(gazePoint, keyScreenPositions, keyScreenBoxes)
                 : null;
             AdvanceRearmLatch(pickedKeyId, timestampUs, sinceLastSampleUs);
+        }
+
+        // A SHOW's landing anchor is released when the gaze has been continuously OFF the key area
+        // for RearmLeaveUs (the latch's rule): a look at the prediction bar or anywhere else proves
+        // the gaze has seen the shown keyboard, so a return is a deliberate look and must type. A
+        // single stray off sample does not release it. Swap/move/un-yield anchors keep their
+        // in-grid-only release — do not extend this to them (requirement: D13 unchanged).
+        if (_landingAnchorFromShow)
+        {
+            if (isGazeInsideWindow)
+            {
+                _showAnchorOffKeyStartedUs = null;
+            }
+            else if (sinceLastSampleUs > MaxContinuousSampleGapUs)
+            {
+                // A pause is not evidence the gaze moved: the run starts at this sample, and the
+                // silence neither counts toward nor completes a leave.
+                _showAnchorOffKeyStartedUs = timestampUs;
+            }
+            else if (_showAnchorOffKeyStartedUs is not { } offSince)
+            {
+                _showAnchorOffKeyStartedUs = timestampUs;
+            }
+            else if (timestampUs - offSince >= RearmLeaveUs)
+            {
+                ClearSuppressionAnchor();
+            }
         }
 
         if (!isGazeInsideWindow)
@@ -543,7 +591,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             _landingSuppressionPending = false;
             if (timestampUs <= _landingSuppressionDeadlineUs)
+            {
                 ArmSuppressionAt(gazePoint, keyScreenPositions);
+                _landingAnchorFromShow = _landingSuppressionFromShow && _swapSuppressedAnchor == gazePoint;
+            }
+            _landingSuppressionFromShow = false;
         }
 
         // Post-activation cooldown (deliberately no emission — not a struggle signal).
@@ -561,7 +613,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             if (gazePoint.DistanceSquaredTo(suppressionAnchor) > _swapSuppressedClearRadiusSquared)
             {
-                _swapSuppressedAnchor = null;   // gaze moved meaningfully away — normal dwell resumes
+                ClearSuppressionAnchor();   // gaze moved meaningfully away — normal dwell resumes
             }
             else
             {
@@ -1007,10 +1059,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // M3: a layout switch is an unsupervised swap — clear the D13 fields like
         // ResetInteractionState does. The anchor only ever blocks, but a stale one measured
         // against the OLD layout's grid is meaningless on the new one.
-        _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
         _landingSuppressionPending = false;
         _landingSuppressionStartsOnNextSample = false;
+        _landingSuppressionFromShow = false;
+        ClearSuppressionAnchor();
         // A rebuild replaces the grid: a fired key id may now name a DIFFERENT key, so the
         // leave-before-re-arm latch cannot survive it (the swap's D13 anchor guards the landing).
         ClearRearmLatch();
@@ -1553,6 +1606,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _landingSuppressionPending = true;
         _landingSuppressionDeadlineUs = moveTimestampUs + LandingGuardWindowUs;
         _landingSuppressionStartsOnNextSample = false;
+        _landingSuppressionFromShow = false;
     }
 
     /// <summary>
@@ -1561,19 +1615,23 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// typed a letter 432–453 ms after the keyboard appeared).
     ///
     /// <para>
-    /// Unlike the un-yield, a show has no gaze sample to date the window from — the keyboard
-    /// appears between samples — so <see cref="LandingGuardWindowUs"/> starts at the FIRST sample
-    /// after the show instead. From there the rule is identical: the first in-key sample is the
-    /// anchor, the radius is half a key, one-shot, and a first landing later than the window is
-    /// not guarded because the gaze has seen the shown grid. Called only for a real hidden→visible
-    /// transition: a repeated show request while the keyboard is up must not re-arm a dead key
-    /// under a dwell in progress.
+    /// A show has no gaze sample to date its window from — the keyboard appears between samples —
+    /// so the window starts at the FIRST sample after the show. It is deliberately short
+    /// (<see cref="ShowLandingReactionWindowUs"/>, not the un-yield's one second): only a gaze
+    /// that was ALREADY on the key area, or arrives before a visually guided saccade could start,
+    /// is the defect. A deliberate look at a key 500–850 ms later must type — the review measured
+    /// that those landings were being swallowed and the key then stayed dead until an in-grid
+    /// move. A show anchor is additionally released by <see cref="RearmLeaveUs"/> of continuous
+    /// off-key-area gaze, so looking away and back types even while it is live. Called only for a
+    /// real hidden→visible transition: a repeated show request while the keyboard is up must not
+    /// re-arm a dead key under a dwell in progress.
     /// </para>
     /// </summary>
     public void ArmLandingSuppressionAfterShow()
     {
         _landingSuppressionPending = true;
         _landingSuppressionStartsOnNextSample = true;
+        _landingSuppressionFromShow = true;
     }
 
     /// <summary>
@@ -1640,14 +1698,27 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
 
         if (clearWhenUnavailable)
-            _swapSuppressedAnchor = null;
+            ClearSuppressionAnchor();
+    }
+
+    /// <summary>
+    /// Clears the live D13/landing anchor and the show-only state attached to it. Every path that
+    /// drops an anchor must come through here, or a stale "armed by a show" flag would let the
+    /// off-key release clear a later swap anchor prematurely.
+    /// </summary>
+    private void ClearSuppressionAnchor()
+    {
+        _swapSuppressedAnchor = null;
+        _landingAnchorFromShow = false;
+        _showAnchorOffKeyStartedUs = null;
     }
 
     /// <summary>
     /// The shared radius rule: the anchor plus half the distance to the SECOND-nearest centre
     /// (≈ half a key width; a gaze resting on a centre yields d1≈0, d2≈pitch). Fewer than two
     /// positioned centres means no suppression — otherwise d2 stays <c>double.MaxValue</c> and the
-    /// radius becomes effectively infinite (plan-r2).
+    /// radius becomes effectively infinite (plan-r2). The anchor is a plain D13 one; the show
+    /// caller marks it afterwards.
     /// </summary>
     private void ArmSuppressionAt(PhysicalPoint anchor, IReadOnlyDictionary<string, PhysicalPoint> positions)
     {
@@ -1671,6 +1742,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         _swapSuppressedAnchor = anchor;
         _swapSuppressedClearRadiusSquared = 0.25 * d2;
+        _landingAnchorFromShow = false;
+        _showAnchorOffKeyStartedUs = null;
     }
 
     /// <summary>

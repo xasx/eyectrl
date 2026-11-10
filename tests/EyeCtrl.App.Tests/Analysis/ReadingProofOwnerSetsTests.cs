@@ -427,6 +427,21 @@ public class ReadingProofOwnerSetsTests
                     }
                 });
             }
+            // I (F3 review-02 N1): reading 150 px words with 100 ms of lost samples at every word change (the
+            // tracker drops samples during saccades), then the next word. The script of review-02's
+            // F3Review2ProbeTests, gap 100 ms only.
+            foreach (var dy in new[] { 70.0, 140.0, 210.0 })
+                foreach (var x0 in new[] { -450.0, -300.0, -150.0, 0.0 })
+                    foreach (var ms in new[] { 250.0, 300.0 })
+                        yield return new($"I {side} read line +{dy} from P{x0:+0;-0;+0} {ms}ms gap 100ms", pAt, 21,
+                            (r, p, _) =>
+                            {
+                                for (int i = 0; i < 10; i++)
+                                {
+                                    if (i > 0) r.Blink(100);
+                                    r.Rest(new PhysicalPoint(p.X + x0 + (150 * i), p.Y + dy), i > 0 ? ms - 100 : ms, 4);
+                                }
+                            });
             // F: an offset jump mid-fill (a tracker bias step) of 120 px.
             foreach (var at in new[] { 200.0, 300.0, 400.0 })
                 yield return new($"F {side} on B {at}ms then 120px step, stay", pAt, 16, (r, p, b) =>
@@ -566,11 +581,11 @@ public class ReadingProofOwnerSetsTests
     }
 
     [StaTheory]
-    [InlineData(500, "33ms", 9, 8, 16)]
-    [InlineData(500, "90Hz", 7, 5, 12)]
-    [InlineData(600, "33ms", 3, 3, 16)]
-    [InlineData(600, "90Hz", 2, 2, 16)]
-    public void Probes_TheReviewsGroups_AtKeD2sNumbers(int buttonDwellMs, string rate, int smallTextOnDisc, int smallTextOffDisc, int offsetPursuits)
+    [InlineData(500, "33ms", 9, 8, 16, 3)]
+    [InlineData(500, "90Hz", 7, 5, 12, 3)]
+    [InlineData(600, "33ms", 3, 3, 16, 0)]
+    [InlineData(600, "90Hz", 2, 2, 16, 0)]
+    public void Probes_TheReviewsGroups_AtKeD2sNumbers(int buttonDwellMs, string rate, int smallTextOnDisc, int smallTextOffDisc, int offsetPursuits, int hiddenSaccadesOnDisc)
     {
         // F3 review-01's probe groups and reading-proof-2's offset pursuits, pinned at KE-D2's prototype
         // numbers. F3 (before this fixup): G 2 / 6 at 90 Hz and at 600, H 12 / 4 / 0 / 0, D 4 / 12, and B / E / F
@@ -578,7 +593,7 @@ public class ReadingProofOwnerSetsTests
         // (small text +5), a jump threshold of 30 px or a 20 ms window (H loses rows), F5 off — red.
         long frameUs = FrameOf(rate);
         var results = RunAll("P", ProbePaths(), frameUs, rate, buttonDwellMs);
-        Check.That(results).HasSize(208);
+        Check.That(results).HasSize(256);
         List<Result> G(char g) => results.Where(r => r.Set == "P" + g).ToList();
         double baseSpeed = buttonDwellMs + (frameUs == 33_000 ? 28 : 12);   // the base's 528 / 511.1 at dwell 500
 
@@ -613,5 +628,15 @@ public class ReadingProofOwnerSetsTests
         var h = G('H');
         Check.WithCustomMessage($"H, {rate} / {buttonDwellMs}:\n{Table(h)}").That(h.Count(r => r.Fired)).IsEqualTo(offsetPursuits);
         Check.That(h.Where(r => r.Name.Contains("pursues", StringComparison.Ordinal)).All(r => r.Fired)).IsTrue();
+
+        // I (review-02 N1), reading with 100 ms of lost samples at each word change: the saccade hidden by the
+        // gap is still a jump, so nothing fires off the disc (KE-D2 before the fix: 7 / 7 / 2 / 2 of 34); on
+        // the disc the count is pinned (3 / 3 / 0 / 0 of 14). Mutant: drop the last point before the gap → red.
+        var i = G('I');
+        Check.That(i).HasSize(48);
+        Check.That(i.Count(r => r.OnDisc)).IsEqualTo(14);
+        Check.WithCustomMessage($"I, {rate} / {buttonDwellMs}:\n{Table(i.Where(r => r.Fired))}")
+            .That((i.Count(r => r.Fired && r.OnDisc), i.Count(r => r.Fired && !r.OnDisc)))
+            .IsEqualTo((hiddenSaccadesOnDisc, 0));
     }
 }

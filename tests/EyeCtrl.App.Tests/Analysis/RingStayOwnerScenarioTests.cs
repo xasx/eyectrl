@@ -335,10 +335,12 @@ public class RingStayOwnerScenarioTests
     [StaFact]
     public void A250MsGlanceOff_TheRingStays_AndFires()
     {
-        // F3 (one look fills the button): the "side" glance lands 200 px beside B, inside the hit area, so
-        // it is a second look more than R away — it takes the fill over after 100 ms, and the look back at B
-        // takes it over again. The fill restarts twice and needs a full dwell after the return; "on B again"
-        // is 900 ms (600 before F3) so it can. The word / away glances keep their fill, as before.
+        // F3 (one look fills the button): the "side" glance lands 200 px beside B, inside the hit area and
+        // off the drawn disc, reached by a jump — a second look more than R away, so it takes the fill over
+        // after 100 ms. Since F3 fixup-01 (KE-D2) the look back at B is ON the disc, so it carries that fill
+        // on instead of restarting it again (F3 alone restarted twice, > 500 ms after the return). "On B
+        // again" stays 900 ms. The word / away glances keep their whole fill, as before.
+        var afterReturn = new Dictionary<string, long>();
         foreach (var target in new[] { "word", "away", "side" })
         {
             var o = Run(target == "away" ? "glance-away" : $"glance-{target}", 5, (rig, p, b) =>
@@ -354,15 +356,15 @@ public class RingStayOwnerScenarioTests
             StaysAtP(o);
             FiresWithTheRingHidden(o);
             int back = o.Rows.FindIndex(r => r.Phase == "on B again");
-            long firedAfterReturnMs = (o.Rows[o.FiredAt].Us - o.Rows[back].Us) / 1000;
-            // Kept fill: well under a dwell after the return. Restarted fill: the 100 ms wait plus a dwell.
-            if (target == "side")
-                Check.WithCustomMessage($"{o.Name}: fired {firedAfterReturnMs} ms after the return")
-                    .That(firedAfterReturnMs).IsStrictlyGreaterThan(500);
-            else
-                Check.WithCustomMessage($"{o.Name}: fired {firedAfterReturnMs} ms after the return")
-                    .That(firedAfterReturnMs).IsStrictlyLessThan(500);
+            afterReturn[target] = (o.Rows[o.FiredAt].Us - o.Rows[back].Us) / 1000;
         }
+
+        // No restart on the return: every glance fires within a dwell of it. The side glance lost the fill
+        // from before it (its own look took over), so it fires later than the glances that kept it.
+        string times = string.Join(", ", afterReturn.Select(kv => $"{kv.Key} {kv.Value} ms"));
+        foreach (var (target, ms) in afterReturn)
+            Check.WithCustomMessage($"{target}: fired after the return — {times}").That(ms).IsStrictlyLessThan(500);
+        Check.WithCustomMessage(times).That(afterReturn["side"]).IsStrictlyGreaterThan(Math.Max(afterReturn["word"], afterReturn["away"]));
     }
 
     [StaFact]

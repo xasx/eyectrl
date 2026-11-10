@@ -33,7 +33,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// magnifier layout, never the offer engine (configured at scale 2.0 below).
 /// </para>
 /// <para>
-/// <c>EYECTRL_READING_PROOF_OUT</c> (a directory) writes one line per path.
+/// F3 fixup-01 (KE-D2, <c>reading-proof-2</c>): the reading sets split into paths that rest on the drawn
+/// disc (a reader walking through the opaque button: pinned counts) and paths off it (must stay 0), and
+/// review-01's probe groups A–G plus the offset pursuits H run as known-behaviour rows at the prototype's
+/// numbers. Every row equals the prototype's <c>D80_J60_cap2_F5.tsv</c>.
+/// </para>
+/// <para>
+/// <c>EYECTRL_READING_PROOF_OUT</c> (a directory) writes the rows in the reading-proof-2 harness's TSV format.
 /// </para>
 /// </summary>
 public class ReadingProofOwnerSetsTests
@@ -137,8 +143,12 @@ public class ReadingProofOwnerSetsTests
             _pending.Clear();
         }
 
+        /// <summary>Every fixation target the scripts rested on, for the on / off the disc split.</summary>
+        public List<PhysicalPoint> Targets { get; } = new();
+
         public void Rest(PhysicalPoint at, double ms, double sigma)
         {
+            Targets.Add(at);
             long start = NowUs + _frameUs;
             int guard = 0;
             while (NowUs + _frameUs - start < ms * 1000 && guard++ < 2000)
@@ -185,17 +195,26 @@ public class ReadingProofOwnerSetsTests
         };
     }
 
-    private sealed record Result(string Name, bool Fired, double FireMs, double Peak, double UpMs, double RingHeldMs)
+    /// <summary>One path's outcome. <paramref name="OnDisc"/>: the script rested at least once within the drawn
+    /// disc's radius (100 px at scale 2.0) of B — a reader walking through the opaque button.</summary>
+    private sealed record Result(string Set, string Name, bool Fired, double FireMs, double Peak, double UpMs, double RingHeldMs, bool OnDisc)
     {
         public override string ToString() => string.Create(CultureInfo.InvariantCulture,
-            $"{(Fired ? "FIRED" : "  -  ")} {(Fired ? FireMs.ToString("F0", CultureInfo.InvariantCulture) : ""),5} peak {Peak,4:P0} up {UpMs,5:F0} held {RingHeldMs,5:F0}  {Name}");
+            $"{(Fired ? "FIRED" : "  -  ")} {(Fired ? FireMs.ToString("F0", CultureInfo.InvariantCulture) : ""),5} peak {Peak,4:P0} up {UpMs,5:F0} held {RingHeldMs,5:F0} {(OnDisc ? "disc" : "    ")}  {Name}");
+
+        /// <summary>The reading-proof-2 harness's TSV row (its last-but-one column, a prototype-only
+        /// diagnostic, is written as -1).</summary>
+        public string Tsv(string rate, int dwell) => string.Create(CultureInfo.InvariantCulture,
+            $"{rate}\t{dwell}\t{Set}\t{(Fired ? 1 : 0)}\t{(Fired ? FireMs : -1):F0}\t{Peak:F2}\t{UpMs:F0}\t{RingHeldMs:F0}\t{(OnDisc ? 1 : 0)}\t-1\t{Name}");
     }
+
+    private const double DrawnDiscRadiusPx = LayoutConstants.SharedButtonRadius * OwnerScale;
 
     private sealed record Path(string Name, PhysicalPoint At, int Seed, Action<Rig, PhysicalPoint, PhysicalPoint> Script);
 
     /// <summary>Reads in, rests 1.2 s at P (the button shows at ~1.09 s), then runs the script. Fire time,
     /// button-up and ring-held are measured from the script's first sample.</summary>
-    private static Result Run(Path path, long frameUs, int buttonDwellMs)
+    private static Result Run(string set, Path path, long frameUs, int buttonDwellMs)
     {
         using var rig = new Rig(path.Seed, frameUs, buttonDwellMs);
         rig.Read(new PhysicalPoint(path.At.X - 450, path.At.Y), 3, 250);
@@ -203,6 +222,7 @@ public class ReadingProofOwnerSetsTests
         var offer = rig.Im.ActivationOffers!.CurrentOffer;
         Check.WithCustomMessage($"{path.Name}: an offer after the 1.2 s rest").That(offer).IsNotNull();
         int go = rig.Rows.Count;
+        int targetsBefore = rig.Targets.Count;
         path.Script(rig, offer!.Point, offer.Button);
         var rows = rig.Rows.Skip(go).ToList();
         long t0 = rows[0].Us - frameUs;
@@ -212,8 +232,9 @@ public class ReadingProofOwnerSetsTests
         // The ring "held" while it sits on P and the gaze is > 150 px from P (the owner is elsewhere).
         var held = rows.Where(r => r.Visible && r.Ring.DistanceTo(offer.Point) < 1 && r.Filtered.DistanceTo(offer.Point) > 150).ToList();
         double heldMs = held.Count == 0 ? 0 : (held[^1].Us - t0) / 1000.0;
-        return new Result(path.Name, fired >= 0, fired >= 0 ? (rows[fired].Us - t0) / 1000.0 : double.NaN,
-            rows.Select(r => r.Dwell).DefaultIfEmpty(0).Max(), upMs, heldMs);
+        bool onDisc = rig.Targets.Skip(targetsBefore).Any(t => t.DistanceTo(offer.Button) <= DrawnDiscRadiusPx);
+        return new Result(set, path.Name, fired >= 0, fired >= 0 ? (rows[fired].Us - t0) / 1000.0 : double.NaN,
+            rows.Select(r => r.Dwell).DefaultIfEmpty(0).Max(), upMs, heldMs, onDisc);
     }
 
     /// <summary>The 52 deliberate looks: on B, landings 120/160 px off B, the 5th sitting's #16 (a stop
@@ -318,14 +339,113 @@ public class ReadingProofOwnerSetsTests
         }
     }
 
-    private static List<Result> RunAll(IEnumerable<Path> paths, long frameUs, int buttonDwellMs, string file)
+    /// <summary>F3 review-01's probe paths (groups A–G) and reading-proof-2's offset pursuits (H), with the
+    /// harness's scripts and seeds (<c>reading-proof-2/evidence/ReadingProof2Tests.cs.txt</c>).</summary>
+    private static IEnumerable<Path> ProbePaths()
     {
-        var results = paths.Select(p => Run(p, frameUs, buttonDwellMs)).ToList();
+        foreach (var (pAt, side) in new[] { (RightP, "R"), (LeftP, "L") })
+        {
+            // A: reading with word steps near R (the sets use 150 px; watch 120 px) — small text.
+            foreach (var dx in new[] { 80.0, 90.0, 100.0, 110.0 })
+                foreach (var ms in new[] { 200.0, 250.0, 300.0 })
+                    foreach (var dy in new[] { 70.0, 140.0 })
+                        foreach (var x0 in new[] { -300.0, 0.0 })
+                            yield return new($"A {side} read {dx}px words {ms}ms line +{dy} from P{x0:+0;-0;+0}", pAt, 11,
+                                (r, p, _) => r.Read(new PhysicalPoint(p.X + x0, p.Y + dy), 14, ms, dx));
+            // B: land off-centre inside the hit, then correct onto B.
+            foreach (var dir in new[] { "down", "side +", "beyond B" })
+                foreach (var dist in new[] { 120.0, 150.0, 180.0 })
+                    foreach (var stay in new[] { 200.0, 300.0, 400.0 })
+                        yield return new($"B {side} land {dist} {dir} {stay}ms then correct onto B", pAt, 12, (r, p, b) =>
+                        {
+                            var q = Offset(b, p, dist, dir); r.Saccade(p, q); r.Rest(q, stay, 8);
+                            r.Saccade(q, b); r.Rest(b, 1500, 8);
+                        });
+            // C: noisy gaze on B / on a landing.
+            foreach (var sigma in new[] { 30.0, 45.0, 60.0 })
+            {
+                yield return new($"C {side} on B sigma {sigma}", pAt, 13, (r, p, b) => { r.Saccade(p, b); r.Rest(b, 2500, sigma); });
+                yield return new($"C {side} land 140 down sigma {sigma}", pAt, 13, (r, p, b) => { var q = Offset(b, p, 140, "down"); r.Saccade(p, q); r.Rest(q, 2500, sigma); });
+            }
+            // D: going for the button but stuck just outside the hit (a near miss), then back onto B.
+            foreach (var slip in new[] { 215.0, 240.0 })
+                foreach (var hold in new[] { 1000.0, 2000.0, 3000.0 })
+                    yield return new($"D {side} 400ms on B, near miss {slip} for {hold}ms, back onto B", pAt, 14, (r, p, b) =>
+                    {
+                        var q = Offset(b, p, 40, "down"); r.Saccade(p, q); r.Rest(q, 400, 10);
+                        r.Rest(Offset(b, p, slip, "down"), hold, 10);
+                        r.Rest(b, 1500, 10);
+                    });
+            // E: hopping between spots inside the hit (100 px hops).
+            foreach (var hop in new[] { 300.0, 400.0, 450.0 })
+                yield return new($"E {side} hops 100px inside the hit every {hop}ms", pAt, 15, (r, p, b) =>
+                {
+                    var spots = new[] { Offset(b, p, 50, "side +"), Offset(b, p, 50, "side -"), Offset(b, p, 60, "down") };
+                    for (int i = 0; i < 9; i++) r.Rest(spots[i % 3], hop, 8);
+                });
+            // G: the eye follows the rising fill line (the disc is 100 DIP = 200 px; the fill rises from its
+            // bottom). Closed loop on the engine's progress: pursuit, and steps every 150 / 250 ms.
+            yield return new($"G {side} pursues the fill line", pAt, 17, (r, p, b) =>
+            {
+                r.Saccade(p, new PhysicalPoint(b.X, b.Y + 95));
+                for (int i = 0; i < 300 && r.Rows.Count < 100000; i++)
+                {
+                    double prog = r.Im.ActivationOffers?.DwellProgress ?? 0;
+                    r.Rest(new PhysicalPoint(b.X, b.Y + 95 - (190 * prog)), 1, 4);
+                }
+            });
+            foreach (var step in new[] { 150.0, 250.0 })
+                yield return new($"G {side} steps to the fill line every {step}ms", pAt, 17, (r, p, b) =>
+                {
+                    r.Saccade(p, new PhysicalPoint(b.X, b.Y + 95));
+                    for (int i = 0; i < 16; i++)
+                    {
+                        double prog = r.Im.ActivationOffers?.DwellProgress ?? 0;
+                        r.Rest(new PhysicalPoint(b.X, b.Y + 95 - (190 * prog)), step, 6);
+                    }
+                });
+            // H: the fill pursuit with a tracker OFFSET (the owner's reported gaze is often 150+ px off): the
+            // pursued line is shifted sideways / down, so the looks are not on the disc.
+            foreach (var (ox, oy) in new[] { (60.0, 0.0), (120.0, 0.0), (0.0, 60.0), (90.0, 90.0) })
+            {
+                yield return new($"H {side} pursues the fill line offset ({ox},{oy})", pAt, 18, (r, p, b) =>
+                {
+                    r.Saccade(p, new PhysicalPoint(b.X + ox, b.Y + oy + 95));
+                    for (int i = 0; i < 300 && r.Rows.Count < 100000; i++)
+                    {
+                        double prog = r.Im.ActivationOffers?.DwellProgress ?? 0;
+                        r.Rest(new PhysicalPoint(b.X + ox, b.Y + oy + 95 - (190 * prog)), 1, 4);
+                    }
+                });
+                yield return new($"H {side} steps to the fill line every 150ms offset ({ox},{oy})", pAt, 18, (r, p, b) =>
+                {
+                    r.Saccade(p, new PhysicalPoint(b.X + ox, b.Y + oy + 95));
+                    for (int i = 0; i < 16; i++)
+                    {
+                        double prog = r.Im.ActivationOffers?.DwellProgress ?? 0;
+                        r.Rest(new PhysicalPoint(b.X + ox, b.Y + oy + 95 - (190 * prog)), 150, 6);
+                    }
+                });
+            }
+            // F: an offset jump mid-fill (a tracker bias step) of 120 px.
+            foreach (var at in new[] { 200.0, 300.0, 400.0 })
+                yield return new($"F {side} on B {at}ms then 120px step, stay", pAt, 16, (r, p, b) =>
+                {
+                    var a = Offset(b, p, 60, "side +"); var c = Offset(b, p, 60, "side -");
+                    r.Saccade(p, a); r.Rest(a, at, 8); r.Rest(c, 1500, 8);
+                });
+        }
+    }
+
+    private static List<Result> RunAll(string set, IEnumerable<Path> paths, long frameUs, string rate, int buttonDwellMs)
+    {
+        var results = paths.Select(p => Run(set == "P" ? "P" + p.Name[0] : set, p, frameUs, buttonDwellMs)).ToList();
         var dir = Environment.GetEnvironmentVariable(OutEnvironmentVariable);
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
-            File.WriteAllLines(System.IO.Path.Combine(dir, $"{file}-dwell{buttonDwellMs}.txt"), results.Select(r => r.ToString()));
+            File.WriteAllLines(System.IO.Path.Combine(dir, $"{set}-{rate}-dwell{buttonDwellMs}.tsv"),
+                results.Select(r => r.Tsv(rate, buttonDwellMs)));
         }
         return results;
     }
@@ -338,6 +458,8 @@ public class ReadingProofOwnerSetsTests
         return l[l.Count / 2];
     }
 
+    private static long FrameOf(string rate) => rate == "33ms" ? 33_000L : 11_111L;
+
     // ── The sets ─────────────────────────────────────────────────────────────
 
     [StaTheory]
@@ -345,11 +467,12 @@ public class ReadingProofOwnerSetsTests
     [InlineData(600)]
     public void MustFire_EveryDeliberateLookInsideTheHitArea_Fires(int buttonDwellMs)
     {
-        // Mutants: a fill that restarts on every new look (M2: the glance back and the blink lose their
-        // fill, and the #16 stops reach 1.4 s+), a fill that never takes a moved look (no slip fires).
+        // Mutants: a fill that restarts on every new look (the glance back and the blink lose their fill), a
+        // fill that never takes a moved look (no slip fires), a disc as wide as the hit (the slip keeps its
+        // old fill and fires at once).
         foreach (var (frameUs, rate) in Rates)
         {
-            var results = RunAll(MustFire(), frameUs, buttonDwellMs, $"must-fire-{rate}");
+            var results = RunAll("MF", MustFire(), frameUs, rate, buttonDwellMs);
             Check.That(results).HasSize(52);
             var missed = results.Where(r => !r.Fired && !OutsideTheHit(r.Name)).ToList();
             Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: deliberate looks that did not fire:\n{Table(missed)}")
@@ -366,29 +489,40 @@ public class ReadingProofOwnerSetsTests
             // A 250 ms glance off and back keeps its fill (KE's same-spot return): well under a restart.
             foreach (var g in results.Where(r => r.Name.Contains("glance", StringComparison.Ordinal)))
                 Check.WithCustomMessage(g.ToString()).That(g.FireMs).IsLessOrEqualThan(buttonDwellMs + 420);
+            // The slip off the disc (165 / 190 px below B) is a jump to a new look: it still restarts the
+            // fill (1122 ms at 33 ms / 500), so a disc widened past the slip would be caught.
+            foreach (var s in results.Where(r => r.Name.Contains("slip 165", StringComparison.Ordinal) || r.Name.Contains("slip 190", StringComparison.Ordinal)))
+                Check.WithCustomMessage(s.ToString()).That(s.FireMs).IsStrictlyGreaterThan(buttonDwellMs + 400);
         }
     }
 
     [StaTheory]
-    [InlineData(500)]
-    [InlineData(600)]
-    public void MustNotFire_NoReadingPath_FiresTheButton(int buttonDwellMs)
+    [InlineData(500, 13, 10)]
+    [InlineData(600, 5, 5)]
+    public void MustNotFire_NoReadingPathOffTheDisc_FiresTheButton(int buttonDwellMs, int onDisc33, int onDisc90)
     {
-        // Before F3 42 / 39 of these 130 fired at dwell 500 (dry run 2's F-1). Mutants: M1 (no restart), M3
-        // (a moved look credits at once), M7 (moved against B), and the wiring forwarding the masked
-        // verdict (every sample a new look, so the fill never restarts) — red.
+        // Before F3 42 / 39 of these 130 fired at dwell 500 (dry run 2's F-1). Off the drawn disc (82 paths)
+        // nothing may fire. On it (48 paths: a scripted reader walking THROUGH the opaque button), KE-D2
+        // fills from a look on the face, and the counts are pinned so a change shows (reading-proof-2:
+        // 13 / 10 at dwell 500, 5 / 5 at 600). Mutants: no restart, a moved look credits at once, "moved"
+        // against B, the masked verdict, a disc as wide as the hit or the rim — red.
         foreach (var (frameUs, rate) in Rates)
         {
-            var results = RunAll(MustNotFire(), frameUs, buttonDwellMs, $"must-not-fire-{rate}");
+            var results = RunAll("NF", MustNotFire(), frameUs, rate, buttonDwellMs);
             Check.That(results).HasSize(130);
-            var fired = results.Where(r => r.Fired).ToList();
-            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: reading paths that FIRED the button:\n{Table(fired)}")
-                .That(fired).IsEmpty();
+            Check.That(results.Count(r => r.OnDisc)).IsEqualTo(48);
+            var offDisc = results.Where(r => r.Fired && !r.OnDisc).ToList();
+            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: reading paths OFF the disc that FIRED the button:\n{Table(offDisc)}")
+                .That(offDisc).IsEmpty();
+            var onDisc = results.Where(r => r.Fired && r.OnDisc).ToList();
+            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {onDisc.Count} on-disc reading fires:\n{Table(onDisc)}")
+                .That(onDisc.Count).IsEqualTo(rate == "33ms" ? onDisc33 : onDisc90);
             // The button closes within linger + cap of the last real activity, and the ring follows it (the
             // stay's existing OfferClosed release): prototype max 1.8 / 2.0 s up, 1.7 s held.
-            var longest = results.MaxBy(r => r.UpMs)!;
+            var unfired = results.Where(r => !r.Fired).ToList();
+            var longest = unfired.MaxBy(r => r.UpMs)!;
             Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {longest}").That(longest.UpMs).IsLessOrEqualThan(2050);
-            var held = results.MaxBy(r => r.RingHeldMs)!;
+            var held = unfired.MaxBy(r => r.RingHeldMs)!;
             Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {held}").That(held.RingHeldMs).IsLessOrEqualThan(1750);
         }
     }
@@ -397,36 +531,87 @@ public class ReadingProofOwnerSetsTests
     public void TheR3Paths_CloseTheButtonWithin1_8s_AndReleaseTheRing()
     {
         // Dry run 2's worst case: before F3 the button and the ring on the old word were still up at 5 s.
-        // Mutants: M5 (no near-miss cap), M8 (cap from the last near miss), M4 (transit samples extend) — red.
+        // KE-D2 keeps F3's 1.55 s. Mutants: no near-miss cap, the cap from the last near miss, transit
+        // samples extend, cap2 armed by the offered run (R3 → 2.0 s), the exemption not tied to one look — red.
         foreach (var (frameUs, rate) in Rates)
         {
-            foreach (var r in R3Paths().Select(p => Run(p, frameUs, 500)))
+            foreach (var r in R3Paths().Select(p => Run("NF", p, frameUs, 500)))
             {
                 Check.WithCustomMessage($"{rate}: {r}").That(r.Fired).IsFalse();
-                Check.WithCustomMessage($"{rate}: {r}").That(r.UpMs).IsLessOrEqualThan(1800);
-                Check.WithCustomMessage($"{rate}: {r}").That(r.RingHeldMs).IsLessOrEqualThan(1800);
+                Check.WithCustomMessage($"{rate}: {r}").That(r.UpMs).IsLessOrEqualThan(1600);
+                Check.WithCustomMessage($"{rate}: {r}").That(r.RingHeldMs).IsLessOrEqualThan(1600);
             }
         }
     }
 
     [StaTheory]
-    [InlineData(500, 10)]
-    [InlineData(600, 0)]
-    public void Watch_TheResidualRisk_StaysWhereThePrototypeMeasuredIt(int buttonDwellMs, int atMost)
+    [InlineData(500, 11, 4, 12, 4)]
+    [InlineData(600, 6, 0, 6, 0)]
+    public void Watch_TheResidualRisk_StaysWhereThePrototypeMeasuredIt(int buttonDwellMs, int onDisc33, int offDisc33, int onDisc90, int offDisc90)
     {
-        // Not a must-not-fire set: a single half-second look at a word inside the button's area is the
-        // same as a look at the button (reading-proof §2). The prototype: 10 / 48 at dwell 500 (6 of the
-        // 500 ms words, 4 refixation pairs), 0 / 48 at 600 — the owner's question. A ratchet, not a goal.
+        // Not a must-not-fire set: a single half-second look at a word inside the button's area is the same as
+        // a look at the button. Off the disc, KE-D2 equals F3 (4 / 0 of 20); on it, the face counts as one
+        // look (reading-proof-2: 11 / 12 at dwell 500, 6 / 6 at 600). Pinned, so a change shows.
         foreach (var (frameUs, rate) in Rates)
         {
-            var results = RunAll(Watch(), frameUs, buttonDwellMs, $"watch-{rate}");
+            var results = RunAll("W", Watch(), frameUs, rate, buttonDwellMs);
             Check.That(results).HasSize(48);
             var fired = results.Where(r => r.Fired).ToList();
-            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {fired.Count} / 48 fired:\n{Table(fired)}")
-                .That(fired.Count).IsLessOrEqualThan(atMost);
-            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: 400 ms reading and 120 px words never fire:\n{Table(fired)}")
-                .That(fired.Where(r => r.Name.Contains("400ms", StringComparison.Ordinal) || r.Name.Contains("120px", StringComparison.Ordinal)))
-                .IsEmpty();
+            int on = fired.Count(r => r.OnDisc), off = fired.Count(r => !r.OnDisc);
+            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {on} on / {off} off the disc fired:\n{Table(fired)}")
+                .That((on, off)).IsEqualTo(rate == "33ms" ? (onDisc33, offDisc33) : (onDisc90, offDisc90));
+            Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: 400 ms reading never fires off the disc:\n{Table(fired)}")
+                .That(fired.Where(r => !r.OnDisc && r.Name.Contains("400ms", StringComparison.Ordinal))).IsEmpty();
         }
+    }
+
+    [StaTheory]
+    [InlineData(500, "33ms", 9, 8, 16)]
+    [InlineData(500, "90Hz", 7, 5, 12)]
+    [InlineData(600, "33ms", 3, 3, 16)]
+    [InlineData(600, "90Hz", 2, 2, 16)]
+    public void Probes_TheReviewsGroups_AtKeD2sNumbers(int buttonDwellMs, string rate, int smallTextOnDisc, int smallTextOffDisc, int offsetPursuits)
+    {
+        // F3 review-01's probe groups and reading-proof-2's offset pursuits, pinned at KE-D2's prototype
+        // numbers. F3 (before this fixup): G 2 / 6 at 90 Hz and at 600, H 12 / 4 / 0 / 0, D 4 / 12, and B / E / F
+        // about 0.5 s slower. Mutants: no disc rule (B / E / G slow again), contiguity on the filtered point
+        // (small text +5), a jump threshold of 30 px or a 20 ms window (H loses rows), F5 off — red.
+        long frameUs = FrameOf(rate);
+        var results = RunAll("P", ProbePaths(), frameUs, rate, buttonDwellMs);
+        Check.That(results).HasSize(208);
+        List<Result> G(char g) => results.Where(r => r.Set == "P" + g).ToList();
+        double baseSpeed = buttonDwellMs + (frameUs == 33_000 ? 28 : 12);   // the base's 528 / 511.1 at dwell 500
+
+        // A, small text: off the disc exactly F3's count; on it, pinned.
+        var a = G('A');
+        Check.WithCustomMessage($"A small text, {rate} / {buttonDwellMs}:\n{Table(a.Where(r => r.Fired))}")
+            .That((a.Count(r => r.Fired && r.OnDisc), a.Count(r => r.Fired && !r.OnDisc)))
+            .IsEqualTo((smallTextOnDisc, smallTextOffDisc));
+
+        // B, land off-centre then correct onto B; E, hops on the disc; G, follow the fill: all fire, at the
+        // base's speed (median).
+        foreach (var g in new[] { 'B', 'E', 'G' })
+        {
+            var rows = G(g);
+            Check.WithCustomMessage($"{g}, {rate} / {buttonDwellMs}:\n{Table(rows)}").That(rows.All(r => r.Fired)).IsTrue();
+            Check.WithCustomMessage($"{g}, {rate} / {buttonDwellMs}:\n{Table(rows)}")
+                .That(Median(rows.Select(r => r.FireMs))).IsLessOrEqualThan(baseSpeed);
+        }
+
+        // C, noisy gaze, and F, a 120 px tracker step mid-fill: all fire (F at the base's 561 / 522 ms).
+        Check.That(G('C').All(r => r.Fired)).IsTrue();
+        var f = G('F');
+        Check.WithCustomMessage($"F, {rate} / {buttonDwellMs}:\n{Table(f)}").That(f.All(r => r.Fired)).IsTrue();
+        Check.WithCustomMessage($"F, {rate} / {buttonDwellMs}:\n{Table(f)}")
+            .That(Median(f.Select(r => r.FireMs))).IsLessOrEqualThan(buttonDwellMs + (frameUs == 33_000 ? 61 : 23));
+
+        // D (review F2), held just outside the hit after a look at B, then back: cap2 keeps the button up.
+        var d = G('D');
+        Check.WithCustomMessage($"D, {rate} / {buttonDwellMs}:\n{Table(d)}").That(d.All(r => r.Fired)).IsTrue();
+
+        // H, the fill followed with a tracker offset (off the disc): the raw-jump rule keeps the fill.
+        var h = G('H');
+        Check.WithCustomMessage($"H, {rate} / {buttonDwellMs}:\n{Table(h)}").That(h.Count(r => r.Fired)).IsEqualTo(offsetPursuits);
+        Check.That(h.Where(r => r.Name.Contains("pursues", StringComparison.Ordinal)).All(r => r.Fired)).IsTrue();
     }
 }

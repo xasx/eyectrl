@@ -315,8 +315,10 @@ public class GazeEngineAdapter : IDisposable
     private void OnActivationOfferFired(ActivationOffer offer, long timestampUs)
     {
         // firstLookMs (round-button B1): the show-to-first-look time the fired offer carries; the
-        // metrics tool reports its median.
-        _logger.LogInformation("Offer fired #{Id} firstLookMs={FirstLookMs}", offer.Id, offer.FirstLookLogValue);
+        // metrics tool reports its median. fillRestarts (F3): how often a look elsewhere in the hit area
+        // restarted the fill before it completed.
+        _logger.LogInformation("Offer fired #{Id} firstLookMs={FirstLookMs} fillRestarts={FillRestarts}",
+            offer.Id, offer.FirstLookLogValue, offer.FillRestarts);
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActivationOfferFiredMessage(offer)));
     }
 

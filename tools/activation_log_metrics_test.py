@@ -40,6 +40,9 @@ TWO GENERATIONS of line must parse (round-button B1):
   So: shown 5 (button 5), expired 2, never looked at 1, fired 3, median first look 500,
   accepted 2, declined 1, outcomes action 1 / closed 1, unintended opens 1, median closed held
   1200, accepted_without_outcome 0.
+
+* F3_DAY — F3 ("one look fills the button") adds `fillRestarts=K` after `firstLookMs`; the
+  fixture's own comment works out its counts.
 """
 
 from __future__ import annotations
@@ -154,6 +157,25 @@ REPLACED = "\n".join([
     "2026-11-10 11:00:05.400 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] State → \"Paused\"",
     "2026-11-10 11:00:05.400 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer closed #3",
     "2026-11-10 11:00:09.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #4 P=(700,700) B=(955,955)",
+]) + "\n"
+
+# F3 ("one look fills the button"): the fired / expired lines carry `fillRestarts=K` after the first
+# look, as GazeEngineAdapterActivationOutcomeTests and GazeEngineOfferFirstLookLogTests pin them.
+# #1 expired after the eye read through the button's area (2 restarts), #2 expired untouched (0),
+# #3 fired after a slip (1), #4 fired at once (0). An older #5 line without the field and a damaged
+# #6 (`fillRestarts=` with no value) add nothing. So: lines 4, total 3, restarted offers fired 1 /
+# expired 1, and the headline counts are unchanged (shown 4, expired 2, fired 3).
+F3_DAY = "\n".join([
+    "2026-11-11 09:00:00.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #1 P=(1000,1000) B=(1219,1219)",
+    "2026-11-11 09:00:01.500 [INF] [EyeCtrl.Core.GazeEngine] Offer expired unused #1 (dwell 53 %) firstLookMs=400 fillRestarts=2",
+    "2026-11-11 09:00:02.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #2 P=(2000,1200) B=(1781,981)",
+    "2026-11-11 09:00:02.800 [INF] [EyeCtrl.Core.GazeEngine] Offer expired unused #2 (dwell 0 %) firstLookMs=none fillRestarts=0",
+    "2026-11-11 09:00:03.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #3 P=(400,400) B=(619,619)",
+    "2026-11-11 09:00:04.200 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer fired #3 firstLookMs=200 fillRestarts=1",
+    "2026-11-11 09:00:05.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer shown #4 P=(500,500) B=(719,719)",
+    "2026-11-11 09:00:05.600 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer fired #4 firstLookMs=100 fillRestarts=0",
+    "2026-11-11 09:00:06.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer fired #5 firstLookMs=300",
+    "2026-11-11 09:00:07.000 [INF] [EyeCtrl.App.Services.GazeEngineAdapter] Offer fired #6 firstLookMs=300 fillRestarts=",
 ]) + "\n"
 
 # A tiny day for the gap notes: a fire whose app died before the decision, and an accept whose
@@ -323,6 +345,47 @@ class LineForms(unittest.TestCase):
         events = alm.parse(['x Offer fired #1 firstLookMs="330"',
                             'x Offer expired unused #2 (dwell 0 %) firstLookMs="none"'])
         self.assertEqual([e["first_look"] for e in events], ["330", "none"])
+
+
+class FillRestarts(unittest.TestCase):
+    """F3: `fillRestarts=K` on fired and expired lines; older lines without it parse as before."""
+
+    def test_the_restarts_are_summed_and_the_restarted_offers_counted(self) -> None:
+        m = metrics_of(F3_DAY)
+        self.assertEqual(m["fill_restarts_lines"], 4)
+        self.assertEqual(m["fill_restarts_total"], 3)
+        self.assertEqual(m["fill_restarted_offers"], {"fired": 1, "expired": 1})
+
+    def test_the_field_moves_no_headline_count(self) -> None:
+        m = metrics_of(F3_DAY)
+        self.assertEqual(m["offers_shown_total"], 4)
+        self.assertEqual(m["expired_total"], 2)
+        self.assertEqual(m["fired_total"], 3)   # #3, #4 and the older #5; the damaged #6 is skipped
+        self.assertEqual(m["expired_never_looked_at"], 1)
+        self.assertEqual(m["median_fired_first_look_ms"], 200)
+
+    def test_older_days_carry_none(self) -> None:
+        for text in (CURRENT, SITTING_130):
+            m = metrics_of(text)
+            self.assertEqual(m["fill_restarts_lines"], 0)
+            self.assertEqual(m["fill_restarts_total"], 0)
+
+    def test_a_quoting_sink_still_counts(self) -> None:
+        events = alm.parse(['x Offer fired #1 firstLookMs="330" fillRestarts="2"'])
+        self.assertEqual([(e["first_look"], e["fill_restarts"]) for e in events], [("330", "2")])
+
+    def test_the_cli_prints_the_line_only_when_a_line_carries_the_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "eyectrl-20261111.log"
+            log.write_text(F3_DAY, encoding="utf-8")
+            done = run_cli(str(log))
+            log.write_text(CURRENT, encoding="utf-8")
+            old = run_cli(str(log))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        collapsed = " ".join(done.stdout.split())
+        self.assertIn("fill restarts 3 (a look elsewhere in the button's area restarted the fill:"
+                      " fired 1, expired 1 offers had one)", collapsed)
+        self.assertNotIn("fill restarts", old.stdout)
 
 
 class GapNotes(unittest.TestCase):

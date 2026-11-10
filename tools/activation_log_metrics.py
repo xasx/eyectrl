@@ -11,11 +11,12 @@ What it reads
 -------------
 Six kinds of line (all written by the App; any other line is ignored). Two generations parse:
 
-* current (one activation style, the offer button — no `style=`; `firstLookMs` on fired/expired):
+* current (one activation style, the offer button — no `style=`; `firstLookMs` on fired/expired,
+  and since F3 `fillRestarts` after it):
 
     Offer shown #N P=(x,y) B=(x,y)
-    Offer expired unused #N (dwell P %) firstLookMs=MS|none     [EyeCtrl.Core.GazeEngine]
-    Offer fired #N firstLookMs=MS|none
+    Offer expired unused #N (dwell P %) firstLookMs=MS|none fillRestarts=K   [EyeCtrl.Core.GazeEngine]
+    Offer fired #N firstLookMs=MS|none fillRestarts=K
     Offer accepted #N → "Mode" at P=(x,y)
     Offer declined #N (reason)                                   reasons: stale, no control
                                                                  found, declined, activation error
@@ -24,6 +25,7 @@ Six kinds of line (all written by the App; any other line is ignored). Two gener
 
 * the 1.3.0 sitting build (#322): the same lines with a `style=rest|button` field and no
   `firstLookMs`. A line WITHOUT `style=` counts as `button` (the only style there is now).
+  A line without `fillRestarts` (before F3) parses as before and adds nothing to its read-out.
 
 The bracketed source contexts are the REAL renders (the outcome line is written through the
 static Serilog logger, so its context is empty; the fixture in the self-test copies real lines).
@@ -45,6 +47,10 @@ Read-outs (overall, and per style when an old log has rest offers in it)
                    at the end of the log counts here too (off by at most 1).
 * first look       the median `firstLookMs` of the fired offers that carry one (an even count
                    takes the mean of the two middle values)
+* fill restarts    F3 ("one look fills the button"): how often a look elsewhere in the button's
+                   area restarted the fill — the eye read through it — summed over the fired and
+                   expired lines that carry the field, and how many of each had at least one.
+                   Printed only when a line carries it
 * of accepted      the `Activation outcome` results: `action` (the session did something),
                    `closed` (magnifier or menu closed unused — the UNINTENDED-OPEN count),
                    `paused`, `other`. An accept still open at a day boundary, a crash or a quit
@@ -67,11 +73,14 @@ from pathlib import Path
 # with quotes; the file sink's `{Message:lj}` writes them bare.
 _STYLE = r'(?: style="?(rest|button)"?)?'
 _FIRST_LOOK = r'(?: firstLookMs="?(\d+|none)"?)?'
+# F3: absent before it.
+_FILL_RESTARTS = r'(?: fillRestarts="?(\d+)"?)?'
 _END = r"\s*$"
 
 SHOWN = re.compile(r"\bOffer shown #(\d+) P=\(-?\d+,-?\d+\) B=\(-?\d+,-?\d+\)" + _STYLE + _END)
-EXPIRED = re.compile(r"\bOffer expired unused #(\d+) \(dwell [^)]*\)" + _STYLE + _FIRST_LOOK + _END)
-FIRED = re.compile(r"\bOffer fired #(\d+)" + _STYLE + _FIRST_LOOK + _END)
+EXPIRED = re.compile(r"\bOffer expired unused #(\d+) \(dwell [^)]*\)" + _STYLE + _FIRST_LOOK + _FILL_RESTARTS
+                     + _END)
+FIRED = re.compile(r"\bOffer fired #(\d+)" + _STYLE + _FIRST_LOOK + _FILL_RESTARTS + _END)
 # The real render quotes the enum (`→ "None"`, the MEL→Serilog bridge); the quotes stay optional
 # so a sink that renders it bare still counts.
 ACCEPTED = re.compile(r'\bOffer accepted #(\d+) → "?(\w+)"? at P=')
@@ -93,10 +102,10 @@ def parse(lines) -> list[dict[str, str]]:
             events.append({"event": "shown", "id": m.group(1), "style": m.group(2) or DEFAULT_STYLE})
         elif m := EXPIRED.search(line):
             events.append({"event": "expired", "id": m.group(1), "style": m.group(2) or DEFAULT_STYLE,
-                           "first_look": m.group(3) or ""})
+                           "first_look": m.group(3) or "", "fill_restarts": m.group(4) or ""})
         elif m := FIRED.search(line):
             events.append({"event": "fired", "id": m.group(1), "style": m.group(2) or DEFAULT_STYLE,
-                           "first_look": m.group(3) or ""})
+                           "first_look": m.group(3) or "", "fill_restarts": m.group(4) or ""})
         elif m := ACCEPTED.search(line):
             events.append({"event": "accepted", "id": m.group(1), "mode": m.group(2)})
         elif m := DECLINED.search(line):
@@ -136,6 +145,10 @@ def metrics(events: list[dict[str, str]]) -> dict:
     held = [int(e["held_ms"]) for e in outcomes if e["result"] == "closed"]
     first_looks = [int(e["first_look"]) for e in events
                    if e["event"] == "fired" and e["first_look"].isdigit()]
+    # F3: only the lines that carry the field; an older line says nothing about restarts.
+    restarts = {kind: [int(e["fill_restarts"]) for e in events
+                       if e["event"] == kind and e["fill_restarts"].isdigit()]
+                for kind in ("fired", "expired")}
 
     return {
         "offers_shown": {s: shown[s] for s in STYLES},
@@ -154,6 +167,9 @@ def metrics(events: list[dict[str, str]]) -> dict:
         "closed_otherwise": {s: shown[s] - expired[s] - fired[s] for s in STYLES},
         "closed_otherwise_total": sum(shown.values()) - sum(expired.values()) - sum(fired.values()),
         "median_fired_first_look_ms": _median(first_looks),
+        "fill_restarts_lines": sum(len(v) for v in restarts.values()),
+        "fill_restarts_total": sum(sum(v) for v in restarts.values()),
+        "fill_restarted_offers": {kind: sum(1 for k in v if k > 0) for kind, v in restarts.items()},
         # A fire is decided on the UI thread: accepted or declined (with its reason).
         "accepted": accepted,
         "declined": declined,
@@ -205,6 +221,10 @@ def render(m: dict) -> str:
                        f"   paused {r.get('paused', 0):>3}   other {r.get('other', 0):>3}")
     if m["median_fired_first_look_ms"] is not None:
         out.append(f"median first look, fired {ms(m['median_fired_first_look_ms'])} ms")
+    if m["fill_restarts_lines"]:
+        r = m["fill_restarted_offers"]
+        out.append(f"fill restarts      {m['fill_restarts_total']:>5}   (a look elsewhere in the button's area"
+                   f" restarted the fill: fired {r['fired']}, expired {r['expired']} offers had one)")
     if m["median_closed_held_ms"] is not None:
         out.append(f"median held, closed {ms(m['median_closed_held_ms'])} ms")
     if m["accepted_without_outcome"]:

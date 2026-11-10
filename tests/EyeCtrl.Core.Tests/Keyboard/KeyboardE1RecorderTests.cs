@@ -598,7 +598,7 @@ public class KeyboardE1RecorderTests
     }
 
     [Fact]
-    public void AStamp_OfAShippedLayoutFile_IsTheFirst8LowerCaseHexOfTheFilesSha256()
+    public void AStamp_OfAFile_IsTheFirst8LowerCaseHexOfTheFilesSha256()
     {
         // SHA-256 of the empty byte string, whose first 8 hex are a fixed public fact — an
         // independent expected value, not the implementation's own output.
@@ -614,6 +614,34 @@ public class KeyboardE1RecorderTests
             Check.That(stamp.Ver).IsEqualTo("9.9.9.9");
         }
         finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void AStamp_GivesOneHashForTheSameContent_WhetherTheFileIsCrLfOrLf()
+    {
+        // Review 01 F3: the identical JSON content ships as CRLF in a normal checkout (autocrlf,
+        // git archive, CI) and as LF in an agent-edited worktree. One layout must be ONE era, so
+        // the hash must not see the line endings.
+        var dir = Path.Combine(Path.GetTempPath(), $"eyectrl-e1-stamp-eol-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var json = "{\n  \"name\": \"QWERTZ\",\n  \"subLayouts\": {}\n}";
+            var crlfPath = Path.Combine(dir, "crlf.json");
+            var lfPath = Path.Combine(dir, "lf.json");
+            File.WriteAllText(crlfPath, json.Replace("\n", "\r\n"));   // default UTF-8, no BOM, like the shipped files
+            File.WriteAllText(lfPath, json);
+
+            var crlf = KeyboardE1Stamp.FromLayoutFile("QWERTZ", crlfPath, "1.0.0.0");
+            var lf = KeyboardE1Stamp.FromLayoutFile("QWERTZ", lfPath, "1.0.0.0");
+
+            Check.WithCustomMessage($"CRLF hashed to {crlf.Lv}, LF to {lf.Lv}: the same layout would "
+                                    + "appear as two eras depending on the checkout.")
+                .That(crlf.Lv).IsEqualTo(lf.Lv);
+            Check.WithCustomMessage("Both files hashed to '-': the fixtures themselves failed to write.")
+                .That(crlf.Lv).IsNotEqualTo("-");
+        }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 
     [Fact]

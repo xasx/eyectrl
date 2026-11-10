@@ -309,14 +309,25 @@ public class ShippedLayoutFilesTests
     //
     // Fit uses the window's own arithmetic (KeyboardWindow.xaml.cs): a row is
     // `size*w + (w>1 ? (w-1)*4 : 0) + 4` per key with key size 70 × multiplier (:22, :589), and
-    // the SizeToContent window is as wide as the active page's widest row. The work area is
-    // 1920 DIP (the engineering-risk debate's budget table; the owner's measured spare at 2.0×
-    // is 0.53 key units). Mutants: widen the widest row to 13+ units (row standard AND 2.0× fit),
-    // add a 6th row, delete a page's switch-back key, add a fourth text row.
+    // the SizeToContent window is the widest row PLUS the window chrome — Padding="8" and
+    // BorderThickness="3" per side (KeyboardWindow.xaml:12-13), 22 DIP on top of the grid. The
+    // work area is 1920 DIP. The corrected spare at 2.0x is 54 DIP (1920 − 1844 − 22), not the
+    // 76 the debate's table quotes for the grid alone (review 01 F4). Mutants: widen the widest
+    // row to 13+ units (row standard AND 2.0× fit), add a 6th row, delete a page's switch-back
+    // key, add a fourth text row.
 
     private const double MaxRowUnits = 12.8;
     private const int MaxRowsPerPage = 5;
     private const double WorkAreaWidthDip = 1920;
+
+    /// <summary>
+    /// The window chrome around the key grid, 2 × (Padding 8 + BorderThickness 3) per side —
+    /// the literal values of KeyboardWindow.xaml:12-13. If those change, this constant must
+    /// change with them (a source pin on XAML values is not worth the drift risk; the fit
+    /// theory below fails loudly the other way, by admitting 22 DIP too much).
+    /// </summary>
+    private const double WindowChromeWidthDip = 2 * (8 + 3);
+
     private static readonly double[] BudgetKeyMultipliers = [1.5, 2.0];
 
     /// <summary>The window's own row arithmetic, verbatim from KeyboardWindow.xaml.cs:589.</summary>
@@ -429,11 +440,13 @@ public class ShippedLayoutFilesTests
             {
                 var keySize = 70 * multiplier;
                 var gridWidth = sub.Rows.Max(r => RowWidthDip(r, keySize));
+                var windowWidth = gridWidth + WindowChromeWidthDip;
                 Check.WithCustomMessage(
-                        $"{file}/{page} at {multiplier}x is {gridWidth:0.#} DIP wide, over a {WorkAreaWidthDip} " +
+                        $"{file}/{page} at {multiplier}x needs a {windowWidth:0.#} DIP window (grid " +
+                        $"{gridWidth:0.#} + {WindowChromeWidthDip} chrome), over a {WorkAreaWidthDip} " +
                         "DIP work area: the SizeToContent window would run off-screen, and a gaze user cannot " +
                         "scroll to the keys that left it.")
-                    .That(gridWidth).IsLessOrEqualThan(WorkAreaWidthDip);
+                    .That(windowWidth).IsLessOrEqualThan(WorkAreaWidthDip);
             }
         }
     }

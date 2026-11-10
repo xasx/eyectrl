@@ -378,8 +378,35 @@ class StrayModes(unittest.TestCase):
         self.assertEqual(strays, 0)
 
     def test_an_emoji_round_trip_with_no_emoji_kept_is_a_stray(self) -> None:
+        # The ENTRY is the stray; the exit back to text is a return -- it ends this stray window
+        # but is never itself a stray (review 01 F2), so the count stays 1, not 2.
         strays = self._strays(self._mode(1000, "emoji", "text", "emoji"),
                               self._mode(3000, "emoji", "emoji", "text"))
+        self.assertEqual(strays, 1)
+
+    def test_an_emoji_exit_back_to_text_is_never_itself_a_stray(self) -> None:
+        # Discriminator: without the return rule the middle fire (emoji -> text, immediately
+        # followed by another emoji entry) would count too, making 2.
+        strays = self._strays(self._mode(1000, "emoji", "text", "emoji"),
+                              self._mode(2000, "emoji", "emoji", "text"),
+                              self._mode(3000, "emoji", "text", "emoji"))
+        self.assertEqual(strays, 1)
+
+    def test_the_owners_number_pattern_is_not_a_stray(self) -> None:
+        # The owner's ordinary shape (review 01 F2): letters -> 123, type digits, back to
+        # letters, Close within 5 s. The digits disqualify the first fire; the return to
+        # letters is never itself a stray.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._key(2000, 1, "digit"),
+                              self._mode(3000, "sublayout", "numbers", "letters"),
+                              (4000, "hidden cause=edge-close"))
+        self.assertEqual(strays, 0)
+
+    def test_a_stray_page_still_counts_when_the_owner_closes_without_returning(self) -> None:
+        # The gate the decision reads: a wrong page (#+=) the owner escapes with Close, with
+        # nothing typed and no return in between, is still a stray.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "symbols"),
+                              (2000, "hidden cause=edge-close"))
         self.assertEqual(strays, 1)
 
     def test_a_bounce_through_two_pages_counts_both_fires(self) -> None:
@@ -424,6 +451,23 @@ class LayoutStamp(unittest.TestCase):
         self.assertEqual(g["activations"], 23)
         self.assertEqual(g["slips"], 4)
         self.assertEqual(g["stray_modes"], 1)
+
+    def test_an_all_digit_lv_stays_a_string_and_keeps_its_era(self) -> None:
+        # Review 01 F1: an all-digit hash would coerce to int and its era would silently merge
+        # into the previous one; a leading zero would even change the value (01234567 -> 1234567).
+        lines = [
+            stamp_line(100, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=aaaaaaaa ver=1.0.0.0"),
+            stamp_key(200, 1, "letter"),
+            stamp_line(300, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=12345678 ver=1.0.0.0"),
+            stamp_key(400, 2, "letter"),
+            stamp_line(500, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=01234567 ver=1.0.0.0"),
+            stamp_key(600, 3, "letter"),
+        ]
+        groups = kb.metrics(kb.parse(lines))["layouts"]
+        self.assertEqual(sorted(groups), ["01234567", "12345678", "aaaaaaaa"])
+        self.assertEqual(groups["12345678"]["letters"], 1)
+        self.assertEqual(groups["01234567"]["letters"], 1)
+        self.assertEqual(groups["aaaaaaaa"]["letters"], 1)
 
     def test_events_before_a_stamped_show_belong_to_no_era(self) -> None:
         lines = [

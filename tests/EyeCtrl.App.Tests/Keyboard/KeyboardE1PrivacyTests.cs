@@ -149,12 +149,14 @@ public class KeyboardE1PrivacyTests
     /// a small set, so it is pinned by pattern instead: 8 lower-case hex characters. The version is
     /// digits and dots (or the assembly-version fallback "unknown"). "Lay" IS a small set: exactly
     /// the names <c>KeyboardSettings.ValidLayouts</c> accepts, plus the dashes of an unset stamp.
+    /// Anchored with <c>\z</c>, not <c>$</c>: in .NET a trailing newline would pass <c>$</c>
+    /// (review 01 F6).
     /// </summary>
     private static readonly Dictionary<string, string> AllowedPatterns = new()
     {
-        ["Lay"] = @"^(QWERTZ|QWERTY|AZERTY|-)$",
-        ["Lv"] = @"^([0-9a-f]{8}|-)$",
-        ["Ver"] = @"^(\d+(\.\d+)*|unknown|-)$",
+        ["Lay"] = @"\A(QWERTZ|QWERTY|AZERTY|-)\z",
+        ["Lv"] = @"\A([0-9a-f]{8}|-)\z",
+        ["Ver"] = @"\A(\d+(\.\d+)*|unknown|-)\z",
     };
 
     /// <summary>The allowed property names of one logged line: by event, and for key/abandon lines by class.</summary>

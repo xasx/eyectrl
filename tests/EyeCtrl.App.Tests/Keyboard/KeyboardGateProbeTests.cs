@@ -309,13 +309,23 @@ public class KeyboardGateProbeTests
     // actually ships, at the user's effective scale 2.0, where the mixed-unit gate bug lived. Every
     // page of every shipped layout file is probed directly (the layout is opened with the page as
     // its default sub-layout, so no switch dance can mask a page that never renders), and every key
-    // on it must respond at its own centre. The emoji surface is NOT a sub-layout page — it has no
-    // JSON page to clone — and its enter/exit is already round-tripped at 2.0 by
+    // on it must respond at its own centre. The cases come straight from the FILES (MemberData), so
+    // a new or renamed page is probed by its new name automatically — there is no second list to
+    // drift (review 01 F5). The emoji surface is NOT a sub-layout page — it has no JSON page to
+    // clone — and its enter/exit is already round-tripped at 2.0 by
     // ShippedQwerty_EveryEscapeKeyRoundTrips_AtScale2 and the accents tests below.
     //
     // The window is never shown: the probe rides the same off-screen HwndSource as every other test
     // in this file (no Window.Show() is ever called).
 
+    public static IEnumerable<object[]> ShippedPages()
+    {
+        foreach (var file in new[] { "qwerty.json", "azerty.json", "qwertz.json" })
+            foreach (var page in LoadShipped(file).SubLayouts.Keys.OrderBy(k => k, StringComparer.Ordinal))
+                yield return [file, page];
+    }
+
+    /// <summary>The same layout, opened directly on <paramref name="page"/> as its default.</summary>
     private static KeyboardLayout OpenedOnPage(KeyboardLayout layout, string page) => new()
     {
         Name = layout.Name,
@@ -324,26 +334,12 @@ public class KeyboardGateProbeTests
     };
 
     [StaTheory]
-    [InlineData("qwerty.json", "letters")]
-    [InlineData("qwerty.json", "numbers")]
-    [InlineData("qwerty.json", "symbols")]
-    [InlineData("qwerty.json", "function")]
-    [InlineData("azerty.json", "letters")]
-    [InlineData("azerty.json", "numbers")]
-    [InlineData("azerty.json", "symbols")]
-    [InlineData("azerty.json", "accents")]
-    [InlineData("azerty.json", "function")]
-    [InlineData("qwertz.json", "letters")]
-    [InlineData("qwertz.json", "numbers")]
-    [InlineData("qwertz.json", "symbols")]
-    [InlineData("qwertz.json", "accents")]
-    [InlineData("qwertz.json", "function")]
+    [MemberData(nameof(ShippedPages))]
     public void EveryShippedPageKey_RespondsToGazeAtItsOwnCentre_AtScale2(string file, string page)
     {
         var layout = LoadShipped(file);
-        Check.WithCustomMessage($"{file} no longer ships a '{page}' page: update this theory's rows " +
-                                "deliberately — a renamed page is probed by its new name, not dropped.")
-            .That(layout.SubLayouts.ContainsKey(page)).IsTrue();
+        var sub = layout.SubLayouts[page];
+        var keyCount = sub.Rows.Sum(r => r.Count);
 
         var probe = Open(OpenedOnPage(layout, page), 2.0);
         try
@@ -354,13 +350,30 @@ public class KeyboardGateProbeTests
             probe.Content.UpdateLayout();
             var centres = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
 
-            Check.WithCustomMessage($"{file}/{page} reported no key centres — the probe would measure nothing.")
-                .That(centres).Not.IsEmpty();
+            // COMPLETENESS (review 01 F5): the window must have registered EVERY key of the page —
+            // a key that never registers, or two keys sharing one id (a duplicated SpecialAction),
+            // would otherwise go unprobed in silence.
+            Check.WithCustomMessage(
+                    $"{file}/{page} reported {centres.Count} key centres for {keyCount} keys. A key that " +
+                    "never registers is never probed, and a duplicated SpecialAction id would collapse " +
+                    "two keys into one target.")
+                .That(centres.Count).IsEqualTo(keyCount);
 
             long ts = 2_000;
-            var dead = centres
-                .Where(kv => LookAt(probe, kv.Value, ref ts) != kv.Key)
-                .Select(kv => kv.Key).ToList();
+            var probed = new List<string>();
+            var dead = new List<string>();
+            foreach (var kv in centres)
+            {
+                probed.Add(kv.Key);
+                if (LookAt(probe, kv.Value, ref ts) != kv.Key)
+                    dead.Add(kv.Key);
+            }
+
+            // The probe measured exactly the centres it collected — a `.Skip(1)` or an early
+            // `break` in the loop above fails here rather than silently shrinking the probe.
+            Check.WithCustomMessage(
+                    $"The probe measured {probed.Count} of {centres.Count} keys on {file}/{page}.")
+                .That(probed.Count).IsEqualTo(centres.Count);
 
             Check.WithCustomMessage(
                     $"{file}/{page}: {dead.Count} of {centres.Count} keys did not respond to a gaze sample "
@@ -369,34 +382,6 @@ public class KeyboardGateProbeTests
                 .That(dead).IsEmpty();
         }
         finally { probe.Dispose(); }
-    }
-
-    /// <summary>
-    /// Guard the guard: the shipped-page theory above probes EXACTLY the pages the files ship. A
-    /// new or renamed page that nobody added to the theory would go unprobed forever — the very
-    /// drift this whole file exists to close — so the inline rows must always equal the files.
-    /// </summary>
-    [Fact]
-    public void TheShippedPageTheory_ProbesEveryPageTheFilesShip()
-    {
-        var probed = new HashSet<string>();
-        foreach (var file in new[] { "qwerty.json", "azerty.json", "qwertz.json" })
-            foreach (var page in LoadShipped(file).SubLayouts.Keys)
-                probed.Add($"{file}/{page}");
-
-        var listed = new HashSet<string>
-        {
-            "qwerty.json/letters", "qwerty.json/numbers", "qwerty.json/symbols", "qwerty.json/function",
-            "azerty.json/letters", "azerty.json/numbers", "azerty.json/symbols", "azerty.json/accents",
-            "azerty.json/function", "qwertz.json/letters", "qwertz.json/numbers", "qwertz.json/symbols",
-            "qwertz.json/accents", "qwertz.json/function",
-        };
-
-        Check.WithCustomMessage(
-                $"EveryShippedPageKey_RespondsToGazeAtItsOwnCentre_AtScale2 no longer matches the files. " +
-                $"Missing rows: {string.Join(", ", probed.Except(listed).Order())}. " +
-                $"Stale rows: {string.Join(", ", listed.Except(probed).Order())}.")
-            .That(probed.SetEquals(listed)).IsTrue();
     }
 
     // ---- negative half: nothing else is live. DO NOT DELETE (see class doc). ----

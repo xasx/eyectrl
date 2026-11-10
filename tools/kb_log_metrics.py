@@ -81,8 +81,12 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      entering/leaving; NOT shift/caps/modifier toggles, which are deliberate --
                      followed within 5 s (the recorder's own mode-undo window) by a switch back,
                      a Close (``hidden cause=edge-close``) or an in-word deletion
-                     (``bs=word``), with no text key kept in between. The owner escapes a wrong
-                     page with Close, so mode-undos alone read 0; this count sees the strays.
+                     (``bs=word``), with no text key kept in between. A RETURN -- a fire whose
+                     target is the default page (``letters``, or ``text`` for an emoji exit) --
+                     ends a stray window but is never itself a stray: going back to letters
+                     before a Close is the owner's tidy habit after deliberate use. The owner
+                     escapes a wrong page with Close, so mode-undos alone read 0; this count
+                     sees the strays.
 * layouts            the log grouped by the stamped layout version: the ``shown``/``layout``
                      lines carry ``lay=`` (the layout name), ``lv=`` (the first 8 hex of the
                      layout FILE's sha256) and ``ver=`` (the app version), and everything until
@@ -143,6 +147,11 @@ MIN_REGION_SLIPS = 10
 EDGE_CROWDING_SHARE = (3, 10)
 MIN_EDGE_DWELLS = 50
 TEXT_CLASSES = {"letter", "digit", "symbol", "emoji"}
+# Fields that are STRINGS even when their value looks like a number: the layout stamp. An
+# all-digit hash (``lv=12345678``, or ``lv=01234567`` -> int 1234567) would otherwise stop being
+# a string, the era grouping would skip the stamped line, and the era's events would silently
+# merge into the previous layout's (review 01 F1).
+STRING_FIELDS = {"lay", "lv", "ver"}
 # The ``edgeq`` tally line's counters: accepted text-key dwells per outer quarter (c = the inner half),
 # then abandoned ones (prefix a). The quarter names are the old per-line ``edgeq`` classes, lower-cased.
 TALLY_QUARTERS = ["-", "N", "NE", "E", "SE", "S", "SW", "W", "NW"]
@@ -157,6 +166,10 @@ MODE_CLASSES = {"shift", "caps", "mode", "switchsub"}
 # moves the window, not the page) undone within the recorder's own mode-undo window.
 PAGE_SWITCH_KINDS = {"sublayout", "emoji"}
 STRAY_MODE_WINDOW_MS = 5000
+# The layout's default page id (KeyboardLayout.DefaultSubLayout in every shipped layout): a
+# page-switch fire BACK to it is a return, not a stray. The parser cannot read the layout, so
+# the id is named literally.
+DEFAULT_PAGE = "letters"
 
 # The steward's minimums before the C2 rule may be read.
 MIN_LETTERS = 150
@@ -222,7 +235,7 @@ def parse(lines) -> list[dict[str, Any]]:
         if not m:
             continue
         try:
-            fields = {k: _value(v) for k, v in FIELD.findall(m.group("rest"))}
+            fields = {k: (v if k in STRING_FIELDS else _value(v)) for k, v in FIELD.findall(m.group("rest"))}
             at = _millis(m.group("ts"))
         except ValueError:
             continue
@@ -252,6 +265,15 @@ def _slipped_letters(keys: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _is_return(fire: dict[str, Any]) -> bool:
+    """Whether a page-switch fire is a RETURN: its target is the layout's default page
+    (``letters``), or it is an emoji exit back to ``text``. A return ends a stray window but is
+    never itself a stray (see :func:`stray_modes`)."""
+    if fire.get("kind") == "emoji":
+        return fire.get("to") == "text"
+    return fire.get("to") == DEFAULT_PAGE
+
+
 def stray_modes(events: list[dict[str, Any]]) -> int:
     """The stray page-switch count: a mode (page-switch) fire followed within 5 s by a switch
     back, a Close, or an in-word deletion, with no text key kept in between.
@@ -266,10 +288,17 @@ def stray_modes(events: list[dict[str, Any]]) -> int:
     was used, not strayed. (A letter typed and then taken back inside the word is a slip, and it
     still disqualifies -- the two counters answer different questions: "was the page wrong" is
     not "was the letter wrong".) A fire counts at most once.
+
+    A RETURN -- a fire whose target is the layout's default page (``letters``; an emoji exit
+    whose target is ``text``) -- can END a stray window but is never itself a stray (review 01
+    F2, coordinator decision): going back to letters before a Close is the owner's tidy habit
+    after deliberate use, not a mistake being undone. The parser cannot read the layout, and
+    every shipped layout's default page id is ``letters`` (``KeyboardLayout.DefaultSubLayout``),
+    so the rule names it literally.
     """
     strays = 0
     for i, fire in enumerate(events):
-        if fire["event"] != "mode" or fire.get("kind") not in PAGE_SWITCH_KINDS:
+        if fire["event"] != "mode" or fire.get("kind") not in PAGE_SWITCH_KINDS or _is_return(fire):
             continue
         start = fire["at"]
         for nxt in events[i + 1:]:

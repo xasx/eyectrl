@@ -583,10 +583,16 @@ public sealed record KeyboardE1Stamp(string Lay, string Lv, string Ver)
 
     /// <summary>
     /// The stamp for a layout file: the name as loaded, the first 8 lower-case hex of the file's
-    /// SHA-256, the app version. Never throws: a file that cannot be read again (it was deleted
-    /// between the layout load and this hash) hashes to "-", because the stamp only OBSERVES the
-    /// load — it must not be able to break the layout load it follows.
+    /// LF-NORMALISED content's SHA-256, the app version. Never throws: a file that cannot be read
+    /// again (it was deleted between the layout load and this hash) hashes to "-", because the
+    /// stamp only OBSERVES the load — it must not be able to break the layout load it follows.
     /// </summary>
+    /// <remarks>
+    /// The \r are stripped before hashing (review 01 F3): the identical JSON content must give
+    /// ONE hash whether the checkout wrote CRLF (core.autocrlf, git archive, CI) or LF (an
+    /// agent-edited worktree) — otherwise one layout would split into two eras across machines.
+    /// CR appears in these JSON files only as part of CRLF, so stripping it normalises both.
+    /// </remarks>
     public static KeyboardE1Stamp FromLayoutFile(string layoutName, string layoutFilePath, string appVersion)
     {
         var lv = "-";
@@ -594,8 +600,11 @@ public sealed record KeyboardE1Stamp(string Lay, string Lv, string Ver)
         {
             using var sha = SHA256.Create();
             using var stream = File.OpenRead(layoutFilePath);
+            using var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            var normalised = buffer.ToArray().Where(b => b != (byte)'\r').ToArray();
             // 4 bytes = 8 hex characters; ToHexString is already upper-case, and E1 hashes are lower-case.
-            lv = Convert.ToHexString(sha.ComputeHash(stream), 0, 4).ToLowerInvariant();
+            lv = Convert.ToHexString(sha.ComputeHash(normalised), 0, 4).ToLowerInvariant();
         }
         catch (Exception)
         {

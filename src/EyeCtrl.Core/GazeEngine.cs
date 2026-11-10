@@ -930,10 +930,12 @@ public class GazeEngine : IDisposable
             // documented call order). Both see only non-gap samples; the engine additionally gets the
             // raw validity so a tracker-reported invalid sample pauses the button dwell.
             // The detector's own verdict on this sample, asked before it sees it (round button B3
-            // fixup-01): a delayed button shows only on a sample that continues the run.
+            // fixup-01): a delayed button shows only on a sample that continues the run. The raw point
+            // (calibrated, before the filter) tells the button's looks a saccade from a slide (F3 fixup-01).
             InteractionManager.NoteActivationGazeSample(
                 filtered, gaze.TimestampMicroseconds, gaze.IsValid,
-                _fixationDetector.ContinuesRun(filtered, gaze.TimestampMicroseconds, gaze.IsValid));
+                _fixationDetector.ContinuesRun(filtered, gaze.TimestampMicroseconds, gaze.IsValid),
+                new PhysicalPoint(corrected.X, corrected.Y));
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
         }
 

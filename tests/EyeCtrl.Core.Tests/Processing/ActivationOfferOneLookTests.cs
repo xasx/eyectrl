@@ -16,6 +16,12 @@ using EyeCtrl.Core.Processing;
 /// guards pass before and after. Each test names the mutants it turns red (report §4, M1–M8, plus the
 /// ticket's four).
 /// </para>
+/// <para>
+/// F3 fixup-01 (KE-D2, reading-proof-2): a look on the drawn disc (within 80 px of B) is never a look
+/// elsewhere, so the KE tests' "reading words" sit 120 px from B, off the disc. The last section holds
+/// reading-proof-2's six tests that fail on F3 (pursuit, offset pursuit, hops, land-and-correct, held
+/// near miss, F5) and pins for review-01's surviving mutants Y7 and Y8.
+/// </para>
 /// </summary>
 public class ActivationOfferOneLookTests
 {
@@ -32,10 +38,10 @@ public class ActivationOfferOneLookTests
     /// <see cref="ActivationOfferEngine.NotifyFixationEnded"/>, as the wiring does.</summary>
     private sealed class Script
     {
-        public ActivationOfferEngine Engine { get; } = new(Screen, Scale, RingDip, DwellMs, FixationR)
-        {
-            OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs,
-        };
+        public ActivationOfferEngine Engine { get; }
+
+        /// <summary>The sample period of this script (33 ms, or 11 111 µs for 90 Hz).</summary>
+        public long FrameUs { get; }
 
         public long Ts { get; private set; } = 2_000_000;
         public List<(ActivationOffer Offer, long Us)> Fired { get; } = new();
@@ -46,8 +52,10 @@ public class ActivationOfferOneLookTests
         /// <summary>Unit P→B and its perpendicular, set by <see cref="Offered"/>.</summary>
         private double _ux, _uy;
 
-        public Script()
+        public Script(long frameUs = ActivationOfferOneLookTests.FrameUs, int dwellMs = DwellMs)
         {
+            FrameUs = frameUs;
+            Engine = new(Screen, Scale, RingDip, dwellMs, FixationR) { OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs };
             Engine.OfferFired += o => Fired.Add((o, Ts));
             Engine.OfferExpired += (o, us, peak) => Expired.Add((o, us, peak));
         }
@@ -56,14 +64,18 @@ public class ActivationOfferOneLookTests
 
         /// <summary>Rests 600 ms at P (the settle at 500 makes the offer), then leaves: the offered run
         /// ends on the last P sample. Returns that sample's time, the last "strong" activity.</summary>
-        public long Offered()
+        public long Offered() => OfferedAt(P);
+
+        /// <summary><see cref="Offered"/> at another word: a settle there makes (or replaces) the offer.</summary>
+        public long OfferedAt(PhysicalPoint word)
         {
-            Look(P, 600);
+            Look(word, 600);
             Offer = Engine.CurrentOffer!;
             Check.That(Offer).IsNotNull();
-            double d = Offer.Button.DistanceTo(P);
-            _ux = (Offer.Button.X - P.X) / d;
-            _uy = (Offer.Button.Y - P.Y) / d;
+            Check.That(Offer.Point).IsEqualTo(word);
+            double d = Offer.Button.DistanceTo(word);
+            _ux = (Offer.Button.X - word.X) / d;
+            _uy = (Offer.Button.Y - word.Y) / d;
             return Ts;
         }
 
@@ -79,22 +91,25 @@ public class ActivationOfferOneLookTests
             _ => B,
         };
 
-        public void Sample(PhysicalPoint at, bool valid = true)
+        /// <summary>One sample. <paramref name="raw"/> is the raw point passed alongside (null: none, so every
+        /// new look counts as entered by a jump, as for the replays).</summary>
+        public void Sample(PhysicalPoint at, bool valid = true, PhysicalPoint? raw = null)
         {
             Ts += FrameUs;
-            Engine.Update(at, Ts, valid);
+            Engine.Update(at, Ts, valid, rawPoint: raw);
             if (Engine.CurrentOffer is not null)
                 PeakFill = Math.Max(PeakFill, Engine.DwellProgress);
         }
 
-        /// <summary>A still look of <paramref name="ms"/>: settled at the settle age, ended after.</summary>
-        public void Look(PhysicalPoint at, int ms)
+        /// <summary>A still look of <paramref name="ms"/>: settled at the settle age, ended after. With
+        /// <paramref name="withRaw"/> the raw point (the same point: no filter here) is passed too.</summary>
+        public void Look(PhysicalPoint at, int ms, bool withRaw = false)
         {
             long start = Ts;
             bool settled = false;
             while (Ts + FrameUs - start <= ms * 1000L)
             {
-                Sample(at);
+                Sample(at, raw: withRaw ? at : null);
                 if (!settled && Ts - start >= Engine.SettleAgeMs * 1000L)
                 {
                     settled = true;
@@ -128,14 +143,15 @@ public class ActivationOfferOneLookTests
     [Fact]
     public void TwoConsecutive270MsLooks_150PxApart_InsideTheHitArea_DoNotFire()
     {
-        // Two reading words, both 75 px from B and 150 px from each other: before F3 their 264 + 264 ms
-        // (8 samples each) summed past the 500 ms fill and the magnifier opened. Now the second look
-        // restarts the fill. Mutants: M1 (never reset), M7 ("moved" against B: both are 75 px from B),
-        // no reset — red.
+        // Two reading words inside the hit area but off the drawn disc, both 120 px from B and 240 px
+        // from each other: before F3 their 264 + 264 ms (8 samples each) summed past the 500 ms fill and
+        // the magnifier opened. Now the second look restarts the fill. (F3 fixup-01: words 75 px from B
+        // are on the disc and count as one look — see the disc tests below.) Mutants: M1 (never reset),
+        // M7 ("moved" against B: both are 120 px from B), no reset, a disc as wide as the hit — red.
         var s = new Script();
         s.Offered();
-        s.Look(s.FromB(75, "side"), 270);
-        s.Look(s.FromB(75, "side-"), 270);
+        s.Look(s.FromB(120, "side"), 270);
+        s.Look(s.FromB(120, "side-"), 270);
         s.Away();   // far away: the button runs out
 
         Check.WithCustomMessage("two words in the hit area fired the button").That(s.Fired).IsEmpty();
@@ -313,13 +329,13 @@ public class ActivationOfferOneLookTests
     [Fact]
     public void AMovedLook_AddsNothingBeforeItIs100MsOld()
     {
-        // 462 ms on one word, then 99 ms on another word in the hit area, 150 px away, then off. Before
+        // 462 ms on one word, then 99 ms on another word in the hit area, 240 px away (both off the disc), then off. Before
         // its maturity the moved look must not credit: M3 (credit at once, the KC rule) and maturity
         // 100 → 0 with the credit kept fill 462 + 66 → fires. Red.
         var s = new Script();
         s.Offered();
-        s.Look(s.FromB(75, "side"), 462);
-        s.Look(s.FromB(75, "side-"), 99);
+        s.Look(s.FromB(120, "side"), 462);
+        s.Look(s.FromB(120, "side-"), 99);
         s.Away();
 
         Check.WithCustomMessage("a 99 ms look completed another word's fill").That(s.Fired).IsEmpty();
@@ -389,13 +405,13 @@ public class ActivationOfferOneLookTests
     public void TheDetectorsVerdict_WhenGiven_SegmentsTheLooks()
     {
         // The production wiring passes the fixation detector's own run verdict, so the engine's looks
-        // are the detector's runs. Here the verdict says "same run" across a 150 px hop, so there is no
+        // are the detector's runs. Here the verdict says "same run" across a 240 px hop off the disc, so there is no
         // new look and no restart: the two halves fill one 500 ms. (Without a verdict the hop is a new look,
         // as the first test shows.) Mutant: ignore the verdict → the hop restarts the fill. Red.
         var s = new Script();
         long left = s.Offered();
-        var w1 = s.FromB(75, "side");
-        var w2 = s.FromB(75, "side-");
+        var w1 = s.FromB(120, "side");
+        var w2 = s.FromB(120, "side-");
         long ts = s.Ts;
         bool fired = false;
         s.Engine.OfferFired += _ => fired = true;
@@ -413,17 +429,200 @@ public class ActivationOfferOneLookTests
     public void ANewOffer_StartsWithNoAnchor_AndNoRestarts()
     {
         // A look that anchored the last offer's fill must not move the next offer's: the new button's
-        // first look is its own anchor, and it fills from its first sample.
+        // first look is its own anchor, and it fills from its first sample. The old offer is REPLACED by a
+        // settle elsewhere while its fill still has an owner (the 500 ms rest is not yet a 500 ms absence,
+        // so ResetFill has not run): only MakeOffer's clear protects the new one. Mutant X3 (MakeOffer
+        // keeps the anchor) → the new first look waits and counts a restart. Red.
         var s = new Script();
         s.Offered();
-        s.Look(s.FromB(75, "side"), 250);
-        s.Away();
-        Check.That(s.Expired).HasSize(1);
+        s.Look(s.FromB(120, "side"), 250);
+        long left = s.OfferedAt(new PhysicalPoint(2400, 1300));
+        Check.That(s.Expired).IsEmpty();
 
-        long left = s.Offered();
-        s.Look(s.FromB(75, "side-"), 800);
+        s.Look(s.FromB(120, "side-"), 800);
         Check.That(s.Fired).HasSize(1);
         Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
         Check.That(s.FiredAfterMs(left)).IsEqualTo(16 * 33.0);
+    }
+
+    // ── F3 fixup-01: KE-D2 (reading-proof-2) ────────────────────────────────────
+
+    /// <summary>Follows the rising fill line, closed loop on the engine's progress: the disc is 200 px
+    /// tall at scale 2.0, and the fill rises from 95 px below B to 95 px above it over one dwell.</summary>
+    private static void PursueTheFill(Script s, double offsetX, int maxSamples = 300)
+    {
+        for (int i = 0; i < maxSamples && s.Fired.Count == 0; i++)
+        {
+            var at = new PhysicalPoint(s.B.X + offsetX, s.B.Y + 95 - (190 * s.Engine.DwellProgress));
+            s.Sample(at, raw: at);
+        }
+    }
+
+    [Theory]
+    [InlineData(33_000L, 500)]
+    [InlineData(11_111L, 500)]
+    [InlineData(33_000L, 600)]
+    [InlineData(11_111L, 600)]
+    public void FollowingTheRisingFill_UpTheDisc_Fires(long frameUs, int dwellMs)
+    {
+        // Review-01 F1: the eye follows the fill line; the detector splits the pursuit into looks, and under F3
+        // each one restarted the fill — the button never fired. Now looks on the disc never restart, and a
+        // look reached without a raw jump is the same look. Mutants: no disc rule AND no raw rule, a disc as
+        // small as 0 — red.
+        var s = new Script(frameUs, dwellMs);
+        long left = s.Offered();
+        PursueTheFill(s, offsetX: 0);
+
+        Check.WithCustomMessage($"{frameUs} µs / {dwellMs}: peak {s.PeakFill:P0}").That(s.Fired).HasSize(1);
+        Check.That(s.FiredAfterMs(left)).IsLessOrEqualThan(dwellMs + 70);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+    }
+
+    [Theory]
+    [InlineData(33_000L, 500)]
+    [InlineData(11_111L, 500)]
+    [InlineData(33_000L, 600)]
+    [InlineData(11_111L, 600)]
+    public void FollowingTheFill_With120PxTrackerOffset_OffTheDisc_Fires(long frameUs, int dwellMs)
+    {
+        // The owner's reported gaze is often well off target: the same pursuit 120 px to the side never
+        // touches the disc, so only the raw-jump rule keeps the fill (the eye slid, it did not jump).
+        // Mutants: no raw rule, a jump threshold of 30 px (sample steps count as jumps), raw points treated
+        // as filtered — red.
+        var s = new Script(frameUs, dwellMs);
+        long left = s.Offered();
+        PursueTheFill(s, offsetX: 120);
+
+        Check.WithCustomMessage($"{frameUs} µs / {dwellMs}: peak {s.PeakFill:P0}").That(s.Fired).HasSize(1);
+        Check.That(s.FiredAfterMs(left)).IsLessOrEqualThan(dwellMs + 70);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void WithoutARawPoint_TheOffsetPursuitRestarts_AsInF3()
+    {
+        // Null raw (the replays, a standalone engine) counts every new look as entered by a jump: F3's
+        // behaviour, so the replays are unchanged. Mutant N10 (null raw = "smooth") → it fires. Red.
+        var s = new Script();
+        s.Offered();
+        for (int i = 0; i < 60 && s.Fired.Count == 0; i++)
+            s.Sample(new PhysicalPoint(s.B.X + 120, s.B.Y + 95 - (190 * s.Engine.DwellProgress)));
+
+        Check.That(s.Fired).IsEmpty();
+    }
+
+    [Fact]
+    public void HopsOf100PxEvery300Ms_BetweenThreeSpotsOnTheDisc_FireAtOnce()
+    {
+        // Review-01 probe E: each hop is a raw jump to a new look 100 px away, but all three spots lie on the
+        // disc (50 / 50 / 60 px from B), so they are one look. Mutants: no disc rule (N3), the disc at 40 px
+        // — red.
+        var s = new Script();
+        long left = s.Offered();
+        var spots = new[] { s.FromB(50, "side"), s.FromB(50, "side-"), s.FromB(60, "down") };
+        for (int i = 0; i < 6 && s.Fired.Count == 0; i++)
+            s.Look(spots[i % 3], 300, withRaw: true);
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.FiredAfterMs(left)).IsLessOrEqualThan(DwellMs + 70);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void LandingAt180Px_ThenCorrectingOntoB_KeepsTheFill()
+    {
+        // Review-01 F3: land off the disc, then correct onto the button. Under F3 the correction restarted
+        // the fill (+0.4–0.6 s); the corrected look is on the disc, so it carries on. Mutant N3 → red.
+        var s = new Script();
+        long left = s.Offered();
+        s.Look(s.FromB(180, "down"), 300, withRaw: true);
+        s.Look(s.B, 800, withRaw: true);
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.FiredAfterMs(left)).IsLessOrEqualThan(DwellMs + 70);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void HeldJustOutsideTheHitFor2s_AfterALookAtB_TheButtonWaits()
+    {
+        // Review-01 F2: 400 ms on B, then a steady look 240 px off (a near miss) for 2 s, then back. Under F3
+        // the cap closed the button at 1.5 s past the look at B, and the return found nothing. cap2: the
+        // one near-miss look that follows a look at the button extends without the cap. Mutant: no cap2 →
+        // red.
+        var s = new Script();
+        s.Offered();
+        s.Look(s.FromB(40, "down"), 400);
+        s.Look(s.FromB(240, "down"), 2000);
+        s.Look(s.B, 800);
+
+        Check.That(s.Expired).IsEmpty();
+        Check.That(s.Fired).HasSize(1);
+    }
+
+    [Fact]
+    public void AfterTheFillWasLost_ALookElsewhere_FillsAtOnce_AndCountsNoRestart()
+    {
+        // Review-01 F5: 300 ms on B, then 561 ms away (the fill resets after 500 ms), then a look elsewhere
+        // in the hit area (150 px beside B, off the disc, > R from the old anchor). There is no fill to lose,
+        // so it neither waits 100 ms nor counts a restart. Mutant N9 (ResetFill keeps the owner) → it waits 4
+        // samples and the offer reads fillRestarts=1. Red.
+        var s = new Script();
+        s.Offered();
+        s.Look(s.FromB(40, "down"), 300);
+        s.Look(s.FromB(300, "beyond"), 300);
+        s.Look(s.FromB(300, "side"), 270);
+        long back = s.Ts;
+        s.Look(s.FromB(150, "side"), 800);
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+        Check.That(s.FiredAfterMs(back)).IsEqualTo(16 * 33.0);
+    }
+
+    [Fact]
+    public void TheAnchorFollowsTheOwningLooksCentroid_NotItsPointAtTheTakeOver()
+    {
+        // Review-01 Y7: a look off the disc drifts 130 px while it lasts (one look: each sample stays within R
+        // of the running centroid), glances away, and comes back to where the drift ended — 65 px from the
+        // look's centroid, 106 px from where it was when it took the fill. It is the same spot: the fill goes
+        // on. Mutant Y7 (anchor frozen at the take-over) → a restart. Red.
+        var s = new Script();
+        long left = s.Offered();
+        var q = s.FromB(140, "side");
+        var beyond = s.FromB(1, "beyond");
+        double bx = beyond.X - s.B.X, by = beyond.Y - s.B.Y;   // unit away from the word
+        for (int i = 0; i < 12; i++)
+            s.Sample(new PhysicalPoint(q.X + (bx * 130 * i / 11), q.Y + (by * 130 * i / 11)));
+        var end = new PhysicalPoint(q.X + (bx * 130), q.Y + (by * 130));
+        Check.That(end.DistanceTo(s.B)).IsStrictlyLessThan(LayoutConstants.ActivationButtonHitRadiusPx);
+        s.Look(P, 250);
+        s.Look(end, 800);
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+        Check.That(s.FiredAfterMs(left)).IsEqualTo((12 + 7 + 4) * 33.0);
+    }
+
+    [Fact]
+    public void ALookThatSlidesOffTheDiscBeforeItMatures_RestartsFromItsOwnCredit()
+    {
+        // Review-01 Y8 (report D3): the new look's first sample is on the disc and within R of the anchor (it
+        // credits), then it slides off and away before 100 ms (the next samples are held); at maturity it takes
+        // the fill over from its OWN credit (33 ms), not from 0. Mutant Y8 (restart to a literal 0) → one
+        // sample later. Red.
+        var s = new Script();
+        s.Offered();
+        s.Look(s.FromB(40, "side-"), 300);   // the anchor, on the disc's far side
+        long slid = s.Ts;
+        s.Sample(s.FromB(60, "side"));       // a new look (100 px from the anchor), on the disc: credits
+        s.Sample(s.FromB(90, "side"));       // centroid 75: still on the disc, credits
+        s.Sample(s.FromB(120, "side"));      // centroid 90: off the disc, moved, young: held
+        s.Look(s.FromB(150, "side"), 800);
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(1);
+        // 2 credited, 2 held (66 / 99 ms), the 5th restarts at its own 66 + 33, then 13 more reach 528.
+        Check.That(s.FiredAfterMs(slid)).IsEqualTo(18 * 33.0);
     }
 }

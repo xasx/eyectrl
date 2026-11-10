@@ -41,6 +41,14 @@ public sealed record ActivationOffer(
     /// culture, or <c>none</c> when the button was never looked at.</summary>
     public string FirstLookLogValue =>
         FirstLookMs is { } ms ? ms.ToString("0", System.Globalization.CultureInfo.InvariantCulture) : "none";
+
+    /// <summary>
+    /// How many times a new look elsewhere in the hit area took the fill over and restarted it (F3,
+    /// "one look fills the button"). Set by the engine on the gaze thread, one record copy per restart
+    /// (a restart is per look, never per sample), and carried by the offer the <c>Offer fired</c> /
+    /// <c>Offer expired unused</c> events hand out (<c>fillRestarts=</c>).
+    /// </summary>
+    public int FillRestarts { get; init; }
 }
 
 /// <summary>What an accepted settle did to the offer — the engine's answer to
@@ -180,9 +188,25 @@ public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
 /// <see cref="OutsidePauseBudgetMs"/> ms outside the hit area (invalid, or valid but elsewhere) pauses
 /// it, and a longer stretch resets it to 0. At <see cref="DwellMs"/> it fires once, on
 /// <see cref="OfferFired"/>.</item>
-/// <item><b>Expiry.</b> One second after the latest of the offered run's end, the last valid in-hit
-/// sample, and the last sample of a near-miss run. A sample after the deadline cannot revive the
-/// offer.</item>
+/// <item><b>One look fills it</b> (F3, rule KE of the reading-proof report). The fill belongs to one
+/// look — a fixation, segmented by the detector's own run rule — and its anchor is that look's
+/// centroid. A new look more than R from the anchor credits nothing until it is
+/// <see cref="LookMatureMs"/> old; then it takes the fill over and restarts it from its own credit
+/// (0 for a look that waited). A look back within R of the anchor (a glance away and back) carries
+/// on. Reading moves word to word, so it never gathers one look's worth of fill. Two kinds of new look
+/// are never "elsewhere" (F3 fixup-01, KE-D2): a look ON the drawn disc (centroid within the disc's
+/// radius less <see cref="DiscLookInsetPx"/>), and a look the eye reached without a raw jump of
+/// <see cref="RawJumpPx"/> (pursuit, drift, a tracker offset). The jump is measured against the
+/// raw points of the last <see cref="RawJumpWindowMs"/> and against the last valid raw point before a
+/// gap, since the tracker drops samples during saccades. A fill that was lost (a long look away) has
+/// no owner, so the next look fills it from its first sample.</item>
+/// <item><b>Expiry.</b> The linger after the latest of the offered run's end, the last in-hit sample
+/// of a look at least <see cref="LookMatureMs"/> old (a saccade's transit samples through the hit area
+/// are not a look), and the last sample of a near-miss run — but a near miss can never push it past
+/// linger + <see cref="NearMissCapMs"/> after the last real activity (the offer's creation, its run,
+/// a mature in-hit sample) — except the one near-miss look that directly follows a mature in-hit look,
+/// which is still going for the button (cap2, F3 fixup-01). A sample after the deadline cannot revive
+/// the offer.</item>
 /// <item><b>The fired lock.</b> Once fired, the offer can no longer be replaced, extended, expired or
 /// re-offered over until it is accepted or declined. A rejected completion (a stale id, or nothing
 /// fired) counts as a decline, and <see cref="Clear"/> clears even a locked offer, so a rejection can
@@ -226,6 +250,49 @@ public sealed class ActivationOfferEngine
     /// before round button B3. The product applies <c>DwellSettings.OfferShowAfterMs</c> instead; the
     /// default stays here so the replays that pin the engine's baselines keep their numbers.</summary>
     public const int DefaultOfferShowAfterMs = FixationDetector.DefaultFixationSettleMs;
+
+    /// <summary>
+    /// How old a look must be, in ms on the sample clock from its first sample, before it counts as a
+    /// look at the button (F3): only then does an in-hit sample extend the offer, and only then does a
+    /// look that moved more than R from the fill's anchor take the fill over. The transit samples of a
+    /// saccade and the filter's in-between points form looks younger than this.
+    /// </summary>
+    public const int LookMatureMs = 100;
+
+    /// <summary>
+    /// How far, in ms past the linger, near-miss extensions may carry the offer beyond its last real
+    /// activity (F3): slow re-reading just outside the hit area kept the button — and the ring held for
+    /// it — up for 5 s and more before.
+    /// </summary>
+    public const int NearMissCapMs = 750;
+
+    /// <summary>
+    /// How far inside the drawn disc's rim, in physical px, a look's centroid must lie to count as a look
+    /// ON the button (F3 fixup-01, KE-D2's disc rule): such a look never restarts the fill, so an eye
+    /// that follows the rising fill or hops across the face keeps it. The disc radius is
+    /// <see cref="LayoutConstants.SharedButtonRadius"/> × scale (100 px at 2.0), so this gives 80 px.
+    /// At the rim itself, words just outside it had filtered centroids inside it and fired (reading-
+    /// proof-2); at 90 px or less, none did. Never the hit radius.
+    /// </summary>
+    public const double DiscLookInsetPx = 20.0;
+
+    /// <summary>
+    /// How far, in physical px, the RAW gaze must have jumped within <see cref="RawJumpWindowMs"/> when a
+    /// look began for it to count as a new look elsewhere (F3 fixup-01): an eye that slid or followed
+    /// (pursuit, drift, a tracker offset) reached its look without a saccade and keeps the fill. Raw, not
+    /// filtered: the One-Euro output smears a small-text word step into a smooth slide. 45 px let jitter
+    /// count as jumps (reading-proof-2). It assumes raw jitter σ ≲ 15 px (the owner's is about 9 px);
+    /// at σ 20 or more and 90 Hz, jitter alone reads as jumps and an offset pursuit can restart.
+    /// </summary>
+    public const double RawJumpPx = 60.0;
+
+    /// <summary>The window, in ms on the sample clock, <see cref="RawJumpPx"/> is measured over: a
+    /// saccade split across several 90 Hz samples still reads as one jump.</summary>
+    public const int RawJumpWindowMs = 80;
+
+    // The raw points of the last valid samples, for the jump test: a preallocated ring, so the sample
+    // path never allocates. 32 entries cover the 80 ms window at any tracker rate up to 400 Hz.
+    private const int RawRingSize = 32;
 
     private readonly PhysicalRect _screenBoundsPx;
     private readonly double _scale;
@@ -271,6 +338,38 @@ public sealed class ActivationOfferEngine
     private bool _hasCandidate;
     private PhysicalPoint _candidatePoint;
     private long _candidateShowAtUs;
+
+    // The current look (F3): the fixation the last valid sample belongs to, by the detector's run rule
+    // (its verdict when the wiring passes it, else the same rule here). Running sums, so the centroid
+    // costs no allocation. _lookCount 0 = no look open yet.
+    private long _lookId;
+    private long _lookStartUs;
+    private long _lookLastValidUs;
+    private double _lookSumX;
+    private double _lookSumY;
+    private int _lookCount;
+    // The fill credited by the current look alone: what a take-over restarts the fill from.
+    private long _lookCreditUs;
+
+    // The look the fill belongs to (-1: none has matured on this offer yet) and its centroid.
+    private long _fillLookId = -1;
+    private PhysicalPoint _fillAnchor;
+
+    // The last real activity on the live offer — its creation, its run, a mature in-hit sample: the
+    // origin of the near-miss cap.
+    private long _lastStrongUs;
+
+    // cap2 (F3 fixup-01): whether the last real activity was a mature in-hit sample (a look AT the
+    // button), and the one near-miss look that follows it and extends without the cap (-1: none yet).
+    private bool _strongWasHit;
+    private long _exemptLookId = -1;
+
+    // Whether the current look began with a raw jump (true when no raw point is passed: F3's behaviour).
+    private bool _lookEnteredByJump = true;
+    private readonly PhysicalPoint[] _rawRing = new PhysicalPoint[RawRingSize];
+    private readonly long[] _rawRingUs = new long[RawRingSize];
+    private int _rawRingNext;
+    private int _rawRingCount;
 
     /// <summary>What the current run is to the live offer — it decides what the run's end does to it.</summary>
     private enum RunRole
@@ -538,7 +637,7 @@ public sealed class ActivationOfferEngine
                     // must not walk away from an attempt.
                     _runRole = RunRole.NearMiss;
                     _nearMissRunActive = true;
-                    ExtendExpiry(timestampUs);
+                    ExtendNearMiss(timestampUs);
                     return SettleOutcome.Extended;
                 }
 
@@ -580,8 +679,19 @@ public sealed class ActivationOfferEngine
     /// </summary>
     public void NotifyFixationEnded(long timestampUs)
     {
-        if ((_runRole is RunRole.Offered or RunRole.NearMiss) && _offer is not null && !_fired)
-            ExtendExpiry(timestampUs);
+        if (_offer is not null && !_fired)
+        {
+            if (_runRole == RunRole.Offered)
+            {
+                _lastStrongUs = timestampUs;
+                _strongWasHit = false;
+                ExtendExpiry(timestampUs);
+            }
+            else if (_runRole == RunRole.NearMiss)
+            {
+                ExtendNearMiss(timestampUs);
+            }
+        }
 
         if (_runRole == RunRole.Pending)
             _pending = null;
@@ -604,10 +714,21 @@ public sealed class ActivationOfferEngine
     /// <param name="isValid">The raw sample's validity.</param>
     /// <param name="continuesRun">Whether this sample continues the settled run, by the fixation
     /// detector's own rule (<see cref="FixationDetector.ContinuesRun"/>) — the production wiring passes
-    /// it. Null (a standalone engine: the replays, the tests) falls back to "valid and within
-    /// <see cref="FixationRadiusPx"/> of the candidate's settle point".</param>
-    public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null)
+    /// it, false whenever the interaction state is not Fixation. Null (a standalone engine: the replays,
+    /// the tests) falls back to "valid and within <see cref="FixationRadiusPx"/> of the candidate's
+    /// settle point". It gates only the show delay's candidate.</param>
+    /// <param name="continuesLook">The detector's RAW verdict on this sample, in any interaction state
+    /// (F3): false starts a new look. Reading never reaches Fixation, so <paramref name="continuesRun"/>
+    /// cannot mark its looks. Null falls back to the detector's rule applied here: valid, within the
+    /// <see cref="FixationDetector.GapAbortMs"/> gap budget and within <see cref="FixationRadiusPx"/>
+    /// of the current look's centroid.</param>
+    /// <param name="rawPoint">The raw (calibrated, unfiltered) point of the same sample (F3 fixup-01): a new
+    /// look counts as a look elsewhere only if the raw gaze jumped <see cref="RawJumpPx"/> when it began.
+    /// Null (the replays, the tests) counts every new look as entered by a jump, F3's behaviour.</param>
+    public void Update(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null,
+        bool? continuesLook = null, PhysicalPoint? rawPoint = null)
     {
+        TrackLook(point, timestampUs, isValid, continuesLook, rawPoint);
         AdvanceOffer(point, timestampUs, isValid);
 
         // The candidate shows on the first sample at which its rest has lasted OfferShowAfterMs (">=":
@@ -649,17 +770,27 @@ public sealed class ActivationOfferEngine
 
         if (!_fired)
         {
-            if (isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx)
+            bool inHit = isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx;
+            if (inHit)
             {
                 // The first look (round-button B1): the first valid in-hit sample, on the sample
                 // clock from the show. One record copy per offer lifetime, never per sample.
                 if (_offer.FirstLookMs is null)
                     _offer = _offer with { FirstLookMs = (timestampUs - _offer.ShownAtUs) / 1000.0 };
 
-                // The offered run's samples extend the deadline while it holds (the in-hit sample
-                // itself extends it too, below).
-                ExtendExpiry(timestampUs);
+                // Only a dwelling look keeps the button alive (F3): a saccade's transit samples through
+                // the hit area are not a look at it.
+                if (IsLookMature(timestampUs))
+                {
+                    _lastStrongUs = timestampUs;
+                    _strongWasHit = true;    // cap2: the next near-miss look may hold the button up
+                    _exemptLookId = -1;
+                    ExtendExpiry(timestampUs);
+                }
+            }
 
+            if (inHit && FillTakesLook(timestampUs))
+            {
                 // A silence longer than the pause budget (and longer than a mere frame) is the same
                 // evidence as invalid samples: the eyes were not there, so it aborts the dwell and —
                 // as in the detector's new run — the resuming sample credits nothing (review A F5 and
@@ -667,7 +798,7 @@ public sealed class ActivationOfferEngine
                 long silenceUs = timestampUs - _lastSampleUs;
                 _missSinceUs = null;
                 if (silenceUs > Math.Max(FixationDetector.AgeCreditCapMs * 1000L, OutsidePauseBudgetMs * 1000L))
-                    _dwellUs = 0;
+                    ResetFill();
                 else
                     CreditSample(timestampUs);
 
@@ -679,12 +810,18 @@ public sealed class ActivationOfferEngine
             }
             else
             {
-                if (isValid && _nearMissRunActive)
-                    ExtendExpiry(timestampUs);
+                // A near-miss run's samples extend the deadline, up to the cap. An in-hit sample the
+                // fill does not take (a young look elsewhere) is not a near miss.
+                if (isValid && _nearMissRunActive && !inHit)
+                    ExtendNearMiss(timestampUs);
 
                 // The offered run's samples extend the deadline while it holds, even off the button.
                 if (_runRole == RunRole.Offered)
+                {
+                    _lastStrongUs = timestampUs;
+                    _strongWasHit = false;
                     ExtendExpiry(timestampUs);
+                }
 
                 PauseDwell(timestampUs);
             }
@@ -822,6 +959,10 @@ public sealed class ActivationOfferEngine
         _dwellUs = 0;
         _peakDwellUs = 0;
         _missSinceUs = null;
+        _fillLookId = -1;
+        _lastStrongUs = timestampUs;
+        _strongWasHit = false;
+        _exemptLookId = -1;
         _runRole = RunRole.Offered;
         _lastRefusalReason = null;   // an offer was made: the next refusal raises again (F3)
         return true;
@@ -871,14 +1012,150 @@ public sealed class ActivationOfferEngine
             _offer = _offer with { ExpiresAtUs = deadline };
     }
 
+    // A near miss extends the offer like any activity, but never past linger + NearMissCapMs after the
+    // last real activity (F3): it cannot keep the button — and the ring held for it — up on its own.
+    // cap2 (F3 fixup-01): the one mature near-miss look that directly follows a look AT the button is
+    // still going for it (held just outside the hit area), so it extends without the cap. Activity from
+    // the offered run or the creation does not arm this, so slow re-reading beside the button (R3) still
+    // closes it; a later look at the button re-arms it.
+    private void ExtendNearMiss(long timestampUs)
+    {
+        if (_strongWasHit && IsLookMature(timestampUs))
+        {
+            if (_exemptLookId == -1)
+                _exemptLookId = _lookId;
+            if (_exemptLookId == _lookId)
+            {
+                ExtendExpiry(timestampUs);
+                return;
+            }
+        }
+
+        long deadline = Math.Min(
+            timestampUs + (OfferExpiryMs * 1000L),
+            _lastStrongUs + ((OfferExpiryMs + (long)NearMissCapMs) * 1000L));
+        if (deadline > _offer!.ExpiresAtUs)
+            _offer = _offer with { ExpiresAtUs = deadline };
+    }
+
     private void CreditSample(long timestampUs)
     {
         long dt = timestampUs - _lastSampleUs;
         if (dt <= 0)
             return;
-        _dwellUs += Math.Min(dt, FixationDetector.AgeCreditCapMs * 1000L);
+        long credit = Math.Min(dt, FixationDetector.AgeCreditCapMs * 1000L);
+        _dwellUs += credit;
+        _lookCreditUs += credit;
         if (_dwellUs > _peakDwellUs)
             _peakDwellUs = _dwellUs;
+    }
+
+    // Segments the valid samples into looks (F3), the detector's way: a new look starts on the first
+    // sample, after a gap past the detector's budget, or more than R from the current look's centroid
+    // (tested before the sample is added) — or wherever the detector's own verdict says so. Runs for
+    // every sample, offer or not, so a look that began before an offer keeps its true age. Invalid
+    // samples change nothing, as in the detector.
+    private void TrackLook(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesLook,
+        PhysicalPoint? rawPoint)
+    {
+        if (!isValid)
+            return;
+        bool newLook = _lookCount == 0
+            || !(continuesLook
+                 ?? (timestampUs - _lookLastValidUs <= FixationDetector.GapAbortMs * 1000L
+                     && point.DistanceTo(LookCentroid) <= _fixationRadiusPx));
+        if (rawPoint is { } raw)
+        {
+            // The last valid raw point before a gap: the tracker drops samples during saccades, so a jump
+            // can lie further back than the window. Within the detector's gap budget it still counts.
+            int prevIdx = (_rawRingNext - 1 + RawRingSize) % RawRingSize;
+            bool hasPrev = _rawRingCount > 0
+                && timestampUs - _rawRingUs[prevIdx] <= FixationDetector.GapAbortMs * 1000L;
+            var prevRaw = _rawRing[prevIdx];
+            _rawRing[_rawRingNext] = raw;
+            _rawRingUs[_rawRingNext] = timestampUs;
+            _rawRingNext = (_rawRingNext + 1) % RawRingSize;
+            if (_rawRingCount < RawRingSize)
+                _rawRingCount++;
+            if (newLook)
+            {
+                _lookEnteredByJump = Math.Max(
+                    RawJumpWithinWindow(raw, timestampUs),
+                    hasPrev ? raw.DistanceTo(prevRaw) : 0) >= RawJumpPx;
+            }
+        }
+        else if (newLook)
+        {
+            _lookEnteredByJump = true;
+        }
+        if (newLook)
+        {
+            _lookId++;
+            _lookStartUs = timestampUs;
+            _lookSumX = 0;
+            _lookSumY = 0;
+            _lookCount = 0;
+            _lookCreditUs = 0;
+        }
+        _lookSumX += point.X;
+        _lookSumY += point.Y;
+        _lookCount++;
+        _lookLastValidUs = timestampUs;
+    }
+
+    // The farthest the raw gaze lay from its current point within the last RawJumpWindowMs.
+    private double RawJumpWithinWindow(PhysicalPoint raw, long timestampUs)
+    {
+        double farthest = 0;
+        for (int i = 0; i < _rawRingCount; i++)
+        {
+            if (timestampUs - _rawRingUs[i] <= RawJumpWindowMs * 1000L)
+                farthest = Math.Max(farthest, raw.DistanceTo(_rawRing[i]));
+        }
+        return farthest;
+    }
+
+    private PhysicalPoint LookCentroid => new(_lookSumX / _lookCount, _lookSumY / _lookCount);
+
+    // The disc rule's radius (F3 fixup-01): the drawn disc's radius in physical px, less the inset.
+    private double DiscLookRadiusPx => (LayoutConstants.SharedButtonRadius * _scale) - DiscLookInsetPx;
+
+    private bool IsLookMature(long timestampUs) => timestampUs - _lookStartUs >= LookMatureMs * 1000L;
+
+    /// <summary>
+    /// Whether the fill takes this in-hit sample's look (F3, rule KE), moving the anchor and restarting
+    /// the fill as the rule says: the anchor's own look and a look back within R of the anchor carry on;
+    /// a look that moved more than R away credits nothing until it is <see cref="LookMatureMs"/> old,
+    /// and then takes the fill over from its own credit. A look on the drawn disc, or one entered without
+    /// a raw jump, has not moved (KE-D2). The offer's first look — and the first look after the fill was
+    /// lost — fills from its first sample and anchors once mature.
+    /// </summary>
+    private bool FillTakesLook(long timestampUs)
+    {
+        var centroid = LookCentroid;
+        if (_fillLookId == _lookId)
+        {
+            _fillAnchor = centroid;
+            return true;
+        }
+
+        // F3 fixup-01 (KE-D2): a look counts as elsewhere only when it is off the drawn disc and began with
+        // a raw jump. (A fill that was lost has no owner — ResetFill — so a zero fill never waits or counts.)
+        bool moved = _fillLookId >= 0
+            && centroid.DistanceTo(_fillAnchor) > _fixationRadiusPx
+            && centroid.DistanceTo(_offer!.Button) > DiscLookRadiusPx
+            && _lookEnteredByJump;
+        if (!IsLookMature(timestampUs))
+            return !moved;
+
+        if (moved)
+        {
+            _dwellUs = _lookCreditUs;
+            _offer = _offer! with { FillRestarts = _offer.FillRestarts + 1 };
+        }
+        _fillLookId = _lookId;
+        _fillAnchor = centroid;
+        return true;
     }
 
     private void PauseDwell(long timestampUs)
@@ -897,7 +1174,15 @@ public sealed class ActivationOfferEngine
         // Budget 0 is the reset-semantics comparison: any single outside sample resets (review B F8's
         // label), not the second one.
         if (OutsidePauseBudgetMs <= 0 || timestampUs - _missSinceUs > OutsidePauseBudgetMs * 1000L)
-            _dwellUs = 0;
+            ResetFill();
+    }
+
+    // The fill is gone (a long look away, a silence): no look owns it any more, so the next look on the
+    // button fills from its first sample and is not counted as a restart (F3 fixup-01, review F5).
+    private void ResetFill()
+    {
+        _dwellUs = 0;
+        _fillLookId = -1;
     }
 
     /// <summary>Whether P is outside the screen but inside it inflated by

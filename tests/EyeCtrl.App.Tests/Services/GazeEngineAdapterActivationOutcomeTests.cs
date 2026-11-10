@@ -307,7 +307,7 @@ public class GazeEngineAdapterActivationOutcomeTests
         Check.WithCustomMessage("lines: " + string.Join(" | ", logger.Lines)).That(fired).HasSize(1);
         long expectedMs = (firstLookUs - offer.ShownAtUs) / 1000;
         Check.That(expectedMs).IsStrictlyGreaterThan(0L);
-        Check.That(fired[0].Equals($"Offer fired #{offer.Id} firstLookMs={expectedMs}", StringComparison.Ordinal))
+        Check.That(fired[0].Equals($"Offer fired #{offer.Id} firstLookMs={expectedMs} fillRestarts=0", StringComparison.Ordinal))
             .IsTrue();
     }
 
@@ -367,7 +367,7 @@ public class GazeEngineAdapterActivationOutcomeTests
 
         var fired = logger.Lines.Where(l => l.StartsWith("Offer fired #", StringComparison.Ordinal)).ToList();
         Check.WithCustomMessage("lines: " + string.Join(" | ", logger.Lines)).That(fired).HasSize(1);
-        Check.That(fired[0]).IsEqualTo($"Offer fired #{offer.Id} firstLookMs=33");
+        Check.That(fired[0]).IsEqualTo($"Offer fired #{offer.Id} firstLookMs=33 fillRestarts=0");
     }
 
     [StaFact]

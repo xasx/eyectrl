@@ -775,10 +775,11 @@ public class GazeEngine : IDisposable
         // Every expiry is logged for the live check, before the telemetry threshold below: a glance
         // that did not complete is exactly what the "no chase" and completion-count readings need.
         // firstLookMs (round-button B1) is `none` for an offer that was never looked at — the
-        // "popped up while reading" count tools/activation_log_metrics.py reports.
+        // "popped up while reading" count tools/activation_log_metrics.py reports. fillRestarts (F3) counts
+        // the looks elsewhere in the hit area that restarted the fill: reading through the button's area.
         _logger?.LogInformation(
-            "Offer expired unused #{Id} (dwell {Progress:P0}) firstLookMs={FirstLookMs}",
-            offer.Id, progressAtExpiry, offer.FirstLookLogValue);
+            "Offer expired unused #{Id} (dwell {Progress:P0}) firstLookMs={FirstLookMs} fillRestarts={FillRestarts}",
+            offer.Id, progressAtExpiry, offer.FirstLookLogValue, offer.FillRestarts);
 
         // The same threshold the age-based abandonment used: below it the gaze merely passed over the
         // button, not an attempt the user gave up on.
@@ -929,10 +930,12 @@ public class GazeEngine : IDisposable
             // documented call order). Both see only non-gap samples; the engine additionally gets the
             // raw validity so a tracker-reported invalid sample pauses the button dwell.
             // The detector's own verdict on this sample, asked before it sees it (round button B3
-            // fixup-01): a delayed button shows only on a sample that continues the run.
+            // fixup-01): a delayed button shows only on a sample that continues the run. The raw point
+            // (calibrated, before the filter) tells the button's looks a saccade from a slide (F3 fixup-01).
             InteractionManager.NoteActivationGazeSample(
                 filtered, gaze.TimestampMicroseconds, gaze.IsValid,
-                _fixationDetector.ContinuesRun(filtered, gaze.TimestampMicroseconds, gaze.IsValid));
+                _fixationDetector.ContinuesRun(filtered, gaze.TimestampMicroseconds, gaze.IsValid),
+                new PhysicalPoint(corrected.X, corrected.Y));
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
         }
 

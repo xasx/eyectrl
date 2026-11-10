@@ -82,7 +82,7 @@ public class GazeEngineOfferFirstLookLogTests
 
         var lines = ExpiredLines(logger);
         Check.WithCustomMessage("lines: " + string.Join(" | ", logger.Lines)).That(lines).HasSize(1);
-        Check.That(lines[0].EndsWith(" firstLookMs=none", StringComparison.Ordinal)).IsTrue();
+        Check.That(lines[0].EndsWith(" firstLookMs=none fillRestarts=0", StringComparison.Ordinal)).IsTrue();
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class GazeEngineOfferFirstLookLogTests
         Check.WithCustomMessage("lines: " + string.Join(" | ", logger.Lines)).That(lines).HasSize(1);
         long expectedMs = (firstLookUs - offer.ShownAtUs) / 1000;
         Check.That(expectedMs).IsStrictlyGreaterThan(0L);
-        Check.That(lines[0].EndsWith($" firstLookMs={expectedMs}", StringComparison.Ordinal)).IsTrue();
+        Check.That(lines[0].EndsWith($" firstLookMs={expectedMs} fillRestarts=0", StringComparison.Ordinal)).IsTrue();
         Check.That(lines[0]).StartsWith($"Offer expired unused #{offer.Id} (dwell ");
     }
 }

@@ -373,9 +373,12 @@ public class InteractionManager
     /// filtered point, <paramref name="isValid"/> the raw sample's validity: a sample the tracker
     /// reported invalid pauses the button dwell even though its held position looks valid.
     /// <paramref name="continuesRun"/> is the fixation detector's verdict on this sample (round button
-    /// B3 fixup-01): a delayed offer shows only on a sample that continues its run.
+    /// B3 fixup-01): a delayed offer shows only on a sample that continues its run. The same verdict,
+    /// unmasked by the state, segments the button's looks (F3). <paramref name="rawPoint"/> is the same
+    /// sample before the filter: a new look counts as a look elsewhere only after a raw jump (F3 fixup-01).
     /// </summary>
-    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null)
+    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null,
+        PhysicalPoint? rawPoint = null)
     {
         if (_activationOffers is null) return;
         var candidate = _activationOffers.OfferCandidatePoint;
@@ -383,9 +386,11 @@ public class InteractionManager
         // run, so a waiting button never shows on it. A Pause or keyboard toggle can land on the
         // dispatcher between this sample's request drain and its feed; without this the button would
         // be published here and torn down by the next drain, a one-sample flash. The candidate's run
-        // is always a Fixation run, so nothing else changes.
+        // is always a Fixation run, so nothing else changes. The looks (F3) take the raw verdict:
+        // reading words never reach Fixation, and a masked verdict would make every sample a new look.
         _activationOffers.Update(point, timestampUs, isValid,
-            CurrentState == InteractionState.Fixation ? continuesRun : false);
+            CurrentState == InteractionState.Fixation ? continuesRun : false,
+            continuesLook: continuesRun, rawPoint: rawPoint);
         // A delayed offer (round button B3) shows here rather than at its settle. The corner fix's pin
         // override still applies: a clamped candidate's offer keeps the ring at the RAW settle point.
         var live = _activationOffers.CurrentOffer;

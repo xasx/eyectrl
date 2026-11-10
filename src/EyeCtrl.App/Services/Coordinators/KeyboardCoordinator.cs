@@ -169,6 +169,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
                     settings.Dwell.KeyboardKeyDwellMs,
                     settings.Dwell.KeyboardPredictionDwellMs,
                     settings.Dwell.DwellCooldownMs);
+                // E1 step 0a: name the layout on every shown/layout line — name, file hash, app version —
+                // so a before/after layout comparison groups the log by lv instead of by date. A reload
+                // (a settings apply, possibly switching ActiveLayout) re-stamps here.
+                Context!.KeyboardVM.E1.SetStamp(KeyboardE1Stamp.FromLayoutFile(
+                    layout.Name, layoutPath,
+                    typeof(KeyboardCoordinator).Assembly.GetName().Version?.ToString() ?? "unknown"));
                 layoutLoaded = true;
             }
             catch (Exception ex)

@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -42,7 +43,9 @@ using Xunit;
 /// <item>the property NAMES of each event equal an allow-list written out in this file, so a new
 /// field needs a deliberate edit here (and so a review of whether it can carry content);</item>
 /// <item>every STRING property value is from a closed vocabulary — a class, a layout/action id, an
-/// edge, a source, a cause. A free-text value cannot pass, whatever its name.</item>
+/// edge, a source, a cause — or matches a pinned pattern (<see cref="AllowedPatterns"/>: the layout
+/// stamp's file hash and the app version, E1 step 0a, both facts about shipped artifacts). A
+/// free-text value cannot pass, whatever its name.</item>
 /// </list>
 /// <para>
 /// The probe the session runs against even returns the typed text as the "focused control", to
@@ -97,8 +100,10 @@ public class KeyboardE1PrivacyTests
         ["mode"] = ["Kind", "From", "To"],
         ["modeundo"] = ["Kind", "Ms"],
         ["edge"] = ["Button", "Edge"],
-        ["shown"] = ["Proc", "Edge", "Via", "BoxW", "BoxH"],
-        ["layout"] = ["Sub", "BoxW", "BoxH"],
+        // The layout stamp (E1 step 0a): name, file hash, app version. The hash of a shipped file
+        // and a version number are facts about artifacts on disk, not about anything typed.
+        ["shown"] = ["Proc", "Edge", "Via", "BoxW", "BoxH", "Lay", "Lv", "Ver"],
+        ["layout"] = ["Sub", "BoxW", "BoxH", "Lay", "Lv", "Ver"],
         ["sensitive"] = [],
         ["hidden"] = ["Cause", "VisibleMs"],
         ["mirror"] = ["At", "Res", "MirrorLen", "CtlLen", "Common"],
@@ -135,6 +140,21 @@ public class KeyboardE1PrivacyTests
         ["Cause"] = ["toolbar-toggle", "edge-close", "request", "probe"],
         ["At"] = ["hide", "enter"],
         ["Res"] = ["match", "mismatch", "unsupported", "suppressed", "empty"],
+    };
+
+    /// <summary>
+    /// The string properties a closed vocabulary cannot hold, because they are hashes or versions:
+    /// the layout stamp (E1 step 0a). A hash of a SHIPPED layout file names an artifact on disk —
+    /// not user content, and it cannot be mapped back to anything typed — but its value is not from
+    /// a small set, so it is pinned by pattern instead: 8 lower-case hex characters. The version is
+    /// digits and dots (or the assembly-version fallback "unknown"). "Lay" IS a small set: exactly
+    /// the names <c>KeyboardSettings.ValidLayouts</c> accepts, plus the dashes of an unset stamp.
+    /// </summary>
+    private static readonly Dictionary<string, string> AllowedPatterns = new()
+    {
+        ["Lay"] = @"^(QWERTZ|QWERTY|AZERTY|-)$",
+        ["Lv"] = @"^([0-9a-f]{8}|-)$",
+        ["Ver"] = @"^(\d+(\.\d+)*|unknown|-)$",
     };
 
     /// <summary>The allowed property names of one logged line: by event, and for key/abandon lines by class.</summary>
@@ -233,8 +253,13 @@ public class KeyboardE1PrivacyTests
         vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(
             new InMemoryDictProvider(words ?? SessionWords), "QWERTZ")));
 
-        var layout = KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
+        var layoutPath = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json");
+        var layout = KeyboardLayoutLoader.Load(layoutPath);
+
+        // The stamp LoadKeyboard wires in production, mirrored here so the session's shown/layout
+        // lines carry the real field shapes for the gates above to hold content-free.
+        vm.E1.SetStamp(KeyboardE1Stamp.FromLayoutFile(layout.Name, layoutPath, "0.0.0.0"));
 
         var w = new KeyboardWindow();
         w.SetViewModel(vm);
@@ -453,6 +478,11 @@ public class KeyboardE1PrivacyTests
                 {
                     case int or long or bool:
                         break;
+                    case string s when AllowedPatterns.TryGetValue(name, out var pattern):
+                        // The stamp family: pinned by pattern (see AllowedPatterns), not by a set.
+                        Check.WithCustomMessage($"String property '{name}='{s}' is outside its pattern ({pattern}): {line.Message}")
+                            .That(Regex.IsMatch(s, pattern)).IsTrue();
+                        break;
                     case string s:
                         Check.WithCustomMessage($"String property '{name}' has no closed vocabulary: {line.Message}")
                             .That(AllowedStrings.ContainsKey(name)).IsTrue();
@@ -531,6 +561,37 @@ public class KeyboardE1PrivacyTests
         Check.That(lines.Count(l => l.Event == "layout")).IsStrictlyGreaterThan(0);
         Check.That(lines.Count(l => l.Event == "layout")).IsStrictlyLessThan(lines.Count(l => l.Event == "key"));
         Check.That(lines.Single(l => l.Event == "shown").Props.ContainsKey("BoxW")).IsTrue();
+    }
+
+    /// <summary>
+    /// The layout stamp (E1 step 0a) is on every <c>shown</c> and <c>layout</c> line: the layout's
+    /// name, the first 8 hex of the shipped file's SHA-256, and the app version — so a layout change
+    /// is comparable before/after by hash. Presence is asserted here because the allow-list gate
+    /// above only notices names, not a field that silently stops being WRITTEN; content-freeness is
+    /// the pattern gate above plus the marker gate (a hash of a shipped file cannot be the typed
+    /// text, but a regression that swapped the hash for, say, the focused text would fail HERE).
+    /// </summary>
+    [StaFact]
+    public void TheShownAndLayoutLines_CarryTheLayoutStamp()
+    {
+        var lines = CaptureSession();
+
+        var stamped = lines.Where(l => l.Event is "shown" or "layout").ToList();
+        Check.WithCustomMessage("The session produced no shown/layout line: this gate would pass over nothing.")
+            .That(stamped).Not.IsEmpty();
+        foreach (var line in stamped)
+        {
+            Check.WithCustomMessage($"'{line.Event}' lost the layout name: {line.Message}")
+                .That(line.Props["Lay"]).IsEqualTo("QWERTZ");
+            Check.WithCustomMessage($"'{line.Event}' lost the file hash: {line.Message}")
+                .That(Regex.IsMatch((string)line.Props["Lv"]!, "^[0-9a-f]{8}$")).IsTrue();
+            Check.WithCustomMessage($"'{line.Event}' lost the app version: {line.Message}")
+                .That(Regex.IsMatch((string)line.Props["Ver"]!, @"^\d+(\.\d+)*$")).IsTrue();
+        }
+
+        // Every stamped line carries the SAME hash and version: the stamp identifies the session's
+        // one layout file, so a change mid-session would break the before/after grouping it exists for.
+        Check.That(stamped.Select(l => (string)l.Props["Lv"]!).Distinct()).HasSize(1);
     }
 
     [StaFact]
@@ -726,9 +787,17 @@ public class KeyboardE1PrivacyTests
             Check.WithCustomMessage($"'{first}' and '{second}' are distinguishable (scale {scale}, keys {keyMultiplier})")
                 .That(Signature(b)).ContainsExactly(Signature(a).ToArray());
 
+            // The layout stamp's KNOWN value is the one constant allowed to match: "wert" is a
+            // substring of "QWERTZ", the shipped file's own name, and the stamp is a fact about
+            // that shipped file. Only the exact `lay=QWERTZ` token is replaced — a leak that put
+            // the word inside the stamp under any other spelling is still caught, and the value
+            // itself is pinned to the session's layout name by
+            // TheShownAndLayoutLines_CarryTheLayoutStamp.
+            var knownStamp = $"lay={p.Layout.Name.ToLowerInvariant()}";
             foreach (var line in p.Log.All())
                 foreach (var word in new[] { first, second })
-                    Check.That(line.Message.ToLowerInvariant()).Not.Contains(word);
+                    Check.That(line.Message.ToLowerInvariant().Replace(knownStamp, "lay=-"))
+                        .Not.Contains(word);
         }
         finally { p.Dispose(); }
     }

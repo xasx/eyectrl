@@ -62,7 +62,8 @@ public class KeyboardVisibilityE1Tests
 
         KeyboardCoordinator.RecordVisibilityE1(vm, visible: true, wasVisible: false, "top", "toolbar-toggle");
 
-        Check.That(log.Lines()).ContainsExactly("KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=0 boxh=0");
+        // No stamp wired in this headless rig: the fields are present, dashed.
+        Check.That(log.Lines()).ContainsExactly("KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=0 boxh=0 lay=- lv=- ver=-");
     }
 
     [Fact]

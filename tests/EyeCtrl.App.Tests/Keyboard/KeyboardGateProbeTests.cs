@@ -116,17 +116,15 @@ public class KeyboardGateProbeTests
         };
     }
 
-    private static KeyboardLayout ShippedQwerty() =>
+    private static KeyboardLayout LoadShipped(string file) =>
         KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json"));
+            "src", "EyeCtrl.App", "Resources", "Layouts", file));
 
-    private static KeyboardLayout ShippedQwertz() =>
-        KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
+    private static KeyboardLayout ShippedQwerty() => LoadShipped("qwerty.json");
 
-    private static KeyboardLayout ShippedAzerty() =>
-        KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "azerty.json"));
+    private static KeyboardLayout ShippedQwertz() => LoadShipped("qwertz.json");
+
+    private static KeyboardLayout ShippedAzerty() => LoadShipped("azerty.json");
 
     /// <summary>One row exercising every id shape the escaping classifier keys off, plus a regular key.</summary>
     private static KeyboardLayout SpecialActionLayout()
@@ -303,6 +301,102 @@ public class KeyboardGateProbeTests
                 .That(dead).IsEmpty();
         }
         finally { probe.Dispose(); }
+    }
+
+    // ---- positive half, on the SHIPPED pages (E1 step 0a) --------------------------------------
+    //
+    // The synthetic grid above proves the mechanism; this theory proves the mechanism over what
+    // actually ships, at the user's effective scale 2.0, where the mixed-unit gate bug lived. Every
+    // page of every shipped layout file is probed directly (the layout is opened with the page as
+    // its default sub-layout, so no switch dance can mask a page that never renders), and every key
+    // on it must respond at its own centre. The emoji surface is NOT a sub-layout page — it has no
+    // JSON page to clone — and its enter/exit is already round-tripped at 2.0 by
+    // ShippedQwerty_EveryEscapeKeyRoundTrips_AtScale2 and the accents tests below.
+    //
+    // The window is never shown: the probe rides the same off-screen HwndSource as every other test
+    // in this file (no Window.Show() is ever called).
+
+    private static KeyboardLayout OpenedOnPage(KeyboardLayout layout, string page) => new()
+    {
+        Name = layout.Name,
+        DefaultSubLayout = page,
+        SubLayouts = layout.SubLayouts,
+    };
+
+    [StaTheory]
+    [InlineData("qwerty.json", "letters")]
+    [InlineData("qwerty.json", "numbers")]
+    [InlineData("qwerty.json", "symbols")]
+    [InlineData("qwerty.json", "function")]
+    [InlineData("azerty.json", "letters")]
+    [InlineData("azerty.json", "numbers")]
+    [InlineData("azerty.json", "symbols")]
+    [InlineData("azerty.json", "accents")]
+    [InlineData("azerty.json", "function")]
+    [InlineData("qwertz.json", "letters")]
+    [InlineData("qwertz.json", "numbers")]
+    [InlineData("qwertz.json", "symbols")]
+    [InlineData("qwertz.json", "accents")]
+    [InlineData("qwertz.json", "function")]
+    public void EveryShippedPageKey_RespondsToGazeAtItsOwnCentre_AtScale2(string file, string page)
+    {
+        var layout = LoadShipped(file);
+        Check.WithCustomMessage($"{file} no longer ships a '{page}' page: update this theory's rows " +
+                                "deliberately — a renamed page is probed by its new name, not dropped.")
+            .That(layout.SubLayouts.ContainsKey(page)).IsTrue();
+
+        var probe = Open(OpenedOnPage(layout, page), 2.0);
+        try
+        {
+            // After the rebuild the positions dictionary is only repopulated by the next sample
+            // (the same fixture trap DwellOn documents): one clear sample, one layout pass.
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 1_000);
+            probe.Content.UpdateLayout();
+            var centres = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
+
+            Check.WithCustomMessage($"{file}/{page} reported no key centres — the probe would measure nothing.")
+                .That(centres).Not.IsEmpty();
+
+            long ts = 2_000;
+            var dead = centres
+                .Where(kv => LookAt(probe, kv.Value, ref ts) != kv.Key)
+                .Select(kv => kv.Key).ToList();
+
+            Check.WithCustomMessage(
+                    $"{file}/{page}: {dead.Count} of {centres.Count} keys did not respond to a gaze sample "
+                    + "placed exactly on the key's own reported centre, at effective scale 2.0. Dead keys: "
+                    + $"{string.Join(", ", dead)}")
+                .That(dead).IsEmpty();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// Guard the guard: the shipped-page theory above probes EXACTLY the pages the files ship. A
+    /// new or renamed page that nobody added to the theory would go unprobed forever — the very
+    /// drift this whole file exists to close — so the inline rows must always equal the files.
+    /// </summary>
+    [Fact]
+    public void TheShippedPageTheory_ProbesEveryPageTheFilesShip()
+    {
+        var probed = new HashSet<string>();
+        foreach (var file in new[] { "qwerty.json", "azerty.json", "qwertz.json" })
+            foreach (var page in LoadShipped(file).SubLayouts.Keys)
+                probed.Add($"{file}/{page}");
+
+        var listed = new HashSet<string>
+        {
+            "qwerty.json/letters", "qwerty.json/numbers", "qwerty.json/symbols", "qwerty.json/function",
+            "azerty.json/letters", "azerty.json/numbers", "azerty.json/symbols", "azerty.json/accents",
+            "azerty.json/function", "qwertz.json/letters", "qwertz.json/numbers", "qwertz.json/symbols",
+            "qwertz.json/accents", "qwertz.json/function",
+        };
+
+        Check.WithCustomMessage(
+                $"EveryShippedPageKey_RespondsToGazeAtItsOwnCentre_AtScale2 no longer matches the files. " +
+                $"Missing rows: {string.Join(", ", probed.Except(listed).Order())}. " +
+                $"Stale rows: {string.Join(", ", listed.Except(probed).Order())}.")
+            .That(probed.SetEquals(listed)).IsTrue();
     }
 
     // ---- negative half: nothing else is live. DO NOT DELETE (see class doc). ----

@@ -335,6 +335,10 @@ public class RingStayOwnerScenarioTests
     [StaFact]
     public void A250MsGlanceOff_TheRingStays_AndFires()
     {
+        // F3 (one look fills the button): the "side" glance lands 200 px beside B, inside the hit area, so
+        // it is a second look more than R away — it takes the fill over after 100 ms, and the look back at B
+        // takes it over again. The fill restarts twice and needs a full dwell after the return; "on B again"
+        // is 900 ms (600 before F3) so it can. The word / away glances keep their fill, as before.
         foreach (var target in new[] { "word", "away", "side" })
         {
             var o = Run(target == "away" ? "glance-away" : $"glance-{target}", 5, (rig, p, b) =>
@@ -345,10 +349,19 @@ public class RingStayOwnerScenarioTests
                 var g = target switch { "word" => p, "away" => Offset(b, p, 300, "beyond B"), _ => Offset(b, p, 200, "side +") };
                 rig.Rest(g, 250, 8);
                 rig.Phase = "on B again";
-                rig.Rest(b, 600, 12);
+                rig.Rest(b, 900, 12);
             });
             StaysAtP(o);
             FiresWithTheRingHidden(o);
+            int back = o.Rows.FindIndex(r => r.Phase == "on B again");
+            long firedAfterReturnMs = (o.Rows[o.FiredAt].Us - o.Rows[back].Us) / 1000;
+            // Kept fill: well under a dwell after the return. Restarted fill: the 100 ms wait plus a dwell.
+            if (target == "side")
+                Check.WithCustomMessage($"{o.Name}: fired {firedAfterReturnMs} ms after the return")
+                    .That(firedAfterReturnMs).IsStrictlyGreaterThan(500);
+            else
+                Check.WithCustomMessage($"{o.Name}: fired {firedAfterReturnMs} ms after the return")
+                    .That(firedAfterReturnMs).IsStrictlyLessThan(500);
         }
     }
 

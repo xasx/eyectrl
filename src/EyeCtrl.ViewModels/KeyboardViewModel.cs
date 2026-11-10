@@ -441,9 +441,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>
     /// Key dwell tracking: picks the targeted key and tracks dwell time directly. The pick is
     /// <see cref="KeyTargeting.PickKey"/> — the key whose BOX contains the gaze, else the nearest
-    /// centre — so a gaze inside a key selects that key, and the gaps between keys still belong to
-    /// one (no dead zones). <see cref="NearestKeyId"/> keeps its name: in the gaps it is still the
-    /// nearest key.
+    /// centre among the keys whose box is within 8 physical px — so a gaze inside a key selects
+    /// that key, the gutters between keys still resolve to the nearer one, and empty space (a ragged
+    /// row's indent, beside the keyboard) picks nothing. <see cref="NearestKeyId"/> keeps its name:
+    /// in the gutters it is still the nearest key.
     /// </summary>
     /// <param name="keyScreenPositions">Key centres in physical pixels. Telemetry reports these.</param>
     /// <param name="keyScreenBoxes">Key boxes in physical pixels, from the same transform as the
@@ -523,7 +524,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             }
         }
 
-        // Box-first, then nearest centre. Only WHICH key changes; everything below is the same.
+        // Box-first, then nearest centre within the 8 px band. Only WHICH key changes; everything
+        // below is the same.
         string? nearestId = KeyTargeting.PickKey(gazePoint, keyScreenPositions, keyScreenBoxes);
 
         if (nearestId != NearestKeyId)

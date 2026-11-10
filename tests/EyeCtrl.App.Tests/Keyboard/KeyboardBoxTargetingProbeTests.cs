@@ -22,8 +22,8 @@ using Xunit;
 
 /// <summary>
 /// Box-first targeting on the REAL window: <b>every point inside a key's box selects that key, and
-/// a point outside all boxes selects the nearest-centre key only while it is within 8 physical px
-/// of that key's box — further out, nothing is selected.</b>
+/// a point outside all boxes selects the nearest centre among the keys whose box is within 8
+/// physical px — further out, nothing is selected.</b>
 ///
 /// <para>
 /// Driven through <see cref="KeyboardWindow.UpdateGaze"/> on the shipped QWERTZ letters page at
@@ -41,7 +41,7 @@ using Xunit;
 /// <para><b>Teeth.</b> The sweep asserts that some in-box points are NEARER another key's centre —
 /// the cases nearest-centre gets wrong — so the suite cannot pass against nearest-centre (the
 /// box test removed, or production no longer passing the boxes), and that gap points exist on both
-/// sides of the 8 px cap, so neither the gutter half nor the empty-space half can pass
+/// sides of the per-box 8 px cap, so neither the gutter half nor the empty-space half can pass
 /// vacuously.</para>
 ///
 /// <para><b>Reading the pick.</b> One sample per point, 200 ms apart: every sample is past the F3
@@ -168,6 +168,33 @@ public class KeyboardBoxTargetingProbeTests
         double dx = Math.Max(0, Math.Max(box.X - p.X, p.X - (box.X + box.Width)));
         double dy = Math.Max(0, Math.Max(box.Y - p.Y, p.Y - (box.Y + box.Height)));
         return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>
+    /// The expectation for a point outside every box: the nearest centre among the keys whose OWN
+    /// box is within 8 physical px; null if no box is that close. This is deliberately per box —
+    /// at a boundary between rows of different widths the nearest centre can belong to a key whose
+    /// box is far away while another key's box is only a pixel or two from the gaze.
+    /// </summary>
+    private static string? ExpectedGapPick(
+        Dictionary<string, PhysicalPoint> centres,
+        Dictionary<string, PhysicalRect> oracle,
+        PhysicalPoint p)
+    {
+        string? best = null;
+        var bestDist = double.MaxValue;
+        foreach (var (id, centre) in centres)
+        {
+            if (!oracle.TryGetValue(id, out var box) || DistanceToBox(p, box) > MaxPickGapPx)
+                continue;
+            var d = p.DistanceSquaredTo(centre);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = id;
+            }
+        }
+        return best;
     }
 
     private static string? Pick(Probe probe, PhysicalPoint p, ref long ts)
@@ -453,11 +480,13 @@ public class KeyboardBoxTargetingProbeTests
 
     /// <summary>
     /// A sweep of the whole KeyRows rect — gutters, row indents and the band around the rows.
-    /// Every point inside a box selects its owner. A point outside every box selects the
-    /// nearest-centre key only while it is within 8 physical px of THAT key's box (the 4-DIP
-    /// gutter at 200 % scale); further out — a shorter row's indent — it selects nothing, so empty
-    /// space can no longer fire the outermost key. The expectation is measured from the test's own
-    /// oracle boxes, never from production's.
+    /// Every point inside a box selects its owner. A point outside every box selects the nearest
+    /// CENTRE among the keys whose box is within 8 physical px (the 4-DIP gutter at 200 % scale);
+    /// if no box is that close it selects nothing, so empty space can no longer fire a key. The
+    /// band is per box, not against the nearest centre's box: between two rows of different widths
+    /// the nearest centre can belong to a key whose box is far away while another box is a pixel or
+    /// two from the gaze (the reviewed dead strips). The expectation is measured from the test's
+    /// own oracle boxes, never from production's.
     /// </summary>
     [StaTheory]
     [InlineData(1.25)]
@@ -488,32 +517,52 @@ public class KeyboardBoxTargetingProbeTests
                      .That(owner.Count).IsStrictlyLessThan(2);
 
                 var nearest = NearestCentre(centres, p);
-                double nearestGap = nearest is not null && oracle.TryGetValue(nearest, out var nearestBox)
-                    ? DistanceToBox(p, nearestBox)
-                    : double.PositiveInfinity;
-                string? expected;
-                var nearBoundary = false;
+                var picked = Pick(probe, p, ref ts);
+
                 if (owner.Count == 1)
                 {
                     boxPoints++;
-                    expected = owner[0];
-                    if (nearest != expected)
+                    if (nearest != owner[0])
                         ownerNotNearest++;
-                }
-                else
-                {
-                    gapPoints++;
-                    expected = nearestGap <= MaxPickGapPx ? nearest : null;
-                    nearBoundary = Math.Abs(nearestGap - MaxPickGapPx) < boundaryGuardPx;
-                    if (nearBoundary) boundary++;
-                    if (expected is null) gapNull++; else gapPicked++;
+                    if (picked != owner[0])
+                        wrong.Add($"({x:F1},{y:F1}) box expected {owner[0]} got {picked ?? "null"}");
+                    continue;
                 }
 
-                var picked = Pick(probe, p, ref ts);
-                if (picked != expected && !(nearBoundary && (picked is null || picked == nearest)))
+                gapPoints++;
+                double minGap = double.MaxValue;
+                var nearBoundary = false;
+                foreach (var box in oracle.Values)
                 {
-                    wrong.Add($"({x:F1},{y:F1}) {(owner.Count == 1 ? "box" : "gap")} "
-                              + $"expected {expected ?? "null"} got {picked ?? "null"} (gap {nearestGap:F1} px)");
+                    var gap = DistanceToBox(p, box);
+                    minGap = Math.Min(minGap, gap);
+                    if (Math.Abs(gap - MaxPickGapPx) < boundaryGuardPx)
+                        nearBoundary = true;
+                }
+
+                var expected = ExpectedGapPick(centres, oracle, p);
+                if (nearBoundary) boundary++;
+                if (expected is null) gapNull++; else gapPicked++;
+
+                if (!nearBoundary)
+                {
+                    if (picked != expected)
+                        wrong.Add($"({x:F1},{y:F1}) gap expected {expected ?? "null"} got {picked ?? "null"} "
+                                  + $"(min box gap {minGap:F1} px, nearest centre {nearest})");
+                }
+                else if (minGap <= MaxPickGapPx - boundaryGuardPx)
+                {
+                    // Clearly some box is in reach: a key must be picked, from within the band.
+                    if (picked is null
+                        || !oracle.TryGetValue(picked, out var pickedBox)
+                        || DistanceToBox(p, pickedBox) > MaxPickGapPx + boundaryGuardPx)
+                    {
+                        wrong.Add($"({x:F1},{y:F1}) gap {minGap:F1} px from a box but picked {picked ?? "null"}");
+                    }
+                }
+                else if (minGap > MaxPickGapPx + boundaryGuardPx && picked is not null)
+                {
+                    wrong.Add($"({x:F1},{y:F1}) gap {minGap:F1} px beyond the band but picked {picked}");
                 }
             }
 
@@ -539,10 +588,10 @@ public class KeyboardBoxTargetingProbeTests
     /// <summary>
     /// The owner's E1 case in the shipped layout: a point level with a SHORTER row, beside that
     /// row's outermost key — the space the old nearest-centre rule handed to that key (or to the
-    /// keys above/below it). The point is genuinely empty (no box contains it, every box is more
-    /// than 8 px away) and inside the KeyRows rect, so it reaches the key tracker; the pick must be
-    /// null. Two of the owner's six Wort-löschen fires came from this band (139 px below and 148 px
-    /// above the key centre against a 105 px half-height).
+    /// keys above/below it). The test asserts the point is genuinely empty (no box contains it and
+    /// every box is more than 8 px away) and inside the KeyRows rect, so it reaches the key tracker;
+    /// the pick must be null. Two of the owner's six Wort-löschen fires came from this band (139 px
+    /// below and 148 px above the key centre against a 105 px half-height).
     /// </summary>
     [StaTheory]
     [InlineData(1.25)]
@@ -577,9 +626,12 @@ public class KeyboardBoxTargetingProbeTests
             Check.WithCustomMessage($"({p.X:F1},{p.Y:F1}) is inside a key box; it is not empty space.")
                  .That(oracle.Where(kv => kv.Value.Contains(p.X, p.Y))).IsEmpty();
             var nearest = NearestCentre(centres, p)!;
-            var gap = DistanceToBox(p, oracle[nearest]);
-            Check.WithCustomMessage($"The chosen point is only {gap:F1} px from '{nearest}' — inside the 8 px band.")
-                 .That(gap).IsStrictlyGreaterThan(MaxPickGapPx);
+            var minGap = oracle.Values.Min(b => DistanceToBox(p, b));
+            Check.WithCustomMessage($"The chosen point is only {minGap:F1} px from some key box — inside the 8 px band.")
+                 .That(minGap).IsStrictlyGreaterThan(MaxPickGapPx);
+            Check.WithCustomMessage($"The chosen point is {DistanceToBox(p, oracle[nearest]):F1} px from the nearest "
+                    + $"centre's box ('{nearest}'); the empty-space case needs that box too far to matter.")
+                 .That(DistanceToBox(p, oracle[nearest])).IsStrictlyGreaterThan(MaxPickGapPx);
 
             long ts = 0;
             Check.WithCustomMessage($"Empty space beside '{shorter.MaxX:F1}' at ({p.X:F1},{p.Y:F1}) "

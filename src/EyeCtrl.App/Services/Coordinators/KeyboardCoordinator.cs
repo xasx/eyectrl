@@ -414,7 +414,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             // position plus the refreshed toolbar yield); the other un-yield is the gaze-off gate
             // while the keyboard stays open. It must run after Show() so the window has its real
             // size. The window no longer infers a show from IsVisibleChanged.
-            Context.OverlayManager.Keyboard.PlaceForShow();
+            //
+            // One look, one key: only a REAL hidden→visible transition arms the show's landing
+            // guard. The "request" path fires again whenever another text field is activated
+            // while the keyboard is already up, and re-arming there would dead-key the dwell in
+            // progress until the gaze moved half a key.
+            Context.OverlayManager.Keyboard.PlaceForShow(armLandingGuard: !wasVisible);
             ShowKeyboardEdgeBar();
             if (manageSuppression)
                 ApplyKeyboardSuppression(visible: true);

@@ -49,6 +49,17 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // grid becomes the anchor instead; true between the arm and that sample (one-shot).
     private bool _landingSuppressionPending;
     private long _landingSuppressionDeadlineUs;
+    // A SHOW has no gaze sample to date its landing window from (the keyboard appears between
+    // samples), so its guard starts the window on the first sample after the show. True between
+    // ArmLandingSuppressionAfterShow and that sample; one-shot. See ArmLandingSuppressionAfterShow.
+    private bool _landingSuppressionStartsOnNextSample;
+
+    // "One look, one key": the key that last fired, while it still owes a leave. Until the gaze
+    // has been continuously off it for RearmLeaveUs, that key cannot start a new dwell — the
+    // resting-gaze re-fire (Enter 3 times in 2.5 s, the second 1028 ms after the first with no
+    // restart) that the old cooldown-only rule allowed. Other keys are never blocked.
+    private string? _rearmLatchedKeyId;
+    private long? _rearmLeaveStartedUs;
 
     /// <summary>
     /// How long a pending landing anchor stays good after the un-yield's move (owner decision,
@@ -92,6 +103,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </para>
     /// </summary>
     private const long MaxContinuousSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;
+
+    /// <summary>
+    /// How long the gaze must be CONTINUOUSLY off a just-fired key before that key may start
+    /// another dwell ("one look, one key"). Same rule and value as the prediction bar's
+    /// <c>PredictionBarRearmLatch.LeaveUs</c>: about four tracker frames at the Tobii cadence
+    /// (~33 ms), long enough to reject a single outlier sample, short enough that a deliberate
+    /// look away re-arms within a glance. A sample gap longer than
+    /// <see cref="MaxContinuousSampleGapUs"/> neither counts toward a leave nor completes one.
+    /// </summary>
+    internal const long RearmLeaveUs = 120 * MathConstants.MicrosecondsPerMillisecond;
 
     private readonly IStruggleTelemetrySink? _sink;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
@@ -321,11 +342,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     // E1: emoji enter/exit as mode changes (a hide's own reset is excluded by _e1Resetting).
-    partial void OnActiveSubLayoutIdChanged(string value) => _e1LayoutToken++;
+    // A rebuild replaces the key grid, so the fired key's leave latch cannot survive it.
+    partial void OnActiveSubLayoutIdChanged(string value)
+    {
+        _e1LayoutToken++;
+        ClearRearmLatch();
+    }
 
     partial void OnIsEmojiModeChanged(bool value)
     {
         _e1LayoutToken++;
+        // The emoji surface replaces the key grid: same rebuild rule as a sub-layout swap.
+        ClearRearmLatch();
         if (_e1Resetting) return;
         E1.RecordMode("emoji", value ? "text" : "emoji", value ? "emoji" : "text");
     }
@@ -407,6 +435,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
         _landingSuppressionPending = false;
+        _landingSuppressionStartsOnNextSample = false;
+        ClearRearmLatch();
         FinishHoldOn(capped: false);
         _slipCandidate = null;
         _slipArmed = false;
@@ -468,6 +498,28 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             UpdateHoldOn(keyScreenPositions, keyScreenBoxes, gazePoint, isGazeInsideWindow,
                 timestampUs, sinceLastSampleUs);
 
+        // A SHOW's landing arm has no gaze timestamp to date its window from (the keyboard appears
+        // between samples), so its 1000 ms window starts at the FIRST sample after the show. The
+        // landing itself is still the first in-key sample, handled by the one-shot check below.
+        if (_landingSuppressionPending && _landingSuppressionStartsOnNextSample)
+        {
+            _landingSuppressionStartsOnNextSample = false;
+            _landingSuppressionDeadlineUs = timestampUs + LandingGuardWindowUs;
+        }
+
+        // "One look, one key": advance the fired key's leave clock on EVERY delivered sample —
+        // including those during the cooldown, which return below before any dwell decision, and
+        // those outside the key area (a gaze away from the keyboard is a leave). The same
+        // KeyTargeting.PickKey rule decides "on the fired key", so another key, null and an
+        // outside-the-window gaze all count as off it.
+        if (_rearmLatchedKeyId is not null)
+        {
+            var pickedKeyId = isGazeInsideWindow
+                ? KeyTargeting.PickKey(gazePoint, keyScreenPositions, keyScreenBoxes)
+                : null;
+            AdvanceRearmLatch(pickedKeyId, timestampUs, sinceLastSampleUs);
+        }
+
         if (!isGazeInsideWindow)
         {
             if (NearestKeyId != null)
@@ -526,6 +578,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // Box-first, then nearest centre. Only WHICH key changes; everything below is the same.
         string? nearestId = KeyTargeting.PickKey(gazePoint, keyScreenPositions, keyScreenBoxes);
 
+        // "One look, one key": the key that just fired may not start another dwell while the gaze
+        // is still on it. Nulling the candidate (rather than skipping the dwell code) routes it
+        // through the ordinary NearestKeyId change: no progress is shown and no telemetry is
+        // invented. Other keys never match the latch, so they dwell normally.
+        if (RearmNeedsLeave(nearestId))
+            nearestId = null;
+
         if (nearestId != NearestKeyId)
         {
             if (NearestKeyId != null)
@@ -564,6 +623,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
                 if (elapsed >= dwellMs * MathConstants.MicrosecondsPerMillisecond)
                 {
+                    // Latch BEFORE the activation event: an auto-return swap in a KeyDwellCompleted
+                    // handler rebuilds the grid and clears the latch together with it.
+                    _rearmLatchedKeyId = nearestId;
+                    _rearmLeaveStartedUs = null;
                     EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs, keyScreenBoxes);
                     NearestKeyProgress = 0;
                     NearestKeyId = null;
@@ -947,6 +1010,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
         _landingSuppressionPending = false;
+        _landingSuppressionStartsOnNextSample = false;
+        // A rebuild replaces the grid: a fired key id may now name a DIFFERENT key, so the
+        // leave-before-re-arm latch cannot survive it (the swap's D13 anchor guards the landing).
+        ClearRearmLatch();
 
         // M7 (impl review M2), corrected r2 N1/N4: raised AFTER the assignment above, so a
         // raise landing before it would repaint the OLD grid. On the production reload path
@@ -1485,6 +1552,71 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         _landingSuppressionPending = true;
         _landingSuppressionDeadlineUs = moveTimestampUs + LandingGuardWindowUs;
+        _landingSuppressionStartsOnNextSample = false;
+    }
+
+    /// <summary>
+    /// Arms the SAME one-shot landing guard for a SHOW: a gaze already resting where the keyboard
+    /// appears must not type the key that materializes under it (two of eight ring-opened shows
+    /// typed a letter 432–453 ms after the keyboard appeared).
+    ///
+    /// <para>
+    /// Unlike the un-yield, a show has no gaze sample to date the window from — the keyboard
+    /// appears between samples — so <see cref="LandingGuardWindowUs"/> starts at the FIRST sample
+    /// after the show instead. From there the rule is identical: the first in-key sample is the
+    /// anchor, the radius is half a key, one-shot, and a first landing later than the window is
+    /// not guarded because the gaze has seen the shown grid. Called only for a real hidden→visible
+    /// transition: a repeated show request while the keyboard is up must not re-arm a dead key
+    /// under a dwell in progress.
+    /// </para>
+    /// </summary>
+    public void ArmLandingSuppressionAfterShow()
+    {
+        _landingSuppressionPending = true;
+        _landingSuppressionStartsOnNextSample = true;
+    }
+
+    /// <summary>
+    /// "One look, one key": whether <paramref name="keyId"/> is the key that just fired and still
+    /// owes a leave, so it may not start a new dwell. Null (no key under the gaze) and every other
+    /// key are never latched. Cleared by the hide reset, a layout replacement and a grid rebuild
+    /// (sub-layout swap or emoji change), and by the leave itself.
+    /// </summary>
+    internal bool RearmNeedsLeave(string? keyId) =>
+        keyId is not null && string.Equals(keyId, _rearmLatchedKeyId, StringComparison.Ordinal);
+
+    private void ClearRearmLatch()
+    {
+        _rearmLatchedKeyId = null;
+        _rearmLeaveStartedUs = null;
+    }
+
+    /// <summary>
+    /// One sample of the fired key's leave clock. A sample ON the fired key resets the run; a
+    /// stream pause longer than <see cref="MaxContinuousSampleGapUs"/> resets it too and does not
+    /// complete a leave (a blink or a tracker dropout is not evidence that the gaze moved). Once
+    /// the gaze has been continuously off the key for <see cref="RearmLeaveUs"/>, the latch clears
+    /// and the key is eligible again.
+    /// </summary>
+    private void AdvanceRearmLatch(string? pickedKeyId, long timestampUs, long sinceLastSampleUs)
+    {
+        if (_rearmLatchedKeyId is null) return;
+
+        if (sinceLastSampleUs > MaxContinuousSampleGapUs
+            || RearmNeedsLeave(pickedKeyId))
+        {
+            _rearmLeaveStartedUs = null;
+            return;
+        }
+
+        if (_rearmLeaveStartedUs is not { } startedUs)
+        {
+            _rearmLeaveStartedUs = timestampUs;
+            return;
+        }
+
+        if (timestampUs - startedUs >= RearmLeaveUs)
+            ClearRearmLatch();
     }
 
     private void ArmDwellSuppressionCore(bool clearWhenUnavailable)

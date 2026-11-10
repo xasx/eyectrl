@@ -347,9 +347,14 @@ public class KeyboardE1LoggingTests
         using var rig = new Rig();
         var space = rig.Positions["space"];
         rig.Hold(space, DwellMs);
+        // One look, one key: the same key cannot re-arm while the gaze rests on it. A real look
+        // away (150 ms, past the 120 ms leave) and back is what a second dwell on the same place
+        // now requires — that is the fix, not a workaround of it.
+        rig.Hold(new PhysicalPoint(5000, 5000), 150, inside: false);
         rig.Hold(space, CooldownMs + DwellMs + 60);
 
         var keys = rig.Log.Of("key").Select(Fields).ToList();
+        Check.That(keys).HasSize(2);
         Check.That(keys[0]["saccade"]).IsEqualTo("-");       // nothing came before it
         Check.That(keys[1]["saccade"]).IsEqualTo("short");
     }
@@ -1186,6 +1191,10 @@ public class KeyboardE1LoggingTests
 
         // Once the session ends (Enter) the mirror is a fresh one and is measured again.
         rig.Vm.HandleEnter();
+        // One look, one key: the previous password key was key_0_1 and the gaze has rested on it
+        // throughout. Look away before typing it again, or the leave latch — not the mirror —
+        // would be what this assertion measures.
+        rig.Hold(new PhysicalPoint(5000, 5000), 150, inside: false);
         rig.TypeDirect("key_0_1");
         rig.Vm.BeginMirrorCheck("hide");
         var second = rig.Log.Of("mirror");

@@ -196,8 +196,10 @@ public readonly record struct ActivationSummonBand(ActivationSummonEdge Edge)
 /// on. Reading moves word to word, so it never gathers one look's worth of fill. Two kinds of new look
 /// are never "elsewhere" (F3 fixup-01, KE-D2): a look ON the drawn disc (centroid within the disc's
 /// radius less <see cref="DiscLookInsetPx"/>), and a look the eye reached without a raw jump of
-/// <see cref="RawJumpPx"/> (pursuit, drift, a tracker offset). A fill that was lost (a long look
-/// away) has no owner, so the next look fills it from its first sample.</item>
+/// <see cref="RawJumpPx"/> (pursuit, drift, a tracker offset). The jump is measured against the
+/// raw points of the last <see cref="RawJumpWindowMs"/> and against the last valid raw point before a
+/// gap, since the tracker drops samples during saccades. A fill that was lost (a long look away) has
+/// no owner, so the next look fills it from its first sample.</item>
 /// <item><b>Expiry.</b> The linger after the latest of the offered run's end, the last in-hit sample
 /// of a look at least <see cref="LookMatureMs"/> old (a saccade's transit samples through the hit area
 /// are not a look), and the last sample of a near-miss run — but a near miss can never push it past
@@ -279,7 +281,8 @@ public sealed class ActivationOfferEngine
     /// look began for it to count as a new look elsewhere (F3 fixup-01): an eye that slid or followed
     /// (pursuit, drift, a tracker offset) reached its look without a saccade and keeps the fill. Raw, not
     /// filtered: the One-Euro output smears a small-text word step into a smooth slide. 45 px let jitter
-    /// count as jumps (reading-proof-2).
+    /// count as jumps (reading-proof-2). It assumes raw jitter σ ≲ 15 px (the owner's is about 9 px);
+    /// at σ 20 or more and 90 Hz, jitter alone reads as jumps and an offset pursuit can restart.
     /// </summary>
     public const double RawJumpPx = 60.0;
 
@@ -1063,13 +1066,23 @@ public sealed class ActivationOfferEngine
                      && point.DistanceTo(LookCentroid) <= _fixationRadiusPx));
         if (rawPoint is { } raw)
         {
+            // The last valid raw point before a gap: the tracker drops samples during saccades, so a jump
+            // can lie further back than the window. Within the detector's gap budget it still counts.
+            int prevIdx = (_rawRingNext - 1 + RawRingSize) % RawRingSize;
+            bool hasPrev = _rawRingCount > 0
+                && timestampUs - _rawRingUs[prevIdx] <= FixationDetector.GapAbortMs * 1000L;
+            var prevRaw = _rawRing[prevIdx];
             _rawRing[_rawRingNext] = raw;
             _rawRingUs[_rawRingNext] = timestampUs;
             _rawRingNext = (_rawRingNext + 1) % RawRingSize;
             if (_rawRingCount < RawRingSize)
                 _rawRingCount++;
             if (newLook)
-                _lookEnteredByJump = RawJumpWithinWindow(raw, timestampUs) >= RawJumpPx;
+            {
+                _lookEnteredByJump = Math.Max(
+                    RawJumpWithinWindow(raw, timestampUs),
+                    hasPrev ? raw.DistanceTo(prevRaw) : 0) >= RawJumpPx;
+            }
         }
         else if (newLook)
         {

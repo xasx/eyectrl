@@ -127,6 +127,13 @@ public class ActivationOfferOneLookTests
                 Look(new PhysicalPoint(2400 + (300 * i), 1800), 400);
         }
 
+        /// <summary>A point offset from B by (<paramref name="dx"/>, <paramref name="dy"/>) screen px.</summary>
+        public PhysicalPoint At(double dx, double dy) => new(B.X + dx, B.Y + dy);
+
+        /// <summary>Samples the tracker lost: the clock moves on and the engine sees nothing (the gap
+        /// interpolator holds them back in production).</summary>
+        public void Lose(int samples) => Ts += samples * FrameUs;
+
         public void Blink(int ms)
         {
             long start = Ts;
@@ -624,5 +631,151 @@ public class ActivationOfferOneLookTests
         Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(1);
         // 2 credited, 2 held (66 / 99 ms), the 5th restarts at its own 66 + 33, then 13 more reach 528.
         Check.That(s.FiredAfterMs(slid)).IsEqualTo(18 * 33.0);
+    }
+
+    // ── F3 fixup-02 (review-02) ─────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(33_000L, 2)]
+    [InlineData(11_111L, 9)]
+    public void AReadingSaccadeHiddenByLostSamples_StillCountsAsAJump(long frameUs, int lost)
+    {
+        // Review-02 N1: the tracker drops samples during saccades. Two words off the disc, 120 px from B and
+        // 150 px apart, separated by about 100 ms of lost samples: the second word's first raw point has no
+        // neighbour in the 80 ms window, so without the last point before the gap the saccade read as "no
+        // jump", the second word carried the fill on, and reading fired again. Mutant: drop hasPrev → red.
+        var s = new Script(frameUs);
+        s.Offered();
+        s.Look(s.At(-75, 93.7), 330, withRaw: true);
+        s.Lose(lost);
+        s.Look(s.At(75, 93.7), 330, withRaw: true);
+
+        Check.That(s.Fired).IsEmpty();
+        Check.That(s.Engine.CurrentOffer!.FillRestarts).IsEqualTo(1);
+    }
+
+    [Theory]
+    [InlineData(33_000L, 2)]
+    [InlineData(11_111L, 9)]
+    public void ASlideAcrossLostSamples_IsStillOneLook(long frameUs, int lost)
+    {
+        // The control: the same two spots, but the eye slides from one to the other (raw steps of 15 px)
+        // and the samples are lost mid-slide with the eye barely moving (15 px across the gap). No jump, so
+        // the fill carries on and fires.
+        var s = new Script(frameUs);
+        s.Offered();
+        s.Look(s.At(-75, 93.7), 330, withRaw: true);
+        for (int i = 1; i <= 10 && s.Fired.Count == 0; i++)
+        {
+            if (i == 5)
+                s.Lose(lost);
+            var at = s.At(-75 + (15 * i), 93.7);
+            s.Sample(at, raw: at);
+        }
+        for (int i = 0; i < 40 && s.Fired.Count == 0; i++)
+            s.Sample(s.At(75, 93.7), raw: s.At(75, 93.7));
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void A90HzSaccadeSpreadOverSevenSamples_ReadsAsAJump()
+    {
+        // Review-02 Z7: at 90 Hz a saccade of 120 px can arrive as 7 samples of about 17 px. The 80 ms window
+        // must hold all of them (the ring holds 32), so the new look began with a jump and takes the fill
+        // over. Mutant: a 4-entry ring (33 ms at 90 Hz: 51 px) → no jump, no restart. Red.
+        var s = new Script(11_111L);
+        s.Offered();
+        s.Look(s.At(-75, 93.7), 330, withRaw: true);
+        for (int i = 1; i <= 7; i++)
+        {
+            var at = s.At(-75 + (17.14 * i), 93.7);
+            s.Sample(at, raw: at);
+        }
+        s.Look(s.At(45, 93.7), 300, withRaw: true);
+
+        Check.That(s.Fired).IsEmpty();
+        Check.That(s.Engine.CurrentOffer!.FillRestarts).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void An600PxPerSecondSlideOffTheDisc_IsNotAJump()
+    {
+        // Review-02 Z5: a slide at 600 px/s between two spots off the disc moves 48 px in the 80 ms window
+        // (no jump: the fill carries on) but 72 px in 120 ms. Mutant: the window at 120 ms → a jump, a
+        // restart. Red.
+        var s = new Script(11_111L);
+        s.Offered();
+        s.Look(s.At(-75, 93.7), 330, withRaw: true);
+        for (int i = 1; i <= 22 && s.Fired.Count == 0; i++)
+        {
+            var at = s.At(-75 + (6.667 * i), 93.7);
+            s.Sample(at, raw: at);
+        }
+        for (int i = 0; i < 60 && s.Fired.Count == 0; i++)
+            s.Sample(s.At(72, 93.7), raw: s.At(72, 93.7));
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ANewLookAtB_ReArmsCap2_ForTheNextHeldNearMiss()
+    {
+        // Review-02 Z9: on B, held just outside for 2 s (the exempt look), on B again, then held just outside
+        // at ANOTHER spot for 2 s, then back: the second look at B re-arms the exemption, so the button is
+        // still up. Mutant: a look at B does not clear the exempt look → the second hold is capped and the
+        // button closes. Red.
+        var s = new Script();
+        s.Offered();
+        s.Look(s.FromB(40, "down"), 300);
+        s.Look(s.FromB(240, "down"), 2000);
+        s.Look(s.FromB(40, "down"), 300);
+        s.Look(s.FromB(240, "side"), 2000);
+        s.Look(s.B, 800);
+
+        Check.That(s.Expired).IsEmpty();
+        Check.That(s.Fired).HasSize(1);
+    }
+
+    [Fact]
+    public void ANewOffer_DoesNotInheritCap2_FromALookAtTheOldButton()
+    {
+        // Review-02 Z16: a look at offer 1's button arms the exemption; a settle elsewhere makes offer 2; a
+        // near miss held at offer 2 without ever looking at its button is capped: it closes at linger + cap
+        // after the new offer's run. Mutant: MakeOffer keeps the arm → offer 2 stays up. Red.
+        var s = new Script();
+        s.Offered();
+        s.Look(s.FromB(40, "down"), 300);
+        long strong = s.OfferedAt(new PhysicalPoint(2400, 1300));
+        s.Look(s.FromB(240, "beyond"), 2500);
+
+        Check.That(s.Expired).HasSize(1);
+        long capUs = strong + ((ActivationOfferEngine.ProductOfferExpiryMs + ActivationOfferEngine.NearMissCapMs) * 1000L);
+        Check.That(s.Expired[0].Us).IsStrictlyGreaterThan(capUs);
+        Check.That(s.Expired[0].Us).IsLessOrEqualThan(capUs + FrameUs);
+    }
+
+    [Fact]
+    public void AfterASilenceLostTheFill_ALookElsewhere_FillsAtOnce_AndCountsNoRestart()
+    {
+        // Review-02 Z11, F5 at the SILENCE site: 300 ms on B, 528 ms with no samples, then two samples on the
+        // disc (accepted by the fill, so the silence branch loses the fill), then a jump to a spot off the
+        // disc, > R from the old anchor. The lost fill has no owner: the spot fills at once and counts no
+        // restart. Mutant: the silence branch keeps the owner → the spot waits and counts a restart. Red.
+        var s = new Script();
+        s.Offered();
+        s.Look(s.B, 300);
+        s.Lose(15);                               // 528 ms between samples: past the 500 ms budget
+        s.Sample(s.FromB(40, "side-"));
+        s.Sample(s.FromB(40, "side-"));
+        long side = s.Ts;
+        s.Look(s.FromB(150, "side"), 800);
+
+        Check.That(s.Fired).HasSize(1);
+        Check.That(s.Fired[0].Offer.FillRestarts).IsEqualTo(0);
+        // 33 ms from the second disc sample, then 15 samples reach 528.
+        Check.That(s.FiredAfterMs(side)).IsEqualTo(15 * 33.0);
     }
 }

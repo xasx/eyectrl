@@ -182,9 +182,12 @@ public class KeyboardPredictionExclusionTests
     }
 
     /// <summary>
-    /// A point 20 DIP below a suggestion cell's bottom edge. Inside the cell's half-diagonal hit
+    /// A point 16 DIP below a suggestion cell's bottom edge. Inside the cell's half-diagonal hit
     /// circle for ANY cell width (the circle's radius is at least ~69.5 DIP) and inside KeyRows
-    /// (about 11 DIP below its top), so it is the robust overlap point for the mechanism test.
+    /// (about 7 DIP below its top), so it is the robust overlap point for the mechanism test. It is
+    /// also within 8 DIP of the first key row's box: the key tracker refuses a pick further out
+    /// (KeyTargeting's 8 px cap), and this test needs the key detector live while the prediction
+    /// detector sees the same point.
     /// </summary>
     private static PhysicalPoint BelowCell(FrameworkElement cell, double dipBelowBottom)
     {
@@ -249,7 +252,7 @@ public class KeyboardPredictionExclusionTests
                 .That(progress.LastOrDefault()).IsStrictlyGreaterThan(0.0);
 
             // The overlap point: inside the key grid and inside the suggestion's hit circle.
-            var overlap = BelowCell(cell, dipBelowBottom: 20);
+            var overlap = BelowCell(cell, dipBelowBottom: 16);
             Check.WithCustomMessage("The overlap point is not inside the key area.")
                 .That(IsInsideKeyArea(probe.Window, overlap)).IsTrue();
             Check.WithCustomMessage("The overlap point is not inside the prediction circle.")

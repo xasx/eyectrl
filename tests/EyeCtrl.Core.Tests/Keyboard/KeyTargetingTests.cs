@@ -12,6 +12,10 @@ using EyeCtrl.Core.Models;
 /// <para>Row (y 0–100): <c>wide</c> spans x 0–240 (centre 120), a 4 px gutter, <c>a</c> spans
 /// x 244–344 (centre 294). The point (230, 50) is inside <c>wide</c> but 110 px from its centre
 /// and 64 px from <c>a</c>'s.</para>
+///
+/// <para>Outside every box the nearest centre wins only within 8 physical px of that key's box;
+/// beyond the band the pick is null (empty space is not a key). The gutter and the gutters at
+/// 100 % and 200 % scale are inside the band; a ragged row's indent is outside it.</para>
 /// </summary>
 public class KeyTargetingTests
 {
@@ -44,26 +48,42 @@ public class KeyTargetingTests
     }
 
     [Theory]
-    // In the 4 px gutter between the boxes: nearer a's centre.
+    // In the 4 px gutter between the boxes: nearer a's centre, 2 px from a's box.
     [InlineData(242, 50, "a")]
-    // Above the row (an indent / gap band), over the wide key's left half: nearer wide's centre.
-    [InlineData(60, -10, "wide")]
-    // Above the row, over a: nearer a.
-    [InlineData(300, -10, "a")]
-    // Below the row near the wide key's right edge: outside every box, nearer a's centre — the
-    // gap keeps nearest-centre, it is NOT extended to "nearest box".
-    [InlineData(235, 105, "a")]
-    public void OutsideEveryBox_PicksTheNearestCentre(double x, double y, string expected)
+    // Inside the gutter, hard against a's left edge.
+    [InlineData(243, 50, "a")]
+    // Exactly 8 px above the wide key's box: the band is inclusive.
+    [InlineData(60, -8, "wide")]
+    // Within the band above the wide key.
+    [InlineData(60, -4, "wide")]
+    public void OutsideEveryBox_Within8PixelsOfThatKeysBox_PicksTheNearestCentre(
+        double x, double y, string expected)
     {
         var (centres, boxes) = Row();
         Check.That(KeyTargeting.PickKey(new PhysicalPoint(x, y), centres, boxes)).IsEqualTo(expected);
     }
 
-    [Fact]
-    public void OutsideEveryBox_StillPicksAKey_FarFromTheGrid()
+    [Theory]
+    // 10 px above the row (a row indent / gap band): outside the 8 px band.
+    [InlineData(60, -10)]
+    // 10 px above the row, over a.
+    [InlineData(300, -10)]
+    // Below the row near the wide key's right edge: 9 px left of a's box and 5 px below it, so
+    // 10.3 px from a's edge — outside the band even though a is nearest.
+    [InlineData(235, 105)]
+    // Just past the inclusive boundary.
+    [InlineData(60, -8.001)]
+    public void OutsideEveryBox_FurtherThan8PixelsFromThatKeysBox_PicksNothing(double x, double y)
     {
         var (centres, boxes) = Row();
-        Check.That(KeyTargeting.PickKey(new PhysicalPoint(-5000, 9000), centres, boxes)).IsEqualTo("wide");
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(x, y), centres, boxes)).IsNull();
+    }
+
+    [Fact]
+    public void FarFromTheGrid_PicksNothing()
+    {
+        var (centres, boxes) = Row();
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(-5000, 9000), centres, boxes)).IsNull();
     }
 
     [Fact]
@@ -74,6 +94,46 @@ public class KeyTargetingTests
         Check.That(KeyTargeting.PickKey(new PhysicalPoint(240, 50), centres, boxes)).IsEqualTo("wide");
         // a's left edge belongs to a.
         Check.That(KeyTargeting.PickKey(new PhysicalPoint(244, 0), centres, boxes)).IsEqualTo("a");
+    }
+
+    /// <summary>
+    /// A 4-DIP gap at 100 % (4 physical px) and 200 % (8 physical px, this owner's scale) still
+    /// resolves to the nearer key. The 8 px band is exactly the 200 % gutter, so the whole gutter
+    /// keeps the nearest-centre rule; a narrower band would open a dead zone between keys.
+    /// </summary>
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AdjacentKeyGap_At4Dip_StillPicksTheNearerKey(double scale)
+    {
+        double gap = 4.0 * scale;
+        var left = new PhysicalRect(0, 0, 100, 100);
+        var right = new PhysicalRect(100 + gap, 0, 100, 100);
+        var centres = new Dictionary<string, PhysicalPoint> { ["left"] = left.Center, ["right"] = right.Center };
+        var boxes = new Dictionary<string, PhysicalRect> { ["left"] = left, ["right"] = right };
+
+        // One pixel off the left box: still nearer the left centre.
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(101, 50), centres, boxes)).IsEqualTo("left");
+        // One pixel off the right box: still nearer the right centre.
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(100 + gap - 1, 50), centres, boxes)).IsEqualTo("right");
+        // The exact middle is a tie, inside the band: layout order decides, as it always did.
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(100 + gap / 2, 50), centres, boxes)).IsEqualTo("left");
+    }
+
+    /// <summary>
+    /// A gap wider than two 8 px bands has no owner in its middle: 10 px from either box is empty
+    /// space, not a reach. Nothing fires until the gaze comes within 8 px of a key.
+    /// </summary>
+    [Fact]
+    public void GapWiderThanTheBand_PicksNothing()
+    {
+        var left = new PhysicalRect(0, 0, 100, 100);
+        var right = new PhysicalRect(120, 0, 100, 100);   // 20 px gutter
+        var gap = new PhysicalPoint(110, 50);             // 10 px from both boxes
+
+        Check.That(KeyTargeting.PickKey(gap,
+            new Dictionary<string, PhysicalPoint> { ["left"] = left.Center, ["right"] = right.Center },
+            new Dictionary<string, PhysicalRect> { ["left"] = left, ["right"] = right })).IsNull();
     }
 
     /// <summary>
@@ -106,7 +166,9 @@ public class KeyTargetingTests
 
     /// <summary>
     /// Pass 2 keeps the old loop's tie order too: a gap point exactly between two centres goes to
-    /// the key enumerated first, in both orders.
+    /// the key enumerated first, in both orders. The gutter here is 10 px wide, so its midpoint is
+    /// 5 px from each box — inside the 8 px band, which is where a key pick exists at all; a gap
+    /// wider than the band has no pick in its middle (see <see cref="GapWiderThanTheBand_PicksNothing"/>).
     /// </summary>
     [Fact]
     public void GapPoint_ExactTie_GoesToTheFirstKeyInLayoutOrder()
@@ -152,16 +214,57 @@ public class KeyTargetingTests
         }
     }
 
+    /// <summary>
+    /// A key with a centre but no box cannot be validated when boxes are present, so it is
+    /// refused — the nearest centre alone is not evidence that the gaze reached a key. Points
+    /// inside another key's box still resolve, and a box whose key has no centre is ignored.
+    /// </summary>
     [Fact]
-    public void AKeyWithoutABox_CompetesOnlyOnNearestCentre()
+    public void AKeyWithoutABox_IsRefused_AndDoesNotChangeTheOtherKeys()
     {
         var (centres, boxes) = Row();
         boxes.Remove("wide");
-        // Inside wide's (absent) box: no box contains it, so nearest centre — a.
-        Check.That(KeyTargeting.PickKey(new PhysicalPoint(230, 50), centres, boxes)).IsEqualTo("a");
+        // Inside wide's (absent) box the nearest centre is a, but a's own box is 14 px away.
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(230, 50), centres, boxes)).IsNull();
         // A box whose key has no centre is ignored entirely.
-        var onlyBox = new Dictionary<string, PhysicalRect>(boxes) { ["ghost"] = new(0, 0, 1000, 1000) };
-        Check.That(KeyTargeting.PickKey(new PhysicalPoint(230, 50), centres, onlyBox)).IsEqualTo("a");
+        var withGhost = new Dictionary<string, PhysicalRect>(boxes) { ["ghost"] = new(0, 0, 1000, 1000) };
+        Check.That(KeyTargeting.PickKey(new PhysicalPoint(245, 50), centres, withGhost)).IsEqualTo("a");
+    }
+
+    /// <summary>
+    /// The owner's E1 log: two Wort-löschen fires had the mean gaze 139 px below and 148 px above
+    /// the key's centre against a 105 px half-height — in the band beside a shorter row's end,
+    /// where the old nearest-centre rule handed the space to the outermost key. Row 0 has two keys;
+    /// row 1 ends after one. The gaze beside row 1's outer edge is nearer its centre than the keys
+    /// above, but 110 px from every box: no pick, so no dwell and no fire.
+    /// </summary>
+    [Fact]
+    public void RaggedRowEnd_BesideTheOutermostKeyOfAShorterRow_PicksNothing()
+    {
+        var upperLeft = new PhysicalRect(0, 0, 210, 210);
+        var upperRight = new PhysicalRect(220, 0, 210, 210);
+        var shortRow = new PhysicalRect(0, 220, 210, 210);
+        var centres = new Dictionary<string, PhysicalPoint>
+        {
+            ["upper_left"] = upperLeft.Center,
+            ["upper_right"] = upperRight.Center,
+            ["short_row"] = shortRow.Center,
+        };
+        var boxes = new Dictionary<string, PhysicalRect>
+        {
+            ["upper_left"] = upperLeft,
+            ["upper_right"] = upperRight,
+            ["short_row"] = shortRow,
+        };
+
+        var gaze = new PhysicalPoint(320, 325);   // beside short_row's right edge, in its row band
+        // Precondition: nearest-centre would pick a key here — the short row's own.
+        Check.That(gaze.DistanceSquaredTo(centres["short_row"]))
+             .IsStrictlyLessThan(gaze.DistanceSquaredTo(centres["upper_left"]));
+        Check.That(gaze.DistanceSquaredTo(centres["short_row"]))
+             .IsStrictlyLessThan(gaze.DistanceSquaredTo(centres["upper_right"]));
+
+        Check.That(KeyTargeting.PickKey(gaze, centres, boxes)).IsNull();
     }
 
     [Fact]

@@ -352,6 +352,93 @@ public class KeyboardOneLookOneKeyTests
         Check.That(fired).ContainsExactly("enter");
     }
 
+    // ---- the show release must not leak into D13 (review 02 G1) --------------------------------
+
+    [Fact]
+    public void AnUnYieldAnchor_IsNotReleasedByAnOffKeyLook()
+    {
+        // The un-yield keeps its 1000 ms window and its in-grid-only release. An off-key look —
+        // long enough to release a SHOW anchor — must not release this one; D13 is unchanged
+        // (fixup 01 requirement 3). This is the reviewer's P5 leak probe.
+        var (vm, fired) = Rig();
+        vm.ArmLandingSuppressionAfterUnYield(0);
+        Feed(vm, Clear, 0, 270_000, inside: false);
+        Feed(vm, Enter, 300_000, 1_200_000);                    // landing inside the 1 s window: anchored
+        Feed(vm, Clear, 1_230_000, 1_800_000, inside: false);   // 570 ms off the key area
+        Feed(vm, Enter, 1_830_000, 3_500_000);                  // back on the anchor
+
+        Check.WithCustomMessage("an un-yield anchor was released by an off-key look")
+            .That(fired).IsEmpty();
+    }
+
+    [Fact]
+    public void ASwapAnchor_IsNotReleasedByAnOffKeyLook()
+    {
+        // Same leak check for a sub-layout swap's D13 anchor (reviewer P6).
+        var (vm, fired) = Rig();
+        vm.SetLayout(Layout());
+        Feed(vm, Letter, 0, 300_000);                           // gaze on the grid (last in-grid point)
+        vm.SwitchSubLayout("numbers");                          // D13 anchor at the letter
+        Feed(vm, Clear, 330_000, 900_000, inside: false);       // 570 ms off the key area
+        Feed(vm, Letter, 930_000, 3_000_000);                   // back on the anchor
+
+        Check.WithCustomMessage("a swap anchor was released by an off-key look")
+            .That(fired).IsEmpty();
+    }
+
+    [Fact]
+    public void ASwapAfterAShowAnchor_IsStillAPlainD13Anchor()
+    {
+        // A stale "this anchor is a show's" flag must not survive a swap: after a show anchor is
+        // released in-grid, the next swap's anchor must keep the plain in-grid-only release
+        // (reviewer P7).
+        var (vm, fired) = Rig();
+        vm.SetLayout(Layout());
+        vm.ArmLandingSuppressionAfterShow();
+        Feed(vm, Enter, 0, 600_000);                            // show anchor at Enter
+        Feed(vm, Letter, 630_000, 750_000);                     // past the radius: released in-grid
+        vm.SwitchSubLayout("numbers");                          // fresh swap anchor at the letter
+        Feed(vm, Clear, 780_000, 1_400_000, inside: false);     // 620 ms off the key area
+        Feed(vm, Letter, 1_430_000, 3_000_000);
+
+        Check.WithCustomMessage("a swap after a show anchor inherited the show's off-key release")
+            .That(fired).IsEmpty();
+    }
+
+    // ---- the edges of the show release (review 02 G2) ------------------------------------------
+
+    [Fact]
+    public void AShowAnchor_SurvivesOneStrayOffKeySample()
+    {
+        // One noisy sample off the keys is not a look away: the show anchor (and the protection
+        // the ticket exists for) must survive it (reviewer P8).
+        var (vm, fired) = Rig();
+        vm.ArmLandingSuppressionAfterShow();
+        Feed(vm, Enter, 0, 600_000);
+        vm.ProcessKeyGaze(TwoKeys, Clear, false, 630_000, Boxes);
+        Feed(vm, Enter, 660_000, 2_500_000);
+
+        Check.WithCustomMessage("one stray off-key sample released the show anchor")
+            .That(fired).IsEmpty();
+    }
+
+    [Fact]
+    public void AShowAnchor_SurvivesADropoutDuringTheOffKeyLook()
+    {
+        // A dropout is not evidence the gaze moved: it neither counts toward nor completes the
+        // 120 ms release run. Without the gap reset, the second off sample would complete it and
+        // the returned gaze would type (reviewer P9).
+        var (vm, fired) = Rig();
+        vm.ArmLandingSuppressionAfterShow();
+        Feed(vm, Enter, 0, 600_000);
+        vm.ProcessKeyGaze(TwoKeys, Clear, false, 630_000, Boxes);
+        vm.ProcessKeyGaze(TwoKeys, Clear, false, 1_630_000, Boxes);   // 1 s silence, then one off sample
+        Feed(vm, Enter, 1_660_000, 3_500_000);
+
+        Check.WithCustomMessage("a dropout during the off-key look released the show anchor")
+            .That(fired).IsEmpty();
+    }
+
     private static KeyboardLayout Layout() => new()
     {
         Name = "Test",

@@ -277,9 +277,17 @@ public class KeyboardViewModelTests
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 600_000);
         Check.That(vm.NearestKeyId).IsNull(); // reset during cooldown
 
-        // After cooldown (250ms after activation)
+        // After cooldown (250ms after activation), STILL resting on the same key: the cooldown
+        // alone no longer re-arms a key — one look, one key requires a leave first.
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 750_000);
-        Check.That(vm.NearestKeyId).IsEqualTo("key_0_0"); // tracking again
+        Check.That(vm.NearestKeyId).IsNull();
+
+        // A real look away (150 ms of continuous off-grid samples) clears the leave latch, and
+        // the returning gaze latches the key again.
+        for (long t = 800_000; t <= 950_000; t += 50_000)
+            vm.ProcessKeyGaze(positions, new PhysicalPoint(1000, 1000), false, t);
+        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 1_000_000);
+        Check.That(vm.NearestKeyId).IsEqualTo("key_0_0"); // tracking again after the leave
     }
 
     [Fact]

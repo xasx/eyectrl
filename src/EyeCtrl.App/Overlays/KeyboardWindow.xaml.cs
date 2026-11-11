@@ -374,19 +374,26 @@ public partial class KeyboardWindow : OverlayWindow
     /// is load-bearing — without it a re-show would keep the previous session's (possibly yielded)
     /// position. The gate reset goes with it: the new session starts with no off-run.
     /// </summary>
-    internal void PlaceForShow()
+    /// <param name="armLandingGuard">True only for a real hidden→visible transition: the gaze may
+    /// already be resting where a key is about to appear, and that landing must not type it (the
+    /// one look, one key fix). A repeated show request while the keyboard is up passes false — a
+    /// re-arm would turn a dwell in progress into a dead key under the gaze.</param>
+    internal void PlaceForShow(bool armLandingGuard)
     {
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
-        PlaceForShow(SystemParameters.WorkArea, ActualWidth, ActualHeight);
+        PlaceForShow(SystemParameters.WorkArea, ActualWidth, ActualHeight, armLandingGuard);
     }
 
-    /// <summary>The testable core of <see cref="PlaceForShow"/>: same session reset, explicit
+    /// <summary>The testable core of <see cref="PlaceForShow(bool)"/>: same session reset, explicit
     /// geometry (no display needed).</summary>
-    internal void PlaceForShow(Rect workArea, double widthDip, double heightDip)
+    internal void PlaceForShow(Rect workArea, double widthDip, double heightDip,
+        bool armLandingGuard = false)
     {
         _placed = false;
         _appliedYieldDip = 0;
         _unYieldGate.Reset();
+        if (armLandingGuard)
+            _viewModel?.ArmLandingSuppressionAfterShow();
         Place(workArea, widthDip, heightDip, KeyboardMove.Show);
     }
 

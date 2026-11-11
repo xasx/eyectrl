@@ -590,8 +590,8 @@ public class KeyboardE1PrivacyTests
     /// timestamp, which differ between two words by construction. The recorder runs on a fake clock, so
     /// every other timing field (<c>SinceKeyMs</c>, <c>SinceMoveMs</c>) is deterministic and is compared
     /// too: a column that leaked into <c>movems</c> or <c>sincekey</c> fails the gate. Everything must not
-    /// depend on WHICH letter was hit, except the documented residual (hold-on, and the time since the
-    /// previous key, which rides with a doubled letter's long stay).
+    /// depend on WHICH letter was hit, except the time since the previous key when a double letter
+    /// took the second look one look, one key requires.
     /// </summary>
     private static readonly string[] NoiseNames = ["Seq", "TsUs"];
 
@@ -636,8 +636,10 @@ public class KeyboardE1PrivacyTests
     }
 
     /// <summary>
-    /// Goes key to key DIRECTLY (no look-away), aiming off-centre, holding on each key a little after the
-    /// fire; a double letter is held long enough to fire twice. Ends with Space.
+    /// Goes key to key DIRECTLY (no look-away between different keys), aiming off-centre and
+    /// holding on each key a little after the fire. A double letter is typed under ONE LOOK, ONE
+    /// KEY: a deliberate leave (150 ms off the grid) and a second look, never a longer stay on the
+    /// key — the old driver relied on the resting re-fire that rule removes. Ends with Space.
     /// </summary>
     private static void TypeKeyToKey(Probe p, string word, ref long ts)
     {
@@ -648,12 +650,13 @@ public class KeyboardE1PrivacyTests
         {
             var aim = Aim(p, IdOf(p, word[i].ToString()));
             var double_ = i + 1 < word.Length && word[i + 1] == word[i];
-            var heldUs = double_ ? 2 * DwellUs + 200_000 : DwellUs + 100_000;
-            var start = ts;
-            for (var t = start; t <= start + heldUs; t += 50_000)
-                Gaze(p, aim, t);
-            ts = start + heldUs + 50_000;
-            if (double_) i++;                     // the second letter was typed by the same stay
+            HoldKey(p, aim, ref ts);
+            if (double_)
+            {
+                LookAway(p, ref ts);
+                HoldKey(p, aim, ref ts);
+                i++;                     // the second letter was the second look
+            }
         }
         var space = Aim(p, SpecialId(p, "space"));
         var from = ts;
@@ -663,6 +666,24 @@ public class KeyboardE1PrivacyTests
         // Look away so the Space's hold-on is logged inside its own word.
         Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         _ = centres;
+    }
+
+    /// <summary>One key's dwell plus a short 100 ms hold-on, leaving before the cooldown ends.</summary>
+    private static void HoldKey(Probe p, PhysicalPoint aim, ref long ts)
+    {
+        var start = ts;
+        for (var t = start; t <= start + DwellUs + 100_000; t += 50_000)
+            Gaze(p, aim, t);
+        ts = start + DwellUs + 150_000;
+    }
+
+    /// <summary>A leave long enough to re-arm a fired key (150 ms), then a fresh timestamp.</summary>
+    private static void LookAway(Probe p, ref long ts)
+    {
+        var start = ts;
+        for (var t = start; t <= start + 150_000; t += 50_000)
+            Gaze(p, new PhysicalPoint(-99999, -99999), t);
+        ts = start + 200_000;
     }
 
     private static List<Line> LinesOfWord(List<Line> all, int wordIndex, int wordCount)
@@ -761,12 +782,15 @@ public class KeyboardE1PrivacyTests
     [StaTheory]
     [InlineData(1.0, 1.0)]
     [InlineData(1.5, 1.5)]
-    public void DirectKeyToKeyTyping_WithAHoldOnAndADoubleLetter_DiffersOnlyInTheDocumentedResidual(
+    public void DirectKeyToKeyTyping_WithADoubleLetter_DiffersOnlyInTiming(
         double scale, double keyMultiplier)
     {
-        // "hallo" has a double letter, "haben" has none. Going key to key directly (no look-away) and
-        // holding on each key, the ONLY thing that may tell them apart is the hold-on of the doubled
-        // key (and the timing that rides with it). Every key line is identical, field for field.
+        // "hallo" has a double letter, "haben" has none. Going key to key directly (no look-away
+        // between different keys) and holding on each key, the doubled letter now needs a
+        // deliberate second look (one look, one key) — a leave that E1 does not log. So every
+        // key line and every hold-on line is identical, field for field; only timing may differ.
+        // This replaces the old long-stay hold-on residual: a resting gaze can no longer produce
+        // the second fire at all.
         var p = Open(ReconstructionWords, scale, keyMultiplier);
         try
         {
@@ -785,15 +809,17 @@ public class KeyboardE1PrivacyTests
             Check.That(plainKeys).HasSize(6);
 
             // 1. Key lines: identical, field for field (noise = clock values only).
-            // (sincekey is the one excluded timing field: the doubled key's second fire follows its first
-            // after the long stay, which is the documented residual below.)
+            // (sincekey is the one excluded timing field: the doubled key's second look follows a
+            // leave, which is the documented, allowed residual.)
             Check.WithCustomMessage("hallo and haben are distinguishable from their KEY lines going key to key")
                 .That(Signature(plainKeys, "SinceKeyMs")).ContainsExactly(Signature(doubledKeys, "SinceKeyMs").ToArray());
 
-            // 2. The residual: the doubled key's hold-on is the long stay between its two fires.
+            // 2. No hold-on residual is left: every stay is a short one, and both words log one
+            //    hold-on per fire. The old >400 ms doubled-key stay is what one look, one key removes.
             var doubledHolds = doubled.Where(l => l.Event == "holdon").Select(l => (int)l.Props["Ms"]!).ToList();
             var plainHolds = plain.Where(l => l.Event == "holdon").Select(l => (int)l.Props["Ms"]!).ToList();
-            Check.That(doubledHolds.Max()).IsStrictlyGreaterThan(400);
+            Check.WithCustomMessage("a resting gaze produced a long hold-on on the doubled key")
+                .That(doubledHolds.Max()).IsStrictlyLessThan(250);
             Check.That(plainHolds.Max()).IsStrictlyLessThan(250);
 
             // 3. Nothing else differs: with the hold-on durations removed the hold-on lines match too.

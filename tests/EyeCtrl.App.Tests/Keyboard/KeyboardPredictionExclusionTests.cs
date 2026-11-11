@@ -256,7 +256,16 @@ public class KeyboardPredictionExclusionTests
                 .That(IsInsidePredictionCircle(probe.Window, 0, overlap)).IsTrue();
 
             var beforeMove = progress.Count;
-            Feed(probe, overlap, 230_000, 1_820_000);
+            Feed(probe, overlap, 230_000, 1_190_000);
+
+            // One look, one key: a second key activation now needs a leave. Stay INSIDE the key
+            // grid (the exclusion under test must still hold) but move to another key for 150 ms.
+            var leave = KeyCentres(probe.Window)
+                .Select(kv => kv.Value)
+                .OrderByDescending(pt => Math.Abs(pt.X - overlap.X) + Math.Abs(pt.Y - overlap.Y))
+                .First();
+            Feed(probe, leave, 1_220_000, 1_370_000);
+            Feed(probe, overlap, 1_400_000, 2_810_000);
 
             Check.WithCustomMessage("Fewer than two key activations occurred, so the hold did not "
                     + "cross the window this test exists for.")
@@ -317,7 +326,17 @@ public class KeyboardPredictionExclusionTests
 
             // Continue into the Win key. The accumulated 180 ms must not matter: under the fix the
             // first sample inside the key area resets the prediction target.
-            Feed(probe, centre, 210_000, 1_830_000);
+            Feed(probe, centre, 210_000, 1_170_000);
+
+            // One look, one key: the second activation needs a leave. Move to another key for
+            // 150 ms — still inside the key grid, so the prediction exclusion keeps applying.
+            var leave = KeyCentres(probe.Window)
+                .Where(kv => kv.Key != "modifier:win")
+                .Select(kv => kv.Value)
+                .OrderByDescending(pt => Math.Abs(pt.X - centre.X) + Math.Abs(pt.Y - centre.Y))
+                .First();
+            Feed(probe, leave, 1_200_000, 1_350_000);
+            Feed(probe, centre, 1_380_000, 2_790_000);
 
             Check.WithCustomMessage("The Win key itself never activated — the gaze hold was not "
                     + "being processed as a key gaze.")

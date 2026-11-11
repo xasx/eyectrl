@@ -180,7 +180,7 @@ class WholeDay(unittest.TestCase):
         self.assertEqual(self.m["sensitive_entries"], 1)
         events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
         marker = [e for e in events if e["event"] == "sensitive"]
-        self.assertEqual(set(marker[0]) - {"event", "at", "dock"}, set())      # no fields, no count
+        self.assertEqual(set(marker[0]) - {"event", "at", "dock", "session"}, set())      # no fields, no count
 
     def test_hides_by_cause(self) -> None:
         self.assertEqual(self.m["hides_by_cause"], {"toolbar-toggle": 1, "edge-close": 1})
@@ -349,6 +349,21 @@ class WordCorrections(unittest.TestCase):
         self.assertEqual(m["word_corrections"], 1)
         self.assertEqual(m["word_correction_letters_removed"], {2: 1})
 
+    def test_a_wordcorr_from_another_session_does_not_enter_the_histogram(self) -> None:
+        # seq restarts at 1 on each EyeCtrl start. Session 2's digit -> Wort löschen reuses seq 2
+        # of session 1's counted letter pair; a day-wide seq match would keep its n=9.
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "deleteword", "word"),
+            stamp_line(1500, "wordcorr seq=2 ms=500 n=2"),
+            stamp_key(5000, 1, "digit"),
+            stamp_key(5500, 2, "deleteword", "word"),
+            stamp_line(5500, "wordcorr seq=2 ms=500 n=9"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["word_corrections"], 1)
+        self.assertEqual(m["word_correction_letters_removed"], {2: 1})
+
     def test_word_corrections_counts_only_word_deletes_not_backspace_slips(self) -> None:
         # The gesture split must not drift: a Backspace slip counts in slips, never in
         # word_corrections (mutant: count every slip as a word correction).
@@ -477,6 +492,38 @@ class LikelyByGesture(unittest.TestCase):
         by = json.loads(proc.stdout)["slipped_by_gesture"]
         self.assertEqual(by["backspace"], {"counted": 2, "likely0": 2, "likely0_share": 1.0})
         self.assertEqual(by["word"], {"counted": 0, "likely0": 0, "likely0_share": None})
+
+    def test_two_sessions_that_reuse_a_seq_classify_the_pair_itself(self) -> None:
+        # seq restarts at 1 on each EyeCtrl start: session 2's Backspace is seq 2 again, the same
+        # number as session 1's Wort löschen. A day-wide seq set would call it `word`.
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "deleteword", "word"),
+            stamp_line(1500, "corr seq=2 saccade=mid restarts=0 likely=true start=false nocont=false"),
+            stamp_key(5000, 1, "letter"),
+            stamp_key(5500, 2, "backspace", "word"),
+            stamp_line(5500, "corr seq=2 saccade=short restarts=0 likely=true start=false nocont=false"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        by = m["slipped_by_gesture"]
+        self.assertEqual(by["word"]["counted"], 1)
+        self.assertEqual(by["backspace"]["counted"], 1)
+        self.assertEqual(m["slipped_letters_counted"], 2)
+
+    def test_a_pair_never_borrows_another_sessions_corr(self) -> None:
+        # Session 1's pair has no corr; session 2's pair reuses seq 2 and has one. A day-wide
+        # last-wins map would count session 1's letter with session 2's corr.
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "backspace", "word"),
+            stamp_key(5000, 1, "letter"),
+            stamp_key(5500, 2, "backspace", "word"),
+            stamp_line(5500, "corr seq=2 saccade=short restarts=0 likely=false start=false nocont=false"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 2)
+        self.assertEqual(m["slipped_letters_counted"], 1)
+        self.assertEqual(m["slipped_likely0"], 1)
 
 
 class StrayModes(unittest.TestCase):
@@ -902,6 +949,45 @@ class Parsing(unittest.TestCase):
         self.assertIsNone(m["mode_undos_per_100_letters"])
         self.assertIsNone(m["pick_then_undo_rate"])
         self.assertIsNone(m["chain_picks_per_50_picks"])
+
+
+class Sessions(unittest.TestCase):
+    """EyeCtrl restarts restart ``seq``: one day log holds every session, so seq joins are scoped.
+
+    No E1 event marks a start, so a key activation whose seq does not increase starts a new one.
+    Follow-up lines (corr, wordcorr, holdon, space) repeat an activation's seq and must not split."""
+
+    def test_the_fixture_is_one_session(self) -> None:
+        events = kb.parse(FIXTURE.read_text(encoding="utf-8").splitlines())
+        self.assertEqual({e["session"] for e in events}, {0})
+
+    def test_a_key_whose_seq_does_not_increase_starts_a_new_session(self) -> None:
+        events = kb.parse([
+            stamp_key(1000, 1, "letter"),
+            stamp_key(2000, 2, "letter"),
+            stamp_key(3000, 1, "letter"),        # the next EyeCtrl run
+            stamp_key(4000, 2, "letter"),
+        ])
+        self.assertEqual([e["session"] for e in events], [0, 0, 1, 1])
+
+    def test_a_restart_after_a_single_activation_splits_at_the_equal_seq(self) -> None:
+        events = kb.parse([
+            stamp_key(1000, 1, "letter"),
+            stamp_key(5000, 1, "letter"),
+        ])
+        self.assertEqual([e["session"] for e in events], [0, 1])
+
+    def test_follow_up_lines_repeat_their_activations_seq_without_splitting(self) -> None:
+        events = kb.parse([
+            stamp_key(1000, 1, "space"),
+            stamp_line(1000, "space seq=1 empty=false"),
+            stamp_key(2000, 2, "letter"),
+            stamp_line(2000, "holdon seq=2 ms=400 capped=false"),
+            stamp_line(2500, "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false"),
+            stamp_key(3000, 3, "deleteword", "word"),
+            stamp_line(3000, "wordcorr seq=3 ms=500 n=2"),
+        ])
+        self.assertEqual({e["session"] for e in events}, {0})
 
 
 class CommandLine(unittest.TestCase):

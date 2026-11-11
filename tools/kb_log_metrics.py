@@ -18,6 +18,13 @@ script never sees a typed character, and cannot print one.
 The events: key, holdon, abandon, corr, slip, wordcorr, pick, pickundo, space, mode, modeundo,
 edge, shown, layout, hidden, mirror, sensitive.
 
+One day log holds every EyeCtrl session of that day. ``seq`` is a per-activation counter that
+restarts at 1 on each EyeCtrl start (KeyboardE1Recorder), and no E1 event marks a start, so a new
+session begins at the first ``key`` activation whose ``seq`` does not increase on the previous one
+(``<=``). ``corr``/``wordcorr``/``holdon``/``space`` repeat their activation's ``seq`` and never
+split a session. Every ``seq`` join below (the correction's ``corr``, the gesture split, the
+``wordcorr`` histogram) is scoped to the session, and the gesture is read from the pair itself.
+
 Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
 symbol, emoji) the line says only that a text key was typed -- plus timing (``ts``, ``sincekey``),
 the dock edge, ``typing`` (was a word open) and the dwell. It carries NO edge-quarter class either
@@ -55,9 +62,11 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      later by the log's own clock. A deletion into committed text is editing,
                      not a slip, and does not count. The owner corrects only with Wort löschen,
                      so without counting it the C2 minimum could never be reached.
-* word corrections   the slips whose deletion was a Wort löschen, with the ``wordcorr`` lines'
-                     letters-removed histogram. Reported separately because it is a different
-                     gesture (no replacement key, no adjacency relation); it counts in ``slips``.
+* word corrections   the slips whose deletion was a Wort löschen, with the letters-removed
+                     histogram of the counted pairs' ``wordcorr`` lines in the same session (a
+                     digit -> Wort löschen writes one too, but a word correction needs a slipped
+                     LETTER). Reported separately because it is a different gesture (no replacement
+                     key, no adjacency relation); it counts in ``slips``.
                      Logs written before step 0b already hold in-word ``deleteword`` key lines:
                      those pairs count retroactively in ``slips``/``slip_rate``/``word_corrections``
                      and in the per-era ``slips``, but they have no ``corr`` line, so the C2 gate
@@ -88,6 +97,13 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      NOT in the predictor's top-5 continuation set, excluding word starts
                      (``start``) and prefixes with no continuation (``nocont``). The rule wants
                      n >= 20 before it is read.
+* likely=0 by gesture
+                     the same counted/likely-0 read-out split by the correcting gesture of the
+                     pair itself: ``backspace`` (the ``corr`` describes the slipped letter itself)
+                     and ``word`` (a Wort löschen; its ``corr`` describes the LAST letter of the
+                     deleted word, which need not be the slipped one -- the owner corrects almost
+                     only with Wort löschen, so the two must be read apart). The totals are their
+                     sum, unchanged.
 * mode-undos         ``modeundo`` events per 100 letters
 * stray page switches
                      a mode (page-switch) fire -- a sub-layout switch, or the emoji surface
@@ -239,9 +255,30 @@ def _valid(event: str, fields: dict[str, Any]) -> bool:
                for name, kind in spec.items())
 
 
+def _assign_sessions(events: list[dict[str, Any]]) -> None:
+    """Tag every event with the EyeCtrl session it belongs to (``session``, 0-based).
+
+    ``seq`` is a per-recorder counter that restarts at 1 on every EyeCtrl start, and one day log
+    holds every session of the day. No E1 event marks a start, so a new session begins at the first
+    key ACTIVATION whose ``seq`` does not increase on the previous activation (``<=``). Only ``key``
+    lines are activations: ``corr``/``wordcorr``/``holdon``/``space`` repeat an activation's ``seq``,
+    so they take the session of the activation they follow and never split one.
+    """
+    session = 0
+    last_seq: int | None = None
+    for e in events:
+        if e["event"] == "key" and isinstance(e.get("seq"), int):
+            seq = e["seq"]
+            if last_seq is not None and seq <= last_seq:
+                session += 1
+            last_seq = seq
+        e["session"] = session
+
+
 def parse(lines) -> list[dict[str, Any]]:
     """Every parseable KB-E1 line as a dict: ``event``, ``at`` (ms, log clock), ``edge`` (the dock
-    edge in force at that point, or None), and the line's own fields."""
+    edge in force at that point, or None), ``session`` (the EyeCtrl run, see
+    :func:`_assign_sessions`), and the line's own fields."""
     events: list[dict[str, Any]] = []
     edge: str | None = None
     for raw in lines:
@@ -262,6 +299,7 @@ def parse(lines) -> list[dict[str, Any]]:
             edge = fields["edge"]
         dock = fields["edge"] if event == "edgeq" else edge
         events.append({"event": event, "at": at, "dock": dock, **fields})
+    _assign_sessions(events)
     return events
 
 
@@ -470,27 +508,51 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         events = [e for e in events if e["dock"] == edge]
 
     keys = [e for e in events if e["event"] == "key"]
-    by_seq = {e["seq"]: e for e in keys if "seq" in e}
+    by_seq = {(e["session"], e["seq"]): e for e in keys if "seq" in e}
     letters = [k for k in keys if k.get("cls") == "letter"]
 
     # --- slips: a letter immediately followed (next activation) by an in-word Backspace or
     # Wort löschen <= 3 s. The slipped letter's own arrival and likelihood facts are NOT on its key
     # line any more: they ride on the keyed ``corr`` line of the deletion that takes it back.
-    corr_by_seq = {e["seq"]: e for e in events if e["event"] == "corr"}
+    corr_by_seq = {(e["session"], e["seq"]): e for e in events if e["event"] == "corr"}
     slipped = _slipped_letters(keys)
     word_corrections = _word_corrections(keys)
-    word_corr_events = [e for e in events if e["event"] == "wordcorr"]
-    slipped_corr: list[dict[str, Any]] = []
+    # The letters-removed histogram belongs to the pairs counted as word corrections IN THE SAME
+    # SESSION: a digit -> Wort löschen writes a ``wordcorr`` too, but it is not a letter slip, and
+    # a seq is reused after an EyeCtrl restart (review 01 F2).
+    word_correction_keys = {(e["session"], e["seq"]) for e in word_corrections}
+    word_corr_events = [e for e in events
+                        if e["event"] == "wordcorr"
+                        and (e["session"], e["seq"]) in word_correction_keys]
+    slipped_corr: list[tuple[str, dict[str, Any]]] = []
     for prev, nxt in zip(keys, keys[1:]):
-        if _is_slip_pair(prev, nxt) and nxt["seq"] in corr_by_seq:
-            slipped_corr.append(corr_by_seq[nxt["seq"]])
-    countable = [c for c in slipped_corr if not c.get("start") and not c.get("nocont")]
-    unlikely = [c for c in countable if not c.get("likely")]
+        if _is_slip_pair(prev, nxt):
+            corr = corr_by_seq.get((nxt["session"], nxt["seq"]))
+            if corr is not None:
+                # The gesture is the pair's own correcting key (F1): a day-wide seq set can match
+                # another session's activation after a restart.
+                slipped_corr.append(("word" if nxt.get("cls") == "deleteword" else "backspace", corr))
+    countable = [(g, c) for g, c in slipped_corr if not c.get("start") and not c.get("nocont")]
+    unlikely = [(g, c) for g, c in countable if not c.get("likely")]
+    # The likely=0 read-out split by correcting gesture (F2), from the pair itself: a Backspace's
+    # ``corr`` describes the slipped letter itself; a Wort löschen's describes the LAST letter of
+    # the deleted word, which need not be the slipped one.
+    counted_by_gesture: dict[str, list[dict[str, Any]]] = {"backspace": [], "word": []}
+    for gesture, c in countable:
+        counted_by_gesture[gesture].append(c)
+    by_gesture: dict[str, dict[str, Any]] = {}
+    for name, group in counted_by_gesture.items():
+        not_likely = [c for c in group if not c.get("likely")]
+        by_gesture[name] = {
+            "counted": len(group),
+            "likely0": len(not_likely),
+            "likely0_share": _share(len(not_likely), len(group)),
+        }
 
     # --- hold-on, by dwell class
     holds: dict[str, list[int]] = {"letters_unpenalised": [], "letters_penalised": [], "mode_keys": []}
     for h in (e for e in events if e["event"] == "holdon"):
-        k = by_seq.get(h.get("seq"))
+        k = by_seq.get((h["session"], h.get("seq")))
         if k is None or not isinstance(h.get("ms"), int):
             continue
         if k.get("cls") == "letter":
@@ -544,7 +606,8 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "slipped_letters_counted": len(countable),
         "slipped_likely0": len(unlikely),
         "slipped_likely0_share": _share(len(unlikely), len(countable)),
-        "slipped_saccades": dict(Counter(str(c.get("saccade")) for c in slipped_corr)),
+        "slipped_by_gesture": by_gesture,
+        "slipped_saccades": dict(Counter(str(c.get("saccade")) for _, c in slipped_corr)),
         "repairs": repairs(events, min_region_slips),
         "edge_crowding": edge_crowding(events, min_edge_dwells),
         "sensitive_entries": sum(1 for e in events if e["event"] == "sensitive"),
@@ -589,6 +652,10 @@ def render(m: dict[str, Any]) -> str:
     add(f"word corrections          {m['word_corrections']}   letters removed {removed}")
     add(f"slipped letters counted   {m['slipped_likely0']} of {m['slipped_letters_counted']} "
         f"have likely=0 ({_pct(m['slipped_likely0_share'])}); start / nocont excluded")
+    add("slipped letters by gesture (counted, likely=0 share)")
+    for name, g in m["slipped_by_gesture"].items():
+        add(f"  {name:<10} counted {g['counted']:<4} likely=0 {g['likely0']:<4} "
+            f"share {_pct(g['likely0_share'])}")
     r = m["repairs"]
     add(f"repairs (slip lines)       {r['n']}   adjacent {_pct(r['adjacent_share'])}"
         f"   directions {r['directions']}")

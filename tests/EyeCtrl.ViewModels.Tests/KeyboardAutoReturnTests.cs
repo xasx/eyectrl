@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels.Tests;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>Spec D5 (auto-return), D14 (prediction selections return too), D15 (system
 /// modifiers cleared on entry), M7 (modifier repaint after the swap). The trigger is a
@@ -124,6 +125,66 @@ public class KeyboardAutoReturnTests
         vm.SwitchSubLayout("numbers");
 
         Check.That(vm.ActiveModifiers.Contains(ModifierKey.Win)).IsTrue();
+    }
+
+    // T5 (keyboard-one-look) synthetic layout: a letters page and a NON-autoReturn function page
+    // carrying the shipped Fn modifier keys (Alt) plus an F4 — the chord the ticket's scenario
+    // ends on (close a hung app with Alt+F4 from the Fn page).
+    private static KeyboardLayout LayoutWithFunctionPage() => new()
+    {
+        Name = "T",
+        DefaultSubLayout = "letters",
+        SubLayouts =
+        {
+            ["letters"] = new SubLayout
+            {
+                Label = "ABC",
+                Rows = new() { new() { new KeyDefinition { Label = "a", Output = "a" } } },
+            },
+            ["function"] = new SubLayout
+            {
+                Label = "Fn",
+                Rows = new()
+                {
+                    new()
+                    {
+                        new KeyDefinition { Label = "Alt", SpecialAction = "modifier:alt" },
+                        new KeyDefinition { Label = "F4", SpecialAction = "key:F4" },
+                    },
+                },
+            },
+        },
+    };
+
+    [Fact]
+    public void ArmedAlt_SurvivesTheFunctionSwap_FiresAltF4_ThenClears()
+    {
+        // T5 end-to-end chain (D15 keeps the ARMED state, T5 keeps it VISIBLE — the visual half
+        // is pinned by the STA probe in EyeCtrl.App.Tests.KeyboardGateProbeTests): arm Alt on
+        // letters, dwell onto Fn (the swap must NOT disarm it), dwell F4 — the SpecialKeyMessage
+        // must ride Alt+F4, not a bare F4 — and the one-shot modifier must clear afterwards.
+        var messenger = new WeakReferenceMessenger();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
+        vm.SetLayout(LayoutWithFunctionPage());
+        SpecialKeyMessage? sent = null;
+        messenger.Register<SpecialKeyMessage>(messenger, (_, msg) => sent = msg);
+
+        vm.ToggleModifier(ModifierKey.Alt);
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsTrue();
+
+        vm.SwitchSubLayout("function");
+        Check.WithCustomMessage("D15: a non-autoReturn swap must keep the armed Alt")
+             .That(vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsTrue();
+
+        vm.HandleSpecialKey("F4");
+
+        Check.That(sent).IsNotNull();
+        Check.That(sent!.KeyName).IsEqualTo("F4");
+        Check.WithCustomMessage("F4 must fire WITH Alt (Alt+F4), not as a bare F4")
+             .That(sent.Modifiers).IsNotNull();
+        Check.That(sent.Modifiers!).Contains(ModifierKey.Alt);
+        Check.WithCustomMessage("the one-shot modifier clears after the special key fires")
+             .That(vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsFalse();
     }
 
     [Fact]

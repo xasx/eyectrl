@@ -224,7 +224,9 @@
           { "label": "F6", "output": "", "width": 1.0, "specialAction": "key:F6" },
           { "label": "F7", "output": "", "width": 1.0, "specialAction": "key:F7" },
           { "label": "F8", "output": "", "width": 1.0, "specialAction": "key:F8" },
-          { "label": "F9", "output": "", "width": 1.0, "specialAction": "key:F9" }
+          { "label": "F9", "output": "", "width": 1.0, "specialAction": "key:F9" },
+          { "label": "Win", "output": "", "width": 1.3, "specialAction": "modifier:win" },
+          { "label": "Alt", "output": "", "width": 1.3, "specialAction": "modifier:alt" }
         ],
         [
           { "label": "PrtSc", "output": "", "width": 1.2, "specialAction": "key:PrintScreen" },
@@ -236,7 +238,8 @@
           { "label": "PgUp", "output": "", "width": 1.0, "specialAction": "key:PageUp" },
           { "label": "PgDn", "output": "", "width": 1.0, "specialAction": "key:PageDown" },
           { "label": "Ins", "output": "", "width": 1.0, "specialAction": "key:Insert" },
-          { "label": "Del", "output": "", "width": 1.0, "specialAction": "key:Delete" }
+          { "label": "Del", "output": "", "width": 1.0, "specialAction": "key:Delete" },
+          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" }
         ],
         [
           { "label": "Copy", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+C" },

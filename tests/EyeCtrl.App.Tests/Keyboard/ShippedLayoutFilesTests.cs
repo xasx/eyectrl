@@ -81,6 +81,43 @@ public class ShippedLayoutFilesTests
 
     [Theory]
     [MemberData(nameof(LayoutNames))]
+    public void EveryNonAutoReturnPage_CarriesEverySystemModifier(string file)
+    {
+        // T5 (keyboard-one-look): KeyboardViewModel keeps Ctrl/Alt/Win armed across page switches
+        // by design (D15). A page a user can dwell onto without carrying a system modifier makes
+        // the armed state INVISIBLE there: the next key then fires with a modifier the user set
+        // pages ago and cannot see. So every non-autoReturn page must carry every system
+        // modifier ANY page carries — computed dynamically, so adding a modifier to one page
+        // without spreading it to the others fails here.
+        //
+        // modifier:shift is deliberately out of scope: unlike the system modifiers, Shift (and
+        // Caps Lock) survive page switches by design (D15; the accents-page precedent), so an
+        // armed Shift on a page without a Shift key is a legitimate state. AutoReturn pages (the
+        // accents picker) are exempt too: entering them clears the system modifiers
+        // (KeyboardViewModel.SwitchSubLayout), so nothing armed can be invisible there.
+        var layout = Load(file);
+
+        var systemModifiers = layout.SubLayouts.Values.SelectMany(s => s.Rows.SelectMany(r => r))
+            .Select(k => k.SpecialAction)
+            .Where(a => a is not null
+                        && a.StartsWith("modifier:", StringComparison.Ordinal)
+                        && a != "modifier:shift")
+            .Distinct().ToHashSet();
+
+        foreach (var (page, sub) in layout.SubLayouts)
+        {
+            if (sub.AutoReturn) continue;
+            var actions = sub.Rows.SelectMany(r => r).Select(k => k.SpecialAction).ToHashSet();
+            foreach (var modifier in systemModifiers)
+                Check.WithCustomMessage(
+                        $"{file}/{page} does not carry {modifier}: an armed system modifier survives the " +
+                        "page switch (D15), so it would be armed and INVISIBLE here — add its key to the page.")
+                    .That(actions.Contains(modifier)).IsTrue();
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
     public void TheFunctionSubLayout_CarriesTheClipboardRow(string file)
     {
         var layout = Load(file);

@@ -80,9 +80,12 @@ public class QwertzKeyCaptionDataTests
         {
             ["letters"] =
             [
-                "modifier:win", "switchSub:accents", "toggle:capslock", "modifier:alt",
-                "modifier:shift", "backspace", "deleteWord", "modifier:ctrl", "switchSub:numbers",
-                "switchSub:symbols", "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                // T6 variant A: Wort löschen moved to the top-left, ß to the third row's end,
+                // and the footer is Win Strg ⇥ 123 Fn #+= , ⌴ . ↵ — switchEmoji and the accents
+                // switch left the page (😀 stays on 123 and #+=, àé moved to the #+= footer).
+                "deleteWord", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
+                "modifier:win", "modifier:ctrl", "tab", "switchSub:numbers", "switchSub:function",
+                "switchSub:symbols", "space", "enter",
             ],
             ["numbers"] =
             [
@@ -94,7 +97,9 @@ public class QwertzKeyCaptionDataTests
             [
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
                 "deleteWord", "modifier:ctrl", "switchSub:letters", "switchSub:numbers",
-                "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                // T6: the accents switch lives here now (the letters footer keeps exactly two
+                // plain keys), between 123 and 😀.
+                "switchSub:accents", "switchEmoji", "switchSub:function", "space", "enter", "tab",
             ],
             ["accents"] =
             [

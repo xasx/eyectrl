@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Models;
 
 /// <summary>
 /// Loads the three SHIPPED layout files — not synthetic JSON — and checks the specialAction
@@ -39,7 +40,10 @@ public class ShippedLayoutFilesTests
     private static readonly Dictionary<string, string[]> AccentsRowSequences = new()
     {
         ["qwertz.json"] = ["éÉèÈêÊëËàÀ", "âÂçÇîÎïÏôÔ", "ùÙûÛœŒ«»"],
-        ["azerty.json"] = ["êÊâÂîÎôÔ", "ûÛëËïÏùÙ", "œŒ«»"],
+        // T6: à moved off the AZERTY letters footer (a footer plain-key budget of two), so its
+        // accents page gained the à/À pair at row 0's end — the row reflowed to the QWERTZ-style
+        // ten 1.28-unit keys to keep the 12.8 standard.
+        ["azerty.json"] = ["êÊâÂîÎôÔàÀ", "ûÛëËïÏùÙ", "œŒ«»"],
     };
 
     [Theory]
@@ -279,28 +283,71 @@ public class ShippedLayoutFilesTests
     }
 
     [Fact]
-    public void Qwertz_LettersRow0_GainsAcc_WithZeroMovement()
+    public void Qwertz_Letters_IsVariantA_ExactlyAsApproved()
     {
+        // T6 variant A (owner-approved 2026-11-11): the letters page, exactly as the ticket pins
+        // it. Wort löschen takes the top-left slot at Win's old 2.0 width (today's label, frame
+        // and accessible name), `?` takes row 0's right end as a plain text key, ß takes the
+        // third row's right end at 1.2 (today's output/shiftOutput), and the footer is the
+        // owner's exact ten-key row: Win Strg ⇥ 123 Fn #+= , ⌴ . ↵. Rows are centred, so the
+        // R1–R3 sums 12.8/12.2/12.8 keep every letter at its pre-edit position (see
+        // Letters_NoLetterMoves_ByUnitOffset).
         var layout = Load("qwertz.json");
-        var row0 = layout.SubLayouts["letters"].Rows[0];
+        var letters = layout.SubLayouts["letters"];
 
-        // D17 (supersedes D16; owner-defaulted): row 0 is Win 1.2 + Q..P = 11.2 — the same
-        // zero-move trick as AZERTY. Win widens 1.2 -> 2.0 (consuming the 0.8 left margin),
-        // Acc (0.8) consumes the right margin; every letter keeps its position to within
-        // sub-DIP layout rounding (~0.4 DIP on the widened row — unit widths are preserved;
-        // impl-review r3 m3) and the row hits the 12.8 standard. Pinned so a future edit
-        // cannot silently shift letters.
-        Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
-        var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
-        Check.That(acc.Width).IsCloseTo(0.8, 0.01);
-        Check.That(row0.IndexOf(acc)).IsEqualTo(row0.Count - 1);
+        // Row 0: Aa 2.0 | Q..P | ? 0.8 = 12.8.
+        var row0 = letters.Rows[0];
+        var delWd = row0[0];
+        Check.That(delWd.SpecialAction).IsEqualTo("deleteWord");
+        Check.That(delWd.Width).IsCloseTo(2.0, 0.01);
+        Check.That(delWd.Label).IsEqualTo("Aa");
+        Check.That(delWd.LabelFrame).IsEqualTo("eraseLeft");
+        Check.That(delWd.AccessibleName).IsEqualTo("Wort löschen");
+        var question = row0[^1];
+        Check.That(question.Output).IsEqualTo("?");
+        Check.That(question.SpecialAction).IsNull();
+        Check.That(question.Width).IsCloseTo(0.8, 0.01);
         Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
 
-        // D16 explicitly NOT applied: the footer is untouched.
-        var footer = layout.SubLayouts["letters"].Rows[^1];
-        Check.That(footer.Sum(k => k.Width)).IsCloseTo(11.7, 0.01);
-        // Selected by SpecialAction, not by the "Space" label: T14 replaced the caption with ⌴.
-        Check.That(footer.Single(k => k.SpecialAction == "space").Width).IsCloseTo(2.0, 0.01);
+        // Row 2: Alt ⇧ | Y..Ü | ⌫ 1.2 (today's position) | ß 1.2 = 12.8.
+        var row2 = letters.Rows[2];
+        var sharpS = row2[^1];
+        Check.That(sharpS.Output).IsEqualTo("ß");
+        Check.That(sharpS.ShiftOutput).IsEqualTo("ẞ");
+        Check.That(sharpS.SpecialAction).IsNull();
+        Check.That(sharpS.Width).IsCloseTo(1.2, 0.01);
+        Check.That(row2.Single(k => k.SpecialAction == "backspace").Width).IsCloseTo(1.2, 0.01);
+        Check.That(row2.IndexOf(row2.Single(k => k.SpecialAction == "backspace"))).IsEqualTo(row2.Count - 2);
+        Check.That(row2.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+
+        // Row 3: the owner's footer, in order, at the approved widths — 12.8.
+        var footer = letters.Rows[3];
+        var expected = new (string Label, string? Action, double Width)[]
+        {
+            ("Win", "modifier:win", 1.0),
+            ("Strg", "modifier:ctrl", 1.0),
+            ("⇥", "tab", 1.2),
+            ("123", "switchSub:numbers", 1.3),
+            ("Fn", "switchSub:function", 1.0),
+            ("#+=", "switchSub:symbols", 1.3),
+            (",", null, 1.0),
+            ("⌴", "space", 2.5),
+            (".", null, 1.0),
+            ("↵", "enter", 1.5),
+        };
+        Check.That(footer).HasSize(expected.Length);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var (label, action, width) = expected[i];
+            var key = footer[i];
+            Check.WithCustomMessage($"footer[{i}] label '{key.Label}', expected '{label}'")
+                .That(key.Label).IsEqualTo(label);
+            Check.WithCustomMessage($"footer[{i}] '{label}' action '{key.SpecialAction}', expected '{action}'")
+                .That(key.SpecialAction).IsEqualTo(action);
+            Check.WithCustomMessage($"footer[{i}] '{label}' width {key.Width}, expected {width}")
+                .That(key.Width).IsCloseTo(width, 0.01);
+        }
+        Check.That(footer.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
     }
 
     [Fact]
@@ -315,21 +362,33 @@ public class ShippedLayoutFilesTests
     }
 
     [Fact]
-    public void Azerty_LettersRow0_GainsAcc_WithZeroMovement()
+    public void Azerty_Letters_Row0_TakesWortLoschenAndQuestionMark_WithZeroMovement()
     {
+        // T6's rule on AZERTY: Wort löschen takes Win's top-left slot at Win's width (2.0), the
+        // accents switch at row 0's right end becomes `?`, and the slot Wort löschen vacated in
+        // the third row takes ç — so every letter keeps its position (the no-letter-moves
+        // theory below pins each offset).
         var layout = Load("azerty.json");
         var row0 = layout.SubLayouts["letters"].Rows[0];
 
-        // D3 zero-move: Win widens 1.2 -> 2.0 (consuming the 0.8 left margin), Acc (0.8)
-        // consumes the right margin; every letter keeps its position to within sub-DIP
-        // layout rounding (~0.4 DIP on the widened row — unit widths are preserved;
-        // impl-review r3 m3) and the row hits the 12.8 standard. Pinned so a future edit
-        // cannot silently shift the letters.
-        Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
-        var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
-        Check.That(acc.Width).IsCloseTo(0.8, 0.01);
-        Check.That(row0.IndexOf(acc)).IsEqualTo(row0.Count - 1);
+        var delWd = row0[0];
+        Check.That(delWd.SpecialAction).IsEqualTo("deleteWord");
+        Check.That(delWd.Label).IsEqualTo("DelWd");
+        Check.That(delWd.Width).IsCloseTo(2.0, 0.01);
+        var question = row0[^1];
+        Check.That(question.Output).IsEqualTo("?");
+        Check.That(question.SpecialAction).IsNull();
+        Check.That(question.Width).IsCloseTo(0.8, 0.01);
         Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+
+        var row2 = layout.SubLayouts["letters"].Rows[2];
+        var cedilla = row2[^1];
+        Check.That(cedilla.Output).IsEqualTo("ç");
+        Check.That(cedilla.ShiftOutput).IsEqualTo("Ç");
+        Check.That(cedilla.SpecialAction).IsNull();
+        Check.That(cedilla.Width).IsCloseTo(1.2, 0.01);
+        Check.That(row2.Single(k => k.SpecialAction == "backspace").Width).IsCloseTo(1.2, 0.01);
+        Check.That(row2.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
     }
 
     [Fact]
@@ -338,13 +397,207 @@ public class ShippedLayoutFilesTests
         var layout = Load("azerty.json");
         var letters = layout.SubLayouts["letters"].Rows.SelectMany(r => r).ToList();
 
-        // D6 data pins (spec I6): the four letters accent keys carry their capitals IN THE
-        // FILE — deleting an attribute fails here, not just in a view-model echo.
+        // D6 data pins (spec I6): the letters accent keys carry their capitals IN THE
+        // FILE — deleting an attribute fails here, not just in a view-model echo. T6 moved à
+        // off the letters page (its plain-key budget in the footer is two), so it is pinned on
+        // its new accents-page home below.
         Check.That(letters.Single(k => k.Output == "é").ShiftOutput).IsEqualTo("É");
         Check.That(letters.Single(k => k.Output == "è").ShiftOutput).IsEqualTo("È");
-        Check.That(letters.Single(k => k.Output == "à").ShiftOutput).IsEqualTo("À");
         Check.That(letters.Single(k => k.Output == "ç").ShiftOutput).IsEqualTo("Ç");
+        Check.That(letters.All(k => k.Output != "à")).IsTrue();
+
+        var accents = layout.SubLayouts["accents"].Rows.SelectMany(r => r).ToList();
+        var aGrave = accents.Single(k => k.Output == "à");
+        Check.WithCustomMessage("à's capital must ride its accents key's shiftOutput")
+            .That(aGrave.ShiftOutput).IsEqualTo("À");
+        Check.That(accents.Count(k => k.Output == "À")).IsEqualTo(1);
     }
+
+    // ---- T6: the letters-page geometry rules ----------------------------------------------------
+    //
+    // Two pins over the shipped letters pages, both in UNIT space (a key's x offset is the row's
+    // centring margin plus the widths before it; rows are 1 unit tall) — the exact proxy of the
+    // window's DIP layout, because key slots are laid out left to right in width order and each
+    // row is centred in the page's widest row.
+    //
+    //   - No letter moves: every letter's (row, offset) is pinned to its pre-edit value. Rows are
+    //     centred, so "the row sums stay 12.8/12.2/12.8" and "no width before a letter changes"
+    //     are the same statement as "no letter moves by a single DIP" — this theory states it in
+    //     data instead of prose. ß (QWERTZ) and ç/à (AZERTY) are deliberately absent: their move
+    //     IS the ticket.
+    //   - Tab is never adjacent to Enter, and no app-escaping key is adjacent to Space, on every
+    //     letters page. Adjacency is KeyboardE1Slip's own rule (boxes inflated by 5 % of the key
+    //     pitch — corner contact included), evaluated in unit space against pitch measured the
+    //     same way E1 measures it: the smallest distance between any two key centres of the page.
+    //     The owner's E1 log showed Enter and Tab sharing a corner and the escaping keys beside
+    //     Space; this pins the fix everywhere, not just on QWERTZ.
+    //
+    // Mutants: (a) put Tab back beside Enter (the old `… ⌴ ↵ ⇥` footer ending) → the adjacency
+    // theory red; (b) widen one key 0.1 anywhere left of a letter → the offsets theory red.
+
+    private const double PageStandardUnits = 12.8;
+
+    /// <summary>
+    /// The pinned (row, unit offset) of every letter that must not move, captured from the
+    /// pre-edit files (the layout this ticket was cut from). Offsets are the centring margin
+    /// plus the widths of the keys before the letter in its row.
+    /// </summary>
+    private static readonly Dictionary<string, Dictionary<string, (int Row, double Offset)>> LetterPositions = new()
+    {
+        ["qwerty.json"] = new()
+        {
+            ["q"] = (0, 2.0), ["w"] = (0, 3.0), ["e"] = (0, 4.0), ["r"] = (0, 5.0), ["t"] = (0, 6.0),
+            ["y"] = (0, 7.0), ["u"] = (0, 8.0), ["i"] = (0, 9.0), ["o"] = (0, 10.0), ["p"] = (0, 11.0),
+            ["a"] = (1, 2.5), ["s"] = (1, 3.5), ["d"] = (1, 4.5), ["f"] = (1, 5.5),
+            ["g"] = (1, 6.5), ["h"] = (1, 7.5), ["j"] = (1, 8.5), ["k"] = (1, 9.5), ["l"] = (1, 10.5),
+            ["z"] = (2, 2.9), ["x"] = (2, 3.9), ["c"] = (2, 4.9), ["v"] = (2, 5.9),
+            ["b"] = (2, 6.9), ["n"] = (2, 7.9), ["m"] = (2, 8.9),
+        },
+        ["azerty.json"] = new()
+        {
+            ["a"] = (0, 2.0), ["z"] = (0, 3.0), ["e"] = (0, 4.0), ["r"] = (0, 5.0), ["t"] = (0, 6.0),
+            ["y"] = (0, 7.0), ["u"] = (0, 8.0), ["i"] = (0, 9.0), ["o"] = (0, 10.0), ["p"] = (0, 11.0),
+            ["q"] = (1, 2.0), ["s"] = (1, 3.0), ["d"] = (1, 4.0), ["f"] = (1, 5.0),
+            ["g"] = (1, 6.0), ["h"] = (1, 7.0), ["j"] = (1, 8.0), ["k"] = (1, 9.0), ["l"] = (1, 10.0),
+            ["m"] = (1, 11.0),
+            ["w"] = (2, 2.4), ["x"] = (2, 3.4), ["c"] = (2, 4.4), ["v"] = (2, 5.4),
+            ["b"] = (2, 6.4), ["n"] = (2, 7.4), ["é"] = (2, 8.4), ["è"] = (2, 9.4),
+        },
+        ["qwertz.json"] = new()
+        {
+            ["q"] = (0, 2.0), ["w"] = (0, 3.0), ["e"] = (0, 4.0), ["r"] = (0, 5.0), ["t"] = (0, 6.0),
+            ["z"] = (0, 7.0), ["u"] = (0, 8.0), ["i"] = (0, 9.0), ["o"] = (0, 10.0), ["p"] = (0, 11.0),
+            ["a"] = (1, 1.5), ["s"] = (1, 2.5), ["d"] = (1, 3.5), ["f"] = (1, 4.5),
+            ["g"] = (1, 5.5), ["h"] = (1, 6.5), ["j"] = (1, 7.5), ["k"] = (1, 8.5),
+            ["l"] = (1, 9.5), ["ö"] = (1, 10.5), ["ä"] = (1, 11.5),
+            ["y"] = (2, 2.4), ["x"] = (2, 3.4), ["c"] = (2, 4.4), ["v"] = (2, 5.4),
+            ["b"] = (2, 6.4), ["n"] = (2, 7.4), ["m"] = (2, 8.4), ["ü"] = (2, 9.4),
+        },
+    };
+
+    /// <summary>
+    /// Letters that deliberately moved WITHIN the letters page (ß on QWERTZ took Wort löschen's
+    /// third-row slot; ç on AZERTY did the same) and are therefore on the page but absent from
+    /// the pin table. à on AZERTY is not counted: it left the letters page entirely.
+    /// </summary>
+    private static readonly Dictionary<string, int> DeliberateInPageMoves = new()
+    {
+        ["qwerty.json"] = 0,
+        ["azerty.json"] = 1,   // ç
+        ["qwertz.json"] = 1,   // ß
+    };
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
+    public void Letters_NoLetterMoves_ByUnitOffset(string file)
+    {
+        var layout = Load(file);
+        var expected = LetterPositions[file];
+        var letters = CountLetters(layout);
+
+        Check.WithCustomMessage(
+                $"{file}: the pin table covers {expected.Count} letters, the letters page carries "
+                + $"{letters} ({DeliberateInPageMoves[file]} deliberately moved) — a letter was added "
+                + "or removed without updating the pin. Deliberate moves (ß, ç; à left the page) are "
+                + "the exception; anything else must be pinned.")
+            .That(expected.Count + DeliberateInPageMoves[file]).IsEqualTo(letters);
+
+        foreach (var (subId, sub) in layout.SubLayouts)
+        {
+            if (subId != "letters") continue;
+            for (var r = 0; r < sub.Rows.Count; r++)
+            {
+                var offset = (PageStandardUnits - sub.Rows[r].Sum(k => k.Width)) / 2.0;
+                foreach (var key in sub.Rows[r])
+                {
+                    if (key.SpecialAction is null && expected.TryGetValue(key.Output, out var want))
+                    {
+                        Check.WithCustomMessage(
+                                $"'{key.Output}' sits at row {r}, offset {offset:0.###}; before the T6 edit "
+                                + $"it sat at row {want.Row}, offset {want.Offset:0.###}. Rows are centred, so "
+                                + "this letter MOVED — restore the widths before it (or the row sum), or make "
+                                + "the move a deliberate, owner-reviewed pin change.")
+                            .That(r).IsEqualTo(want.Row);
+                        Check.WithCustomMessage(
+                                $"'{key.Output}' sits at row {r}, offset {offset:0.###}; before the T6 edit "
+                                + $"it sat at row {want.Row}, offset {want.Offset:0.###}. Rows are centred, so "
+                                + "this letter MOVED — restore the widths before it (or the row sum), or make "
+                                + "the move a deliberate, owner-reviewed pin change.")
+                            .That(offset).IsCloseTo(want.Offset, 0.001);
+                    }
+                    offset += key.Width;
+                }
+            }
+        }
+    }
+
+    private static int CountLetters(KeyboardLayout layout) =>
+        layout.SubLayouts["letters"].Rows.SelectMany(r => r)
+            .Count(k => k.SpecialAction is null && k.Output.Length == 1 && char.IsLetter(k.Output[0]));
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
+    public void Letters_TabNeverAdjacentToEnter_NoEscapingKeyAdjacentToSpace(string file)
+    {
+        var layout = Load(file);
+        var letters = layout.SubLayouts["letters"];
+
+        // Unit-space boxes: x = per-row centring margin + the widths before the key, y = the row
+        // index, height 1. The pitch is measured exactly as E1 measures it (the smallest centre
+        // distance of the page), and adjacency is KeyboardE1Slip's own inflated-box rule, so the
+        // test sees the same corner contacts the running app does.
+        var centres = new List<PhysicalPoint>();
+        var boxes = new List<(string Id, PhysicalRect Box)>();
+        for (var r = 0; r < letters.Rows.Count; r++)
+        {
+            var offset = (PageStandardUnits - letters.Rows[r].Sum(k => k.Width)) / 2.0;
+            foreach (var key in letters.Rows[r])
+            {
+                var id = key.SpecialAction ?? $"key_{r}_{offset:0.###}";
+                boxes.Add((id, new PhysicalRect(offset, r, key.Width, 1.0)));
+                centres.Add(new PhysicalPoint(offset + key.Width / 2, r + 0.5));
+                offset += key.Width;
+            }
+        }
+
+        var pitch = KeyboardE1Slip.Pitch(centres);
+        Check.WithCustomMessage($"{file} letters: no measurable pitch — the geometry collapsed.")
+            .That(pitch).IsStrictlyGreaterThan(0.0);
+
+        var offences = new List<string>();
+        for (var i = 0; i < boxes.Count; i++)
+        {
+            for (var j = i + 1; j < boxes.Count; j++)
+            {
+                var a = boxes[i];
+                var b = boxes[j];
+                if (!KeyboardE1Slip.Adjacent(a.Box, b.Box, pitch)) continue;
+                if (IsTabEnter(a.Id, b.Id))
+                    offences.Add($"tab ('{a.Id}'/'{b.Id}') is adjacent to enter");
+                if (IsEscapingSpace(layout, a.Id, b.Id))
+                    offences.Add($"an app-escaping key ('{a.Id}'/'{b.Id}') is adjacent to space");
+            }
+        }
+
+        Check.WithCustomMessage(
+                $"{file} letters page: {string.Join("; ", offences.Distinct())}. The owner's E1 log "
+                + "shows Enter+Tab sharing a corner and the escaping keys firing beside Space; the "
+                + "letters pages must never sit an escaping key next to either.")
+            .That(offences).IsEmpty();
+    }
+
+    private static bool IsTabEnter(string a, string b) =>
+        (a.Equals("tab", StringComparison.OrdinalIgnoreCase) && b.Equals("enter", StringComparison.OrdinalIgnoreCase))
+        || (a.Equals("enter", StringComparison.OrdinalIgnoreCase) && b.Equals("tab", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsEscapingSpace(KeyboardLayout layout, string a, string b) =>
+        (KeyboardSpecialActions.IsAppEscaping(Normalize(layout, a)) && b.Equals("space", StringComparison.Ordinal))
+        || (KeyboardSpecialActions.IsAppEscaping(Normalize(layout, b)) && a.Equals("space", StringComparison.Ordinal));
+
+    /// <summary>Plain keys mint positional ids in the real window; the classifier takes null for them.</summary>
+    private static string? Normalize(KeyboardLayout layout, string id) =>
+        id.StartsWith("key_", StringComparison.Ordinal) ? null : id;
+
 
     // ---- E1 step 0a: the size budget over every page of every layout ---------------------------
     //

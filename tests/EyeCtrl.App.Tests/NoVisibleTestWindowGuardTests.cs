@@ -175,7 +175,7 @@ public class NoVisibleTestWindowGuardTests
             "Keyboard/KeyboardNeverMovesTests.cs", "Keyboard/KeyboardPasswordBarTests.cs", "Keyboard/KeyboardPredictionBarStabilityTests.cs",
             "Keyboard/KeyboardPredictionClickTests.cs", "Keyboard/KeyboardPredictionExclusionTests.cs", "Keyboard/KeyboardPredictionLoadingHintTests.cs",
             "Keyboard/KeyboardPredictionRearmLatchTests.cs",
-            "Keyboard/KeyboardSessionEndBarRefreshTests.cs", "Keyboard/KeyboardStaleSwapAnchorTests.cs",
+            "Keyboard/KeyboardSessionEndBarRefreshTests.cs", "Keyboard/KeyboardShowJourneyTests.cs", "Keyboard/KeyboardStaleSwapAnchorTests.cs",
             "Keyboard/SymbolCaptionFitTests.cs", "Overlays/KeyboardPredictionBarRefreshTests.cs"),
         Group(HandleOnlyProbe,
             "Diagnostics/SubPixel/ProbeRingOnScreenGateTests.cs", "Diagnostics/SubPixel/SubPixelProbeC5ExitTests.cs",

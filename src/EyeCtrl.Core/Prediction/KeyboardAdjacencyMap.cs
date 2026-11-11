@@ -64,6 +64,9 @@ public static class KeyboardAdjacencyMap
         ['b'] = ['v','g','h','n'],
         ['n'] = ['b','h','j','m'],
         ['m'] = ['n','j','k'],
+        // ß sits at the letters page's third-row right end (T6 variant A): ⌫ on its left, ↵ below,
+        // and ä's box above-left overlaps it — its only letter neighbour.
+        ['ß'] = ['ä'],
     };
 
     private static readonly Dictionary<char, HashSet<char>> Azerty = new()
@@ -87,13 +90,16 @@ public static class KeyboardAdjacencyMap
         ['j'] = ['h','u','i','k','n','m'],
         ['k'] = ['j','i','o','l','m'],
         ['l'] = ['k','o','p','m'],
-        ['m'] = ['l','p'],
+        ['m'] = ['l','p','ç'],   // ç overlaps m's span from below-right since T6's letters-page edit
         ['w'] = ['q','s','x'],
         ['x'] = ['w','s','d','c'],
         ['c'] = ['x','d','f','v'],
         ['v'] = ['c','f','g','b'],
         ['b'] = ['v','g','h','n'],
         ['n'] = ['b','h','j','m'],
+        // ç took the letters page's third-row right-end slot (T6): its box overlaps m's span
+        // above; Bksp on its left and ↵ below are not letters.
+        ['ç'] = ['m'],
     };
 
     /// <summary>Returns the adjacency map for the given keyboard layout name.</summary>

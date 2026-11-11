@@ -16,6 +16,7 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
 
@@ -157,8 +158,12 @@ public class KeyboardGateProbeTests
             .GetField("_keyScreenPositions", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
 
+    /// <summary>The messenger the VM was constructed with: <see cref="ObservableRecipient"/>
+    /// keeps <c>Messenger</c> protected, so a test that wants to observe a message must hold
+    /// the instance the VM sends on — created here, next to the VM.</summary>
     private sealed record Probe(
-        KeyboardWindow Window, KeyboardViewModel Vm, FrameworkElement Content, HwndSource Source) : IDisposable
+        KeyboardWindow Window, KeyboardViewModel Vm, WeakReferenceMessenger Messenger,
+        FrameworkElement Content, HwndSource Source) : IDisposable
     {
         public void Dispose() { Source.Dispose(); Window.Close(); }
     }
@@ -173,7 +178,8 @@ public class KeyboardGateProbeTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var w = new KeyboardWindow();
-        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var messenger = new WeakReferenceMessenger();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
         w.SetViewModel(vm);
         w.LoadLayout(layout, 1.0, keyDwellMs: DwellMs, predictionDwellMs: 800, cooldownMs: 0);
         if (emojiJsonPath != null)
@@ -221,7 +227,7 @@ public class KeyboardGateProbeTests
         Check.WithCustomMessage("No key centres collected — the probe would measure nothing.")
              .That(Centres(w)).Not.IsEmpty();
 
-        return new Probe(w, vm, content, source);
+        return new Probe(w, vm, messenger, content, source);
     }
 
     /// <summary>Gaze lands on <paramref name="p"/> from a clean slate; returns the latched key id.</summary>
@@ -236,9 +242,12 @@ public class KeyboardGateProbeTests
     /// Restates the latch, then holds the gaze one full dwell so the window's activation handler
     /// runs. The caller asserts the HANDLER'S EFFECT (sub-layout changed, emoji mode toggled), never
     /// the mere response of the key — that is the difference between a one-way door passing and a
-    /// round trip passing.
+    /// round trip passing. <paramref name="holdMs"/> extends the hold past the standard
+    /// <see cref="DwellMs"/> for app-escaping keys, whose policy floor
+    /// (<see cref="KeyboardSpecialActions.AppEscapingPolicyFloorMs"/>, 600 ms) exceeds the
+    /// probe's 500 ms key dwell.
     /// </summary>
-    private static void DwellOn(Probe probe, string keyId, ref long ts)
+    private static void DwellOn(Probe probe, string keyId, ref long ts, int holdMs = DwellMs)
     {
         // A completed dwell's handler may have rebuilt the key rows (sub-layout switch, emoji
         // mode). The rebuild is synchronous inside UpdateGaze, but ARRANGEMENT is not: without
@@ -270,10 +279,11 @@ public class KeyboardGateProbeTests
         // single jump to latchTs + 500 ms would be restarted by the F3 gap clamp (any silence
         // over 150 ms resets the dwell rather than being credited) and the activation would never
         // happen — the same class of fixture trap as the post-rebuild layout pass above.
-        for (var t = latchTs + 50_000; t < latchTs + DwellUs; t += 50_000)
+        var holdUs = holdMs * 1000L;
+        for (var t = latchTs + 50_000; t < latchTs + holdUs; t += 50_000)
             probe.Window.UpdateGaze(centre, t);
-        probe.Window.UpdateGaze(centre, latchTs + DwellUs);
-        ts = latchTs + DwellUs + 1_000;
+        probe.Window.UpdateGaze(centre, latchTs + holdUs);
+        ts = latchTs + holdUs + 1_000;
     }
 
     // ---- positive half: no key is dead ----
@@ -787,6 +797,73 @@ public class KeyboardGateProbeTests
             // regression net, not as the H1 proof).
             Check.WithCustomMessage("Caps Lock was silently disarmed by the swap")
                 .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.CapsLock)).IsTrue();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedQwertz_ArmedAlt_IsVisibleOnTheFunctionPage_AtScale2()
+    {
+        // T5 (keyboard-one-look): the Fn page carries Win/Alt/Strg, so a system modifier armed
+        // on one page is VISIBLE on the page the user dwells onto next. The chain a gaze user
+        // performs: dwell Alt on letters (it lights), dwell onto Fn — the Fn grid's Alt key must
+        // exist AND be lit while the VM keeps Alt armed (D15) — then dwell F4: the chord must
+        // ride Alt+F4 (not a silently disarmed bare F4) and the one-shot must clear afterwards.
+        var probe = Open(ShippedQwertz(), 2.0);
+        try
+        {
+            long ts = 1_000;
+            SpecialKeyMessage? f4 = null;
+            probe.Messenger.Register<SpecialKeyMessage>(probe.Messenger, (_, msg) => f4 = msg);
+
+            DwellOn(probe, "modifier:alt", ref ts);
+            Check.WithCustomMessage("Dwelling the letters Alt key did not arm Alt — the assertions "
+                    + "below would not measure an armed state.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsTrue();
+            Check.WithCustomMessage("The letters Alt key is not lit while armed.")
+                .That(KeyBrushColor(probe, "modifier:alt")).IsEqualTo(Tokens.SurfaceKeyActive);
+
+            DwellOn(probe, "switchSub:function", ref ts);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("function");
+            Check.WithCustomMessage("D15: the swap onto Fn must keep the armed Alt.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsTrue();
+
+            // The T5 core, on the NEW grid: the armed Alt key exists on the Fn page and is lit;
+            // Win/Strg are on the page but unlit (a modifier key's base is the special-key colour).
+            Check.WithCustomMessage(
+                    $"The Fn page's Alt key brush is not the armed colour while Alt is armed — "
+                    + "the armed state is invisible on the page it was kept for (T5).")
+                .That(KeyBrushColor(probe, "modifier:alt")).IsEqualTo(Tokens.SurfaceKeyActive);
+            Check.WithCustomMessage("The Fn page's Win key is lit although Win is not armed.")
+                .That(KeyBrushColor(probe, "modifier:win")).IsEqualTo(Tokens.SurfaceKeyModifier);
+            Check.WithCustomMessage("The Fn page's Strg key is lit although Ctrl is not armed.")
+                .That(KeyBrushColor(probe, "modifier:ctrl")).IsEqualTo(Tokens.SurfaceKeyModifier);
+
+            DwellOn(probe, "key:F4", ref ts, holdMs: 900);   // app-escaping: 600 ms policy floor
+            Check.WithCustomMessage("Dwelling F4 on the Fn page sent no SpecialKeyMessage.")
+                .That(f4).IsNotNull();
+            Check.That(f4!.KeyName).IsEqualTo("f4");   // the window dispatches key: names lowercased
+            Check.WithCustomMessage(
+                    "F4 fired without a modifier set — an armed Alt vanished at the chord, or the "
+                    + "snapshot never rode the message.")
+                .That(f4.Modifiers).IsNotNull();
+            Check.That(f4.Modifiers!).Contains(ModifierKey.Alt);
+            Check.WithCustomMessage("The one-shot Alt did not clear after F4 fired.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsFalse();
+
+            // Fixup 01 (owner decision: a visible Shift key on the Fn page): Fn now carries Shift
+            // too. Dwell it ON the Fn page (standard 500 ms hold — modifier keys are not
+            // app-escaping) and pin the visual half of the chain the VM test proves logically:
+            // the Fn Shift key exists, is dwellable at its own centre, and lights while Shift is
+            // armed — an armed Shift is never invisible on the page it rides every key of.
+            DwellOn(probe, "modifier:shift", ref ts);
+            Check.WithCustomMessage("Dwelling the Fn Shift key did not arm Shift — the assertions "
+                    + "below would not measure an armed state.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+            Check.WithCustomMessage(
+                    "The Fn page's Shift key is not lit while Shift is armed — the armed state is "
+                    + "invisible on the page whose every key it modifies (fixup 01 F1).")
+                .That(KeyBrushColor(probe, "modifier:shift")).IsEqualTo(Tokens.SurfaceKeyActive);
         }
         finally { probe.Dispose(); }
     }

@@ -104,8 +104,9 @@ public class QwertzKeyCaptionDataTests
             ["function"] =
             [
                 "key:Escape", "key:F1", "key:F2", "key:F3", "key:F4", "key:F5", "key:F6", "key:F7",
-                "key:F8", "key:F9", "key:PrintScreen", "key:F10", "key:F11", "key:F12", "key:Home",
-                "key:End", "key:PageUp", "key:PageDown", "key:Insert", "key:Delete",
+                "key:F8", "key:F9", "modifier:win", "modifier:alt", "key:PrintScreen", "key:F10",
+                "key:F11", "key:F12", "key:Home", "key:End", "key:PageUp", "key:PageDown",
+                "key:Insert", "key:Delete", "modifier:ctrl", "modifier:shift",
                 "shortcut:Ctrl+C", "shortcut:Ctrl+V", "shortcut:Ctrl+X", "shortcut:Ctrl+Z",
                 "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "switchSub:letters",
                 "key:ArrowUp", "space", "enter", "tab", "switchSub:numbers", "key:ArrowLeft",

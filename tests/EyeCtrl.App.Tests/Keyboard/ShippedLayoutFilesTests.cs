@@ -81,6 +81,59 @@ public class ShippedLayoutFilesTests
 
     [Theory]
     [MemberData(nameof(LayoutNames))]
+    public void EveryNonAutoReturnPage_CarriesEveryModifier(string file)
+    {
+        // T5 + fixup 01 (keyboard-one-look): every page a user can dwell onto must carry every
+        // `modifier:*` key ANY page of the layout carries, so an armed modifier is never
+        // invisible. KeyboardViewModel keeps all of them armed across non-autoReturn page
+        // switches (D15: only the SYSTEM modifiers are cleared, and only when entering an
+        // autoReturn page) — and an armed Shift on a textless page changes what its keys send
+        // (review 01 F1: Entf becomes Shift+Del — a permanent delete in Explorer — Kopieren
+        // becomes Ctrl+Shift+C). The set is computed dynamically from the shipped files, so
+        // adding a modifier to one page without spreading it to the others fails here.
+        //
+        // The match is case-INSENSITIVE because the window lowercases special actions before
+        // dispatching (KeyboardWindow.GetModifierFromAction switches on ToLowerInvariant): a
+        // key spelled "Modifier:Alt" would work in the app and must not be invisible to this
+        // theory. The non-empty guard keeps it from passing vacuously if the files ever stop
+        // carrying modifiers at all (fixup 01 F2).
+        //
+        // AutoReturn pages (the accents picker) remain exempt: entering them clears the system
+        // modifiers (KeyboardViewModel.SwitchSubLayout), so those cannot be armed there — and
+        // Shift, which survives entry, is visible through the keys themselves: every accents
+        // text key carries its shiftOutput and UpdateShiftDisplay shows the capital while
+        // Shift is armed (a T5-era scope note claimed Shift needed no key anywhere; that
+        // generalised the accents case wrongly and was reversed by the owner's fixup decision).
+        var layout = Load(file);
+
+        var modifiers = layout.SubLayouts.Values.SelectMany(s => s.Rows.SelectMany(r => r))
+            .Select(k => k.SpecialAction)
+            .Where(a => a is not null && a.StartsWith("modifier:", StringComparison.OrdinalIgnoreCase))
+            .Select(a => a!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Check.WithCustomMessage(
+                $"{file} carries no modifier:* keys at all — the per-page assertions below would assert nothing.")
+            .That(modifiers).Not.IsEmpty();
+
+        foreach (var (page, sub) in layout.SubLayouts)
+        {
+            if (sub.AutoReturn) continue;
+            var actions = sub.Rows.SelectMany(r => r)
+                .Select(k => k.SpecialAction)
+                .Where(a => a is not null)
+                .Select(a => a!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var modifier in modifiers)
+                Check.WithCustomMessage(
+                        $"{file}/{page} does not carry {modifier}: an armed modifier survives the " +
+                        "page switch (D15), so it would be armed and INVISIBLE here — add its key to the page.")
+                    .That(actions.Contains(modifier)).IsTrue();
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
     public void TheFunctionSubLayout_CarriesTheClipboardRow(string file)
     {
         var layout = Load(file);

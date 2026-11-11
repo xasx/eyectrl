@@ -226,8 +226,9 @@ public sealed class KeyboardE1Recorder
 
     /// <summary>
     /// What a correction needs about the key that was SLIPPED, logged only on the in-word Backspace
-    /// that takes it back (keyed to that Backspace's <paramref name="seq"/>): how the gaze arrived,
-    /// how many dwells were discarded, and the shadow likelihood bits. Never on an ordinary letter.
+    /// (or Wort löschen) that takes it back, keyed to that deletion's <paramref name="seq"/>: how the
+    /// gaze arrived, how many dwells were discarded, and the shadow likelihood bits. Never on an
+    /// ordinary letter.
     /// </summary>
     public void RecordCorrection(long seq, in CorrE1 c)
     {
@@ -235,6 +236,17 @@ public sealed class KeyboardE1Recorder
         Emit(
             "KB-E1 corr seq={Seq} saccade={Saccade} restarts={Restarts} likely={Likely} start={Start} nocont={NoCont}",
             seq, c.Saccade, c.Restarts, c.Likely, c.WordStart, c.NoContinuation);
+    }
+
+    /// <summary>
+    /// A Wort löschen correction (E1 step 0b): keyed to the deleteWord that took the open word
+    /// back, the gap since the last letter fire, and how many letters the deletion removed. A
+    /// length, never the word; there is no replacement key, so no adjacency is logged.
+    /// </summary>
+    public void RecordWordCorrection(long seq, int ms, int lettersRemoved)
+    {
+        if (seq <= 0 || Muted() || !Enabled) return;
+        Emit("KB-E1 wordcorr seq={Seq} ms={Ms} n={N}", seq, ms, lettersRemoved);
     }
 
     /// <summary>How long the gaze stayed in the activated key's box after the fire (capped).</summary>

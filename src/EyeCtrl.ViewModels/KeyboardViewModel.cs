@@ -980,8 +980,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// logs ONE relation line (adjacent?, compass point, distance in pitches, ms to the Backspace,
     /// row band of the slipped key among the text rows, and the slipped key's own saccade class,
     /// restarts and likelihood bits). The Backspace that takes the letter back also logs a keyed
-    /// <c>corr</c> line with the same arrival facts. Anything else in between (Space, Shift, a second
-    /// Backspace, a mode key) drops the candidate. The slipped key is kept as geometry only.
+    /// <c>corr</c> line with the same arrival facts. An in-word Wort löschen does the same <c>corr</c>
+    /// but reports a <c>wordcorr</c> line instead of expecting a replacement: it has no replacement
+    /// key, so it logs the gap and how many letters it removed, and arms nothing. Anything else in
+    /// between (Space, Shift, a second Backspace, a mode key) drops the candidate. The slipped key is
+    /// kept as geometry only.
     /// </summary>
     private void TrackSlipE1(string cls, string backspaceClass, PhysicalPoint centre, PhysicalRect? box,
         string band, double pitch, CorrE1 corr, long seq)
@@ -1004,12 +1007,24 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             return;
         }
 
-        if (cls == KeyE1.Backspace && backspaceClass == "word" && !_slipArmed
+        if ((cls is KeyE1.Backspace or KeyE1.DeleteWord) && backspaceClass == "word" && !_slipArmed
             && _slipCandidate is { } candidate && now - candidate.AtMs <= KeyboardE1Recorder.SlipWindowMs)
         {
+            E1.RecordCorrection(seq, candidate.Corr);
+            if (cls == KeyE1.DeleteWord)
+            {
+                // Wort löschen takes the whole open word back, so there is no replacement key to
+                // relate to: report the gap and the size of the deletion (a length, like prefixlen)
+                // and clear the candidate. HandleDeleteWord runs after this, so CurrentInput still
+                // holds the word and TrimLastWord is exactly its trailing letter/digit run.
+                E1.RecordWordCorrection(seq, (int)(now - candidate.AtMs),
+                    CurrentInput.Length - TrimLastWord(CurrentInput).Length);
+                _slipCandidate = null;
+                _slipArmed = false;
+                return;
+            }
             _slipArmed = true;
             _slipBackspaceAtMs = now;
-            E1.RecordCorrection(seq, candidate.Corr);
             return;
         }
 

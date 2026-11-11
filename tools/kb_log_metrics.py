@@ -15,8 +15,8 @@ parse: a half-written last line must not sink the whole report. The lines are co
 contract -- geometry, key CLASSES, timings, lengths, the foreground process NAME -- so this
 script never sees a typed character, and cannot print one.
 
-The events: key, holdon, abandon, corr, slip, pick, pickundo, space, mode, modeundo, edge, shown,
-layout, hidden, mirror, sensitive.
+The events: key, holdon, abandon, corr, slip, wordcorr, pick, pickundo, space, mode, modeundo,
+edge, shown, layout, hidden, mirror, sensitive.
 
 Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
 symbol, emoji) the line says only that a text key was typed -- plus timing (``ts``, ``sincekey``),
@@ -31,7 +31,11 @@ written); ``c`` = the inner half, the other keys the outer quarters; ``a*`` the 
 It carries NO row/column/action id, NO box size (``boxw``/``boxh`` come once on ``shown`` and
 ``layout`` lines), NO pixel offset, and NO saccade, restart count or likelihood. Those arrival facts
 exist only for a CORRECTED letter: the in-word Backspace is followed by a keyed ``corr`` line
-(``seq`` = the Backspace's) and the ``slip`` line repeats them for the slipped key. Only non-text keys
+(``seq`` = the Backspace's) and the ``slip`` line repeats them for the slipped key. An in-word
+Wort löschen (``cls=deleteword``, ``bs=word``) logs the same keyed ``corr`` and then a ``wordcorr``
+line carrying only the gap since the last letter and how many letters were removed (a length, the
+same order of fact as ``prefixlen``); it has no replacement key, so no ``slip`` line follows it.
+Only non-text keys
 (space, backspace, enter, modifiers, switches, shortcuts) keep ``r``/``c``/``act``, box size, pixel
 offsets, ``saccade`` and ``restarts`` -- except that those last two are withheld (``saccade=-``,
 ``restarts=-1``) when the PREVIOUS activation was a text key, because the path from a letter to a Space
@@ -46,9 +50,14 @@ rows that hold text keys (``reg``: top/mid/bot; on QWERTZ the q-row, the a-row, 
 Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
 ------------------------------------------------------------
 * letters            letter activations
-* slips              a letter whose NEXT activation is a Backspace inside the current word
-                     (``bs=word``), no more than 3 s later by the log's own clock. A Backspace
-                     into committed text is editing, not a slip, and does not count.
+* slips              a letter whose NEXT activation is a Backspace or a Wort löschen
+                     (``deleteword``) inside the current word (``bs=word``), no more than 3 s
+                     later by the log's own clock. A deletion into committed text is editing,
+                     not a slip, and does not count. The owner corrects only with Wort löschen,
+                     so without counting it the C2 minimum could never be reached.
+* word corrections   the slips whose deletion was a Wort löschen, with the ``wordcorr`` lines'
+                     letters-removed histogram. Reported separately because it is a different
+                     gesture (no replacement key, no adjacency relation); it counts in ``slips``.
 * slip rate          slips / letters
 * repairs            the ``slip`` events: share whose replacement was ADJACENT to the slipped key,
                      the compass-direction histogram of the adjacent ones, and the same per row
@@ -199,6 +208,7 @@ def _millis(stamp: str) -> int:
 REQUIRED: dict[str, dict[str, type]] = {
     "key": {"seq": int, "ts": int, "cls": str, "penalty": bool, "bs": str, "movems": int},
     "corr": {"seq": int, "saccade": str, "restarts": int, "likely": bool, "start": bool, "nocont": bool},
+    "wordcorr": {"seq": int, "ms": int, "n": int},
     "holdon": {"seq": int, "ms": int},
     "abandon": {"ts": int, "cls": str},
     "slip": {"adj": bool, "dir": str, "dist": int, "ms": int, "reg": str},
@@ -255,14 +265,22 @@ def _share(part: int, whole: int) -> float | None:
     return None if whole == 0 else part / whole
 
 
-def _slipped_letters(keys: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The slip rule over key lines: a letter whose NEXT activation is an in-word Backspace no
-    more than 3 s later. Shared by the whole-day metrics and the per-layout-era counts."""
-    return [
-        prev for prev, nxt in zip(keys, keys[1:])
-        if (prev.get("cls") == "letter" and nxt.get("cls") == "backspace"
+def _is_slip_pair(prev: dict[str, Any], nxt: dict[str, Any]) -> bool:
+    """A letter whose NEXT activation is an in-word deletion (Backspace or Wort löschen) no more
+    than 3 s later. The owner corrects only with Wort löschen (E1 step 0b), so both count."""
+    return (prev.get("cls") == "letter" and nxt.get("cls") in ("backspace", "deleteword")
             and nxt.get("bs") == "word" and 0 <= nxt["at"] - prev["at"] <= SLIP_WINDOW_MS)
-    ]
+
+
+def _slipped_letters(keys: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The slip rule over key lines, shared by the whole-day metrics and the per-era counts."""
+    return [prev for prev, nxt in zip(keys, keys[1:]) if _is_slip_pair(prev, nxt)]
+
+
+def _word_corrections(keys: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The in-word deleteWord activations that took a letter back (the slip rule, by gesture)."""
+    return [nxt for prev, nxt in zip(keys, keys[1:])
+            if _is_slip_pair(prev, nxt) and nxt.get("cls") == "deleteword"]
 
 
 def _is_return(fire: dict[str, Any]) -> bool:
@@ -451,17 +469,17 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
     by_seq = {e["seq"]: e for e in keys if "seq" in e}
     letters = [k for k in keys if k.get("cls") == "letter"]
 
-    # --- slips: a letter immediately followed (next activation) by an in-word Backspace <= 3 s.
-    # The slipped letter's own arrival and likelihood facts are NOT on its key line any more: they ride on
-    # the keyed ``corr`` line of the Backspace that takes it back.
+    # --- slips: a letter immediately followed (next activation) by an in-word Backspace or
+    # Wort löschen <= 3 s. The slipped letter's own arrival and likelihood facts are NOT on its key
+    # line any more: they ride on the keyed ``corr`` line of the deletion that takes it back.
     corr_by_seq = {e["seq"]: e for e in events if e["event"] == "corr"}
     slipped = _slipped_letters(keys)
+    word_corrections = _word_corrections(keys)
+    word_corr_events = [e for e in events if e["event"] == "wordcorr"]
     slipped_corr: list[dict[str, Any]] = []
     for prev, nxt in zip(keys, keys[1:]):
-        if (prev.get("cls") == "letter" and nxt.get("cls") == "backspace"
-                and nxt.get("bs") == "word" and 0 <= nxt["at"] - prev["at"] <= SLIP_WINDOW_MS):
-            if nxt["seq"] in corr_by_seq:
-                slipped_corr.append(corr_by_seq[nxt["seq"]])
+        if _is_slip_pair(prev, nxt) and nxt["seq"] in corr_by_seq:
+            slipped_corr.append(corr_by_seq[nxt["seq"]])
     countable = [c for c in slipped_corr if not c.get("start") and not c.get("nocont")]
     unlikely = [c for c in countable if not c.get("likely")]
 
@@ -517,6 +535,8 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "activations": len(keys),
         "slips": len(slipped),
         "slip_rate": _share(len(slipped), len(letters)),
+        "word_corrections": len(word_corrections),
+        "word_correction_letters_removed": dict(Counter(e["n"] for e in word_corr_events)),
         "slipped_letters_counted": len(countable),
         "slipped_likely0": len(unlikely),
         "slipped_likely0_share": _share(len(unlikely), len(countable)),
@@ -561,6 +581,8 @@ def render(m: dict[str, Any]) -> str:
     add("=" * 44)
     add(f"letter activations        {m['letters']}   (all activations: {m['activations']})")
     add(f"slips                     {m['slips']}   slip rate {_pct(m['slip_rate'])}")
+    add(f"word corrections (Wort löschen)  {m['word_corrections']}   letters removed "
+        f"{m['word_correction_letters_removed'] or '-'}")
     add(f"slipped letters counted   {m['slipped_likely0']} of {m['slipped_letters_counted']} "
         f"have likely=0 ({_pct(m['slipped_likely0_share'])}); start / nocont excluded")
     r = m["repairs"]

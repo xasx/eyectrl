@@ -991,6 +991,39 @@ public class KeyboardE1LoggingTests
     }
 
     [Fact]
+    public void ADeleteWordRightAfterABarPick_LogsNoWordCorrection()
+    {
+        // The pick sets CurrentInput = "" but leaves the letter's slip candidate live. The bs=word
+        // gate is what stops the following Wort löschen from logging a false correction: the
+        // deletion goes into the picked (committed) word, so it is editing, not a slip.
+        using var rig = new Rig(words: new() { ["haus"] = 100 });
+        rig.Type("key_0_0");                     // "h": the slip candidate
+        rig.Vm.HandlePredictionSelected("haus"); // a bar pick commits the word (CurrentInput "")
+        rig.Type("deleteWord");                  // Wort löschen into committed text, inside 3 s
+
+        var deleteWord = rig.Log.Of("key").Select(Fields).Single(f => f["cls"] == "deleteword");
+        Check.That(deleteWord["bs"]).IsEqualTo("committed");
+        Check.That(rig.Log.Of("corr")).IsEmpty();
+        Check.That(rig.Log.Of("wordcorr")).IsEmpty();
+    }
+
+    [Fact]
+    public void TheLettersRemoved_AreOnlyTheTrailingLetterRun_OfAnOpenTokenWithAnApostrophe()
+    {
+        // Ctrl+Backspace stops at an apostrophe, so "ha'x" loses only "x". n must be that run,
+        // not the whole open token (a token can be much longer than the word the gesture removes).
+        using var rig = new Rig();
+        rig.Type("key_0_0");                     // "h"
+        rig.Type("key_0_1");                     // "ha"
+        rig.Vm.ActivateKey("'", null);           // "ha'"
+        rig.Type("key_0_2");                     // "ha'x": candidate x
+        rig.Type("deleteWord");                  // Ctrl+Backspace removes "x" only
+
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("ha'");
+        Check.That(Fields(rig.Log.Of("wordcorr").Single())["n"]).IsEqualTo("1");
+    }
+
+    [Fact]
     public void TheLetterAfterAWordCorrection_IsNotItsReplacement()
     {
         // Wort löschen has no replacement key. The first letter of the retyped word starts a fresh

@@ -333,6 +333,18 @@ class WordCorrections(unittest.TestCase):
         self.assertEqual(m.get("word_corrections"), 2)
         self.assertEqual(m.get("word_correction_letters_removed"), {2: 1, 5: 1})
 
+    def test_word_corrections_counts_only_word_deletes_not_backspace_slips(self) -> None:
+        # The gesture split must not drift: a Backspace slip counts in slips, never in
+        # word_corrections (mutant: count every slip as a word correction).
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "backspace", "word"),
+            stamp_line(1500, "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 1)
+        self.assertEqual(m.get("word_corrections"), 0)
+
     def test_a_deleteword_into_committed_text_is_not_a_word_correction(self) -> None:
         lines = [stamp_key(1000, 1, "letter"), stamp_key(1100, 2, "space"),
                  stamp_key(1300, 3, "deleteword", "committed")]

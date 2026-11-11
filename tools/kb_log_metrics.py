@@ -58,6 +58,10 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
 * word corrections   the slips whose deletion was a Wort löschen, with the ``wordcorr`` lines'
                      letters-removed histogram. Reported separately because it is a different
                      gesture (no replacement key, no adjacency relation); it counts in ``slips``.
+                     Logs written before step 0b already hold in-word ``deleteword`` key lines:
+                     those pairs count retroactively in ``slips``/``slip_rate``/``word_corrections``
+                     and in the per-era ``slips``, but they have no ``corr`` line, so the C2 gate
+                     (``enough_for_c2``) is unaffected.
 * slip rate          slips / letters
 * repairs            the ``slip`` events: share whose replacement was ADJACENT to the slipped key,
                      the compass-direction histogram of the adjacent ones, and the same per row
@@ -581,8 +585,8 @@ def render(m: dict[str, Any]) -> str:
     add("=" * 44)
     add(f"letter activations        {m['letters']}   (all activations: {m['activations']})")
     add(f"slips                     {m['slips']}   slip rate {_pct(m['slip_rate'])}")
-    add(f"word corrections (Wort löschen)  {m['word_corrections']}   letters removed "
-        f"{m['word_correction_letters_removed'] or '-'}")
+    removed = " ".join(f"{n}:{c}" for n, c in sorted(m["word_correction_letters_removed"].items())) or "-"
+    add(f"word corrections          {m['word_corrections']}   letters removed {removed}")
     add(f"slipped letters counted   {m['slipped_likely0']} of {m['slipped_letters_counted']} "
         f"have likely=0 ({_pct(m['slipped_likely0_share'])}); start / nocont excluded")
     r = m["repairs"]

@@ -898,7 +898,17 @@ public class KeyboardCoordinatorTests
             .That(source.Contains(
                 "Context.OverlayManager.Keyboard.Show();"
                 + "ApplyInitialToolbarOccupancy(place:false);"
-                + "Context.OverlayManager.Keyboard.PlaceForShow();"))
+                + "Context.OverlayManager.Keyboard.PlaceForShow("))
+            .IsTrue();
+
+        // One look, one key: the show's landing guard must be armed ONLY for a real
+        // hidden->visible transition. The "request" show path re-fires whenever another text
+        // field is activated while the keyboard is already up; re-arming there would dead-key
+        // the dwell in progress. The condition lives in this call, so pin it here.
+        Check.WithCustomMessage(
+                "the show path arms the landing guard unconditionally: a repeated show request "
+                + "while the keyboard is up would suppress the key under a dwell in progress")
+            .That(source.Contains("PlaceForShow(armLandingGuard:!wasVisible)"))
             .IsTrue();
     }
 

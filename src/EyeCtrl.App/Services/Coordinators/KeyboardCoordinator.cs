@@ -169,6 +169,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
                     settings.Dwell.KeyboardKeyDwellMs,
                     settings.Dwell.KeyboardPredictionDwellMs,
                     settings.Dwell.DwellCooldownMs);
+                // E1 step 0a: name the layout on every shown/layout line — name, file hash, app version —
+                // so a before/after layout comparison groups the log by lv instead of by date. A reload
+                // (a settings apply, possibly switching ActiveLayout) re-stamps here.
+                Context!.KeyboardVM.E1.SetStamp(KeyboardE1Stamp.FromLayoutFile(
+                    layout.Name, layoutPath,
+                    typeof(KeyboardCoordinator).Assembly.GetName().Version?.ToString() ?? "unknown"));
                 layoutLoaded = true;
             }
             catch (Exception ex)
@@ -414,7 +420,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             // position plus the refreshed toolbar yield); the other un-yield is the gaze-off gate
             // while the keyboard stays open. It must run after Show() so the window has its real
             // size. The window no longer infers a show from IsVisibleChanged.
-            Context.OverlayManager.Keyboard.PlaceForShow();
+            //
+            // One look, one key: only a REAL hidden→visible transition arms the show's landing
+            // guard. The "request" path fires again whenever another text field is activated
+            // while the keyboard is already up, and re-arming there would dead-key the dwell in
+            // progress until the gaze moved half a key.
+            Context.OverlayManager.Keyboard.PlaceForShow(armLandingGuard: !wasVisible);
             ShowKeyboardEdgeBar();
             if (manageSuppression)
                 ApplyKeyboardSuppression(visible: true);

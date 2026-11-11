@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -32,9 +33,9 @@ using Xunit;
 /// <para>
 /// A real <see cref="KeyboardWindow"/> and <see cref="KeyboardViewModel"/> run a headless typing
 /// session through the real gaze chain (<c>UpdateGaze</c> → <c>ProcessKeyGaze</c> → the window's
-/// activation handler): letters, a bar pick, a Space, Backspace, a mode switch, Enter and a hide,
-/// on the shipped QWERTZ layout, with a distinctive marker word. Every E1 line it produces is
-/// captured and checked three ways:
+/// activation handler): letters, a bar pick, a Space, Backspace, a Wort löschen correction, a mode
+/// switch, Enter and a hide, on the shipped QWERTZ layout, with a distinctive marker word. Every E1
+/// line it produces is captured and checked three ways:
 /// </para>
 /// <list type="number">
 /// <item>the marker, and every letter of it as a key label, appears in no rendered line and no
@@ -42,7 +43,9 @@ using Xunit;
 /// <item>the property NAMES of each event equal an allow-list written out in this file, so a new
 /// field needs a deliberate edit here (and so a review of whether it can carry content);</item>
 /// <item>every STRING property value is from a closed vocabulary — a class, a layout/action id, an
-/// edge, a source, a cause. A free-text value cannot pass, whatever its name.</item>
+/// edge, a source, a cause — or matches a pinned pattern (<see cref="AllowedPatterns"/>: the layout
+/// stamp's file hash and the app version, E1 step 0a, both facts about shipped artifacts). A
+/// free-text value cannot pass, whatever its name.</item>
 /// </list>
 /// <para>
 /// The probe the session runs against even returns the typed text as the "focused control", to
@@ -91,14 +94,19 @@ public class KeyboardE1PrivacyTests
         ["abandon"] = ["TsUs", "Class", "Pct", "Why", "EndMs", "Sub", "Edge"],
         ["slip"] = ["Adj", "Dir", "Dist", "Ms", "Reg", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
         ["corr"] = ["Seq", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
+        // E1 step 0b: a Wort löschen correction. Only keying, the gap and a length — no word,
+        // no letters (n is the same order of fact as pick's prefixlen).
+        ["wordcorr"] = ["Seq", "Ms", "N"],
         ["pick"] = ["Slot", "Source", "PrefixLen", "InsLen", "SinceKeyMs", "SincePickMs", "RenderMs", "Visited"],
         ["pickundo"] = ["Ms", "By"],
         ["space"] = ["Seq", "Empty"],
         ["mode"] = ["Kind", "From", "To"],
         ["modeundo"] = ["Kind", "Ms"],
         ["edge"] = ["Button", "Edge"],
-        ["shown"] = ["Proc", "Edge", "Via", "BoxW", "BoxH"],
-        ["layout"] = ["Sub", "BoxW", "BoxH"],
+        // The layout stamp (E1 step 0a): name, file hash, app version. The hash of a shipped file
+        // and a version number are facts about artifacts on disk, not about anything typed.
+        ["shown"] = ["Proc", "Edge", "Via", "BoxW", "BoxH", "Lay", "Lv", "Ver"],
+        ["layout"] = ["Sub", "BoxW", "BoxH", "Lay", "Lv", "Ver"],
         ["sensitive"] = [],
         ["hidden"] = ["Cause", "VisibleMs"],
         ["mirror"] = ["At", "Res", "MirrorLen", "CtlLen", "Common"],
@@ -135,6 +143,23 @@ public class KeyboardE1PrivacyTests
         ["Cause"] = ["toolbar-toggle", "edge-close", "request", "probe"],
         ["At"] = ["hide", "enter"],
         ["Res"] = ["match", "mismatch", "unsupported", "suppressed", "empty"],
+    };
+
+    /// <summary>
+    /// The string properties a closed vocabulary cannot hold, because they are hashes or versions:
+    /// the layout stamp (E1 step 0a). A hash of a SHIPPED layout file names an artifact on disk —
+    /// not user content, and it cannot be mapped back to anything typed — but its value is not from
+    /// a small set, so it is pinned by pattern instead: 8 lower-case hex characters. The version is
+    /// digits and dots (or the assembly-version fallback "unknown"). "Lay" IS a small set: exactly
+    /// the names <c>KeyboardSettings.ValidLayouts</c> accepts, plus the dashes of an unset stamp.
+    /// Anchored with <c>\z</c>, not <c>$</c>: in .NET a trailing newline would pass <c>$</c>
+    /// (review 01 F6).
+    /// </summary>
+    private static readonly Dictionary<string, string> AllowedPatterns = new()
+    {
+        ["Lay"] = @"\A(QWERTZ|QWERTY|AZERTY|-)\z",
+        ["Lv"] = @"\A([0-9a-f]{8}|-)\z",
+        ["Ver"] = @"\A(\d+(\.\d+)*|unknown|-)\z",
     };
 
     /// <summary>The allowed property names of one logged line: by event, and for key/abandon lines by class.</summary>
@@ -233,8 +258,13 @@ public class KeyboardE1PrivacyTests
         vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(
             new InMemoryDictProvider(words ?? SessionWords), "QWERTZ")));
 
-        var layout = KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
+        var layoutPath = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json");
+        var layout = KeyboardLayoutLoader.Load(layoutPath);
+
+        // The stamp LoadKeyboard wires in production, mirrored here so the session's shown/layout
+        // lines carry the real field shapes for the gates above to hold content-free.
+        vm.E1.SetStamp(KeyboardE1Stamp.FromLayoutFile(layout.Name, layoutPath, "0.0.0.0"));
 
         var w = new KeyboardWindow();
         w.SetViewModel(vm);
@@ -333,6 +363,14 @@ public class KeyboardE1PrivacyTests
         Dwell(p, IdOf(p, "l"), ref ts);                 // the repair: the key beside k, so a slip line
         Dwell(p, SpecialId(p, "backspace"), ref ts);
 
+        // A Wort löschen correction (E1 step 0b), the owner's only correction gesture: the Space
+        // clears the previous slip, then two letters and an in-word deleteWord. The correction
+        // lines carry a gap and the letters removed — never the word.
+        Dwell(p, SpecialId(p, "space"), ref ts);
+        Dwell(p, IdOf(p, "a"), ref ts);
+        Dwell(p, IdOf(p, "b"), ref ts);
+        Dwell(p, SpecialId(p, "deleteWord"), ref ts);
+
         // An abandoned dwell: look at a key long enough to count, then away.
         var centres = Centres(p.Window);
         Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
@@ -382,15 +420,15 @@ public class KeyboardE1PrivacyTests
         foreach (var expected in new[]
                  {
                      "key", "holdon", "abandon", "pick", "space", "mode", "modeundo", "edge", "shown", "hidden",
-                     "mirror", "pickundo", "slip", "corr", "layout", "edgeq",
+                     "mirror", "pickundo", "slip", "corr", "wordcorr", "layout", "edgeq",
                  })
         {
             Check.WithCustomMessage($"The typing session produced no '{expected}' line ({lines.Count} E1 lines in all).")
                 .That(seen.Contains(expected)).IsTrue();
         }
 
-        // z e b, Space, k, Backspace, l, Backspace, Enter.
-        Check.That(lines.Count(l => l.Event == "key")).IsEqualTo(9);
+        // z e b, Space, k, Backspace, l, Backspace, Space, a, b, deleteWord, Enter.
+        Check.That(lines.Count(l => l.Event == "key")).IsEqualTo(13);
     }
 
     [StaFact]
@@ -452,6 +490,11 @@ public class KeyboardE1PrivacyTests
                 switch (value)
                 {
                     case int or long or bool:
+                        break;
+                    case string s when AllowedPatterns.TryGetValue(name, out var pattern):
+                        // The stamp family: pinned by pattern (see AllowedPatterns), not by a set.
+                        Check.WithCustomMessage($"String property '{name}='{s}' is outside its pattern ({pattern}): {line.Message}")
+                            .That(Regex.IsMatch(s, pattern)).IsTrue();
                         break;
                     case string s:
                         Check.WithCustomMessage($"String property '{name}' has no closed vocabulary: {line.Message}")
@@ -533,6 +576,37 @@ public class KeyboardE1PrivacyTests
         Check.That(lines.Single(l => l.Event == "shown").Props.ContainsKey("BoxW")).IsTrue();
     }
 
+    /// <summary>
+    /// The layout stamp (E1 step 0a) is on every <c>shown</c> and <c>layout</c> line: the layout's
+    /// name, the first 8 hex of the shipped file's SHA-256, and the app version — so a layout change
+    /// is comparable before/after by hash. Presence is asserted here because the allow-list gate
+    /// above only notices names, not a field that silently stops being WRITTEN; content-freeness is
+    /// the pattern gate above plus the marker gate (a hash of a shipped file cannot be the typed
+    /// text, but a regression that swapped the hash for, say, the focused text would fail HERE).
+    /// </summary>
+    [StaFact]
+    public void TheShownAndLayoutLines_CarryTheLayoutStamp()
+    {
+        var lines = CaptureSession();
+
+        var stamped = lines.Where(l => l.Event is "shown" or "layout").ToList();
+        Check.WithCustomMessage("The session produced no shown/layout line: this gate would pass over nothing.")
+            .That(stamped).Not.IsEmpty();
+        foreach (var line in stamped)
+        {
+            Check.WithCustomMessage($"'{line.Event}' lost the layout name: {line.Message}")
+                .That(line.Props["Lay"]).IsEqualTo("QWERTZ");
+            Check.WithCustomMessage($"'{line.Event}' lost the file hash: {line.Message}")
+                .That(Regex.IsMatch((string)line.Props["Lv"]!, "^[0-9a-f]{8}$")).IsTrue();
+            Check.WithCustomMessage($"'{line.Event}' lost the app version: {line.Message}")
+                .That(Regex.IsMatch((string)line.Props["Ver"]!, @"^\d+(\.\d+)*$")).IsTrue();
+        }
+
+        // Every stamped line carries the SAME hash and version: the stamp identifies the session's
+        // one layout file, so a change mid-session would break the before/after grouping it exists for.
+        Check.That(stamped.Select(l => (string)l.Props["Lv"]!).Distinct()).HasSize(1);
+    }
+
     [StaFact]
     public void TheSlipLine_DescribesTheRepairAndNamesNeitherKey()
     {
@@ -572,10 +646,11 @@ public class KeyboardE1PrivacyTests
                 Dwell(p, IdOf(p, letter.ToString()), ref ts, holdAfterUs: 100_000);
             Dwell(p, SpecialId(p, "backspace"), ref ts);
             Dwell(p, IdOf(p, "x"), ref ts);
+            Dwell(p, SpecialId(p, "deleteWord"), ref ts);   // an in-word Wort löschen: still nothing
             Dwell(p, SpecialId(p, "space"), ref ts);
 
             var lines = p.Log.All();
-            Check.WithCustomMessage("The keyboard must still TYPE in a password field").That(typed).IsEqualTo(9);
+            Check.WithCustomMessage("The keyboard must still TYPE in a password field").That(typed).IsEqualTo(10);
             Check.WithCustomMessage("A password's keys were logged: " + string.Join(" | ", lines.Select(l => l.Message)))
                 .That(lines.Select(l => l.Message)).ContainsExactly("KB-E1 sensitive");
             Check.That(lines.Single().Props.Count).IsEqualTo(0);   // no count, no field at all
@@ -590,8 +665,8 @@ public class KeyboardE1PrivacyTests
     /// timestamp, which differ between two words by construction. The recorder runs on a fake clock, so
     /// every other timing field (<c>SinceKeyMs</c>, <c>SinceMoveMs</c>) is deterministic and is compared
     /// too: a column that leaked into <c>movems</c> or <c>sincekey</c> fails the gate. Everything must not
-    /// depend on WHICH letter was hit, except the documented residual (hold-on, and the time since the
-    /// previous key, which rides with a doubled letter's long stay).
+    /// depend on WHICH letter was hit, except the time since the previous key when a double letter
+    /// took the second look one look, one key requires.
     /// </summary>
     private static readonly string[] NoiseNames = ["Seq", "TsUs"];
 
@@ -636,8 +711,10 @@ public class KeyboardE1PrivacyTests
     }
 
     /// <summary>
-    /// Goes key to key DIRECTLY (no look-away), aiming off-centre, holding on each key a little after the
-    /// fire; a double letter is held long enough to fire twice. Ends with Space.
+    /// Goes key to key DIRECTLY (no look-away between different keys), aiming off-centre and
+    /// holding on each key a little after the fire. A double letter is typed under ONE LOOK, ONE
+    /// KEY: a deliberate leave (150 ms off the grid) and a second look, never a longer stay on the
+    /// key — the old driver relied on the resting re-fire that rule removes. Ends with Space.
     /// </summary>
     private static void TypeKeyToKey(Probe p, string word, ref long ts)
     {
@@ -648,12 +725,13 @@ public class KeyboardE1PrivacyTests
         {
             var aim = Aim(p, IdOf(p, word[i].ToString()));
             var double_ = i + 1 < word.Length && word[i + 1] == word[i];
-            var heldUs = double_ ? 2 * DwellUs + 200_000 : DwellUs + 100_000;
-            var start = ts;
-            for (var t = start; t <= start + heldUs; t += 50_000)
-                Gaze(p, aim, t);
-            ts = start + heldUs + 50_000;
-            if (double_) i++;                     // the second letter was typed by the same stay
+            HoldKey(p, aim, ref ts);
+            if (double_)
+            {
+                LookAway(p, ref ts);
+                HoldKey(p, aim, ref ts);
+                i++;                     // the second letter was the second look
+            }
         }
         var space = Aim(p, SpecialId(p, "space"));
         var from = ts;
@@ -663,6 +741,24 @@ public class KeyboardE1PrivacyTests
         // Look away so the Space's hold-on is logged inside its own word.
         Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
         _ = centres;
+    }
+
+    /// <summary>One key's dwell plus a short 100 ms hold-on, leaving before the cooldown ends.</summary>
+    private static void HoldKey(Probe p, PhysicalPoint aim, ref long ts)
+    {
+        var start = ts;
+        for (var t = start; t <= start + DwellUs + 100_000; t += 50_000)
+            Gaze(p, aim, t);
+        ts = start + DwellUs + 150_000;
+    }
+
+    /// <summary>A leave long enough to re-arm a fired key (150 ms), then a fresh timestamp.</summary>
+    private static void LookAway(Probe p, ref long ts)
+    {
+        var start = ts;
+        for (var t = start; t <= start + 150_000; t += 50_000)
+            Gaze(p, new PhysicalPoint(-99999, -99999), t);
+        ts = start + 200_000;
     }
 
     private static List<Line> LinesOfWord(List<Line> all, int wordIndex, int wordCount)
@@ -726,9 +822,17 @@ public class KeyboardE1PrivacyTests
             Check.WithCustomMessage($"'{first}' and '{second}' are distinguishable (scale {scale}, keys {keyMultiplier})")
                 .That(Signature(b)).ContainsExactly(Signature(a).ToArray());
 
+            // The layout stamp's KNOWN value is the one constant allowed to match: "wert" is a
+            // substring of "QWERTZ", the shipped file's own name, and the stamp is a fact about
+            // that shipped file. Only the exact `lay=QWERTZ` token is replaced — a leak that put
+            // the word inside the stamp under any other spelling is still caught, and the value
+            // itself is pinned to the session's layout name by
+            // TheShownAndLayoutLines_CarryTheLayoutStamp.
+            var knownStamp = $"lay={p.Layout.Name.ToLowerInvariant()}";
             foreach (var line in p.Log.All())
                 foreach (var word in new[] { first, second })
-                    Check.That(line.Message.ToLowerInvariant()).Not.Contains(word);
+                    Check.That(line.Message.ToLowerInvariant().Replace(knownStamp, "lay=-"))
+                        .Not.Contains(word);
         }
         finally { p.Dispose(); }
     }
@@ -761,12 +865,15 @@ public class KeyboardE1PrivacyTests
     [StaTheory]
     [InlineData(1.0, 1.0)]
     [InlineData(1.5, 1.5)]
-    public void DirectKeyToKeyTyping_WithAHoldOnAndADoubleLetter_DiffersOnlyInTheDocumentedResidual(
+    public void DirectKeyToKeyTyping_WithADoubleLetter_DiffersOnlyInTiming(
         double scale, double keyMultiplier)
     {
-        // "hallo" has a double letter, "haben" has none. Going key to key directly (no look-away) and
-        // holding on each key, the ONLY thing that may tell them apart is the hold-on of the doubled
-        // key (and the timing that rides with it). Every key line is identical, field for field.
+        // "hallo" has a double letter, "haben" has none. Going key to key directly (no look-away
+        // between different keys) and holding on each key, the doubled letter now needs a
+        // deliberate second look (one look, one key) — a leave that E1 does not log. So every
+        // key line and every hold-on line is identical, field for field; only timing may differ.
+        // This replaces the old long-stay hold-on residual: a resting gaze can no longer produce
+        // the second fire at all.
         var p = Open(ReconstructionWords, scale, keyMultiplier);
         try
         {
@@ -785,15 +892,17 @@ public class KeyboardE1PrivacyTests
             Check.That(plainKeys).HasSize(6);
 
             // 1. Key lines: identical, field for field (noise = clock values only).
-            // (sincekey is the one excluded timing field: the doubled key's second fire follows its first
-            // after the long stay, which is the documented residual below.)
+            // (sincekey is the one excluded timing field: the doubled key's second look follows a
+            // leave, which is the documented, allowed residual.)
             Check.WithCustomMessage("hallo and haben are distinguishable from their KEY lines going key to key")
                 .That(Signature(plainKeys, "SinceKeyMs")).ContainsExactly(Signature(doubledKeys, "SinceKeyMs").ToArray());
 
-            // 2. The residual: the doubled key's hold-on is the long stay between its two fires.
+            // 2. No hold-on residual is left: every stay is a short one, and both words log one
+            //    hold-on per fire. The old >400 ms doubled-key stay is what one look, one key removes.
             var doubledHolds = doubled.Where(l => l.Event == "holdon").Select(l => (int)l.Props["Ms"]!).ToList();
             var plainHolds = plain.Where(l => l.Event == "holdon").Select(l => (int)l.Props["Ms"]!).ToList();
-            Check.That(doubledHolds.Max()).IsStrictlyGreaterThan(400);
+            Check.WithCustomMessage("a resting gaze produced a long hold-on on the doubled key")
+                .That(doubledHolds.Max()).IsStrictlyLessThan(250);
             Check.That(plainHolds.Max()).IsStrictlyLessThan(250);
 
             // 3. Nothing else differs: with the hold-on durations removed the hold-on lines match too.

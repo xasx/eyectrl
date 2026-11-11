@@ -1,8 +1,8 @@
 2026-10-19 10:00:00.000 [INF] [EyeCtrl.App.Services.Coordinators.KeyboardCoordinator] Keyboard shown
 2026-10-19 10:00:00.010 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=zzz this line is damaged and must be skipped
 2026-10-19 10:00:00.020 [INF] [] Gaze provider started
-2026-10-19 10:00:00.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=210 boxh=210
-2026-10-19 10:00:00.101 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 layout sub=letters boxw=210 boxh=210
+2026-10-19 10:00:00.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=210 boxh=210 lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0
+2026-10-19 10:00:00.101 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 layout sub=letters boxw=210 boxh=210 lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0
 2026-10-19 10:00:01.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=1 ts=1000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=900 sincekey=1000 dwell=450 penalty=false typing=true bs=-
 2026-10-19 10:00:01.700 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=1 ms=600 capped=true
 2026-10-19 10:00:02.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=2 ts=2000000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 movems=1900 sincekey=1000 dwell=450 penalty=false typing=true bs=-
@@ -66,10 +66,10 @@
 2026-10-19 10:00:40.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 edgeq edge=top fires=9 c=4 n=0 ne=1 e=3 se=0 s=1 sw=0 w=0 nw=0 aborts=1 ac=1 an=0 ane=0 ae=0 ase=0 as=0 asw=0 aw=0 anw=0
 2026-10-19 10:00:40.001 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 hidden cause=toolbar-toggle visiblems=39900
 2026-10-19 10:00:45.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 sensitive
-2026-10-19 10:00:50.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 shown proc=chrome.exe edge=top via=request boxw=210 boxh=210
+2026-10-19 10:00:50.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 shown proc=chrome.exe edge=top via=request boxw=210 boxh=210 lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0
 2026-10-19 10:00:50.100 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 edge button=flip edge=bottom
 2026-10-19 10:00:50.300 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 pick slot=2 src=sentence prefixlen=3 inslen=20 sincekey=-1 sincepick=19000 renderms=300 visited=0
-2026-10-19 10:00:50.400 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 layout sub=letters boxw=210 boxh=210
+2026-10-19 10:00:50.400 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 layout sub=letters boxw=210 boxh=210 lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0
 2026-10-19 10:00:50.600 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=20 ts=50600000 cls=letter sub=letters edge=bottom winx=500 winy=0 winw=2800 winh=1000 movems=500 sincekey=1000 dwell=450 penalty=false typing=true bs=-
 2026-10-19 10:00:51.300 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 holdon seq=20 ms=300 capped=false
 2026-10-19 10:00:52.000 [INF] [EyeCtrl.ViewModels.KeyboardViewModel] KB-E1 key seq=21 ts=52000000 cls=letter sub=letters edge=bottom winx=500 winy=0 winw=2800 winh=1000 movems=1900 sincekey=1000 dwell=450 penalty=false typing=true bs=-

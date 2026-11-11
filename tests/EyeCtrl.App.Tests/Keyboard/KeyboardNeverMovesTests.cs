@@ -474,6 +474,43 @@ public class KeyboardNeverMovesTests
             .That(fired).Contains("key_0_0");
     }
 
+    /// <summary>
+    /// One look, one key (round 01, item 1 B): a SHOW arms the same one-shot landing guard the
+    /// un-yield uses, so a gaze already resting where the keyboard appears cannot type the key that
+    /// materializes under it. Two of eight ring-opened shows typed a letter 432–453 ms after the
+    /// keyboard appeared. The arm runs through the same <c>PlaceForShow</c> the coordinator calls
+    /// for a real hidden→visible transition; a repeated show request passes
+    /// <c>armLandingGuard: false</c> (pinned in KeyboardCoordinatorTests).
+    /// </summary>
+    [StaFact]
+    public void Show_ArmsTheLandingGuard_SoAGazeRestingWhereAKeyAppearsDoesNotType()
+    {
+        using var probe = Open();
+        var window = probe.Window;
+        window.PlaceForShow(WorkArea, WidthDip, HeightDip, armLandingGuard: true);
+
+        var fired = new List<string>();
+        probe.Vm.KeyDwellCompleted += id => fired.Add(id);
+        var centre = Centres(window)["key_0_0"];
+
+        for (long t = 1_000_000; t <= 3_000_000; t += 30_000)
+        {
+            window.UpdateGaze(centre, t);
+            Check.WithCustomMessage(
+                    "a key fired under a gaze already resting where the keyboard appeared")
+                .That(fired).IsEmpty();
+        }
+
+        // About 0.8 of a key away (pitch ~74 px at this scale): past the half-key radius, so the
+        // anchor clears and the key under the moved gaze types normally.
+        var moved = new PhysicalPoint(centre.X + 60, centre.Y);
+        for (long t = 3_030_000; t < 4_500_000 && fired.Count == 0; t += 30_000)
+            window.UpdateGaze(moved, t);
+
+        Check.WithCustomMessage("the show's landing anchor never cleared: the key stayed dead")
+            .That(fired).Not.IsEmpty();
+    }
+
     [Fact]
     public void UnYieldGate_ReadsTheWholeWindowRect_NotTheKeyGrid()
     {

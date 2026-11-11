@@ -222,8 +222,16 @@ public class KeyboardCategoryGridExclusionTests
     {
         probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
 
+        // T6 removed switchEmoji from the letters page, so the fixture routes to the numbers
+        // page first — through the VM's own swap (no dwell, hence no cooldown or rearm latch),
+        // keeping the REAL emoji dwell on the same absolute timeline the tests below feed from
+        // (their t0 samples must stay ahead of the emoji fire's 400 ms cooldown).
+        probe.Vm.SwitchSubLayout("numbers");
+        probe.Content.UpdateLayout();
+        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 10_000);
+
         Check.WithCustomMessage(
-                "The shipped qwerty layout has no live switchEmoji key centre, so emoji mode "
+                "The shipped qwerty numbers layout has no live switchEmoji key centre, so emoji mode "
                 + "could not be entered and everything below would be vacuous.")
             .That(KeyCentres(probe.Window).ContainsKey("switchEmoji")).IsTrue();
         Feed(probe, KeyCentres(probe.Window)["switchEmoji"], 30_000, 480_000);

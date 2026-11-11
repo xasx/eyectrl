@@ -51,6 +51,9 @@ The fixture, in event order (times are the log clock, ms after 10:00:00):
     L6 -> L7  not adjacent, dist 2   400 ms  mid        L11 -> L12 adj W dist 1  500 ms  bot (bottom edge)
   and two abandon lines (one identity-free letter, one Shift that keeps its position), a ``shown``
   line with the letter box, ``layout`` lines, and ONE ``KB-E1 sensitive`` marker (a password field).
+  Every ``shown``/``layout`` line carries the layout stamp (``lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0``),
+  so the whole day groups into one layout era. The switch-undo at 20.0 s -> 22.5 s is also a stray
+  page switch (undone within 5 s, no text in between).
   The modern abandon lines carry ``endms`` (the ms between the last on-key sample and the sample that
   ended the dwell); the legacy form predates it, and both must parse.
 
@@ -87,6 +90,15 @@ def fixture_metrics(edge: str | None = None) -> dict:
     return kb.metrics(events, edge)
 
 
+def stamp_line(ms: int, event: str) -> str:
+    """A KB-E1 line on the synthetic clock, sub-minute (10:00:SS.mmm)."""
+    return f"2026-10-19 10:00:{ms // 1000:02d}.{ms % 1000:03d} [INF] [X] KB-E1 {event}"
+
+
+def stamp_key(ms: int, seq: int, cls: str, bs: str = "-") -> str:
+    return stamp_line(ms, f"key seq={seq} ts={ms} cls={cls} penalty=false bs={bs} movems=-1")
+
+
 class WholeDay(unittest.TestCase):
     def setUp(self) -> None:
         self.m = fixture_metrics()
@@ -112,6 +124,13 @@ class WholeDay(unittest.TestCase):
     def test_mode_undos_per_100_letters(self) -> None:
         self.assertEqual(self.m["mode_undos"], 1)
         self.assertAlmostEqual(self.m["mode_undos_per_100_letters"], 100 / 12)
+
+    def test_the_switch_undo_is_also_a_stray_page_switch(self) -> None:
+        # letters -> numbers at 20.05 s, back at 22.55 s: undone within 5 s with no text key in
+        # between. The Shift at 23.05 s is not a page switch and strays nothing; the bottom
+        # session never switches.
+        self.assertEqual(self.m["stray_modes"], 1)
+        self.assertAlmostEqual(self.m["stray_modes_per_100_letters"], 100 / 12)
 
     def test_hold_on_by_dwell_class(self) -> None:
         hold = self.m["hold_on"]
@@ -274,6 +293,297 @@ class Repairs(unittest.TestCase):
     def test_the_slip_split_by_edge_follows_the_flip(self) -> None:
         self.assertEqual(fixture_metrics("top")["repairs"]["n"], 3)
         self.assertEqual(fixture_metrics("bottom")["repairs"]["n"], 1)
+
+
+class WordCorrections(unittest.TestCase):
+    """E1 step 0b: an in-word deleteWord (Wort löschen) is a correction and a slip for C2.
+
+    The owner corrects ONLY with Wort löschen, so without this the >= 20 counted slips minimum
+    could never be reached. The correction is reported separately as well: the ``wordcorr`` line
+    carries how many letters the deletion removed (a length, never the word)."""
+
+    @staticmethod
+    def _correction(bs: str = "word", gap_ms: int = 800, n: int = 2,
+                    with_wordcorr: bool = True) -> list[str]:
+        letter = stamp_key(1000, 1, "letter")
+        delete = stamp_key(1000 + gap_ms, 2, "deleteword", bs)
+        corr = stamp_line(1000 + gap_ms,
+                          "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false")
+        lines = [letter, delete, corr]
+        if with_wordcorr:
+            lines.append(stamp_line(1000 + gap_ms, f"wordcorr seq=2 ms={gap_ms} n={n}"))
+        return lines
+
+    def test_an_in_word_deleteword_after_a_letter_is_a_slip_and_a_word_correction(self) -> None:
+        m = kb.metrics(kb.parse(self._correction()))
+        self.assertEqual(m["slips"], 1)
+        self.assertEqual(m.get("word_corrections"), 1)
+        # The corrected letter's likelihood facts ride on the keyed corr line, as for a Backspace.
+        self.assertEqual(m["slipped_letters_counted"], 1)
+        self.assertEqual(m["slipped_likely0"], 1)
+
+    def test_the_letters_removed_are_reported_separately(self) -> None:
+        lines = self._correction(n=2) + [
+            stamp_key(5000, 3, "letter"),
+            stamp_key(5500, 4, "deleteword", "word"),
+            stamp_line(5500, "wordcorr seq=4 ms=500 n=5"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 2)
+        self.assertEqual(m.get("word_corrections"), 2)
+        self.assertEqual(m.get("word_correction_letters_removed"), {2: 1, 5: 1})
+
+    def test_word_corrections_counts_only_word_deletes_not_backspace_slips(self) -> None:
+        # The gesture split must not drift: a Backspace slip counts in slips, never in
+        # word_corrections (mutant: count every slip as a word correction).
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "backspace", "word"),
+            stamp_line(1500, "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 1)
+        self.assertEqual(m.get("word_corrections"), 0)
+
+    def test_a_deleteword_into_committed_text_is_not_a_word_correction(self) -> None:
+        lines = [stamp_key(1000, 1, "letter"), stamp_key(1100, 2, "space"),
+                 stamp_key(1300, 3, "deleteword", "committed")]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 0)
+        self.assertEqual(m.get("word_corrections"), 0)
+
+    def test_a_deleteword_outside_the_three_second_window_is_not_a_slip(self) -> None:
+        gap = kb.SLIP_WINDOW_MS + 1
+        m = kb.metrics(kb.parse(self._correction(gap_ms=gap)))
+        self.assertEqual(m["slips"], 0)
+        self.assertEqual(m.get("word_corrections"), 0)
+
+    def test_a_wordcorr_needs_all_its_fields(self) -> None:
+        line = stamp_line(1000, "wordcorr seq=2 ms=800 n=2")
+        self.assertEqual(len(kb.parse([line])), 1)
+        self.assertEqual(kb.parse([line.replace(" n=2", "")]), [])
+
+    def test_the_era_slips_include_word_corrections(self) -> None:
+        lines = [stamp_line(100, "shown proc=a.exe edge=top via=ring boxw=210 boxh=210 "
+                                   "lay=QWERTZ lv=abc12345 ver=1.0.0.0")] + self._correction()
+        groups = kb.metrics(kb.parse(lines))["layouts"]
+        self.assertEqual(groups["abc12345"]["slips"], 1)
+
+    def test_the_text_report_names_the_word_corrections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "wordcorr.log"
+            path.write_text("\n".join(self._correction()) + "\n", encoding="utf-8")
+            proc = run_cli(str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("word corrections", proc.stdout)
+        self.assertIn("letters removed", proc.stdout)
+
+
+class StrayModes(unittest.TestCase):
+    """The stray page-switch count: a mode (page-switch) fire undone within 5 s, no text kept.
+
+    Synthetic logs inline, in the recorder's own shapes (KeyboardE1Recorder.cs). The 5 s window is
+    the recorder's mode-undo window, and the boundary is inclusive like the recorder's ``<=``."""
+
+    @staticmethod
+    def _line(ms: int, event: str) -> str:
+        return stamp_line(ms, event)
+
+    @classmethod
+    def _strays(cls, *events: tuple[int, str]) -> int:
+        return kb.stray_modes(kb.parse([cls._line(ms, e) for ms, e in events]))
+
+    @classmethod
+    def _mode(cls, ms: int, kind: str, frm: str, to: str) -> tuple[int, str]:
+        return (ms, f"mode kind={kind} from={frm} to={to}")
+
+    @staticmethod
+    def _key(ms: int, seq: int, cls: str, bs: str = "-") -> tuple[int, str]:
+        return (ms, f"key seq={seq} ts={ms} cls={cls} penalty=false bs={bs} movems=-1")
+
+    def test_a_switch_back_within_the_window_is_a_stray(self) -> None:
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._mode(3000, "sublayout", "numbers", "letters"))
+        self.assertEqual(strays, 1)
+
+    def test_the_window_is_5_s_inclusive_like_the_recorders_mode_undo(self) -> None:
+        inside = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._mode(1000 + 5000, "sublayout", "numbers", "letters"))
+        outside = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                               self._mode(1000 + 5001, "sublayout", "numbers", "letters"))
+        self.assertEqual(inside, 1)
+        self.assertEqual(outside, 0)
+
+    def test_a_close_escapes_and_another_hide_cause_does_not(self) -> None:
+        closed = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              (3000, "hidden cause=edge-close"))
+        toggled = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                               (3000, "hidden cause=toolbar-toggle"))
+        self.assertEqual(closed, 1)
+        self.assertEqual(toggled, 0)
+
+    def test_an_in_word_deletion_escapes_and_an_editing_one_does_not(self) -> None:
+        word = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                            self._key(3000, 2, "backspace", "word"))
+        committed = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                                 self._key(3000, 2, "backspace", "committed"))
+        word_delete = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                                   self._key(3000, 2, "deleteword", "word"))
+        self.assertEqual(word, 1)
+        self.assertEqual(committed, 0)
+        self.assertEqual(word_delete, 1)
+
+    def test_a_kept_text_key_between_the_fire_and_the_escape_disqualifies(self) -> None:
+        # The gate the decision reads: a page that produced text was used, not strayed.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._key(2000, 1, "letter"),
+                              self._mode(3000, "sublayout", "numbers", "letters"))
+        self.assertEqual(strays, 0)
+
+    def test_a_symbol_key_kept_disqualifies_too(self) -> None:
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "symbols"),
+                              self._key(2000, 1, "symbol"),
+                              (3000, "hidden cause=edge-close"))
+        self.assertEqual(strays, 0)
+
+    def test_a_text_key_typed_and_taken_back_still_disqualifies(self) -> None:
+        # Pinned interpretation: the slip pairing answers "was the letter wrong"; the stray count
+        # answers "was the page wrong". A letter followed by an in-word Backspace is a slip, and
+        # it still proves the page was USED -- it does not become a stray.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._key(2000, 1, "letter"),
+                              self._key(2500, 2, "backspace", "word"),
+                              self._mode(3000, "sublayout", "numbers", "letters"))
+        self.assertEqual(strays, 0)
+
+    def test_modifier_toggles_are_not_page_switches(self) -> None:
+        strays = self._strays(self._mode(1000, "shift", "off", "on"),
+                              self._mode(2000, "shift", "on", "off"))
+        self.assertEqual(strays, 0)
+
+    def test_an_emoji_round_trip_with_no_emoji_kept_is_a_stray(self) -> None:
+        # The ENTRY is the stray; the exit back to text is a return -- it ends this stray window
+        # but is never itself a stray (review 01 F2), so the count stays 1, not 2.
+        strays = self._strays(self._mode(1000, "emoji", "text", "emoji"),
+                              self._mode(3000, "emoji", "emoji", "text"))
+        self.assertEqual(strays, 1)
+
+    def test_an_emoji_exit_back_to_text_is_never_itself_a_stray(self) -> None:
+        # Discriminator: without the return rule the middle fire (emoji -> text, immediately
+        # followed by another emoji entry) would count too, making 2.
+        strays = self._strays(self._mode(1000, "emoji", "text", "emoji"),
+                              self._mode(2000, "emoji", "emoji", "text"),
+                              self._mode(3000, "emoji", "text", "emoji"))
+        self.assertEqual(strays, 1)
+
+    def test_the_owners_number_pattern_is_not_a_stray(self) -> None:
+        # The owner's ordinary shape (review 01 F2): letters -> 123, type digits, back to
+        # letters, Close within 5 s. The digits disqualify the first fire; the return to
+        # letters is never itself a stray.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._key(2000, 1, "digit"),
+                              self._mode(3000, "sublayout", "numbers", "letters"),
+                              (4000, "hidden cause=edge-close"))
+        self.assertEqual(strays, 0)
+
+    def test_a_stray_page_still_counts_when_the_owner_closes_without_returning(self) -> None:
+        # The gate the decision reads: a wrong page (#+=) the owner escapes with Close, with
+        # nothing typed and no return in between, is still a stray.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "symbols"),
+                              (2000, "hidden cause=edge-close"))
+        self.assertEqual(strays, 1)
+
+    def test_a_bounce_through_two_pages_counts_both_fires(self) -> None:
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              self._mode(2000, "sublayout", "numbers", "symbols"),
+                              self._mode(3000, "sublayout", "symbols", "letters"))
+        self.assertEqual(strays, 2)
+
+    def test_a_fire_counts_at_most_once(self) -> None:
+        # Close followed by a reversal, both within the window: the first escape wins.
+        strays = self._strays(self._mode(1000, "sublayout", "letters", "numbers"),
+                              (2000, "hidden cause=edge-close"),
+                              self._mode(3000, "sublayout", "numbers", "letters"))
+        self.assertEqual(strays, 1)
+
+
+class LayoutStamp(unittest.TestCase):
+    """The lay/lv/ver stamp on shown/layout lines, and grouping the log by lv.
+
+    Old logs have no stamp: the fields are optional reads, and an unstamped log groups into an
+    empty dict instead of failing."""
+
+    def test_shown_and_layout_lines_are_read_with_the_stamp_and_without(self) -> None:
+        stamped = ("2026-10-19 10:00:00.000 [INF] [X] KB-E1 shown proc=a.exe edge=top via=ring "
+                   "boxw=1 boxh=1 lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0")
+        plain = stamped.replace(" lay=QWERTZ lv=3f9c2ab7 ver=1.2.3.0", "")
+        for line in (stamped, plain):     # both must parse: the stamp fields are optional
+            events = kb.parse([line])
+            self.assertEqual(len(events), 1)
+        s = kb.parse([stamped])[0]
+        self.assertEqual((s["lay"], s["lv"], s["ver"]), ("QWERTZ", "3f9c2ab7", "1.2.3.0"))
+        self.assertNotIn("lv", kb.parse([plain])[0])
+
+    def test_the_fixture_groups_into_one_era(self) -> None:
+        groups = fixture_metrics()["layouts"]
+        self.assertEqual(list(groups), ["3f9c2ab7"])
+        g = groups["3f9c2ab7"]
+        self.assertEqual(g["lay"], "QWERTZ")
+        self.assertEqual(g["ver"], "1.2.3.0")
+        self.assertEqual(g["shows"], 2)
+        self.assertEqual(g["letters"], 12)
+        self.assertEqual(g["activations"], 23)
+        self.assertEqual(g["slips"], 4)
+        self.assertEqual(g["stray_modes"], 1)
+
+    def test_an_all_digit_lv_stays_a_string_and_keeps_its_era(self) -> None:
+        # Review 01 F1: an all-digit hash would coerce to int and its era would silently merge
+        # into the previous one; a leading zero would even change the value (01234567 -> 1234567).
+        lines = [
+            stamp_line(100, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=aaaaaaaa ver=1.0.0.0"),
+            stamp_key(200, 1, "letter"),
+            stamp_line(300, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=12345678 ver=1.0.0.0"),
+            stamp_key(400, 2, "letter"),
+            stamp_line(500, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=01234567 ver=1.0.0.0"),
+            stamp_key(600, 3, "letter"),
+        ]
+        groups = kb.metrics(kb.parse(lines))["layouts"]
+        self.assertEqual(sorted(groups), ["01234567", "12345678", "aaaaaaaa"])
+        self.assertEqual(groups["12345678"]["letters"], 1)
+        self.assertEqual(groups["01234567"]["letters"], 1)
+        self.assertEqual(groups["aaaaaaaa"]["letters"], 1)
+
+    def test_events_before_a_stamped_show_belong_to_no_era(self) -> None:
+        lines = [
+            stamp_key(100, 1, "letter"),   # before any stamp: not attributed
+            stamp_line(200, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTY lv=aaa11111 ver=1.0.0.0"),
+            stamp_key(300, 2, "letter"),
+            stamp_line(400, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1 lay=QWERTZ lv=bbb22222 ver=2.0.0.0"),
+            stamp_key(500, 3, "letter"),
+        ]
+        groups = kb.metrics(kb.parse(lines))["layouts"]
+        self.assertEqual(sorted(groups), ["aaa11111", "bbb22222"])
+        self.assertEqual(groups["aaa11111"]["letters"], 1)
+        self.assertEqual(groups["bbb22222"]["letters"], 1)
+
+    def test_a_log_without_a_stamp_groups_into_nothing(self) -> None:
+        lines = [
+            stamp_line(100, "shown proc=a.exe edge=top via=ring boxw=1 boxh=1"),
+            stamp_key(200, 1, "letter"),
+        ]
+        self.assertEqual(kb.metrics(kb.parse(lines))["layouts"], {})
+
+    def test_the_text_report_names_the_eras_and_the_stray_read_out(self) -> None:
+        proc = run_cli(str(FIXTURE))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("lv=3f9c2ab7  lay=QWERTZ ver=1.2.3.0", proc.stdout)
+        self.assertIn("strays=1", proc.stdout)
+        self.assertIn("stray page switches       1", proc.stdout)
+
+    def test_the_json_report_carries_the_layouts(self) -> None:
+        proc = run_cli(str(FIXTURE), "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["layouts"]["3f9c2ab7"]["lay"], "QWERTZ")
 
 
 LEGACY_FIXTURE = FIXTURE.with_name("synthetic-day-legacy.log")

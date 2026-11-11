@@ -256,7 +256,16 @@ public class KeyboardPredictionExclusionTests
                 .That(IsInsidePredictionCircle(probe.Window, 0, overlap)).IsTrue();
 
             var beforeMove = progress.Count;
-            Feed(probe, overlap, 230_000, 1_820_000);
+            Feed(probe, overlap, 230_000, 1_190_000);
+
+            // One look, one key: a second key activation now needs a leave. Stay INSIDE the key
+            // grid (the exclusion under test must still hold) but move to another key for 150 ms.
+            var leave = KeyCentres(probe.Window)
+                .Select(kv => kv.Value)
+                .OrderByDescending(pt => Math.Abs(pt.X - overlap.X) + Math.Abs(pt.Y - overlap.Y))
+                .First();
+            Feed(probe, leave, 1_220_000, 1_370_000);
+            Feed(probe, overlap, 1_400_000, 2_810_000);
 
             Check.WithCustomMessage("Fewer than two key activations occurred, so the hold did not "
                     + "cross the window this test exists for.")
@@ -277,10 +286,10 @@ public class KeyboardPredictionExclusionTests
         finally { probe.Dispose(); }
     }
 
-    // ---- the user-visible symptom leg: the Win key must not insert a word ----
+    // ---- the user-visible symptom leg: an output-less key must not insert a word ----
 
     [StaFact]
-    public void GazeOnTheWinKey_InsertsNothing_AndStillActivatesTheKey()
+    public void GazeOnTheWordDeleteKey_InsertsNothing_AndStillActivatesTheKey()
     {
         var probe = Open(new Dictionary<string, int> { ["hellowonderfulworldthisisalongword"] = 1000 });
         try
@@ -295,11 +304,14 @@ public class KeyboardPredictionExclusionTests
             probe.Content.UpdateLayout();
             probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
 
-            var centre = KeyCentres(probe.Window)["modifier:win"];
+            // T6 moved Win to the footer; the top-left slot the Win-key leg used is Wort
+            // löschen's (deleteWord) — the same 1.2-unit slot at the same centre, still an
+            // output-less key, so the leg measures the same thing.
+            var centre = KeyCentres(probe.Window)["deleteWord"];
             Check.WithCustomMessage(
-                    "The suggestion cell is narrower than the ~165 DIP the Win-key leg needs: its "
-                    + "hit circle does not reach the Win key centre, so the misfire under the bug "
-                    + "would be impossible and this test vacuous.")
+                    "The suggestion cell is narrower than the ~165 DIP the word-delete-key leg "
+                    + "needs: its hit circle does not reach the key centre, so the misfire under "
+                    + "the bug would be impossible and this test vacuous.")
                 .That(IsInsidePredictionCircle(probe.Window, 0, centre)).IsTrue();
 
             // Arming read: the circle check above is computed from the RENDERED visuals, so a
@@ -317,13 +329,23 @@ public class KeyboardPredictionExclusionTests
 
             // Continue into the Win key. The accumulated 180 ms must not matter: under the fix the
             // first sample inside the key area resets the prediction target.
-            Feed(probe, centre, 210_000, 1_830_000);
+            Feed(probe, centre, 210_000, 1_170_000);
 
-            Check.WithCustomMessage("The Win key itself never activated — the gaze hold was not "
+            // One look, one key: the second activation needs a leave. Move to another key for
+            // 150 ms — still inside the key grid, so the prediction exclusion keeps applying.
+            var leave = KeyCentres(probe.Window)
+                .Where(kv => kv.Key != "deleteWord")
+                .Select(kv => kv.Value)
+                .OrderByDescending(pt => Math.Abs(pt.X - centre.X) + Math.Abs(pt.Y - centre.Y))
+                .First();
+            Feed(probe, leave, 1_200_000, 1_350_000);
+            Feed(probe, centre, 1_380_000, 2_790_000);
+
+            Check.WithCustomMessage("The word-delete key itself never activated — the gaze hold was not "
                     + "being processed as a key gaze.")
                 .That(keyActivations).IsGreaterOrEqualThan(2);
             Check.WithCustomMessage(
-                    "Looking at the Win key inserted a word: its centre lies inside the first "
+                    "Looking at the output-less key inserted a word: its centre lies inside the first "
                     + "suggestion's half-diagonal hit circle, and the prediction detector ran "
                     + "unconditionally. This is the field symptom.")
                 .That(inserted).IsNull();

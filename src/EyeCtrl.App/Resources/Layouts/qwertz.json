@@ -6,7 +6,7 @@
       "label": "ABC",
       "rows": [
         [
-          { "label": "Win", "output": "", "width": 2.0, "specialAction": "modifier:win" },
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 2.0, "specialAction": "deleteWord", "accessibleName": "Wort löschen" },
           { "label": "Q", "output": "q", "shiftOutput": "Q", "width": 1.0 },
           { "label": "W", "output": "w", "shiftOutput": "W", "width": 1.0 },
           { "label": "E", "output": "e", "shiftOutput": "E", "width": 1.0 },
@@ -17,7 +17,7 @@
           { "label": "I", "output": "i", "shiftOutput": "I", "width": 1.0 },
           { "label": "O", "output": "o", "shiftOutput": "O", "width": 1.0 },
           { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 },
-          { "label": "àé", "output": "", "width": 0.8, "specialAction": "switchSub:accents" }
+          { "label": "?", "output": "?", "width": 0.8 }
         ],
         [
           { "label": "⬆", "labelFrame": "capsArrow", "output": "", "width": 1.2, "specialAction": "toggle:capslock", "accessibleName": "Feststelltaste" },
@@ -45,18 +45,19 @@
           { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 },
           { "label": "\u00dc", "output": "\u00fc", "shiftOutput": "\u00dc", "width": 1.0 },
           { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
-          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
+          { "label": "ß", "output": "ß", "shiftOutput": "ẞ", "width": 1.2 }
         ],
         [
-          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
-          { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "ß", "output": "ß", "shiftOutput": "ẞ", "width": 1.0 },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
+          { "label": "Win", "output": "", "width": 1.0, "specialAction": "modifier:win" },
+          { "label": "Strg", "output": "", "width": 1.0, "specialAction": "modifier:ctrl" },
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.2, "specialAction": "tab", "accessibleName": "Tabulatortaste" },
+          { "label": "123", "output": "", "width": 1.3, "specialAction": "switchSub:numbers" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
-          { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 2.0, "specialAction": "space", "accessibleName": "Leertaste" },
-          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "#+=", "output": "", "width": 1.3, "specialAction": "switchSub:symbols" },
+          { "label": ",", "output": ",", "width": 1.0 },
+          { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 2.5, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": ".", "output": ".", "width": 1.0 },
+          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" }
         ]
       ]
     },
@@ -103,14 +104,14 @@
           { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" },
           { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 3.0, "specialAction": "space", "accessibleName": "Leertaste" },
-          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" }
         ]
       ]
     },
@@ -156,14 +157,15 @@
           { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" },
           { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
+          { "label": "àé", "output": "", "width": 1.0, "specialAction": "switchSub:accents" },
           { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 3.0, "specialAction": "space", "accessibleName": "Leertaste" },
-          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" }
         ]
       ]
     },
@@ -208,14 +210,14 @@
           { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.6, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
+          { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
           { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 2.0, "specialAction": "space", "accessibleName": "Leertaste" },
-          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" }
         ]
       ]
     },
@@ -232,7 +234,9 @@
           { "label": "F6", "output": "", "width": 1.0, "specialAction": "key:F6" },
           { "label": "F7", "output": "", "width": 1.0, "specialAction": "key:F7" },
           { "label": "F8", "output": "", "width": 1.0, "specialAction": "key:F8" },
-          { "label": "F9", "output": "", "width": 1.0, "specialAction": "key:F9" }
+          { "label": "F9", "output": "", "width": 1.0, "specialAction": "key:F9" },
+          { "label": "Win", "output": "", "width": 1.3, "specialAction": "modifier:win" },
+          { "label": "Alt", "output": "", "width": 1.3, "specialAction": "modifier:alt" }
         ],
         [
           { "label": "Druck", "output": "", "width": 1.2, "specialAction": "key:PrintScreen" },
@@ -244,7 +248,9 @@
           { "label": "Bild↑", "output": "", "width": 1.0, "specialAction": "key:PageUp", "accessibleName": "Bild-auf-Taste" },
           { "label": "Bild↓", "output": "", "width": 1.0, "specialAction": "key:PageDown", "accessibleName": "Bild-ab-Taste" },
           { "label": "Einfg", "output": "", "width": 1.0, "specialAction": "key:Insert" },
-          { "label": "Entf", "output": "", "width": 1.0, "specialAction": "key:Delete" }
+          { "label": "Entf", "output": "", "width": 1.0, "specialAction": "key:Delete" },
+          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "⇧", "labelFrame": "shiftArrow", "output": "", "width": 1.2, "specialAction": "modifier:shift", "accessibleName": "Umschalttaste" }
         ],
         [
           { "label": "Kopieren", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+C" },
@@ -257,10 +263,10 @@
         ],
         [
           { "label": "ABC", "output": "", "width": 2.0, "specialAction": "switchSub:letters" },
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" },
           { "label": "↑", "labelFrame": "arrowUp", "output": "", "width": 1.5, "specialAction": "key:ArrowUp", "accessibleName": "Nach-oben-Taste" },
-          { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 4.0, "specialAction": "space", "accessibleName": "Leertaste" },
-          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "⌴", "labelFrame": "spaceBracket", "output": " ", "width": 6.0, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" }
         ],
         [
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },

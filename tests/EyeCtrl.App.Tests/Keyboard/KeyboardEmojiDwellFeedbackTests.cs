@@ -145,14 +145,21 @@ public class KeyboardEmojiDwellFeedbackTests
     /// Enters emoji mode through the real activation path — dwelling the shipped layout's
     /// <c>switchEmoji</c> key — and refreshes the grid's positions. Ticket 1's fixture trap
     /// applies to the caller's next read: after the layout rebuild no pass has run, so every new
-    /// cell centre collapses to one unarranged point until <c>UpdateLayout</c>.
+    /// cell centre collapses to one unarranged point until <c>UpdateLayout</c>. T6 removed
+    /// switchEmoji from the letters page, so the fixture routes to the numbers page through the
+    /// VM's own swap (no dwell, hence no cooldown or rearm latch), keeping the REAL emoji dwell
+    /// on the same absolute timeline the tests below feed from.
     /// </summary>
     private static void EnterEmojiMode(Probe probe)
     {
         probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
 
+        probe.Vm.SwitchSubLayout("numbers");
+        probe.Content.UpdateLayout();
+        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 10_000);
+
         Check.WithCustomMessage(
-                "The shipped qwerty layout has no live switchEmoji key centre, so emoji mode "
+                "The shipped qwerty numbers layout has no live switchEmoji key centre, so emoji mode "
                 + "could not be entered and everything below would be vacuous.")
             .That(KeyCentres(probe.Window).ContainsKey("switchEmoji")).IsTrue();
         Feed(probe, KeyCentres(probe.Window)["switchEmoji"], 30_000, 480_000);

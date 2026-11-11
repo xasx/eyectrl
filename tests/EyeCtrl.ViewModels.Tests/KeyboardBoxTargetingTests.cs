@@ -104,6 +104,27 @@ public class KeyboardBoxTargetingTests
     }
 
     /// <summary>
+    /// Empty space beside the row: the capped pass-2 pick is null, so no key latches, no progress
+    /// accumulates and nothing ever fires — however long the gaze rests there.
+    /// </summary>
+    [Fact]
+    public void GazeInEmptySpace_PicksNothing_AndNeverFires()
+    {
+        var fired = new List<string>();
+        var vm = NewVm(fired);
+        var empty = new PhysicalPoint(60, -40);   // above the row, 40 px from wide's box
+
+        for (long t = 0; t <= 2 * DwellUs; t += 50_000)
+        {
+            vm.ProcessKeyGaze(Centres, empty, true, t, Boxes);
+            Check.WithCustomMessage($"at {t} us").That(vm.NearestKeyId).IsNull();
+            Check.That(vm.NearestKeyProgress).IsEqualTo(0.0);
+        }
+
+        Check.That(fired).IsEmpty();
+    }
+
+    /// <summary>
     /// Leaving the wide key's box for <c>a</c>'s box changes the target and reports the abandon
     /// against the key that was being dwelled — the abandon path is unchanged.
     /// </summary>

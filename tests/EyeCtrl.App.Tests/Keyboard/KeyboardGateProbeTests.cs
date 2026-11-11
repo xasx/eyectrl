@@ -16,6 +16,7 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
 
@@ -116,17 +117,15 @@ public class KeyboardGateProbeTests
         };
     }
 
-    private static KeyboardLayout ShippedQwerty() =>
+    private static KeyboardLayout LoadShipped(string file) =>
         KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json"));
+            "src", "EyeCtrl.App", "Resources", "Layouts", file));
 
-    private static KeyboardLayout ShippedQwertz() =>
-        KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
+    private static KeyboardLayout ShippedQwerty() => LoadShipped("qwerty.json");
 
-    private static KeyboardLayout ShippedAzerty() =>
-        KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "azerty.json"));
+    private static KeyboardLayout ShippedQwertz() => LoadShipped("qwertz.json");
+
+    private static KeyboardLayout ShippedAzerty() => LoadShipped("azerty.json");
 
     /// <summary>One row exercising every id shape the escaping classifier keys off, plus a regular key.</summary>
     private static KeyboardLayout SpecialActionLayout()
@@ -159,8 +158,12 @@ public class KeyboardGateProbeTests
             .GetField("_keyScreenPositions", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
 
+    /// <summary>The messenger the VM was constructed with: <see cref="ObservableRecipient"/>
+    /// keeps <c>Messenger</c> protected, so a test that wants to observe a message must hold
+    /// the instance the VM sends on — created here, next to the VM.</summary>
     private sealed record Probe(
-        KeyboardWindow Window, KeyboardViewModel Vm, FrameworkElement Content, HwndSource Source) : IDisposable
+        KeyboardWindow Window, KeyboardViewModel Vm, WeakReferenceMessenger Messenger,
+        FrameworkElement Content, HwndSource Source) : IDisposable
     {
         public void Dispose() { Source.Dispose(); Window.Close(); }
     }
@@ -175,7 +178,8 @@ public class KeyboardGateProbeTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var w = new KeyboardWindow();
-        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var messenger = new WeakReferenceMessenger();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
         w.SetViewModel(vm);
         w.LoadLayout(layout, 1.0, keyDwellMs: DwellMs, predictionDwellMs: 800, cooldownMs: 0);
         if (emojiJsonPath != null)
@@ -223,7 +227,7 @@ public class KeyboardGateProbeTests
         Check.WithCustomMessage("No key centres collected — the probe would measure nothing.")
              .That(Centres(w)).Not.IsEmpty();
 
-        return new Probe(w, vm, content, source);
+        return new Probe(w, vm, messenger, content, source);
     }
 
     /// <summary>Gaze lands on <paramref name="p"/> from a clean slate; returns the latched key id.</summary>
@@ -238,9 +242,12 @@ public class KeyboardGateProbeTests
     /// Restates the latch, then holds the gaze one full dwell so the window's activation handler
     /// runs. The caller asserts the HANDLER'S EFFECT (sub-layout changed, emoji mode toggled), never
     /// the mere response of the key — that is the difference between a one-way door passing and a
-    /// round trip passing.
+    /// round trip passing. <paramref name="holdMs"/> extends the hold past the standard
+    /// <see cref="DwellMs"/> for app-escaping keys, whose policy floor
+    /// (<see cref="KeyboardSpecialActions.AppEscapingPolicyFloorMs"/>, 600 ms) exceeds the
+    /// probe's 500 ms key dwell.
     /// </summary>
-    private static void DwellOn(Probe probe, string keyId, ref long ts)
+    private static void DwellOn(Probe probe, string keyId, ref long ts, int holdMs = DwellMs)
     {
         // A completed dwell's handler may have rebuilt the key rows (sub-layout switch, emoji
         // mode). The rebuild is synchronous inside UpdateGaze, but ARRANGEMENT is not: without
@@ -272,10 +279,11 @@ public class KeyboardGateProbeTests
         // single jump to latchTs + 500 ms would be restarted by the F3 gap clamp (any silence
         // over 150 ms resets the dwell rather than being credited) and the activation would never
         // happen — the same class of fixture trap as the post-rebuild layout pass above.
-        for (var t = latchTs + 50_000; t < latchTs + DwellUs; t += 50_000)
+        var holdUs = holdMs * 1000L;
+        for (var t = latchTs + 50_000; t < latchTs + holdUs; t += 50_000)
             probe.Window.UpdateGaze(centre, t);
-        probe.Window.UpdateGaze(centre, latchTs + DwellUs);
-        ts = latchTs + DwellUs + 1_000;
+        probe.Window.UpdateGaze(centre, latchTs + holdUs);
+        ts = latchTs + holdUs + 1_000;
     }
 
     // ---- positive half: no key is dead ----
@@ -300,6 +308,87 @@ public class KeyboardGateProbeTests
                     $"{dead.Count} of {centres.Count} keys did not respond to a gaze sample "
                     + $"placed exactly on the key's own reported centre, at effective scale "
                     + $"{effectiveScale}. Dead keys: {string.Join(", ", dead)}")
+                .That(dead).IsEmpty();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- positive half, on the SHIPPED pages (E1 step 0a) --------------------------------------
+    //
+    // The synthetic grid above proves the mechanism; this theory proves the mechanism over what
+    // actually ships, at the user's effective scale 2.0, where the mixed-unit gate bug lived. Every
+    // page of every shipped layout file is probed directly (the layout is opened with the page as
+    // its default sub-layout, so no switch dance can mask a page that never renders), and every key
+    // on it must respond at its own centre. The cases come straight from the FILES (MemberData), so
+    // a new or renamed page is probed by its new name automatically — there is no second list to
+    // drift (review 01 F5). The emoji surface is NOT a sub-layout page — it has no JSON page to
+    // clone — and its enter/exit is already round-tripped at 2.0 by
+    // ShippedQwerty_EveryEscapeKeyRoundTrips_AtScale2 and the accents tests below.
+    //
+    // The window is never shown: the probe rides the same off-screen HwndSource as every other test
+    // in this file (no Window.Show() is ever called).
+
+    public static IEnumerable<object[]> ShippedPages()
+    {
+        foreach (var file in new[] { "qwerty.json", "azerty.json", "qwertz.json" })
+            foreach (var page in LoadShipped(file).SubLayouts.Keys.OrderBy(k => k, StringComparer.Ordinal))
+                yield return [file, page];
+    }
+
+    /// <summary>The same layout, opened directly on <paramref name="page"/> as its default.</summary>
+    private static KeyboardLayout OpenedOnPage(KeyboardLayout layout, string page) => new()
+    {
+        Name = layout.Name,
+        DefaultSubLayout = page,
+        SubLayouts = layout.SubLayouts,
+    };
+
+    [StaTheory]
+    [MemberData(nameof(ShippedPages))]
+    public void EveryShippedPageKey_RespondsToGazeAtItsOwnCentre_AtScale2(string file, string page)
+    {
+        var layout = LoadShipped(file);
+        var sub = layout.SubLayouts[page];
+        var keyCount = sub.Rows.Sum(r => r.Count);
+
+        var probe = Open(OpenedOnPage(layout, page), 2.0);
+        try
+        {
+            // After the rebuild the positions dictionary is only repopulated by the next sample
+            // (the same fixture trap DwellOn documents): one clear sample, one layout pass.
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 1_000);
+            probe.Content.UpdateLayout();
+            var centres = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
+
+            // COMPLETENESS (review 01 F5): the window must have registered EVERY key of the page —
+            // a key that never registers, or two keys sharing one id (a duplicated SpecialAction),
+            // would otherwise go unprobed in silence.
+            Check.WithCustomMessage(
+                    $"{file}/{page} reported {centres.Count} key centres for {keyCount} keys. A key that " +
+                    "never registers is never probed, and a duplicated SpecialAction id would collapse " +
+                    "two keys into one target.")
+                .That(centres.Count).IsEqualTo(keyCount);
+
+            long ts = 2_000;
+            var probed = new List<string>();
+            var dead = new List<string>();
+            foreach (var kv in centres)
+            {
+                probed.Add(kv.Key);
+                if (LookAt(probe, kv.Value, ref ts) != kv.Key)
+                    dead.Add(kv.Key);
+            }
+
+            // The probe measured exactly the centres it collected — a `.Skip(1)` or an early
+            // `break` in the loop above fails here rather than silently shrinking the probe.
+            Check.WithCustomMessage(
+                    $"The probe measured {probed.Count} of {centres.Count} keys on {file}/{page}.")
+                .That(probed.Count).IsEqualTo(centres.Count);
+
+            Check.WithCustomMessage(
+                    $"{file}/{page}: {dead.Count} of {centres.Count} keys did not respond to a gaze sample "
+                    + "placed exactly on the key's own reported centre, at effective scale 2.0. Dead keys: "
+                    + $"{string.Join(", ", dead)}")
                 .That(dead).IsEmpty();
         }
         finally { probe.Dispose(); }
@@ -443,7 +532,7 @@ public class KeyboardGateProbeTests
             var letters = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
             string[] escapes =
             [
-                "switchSub:numbers", "switchSub:symbols", "switchSub:function", "switchEmoji",
+                "switchSub:numbers", "switchSub:symbols", "switchSub:function",
             ];
             // Guard the guard: if a rename left the escape set empty, the round trips below would
             // measure keys the layout no longer ships (DwellOn would report them missing, but the
@@ -465,7 +554,11 @@ public class KeyboardGateProbeTests
             RoundTrip(probe, "switchSub:function", "function", ref ts);
 
             // Emoji swaps the whole surface: IsEmojiMode flips and the emoji manager rebuilds the
-            // grid; the way back is its own special_switchText key.
+            // grid; the way back is its own special_switchText key. T6 removed switchEmoji from
+            // the letters page, so it is entered from the numbers page (which keeps it); fixup 02
+            // put the Fn row's ABC back at main's x, so the last round trip's anchor no longer
+            // covers the 123 switch and the dwell below needs no look-away first.
+            DwellOn(probe, "switchSub:numbers", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.WithCustomMessage(
                     "Dwelling 'switchEmoji' did not enter emoji mode, so the ABC round trip that "
@@ -476,8 +569,15 @@ public class KeyboardGateProbeTests
                     "The emoji grid's ABC key did not leave emoji mode — emoji mode is a one-way "
                     + "trap, and IsEmojiMode survives hide/show.")
                 .That(probe.Vm.IsEmojiMode).IsFalse();
+            // The exit restores the sub-layout the emoji surface opened OVER — the numbers page
+            // here, since T6 removed switchEmoji from the letters page.
             Check.WithCustomMessage(
-                    "Leaving emoji mode did not restore the letters layout.")
+                    "Leaving emoji mode did not restore the layout emoji was entered from.")
+                .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("numbers");
+            DwellOn(probe, "switchSub:letters", ref ts);
+            Check.WithCustomMessage(
+                    "The numbers page's ABC key did not return to letters — the round trip ends "
+                    + "trapped on numbers.")
                 .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
         }
         finally { probe.Dispose(); }
@@ -499,6 +599,9 @@ public class KeyboardGateProbeTests
         try
         {
             long ts = 1_000;
+            // T6 removed switchEmoji from the letters page: enter via the numbers page, then
+            // hide — the hide resets to the default layout either way.
+            DwellOn(probe, "switchSub:numbers", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.WithCustomMessage(
                     "Dwelling 'switchEmoji' did not enter emoji mode — the rest of this test would "
@@ -547,12 +650,22 @@ public class KeyboardGateProbeTests
         {
             long ts = 1_000;
 
-            // Manual round trip: Acc opens accents; the ABC key returns (existing helper dwells
-            // out and back, proving both directions of the switch).
-            RoundTrip(probe, "switchSub:accents", "accents", ref ts);
+            // T6 moved the accents switch off the letters page (the footer keeps exactly two
+            // plain keys, , and .): it now lives on the #+= footer. Route: letters → symbols →
+            // accents.
+            DwellOn(probe, "switchSub:symbols", ref ts);
+            Check.WithCustomMessage("Dwelling '#+=' did not reach the symbols page.")
+                .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("symbols");
 
-            // Auto-return: dwell Acc, then dwell é (accents key_0_0) — é types and the
-            // keyboard is back on letters.
+            // Manual round trip: àé opens accents; the ABC key returns to letters (the default).
+            DwellOn(probe, "switchSub:accents", ref ts);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+            DwellOn(probe, "switchSub:letters", ref ts);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
+
+            // Auto-return: back via symbols, dwell àé, then dwell é (accents key_0_0) — é types
+            // and the keyboard is back on letters.
+            DwellOn(probe, "switchSub:symbols", ref ts);
             DwellOn(probe, "switchSub:accents", ref ts);
             DwellOn(probe, "key_0_0", ref ts);
             Check.WithCustomMessage("dwelling an accent did not auto-return to letters")
@@ -561,6 +674,7 @@ public class KeyboardGateProbeTests
 
             // Emoji entered FROM accents must not auto-return under the open emoji grid (R1):
             // exiting emoji lands back on accents, and dwelling an accent from there returns.
+            DwellOn(probe, "switchSub:symbols", ref ts);
             DwellOn(probe, "switchSub:accents", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.That(probe.Vm.IsEmojiMode).IsTrue();
@@ -577,25 +691,31 @@ public class KeyboardGateProbeTests
     }
 
     [StaFact]
-    public void ShippedQwertz_AccEntry_LandsOnTheAccentsRow0EndKey()
+    public void ShippedQwertz_AccEntry_LandsOnTheAccentsOwnSymbolsSwitch()
     {
-        // Plan review M2 / plan-r2 I2: pin the landing geometry. Acc sits at the letters
-        // row-0 right end; the accents key whose centre is nearest Acc's centre must be
-        // row 0's last key (À — key_0_9). A later layout edit that moves the landing shows
-        // up here. The swap dwell empties the window's key positions (_keyScreenPositions
-        // is rebuilt inside the next gaze pass), so one LAYOUT pass + one GAZE PASS must
-        // run before Centres() — in that order (DwellOn's own idiom): the gaze pass that
-        // repopulates the registry reads each container's arranged rect, and a gaze pass
-        // before the layout pass collects the UNARRANGED rebuilt tree, where every key
+        // Plan review M2 / plan-r2 I2, restated for T6: pin the landing geometry. The accents
+        // switch (àé) now sits on the SYMBOLS footer (letters keeps exactly two plain keys), so
+        // the entry route is letters → #+= → àé, and the gaze rests at àé's old spot when the
+        // accents page materializes. The accents key whose centre is nearest that resting point
+        // must be a NON-TEXT key — specifically the accents footer's own `#+=` switch, which
+        // sits almost exactly under àé's old slot — so a resting gaze can never type an
+        // accented letter it did not mean. A later layout edit that moves the landing onto a
+        // text key shows up here. The swap dwell empties the window's key positions
+        // (_keyScreenPositions is rebuilt inside the next gaze pass), so one LAYOUT pass + one
+        // GAZE PASS must run before Centres() — in that order (DwellOn's own idiom): the gaze
+        // pass that repopulates the registry reads each container's arranged rect, and a gaze
+        // pass before the layout pass collects the UNARRANGED rebuilt tree, where every key
         // reports the same collapsed point and the ranking below degenerates to dictionary
         // insertion order (key_0_0 by tie-break, measuring nothing).
         var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
         try
         {
-            var lettersCentres = Centres(probe.Window);
-            var accCentre = lettersCentres["switchSub:accents"];
-
             long ts = 1_000;
+            DwellOn(probe, "switchSub:symbols", ref ts);
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+            var accCentre = Centres(probe.Window)["switchSub:accents"];
+
             DwellOn(probe, "switchSub:accents", ref ts);
 
             // Refresh positions before reading them (plan-r2 I2): arrange first, collect second.
@@ -607,8 +727,9 @@ public class KeyboardGateProbeTests
                 .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
                 .First().Key;
             Check.WithCustomMessage(
-                    $"the key under Acc's resting gaze is {landing}, expected key_0_9 (À)")
-                .That(landing).IsEqualTo("key_0_9");
+                    $"the key under àé's resting gaze is {landing}, expected the accents footer's "
+                    + "'#+=' switch (switchSub:symbols) — a text key there would type under a resting gaze")
+                .That(landing).IsEqualTo("switchSub:symbols");
         }
         finally { probe.Dispose(); }
     }
@@ -625,12 +746,16 @@ public class KeyboardGateProbeTests
         // one-line reorder of those two statements disarms D13 in production with the whole
         // VM suite green (mutation-measured: 17 VM tests + the 14 shipped probes stayed
         // green on the mutant; only THIS probe catches it — resting on the landing spot,
-        // the accents `À` must never dwell; with the anchor disarmed it fires at ~500 ms).
+        // the accents `#+=` must never fire; with the anchor disarmed it fires at ~500 ms).
         var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
         try
         {
-            var accCentre = Centres(probe.Window)["switchSub:accents"];
             long ts = 1_000;
+            DwellOn(probe, "switchSub:symbols", ref ts);
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+            var accCentre = Centres(probe.Window)["switchSub:accents"];
+
             DwellOn(probe, "switchSub:accents", ref ts);
             Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
 
@@ -651,17 +776,21 @@ public class KeyboardGateProbeTests
     }
 
     [StaFact]
-    public void ShippedAzerty_AccEntry_LandsOnTheAccentsRow0EndKey()
+    public void ShippedAzerty_AccEntry_LandsOnTheAccentsOwnSymbolsSwitch()
     {
-        // The AZERTY half of the landing pin (spec Testing; expected Ô — key_0_7, the last
-        // key of the 8-wide accents row 0). Same refresh dance as the QWERTZ pin.
+        // The AZERTY half of the landing pin (the old row-0-end expectation died with T6's
+        // route change: Acc now sits on the #+= footer). Fixup 03's F9 order puts Fn before
+        // Acc, so the accents footer's own #+= switch measures nearest to the resting point —
+        // a page switch back to where the owner came from, never a text key.
         var probe = Open(ShippedAzerty(), 2.0, emojiJsonPath: ShippedEmojiJson());
         try
         {
-            var lettersCentres = Centres(probe.Window);
-            var accCentre = lettersCentres["switchSub:accents"];
-
             long ts = 1_000;
+            DwellOn(probe, "switchSub:symbols", ref ts);
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+            var accCentre = Centres(probe.Window)["switchSub:accents"];
+
             DwellOn(probe, "switchSub:accents", ref ts);
 
             probe.Content.UpdateLayout();
@@ -672,8 +801,8 @@ public class KeyboardGateProbeTests
                 .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
                 .First().Key;
             Check.WithCustomMessage(
-                    $"the key under Acc's resting gaze is {landing}, expected key_0_7 (Ô)")
-                .That(landing).IsEqualTo("key_0_7");
+                    $"the key under Acc's resting gaze is {landing}, expected switchSub:symbols")
+                .That(landing).IsEqualTo("switchSub:symbols");
         }
         finally { probe.Dispose(); }
     }
@@ -691,6 +820,8 @@ public class KeyboardGateProbeTests
             long ts = 1_000;
             probe.Vm.ToggleModifier(ModifierKey.CapsLock);
 
+            // T6: àé lives on the #+= footer now — letters → symbols → accents.
+            DwellOn(probe, "switchSub:symbols", ref ts);
             DwellOn(probe, "switchSub:accents", ref ts);
 
             var accentLabel = KeyLabel(probe, "key_0_0");
@@ -713,6 +844,116 @@ public class KeyboardGateProbeTests
     }
 
     [StaFact]
+    public void ShippedQwertz_ArmedShift_IsVisibleOnTheAccentsPage_AtScale2()
+    {
+        // T6 polish 2: an armed Shift stays armed INTO the autoReturn accents page (D15 clears
+        // only the SYSTEM modifiers on entry) and is VISIBLE there: the accents keys relabel to
+        // their shiftOutput capitals while Shift is held, so the state that will modify every
+        // accented letter is on screen, not latent. Dwelling the key then sends the capital and
+        // auto-returns with Shift still armed — the accents page is where an invisible Shift
+        // would be most misleading, since every key it touches changes.
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            long ts = 1_000;
+            DwellOn(probe, "modifier:shift", ref ts);
+            Check.WithCustomMessage("Dwelling the letters Shift key did not arm Shift — the "
+                    + "assertions below would not measure an armed state.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+
+            // T6's route: àé lives on the #+= footer — letters → symbols → accents.
+            DwellOn(probe, "switchSub:symbols", ref ts);
+            DwellOn(probe, "switchSub:accents", ref ts);
+
+            Check.WithCustomMessage("D15: entering the autoReturn accents page must keep Shift armed.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+            Check.WithCustomMessage(
+                    $"With Shift armed, accents key_0_0 reads '{KeyLabel(probe, "key_0_0")}', expected "
+                    + "its shiftOutput capital É — the armed Shift is invisible on the accents page.")
+                .That(KeyLabel(probe, "key_0_0")).IsEqualTo("É");
+
+            DwellOn(probe, "key_0_0", ref ts);   // É types; auto-return to letters
+            Check.WithCustomMessage("dwelling an accented key did not auto-return to letters")
+                .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
+            Check.WithCustomMessage(
+                    $"dwelling é under an armed Shift sent '{probe.Vm.CurrentInput}', expected É")
+                .That(probe.Vm.CurrentInput).Contains("É");
+            // Shift is a one-shot: the key it modified consumed it (it survived the two page
+            // switches above — D15 — and cleared on the fire, as on the letters page).
+            Check.WithCustomMessage("the accented key fired without consuming the one-shot Shift.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsFalse();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedQwertz_ArmedAlt_IsVisibleOnTheFunctionPage_AtScale2()
+    {
+        // T5 (keyboard-one-look): the Fn page carries Win/Alt/Strg, so a system modifier armed
+        // on one page is VISIBLE on the page the user dwells onto next. The chain a gaze user
+        // performs: dwell Alt on letters (it lights), dwell onto Fn — the Fn grid's Alt key must
+        // exist AND be lit while the VM keeps Alt armed (D15) — then dwell F4: the chord must
+        // ride Alt+F4 (not a silently disarmed bare F4) and the one-shot must clear afterwards.
+        var probe = Open(ShippedQwertz(), 2.0);
+        try
+        {
+            long ts = 1_000;
+            SpecialKeyMessage? f4 = null;
+            probe.Messenger.Register<SpecialKeyMessage>(probe.Messenger, (_, msg) => f4 = msg);
+
+            DwellOn(probe, "modifier:alt", ref ts);
+            Check.WithCustomMessage("Dwelling the letters Alt key did not arm Alt — the assertions "
+                    + "below would not measure an armed state.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsTrue();
+            Check.WithCustomMessage("The letters Alt key is not lit while armed.")
+                .That(KeyBrushColor(probe, "modifier:alt")).IsEqualTo(Tokens.SurfaceKeyActive);
+
+            DwellOn(probe, "switchSub:function", ref ts);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("function");
+            Check.WithCustomMessage("D15: the swap onto Fn must keep the armed Alt.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsTrue();
+
+            // The T5 core, on the NEW grid: the armed Alt key exists on the Fn page and is lit;
+            // Win/Strg are on the page but unlit (a modifier key's base is the special-key colour).
+            Check.WithCustomMessage(
+                    $"The Fn page's Alt key brush is not the armed colour while Alt is armed — "
+                    + "the armed state is invisible on the page it was kept for (T5).")
+                .That(KeyBrushColor(probe, "modifier:alt")).IsEqualTo(Tokens.SurfaceKeyActive);
+            Check.WithCustomMessage("The Fn page's Win key is lit although Win is not armed.")
+                .That(KeyBrushColor(probe, "modifier:win")).IsEqualTo(Tokens.SurfaceKeyModifier);
+            Check.WithCustomMessage("The Fn page's Strg key is lit although Ctrl is not armed.")
+                .That(KeyBrushColor(probe, "modifier:ctrl")).IsEqualTo(Tokens.SurfaceKeyModifier);
+
+            DwellOn(probe, "key:F4", ref ts, holdMs: 900);   // app-escaping: 600 ms policy floor
+            Check.WithCustomMessage("Dwelling F4 on the Fn page sent no SpecialKeyMessage.")
+                .That(f4).IsNotNull();
+            Check.That(f4!.KeyName).IsEqualTo("f4");   // the window dispatches key: names lowercased
+            Check.WithCustomMessage(
+                    "F4 fired without a modifier set — an armed Alt vanished at the chord, or the "
+                    + "snapshot never rode the message.")
+                .That(f4.Modifiers).IsNotNull();
+            Check.That(f4.Modifiers!).Contains(ModifierKey.Alt);
+            Check.WithCustomMessage("The one-shot Alt did not clear after F4 fired.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsFalse();
+
+            // Fixup 01 (owner decision: a visible Shift key on the Fn page): Fn now carries Shift
+            // too. Dwell it ON the Fn page (standard 500 ms hold — modifier keys are not
+            // app-escaping) and pin the visual half of the chain the VM test proves logically:
+            // the Fn Shift key exists, is dwellable at its own centre, and lights while Shift is
+            // armed — an armed Shift is never invisible on the page it rides every key of.
+            DwellOn(probe, "modifier:shift", ref ts);
+            Check.WithCustomMessage("Dwelling the Fn Shift key did not arm Shift — the assertions "
+                    + "below would not measure an armed state.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+            Check.WithCustomMessage(
+                    "The Fn page's Shift key is not lit while Shift is armed — the armed state is "
+                    + "invisible on the page whose every key it modifies (fixup 01 F1).")
+                .That(KeyBrushColor(probe, "modifier:shift")).IsEqualTo(Tokens.SurfaceKeyActive);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
     public void ShippedQwertz_LayoutReload_RepaintsModifierVisuals_AtScale2()
     {
         // Impl review r2 N1: RebuildKeys draws STATIC labels, and LoadLayout rebuilds
@@ -726,9 +967,11 @@ public class KeyboardGateProbeTests
         try
         {
             probe.Vm.ToggleModifier(ModifierKey.CapsLock);
+            // T6 moved ß to the letters third row's right end (row index 2): its positional id
+            // is key_2_11.
             Check.WithCustomMessage("Caps did not relabel the ß key before the reload — the "
                     + "assertion after it would not measure a repaint.")
-                .That(KeyLabel(probe, "key_3_3")).IsEqualTo("ẞ");
+                .That(KeyLabel(probe, "key_2_11")).IsEqualTo("ẞ");
 
             // The production reload seam, with the same argument shape Open used.
             probe.Window.LoadLayout(ShippedQwertz(), 1.0,
@@ -737,10 +980,10 @@ public class KeyboardGateProbeTests
             // The SHIFT-BEARING label is the discriminator: ß→ẞ happens only in the modifier
             // repaint, never in the static rebuild.
             Check.WithCustomMessage(
-                    $"A layout reload with Caps armed redrew the ß key as '{KeyLabel(probe, "key_3_3")}' "
+                    $"A layout reload with Caps armed redrew the ß key as '{KeyLabel(probe, "key_2_11")}' "
                     + "— RebuildKeys erased the modifier repaint and nothing restored it "
                     + "(impl review r2 N1).")
-                .That(KeyLabel(probe, "key_3_3")).IsEqualTo("ẞ");
+                .That(KeyLabel(probe, "key_2_11")).IsEqualTo("ẞ");
             Check.WithCustomMessage("The Caps key's brush is unlit after the reload.")
                 .That(KeyBrushColor(probe, "toggle:capslock")).IsEqualTo(Tokens.SurfaceKeyActive);
         }
@@ -762,6 +1005,8 @@ public class KeyboardGateProbeTests
             long ts = 1_000;
             probe.Vm.ToggleModifier(ModifierKey.CapsLock);
 
+            // T6: àé lives on the #+= footer now — letters → symbols → accents.
+            DwellOn(probe, "switchSub:symbols", ref ts);
             DwellOn(probe, "switchSub:accents", ref ts);
             Check.WithCustomMessage("Pre-hide guard: accents key_0_0 does not read É with "
                     + "Caps armed — the post-reopen assert would not measure a repaint.")
@@ -774,10 +1019,10 @@ public class KeyboardGateProbeTests
             probe.Vm.IsVisible = true;    // reopen: no rebuild on this half
 
             Check.WithCustomMessage(
-                    $"Reopening after a hide with Caps armed shows the ß key as '{KeyLabel(probe, "key_3_3")}' "
+                    $"Reopening after a hide with Caps armed shows the ß key as '{KeyLabel(probe, "key_2_11")}' "
                     + "— the letters grid the reset rebuilt was never relit (impl review r2 N2, "
                     + "M2 hide half).")
-                .That(KeyLabel(probe, "key_3_3")).IsEqualTo("ẞ");
+                .That(KeyLabel(probe, "key_2_11")).IsEqualTo("ẞ");
             Check.WithCustomMessage("The Caps key's brush is unlit after the reopen.")
                 .That(KeyBrushColor(probe, "toggle:capslock")).IsEqualTo(Tokens.SurfaceKeyActive);
         }
@@ -798,6 +1043,8 @@ public class KeyboardGateProbeTests
             long ts = 1_000;
             probe.Vm.ToggleModifier(ModifierKey.CapsLock);
 
+            // T6: àé lives on the #+= footer now — letters → symbols → accents.
+            DwellOn(probe, "switchSub:symbols", ref ts);
             DwellOn(probe, "switchSub:accents", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.WithCustomMessage("Dwelling 'switchEmoji' did not enter emoji mode — the "

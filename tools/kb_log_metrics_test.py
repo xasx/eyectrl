@@ -989,6 +989,21 @@ class Sessions(unittest.TestCase):
         ])
         self.assertEqual({e["session"] for e in events}, {0})
 
+    def test_a_holdon_is_filed_under_its_own_sessions_key(self) -> None:
+        # Session 2's Shift reuses seq 1 of session 1's letter. A day-wide by_seq maps both hold-on
+        # lines to the Shift, so the letter's 400 ms would be filed as a mode key.
+        events = kb.parse([
+            stamp_key(1000, 1, "letter"),
+            stamp_line(1000, "holdon seq=1 ms=400 capped=false"),
+            stamp_key(5000, 1, "shift"),
+            stamp_line(5000, "holdon seq=1 ms=600 capped=false"),
+        ])
+        hold = kb.metrics(events)["hold_on"]
+        self.assertEqual(hold["letters_unpenalised"]["n"], 1)
+        self.assertEqual(hold["letters_unpenalised"]["median_ms"], 400)
+        self.assertEqual(hold["mode_keys"]["n"], 1)
+        self.assertEqual(hold["mode_keys"]["median_ms"], 600)
+
 
 class CommandLine(unittest.TestCase):
     def test_text_report_names_the_c2_minimums(self) -> None:

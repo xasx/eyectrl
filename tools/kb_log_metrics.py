@@ -508,7 +508,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         events = [e for e in events if e["dock"] == edge]
 
     keys = [e for e in events if e["event"] == "key"]
-    by_seq = {e["seq"]: e for e in keys if "seq" in e}
+    by_seq = {(e["session"], e["seq"]): e for e in keys if "seq" in e}
     letters = [k for k in keys if k.get("cls") == "letter"]
 
     # --- slips: a letter immediately followed (next activation) by an in-word Backspace or
@@ -552,7 +552,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
     # --- hold-on, by dwell class
     holds: dict[str, list[int]] = {"letters_unpenalised": [], "letters_penalised": [], "mode_keys": []}
     for h in (e for e in events if e["event"] == "holdon"):
-        k = by_seq.get(h.get("seq"))
+        k = by_seq.get((h["session"], h.get("seq")))
         if k is None or not isinstance(h.get("ms"), int):
             continue
         if k.get("cls") == "letter":

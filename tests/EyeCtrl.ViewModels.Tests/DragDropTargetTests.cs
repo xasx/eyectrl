@@ -581,20 +581,21 @@ public class DragDropTargetTests
     [InlineData(2.0)]
     public void AnArmingCreep_DropsAtTheArmedRest_NotTowardsTheMenuSpot(double scale)
     {
-        // Fixup-02 T2 (armed only): the latch arms by a slow creep away from the menu spot, with
-        // no spot restart on the way (0.2 R a sample; the one crossing re-centres within 1.5 R).
-        // The disarmed creep samples are inside the disc but were never credited, so they must
-        // not pull the drop back towards the menu. Mutant: disarmed inside samples enter the
-        // centroid.
+        // Fixup-02 T2 (armed only): the latch arms by a slow creep away from the menu spot (0.2 R
+        // a sample, never a saccade). The step that first passes DragArmDistanceDip arms it and is
+        // where the gaze then rests. The disarmed creep samples just before it are inside the disc
+        // but were never credited, so they must not pull the drop back towards the menu. Mutant:
+        // disarmed inside samples enter the centroid.
         WithDpi(scale, () =>
         {
             using var world = new World(arm: false);
             var r = world.Trail.ReleaseRadiusPhysical;
             var menu = new PhysicalPoint(1300, 1000);
+            var steps = (int)Math.Floor(DragTrailViewModel.DragArmDistancePhysical / (0.2 * r)) + 1;
             var t = 0L;
-            for (var k = 0; k <= 8; k++, t += StepUs)
+            for (var k = 0; k < steps; k++, t += StepUs)
                 world.Send(new PhysicalPoint(menu.X + (k * 0.2 * r), menu.Y), t);
-            var rest = new PhysicalPoint(menu.X + (1.6 * r), menu.Y);
+            var rest = new PhysicalPoint(menu.X + (steps * 0.2 * r), menu.Y);
             for (var k = 0; k < 30 && world.Drops == 0; k++, t += StepUs)
                 world.Send(rest, t);
 

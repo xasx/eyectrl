@@ -688,7 +688,9 @@ public class SymbolCaptionFitTests
     /// Shift 42.0 x 46.5, Enter 42.0 x 32.0 (tolerance 0.05, ink measured the designer's way at
     /// 192 dpi); at 0.5x the ink stays one third of the key for Caps and Shift and 0.267 of its
     /// 1.5-unit key for Enter. Caps' fill and the Shift outline are pinned, so "Caps not filled"
-    /// dies here too.
+    /// dies here too. T6 (variant A) widened the letters tab 1.0→1.2 and space 2.0→2.5 units;
+    /// the ink (height-derived) is unchanged and only its share of the wider key dropped
+    /// (42.5/126.8 and 42.5/268.5 at 1.5x).
     /// </summary>
     [StaFact]
     public void ShippedQwertz_ArrowFrames_MatchTheDesignersGoldenGeometry()
@@ -704,16 +706,16 @@ public class SymbolCaptionFitTests
                              ("toggle:capslock", 42.0, 57.5, 1 / 3.0),
                              ("modifier:shift", 42.0, 46.5, 1 / 3.0),
                              ("enter", 42.0, 32.0, 0.2667),
-                             ("tab", 42.5, 28.0, 0.41),
-                             ("space", 42.5, 13.5, 0.199),
+                             ("tab", 42.5, 28.0, 0.335),
+                             ("space", 42.5, 13.5, 0.158),
                          }),
                          (0.5, new (string Action, double W, double H, double Frac)[]
                          {
                              ("toggle:capslock", 0, 0, 1 / 3.0),
                              ("modifier:shift", 0, 0, 1 / 3.0),
                              ("enter", 0, 0, 0.2667),
-                             ("tab", 0, 0, 0.41),
-                             ("space", 0, 0, 0.196),
+                             ("tab", 0, 0, 0.335),
+                             ("space", 0, 0, 0.155),
                          }),
                      })
             {
@@ -897,13 +899,15 @@ public class SymbolCaptionFitTests
             }
 
             // ⌴ is the same TargetWidth bracket on all five pages; its fraction follows the key
-            // width (2/3/4 u). The letters 2u case ran above.
+            // width (2 u on letters/accents, 3 u on numbers/symbols, 6 u on the Fn page since
+            // fixup 03 widened it to seat Fn→ABC away from ⇥ on both docks). The letters 2u
+            // case ran above.
             foreach (var (sub, mult, fraction) in new[]
                      {
                          ("numbers", 1.5, 0.132), ("numbers", 0.5, 0.128),   // 3 u
                          ("symbols", 1.5, 0.132), ("symbols", 0.5, 0.128),   // 3 u
                          ("accents", 1.5, 0.199), ("accents", 0.5, 0.196),   // 2 u
-                         ("function", 1.5, 0.098), ("function", 0.5, 0.095), // 4 u
+                         ("function", 1.5, 0.065), ("function", 0.5, 0.063), // 6 u
                      })
             {
                 window.LoadLayout(layout, mult, KeyDwellMs, PredictionDwellMs, CooldownMs);

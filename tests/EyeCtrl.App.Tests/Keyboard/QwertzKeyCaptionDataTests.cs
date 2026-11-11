@@ -80,26 +80,34 @@ public class QwertzKeyCaptionDataTests
         {
             ["letters"] =
             [
-                "modifier:win", "switchSub:accents", "toggle:capslock", "modifier:alt",
-                "modifier:shift", "backspace", "deleteWord", "modifier:ctrl", "switchSub:numbers",
-                "switchSub:symbols", "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                // T6 variant A: Wort löschen moved to the top-left, ß to the third row's end,
+                // and the footer is Win Strg ⇥ 123 Fn #+= , ⌴ . ↵ — switchEmoji and the accents
+                // switch left the page (😀 stays on 123 and #+=, àé moved to the #+= footer).
+                "deleteWord", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
+                "modifier:win", "modifier:ctrl", "tab", "switchSub:numbers", "switchSub:function",
+                "switchSub:symbols", "space", "enter",
             ],
             ["numbers"] =
             [
+                // Fixup 02: ⇥ opens row 3 (away from ↵) and Fn sits at main's x (before 😀) so
+                // the switch's landing on the function page is main's →, trapped.
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
-                "deleteWord", "modifier:ctrl", "switchSub:letters", "switchSub:symbols",
-                "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                "deleteWord", "tab", "modifier:ctrl", "switchSub:letters", "switchSub:symbols",
+                "switchSub:function", "switchEmoji", "space", "enter",
             ],
             ["symbols"] =
             [
+                // Fixup 03 (F9): ⇥ Strg 😀 ABC 123 Fn àé ⌴ ↵ — Fn before àé so the X → Fn routes
+                // land on → (bottom) / ⌴ (top) as on main, never on ⌫.
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
-                "deleteWord", "modifier:ctrl", "switchSub:letters", "switchSub:numbers",
-                "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                "deleteWord", "tab", "modifier:ctrl", "switchEmoji", "switchSub:letters",
+                "switchSub:numbers", "switchSub:function", "switchSub:accents", "space", "enter",
             ],
             ["accents"] =
             [
-                "backspace", "deleteWord", "switchSub:letters", "switchSub:numbers",
-                "switchSub:symbols", "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                // Fixup 03 (F9): ⇥ 😀 ABC 123 Fn #+= ⌴ ↵ — Fn before #+= for the same reason.
+                "backspace", "deleteWord", "tab", "switchEmoji", "switchSub:letters",
+                "switchSub:numbers", "switchSub:function", "switchSub:symbols", "space", "enter",
             ],
             ["function"] =
             [
@@ -108,8 +116,8 @@ public class QwertzKeyCaptionDataTests
                 "key:F11", "key:F12", "key:Home", "key:End", "key:PageUp", "key:PageDown",
                 "key:Insert", "key:Delete", "modifier:ctrl", "modifier:shift",
                 "shortcut:Ctrl+C", "shortcut:Ctrl+V", "shortcut:Ctrl+X", "shortcut:Ctrl+Z",
-                "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "switchSub:letters",
-                "key:ArrowUp", "space", "enter", "tab", "switchSub:numbers", "key:ArrowLeft",
+                "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "switchSub:letters", "tab",
+                "key:ArrowUp", "space", "enter", "switchSub:numbers", "key:ArrowLeft",
                 "key:ArrowDown", "key:ArrowRight", "backspace", "deleteWord",
             ],
         };

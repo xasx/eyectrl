@@ -127,10 +127,30 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     /// the target and keeps the dwell (drift and the owner's random-walk wander); beyond it the gaze
     /// has moved to a new spot and the dwell restarts there (PX2/R4). A saccade is caught sooner,
     /// by the step rule: a single-sample step of more than one radius is a new spot whatever the
-    /// distance from the spot (fixup-01 R2). The same distance arms the drop after the drag starts
-    /// (the leave-before-arm latch, fixup-01 R1).
+    /// distance from the spot (fixup-01 R2). It no longer arms the drop: that is
+    /// <see cref="DragArmDistanceDip"/>.
     /// </summary>
     internal const double SameSpotRadii = 1.5;
+
+    /// <summary>
+    /// The leave-before-arm latch (owner Q1 = A, 11.11): how far, in DIP, the gaze must go from
+    /// where it rested when the drag started — the radial menu's „Ziehen" item — before a rest may
+    /// drop the window. 600 px at the owner's 200 %, about a sixth of the screen width. In the 6th
+    /// sitting the first look after the menu landed 340–410 px from the item, inside the menu's
+    /// vanished footprint, and its rest dropped the window 0.94–1.48 s into 3 of 8 drags; the
+    /// intended drops were 1,045 px and more from it.
+    /// </summary>
+    internal const double DragArmDistanceDip = 300;
+
+    /// <summary>
+    /// The latch's time fallback (owner Q1 = A): this long after the drag starts, a rest may drop
+    /// the window wherever it is, so a target near the menu item stays reachable without looking
+    /// away first.
+    /// </summary>
+    internal const long DragArmFallbackMs = 2000;
+
+    /// <summary><see cref="DragArmDistanceDip"/> in physical px at the current DPI.</summary>
+    internal static double DragArmDistancePhysical => DpiHelper.LogicalToPhysicalX(DragArmDistanceDip);
 
     /// <summary>
     /// C2 fixup-01 R2: a move of more than one radius from ANY of the previous this-many
@@ -195,12 +215,16 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     private int _restCount;
 
     // C2 fixup-01 R1: the leave-before-arm latch. The drag starts while the gaze still rests on the
-    // radial menu's Drag item, and the forgiving target would drop the item THERE. The release
-    // dwell stays disarmed until the gaze has left SameSpotRadii radii from the FIRST sample after
-    // the start — not from the grab point, which is a menu-ring away from that gaze — and then stays
-    // armed for the rest of the drag.
+    // radial menu's „Ziehen" item, and the forgiving target would drop the window THERE, or at the
+    // first look after the menu. The release dwell stays disarmed until the gaze has gone
+    // DragArmDistanceDip from the FIRST sample after the start — not from the grab point, which is
+    // a menu-ring away from that gaze — or until DragArmFallbackMs after that sample, and then
+    // stays armed for the rest of the drag. _armStartUs is that first sample's timestamp.
     private PhysicalPoint? _armAnchor;
+    private long? _armStartUs;
     private bool _releaseArmed;
+    private DragArmedBy _armedBy;
+    private long? _armMs;
 
     // C2 fixup-01 R2: the last SaccadeWindowSamples dwell-eligible samples of the current rest, for
     // the saccade rule. Cleared wherever the spot is reset and across a gap or a silence, so a
@@ -237,6 +261,12 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     /// <summary>S8 B11 diagnostics: how many times this drag has entered an exit.</summary>
     internal int ExitZoneEntries => _exitZoneEntries;
+
+    /// <summary>Diagnostics: what armed this drag's drop, or <see cref="DragArmedBy.Never"/>.</summary>
+    internal DragArmedBy ArmedBy => _armedBy;
+
+    /// <summary>Diagnostics: ms from the drag's first sample to arming; null while disarmed.</summary>
+    internal long? ArmMs => _armMs;
 
     /// <summary>
     /// S8 B11 diagnostics: raised once per exit entry with the exit's name ("cancel", "back",
@@ -330,7 +360,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         IsReleaseHidden = false;
         _exitZoneEntries = 0;
         _armAnchor = null;
+        _armStartUs = null;
         _releaseArmed = false;
+        _armedBy = DragArmedBy.Never;
+        _armMs = null;
         _lastEligibleTimestampUs = null;
 
         ReleaseButtonCenter = message.GrabOrigin;
@@ -375,14 +408,20 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         var position = message.Position;
         var radius = LiveReleaseRadius();
 
-        // R1: the release stays disarmed until the gaze has left the spot it rested on when the
-        // drag started (see _armAnchor). No minimum time: that would only postpone the same drop.
+        // R1: a rest may drop the window only once the gaze has gone clearly away from where it
+        // rested when the drag started (see _armAnchor), or once the drag is DragArmFallbackMs old.
+        // Arming credits nothing already rested: until now every sample went through the
+        // match-nothing filter below, so this sample is the release dwell's first credited one.
         if (!_releaseArmed)
         {
             _armAnchor ??= position;
-            var leave = SameSpotRadii * radius;
+            _armStartUs ??= message.TimestampMicroseconds;
+            var sinceStartUs = message.TimestampMicroseconds - _armStartUs.Value;
+            var leave = DragArmDistancePhysical;
             if (position.DistanceSquaredTo(_armAnchor.Value) > leave * leave)
-                _releaseArmed = true;
+                Arm(DragArmedBy.Distance, sinceStartUs);
+            else if (sinceStartUs >= DragArmFallbackMs * 1000)
+                Arm(DragArmedBy.Time, sinceStartUs);
         }
 
         // C6: classify BEFORE the saccade rule, because a withheld sample (past the tolerance,
@@ -518,6 +557,13 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             while (_recentGaze.Count > SaccadeWindowSamples)
                 _recentGaze.Dequeue();
         }
+    }
+
+    private void Arm(DragArmedBy by, long sinceStartUs)
+    {
+        _releaseArmed = true;
+        _armedBy = by;
+        _armMs = sinceStartUs / 1000;
     }
 
     /// <summary>
@@ -763,7 +809,7 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // S8 B11: what the drop was made of, for the coordinator's one drag-end log line.
         var diagnostics = new DragDropDiagnostics(
             trigger, dropPoint, discCenter, discRadius,
-            _restCount, _restWithheldCount, _exitZoneEntries, clamped, magnet);
+            _restCount, _restWithheldCount, _exitZoneEntries, clamped, magnet, _armedBy, _armMs);
         Messenger.Send(new DragDropMessage(final, diagnostics));
     }
 

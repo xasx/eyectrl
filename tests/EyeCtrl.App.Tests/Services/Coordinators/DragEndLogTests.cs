@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
@@ -63,6 +64,31 @@ public class DragEndLogTests
         Check.That(lines[0]).StartsWith($"Drag: end cause={cause} ");
         Check.That(lines[0]).Contains($"origin=({Origin.X:F0}, {Origin.Y:F0})");
         Check.That(lines[0]).Contains("exitEntries=0");
+        // Owner Q1 = A: no gaze reached the drag, so its drop never armed.
+        Check.That(lines[0]).EndsWith(" armedBy=never armMs=-");
+    }
+
+    [StaFact]
+    public void ACancelAfterTheTimeFallback_LogsArmedByTime()
+    {
+        // The gaze stays on its first spot (the „Ziehen" item) past the 2 s fallback, then the ✕
+        // cancels: the line says the drop had armed by time, 2 s after the first sample. Manual
+        // Selection, the owner's mode: elsewhere the 500 ms settle would drop the window first.
+        using var h = new Harness();
+        h.Context.Settings.SelectionMode = SelectionMode.ManualSelection;
+        h.StartDrag();
+        var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
+        var item = new PhysicalPoint(screen.X + (screen.Width / 2), screen.Y + (screen.Height / 3));
+        h.RequireOnScreenClearOfExitsAndEdges("the item", item);
+        for (long t = 0; t <= 2_000_000; t += 25_000)
+            h.Gaze(item, t);
+        DragCoordinator.CreateCancelButtonDefinition(600).Activate(h.Context.Messenger);
+        h.Pump();
+
+        var lines = h.EndLines();
+        Check.That(lines).HasSize(1);
+        Check.That(lines[0]).StartsWith("Drag: end cause=cancel-button ");
+        Check.That(lines[0]).EndsWith(" armedBy=time armMs=2000");
     }
 
     [StaFact]
@@ -77,7 +103,7 @@ public class DragEndLogTests
         var screen = EyeCtrl.App.Services.ScreenGeometry.PrimaryScreenBoundsPhysical();
         var cancelCentre = DragCoordinator.ExitAnchorPhysical
             + new PhysicalPoint(0, DragCoordinator.CancelButtonVerticalOffsetPhysical);
-        var arm = new PhysicalPoint(screen.X + (0.15 * screen.Width), cancelCentre.Y);
+        var arm = new PhysicalPoint(screen.X + (0.12 * screen.Width), cancelCentre.Y);
         var spot = new PhysicalPoint(screen.X + (0.45 * screen.Width), cancelCentre.Y);
         h.RequireOnScreenClearOfExitsAndEdges("the arming sample", arm);
         h.RequireOnScreenClearOfExitsAndEdges("the rest", spot);
@@ -103,6 +129,9 @@ public class DragEndLogTests
         Check.That(lines[0]).Contains($"final=({spot.X:F0}, {spot.Y:F0})");
         Check.That(lines[0]).Contains($"disc=({spot.X:F0}, {spot.Y:F0})");
         Check.That(lines[0]).Contains("exitEntries=1");
+        // Owner Q1 = A: armed by distance, by the ✕ sample or the rest's first, 30–60 ms in.
+        Check.That(lines[0]).Contains(" armedBy=distance armMs=");
+        Check.That(lines[0]).Not.EndsWith("armMs=-");
         Check.That(h.Input.ButtonEvents.Single(e => e.Action == "MouseUp").Point).IsEqualTo(spot);
 
         Check.WithCustomMessage("the ✕ visit wrote no Debug entry line.")
@@ -263,10 +292,13 @@ public class DragEndLogTests
                  .That(nearest).IsStrictlyGreaterThan(r);
         }
 
-        /// <summary>fixup-02 precondition: the arming sample must be a saccade away from the rest.</summary>
+        /// <summary>
+        /// fixup-02 precondition: the arming sample must be farther from the rest than the latch's
+        /// arming distance (owner Q1 = A: 300 DIP).
+        /// </summary>
         internal void RequireFarApart(string aName, PhysicalPoint a, string bName, PhysicalPoint b)
         {
-            var leave = DragTrailViewModel.SameSpotRadii * Context.DragTrailVM.ReleaseRadiusPhysical;
+            var leave = DragTrailViewModel.DragArmDistancePhysical;
             Check.WithCustomMessage(
                     $"precondition: {aName} and {bName} are only {a.DistanceTo(b):F0} px apart; the drop "
                     + $"arms only after the gaze leaves {leave:F0} px.")

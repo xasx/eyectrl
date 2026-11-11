@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Keyboard;
 
 using System.Diagnostics;
+using System.Security.Cryptography;
 using EyeCtrl.Core.Prediction;
 using Microsoft.Extensions.Logging;
 
@@ -15,8 +16,11 @@ using Microsoft.Extensions.Logging;
 /// never a typed character, a word, a prediction or a window title. Every value logged is an
 /// integer, a bool, or one of a closed set of ids, so there is no free-text parameter to leak
 /// through, and integers also dodge the culture trap (Serilog renders a double with the current
-/// culture, and this owner's is German). The property-name set of each event is pinned by an
-/// allow-list in <c>KeyboardE1PrivacyTests</c>, so a new field needs a deliberate test edit.
+/// culture, and this owner's is German). The one deliberate exception is the <see cref="KeyboardE1Stamp"/>
+/// on the <c>shown</c> and <c>layout</c> lines: a layout NAME, the first 8 hex of the layout FILE's
+/// SHA-256, and the app version — facts about shipped files, not about anything the user typed.
+/// The property-name set of each event is pinned by an allow-list in <c>KeyboardE1PrivacyTests</c>,
+/// so a new field needs a deliberate test edit.
 /// </para>
 ///
 /// <para>
@@ -76,6 +80,7 @@ public sealed class KeyboardE1Recorder
 
     private readonly ILogger? _logger;
     private readonly Func<long> _clockMs;
+    private KeyboardE1Stamp _stamp = KeyboardE1Stamp.None;
 
     private long _seq;
     private long _lastKeyMs = long.MinValue;
@@ -348,6 +353,18 @@ public sealed class KeyboardE1Recorder
     }
 
     /// <summary>
+    /// Stamps every later <c>shown</c> and <c>layout</c> line with the layout identity (E1 step 0a):
+    /// the layout NAME, the first 8 hex of the layout FILE's SHA-256, and the app version. The App's
+    /// <c>LoadKeyboard</c> calls this once per loaded layout file, so every show names what was on
+    /// screen and a before/after comparison can group the log by hash instead of by date. Null or
+    /// whitespace fields become "-", so a partially known stamp can never emit an empty value.
+    /// </summary>
+    public void SetStamp(KeyboardE1Stamp stamp) =>
+        _stamp = new KeyboardE1Stamp(DashIfBlank(stamp.Lay), DashIfBlank(stamp.Lv), DashIfBlank(stamp.Ver));
+
+    private static string DashIfBlank(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    /// <summary>
     /// The keyboard was shown. <paramref name="process"/> is the foreground PROCESS name, never a title;
     /// the letter-box size (0 when not yet laid out) is logged here once instead of on every key.
     /// </summary>
@@ -355,15 +372,16 @@ public sealed class KeyboardE1Recorder
     {
         _shownAtMs = _clockMs();
         if (!Enabled) return;
-        Emit("KB-E1 shown proc={Proc} edge={Edge} via={Via} boxw={BoxW} boxh={BoxH}",
-            process, edge, via, boxWidthPx, boxHeightPx);
+        Emit("KB-E1 shown proc={Proc} edge={Edge} via={Via} boxw={BoxW} boxh={BoxH} lay={Lay} lv={Lv} ver={Ver}",
+            process, edge, via, boxWidthPx, boxHeightPx, _stamp.Lay, _stamp.Lv, _stamp.Ver);
     }
 
     /// <summary>The letter-box size after a (re)layout: logged once per layout, never per key.</summary>
     public void RecordLayout(string subLayout, int boxWidthPx, int boxHeightPx)
     {
         if (!Enabled) return;
-        Emit("KB-E1 layout sub={Sub} boxw={BoxW} boxh={BoxH}", subLayout, boxWidthPx, boxHeightPx);
+        Emit("KB-E1 layout sub={Sub} boxw={BoxW} boxh={BoxH} lay={Lay} lv={Lv} ver={Ver}",
+            subLayout, boxWidthPx, boxHeightPx, _stamp.Lay, _stamp.Lv, _stamp.Ver);
     }
 
     /// <summary>The keyboard was hidden, and why.</summary>
@@ -546,6 +564,56 @@ public readonly record struct KeyE1(
 /// discarded on the way, and the shadow likelihood bits.
 /// </summary>
 public readonly record struct CorrE1(string Saccade, int Restarts, bool Likely, bool WordStart, bool NoContinuation);
+
+/// <summary>
+/// The layout stamp every E1 <c>shown</c> and <c>layout</c> line carries (E1 step 0a): the layout's
+/// NAME, the first 8 hex of the layout FILE's SHA-256, and the app version. The hash identifies the
+/// exact shipped file, so a layout change stays comparable before/after even when its name does not
+/// move; the version separates recorder-behaviour changes that keep the same file. This is
+/// content-free by the same reading as the rest of E1: a hash of a shipped file is not text the user
+/// typed, and a version number is not a window title.
+/// </summary>
+/// <param name="Lay">The layout name exactly as the file spells it (e.g. "QWERTZ").</param>
+/// <param name="Lv">The first 8 lower-case hex characters of the layout file's SHA-256.</param>
+/// <param name="Ver">The app version that wrote the line ("unknown" when it has none).</param>
+public sealed record KeyboardE1Stamp(string Lay, string Lv, string Ver)
+{
+    /// <summary>What the lines carry before (or without) a stamp: present, but unknown.</summary>
+    public static KeyboardE1Stamp None { get; } = new("-", "-", "-");
+
+    /// <summary>
+    /// The stamp for a layout file: the name as loaded, the first 8 lower-case hex of the file's
+    /// LF-NORMALISED content's SHA-256, the app version. Never throws: a file that cannot be read
+    /// again (it was deleted between the layout load and this hash) hashes to "-", because the
+    /// stamp only OBSERVES the load — it must not be able to break the layout load it follows.
+    /// </summary>
+    /// <remarks>
+    /// The \r are stripped before hashing (review 01 F3): the identical JSON content must give
+    /// ONE hash whether the checkout wrote CRLF (core.autocrlf, git archive, CI) or LF (an
+    /// agent-edited worktree) — otherwise one layout would split into two eras across machines.
+    /// CR appears in these JSON files only as part of CRLF, so stripping it normalises both.
+    /// </remarks>
+    public static KeyboardE1Stamp FromLayoutFile(string layoutName, string layoutFilePath, string appVersion)
+    {
+        var lv = "-";
+        try
+        {
+            using var sha = SHA256.Create();
+            using var stream = File.OpenRead(layoutFilePath);
+            using var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            var normalised = buffer.ToArray().Where(b => b != (byte)'\r').ToArray();
+            // 4 bytes = 8 hex characters; ToHexString is already upper-case, and E1 hashes are lower-case.
+            lv = Convert.ToHexString(sha.ComputeHash(normalised), 0, 4).ToLowerInvariant();
+        }
+        catch (Exception)
+        {
+            // The stamp never breaks the load it observes: an unreadable file hashes to "-".
+        }
+
+        return new KeyboardE1Stamp(layoutName, lv, appVersion);
+    }
+}
 
 /// <summary>Everything E1 logs for one abandonment.</summary>
 /// <param name="ProgressPct">The fill at the LAST sample credited to the key (never the sample that ended

@@ -116,17 +116,15 @@ public class KeyboardGateProbeTests
         };
     }
 
-    private static KeyboardLayout ShippedQwerty() =>
+    private static KeyboardLayout LoadShipped(string file) =>
         KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json"));
+            "src", "EyeCtrl.App", "Resources", "Layouts", file));
 
-    private static KeyboardLayout ShippedQwertz() =>
-        KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
+    private static KeyboardLayout ShippedQwerty() => LoadShipped("qwerty.json");
 
-    private static KeyboardLayout ShippedAzerty() =>
-        KeyboardLayoutLoader.Load(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "azerty.json"));
+    private static KeyboardLayout ShippedQwertz() => LoadShipped("qwertz.json");
+
+    private static KeyboardLayout ShippedAzerty() => LoadShipped("azerty.json");
 
     /// <summary>One row exercising every id shape the escaping classifier keys off, plus a regular key.</summary>
     private static KeyboardLayout SpecialActionLayout()
@@ -300,6 +298,87 @@ public class KeyboardGateProbeTests
                     $"{dead.Count} of {centres.Count} keys did not respond to a gaze sample "
                     + $"placed exactly on the key's own reported centre, at effective scale "
                     + $"{effectiveScale}. Dead keys: {string.Join(", ", dead)}")
+                .That(dead).IsEmpty();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- positive half, on the SHIPPED pages (E1 step 0a) --------------------------------------
+    //
+    // The synthetic grid above proves the mechanism; this theory proves the mechanism over what
+    // actually ships, at the user's effective scale 2.0, where the mixed-unit gate bug lived. Every
+    // page of every shipped layout file is probed directly (the layout is opened with the page as
+    // its default sub-layout, so no switch dance can mask a page that never renders), and every key
+    // on it must respond at its own centre. The cases come straight from the FILES (MemberData), so
+    // a new or renamed page is probed by its new name automatically — there is no second list to
+    // drift (review 01 F5). The emoji surface is NOT a sub-layout page — it has no JSON page to
+    // clone — and its enter/exit is already round-tripped at 2.0 by
+    // ShippedQwerty_EveryEscapeKeyRoundTrips_AtScale2 and the accents tests below.
+    //
+    // The window is never shown: the probe rides the same off-screen HwndSource as every other test
+    // in this file (no Window.Show() is ever called).
+
+    public static IEnumerable<object[]> ShippedPages()
+    {
+        foreach (var file in new[] { "qwerty.json", "azerty.json", "qwertz.json" })
+            foreach (var page in LoadShipped(file).SubLayouts.Keys.OrderBy(k => k, StringComparer.Ordinal))
+                yield return [file, page];
+    }
+
+    /// <summary>The same layout, opened directly on <paramref name="page"/> as its default.</summary>
+    private static KeyboardLayout OpenedOnPage(KeyboardLayout layout, string page) => new()
+    {
+        Name = layout.Name,
+        DefaultSubLayout = page,
+        SubLayouts = layout.SubLayouts,
+    };
+
+    [StaTheory]
+    [MemberData(nameof(ShippedPages))]
+    public void EveryShippedPageKey_RespondsToGazeAtItsOwnCentre_AtScale2(string file, string page)
+    {
+        var layout = LoadShipped(file);
+        var sub = layout.SubLayouts[page];
+        var keyCount = sub.Rows.Sum(r => r.Count);
+
+        var probe = Open(OpenedOnPage(layout, page), 2.0);
+        try
+        {
+            // After the rebuild the positions dictionary is only repopulated by the next sample
+            // (the same fixture trap DwellOn documents): one clear sample, one layout pass.
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 1_000);
+            probe.Content.UpdateLayout();
+            var centres = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
+
+            // COMPLETENESS (review 01 F5): the window must have registered EVERY key of the page —
+            // a key that never registers, or two keys sharing one id (a duplicated SpecialAction),
+            // would otherwise go unprobed in silence.
+            Check.WithCustomMessage(
+                    $"{file}/{page} reported {centres.Count} key centres for {keyCount} keys. A key that " +
+                    "never registers is never probed, and a duplicated SpecialAction id would collapse " +
+                    "two keys into one target.")
+                .That(centres.Count).IsEqualTo(keyCount);
+
+            long ts = 2_000;
+            var probed = new List<string>();
+            var dead = new List<string>();
+            foreach (var kv in centres)
+            {
+                probed.Add(kv.Key);
+                if (LookAt(probe, kv.Value, ref ts) != kv.Key)
+                    dead.Add(kv.Key);
+            }
+
+            // The probe measured exactly the centres it collected — a `.Skip(1)` or an early
+            // `break` in the loop above fails here rather than silently shrinking the probe.
+            Check.WithCustomMessage(
+                    $"The probe measured {probed.Count} of {centres.Count} keys on {file}/{page}.")
+                .That(probed.Count).IsEqualTo(centres.Count);
+
+            Check.WithCustomMessage(
+                    $"{file}/{page}: {dead.Count} of {centres.Count} keys did not respond to a gaze sample "
+                    + "placed exactly on the key's own reported centre, at effective scale 2.0. Dead keys: "
+                    + $"{string.Join(", ", dead)}")
                 .That(dead).IsEmpty();
         }
         finally { probe.Dispose(); }

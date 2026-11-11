@@ -383,8 +383,9 @@ public class KeyboardE1RecorderTests
 
         recorder.RecordHidden("edge-close");
 
+        // Without a stamp the fields are still on the line, dashed (a stable shape for the parser).
         Check.That(log.Lines).ContainsExactly(
-            "KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=158 boxh=157",
+            "KB-E1 shown proc=WINWORD.exe edge=top via=toolbar-toggle boxw=158 boxh=157 lay=- lv=- ver=-",
             "KB-E1 hidden cause=edge-close visiblems=12500");
     }
 
@@ -577,7 +578,107 @@ public class KeyboardE1RecorderTests
 
         recorder.RecordLayout("letters", 157, 158);
 
-        Check.That(log.Lines).ContainsExactly("KB-E1 layout sub=letters boxw=157 boxh=158");
+        Check.That(log.Lines).ContainsExactly("KB-E1 layout sub=letters boxw=157 boxh=158 lay=- lv=- ver=-");
+    }
+
+    // ---- E1 step 0a: the layout stamp on shown/layout ----------------------------------------------
+
+    [Fact]
+    public void AStampedRecorder_PutsTheLayoutStampOnShownAndLayoutLines()
+    {
+        var (recorder, log, _) = New();
+        recorder.SetStamp(new KeyboardE1Stamp("QWERTZ", "1a2b3c4d", "1.2.3.0"));
+
+        recorder.RecordShown("WINWORD.exe", "top", "ring", 210, 210);
+        recorder.RecordLayout("letters", 210, 210);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 shown proc=WINWORD.exe edge=top via=ring boxw=210 boxh=210 lay=QWERTZ lv=1a2b3c4d ver=1.2.3.0",
+            "KB-E1 layout sub=letters boxw=210 boxh=210 lay=QWERTZ lv=1a2b3c4d ver=1.2.3.0");
+    }
+
+    [Fact]
+    public void AStamp_OfAFile_IsTheFirst8LowerCaseHexOfTheFilesSha256()
+    {
+        // SHA-256 of the empty byte string, whose first 8 hex are a fixed public fact — an
+        // independent expected value, not the implementation's own output.
+        var path = Path.Combine(Path.GetTempPath(), $"eyectrl-e1-stamp-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllBytes(path, []);
+
+            var stamp = KeyboardE1Stamp.FromLayoutFile("QWERTZ", path, "9.9.9.9");
+
+            Check.That(stamp.Lay).IsEqualTo("QWERTZ");
+            Check.That(stamp.Lv).IsEqualTo("e3b0c442");
+            Check.That(stamp.Ver).IsEqualTo("9.9.9.9");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void AStamp_GivesOneHashForTheSameContent_WhetherTheFileIsCrLfOrLf()
+    {
+        // Review 01 F3: the identical JSON content ships as CRLF in a normal checkout (autocrlf,
+        // git archive, CI) and as LF in an agent-edited worktree. One layout must be ONE era, so
+        // the hash must not see the line endings.
+        var dir = Path.Combine(Path.GetTempPath(), $"eyectrl-e1-stamp-eol-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var json = "{\n  \"name\": \"QWERTZ\",\n  \"subLayouts\": {}\n}";
+            var crlfPath = Path.Combine(dir, "crlf.json");
+            var lfPath = Path.Combine(dir, "lf.json");
+            File.WriteAllText(crlfPath, json.Replace("\n", "\r\n"));   // default UTF-8, no BOM, like the shipped files
+            File.WriteAllText(lfPath, json);
+
+            var crlf = KeyboardE1Stamp.FromLayoutFile("QWERTZ", crlfPath, "1.0.0.0");
+            var lf = KeyboardE1Stamp.FromLayoutFile("QWERTZ", lfPath, "1.0.0.0");
+
+            Check.WithCustomMessage($"CRLF hashed to {crlf.Lv}, LF to {lf.Lv}: the same layout would "
+                                    + "appear as two eras depending on the checkout.")
+                .That(crlf.Lv).IsEqualTo(lf.Lv);
+            Check.WithCustomMessage("Both files hashed to '-': the fixtures themselves failed to write.")
+                .That(crlf.Lv).IsNotEqualTo("-");
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void AStamp_OfAnUnreadableFile_HashesToADash_AndNeverThrows()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"eyectrl-e1-stamp-missing-{Guid.NewGuid():N}.json");
+
+        var stamp = KeyboardE1Stamp.FromLayoutFile("QWERTZ", missing, "9.9.9.9");
+
+        Check.That(stamp.Lv).IsEqualTo("-");
+    }
+
+    [Theory]
+    [InlineData(null, null, null, " lay=- lv=- ver=-")]
+    [InlineData("", "", "", " lay=- lv=- ver=-")]
+    [InlineData(" ", "QWERTZ", "", " lay=- lv=QWERTZ ver=-")]   // blank fields only: one valid field stays
+    public void AStamp_WithBlankFields_LogsThemAsDashes(string? lay, string? lv, string? ver, string expected)
+    {
+        var (recorder, log, _) = New();
+        recorder.SetStamp(new KeyboardE1Stamp(lay!, lv!, ver!));
+
+        recorder.RecordShown("p.exe", "top", "ring");
+
+        Check.That(log.Lines[0]).Contains(expected);
+    }
+
+    [Fact]
+    public void AStampedRecorder_SurvivesAThrowingLogger_AndADisabledOneLogsNothing()
+    {
+        var throwing = new KeyboardE1Recorder(new ThrowingLogger());
+        throwing.SetStamp(new KeyboardE1Stamp("QWERTZ", "1a2b3c4d", "1.2.3.0"));
+        throwing.RecordShown("p.exe", "top", "ring");     // must not throw
+        throwing.RecordLayout("letters", 1, 1);
+
+        var disabled = KeyboardE1Recorder.Disabled;
+        disabled.SetStamp(new KeyboardE1Stamp("QWERTZ", "1a2b3c4d", "1.2.3.0"));
+        disabled.RecordShown("p.exe", "top", "ring");     // no logger: still just hands out nothing
     }
 
     // ---- F1: nothing per key while a password field has focus ----------------------------------

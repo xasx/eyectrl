@@ -74,4 +74,36 @@ public class KeyboardE1WiringTests
         Check.WithCustomMessage("The keyboard's recorder must apply the real edge-tally minimum.")
             .That(vm.E1.EdgeTallyMinFiresInUse).IsEqualTo(KeyboardE1Recorder.EdgeTallyMinFires);
     }
+
+    /// <summary>
+    /// Source-scan pin (the model of KeyboardGateCensusTests): the coordinator's
+    /// <c>LoadKeyboard</c> — the only place that knows the layout FILE — must stamp the keyboard's
+    /// E1 recorder with that file (name, first-8-hex SHA-256, app version), AFTER
+    /// <c>LoadLayout</c> has succeeded, so a failed load never stamps a keyboard that will not run.
+    /// Without the stamp every shown/layout line logs <c>lay=- lv=- ver=-</c> and a before/after
+    /// layout comparison can only be done by date — the data the 7-day log retention rotates away,
+    /// which is exactly what E1 step 0a exists to stop.
+    /// </summary>
+    [Fact]
+    public void LoadKeyboard_StampsTheKeyboardRecorder_WithTheLoadedLayoutFile()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"));
+        var start = source.IndexOf("public void LoadKeyboard(", StringComparison.Ordinal);
+        var end = source.IndexOf("internal bool ReloadIfChanged(", StringComparison.Ordinal);
+        Check.WithCustomMessage("The pin's own anchors moved: fix the pin.")
+            .That(start >= 0 && end > start).IsTrue();
+        var body = source[start..end];
+
+        Check.WithCustomMessage(
+                "LoadKeyboard must stamp the keyboard's E1 recorder with the loaded layout file " +
+                "(KeyboardE1Stamp.FromLayoutFile -> SetStamp): without it every shown/layout line " +
+                "logs lay=- lv=- ver=-, and a before/after layout comparison can only be done by date.")
+            .That(body.Contains("SetStamp(KeyboardE1Stamp.FromLayoutFile(")).IsTrue();
+        var loadCall = body.IndexOf("keyboard.LoadLayout(", StringComparison.Ordinal);
+        var stampCall = body.IndexOf("SetStamp(", StringComparison.Ordinal);
+        Check.WithCustomMessage("The stamp must follow a SUCCESSFUL LoadLayout (inside the same try), " +
+                                "so a failed load never stamps a keyboard that will not run.")
+            .That(stampCall > loadCall).IsTrue();
+    }
 }

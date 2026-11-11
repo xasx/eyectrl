@@ -1028,8 +1028,8 @@ public class KeyboardE1LoggingTests
         rig.Type("key_0_2");
 
         Check.That(rig.Log.Of("layout")).ContainsExactly(
-            "KB-E1 layout sub=letters boxw=157 boxh=158",
-            "KB-E1 layout sub=letters boxw=157 boxh=158");
+            "KB-E1 layout sub=letters boxw=157 boxh=158 lay=- lv=- ver=-",
+            "KB-E1 layout sub=letters boxw=157 boxh=158 lay=- lv=- ver=-");
         Check.That(rig.Log.Of("key").Select(l => l.Contains("boxw="))).ContainsExactly(false, false, false);
         // The layout line comes BEFORE the first key line it describes.
         var firstLayout = rig.Log.Lines.FindIndex(l => l.StartsWith("KB-E1 layout ", StringComparison.Ordinal));

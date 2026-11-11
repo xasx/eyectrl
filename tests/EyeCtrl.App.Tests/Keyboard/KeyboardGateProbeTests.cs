@@ -850,6 +850,20 @@ public class KeyboardGateProbeTests
             Check.That(f4.Modifiers!).Contains(ModifierKey.Alt);
             Check.WithCustomMessage("The one-shot Alt did not clear after F4 fired.")
                 .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsFalse();
+
+            // Fixup 01 (owner decision: a visible Shift key on the Fn page): Fn now carries Shift
+            // too. Dwell it ON the Fn page (standard 500 ms hold — modifier keys are not
+            // app-escaping) and pin the visual half of the chain the VM test proves logically:
+            // the Fn Shift key exists, is dwellable at its own centre, and lights while Shift is
+            // armed — an armed Shift is never invisible on the page it rides every key of.
+            DwellOn(probe, "modifier:shift", ref ts);
+            Check.WithCustomMessage("Dwelling the Fn Shift key did not arm Shift — the assertions "
+                    + "below would not measure an armed state.")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+            Check.WithCustomMessage(
+                    "The Fn page's Shift key is not lit while Shift is armed — the armed state is "
+                    + "invisible on the page whose every key it modifies (fixup 01 F1).")
+                .That(KeyBrushColor(probe, "modifier:shift")).IsEqualTo(Tokens.SurfaceKeyActive);
         }
         finally { probe.Dispose(); }
     }

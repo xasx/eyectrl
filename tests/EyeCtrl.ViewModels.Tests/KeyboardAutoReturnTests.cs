@@ -127,9 +127,10 @@ public class KeyboardAutoReturnTests
         Check.That(vm.ActiveModifiers.Contains(ModifierKey.Win)).IsTrue();
     }
 
-    // T5 (keyboard-one-look) synthetic layout: a letters page and a NON-autoReturn function page
-    // carrying the shipped Fn modifier keys (Alt) plus an F4 — the chord the ticket's scenario
-    // ends on (close a hung app with Alt+F4 from the Fn page).
+    // T5 + fixup 01 (keyboard-one-look) synthetic layout: a letters page and a NON-autoReturn
+    // function page carrying the shipped Fn special keys — Alt + F4 (close a hung app with
+    // Alt+F4 from the Fn page) and, since the fixup's owner decision, Shift + an arrow key
+    // (Shift armed on letters must stay armed AND work on Fn: Shift+arrow).
     private static KeyboardLayout LayoutWithFunctionPage() => new()
     {
         Name = "T",
@@ -150,6 +151,11 @@ public class KeyboardAutoReturnTests
                     {
                         new KeyDefinition { Label = "Alt", SpecialAction = "modifier:alt" },
                         new KeyDefinition { Label = "F4", SpecialAction = "key:F4" },
+                    },
+                    new()
+                    {
+                        new KeyDefinition { Label = "⇧", SpecialAction = "modifier:shift" },
+                        new KeyDefinition { Label = "↑", SpecialAction = "key:ArrowUp" },
                     },
                 },
             },
@@ -185,6 +191,41 @@ public class KeyboardAutoReturnTests
         Check.That(sent.Modifiers!).Contains(ModifierKey.Alt);
         Check.WithCustomMessage("the one-shot modifier clears after the special key fires")
              .That(vm.ActiveModifiers.Contains(ModifierKey.Alt)).IsFalse();
+    }
+
+    [Fact]
+    public void ArmedShift_SurvivesTheFunctionSwap_FiresShiftArrow_ThenClears()
+    {
+        // Fixup 01 F1 chain (owner decision: a visible Shift key on the Fn page): Shift is never
+        // cleared on a page switch, so after arming it on letters the Fn page keeps it armed —
+        // and since fixup 01 it SHOWS it (the visual half is pinned by the STA probe in
+        // EyeCtrl.App.Tests.KeyboardGateProbeTests). The damage the fixup closes: without a
+        // Shift key on Fn the armed state rode every Fn key invisibly (Entf → Shift+Del — a
+        // permanent delete in Explorer). Through the input seam (SpecialKeyMessage only; no
+        // dispatcher is registered here, so no real input ever happens): an arrow fires
+        // Shift+ArrowUp, not a bare arrow, then the one-shot Shift clears.
+        var messenger = new WeakReferenceMessenger();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
+        vm.SetLayout(LayoutWithFunctionPage());
+        SpecialKeyMessage? sent = null;
+        messenger.Register<SpecialKeyMessage>(messenger, (_, msg) => sent = msg);
+
+        vm.ToggleModifier(ModifierKey.Shift);
+        Check.That(vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+
+        vm.SwitchSubLayout("function");
+        Check.WithCustomMessage("a non-autoReturn swap must keep the armed Shift")
+             .That(vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsTrue();
+
+        vm.HandleSpecialKey("ArrowUp");
+
+        Check.That(sent).IsNotNull();
+        Check.That(sent!.KeyName).IsEqualTo("ArrowUp");
+        Check.WithCustomMessage("the arrow must fire WITH Shift (Shift+arrow), not bare")
+             .That(sent.Modifiers).IsNotNull();
+        Check.That(sent.Modifiers!).Contains(ModifierKey.Shift);
+        Check.WithCustomMessage("the one-shot Shift clears after the arrow fires")
+             .That(vm.ActiveModifiers.Contains(ModifierKey.Shift)).IsFalse();
     }
 
     [Fact]

@@ -247,7 +247,8 @@
           { "label": "Bild↓", "output": "", "width": 1.0, "specialAction": "key:PageDown", "accessibleName": "Bild-ab-Taste" },
           { "label": "Einfg", "output": "", "width": 1.0, "specialAction": "key:Insert" },
           { "label": "Entf", "output": "", "width": 1.0, "specialAction": "key:Delete" },
-          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" }
+          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "⇧", "labelFrame": "shiftArrow", "output": "", "width": 1.2, "specialAction": "modifier:shift", "accessibleName": "Umschalttaste" }
         ],
         [
           { "label": "Kopieren", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+C" },

@@ -239,7 +239,8 @@
           { "label": "PgDn", "output": "", "width": 1.0, "specialAction": "key:PageDown" },
           { "label": "Ins", "output": "", "width": 1.0, "specialAction": "key:Insert" },
           { "label": "Del", "output": "", "width": 1.0, "specialAction": "key:Delete" },
-          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" }
+          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "Shift", "output": "", "width": 1.2, "specialAction": "modifier:shift" }
         ],
         [
           { "label": "Copy", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+C" },

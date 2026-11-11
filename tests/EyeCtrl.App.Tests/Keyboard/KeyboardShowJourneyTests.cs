@@ -138,14 +138,36 @@ public class KeyboardShowJourneyTests
             window.UpdateGaze(off, t);
 
         // Leg 3 — back to the same key: a deliberate look now, so it types — exactly once,
-        // after a full dwell (450 ms of continuous samples from the return).
-        for (long t = 3_240_000; t <= 4_500_000 && fired.Count == 0; t += 30_000)
+        // and only after a FULL dwell (450 ms of continuous samples from the return): the fire
+        // is stamped with the gaze sample that completed it and bounded below by
+        // return + dwell − one sample (the completing sample credits 30 ms more than the
+        // previous one) and above by return + dwell + two samples. A dwell shortened anywhere
+        // on the path (KeyboardWindow.LoadLayout's Configure) fires inside the key's box just
+        // the same, so "it fired" alone proves nothing about the dwell.
+        const long returnTs = 3_240_000;
+        const long stepUs = 30_000;
+        var fireTs = -1L;
+        for (long t = returnTs; t <= 4_500_000 && fired.Count == 0; t += stepUs)
+        {
             window.UpdateGaze(centre, t);
+            if (fired.Count > 0)
+                fireTs = t;
+        }
 
         Check.WithCustomMessage(
                 $"the return leg fired {fired.Count} times: [{string.Join(", ", fired)}] — the shown "
                 + "keyboard either stayed dead after a deliberate look away and back, or fired twice")
             .That(fired).ContainsExactly("key_0_1");
+        Check.WithCustomMessage(
+                $"the fire came at {fireTs} µs, before {returnTs + KeyDwellMs * 1000 - stepUs} µs "
+                + "(return + dwell − one sample): the key dwell is shorter than the configured "
+                + $"{KeyDwellMs} ms — the fire did not wait out the dwell this journey exists for.")
+            .That(fireTs).IsGreaterOrEqualThan(returnTs + KeyDwellMs * 1000 - stepUs);
+        Check.WithCustomMessage(
+                $"the fire came at {fireTs} µs, later than {returnTs + KeyDwellMs * 1000 + 2 * stepUs} µs "
+                + "(return + dwell + two samples): the key stayed dead longer than its dwell — "
+                + "the anchor was not released by the look-away.")
+            .That(fireTs).IsLessOrEqualThan(returnTs + KeyDwellMs * 1000 + 2 * stepUs);
 
         // Leg 4 — keep resting on the key for 3 s: leave-before-re-arm must hold the latch, so
         // the gaze that never left types nothing more.

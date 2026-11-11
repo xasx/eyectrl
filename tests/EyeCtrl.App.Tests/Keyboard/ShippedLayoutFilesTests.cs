@@ -537,7 +537,44 @@ public class ShippedLayoutFilesTests
 
     [Theory]
     [MemberData(nameof(LayoutNames))]
-    public void Letters_TabNeverAdjacentToEnter_NoEscapingKeyAdjacentToSpace(string file)
+    public void EveryPage_TabNeverAdjacentToEnter(string file)
+    {
+        var layout = Load(file);
+
+        // Fixup 01 (coordinator decision, the owner's "Tab far from Enter" on every page): the
+        // letters pages got the rule with T6; the review found ⇥ still beside ↵ on the 123,
+        // #+=, accents and Fn pages, where the owner had abandoned ⇥/↵ dwells on 05.11. Every
+        // page of every layout is checked — adjacency in unit space with E1's own inflated-box
+        // rule, exactly as in the letters theory below.
+        var offences = new List<string>();
+        foreach (var (page, sub) in layout.SubLayouts)
+        {
+            var (boxes, centres) = UnitSpaceGeometry(sub);
+            var pitch = KeyboardE1Slip.Pitch(centres);
+            Check.WithCustomMessage($"{file}/{page}: no measurable pitch — the geometry collapsed.")
+                .That(pitch).IsStrictlyGreaterThan(0.0);
+
+            for (var i = 0; i < boxes.Count; i++)
+            {
+                for (var j = i + 1; j < boxes.Count; j++)
+                {
+                    if (!KeyboardE1Slip.Adjacent(boxes[i].Box, boxes[j].Box, pitch)) continue;
+                    if (IsTabEnter(boxes[i].Id, boxes[j].Id))
+                        offences.Add($"{page}: tab is adjacent to enter");
+                }
+            }
+        }
+
+        Check.WithCustomMessage(
+                $"{file}: {string.Join("; ", offences.Distinct())}. The owner's E1 log shows "
+                + "Enter+Tab sharing a corner (and ⇥/↵ dwells abandoned on 05.11); no page may sit "
+                + "⇥ next to ↵.")
+            .That(offences).IsEmpty();
+    }
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
+    public void Letters_NoEscapingKeyAdjacentToSpace(string file)
     {
         var layout = Load(file);
         var letters = layout.SubLayouts["letters"];
@@ -546,20 +583,7 @@ public class ShippedLayoutFilesTests
         // index, height 1. The pitch is measured exactly as E1 measures it (the smallest centre
         // distance of the page), and adjacency is KeyboardE1Slip's own inflated-box rule, so the
         // test sees the same corner contacts the running app does.
-        var centres = new List<PhysicalPoint>();
-        var boxes = new List<(string Id, PhysicalRect Box)>();
-        for (var r = 0; r < letters.Rows.Count; r++)
-        {
-            var offset = (PageStandardUnits - letters.Rows[r].Sum(k => k.Width)) / 2.0;
-            foreach (var key in letters.Rows[r])
-            {
-                var id = key.SpecialAction ?? $"key_{r}_{offset:0.###}";
-                boxes.Add((id, new PhysicalRect(offset, r, key.Width, 1.0)));
-                centres.Add(new PhysicalPoint(offset + key.Width / 2, r + 0.5));
-                offset += key.Width;
-            }
-        }
-
+        var (boxes, centres) = UnitSpaceGeometry(letters);
         var pitch = KeyboardE1Slip.Pitch(centres);
         Check.WithCustomMessage($"{file} letters: no measurable pitch — the geometry collapsed.")
             .That(pitch).IsStrictlyGreaterThan(0.0);
@@ -572,8 +596,6 @@ public class ShippedLayoutFilesTests
                 var a = boxes[i];
                 var b = boxes[j];
                 if (!KeyboardE1Slip.Adjacent(a.Box, b.Box, pitch)) continue;
-                if (IsTabEnter(a.Id, b.Id))
-                    offences.Add($"tab ('{a.Id}'/'{b.Id}') is adjacent to enter");
                 if (IsEscapingSpace(layout, a.Id, b.Id))
                     offences.Add($"an app-escaping key ('{a.Id}'/'{b.Id}') is adjacent to space");
             }
@@ -581,9 +603,30 @@ public class ShippedLayoutFilesTests
 
         Check.WithCustomMessage(
                 $"{file} letters page: {string.Join("; ", offences.Distinct())}. The owner's E1 log "
-                + "shows Enter+Tab sharing a corner and the escaping keys firing beside Space; the "
-                + "letters pages must never sit an escaping key next to either.")
+                + "shows the escaping keys firing beside Space; the letters pages must never sit "
+                + "an escaping key next to it.")
             .That(offences).IsEmpty();
+    }
+
+    /// <summary>
+    /// A page's keys as unit-space boxes and centres: x = the row's centring margin plus the
+    /// widths before the key, y = the row index, height 1.
+    /// </summary>
+    private static (List<(string Id, PhysicalRect Box)> Boxes, List<PhysicalPoint> Centres) UnitSpaceGeometry(SubLayout sub)
+    {
+        var boxes = new List<(string Id, PhysicalRect Box)>();
+        var centres = new List<PhysicalPoint>();
+        for (var r = 0; r < sub.Rows.Count; r++)
+        {
+            var offset = (PageStandardUnits - sub.Rows[r].Sum(k => k.Width)) / 2.0;
+            foreach (var key in sub.Rows[r])
+            {
+                boxes.Add((key.SpecialAction ?? $"key_{r}_{offset:0.###}", new PhysicalRect(offset, r, key.Width, 1.0)));
+                centres.Add(new PhysicalPoint(offset + key.Width / 2, r + 0.5));
+                offset += key.Width;
+            }
+        }
+        return (boxes, centres);
     }
 
     private static bool IsTabEnter(string a, string b) =>

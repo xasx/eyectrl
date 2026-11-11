@@ -89,22 +89,24 @@ public class QwertzKeyCaptionDataTests
             ],
             ["numbers"] =
             [
+                // Fixup 01: ⇥ moved to each utility footer's left end (away from ↵) — in file
+                // order it now opens ROW 3 (the footer), after the rows above it.
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
-                "deleteWord", "modifier:ctrl", "switchSub:letters", "switchSub:symbols",
-                "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                "deleteWord", "tab", "modifier:ctrl", "switchSub:letters", "switchSub:symbols",
+                "switchEmoji", "switchSub:function", "space", "enter",
             ],
             ["symbols"] =
             [
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
-                "deleteWord", "modifier:ctrl", "switchSub:letters", "switchSub:numbers",
+                "deleteWord", "tab", "modifier:ctrl", "switchSub:letters", "switchSub:numbers",
                 // T6: the accents switch lives here now (the letters footer keeps exactly two
                 // plain keys), between 123 and 😀.
-                "switchSub:accents", "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                "switchSub:accents", "switchEmoji", "switchSub:function", "space", "enter",
             ],
             ["accents"] =
             [
-                "backspace", "deleteWord", "switchSub:letters", "switchSub:numbers",
-                "switchSub:symbols", "switchEmoji", "switchSub:function", "space", "enter", "tab",
+                "backspace", "deleteWord", "tab", "switchSub:letters", "switchSub:numbers",
+                "switchSub:symbols", "switchEmoji", "switchSub:function", "space", "enter",
             ],
             ["function"] =
             [
@@ -113,8 +115,8 @@ public class QwertzKeyCaptionDataTests
                 "key:F11", "key:F12", "key:Home", "key:End", "key:PageUp", "key:PageDown",
                 "key:Insert", "key:Delete", "modifier:ctrl", "modifier:shift",
                 "shortcut:Ctrl+C", "shortcut:Ctrl+V", "shortcut:Ctrl+X", "shortcut:Ctrl+Z",
-                "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "switchSub:letters",
-                "key:ArrowUp", "space", "enter", "tab", "switchSub:numbers", "key:ArrowLeft",
+                "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "tab", "switchSub:letters",
+                "key:ArrowUp", "space", "enter", "switchSub:numbers", "key:ArrowLeft",
                 "key:ArrowDown", "key:ArrowRight", "backspace", "deleteWord",
             ],
         };

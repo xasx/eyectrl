@@ -295,6 +295,90 @@ class Repairs(unittest.TestCase):
         self.assertEqual(fixture_metrics("bottom")["repairs"]["n"], 1)
 
 
+class WordCorrections(unittest.TestCase):
+    """E1 step 0b: an in-word deleteWord (Wort löschen) is a correction and a slip for C2.
+
+    The owner corrects ONLY with Wort löschen, so without this the >= 20 counted slips minimum
+    could never be reached. The correction is reported separately as well: the ``wordcorr`` line
+    carries how many letters the deletion removed (a length, never the word)."""
+
+    @staticmethod
+    def _correction(bs: str = "word", gap_ms: int = 800, n: int = 2,
+                    with_wordcorr: bool = True) -> list[str]:
+        letter = stamp_key(1000, 1, "letter")
+        delete = stamp_key(1000 + gap_ms, 2, "deleteword", bs)
+        corr = stamp_line(1000 + gap_ms,
+                          "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false")
+        lines = [letter, delete, corr]
+        if with_wordcorr:
+            lines.append(stamp_line(1000 + gap_ms, f"wordcorr seq=2 ms={gap_ms} n={n}"))
+        return lines
+
+    def test_an_in_word_deleteword_after_a_letter_is_a_slip_and_a_word_correction(self) -> None:
+        m = kb.metrics(kb.parse(self._correction()))
+        self.assertEqual(m["slips"], 1)
+        self.assertEqual(m.get("word_corrections"), 1)
+        # The corrected letter's likelihood facts ride on the keyed corr line, as for a Backspace.
+        self.assertEqual(m["slipped_letters_counted"], 1)
+        self.assertEqual(m["slipped_likely0"], 1)
+
+    def test_the_letters_removed_are_reported_separately(self) -> None:
+        lines = self._correction(n=2) + [
+            stamp_key(5000, 3, "letter"),
+            stamp_key(5500, 4, "deleteword", "word"),
+            stamp_line(5500, "wordcorr seq=4 ms=500 n=5"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 2)
+        self.assertEqual(m.get("word_corrections"), 2)
+        self.assertEqual(m.get("word_correction_letters_removed"), {2: 1, 5: 1})
+
+    def test_word_corrections_counts_only_word_deletes_not_backspace_slips(self) -> None:
+        # The gesture split must not drift: a Backspace slip counts in slips, never in
+        # word_corrections (mutant: count every slip as a word correction).
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "backspace", "word"),
+            stamp_line(1500, "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 1)
+        self.assertEqual(m.get("word_corrections"), 0)
+
+    def test_a_deleteword_into_committed_text_is_not_a_word_correction(self) -> None:
+        lines = [stamp_key(1000, 1, "letter"), stamp_key(1100, 2, "space"),
+                 stamp_key(1300, 3, "deleteword", "committed")]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 0)
+        self.assertEqual(m.get("word_corrections"), 0)
+
+    def test_a_deleteword_outside_the_three_second_window_is_not_a_slip(self) -> None:
+        gap = kb.SLIP_WINDOW_MS + 1
+        m = kb.metrics(kb.parse(self._correction(gap_ms=gap)))
+        self.assertEqual(m["slips"], 0)
+        self.assertEqual(m.get("word_corrections"), 0)
+
+    def test_a_wordcorr_needs_all_its_fields(self) -> None:
+        line = stamp_line(1000, "wordcorr seq=2 ms=800 n=2")
+        self.assertEqual(len(kb.parse([line])), 1)
+        self.assertEqual(kb.parse([line.replace(" n=2", "")]), [])
+
+    def test_the_era_slips_include_word_corrections(self) -> None:
+        lines = [stamp_line(100, "shown proc=a.exe edge=top via=ring boxw=210 boxh=210 "
+                                   "lay=QWERTZ lv=abc12345 ver=1.0.0.0")] + self._correction()
+        groups = kb.metrics(kb.parse(lines))["layouts"]
+        self.assertEqual(groups["abc12345"]["slips"], 1)
+
+    def test_the_text_report_names_the_word_corrections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "wordcorr.log"
+            path.write_text("\n".join(self._correction()) + "\n", encoding="utf-8")
+            proc = run_cli(str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("word corrections", proc.stdout)
+        self.assertIn("letters removed", proc.stdout)
+
+
 class StrayModes(unittest.TestCase):
     """The stray page-switch count: a mode (page-switch) fire undone within 5 s, no text kept.
 

@@ -33,9 +33,9 @@ using Xunit;
 /// <para>
 /// A real <see cref="KeyboardWindow"/> and <see cref="KeyboardViewModel"/> run a headless typing
 /// session through the real gaze chain (<c>UpdateGaze</c> → <c>ProcessKeyGaze</c> → the window's
-/// activation handler): letters, a bar pick, a Space, Backspace, a mode switch, Enter and a hide,
-/// on the shipped QWERTZ layout, with a distinctive marker word. Every E1 line it produces is
-/// captured and checked three ways:
+/// activation handler): letters, a bar pick, a Space, Backspace, a Wort löschen correction, a mode
+/// switch, Enter and a hide, on the shipped QWERTZ layout, with a distinctive marker word. Every E1
+/// line it produces is captured and checked three ways:
 /// </para>
 /// <list type="number">
 /// <item>the marker, and every letter of it as a key label, appears in no rendered line and no
@@ -94,6 +94,9 @@ public class KeyboardE1PrivacyTests
         ["abandon"] = ["TsUs", "Class", "Pct", "Why", "EndMs", "Sub", "Edge"],
         ["slip"] = ["Adj", "Dir", "Dist", "Ms", "Reg", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
         ["corr"] = ["Seq", "Saccade", "Restarts", "Likely", "Start", "NoCont"],
+        // E1 step 0b: a Wort löschen correction. Only keying, the gap and a length — no word,
+        // no letters (n is the same order of fact as pick's prefixlen).
+        ["wordcorr"] = ["Seq", "Ms", "N"],
         ["pick"] = ["Slot", "Source", "PrefixLen", "InsLen", "SinceKeyMs", "SincePickMs", "RenderMs", "Visited"],
         ["pickundo"] = ["Ms", "By"],
         ["space"] = ["Seq", "Empty"],
@@ -360,6 +363,14 @@ public class KeyboardE1PrivacyTests
         Dwell(p, IdOf(p, "l"), ref ts);                 // the repair: the key beside k, so a slip line
         Dwell(p, SpecialId(p, "backspace"), ref ts);
 
+        // A Wort löschen correction (E1 step 0b), the owner's only correction gesture: the Space
+        // clears the previous slip, then two letters and an in-word deleteWord. The correction
+        // lines carry a gap and the letters removed — never the word.
+        Dwell(p, SpecialId(p, "space"), ref ts);
+        Dwell(p, IdOf(p, "a"), ref ts);
+        Dwell(p, IdOf(p, "b"), ref ts);
+        Dwell(p, SpecialId(p, "deleteWord"), ref ts);
+
         // An abandoned dwell: look at a key long enough to count, then away.
         var centres = Centres(p.Window);
         Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
@@ -409,15 +420,15 @@ public class KeyboardE1PrivacyTests
         foreach (var expected in new[]
                  {
                      "key", "holdon", "abandon", "pick", "space", "mode", "modeundo", "edge", "shown", "hidden",
-                     "mirror", "pickundo", "slip", "corr", "layout", "edgeq",
+                     "mirror", "pickundo", "slip", "corr", "wordcorr", "layout", "edgeq",
                  })
         {
             Check.WithCustomMessage($"The typing session produced no '{expected}' line ({lines.Count} E1 lines in all).")
                 .That(seen.Contains(expected)).IsTrue();
         }
 
-        // z e b, Space, k, Backspace, l, Backspace, Enter.
-        Check.That(lines.Count(l => l.Event == "key")).IsEqualTo(9);
+        // z e b, Space, k, Backspace, l, Backspace, Space, a, b, deleteWord, Enter.
+        Check.That(lines.Count(l => l.Event == "key")).IsEqualTo(13);
     }
 
     [StaFact]
@@ -635,10 +646,11 @@ public class KeyboardE1PrivacyTests
                 Dwell(p, IdOf(p, letter.ToString()), ref ts, holdAfterUs: 100_000);
             Dwell(p, SpecialId(p, "backspace"), ref ts);
             Dwell(p, IdOf(p, "x"), ref ts);
+            Dwell(p, SpecialId(p, "deleteWord"), ref ts);   // an in-word Wort löschen: still nothing
             Dwell(p, SpecialId(p, "space"), ref ts);
 
             var lines = p.Log.All();
-            Check.WithCustomMessage("The keyboard must still TYPE in a password field").That(typed).IsEqualTo(9);
+            Check.WithCustomMessage("The keyboard must still TYPE in a password field").That(typed).IsEqualTo(10);
             Check.WithCustomMessage("A password's keys were logged: " + string.Join(" | ", lines.Select(l => l.Message)))
                 .That(lines.Select(l => l.Message)).ContainsExactly("KB-E1 sensitive");
             Check.That(lines.Single().Props.Count).IsEqualTo(0);   // no count, no field at all

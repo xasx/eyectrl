@@ -22,7 +22,9 @@ public class KeyboardE1LoggingTests
     private const int CooldownMs = 400;
     private const int StepMs = 30;
 
-    // Row 0: h, a, x, backspace(special), space(special). Centres 220 px apart, boxes 200 px.
+    // Row 0: h, a, x, backspace(special), space(special), deleteWord(special) — the last one is in
+    // the layout but positioned by the rig (see its constructor), so the single-row geometry the
+    // other tests pin does not move. Centres 220 px apart, boxes 200 px.
     private static readonly string[] Ids = ["key_0_0", "key_0_1", "key_0_2", "backspace", "space"];
     private static readonly Dictionary<string, string> Outputs = new()
     {
@@ -53,6 +55,7 @@ public class KeyboardE1LoggingTests
                         new KeyDefinition { Label = "x", Output = "x" },
                         new KeyDefinition { Label = "<", SpecialAction = "backspace" },
                         new KeyDefinition { Label = "_", SpecialAction = "space" },
+                        new KeyDefinition { Label = "Aa", SpecialAction = "deleteWord" },
                     ],
                 ],
             },
@@ -117,6 +120,10 @@ public class KeyboardE1LoggingTests
             // layout, so it logs as a non-text key.
             Positions["far"] = new PhysicalPoint(2000, 100);
             BoxesByKey["far"] = new PhysicalRect(1900, 0, 200, 200);
+            // A Wort löschen key: in the layout (so it classifies as deleteword), on its own row
+            // far below the keys the other tests place, so it cannot steal their nearest key.
+            Positions["deleteWord"] = new PhysicalPoint(100, 800);
+            BoxesByKey["deleteWord"] = new PhysicalRect(0, 700, 200, 200);
             if (logging)
                 Vm.UseE1Recorder(new KeyboardE1Recorder(Log, () => Clock, edgeTallyMinFires: tallyMinFires));
             Vm.Configure(DwellMs, CooldownMs);
@@ -129,6 +136,7 @@ public class KeyboardE1LoggingTests
                 Fired.Add(id);
                 if (Outputs.TryGetValue(id, out var output)) Vm.ActivateKey(output, null);
                 else if (id == "backspace") Vm.HandleBackspace();
+                else if (id == "deleteWord") Vm.HandleDeleteWord();
                 else if (id == "space") Vm.HandleSpace();
             };
         }
@@ -920,6 +928,115 @@ public class KeyboardE1LoggingTests
             .ContainsExactly("likely", "nocont", "restarts", "saccade", "seq", "start");
     }
 
+    // ---- E1 step 0b: an in-word Wort löschen is a correction too --------------------------------
+
+    [Fact]
+    public void AnInWordDeleteWord_LogsOneCorrectionAndOneWordCorrection_WithTheLettersRemoved()
+    {
+        // The owner corrects only with Wort löschen. It removes the whole open word, so the
+        // correction is reported on its own line: the gap since the last letter and how many
+        // letters went (a length, like prefixlen) — never the word or a replacement key.
+        using var rig = new Rig(words: new() { ["haus"] = 100 });
+        rig.Clock = 100;
+        rig.Type("key_0_0");                    // "h"
+        rig.Clock = 200;
+        rig.Type("key_0_1");                    // "ha": the slip candidate is the last letter
+        rig.Clock = 450;
+        rig.Type("deleteWord");
+
+        var deleteWord = rig.Log.Of("key").Select(Fields).Single(f => f["cls"] == "deleteword");
+        Check.That(deleteWord["bs"]).IsEqualTo("word");
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("");
+
+        var corrLines = rig.Log.Of("corr");
+        Check.That(corrLines).HasSize(1);
+        Check.That(Fields(corrLines[0])["seq"]).IsEqualTo(deleteWord["seq"]);
+
+        var wordCorrLines = rig.Log.Of("wordcorr");
+        Check.That(wordCorrLines).HasSize(1);
+        var wordCorr = Fields(wordCorrLines[0]);
+        Check.That(wordCorr["seq"]).IsEqualTo(deleteWord["seq"]);
+        Check.That(wordCorr["ms"]).IsEqualTo("250");      // 450 ms now - the last letter at 200
+        Check.That(wordCorr["n"]).IsEqualTo("2");         // "ha"
+        Check.That(wordCorr.Keys.OrderBy(k => k, StringComparer.Ordinal)).ContainsExactly("ms", "n", "seq");
+
+        // There is no replacement key: the correction must not invent a slip relation.
+        Check.That(rig.Log.Of("slip")).IsEmpty();
+    }
+
+    [Fact]
+    public void ADeleteWordIntoCommittedText_LogsNoWordCorrection()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Type("space");                      // "h " is committed: nothing is open
+        rig.Type("deleteWord");
+
+        var deleteWord = rig.Log.Of("key").Select(Fields).Single(f => f["cls"] == "deleteword");
+        Check.That(deleteWord["bs"]).IsEqualTo("committed");
+        Check.That(rig.Log.Of("corr")).IsEmpty();
+        Check.That(rig.Log.Of("wordcorr")).IsEmpty();
+    }
+
+    [Fact]
+    public void ADeleteWordOutsideTheSlipWindow_LogsNoWordCorrection()
+    {
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Clock = KeyboardE1Recorder.SlipWindowMs + 1;
+        rig.Type("deleteWord");
+
+        Check.That(rig.Log.Of("corr")).IsEmpty();
+        Check.That(rig.Log.Of("wordcorr")).IsEmpty();
+    }
+
+    [Fact]
+    public void ADeleteWordRightAfterABarPick_LogsNoWordCorrection()
+    {
+        // The pick sets CurrentInput = "" but leaves the letter's slip candidate live. The bs=word
+        // gate is what stops the following Wort löschen from logging a false correction: the
+        // deletion goes into the picked (committed) word, so it is editing, not a slip.
+        using var rig = new Rig(words: new() { ["haus"] = 100 });
+        rig.Type("key_0_0");                     // "h": the slip candidate
+        rig.Vm.HandlePredictionSelected("haus"); // a bar pick commits the word (CurrentInput "")
+        rig.Type("deleteWord");                  // Wort löschen into committed text, inside 3 s
+
+        var deleteWord = rig.Log.Of("key").Select(Fields).Single(f => f["cls"] == "deleteword");
+        Check.That(deleteWord["bs"]).IsEqualTo("committed");
+        Check.That(rig.Log.Of("corr")).IsEmpty();
+        Check.That(rig.Log.Of("wordcorr")).IsEmpty();
+    }
+
+    [Fact]
+    public void TheLettersRemoved_AreOnlyTheTrailingLetterRun_OfAnOpenTokenWithAnApostrophe()
+    {
+        // Ctrl+Backspace stops at an apostrophe, so "ha'x" loses only "x". n must be that run,
+        // not the whole open token (a token can be much longer than the word the gesture removes).
+        using var rig = new Rig();
+        rig.Type("key_0_0");                     // "h"
+        rig.Type("key_0_1");                     // "ha"
+        rig.Vm.ActivateKey("'", null);           // "ha'"
+        rig.Type("key_0_2");                     // "ha'x": candidate x
+        rig.Type("deleteWord");                  // Ctrl+Backspace removes "x" only
+
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("ha'");
+        Check.That(Fields(rig.Log.Of("wordcorr").Single())["n"]).IsEqualTo("1");
+    }
+
+    [Fact]
+    public void TheLetterAfterAWordCorrection_IsNotItsReplacement()
+    {
+        // Wort löschen has no replacement key. The first letter of the retyped word starts a fresh
+        // slip candidate; it must not be logged as the repair of the deleted word's last letter
+        // (its geometry would be a word start, not a neighbour relation).
+        using var rig = new Rig();
+        rig.Type("key_0_0");
+        rig.Type("deleteWord");
+        rig.Type("key_0_1");
+
+        Check.That(rig.Log.Of("slip")).IsEmpty();
+    }
+
     [Fact]
     public void TheSlippedKeysArrival_IsLogged_FromTheKeyThatWasSlipped_NotTheReplacement()
     {
@@ -1049,9 +1166,10 @@ public class KeyboardE1LoggingTests
         rig.Type("key_0_1");
         rig.Type("backspace");
         rig.Type("key_0_2");
+        rig.Type("deleteWord");                                 // an in-word correction: still nothing
         rig.Type("space");
 
-        Check.That(rig.Fired).HasSize(5);                      // the keyboard still TYPES
+        Check.That(rig.Fired).HasSize(6);                      // the keyboard still TYPES
         Check.That(rig.Log.Lines).ContainsExactly("KB-E1 sensitive");
     }
 

@@ -572,6 +572,16 @@ public class KeyboardE1RecorderTests
     }
 
     [Fact]
+    public void AWordCorrectionLine_IsKeyedToTheDeleteWord_AndCarriesTheGapAndTheLettersRemoved()
+    {
+        var (recorder, log, _) = New();
+
+        recorder.RecordWordCorrection(7, 850, 3);
+
+        Check.That(log.Lines).ContainsExactly("KB-E1 wordcorr seq=7 ms=850 n=3");
+    }
+
+    [Fact]
     public void ALayoutLine_CarriesTheLetterBoxOnce()
     {
         var (recorder, log, _) = New();
@@ -709,6 +719,7 @@ public class KeyboardE1RecorderTests
         recorder.RecordHoldOn(1, 300, capped: false);
         recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 30, 0, 0, "-", "letters", "top"));
         recorder.RecordCorrection(2, Corr());
+        recorder.RecordWordCorrection(2, 500, 3);
         recorder.RecordSlip(true, "E", 1, 500, "top", Corr());
         recorder.RecordPick(0, "dict", 1, 5, 100, 0);
         recorder.RecordSpace(3, true);
@@ -806,6 +817,7 @@ public class KeyboardE1RecorderTests
         recorder.RecordKey(Key(KeyE1.Letter));
         recorder.RecordKey(Key(KeyE1.Backspace, "backspace"));
         recorder.RecordCorrection(1, Corr());
+        recorder.RecordWordCorrection(1, 1, 1);
         recorder.RecordSlip(true, "E", 1, 1, "top", Corr());
         recorder.RecordHoldOn(1, 1, false);
         recorder.RecordAbandon(new AbandonE1(1, 0, 0, KeyE1.Letter, "-", 60, "GazeLeft", 30, 0, 0, "-", "letters", "top"));

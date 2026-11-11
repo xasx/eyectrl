@@ -55,9 +55,11 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      later by the log's own clock. A deletion into committed text is editing,
                      not a slip, and does not count. The owner corrects only with Wort löschen,
                      so without counting it the C2 minimum could never be reached.
-* word corrections   the slips whose deletion was a Wort löschen, with the ``wordcorr`` lines'
-                     letters-removed histogram. Reported separately because it is a different
-                     gesture (no replacement key, no adjacency relation); it counts in ``slips``.
+* word corrections   the slips whose deletion was a Wort löschen, with the letters-removed
+                     histogram of the counted pairs' ``wordcorr`` lines (a digit -> Wort löschen
+                     writes one too, but a word correction needs a slipped LETTER). Reported
+                     separately because it is a different gesture (no replacement key, no
+                     adjacency relation); it counts in ``slips``.
                      Logs written before step 0b already hold in-word ``deleteword`` key lines:
                      those pairs count retroactively in ``slips``/``slip_rate``/``word_corrections``
                      and in the per-era ``slips``, but they have no ``corr`` line, so the C2 gate
@@ -88,6 +90,12 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      NOT in the predictor's top-5 continuation set, excluding word starts
                      (``start``) and prefixes with no continuation (``nocont``). The rule wants
                      n >= 20 before it is read.
+* likely=0 by gesture
+                     the same counted/likely-0 read-out split by the correcting gesture:
+                     ``backspace`` (the ``corr`` describes the slipped letter itself) and ``word``
+                     (a Wort löschen; its ``corr`` describes the LAST letter of the deleted word,
+                     which need not be the slipped one -- the owner corrects almost only with Wort
+                     löschen, so the two must be read apart). The totals are their sum, unchanged.
 * mode-undos         ``modeundo`` events per 100 letters
 * stray page switches
                      a mode (page-switch) fire -- a sub-layout switch, or the emoji surface
@@ -479,13 +487,31 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
     corr_by_seq = {e["seq"]: e for e in events if e["event"] == "corr"}
     slipped = _slipped_letters(keys)
     word_corrections = _word_corrections(keys)
-    word_corr_events = [e for e in events if e["event"] == "wordcorr"]
+    # The letters-removed histogram belongs to the pairs counted as word corrections: a digit ->
+    # Wort löschen writes a ``wordcorr`` too, but it is not a letter slip (review 01 nit).
+    word_correction_seqs = {e["seq"] for e in word_corrections}
+    word_corr_events = [e for e in events
+                        if e["event"] == "wordcorr" and e["seq"] in word_correction_seqs]
     slipped_corr: list[dict[str, Any]] = []
     for prev, nxt in zip(keys, keys[1:]):
         if _is_slip_pair(prev, nxt) and nxt["seq"] in corr_by_seq:
             slipped_corr.append(corr_by_seq[nxt["seq"]])
     countable = [c for c in slipped_corr if not c.get("start") and not c.get("nocont")]
     unlikely = [c for c in countable if not c.get("likely")]
+    # The likely=0 read-out split by correcting gesture (F2), from the same key-pair
+    # classification: a Backspace's ``corr`` describes the slipped letter itself; a Wort
+    # löschen's describes the LAST letter of the deleted word, which need not be the slipped one.
+    counted_by_gesture: dict[str, list[dict[str, Any]]] = {"backspace": [], "word": []}
+    for c in countable:
+        counted_by_gesture["word" if c["seq"] in word_correction_seqs else "backspace"].append(c)
+    by_gesture: dict[str, dict[str, Any]] = {}
+    for name, group in counted_by_gesture.items():
+        not_likely = [c for c in group if not c.get("likely")]
+        by_gesture[name] = {
+            "counted": len(group),
+            "likely0": len(not_likely),
+            "likely0_share": _share(len(not_likely), len(group)),
+        }
 
     # --- hold-on, by dwell class
     holds: dict[str, list[int]] = {"letters_unpenalised": [], "letters_penalised": [], "mode_keys": []}
@@ -544,6 +570,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "slipped_letters_counted": len(countable),
         "slipped_likely0": len(unlikely),
         "slipped_likely0_share": _share(len(unlikely), len(countable)),
+        "slipped_by_gesture": by_gesture,
         "slipped_saccades": dict(Counter(str(c.get("saccade")) for c in slipped_corr)),
         "repairs": repairs(events, min_region_slips),
         "edge_crowding": edge_crowding(events, min_edge_dwells),
@@ -589,6 +616,10 @@ def render(m: dict[str, Any]) -> str:
     add(f"word corrections          {m['word_corrections']}   letters removed {removed}")
     add(f"slipped letters counted   {m['slipped_likely0']} of {m['slipped_letters_counted']} "
         f"have likely=0 ({_pct(m['slipped_likely0_share'])}); start / nocont excluded")
+    add("slipped letters by gesture (counted, likely=0 share)")
+    for name, g in m["slipped_by_gesture"].items():
+        add(f"  {name:<10} counted {g['counted']:<4} likely=0 {g['likely0']:<4} "
+            f"share {_pct(g['likely0_share'])}")
     r = m["repairs"]
     add(f"repairs (slip lines)       {r['n']}   adjacent {_pct(r['adjacent_share'])}"
         f"   directions {r['directions']}")

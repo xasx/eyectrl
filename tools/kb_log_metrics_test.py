@@ -333,6 +333,22 @@ class WordCorrections(unittest.TestCase):
         self.assertEqual(m.get("word_corrections"), 2)
         self.assertEqual(m.get("word_correction_letters_removed"), {2: 1, 5: 1})
 
+    def test_a_digit_wordcorr_is_not_in_the_letters_removed_histogram(self) -> None:
+        # Review 01 nit: a digit -> Wort löschen writes corr + wordcorr too (the VM's slip candidate
+        # is a letter OR a digit), but the parser counts only letter pairs as word corrections. The
+        # histogram must follow the same rule, or it holds a deletion that word_corrections does not.
+        lines = [
+            stamp_key(1000, 1, "digit"),
+            stamp_key(1500, 2, "deleteword", "word"),
+            stamp_line(1500, "wordcorr seq=2 ms=500 n=3"),
+            stamp_key(3000, 3, "letter"),
+            stamp_key(3500, 4, "deleteword", "word"),
+            stamp_line(3500, "wordcorr seq=4 ms=500 n=2"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["word_corrections"], 1)
+        self.assertEqual(m["word_correction_letters_removed"], {2: 1})
+
     def test_word_corrections_counts_only_word_deletes_not_backspace_slips(self) -> None:
         # The gesture split must not drift: a Backspace slip counts in slips, never in
         # word_corrections (mutant: count every slip as a word correction).
@@ -377,6 +393,90 @@ class WordCorrections(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("word corrections", proc.stdout)
         self.assertIn("letters removed", proc.stdout)
+
+
+class LikelyByGesture(unittest.TestCase):
+    """F2: the likely=0 read-out of the COUNTED slipped letters, split by correcting gesture.
+
+    A Backspace's ``corr`` describes the slipped letter itself; a Wort löschen's describes the LAST
+    letter of the deleted word, which need not be the slipped one, and the owner corrects almost only
+    with Wort löschen. The split uses the same key-pair classification as ``word_corrections``, and
+    the whole-day totals stay the sum of the two."""
+
+    @staticmethod
+    def _day() -> list[str]:
+        return [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "backspace", "word"),
+            stamp_line(1500, "corr seq=2 saccade=mid restarts=0 likely=false start=false nocont=false"),
+            stamp_key(3000, 3, "letter"),
+            stamp_key(4000, 4, "deleteword", "word"),
+            stamp_line(4000, "corr seq=4 saccade=short restarts=0 likely=true start=false nocont=false"),
+            stamp_line(4000, "wordcorr seq=4 ms=1000 n=2"),
+        ]
+
+    def test_one_backspace_and_one_word_slip_split_one_each(self) -> None:
+        m = kb.metrics(kb.parse(self._day()))
+        by = m["slipped_by_gesture"]
+        self.assertEqual(sorted(by), ["backspace", "word"])
+        self.assertEqual(by["backspace"]["counted"], 1)
+        self.assertEqual(by["word"]["counted"], 1)
+        self.assertEqual(by["backspace"]["likely0"], 1)
+        self.assertEqual(by["word"]["likely0"], 0)
+        self.assertEqual(by["backspace"]["likely0_share"], 1.0)
+        self.assertEqual(by["word"]["likely0_share"], 0.0)
+
+    def test_the_totals_are_the_sum_of_the_gestures_unchanged(self) -> None:
+        m = kb.metrics(kb.parse(self._day()))
+        by = m["slipped_by_gesture"]
+        self.assertEqual(m["slipped_letters_counted"], 2)
+        self.assertEqual(m["slipped_likely0"], 1)
+        self.assertEqual(m["slipped_likely0_share"], 0.5)
+        self.assertEqual(by["backspace"]["counted"] + by["word"]["counted"],
+                         m["slipped_letters_counted"])
+        self.assertEqual(by["backspace"]["likely0"] + by["word"]["likely0"],
+                         m["slipped_likely0"])
+
+    def test_an_excluded_word_start_is_not_in_the_gesture_count(self) -> None:
+        # The split is of the COUNTED letters: start/nocont still drop out first, and a gesture with
+        # no counted letter reports no share rather than 0.
+        lines = [
+            stamp_key(1000, 1, "letter"),
+            stamp_key(1500, 2, "deleteword", "word"),
+            stamp_line(1500, "corr seq=2 saccade=mid restarts=0 likely=false start=true nocont=false"),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["slips"], 1)
+        self.assertEqual(m["slipped_letters_counted"], 0)
+        self.assertEqual(m["slipped_by_gesture"]["word"],
+                         {"counted": 0, "likely0": 0, "likely0_share": None})
+
+    def test_the_text_report_has_one_aligned_ascii_line_per_gesture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gestures.log"
+            path.write_text("\n".join(self._day()) + "\n", encoding="utf-8")
+            proc = run_cli(str(path))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(proc.stdout.isascii(), proc.stdout)
+        rows = [line for line in proc.stdout.splitlines()
+                if line.startswith("  backspace ") or line.startswith("  word ")]
+        self.assertEqual(len(rows), 2)
+        for column in ("counted", "likely=0", "share"):
+            self.assertEqual(rows[0].index(column), rows[1].index(column), (rows, column))
+        self.assertTrue(rows[0].startswith("  backspace "))
+        self.assertTrue(rows[1].startswith("  word "))
+        self.assertIn("counted 1", rows[0])
+        self.assertIn("likely=0 1", rows[0])
+        self.assertIn("counted 1", rows[1])
+        self.assertIn("likely=0 0", rows[1])
+
+    def test_the_json_report_carries_the_gesture_split(self) -> None:
+        # The fixture has two counted Backspace slips (L3 and L11), no Wort löschen.
+        proc = run_cli(str(FIXTURE), "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        by = json.loads(proc.stdout)["slipped_by_gesture"]
+        self.assertEqual(by["backspace"], {"counted": 2, "likely0": 2, "likely0_share": 1.0})
+        self.assertEqual(by["word"], {"counted": 0, "likely0": 0, "likely0_share": None})
 
 
 class StrayModes(unittest.TestCase):

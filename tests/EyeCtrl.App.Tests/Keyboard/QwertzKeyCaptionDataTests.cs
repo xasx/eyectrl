@@ -89,24 +89,24 @@ public class QwertzKeyCaptionDataTests
             ],
             ["numbers"] =
             [
-                // Fixup 01: ⇥ moved to each utility footer's left end (away from ↵) — in file
-                // order it now opens ROW 3 (the footer), after the rows above it.
+                // Fixup 02: ⇥ opens row 3 (away from ↵) and Fn sits at main's x (before 😀) so
+                // the switch's landing on the function page is main's →, trapped.
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
                 "deleteWord", "tab", "modifier:ctrl", "switchSub:letters", "switchSub:symbols",
-                "switchEmoji", "switchSub:function", "space", "enter",
+                "switchSub:function", "switchEmoji", "space", "enter",
             ],
             ["symbols"] =
             [
+                // Fixup 02: ⇥ Strg 😀 ABC 123 àé Fn ⌴ ↵ — ABC lands on the letters 123, àé sits
+                // outside the swap radius, and Fn keeps the function page's landing on →.
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
-                "deleteWord", "tab", "modifier:ctrl", "switchSub:letters", "switchSub:numbers",
-                // T6: the accents switch lives here now (the letters footer keeps exactly two
-                // plain keys), between 123 and 😀.
-                "switchSub:accents", "switchEmoji", "switchSub:function", "space", "enter",
+                "deleteWord", "tab", "modifier:ctrl", "switchEmoji", "switchSub:letters",
+                "switchSub:numbers", "switchSub:accents", "switchSub:function", "space", "enter",
             ],
             ["accents"] =
             [
-                "backspace", "deleteWord", "tab", "switchSub:letters", "switchSub:numbers",
-                "switchSub:symbols", "switchEmoji", "switchSub:function", "space", "enter",
+                "backspace", "deleteWord", "tab", "switchEmoji", "switchSub:letters",
+                "switchSub:numbers", "switchSub:symbols", "switchSub:function", "space", "enter",
             ],
             ["function"] =
             [
@@ -115,7 +115,7 @@ public class QwertzKeyCaptionDataTests
                 "key:F11", "key:F12", "key:Home", "key:End", "key:PageUp", "key:PageDown",
                 "key:Insert", "key:Delete", "modifier:ctrl", "modifier:shift",
                 "shortcut:Ctrl+C", "shortcut:Ctrl+V", "shortcut:Ctrl+X", "shortcut:Ctrl+Z",
-                "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "tab", "switchSub:letters",
+                "shortcut:Ctrl+Y", "shortcut:Ctrl+A", "addWord", "switchSub:letters", "tab",
                 "key:ArrowUp", "space", "enter", "switchSub:numbers", "key:ArrowLeft",
                 "key:ArrowDown", "key:ArrowRight", "backspace", "deleteWord",
             ],

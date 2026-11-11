@@ -286,30 +286,6 @@ public class KeyboardGateProbeTests
         ts = latchTs + holdUs + 1_000;
     }
 
-    /// <summary>
-    /// Clears a live swap anchor the way a real user does: one gaze sample on the CURRENT page's
-    /// key farthest from the anchor point — always far beyond the half-key radius — so a dwell
-    /// that follows at a centre INSIDE the radius can latch. Fixup 01 moved ⇥ to the utility
-    /// footers' left ends, which moved àé (#+=) and shifted the footers so that several switch
-    /// keys now sit within the half-key radius of the previous page's switch point: DwellOn's
-    /// straight latch would be suppressed by the swap arm (D13 working as designed — the key
-    /// that materializes under the resting gaze must not fire). A no-op without a live anchor.
-    /// </summary>
-    private static void ClearSwapSuppression(Probe probe, ref long ts)
-    {
-        var anchor = (PhysicalPoint?)typeof(KeyboardViewModel)
-            .GetField("_swapSuppressedAnchor", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .GetValue(probe.Vm);
-        if (anchor is null) return;
-
-        probe.Content.UpdateLayout();
-        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
-        var far = Centres(probe.Window).Values
-            .OrderByDescending(c => c.DistanceSquaredTo(anchor.Value))
-            .First();
-        probe.Window.UpdateGaze(far, ts); ts += 1_000;
-    }
-
     // ---- positive half: no key is dead ----
 
     [StaTheory]
@@ -579,9 +555,9 @@ public class KeyboardGateProbeTests
 
             // Emoji swaps the whole surface: IsEmojiMode flips and the emoji manager rebuilds the
             // grid; the way back is its own special_switchText key. T6 removed switchEmoji from
-            // the letters page, so it is entered from the numbers page (which keeps it) — and
-            // fixup 01 moved ⇥ so the 123 switch sits within the last round trip's anchor.
-            ClearSwapSuppression(probe, ref ts);
+            // the letters page, so it is entered from the numbers page (which keeps it); fixup 02
+            // put the Fn row's ABC back at main's x, so the last round trip's anchor no longer
+            // covers the 123 switch and the dwell below needs no look-away first.
             DwellOn(probe, "switchSub:numbers", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.WithCustomMessage(
@@ -682,7 +658,6 @@ public class KeyboardGateProbeTests
                 .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("symbols");
 
             // Manual round trip: àé opens accents; the ABC key returns to letters (the default).
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
             Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
             DwellOn(probe, "switchSub:letters", ref ts);
@@ -691,7 +666,6 @@ public class KeyboardGateProbeTests
             // Auto-return: back via symbols, dwell àé, then dwell é (accents key_0_0) — é types
             // and the keyboard is back on letters.
             DwellOn(probe, "switchSub:symbols", ref ts);
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
             DwellOn(probe, "key_0_0", ref ts);
             Check.WithCustomMessage("dwelling an accent did not auto-return to letters")
@@ -701,7 +675,6 @@ public class KeyboardGateProbeTests
             // Emoji entered FROM accents must not auto-return under the open emoji grid (R1):
             // exiting emoji lands back on accents, and dwelling an accent from there returns.
             DwellOn(probe, "switchSub:symbols", ref ts);
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.That(probe.Vm.IsEmojiMode).IsTrue();
@@ -743,7 +716,6 @@ public class KeyboardGateProbeTests
             probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
             var accCentre = Centres(probe.Window)["switchSub:accents"];
 
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
 
             // Refresh positions before reading them (plan-r2 I2): arrange first, collect second.
@@ -784,7 +756,6 @@ public class KeyboardGateProbeTests
             probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
             var accCentre = Centres(probe.Window)["switchSub:accents"];
 
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
             Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
 
@@ -805,11 +776,13 @@ public class KeyboardGateProbeTests
     }
 
     [StaFact]
-    public void ShippedAzerty_AccEntry_LandsOnTheAccentsOwnSymbolsSwitch()
+    public void ShippedAzerty_AccEntry_LandsOnTheAccentsOwnFunctionSwitch()
     {
         // The AZERTY half of the landing pin (the old row-0-end expectation died with T6's
-        // route change: àé now sits on the #+= footer, so the landing is the accents footer's
-        // own `#+=`). Same refresh dance as the QWERTZ pin.
+        // route change: àé — "Acc" — now sits on the #+= footer). Fixup 02's reorder puts Acc
+        // further right of the footer, and the accents footer's own `Fn` switch measures nearest
+        // to the resting point — a page switch, never a text key. Same refresh dance as the
+        // QWERTZ pin.
         var probe = Open(ShippedAzerty(), 2.0, emojiJsonPath: ShippedEmojiJson());
         try
         {
@@ -819,7 +792,6 @@ public class KeyboardGateProbeTests
             probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
             var accCentre = Centres(probe.Window)["switchSub:accents"];
 
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
 
             probe.Content.UpdateLayout();
@@ -830,8 +802,8 @@ public class KeyboardGateProbeTests
                 .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
                 .First().Key;
             Check.WithCustomMessage(
-                    $"the key under Acc's resting gaze is {landing}, expected switchSub:symbols")
-                .That(landing).IsEqualTo("switchSub:symbols");
+                    $"the key under Acc's resting gaze is {landing}, expected switchSub:function")
+                .That(landing).IsEqualTo("switchSub:function");
         }
         finally { probe.Dispose(); }
     }
@@ -851,7 +823,6 @@ public class KeyboardGateProbeTests
 
             // T6: àé lives on the #+= footer now — letters → symbols → accents.
             DwellOn(probe, "switchSub:symbols", ref ts);
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
 
             var accentLabel = KeyLabel(probe, "key_0_0");
@@ -893,7 +864,6 @@ public class KeyboardGateProbeTests
 
             // T6's route: àé lives on the #+= footer — letters → symbols → accents.
             DwellOn(probe, "switchSub:symbols", ref ts);
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
 
             Check.WithCustomMessage("D15: entering the autoReturn accents page must keep Shift armed.")
@@ -1038,7 +1008,6 @@ public class KeyboardGateProbeTests
 
             // T6: àé lives on the #+= footer now — letters → symbols → accents.
             DwellOn(probe, "switchSub:symbols", ref ts);
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
             Check.WithCustomMessage("Pre-hide guard: accents key_0_0 does not read É with "
                     + "Caps armed — the post-reopen assert would not measure a repaint.")
@@ -1077,7 +1046,6 @@ public class KeyboardGateProbeTests
 
             // T6: àé lives on the #+= footer now — letters → symbols → accents.
             DwellOn(probe, "switchSub:symbols", ref ts);
-            ClearSwapSuppression(probe, ref ts);   // fixup 01: àé now sits within the swap anchor's radius
             DwellOn(probe, "switchSub:accents", ref ts);
             DwellOn(probe, "switchEmoji", ref ts);
             Check.WithCustomMessage("Dwelling 'switchEmoji' did not enter emoji mode — the "

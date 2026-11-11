@@ -641,6 +641,137 @@ public class ShippedLayoutFilesTests
     private static string? Normalize(KeyboardLayout layout, string id) =>
         id.StartsWith("key_", StringComparison.Ordinal) ? null : id;
 
+    // ---- fixup 02: page-switch landings ---------------------------------------------------------
+    //
+    // After a page switch D13 (KeyboardViewModel.ArmSuppressionAt) arms a suppression anchor at
+    // the gaze point — the centre of the switch key that fired — with a radius of HALF the
+    // distance to the second-nearest centre of the OLD page. While the gaze stays inside that
+    // circle nothing dwells; a resting gaze on a key whose CENTRE lies inside it is therefore
+    // protected, and a key whose centre is outside it starts its dwell under the resting gaze.
+    //
+    // Fixup 01's ⇥ move put ⇥ and àé under those resting points: returning to ABC landed the
+    // gaze on ⇥ (a small drift then started Tab's dwell), and the accents route left àé inside
+    // the radius (the next letter of every accented word needed a look-away first). Fixup 02
+    // reorders the utility footers so that:
+    //
+    //   - every switch back to ABC lands on the letters page's 123 switch (main's deliberate
+    //     inverse alignment), never on ⇥, ↵, ⌫, Wort löschen or a plain text key;
+    //   - on the accents route (letters → #+=) àé sits OUTSIDE the radius — one deliberate
+    //     saccade reaches it;
+    //   - Fn → ABC is back at main's position (the Fn row's ABC first, so ⇥ no longer shifts it).
+    //
+    // Geometry is the window's own: box = s·w + (w>1 ? (w−1)·4 : 0), 4-DIP slot margin, rows
+    // centred on the grid axis, window centred horizontally and docked at the BOTTOM (rows
+    // aligned from the bottom, as on the owner's screen), s = 70 × multiplier. Both switches
+    // of the pair are measured at the same instant, so the horizontal shift of a narrower grid
+    // cancels through the two pages' own row centring — the same model as the reviewer's
+    // landing script. The three X → Fn landings (⌫, trapped) are left out of this pin: the
+    // ticket's rules cover the ABC-bound routes and the accents route, and the ⌫ there is
+    // inside the radius (suppressed), like main's own Strg/⇧ landings.
+
+    public static IEnumerable<object[]> SwitchLandingCases()
+    {
+        foreach (var file in LayoutFiles)
+            foreach (var mult in new[] { 1.5, 2.0 })
+                yield return [file, mult];
+    }
+
+    private sealed record LandingKey(string Id, string Label, double Cx, double Cy, double X0, double X1);
+
+    private static List<LandingKey> LandingKeys(SubLayout page, double s)
+    {
+        var pitchY = s + 4;
+        var keys = new List<LandingKey>();
+        for (var r = 0; r < page.Rows.Count; r++)
+        {
+            var rowWidth = page.Rows[r].Sum(k => LandingBoxWidth(k.Width, s) + 4);
+            var x = -rowWidth / 2;
+            var y = -(page.Rows.Count - 1 - r) * pitchY;
+            foreach (var key in page.Rows[r])
+            {
+                var slot = LandingBoxWidth(key.Width, s) + 4;
+                keys.Add(new LandingKey(
+                    key.SpecialAction ?? $"key_{r}_{keys.Count}", key.Label,
+                    x + slot / 2, y, x + 2, x + slot - 2));
+                x += slot;
+            }
+        }
+        return keys;
+    }
+
+    private static double LandingBoxWidth(double width, double s) =>
+        s * width + (width > 1 ? (width - 1) * 4 : 0);
+
+    [Theory]
+    [MemberData(nameof(SwitchLandingCases))]
+    public void EverySwitchToAbc_LandsOffTheHarmfulKeys_AndTheAccentsRouteStaysOutsideTheRadius(string file, double mult)
+    {
+        var layout = Load(file);
+        var s = 70 * mult;
+        var harmful = new HashSet<string>(StringComparer.Ordinal) { "tab", "enter", "backspace", "deleteWord" };
+        var offences = new List<string>();
+
+        foreach (var (src, sub) in layout.SubLayouts)
+        {
+            var fromKeys = LandingKeys(sub, s);
+            var switches = sub.Rows.SelectMany(r => r)
+                .Where(k => k.SpecialAction is not null
+                            && k.SpecialAction.StartsWith("switchSub:", StringComparison.Ordinal))
+                .ToList();
+
+            foreach (var sw in switches)
+            {
+                var target = sw.SpecialAction!["switchSub:".Length..];
+                var anchor = fromKeys.Single(k => k.Id == sw.SpecialAction);
+                var distances = fromKeys
+                    .Select(k => Math.Sqrt(Sq(k.Cx - anchor.Cx) + Sq(k.Cy - anchor.Cy)))
+                    .OrderBy(d => d).ToList();
+                var radius = distances[1] / 2;
+                var targetKeys = LandingKeys(layout.SubLayouts[target], s);
+
+                if (target == layout.DefaultSubLayout)
+                {
+                    // The key UNDER the anchor point on the target page (same row, box
+                    // containment — the window's own pick): a switch, space or toggle is fine;
+                    // ⇥, ↵, ⌫, Wort löschen or a plain text key is the fixup-01 regression.
+                    var under = targetKeys.FirstOrDefault(k =>
+                        Math.Abs(k.Cy - anchor.Cy) < 1e-6
+                        && k.X0 - 2 <= anchor.Cx && anchor.Cx <= k.X1 + 2);
+                    if (under is null)
+                    {
+                        // No box contains the point: production picks the nearest centre only
+                        // within the 8-px band; beyond it, nothing dwells. 8 px at this scale.
+                        var nearest = targetKeys.Min(k => Math.Sqrt(Sq(k.Cx - anchor.Cx) + Sq(k.Cy - anchor.Cy)));
+                        if (nearest <= 8.0)
+                            offences.Add($"{src} → {target} at {mult:0.0}x: the pick lands on a key "
+                                         + $"{nearest:0} px from the anchor but no box was found (geometry?)");
+                        continue;
+                    }
+
+                    if (under.Id.StartsWith("key_", StringComparison.Ordinal) || harmful.Contains(under.Id))
+                        offences.Add($"{src} → {target} at {mult:0.0}x: the resting gaze lands on "
+                                     + $"'{under.Label}' ({under.Id})");
+                }
+
+                if (src == "letters" && targetKeys.Any(k => k.Id == "switchSub:accents"))
+                {
+                    // The accents route: the next key (àé) must be OUTSIDE the radius, or every
+                    // accented letter costs a look-away before its dwell can start.
+                    var accents = targetKeys.Single(k => k.Id == "switchSub:accents");
+                    var d = Math.Sqrt(Sq(accents.Cx - anchor.Cx) + Sq(accents.Cy - anchor.Cy));
+                    if (d <= radius)
+                        offences.Add($"{src} → {target} at {mult:0.0}x: the accents switch ('{accents.Label}') "
+                                     + $"sits {d:0} DIP from the anchor, inside r = {radius:0} — the "
+                                     + "first accented letter of every word needs a look-away");
+                }
+            }
+        }
+
+        Check.WithCustomMessage(string.Join("; ", offences)).That(offences).IsEmpty();
+    }
+
+    private static double Sq(double v) => v * v;
+
 
     // ---- E1 step 0a: the size budget over every page of every layout ---------------------------
     //

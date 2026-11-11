@@ -107,8 +107,8 @@
           { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Space", "output": " ", "width": 3.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" }
         ]
@@ -158,11 +158,11 @@
         [
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" },
           { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "Acc", "output": "", "width": 1.0, "specialAction": "switchSub:accents" },
-          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
+          { "label": "Acc", "output": "", "width": 1.0, "specialAction": "switchSub:accents" },
           { "label": "Space", "output": " ", "width": 3.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" }
         ]
@@ -204,10 +204,10 @@
         ],
         [
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
           { "label": "Space", "output": " ", "width": 2.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" }
@@ -255,8 +255,8 @@
           { "label": "Add Word", "output": "", "width": 1.4, "specialAction": "addWord" }
         ],
         [
-          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" },
           { "label": "ABC", "output": "", "width": 2.0, "specialAction": "switchSub:letters" },
+          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" },
           { "label": "↑", "output": "", "width": 1.5, "specialAction": "key:ArrowUp" },
           { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" }

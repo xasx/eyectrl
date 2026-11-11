@@ -208,7 +208,7 @@
           { "label": "ABC", "output": "", "width": 2.0, "specialAction": "switchSub:letters" },
           { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" },
           { "label": "↑", "output": "", "width": 1.5, "specialAction": "key:ArrowUp" },
-          { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
+          { "label": "Space", "output": " ", "width": 6.0, "specialAction": "space" },
           { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" }
         ],
         [

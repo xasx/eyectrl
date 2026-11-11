@@ -97,16 +97,17 @@ public class QwertzKeyCaptionDataTests
             ],
             ["symbols"] =
             [
-                // Fixup 02: ⇥ Strg 😀 ABC 123 àé Fn ⌴ ↵ — ABC lands on the letters 123, àé sits
-                // outside the swap radius, and Fn keeps the function page's landing on →.
+                // Fixup 03 (F9): ⇥ Strg 😀 ABC 123 Fn àé ⌴ ↵ — Fn before àé so the X → Fn routes
+                // land on → (bottom) / ⌴ (top) as on main, never on ⌫.
                 "modifier:win", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
                 "deleteWord", "tab", "modifier:ctrl", "switchEmoji", "switchSub:letters",
-                "switchSub:numbers", "switchSub:accents", "switchSub:function", "space", "enter",
+                "switchSub:numbers", "switchSub:function", "switchSub:accents", "space", "enter",
             ],
             ["accents"] =
             [
+                // Fixup 03 (F9): ⇥ 😀 ABC 123 Fn #+= ⌴ ↵ — Fn before #+= for the same reason.
                 "backspace", "deleteWord", "tab", "switchEmoji", "switchSub:letters",
-                "switchSub:numbers", "switchSub:symbols", "switchSub:function", "space", "enter",
+                "switchSub:numbers", "switchSub:function", "switchSub:symbols", "space", "enter",
             ],
             ["function"] =
             [

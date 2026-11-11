@@ -899,13 +899,15 @@ public class SymbolCaptionFitTests
             }
 
             // ⌴ is the same TargetWidth bracket on all five pages; its fraction follows the key
-            // width (2/3/4 u). The letters 2u case ran above.
+            // width (2 u on letters/accents, 3 u on numbers/symbols, 6 u on the Fn page since
+            // fixup 03 widened it to seat Fn→ABC away from ⇥ on both docks). The letters 2u
+            // case ran above.
             foreach (var (sub, mult, fraction) in new[]
                      {
                          ("numbers", 1.5, 0.132), ("numbers", 0.5, 0.128),   // 3 u
                          ("symbols", 1.5, 0.132), ("symbols", 0.5, 0.128),   // 3 u
                          ("accents", 1.5, 0.199), ("accents", 0.5, 0.196),   // 2 u
-                         ("function", 1.5, 0.098), ("function", 0.5, 0.095), // 4 u
+                         ("function", 1.5, 0.065), ("function", 0.5, 0.063), // 6 u
                      })
             {
                 window.LoadLayout(layout, mult, KeyDwellMs, PredictionDwellMs, CooldownMs);

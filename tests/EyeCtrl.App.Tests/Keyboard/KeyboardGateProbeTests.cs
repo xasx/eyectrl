@@ -776,13 +776,12 @@ public class KeyboardGateProbeTests
     }
 
     [StaFact]
-    public void ShippedAzerty_AccEntry_LandsOnTheAccentsOwnFunctionSwitch()
+    public void ShippedAzerty_AccEntry_LandsOnTheAccentsOwnSymbolsSwitch()
     {
         // The AZERTY half of the landing pin (the old row-0-end expectation died with T6's
-        // route change: àé — "Acc" — now sits on the #+= footer). Fixup 02's reorder puts Acc
-        // further right of the footer, and the accents footer's own `Fn` switch measures nearest
-        // to the resting point — a page switch, never a text key. Same refresh dance as the
-        // QWERTZ pin.
+        // route change: Acc now sits on the #+= footer). Fixup 03's F9 order puts Fn before
+        // Acc, so the accents footer's own #+= switch measures nearest to the resting point —
+        // a page switch back to where the owner came from, never a text key.
         var probe = Open(ShippedAzerty(), 2.0, emojiJsonPath: ShippedEmojiJson());
         try
         {
@@ -802,8 +801,8 @@ public class KeyboardGateProbeTests
                 .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
                 .First().Key;
             Check.WithCustomMessage(
-                    $"the key under Acc's resting gaze is {landing}, expected switchSub:function")
-                .That(landing).IsEqualTo("switchSub:function");
+                    $"the key under Acc's resting gaze is {landing}, expected switchSub:symbols")
+                .That(landing).IsEqualTo("switchSub:symbols");
         }
         finally { probe.Dispose(); }
     }

@@ -118,6 +118,39 @@ public class DragArmAwayTests
     [InlineData(1.0, 1000)]
     [InlineData(2.0, 600)]
     [InlineData(2.0, 1000)]
+    public void TwoHopsAwayFromTheItem_ArmByDistanceFromTheItem_NotFromTheFirstHop(double scale, int dwellMs)
+    {
+        // review-01 F1: the distance is measured from the drag's FIRST sample (the item), not from
+        // whichever spot the gaze rests on. 175 DIP right at 0.35 s, a rest there until 0.8 s, then
+        // 175 DIP more: the second hop is 350 DIP from the item and arms the drop, which comes one
+        // release dwell later. Mutant N2: the anchor re-taken at each new spot while disarmed sees
+        // only 175 DIP and waits for the 2 s fallback.
+        WithDpi(scale, () =>
+        {
+            using var world = new World(dwellMs);
+            var hop = DpiHelper.LogicalToPhysicalX(175);
+            var t = world.Linger(Item, 0, 350_000);
+            t = world.Linger(new PhysicalPoint(Item.X + hop, Item.Y), t, 800_000);
+            Check.That(world.Drops).IsEqualTo(0);
+            Check.That(world.Trail.ArmedBy).IsEqualTo(DragArmedBy.Never);
+
+            var secondHopAt = t;
+            var far = new PhysicalPoint(Item.X + (2 * hop), Item.Y);
+            world.Rest(far, t, secondHopAt + (dwellMs * 1000L) + (4 * StepUs));
+
+            Check.WithCustomMessage($"DPI {scale}: the rest {2 * hop} px from the item never dropped.").That(world.Drops).IsEqualTo(1);
+            AssertDropOneDwellAfter(secondHopAt, world, dwellMs);
+            Check.That(world.DropPoint).IsEqualTo(far);
+            Check.That(world.Diagnostics!.ArmedBy).IsEqualTo(DragArmedBy.Distance);
+            Check.That(world.Diagnostics.ArmMs).IsEqualTo((secondHopAt - world.FirstSampleUs) / 1000);
+        });
+    }
+
+    [Theory]
+    [InlineData(1.0, 600)]
+    [InlineData(1.0, 1000)]
+    [InlineData(2.0, 600)]
+    [InlineData(2.0, 1000)]
     public void WithNoTravel_TheDropArmsAtTwoSeconds_AndDropsOneDwellLater(double scale, int dwellMs)
     {
         // The gaze never leaves the item (a target right next to it): the drop arms on the first

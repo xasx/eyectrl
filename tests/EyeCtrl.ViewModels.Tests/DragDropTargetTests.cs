@@ -582,21 +582,32 @@ public class DragDropTargetTests
     public void AnArmingCreep_DropsAtTheArmedRest_NotTowardsTheMenuSpot(double scale)
     {
         // Fixup-02 T2 (armed only): the latch arms by a slow creep away from the menu spot (0.2 R
-        // a sample, never a saccade). The step that first passes DragArmDistanceDip arms it and is
-        // where the gaze then rests. The disarmed creep samples just before it are inside the disc
-        // but were never credited, so they must not pull the drop back towards the menu. Mutant:
-        // disarmed inside samples enter the centroid.
+        // a sample, never a saccade). The first sample past DragArmDistanceDip arms it and is where
+        // the gaze then rests. The disarmed creep samples just before it are inside the disc but
+        // were never credited, so they must not pull the drop back towards the menu. Mutant:
+        // disarmed inside samples enter the centroid. The creep is offset half a step (0.1 R, 0.3 R,
+        // …), so no creep sample lands exactly ON the distance at either DPI (review-01 F3).
         WithDpi(scale, () =>
         {
             using var world = new World(arm: false);
             var r = world.Trail.ReleaseRadiusPhysical;
             var menu = new PhysicalPoint(1300, 1000);
-            var steps = (int)Math.Floor(DragTrailViewModel.DragArmDistancePhysical / (0.2 * r)) + 1;
+            var arm = DragTrailViewModel.DragArmDistancePhysical;
             var t = 0L;
-            for (var k = 0; k < steps; k++, t += StepUs)
-                world.Send(new PhysicalPoint(menu.X + (k * 0.2 * r), menu.Y), t);
-            var rest = new PhysicalPoint(menu.X + (steps * 0.2 * r), menu.Y);
-            for (var k = 0; k < 30 && world.Drops == 0; k++, t += StepUs)
+            world.Send(menu, t);
+            t += StepUs;
+            var k = 0;
+            for (; (0.1 + (0.2 * k)) * r < arm; k++, t += StepUs)
+                world.Send(new PhysicalPoint(menu.X + ((0.1 + (0.2 * k)) * r), menu.Y), t);
+            Check.WithCustomMessage($"DPI {scale}: the creep armed before passing {arm} px.")
+                .That(world.Trail.ArmedBy).IsEqualTo(DragArmedBy.Never);
+            var rest = new PhysicalPoint(menu.X + ((0.1 + (0.2 * k)) * r), menu.Y);
+            Check.That(rest.X - menu.X).IsStrictlyGreaterThan(arm);
+            world.Send(rest, t);
+            t += StepUs;
+            Check.WithCustomMessage($"DPI {scale}: the first sample past {arm} px did not arm the drop.")
+                .That(world.Trail.ArmedBy).IsEqualTo(DragArmedBy.Distance);
+            for (var i = 0; i < 30 && world.Drops == 0; i++, t += StepUs)
                 world.Send(rest, t);
 
             Check.That(world.Drops).IsEqualTo(1);

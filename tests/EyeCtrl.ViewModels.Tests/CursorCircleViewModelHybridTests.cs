@@ -665,8 +665,9 @@ public class CursorCircleViewModelHybridTests
     }
 
     // ── The stay zone (F2, 5th sitting 2026-11-09, owner option A) ─────────────────────────────────
-    // The owner's geometry: hit 200 (LayoutConstants since F2), R 80, so B's no-move zone is 280 px;
-    // P = (1000,1000), B = (1310,1000): |B-P| = 310, the placement floor hit + R + 30 at ring 200.
+    // The 5th sitting's geometry (the VM is parametric: the hit and R come in the show message, so these
+    // tests hold at any placement): hit 200, R 80, so B's no-move zone is 280 px; P = (1000,1000),
+    // B = (1310,1000): |B-P| = 310. The shipped geometry since the 7th sitting is hit 265 and |B-P| = 475.
 
     private const double OwnerHit = 200;
     private static readonly PhysicalPoint OwnerB = new(1310, 1000);

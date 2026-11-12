@@ -9,8 +9,14 @@ using EyeCtrl.Core.Processing;
 /// from ONE look, only a dwelling look keeps the button alive, and near-miss extensions are capped.
 /// Engine-level sample scripts on the standalone engine (its own look segmentation: centroid within R,
 /// the detector's 500 ms gap budget), at the owner's geometry and values: 3840×2400, ScaleX 2.0, ring
-/// 200 (B 310 px from P, on the diagonal toward the centre), R 80, hit 200, dwell 500, linger 750, one
+/// 200 (B 475 px from P, on the diagonal toward the centre), R 80, hit 265, dwell 500, linger 750, one
 /// sample per 33 ms (the owner's tracker grid).
+/// <para>
+/// Since the 7th sitting (2026-11-12, option B) B is 475 px from P (was 310) and the hit is 265 px (was
+/// 200). Every distance that was placed relative to the hit moved out by the same 65 px, so it keeps its
+/// role: a near miss (outside the hit, inside hit + R) went 220–250 → 285–315, and a look past the zone
+/// 300 → 365. The distances placed relative to the drawn disc (≤ 180 px) are unchanged.
+/// </para>
 /// <para>
 /// The first four tests fail on the engine before F3 (the report's "tests that fail today"); the five
 /// guards pass before and after. Each test names the mutants it turns red (report §4, M1–M8, plus the
@@ -195,14 +201,14 @@ public class ActivationOfferOneLookTests
     [Fact]
     public void ATransitSampleThroughTheHitArea_BetweenTwoNearMissLooks_DoesNotExtendTheButton()
     {
-        // A saccade between two near-miss spots (230 px beside B, 250 px beyond it) passes 170 px from B:
+        // A saccade between two near-miss spots (295 px beside B, 315 px beyond it) passes 216 px from B:
         // its one in-between sample is not a look at the button, and before F3 it extended the button
         // like one. Mutants: M4 (no 100 ms dwelling test), extensions from immature samples, maturity
         // 100 → 0 — red.
         var s = new Script();
         s.Offered();
-        var n1 = s.FromB(230, "side");
-        var n2 = s.FromB(250, "beyond");
+        var n1 = s.FromB(295, "side");
+        var n2 = s.FromB(315, "beyond");
         s.Look(n1, 600);
         long before = s.Engine.CurrentOffer!.ExpiresAtUs;
 
@@ -215,7 +221,7 @@ public class ActivationOfferOneLookTests
     }
 
     [Fact]
-    public void NearMissLooksEvery600Ms_At230To250Px_TheButtonClosesWithinLingerPlusCap()
+    public void NearMissLooksEvery600Ms_At295To315Px_TheButtonClosesWithinLingerPlusCap()
     {
         // Dry run 2's R3 worst case: slow re-reading of words just outside the hit area. Each settle is a
         // near miss and each extended the button without end (still up after 5 s, the ring held on the old
@@ -224,7 +230,7 @@ public class ActivationOfferOneLookTests
         // — red.
         var s = new Script();
         long strong = s.Offered();
-        var spots = new[] { s.FromB(230, "side"), s.FromB(250, "beyond") };
+        var spots = new[] { s.FromB(295, "side"), s.FromB(315, "beyond") };
         for (int i = 0; i < 8 && s.Expired.Count == 0; i++)
         {
             var at = spots[i % 2];
@@ -291,7 +297,7 @@ public class ActivationOfferOneLookTests
             var s = new Script();
             long left = s.Offered();
             s.Look(s.B, 250);
-            s.Look(glance == "P" ? P : s.FromB(glance == "beyond" ? 300 : 220, glance), 250);
+            s.Look(glance == "P" ? P : s.FromB(glance == "beyond" ? 365 : 285, glance), 250);
             s.Look(s.B, 800);
 
             Check.WithCustomMessage(glance).That(s.Fired).HasSize(1);
@@ -392,12 +398,12 @@ public class ActivationOfferOneLookTests
         // in-hit samples (or never count them as strong) → the button closes 1.5 s after the leave. Red.
         var s = new Script();
         long left = s.Offered();
-        s.Look(s.FromB(230, "side"), 600);
+        s.Look(s.FromB(295, "side"), 600);
         s.Look(s.FromB(150, "beyond"), 200);   // a 200 ms look inside the hit: real activity
         long strong = s.Ts;
-        s.Look(s.FromB(250, "side-"), 600);
-        s.Look(s.FromB(230, "side"), 600);
-        s.Look(s.FromB(250, "side-"), 600);
+        s.Look(s.FromB(315, "side-"), 600);
+        s.Look(s.FromB(295, "side"), 600);
+        s.Look(s.FromB(315, "side-"), 600);
         s.Away();
 
         // The first offer's end (a later near-miss settle with no button up makes a new one).
@@ -553,14 +559,14 @@ public class ActivationOfferOneLookTests
     [Fact]
     public void HeldJustOutsideTheHitFor2s_AfterALookAtB_TheButtonWaits()
     {
-        // Review-01 F2: 400 ms on B, then a steady look 240 px off (a near miss) for 2 s, then back. Under F3
+        // Review-01 F2: 400 ms on B, then a steady look 305 px off (a near miss) for 2 s, then back. Under F3
         // the cap closed the button at 1.5 s past the look at B, and the return found nothing. cap2: the
         // one near-miss look that follows a look at the button extends without the cap. Mutant: no cap2 →
         // red.
         var s = new Script();
         s.Offered();
         s.Look(s.FromB(40, "down"), 400);
-        s.Look(s.FromB(240, "down"), 2000);
+        s.Look(s.FromB(305, "down"), 2000);
         s.Look(s.B, 800);
 
         Check.That(s.Expired).IsEmpty();
@@ -577,8 +583,8 @@ public class ActivationOfferOneLookTests
         var s = new Script();
         s.Offered();
         s.Look(s.FromB(40, "down"), 300);
-        s.Look(s.FromB(300, "beyond"), 300);
-        s.Look(s.FromB(300, "side"), 270);
+        s.Look(s.FromB(365, "beyond"), 300);
+        s.Look(s.FromB(365, "side"), 270);
         long back = s.Ts;
         s.Look(s.FromB(150, "side"), 800);
 
@@ -730,9 +736,9 @@ public class ActivationOfferOneLookTests
         var s = new Script();
         s.Offered();
         s.Look(s.FromB(40, "down"), 300);
-        s.Look(s.FromB(240, "down"), 2000);
+        s.Look(s.FromB(305, "down"), 2000);
         s.Look(s.FromB(40, "down"), 300);
-        s.Look(s.FromB(240, "side"), 2000);
+        s.Look(s.FromB(305, "side"), 2000);
         s.Look(s.B, 800);
 
         Check.That(s.Expired).IsEmpty();
@@ -749,7 +755,7 @@ public class ActivationOfferOneLookTests
         s.Offered();
         s.Look(s.FromB(40, "down"), 300);
         long strong = s.OfferedAt(new PhysicalPoint(2400, 1300));
-        s.Look(s.FromB(240, "beyond"), 2500);
+        s.Look(s.FromB(305, "beyond"), 2500);
 
         Check.That(s.Expired).HasSize(1);
         long capUs = strong + ((ActivationOfferEngine.ProductOfferExpiryMs + ActivationOfferEngine.NearMissCapMs) * 1000L);

@@ -203,8 +203,8 @@ public class RingArmLookOracleTests
     [Fact]
     public void Outcome_ANearMissSettleDuringTheStay_IsRefused_AndTheRingStaysAtP()
     {
-        // Review-02 G1, turned around by the stay: the eye resumes at the near-miss spot (240 px from B: in the
-        // zone, outside the 200-px hit) after a gap, the stay starts, and the settle there is refused (D). The
+        // Review-02 G1, turned around by the stay: the eye resumes at the near-miss spot (305 px from B: in the
+        // zone, outside the 265-px hit; 240 / 200 before the 7th sitting) after a gap, the stay starts, and the settle there is refused (D). The
         // stay goes on: the ring stays at P, with no release, until the eye leaves for the far hold.
         var run = RunWired(GoingForItChains.GapToNearMiss());
         var events = run.Events.ToList();

@@ -9,7 +9,7 @@ using EyeCtrl.Core.Processing;
 /// offer being shown to its first valid sample inside the button's hit area, carried by the offer the
 /// fire and expiry events hand out (the <c>Offer fired</c> / <c>Offer expired unused</c> lines write
 /// it as <c>firstLookMs=</c>). Same geometry as <see cref="ActivationOfferEngineTests"/> (3840×2400,
-/// ScaleX 2.0, ring 250, R 75: B is 360 px from P on the diagonal), with the settle at a non-zero
+/// ScaleX 2.0, ring 250, R 75: B is 525 px from P on the diagonal since the 7th sitting, 360 before), with the settle at a non-zero
 /// timestamp so an absolute-clock mutant cannot pass by accident.
 /// </summary>
 public class ActivationOfferFirstLookTests
@@ -226,15 +226,15 @@ public class ActivationOfferFirstLookTests
     {
         // The other MakeOffer-from-Update path: the live offer expires, and the swallowed settle's
         // pending point takes over on that same sample, BEFORE the sample clock advances to it. P's
-        // side of the no-move zone: 150 px from P toward B, 210 px from B (ActivationOfferEngineTests'
-        // PsidePoint). Its samples neither hit nor extend, so the 1 s deadline (ShownUs + 1 s) passes
+        // side of the no-move zone: 200 px from P toward B, 325 px from B (ActivationOfferEngineTests'
+        // PsidePoint; 150 px from P before the 7th sitting's 525 px offset put it outside the zone). Its samples neither hit nor extend, so the 1 s deadline (ShownUs + 1 s) passes
         // on the 24th sample, at +1020. Mutant C4 (ShownAtUs = the previous sample's timestamp) →
         // the re-offer is dated +990 and the next frame's first look reads 60, red.
         var engine = NewEngine();
         var first = Settle(engine);
         double unitX = (first.Button.X - P.X) / P.DistanceTo(first.Button);
         double unitY = (first.Button.Y - P.Y) / P.DistanceTo(first.Button);
-        var pSide = new PhysicalPoint(P.X + (150 * unitX), P.Y + (150 * unitY));
+        var pSide = new PhysicalPoint(P.X + (200 * unitX), P.Y + (200 * unitY));
 
         // The pending settle comes with no sample before it: a sample of the still-Offered run would
         // push the deadline (ActivationOfferEngineTests' swallowed-settle test has the same shape).

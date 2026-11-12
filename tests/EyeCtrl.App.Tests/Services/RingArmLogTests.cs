@@ -24,11 +24,11 @@ public class RingArmLogTests
     public void StartupLine_Default_RunsHybrid_PrintsTheHybridParameters_AndTheDefaultSource()
     {
         // Since the owner's look, a launch with no --ring-arm runs the hybrid (B); the line names it
-        // so the readout can see which arm actually ran.
+        // so the readout can see which arm actually ran. Hit 265 px since the 7th sitting (was 200).
         var launch = RingArmArgument.Parse(new[] { "EyeCtrl.exe" });
 
         Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
-            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 200 px) or corridor 1.25R, "
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 265 px) or corridor 1.25R, "
             + "stay grace=500 ms, freeze grace=500 ms once proven 90 ms, glideOut=0, ringEvents=off) [source: default]");
     }
 
@@ -38,7 +38,7 @@ public class RingArmLogTests
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=hybrid" });
 
         Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
-            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 200 px) or corridor 1.25R, "
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 265 px) or corridor 1.25R, "
             + "stay grace=500 ms, freeze grace=500 ms once proven 90 ms, glideOut=0, ringEvents=on) [source: --ring-arm]");
     }
 
@@ -70,7 +70,7 @@ public class RingArmLogTests
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=fast" });
 
         Check.That(RingArmLog.StartupLine(launch, RingArmLog.LogsEvents(launch, new DiagnosticsSettings()))).IsEqualTo(
-            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 200 px) or corridor 1.25R, "
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, stay zone=hit+R (hit 265 px) or corridor 1.25R, "
             + "stay grace=500 ms, freeze grace=500 ms once proven 90 ms, glideOut=0, ringEvents=on) [source: --ring-arm]");
     }
 

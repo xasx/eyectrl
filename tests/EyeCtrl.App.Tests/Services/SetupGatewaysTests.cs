@@ -2,7 +2,6 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using EyeCtrl.App.Services;
@@ -269,7 +268,20 @@ public class SetupGatewaysTests
 
         var gateways = harness.Create();
         var completions = 0;
-        gateways.BeginUpdateOfferProbe(() => Interlocked.Increment(ref completions));
+        // F1: wait for the callback itself. UpdateOfferPending turns false one write BEFORE
+        // whenDone() runs, so polling it and then reading completions raced the callback. What
+        // the callback saw is recorded inside it: the page's rebuild must already see the
+        // published offer, and that production order is pinned here, not re-read after the wait.
+        var callbackSawPending = true;
+        SetupUpdateOffer? callbackSawOffer = null;
+        using var callbackRan = new ManualResetEventSlim(false);
+        gateways.BeginUpdateOfferProbe(() =>
+        {
+            callbackSawPending = gateways.UpdateOfferPending;
+            callbackSawOffer = gateways.UpdateOffer;
+            Interlocked.Increment(ref completions);
+            callbackRan.Set();
+        });
 
         // Returned before the verification finished: nothing on the calling thread waited for it.
         Check.That(gateways.UpdateOfferPending).IsTrue();
@@ -277,14 +289,17 @@ public class SetupGatewaysTests
         gateways.BeginUpdateOfferProbe(() => Interlocked.Increment(ref completions));
 
         release.Set();
-        var clock = Stopwatch.StartNew();
-        while (gateways.UpdateOfferPending && clock.Elapsed < TimeSpan.FromSeconds(10))
-            Thread.Sleep(10);
+        Check.WithCustomMessage("the probe's completion callback never ran")
+            .That(callbackRan.Wait(TimeSpan.FromSeconds(10))).IsTrue();
 
         Check.That(gateways.UpdateOfferPending).IsFalse();
         Check.That(gateways.UpdateOffer).IsNotNull();
         Check.That(completions).IsEqualTo(1);
         Check.That(harness.Catalog.Calls).HasSize(1);
+
+        // Inside the callback the offer was already published and pending already false.
+        Check.That(callbackSawPending).IsFalse();
+        Check.That(callbackSawOffer).IsNotNull();
     }
 
     [Fact]

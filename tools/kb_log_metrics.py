@@ -18,6 +18,13 @@ script never sees a typed character, and cannot print one.
 The events: key, holdon, abandon, corr, slip, wordcorr, pick, pickundo, space, mode, modeundo,
 edge, shown, layout, hidden, mirror, sensitive.
 
+One day log holds every EyeCtrl session of that day. ``seq`` is a per-activation counter that
+restarts at 1 on each EyeCtrl start (KeyboardE1Recorder), and no E1 event marks a start, so a new
+session begins at the first ``key`` activation whose ``seq`` does not increase on the previous one
+(``<=``). ``corr``/``wordcorr``/``holdon``/``space`` repeat their activation's ``seq`` and never
+split a session. Every ``seq`` join below (the correction's ``corr``, the gesture split, the
+``wordcorr`` histogram) is scoped to the session, and the gesture is read from the pair itself.
+
 Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
 symbol, emoji) the line says only that a text key was typed -- plus timing (``ts``, ``sincekey``),
 the dock edge, ``typing`` (was a word open) and the dwell. It carries NO edge-quarter class either
@@ -55,9 +62,11 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      later by the log's own clock. A deletion into committed text is editing,
                      not a slip, and does not count. The owner corrects only with Wort löschen,
                      so without counting it the C2 minimum could never be reached.
-* word corrections   the slips whose deletion was a Wort löschen, with the ``wordcorr`` lines'
-                     letters-removed histogram. Reported separately because it is a different
-                     gesture (no replacement key, no adjacency relation); it counts in ``slips``.
+* word corrections   the slips whose deletion was a Wort löschen, with the letters-removed
+                     histogram of the counted pairs' ``wordcorr`` lines in the same session (a
+                     digit -> Wort löschen writes one too, but a word correction needs a slipped
+                     LETTER). Reported separately because it is a different gesture (no replacement
+                     key, no adjacency relation); it counts in ``slips``.
                      Logs written before step 0b already hold in-word ``deleteword`` key lines:
                      those pairs count retroactively in ``slips``/``slip_rate``/``word_corrections``
                      and in the per-era ``slips``, but they have no ``corr`` line, so the C2 gate
@@ -88,6 +97,13 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      NOT in the predictor's top-5 continuation set, excluding word starts
                      (``start``) and prefixes with no continuation (``nocont``). The rule wants
                      n >= 20 before it is read.
+* likely=0 by gesture
+                     the same counted/likely-0 read-out split by the correcting gesture of the
+                     pair itself: ``backspace`` (the ``corr`` describes the slipped letter itself)
+                     and ``word`` (a Wort löschen; its ``corr`` describes the LAST letter of the
+                     deleted word, which need not be the slipped one -- the owner corrects almost
+                     only with Wort löschen, so the two must be read apart). The totals are their
+                     sum, unchanged.
 * mode-undos         ``modeundo`` events per 100 letters
 * stray page switches
                      a mode (page-switch) fire -- a sub-layout switch, or the emoji surface
@@ -107,6 +123,16 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      carry no ``lv`` and group into nothing -- read them by date, as before.
 * hold-on            by dwell class (unpenalised letters, penalised letters, mode keys): n,
                      median ms, and the share >= 150 ms (the uniform-600 gate wants >= 90 %)
+* letter rest        the double-letters decision's read-out, over the letter hold-ons: n and the
+                     share whose rest lasted >= 600/900/1200/1500/2000/2500/3000 ms. A line
+                     written under the old 600 ms cap (``capped=true ms=600``) says only
+                     ">= 600": above 600 it could be either side of a threshold, so each share is
+                     a lower-upper bound over the SAME n (lower = measured at or above R, upper =
+                     also counting every old-cap line). At 600 the bounds coincide; with no
+                     old-cap lines a single share is printed. The 3000 ms threshold (a
+                     ``capped=true ms=3000`` line) is the capped share. A rest survives a sample
+                     silence of up to 1 s (a blink), so a long rest is not cut short at the
+                     blink; a longer gap ends it at the last inside sample.
 * pick-then-undo     ``pickundo`` events / picks
 * chain-picks        a pick < 1 s after the previous pick with no key activation in between
 * near-move          activations within 1 s of a window move (``movems``)
@@ -173,6 +199,14 @@ TALLY_ABORTS = ["a" + name for name in TALLY_FIRES]
 CHAIN_PICK_MS = 1000
 NEAR_MOVE_MS = 1000
 HOLD_ON_GATE_MS = 150
+# The double-letters decision's letter-rest read-out. 600 ms is the OLD hold-on cap: a
+# ``capped=true ms=600`` line says only ">= 600", so above 600 that rest is unknown (letter_rest).
+LETTER_REST_THRESHOLDS_MS = (600, 900, 1200, 1500, 2000, 2500, 3000)
+OLD_HOLD_ON_CAP_MS = 600
+# The text line's fixed cell widths: the widest label (including "(capped)") and the widest
+# possible share ("100.0-100.0 %"), so its columns line up from one log to the next.
+LETTER_REST_LABEL_WIDTH = 15
+LETTER_REST_SHARE_WIDTH = 13
 MODE_CLASSES = {"shift", "caps", "mode", "switchsub"}
 # A stray page switch: a mode fire of one of these kinds (a page switch -- a sub-layout switch or
 # the emoji surface entering/leaving; shift/caps/modifier toggles are deliberate use, and a Flip
@@ -239,9 +273,30 @@ def _valid(event: str, fields: dict[str, Any]) -> bool:
                for name, kind in spec.items())
 
 
+def _assign_sessions(events: list[dict[str, Any]]) -> None:
+    """Tag every event with the EyeCtrl session it belongs to (``session``, 0-based).
+
+    ``seq`` is a per-recorder counter that restarts at 1 on every EyeCtrl start, and one day log
+    holds every session of the day. No E1 event marks a start, so a new session begins at the first
+    key ACTIVATION whose ``seq`` does not increase on the previous activation (``<=``). Only ``key``
+    lines are activations: ``corr``/``wordcorr``/``holdon``/``space`` repeat an activation's ``seq``,
+    so they take the session of the activation they follow and never split one.
+    """
+    session = 0
+    last_seq: int | None = None
+    for e in events:
+        if e["event"] == "key" and isinstance(e.get("seq"), int):
+            seq = e["seq"]
+            if last_seq is not None and seq <= last_seq:
+                session += 1
+            last_seq = seq
+        e["session"] = session
+
+
 def parse(lines) -> list[dict[str, Any]]:
     """Every parseable KB-E1 line as a dict: ``event``, ``at`` (ms, log clock), ``edge`` (the dock
-    edge in force at that point, or None), and the line's own fields."""
+    edge in force at that point, or None), ``session`` (the EyeCtrl run, see
+    :func:`_assign_sessions`), and the line's own fields."""
     events: list[dict[str, Any]] = []
     edge: str | None = None
     for raw in lines:
@@ -262,6 +317,7 @@ def parse(lines) -> list[dict[str, Any]]:
             edge = fields["edge"]
         dock = fields["edge"] if event == "edgeq" else edge
         events.append({"event": event, "at": at, "dock": dock, **fields})
+    _assign_sessions(events)
     return events
 
 
@@ -397,6 +453,32 @@ def _hold_stats(values: list[int]) -> dict[str, Any]:
     }
 
 
+def letter_rest(holds: list[dict[str, Any]]) -> dict[str, Any]:
+    """The double-letters decision's read-out: how long the gaze rested on a letter after firing.
+
+    ``holds`` are the hold-on events joined to LETTER activations (per session, as in
+    :func:`metrics`). A line written under the old 600 ms cap (``capped=true ms=600``) says only
+    ">= 600": above 600 the rest is unknown. Both bounds use the SAME denominator, every letter
+    hold-on in the window: ``lower`` counts only measured rests at or above the threshold,
+    ``upper`` also counts every old-cap line as if it reached it. At 600 the old-cap lines are
+    known to be at least 600, so the bounds coincide; with no old-cap lines they coincide
+    everywhere (a single measured share). A line from the 3 s cap (``capped=true ms=3000``) is a
+    floor of exactly 3000, which is the capped share.
+    """
+    n = len(holds)
+    unknown = sum(1 for h in holds if h.get("capped") is True and h["ms"] == OLD_HOLD_ON_CAP_MS)
+    thresholds: dict[str, Any] = {}
+    for threshold in LETTER_REST_THRESHOLDS_MS:
+        at_least = sum(1 for h in holds if h["ms"] >= threshold)
+        upper = at_least + (unknown if threshold > OLD_HOLD_ON_CAP_MS else 0)
+        thresholds[str(threshold)] = {
+            "at_least": at_least,
+            "lower": _share(at_least, n),
+            "upper": _share(upper, n),
+        }
+    return {"n": n, "unknown_above_600": unknown, "thresholds": thresholds}
+
+
 def _at_least(part: int, whole: int, fraction: tuple[int, int]) -> bool:
     """part/whole >= numerator/denominator, exactly (integers only)."""
     return whole > 0 and part * fraction[1] >= whole * fraction[0]
@@ -470,31 +552,57 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         events = [e for e in events if e["dock"] == edge]
 
     keys = [e for e in events if e["event"] == "key"]
-    by_seq = {e["seq"]: e for e in keys if "seq" in e}
+    by_seq = {(e["session"], e["seq"]): e for e in keys if "seq" in e}
     letters = [k for k in keys if k.get("cls") == "letter"]
 
     # --- slips: a letter immediately followed (next activation) by an in-word Backspace or
     # Wort löschen <= 3 s. The slipped letter's own arrival and likelihood facts are NOT on its key
     # line any more: they ride on the keyed ``corr`` line of the deletion that takes it back.
-    corr_by_seq = {e["seq"]: e for e in events if e["event"] == "corr"}
+    corr_by_seq = {(e["session"], e["seq"]): e for e in events if e["event"] == "corr"}
     slipped = _slipped_letters(keys)
     word_corrections = _word_corrections(keys)
-    word_corr_events = [e for e in events if e["event"] == "wordcorr"]
-    slipped_corr: list[dict[str, Any]] = []
+    # The letters-removed histogram belongs to the pairs counted as word corrections IN THE SAME
+    # SESSION: a digit -> Wort löschen writes a ``wordcorr`` too, but it is not a letter slip, and
+    # a seq is reused after an EyeCtrl restart (review 01 F2).
+    word_correction_keys = {(e["session"], e["seq"]) for e in word_corrections}
+    word_corr_events = [e for e in events
+                        if e["event"] == "wordcorr"
+                        and (e["session"], e["seq"]) in word_correction_keys]
+    slipped_corr: list[tuple[str, dict[str, Any]]] = []
     for prev, nxt in zip(keys, keys[1:]):
-        if _is_slip_pair(prev, nxt) and nxt["seq"] in corr_by_seq:
-            slipped_corr.append(corr_by_seq[nxt["seq"]])
-    countable = [c for c in slipped_corr if not c.get("start") and not c.get("nocont")]
-    unlikely = [c for c in countable if not c.get("likely")]
+        if _is_slip_pair(prev, nxt):
+            corr = corr_by_seq.get((nxt["session"], nxt["seq"]))
+            if corr is not None:
+                # The gesture is the pair's own correcting key (F1): a day-wide seq set can match
+                # another session's activation after a restart.
+                slipped_corr.append(("word" if nxt.get("cls") == "deleteword" else "backspace", corr))
+    countable = [(g, c) for g, c in slipped_corr if not c.get("start") and not c.get("nocont")]
+    unlikely = [(g, c) for g, c in countable if not c.get("likely")]
+    # The likely=0 read-out split by correcting gesture (F2), from the pair itself: a Backspace's
+    # ``corr`` describes the slipped letter itself; a Wort löschen's describes the LAST letter of
+    # the deleted word, which need not be the slipped one.
+    counted_by_gesture: dict[str, list[dict[str, Any]]] = {"backspace": [], "word": []}
+    for gesture, c in countable:
+        counted_by_gesture[gesture].append(c)
+    by_gesture: dict[str, dict[str, Any]] = {}
+    for name, group in counted_by_gesture.items():
+        not_likely = [c for c in group if not c.get("likely")]
+        by_gesture[name] = {
+            "counted": len(group),
+            "likely0": len(not_likely),
+            "likely0_share": _share(len(not_likely), len(group)),
+        }
 
     # --- hold-on, by dwell class
     holds: dict[str, list[int]] = {"letters_unpenalised": [], "letters_penalised": [], "mode_keys": []}
+    letter_holds: list[dict[str, Any]] = []
     for h in (e for e in events if e["event"] == "holdon"):
-        k = by_seq.get(h.get("seq"))
+        k = by_seq.get((h["session"], h.get("seq")))
         if k is None or not isinstance(h.get("ms"), int):
             continue
         if k.get("cls") == "letter":
             holds["letters_penalised" if k.get("penalty") else "letters_unpenalised"].append(h["ms"])
+            letter_holds.append(h)
         elif k.get("cls") in MODE_CLASSES:
             holds["mode_keys"].append(h["ms"])
 
@@ -544,7 +652,8 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "slipped_letters_counted": len(countable),
         "slipped_likely0": len(unlikely),
         "slipped_likely0_share": _share(len(unlikely), len(countable)),
-        "slipped_saccades": dict(Counter(str(c.get("saccade")) for c in slipped_corr)),
+        "slipped_by_gesture": by_gesture,
+        "slipped_saccades": dict(Counter(str(c.get("saccade")) for _, c in slipped_corr)),
         "repairs": repairs(events, min_region_slips),
         "edge_crowding": edge_crowding(events, min_edge_dwells),
         "sensitive_entries": sum(1 for e in events if e["event"] == "sensitive"),
@@ -554,6 +663,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "stray_modes_per_100_letters": None if not letters else 100 * strays / len(letters),
         "layouts": layout_groups(events),
         "hold_on": {name: _hold_stats(values) for name, values in holds.items()},
+        "letter_rest": letter_rest(letter_holds),
         "picks": len(picks),
         "picks_by_source": dict(Counter(str(p.get("src")) for p in picks)),
         "pick_undos": len(pick_undos),
@@ -578,6 +688,24 @@ def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{100 * x:.1f} %"
 
 
+def _pct_range(lower: float | None, upper: float | None) -> str:
+    return "n/a" if lower is None or upper is None else f"{100 * lower:.1f}-{100 * upper:.1f} %"
+
+
+def _letter_rest_text(lr: dict[str, Any]) -> str:
+    """One aligned line for the double-letters decision, with the old-cap bounds spelled out."""
+    last = LETTER_REST_THRESHOLDS_MS[-1]
+    cells = []
+    for t in LETTER_REST_THRESHOLDS_MS:
+        v = lr["thresholds"][str(t)]
+        label = f">={t}" + (" (capped)" if t == last else "")
+        bounded = lr["unknown_above_600"] and t > OLD_HOLD_ON_CAP_MS
+        share = _pct_range(v["lower"], v["upper"]) if bounded else _pct(v["upper"])
+        cells.append(f"{label:<{LETTER_REST_LABEL_WIDTH}} {share:>{LETTER_REST_SHARE_WIDTH}}")
+    return (f"  {'letter rests':<20} n={lr['n']:<4} "
+            f"old-cap unknown above 600: {lr['unknown_above_600']:<4} " + "  ".join(cells))
+
+
 def render(m: dict[str, Any]) -> str:
     out: list[str] = []
     add = out.append
@@ -589,6 +717,10 @@ def render(m: dict[str, Any]) -> str:
     add(f"word corrections          {m['word_corrections']}   letters removed {removed}")
     add(f"slipped letters counted   {m['slipped_likely0']} of {m['slipped_letters_counted']} "
         f"have likely=0 ({_pct(m['slipped_likely0_share'])}); start / nocont excluded")
+    add("slipped letters by gesture (counted, likely=0 share)")
+    for name, g in m["slipped_by_gesture"].items():
+        add(f"  {name:<10} counted {g['counted']:<4} likely=0 {g['likely0']:<4} "
+            f"share {_pct(g['likely0_share'])}")
     r = m["repairs"]
     add(f"repairs (slip lines)       {r['n']}   adjacent {_pct(r['adjacent_share'])}"
         f"   directions {r['directions']}")
@@ -614,6 +746,7 @@ def render(m: dict[str, Any]) -> str:
     for name, h in m["hold_on"].items():
         median = "n/a" if h["median_ms"] is None else f"{h['median_ms']:g} ms"
         add(f"  {name:<20} n={h['n']:<4} median {median:<9} >=150 ms: {_pct(h['share_ge_150ms'])}")
+    add(_letter_rest_text(m["letter_rest"]))
     add(f"picks                     {m['picks']}   by source {m['picks_by_source']}")
     add(f"pick-then-undo            {m['pick_undos']}   rate {_pct(m['pick_then_undo_rate'])}")
     add(f"chain-picks               {m['chain_picks']}   = "

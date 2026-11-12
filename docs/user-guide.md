@@ -260,7 +260,7 @@ setting, also 600 ms by default).
 2. An amber **drag trail** follows your gaze as you move — you are now holding the item. A
    round **drop disc rides on your gaze point** the whole way — except over an exit: while
    your gaze rests on the ✕ or Back zone at the right screen edge, on the pause zone, or off
-   screen, the disc is hidden and nothing can drop. Those no-drop zones are twice the
+   screen, the disc is hidden and nothing can drop. The ✕ and Back zones are twice the
    button's radius wide, so a look just beside the ✕ cannot drop the item — only dwelling
    the ✕ itself cancels.
 3. To **drop**, either hold your gaze still — resting within a small radius (default
@@ -577,9 +577,11 @@ At the top, the mode toggle switches between:
   General), and
 - **All settings** — every tab, for full control.
 
-The choice is remembered. Every tab ends with its **Reset ⟨tab⟩ Settings** button — except
-the Advanced tab (All-settings mode only, and only when EyeCtrl is installed), where the
-Update / Rollback / Uninstall rows follow after Reset (see
+The choice is remembered. Every tab with adjustable rows ends with its **Reset ⟨tab⟩
+Settings** button — Selection, Models and Quick Actions have no tab reset (their §22
+entries end with other controls), and Keyboard and Adaptation carry a few rows after
+theirs. The Advanced tab (All-settings mode only) adds three setup rows **after** its
+Reset — Update / Rollback / Uninstall, shown only when EyeCtrl is installed (see
 [section 22](#22-settings-reference)). General additionally has **Reset ALL Settings**
 (advanced mode only). The window title is "EyeCtrl Settings"; its ✕ closes it.
 
@@ -749,9 +751,10 @@ supervision, start-on-logon, fallback order (read-only), retry and hang-threshol
 and a **Launch EyeCtrl now** button.
 
 Updates, rollbacks and uninstalls run through **EyeCtrl.Setup**, which shows its own
-windows: a progress window with stage lines — Checking files, Closing EyeCtrl, Putting the
-new version in place, Starting the new version — that has nothing for you to dwell and
-closes itself, followed by a result card that also closes by itself: after 10 seconds on
+windows: a progress window that has nothing for you to dwell and closes itself — for an
+update its stage lines read Checking files, Closing EyeCtrl, Putting the new version in
+place, Starting the new version (a rollback puts the previous version back and starts it;
+an uninstall only says Closing EyeCtrl) — followed by a result card that also closes by itself: after 10 seconds on
 success, after 60 on failure. Uninstall asks on its own screen: **Keep** (the highlighted
 default), **Cancel**, and **Delete** — Delete opens a second confirmation screen with the
 safe answer sitting directly under your dwell. Every screen only arms about a second after
@@ -780,7 +783,7 @@ Everything stays on this PC, under `%APPDATA%\EyeCtrl` (usually
 | `actions.json` | Your Quick Actions |
 | `models\` | Downloaded prediction models |
 | `logs\` | App and Supervisor logs (kept 7 days); Setup appends its own `setup-*.log` alongside |
-| `setup-last.json` | Setup's record of the last update, rollback or uninstall (written by Setup, read by EyeCtrl) |
+| `setup-last.json` | Setup's record of the last update, rollback, uninstall or repair (written by Setup, read by EyeCtrl) |
 | `setup-notice-shown.json` | When the startup update notice was last shown |
 | Every `user_dictionary_<language>…` file — the dictionary plus its `_bigrams`, `_phrases`, `_casing` and `_timestamps` companions, and any `.bak-inflated` backup | The words, word pairs, phrases and casing variants you typed |
 | `recent_emojis.json` | Your recent-emoji list |

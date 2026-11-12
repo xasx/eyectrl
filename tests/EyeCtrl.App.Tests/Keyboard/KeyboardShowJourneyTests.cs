@@ -169,13 +169,15 @@ public class KeyboardShowJourneyTests
                 + "the anchor was not released by the look-away.")
             .That(fireTs).IsLessOrEqualThan(returnTs + KeyDwellMs * 1000 + 2 * stepUs);
 
-        // Leg 4 — keep resting on the key for 3 s: leave-before-re-arm must hold the latch, so
-        // the gaze that never left types nothing more.
-        for (long t = 4_530_000; t <= 7_500_000; t += 30_000)
+        // Leg 4 — keep resting on the key, but only for ~1.4 s: under F4 a TEXT key types a
+        // deliberate double after RepeatDwellUs (1200 ms) beyond the 400 ms cooldown, so a three
+        // second rest would (correctly) type again. That behaviour is pinned in
+        // KeyboardDoubleLettersTests; this journey stays about the show anchor and the latch.
+        for (long t = 4_530_000; t <= 5_100_000; t += 30_000)
         {
             window.UpdateGaze(centre, t);
             Check.WithCustomMessage(
-                    $"the key re-fired while the gaze never left it: [{string.Join(", ", fired)}]")
+                    $"the key re-fired before the F4 second-dwell window: [{string.Join(", ", fired)}]")
                 .That(fired).ContainsExactly("key_0_1");
         }
     }

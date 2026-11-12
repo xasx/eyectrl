@@ -648,7 +648,7 @@ public class KeyboardE1LoggingTests
     public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt3s()
     {
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 3500);                          // ...and the gaze stays well past the cap
 
@@ -664,7 +664,7 @@ public class KeyboardE1LoggingTests
         // Below the 3 s cap a rest is a measured value, not a floor: the double-letters decision
         // reads its tail from exactly these lines.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 2000);                          // one 30 ms sample of overshoot, no cap
         rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
@@ -680,7 +680,7 @@ public class KeyboardE1LoggingTests
         // 2.5 s is under the new cap: the LEAVE, not the cap, must close the line, and it must be
         // closed at the leave so the rest's length stays a measurement.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 2500);                          // a long rest, still under the cap
         rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
@@ -697,7 +697,7 @@ public class KeyboardE1LoggingTests
         // latch treats the same silence as no leave). 1020 ms inside + a 200 ms silence + 1530 ms
         // inside = 2750 ms, with the gap counted because the gaze was still on the key after it.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside
         rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
@@ -717,7 +717,7 @@ public class KeyboardE1LoggingTests
         // No sample arrives during the gap, so the last inside sample is the only evidence and
         // the rest is cut there: 1020 ms, not the gap's end.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
         rig.Ts += 1_200_000;                        // a 1.2 s dropout: over the 1 s survival
@@ -735,7 +735,7 @@ public class KeyboardE1LoggingTests
         // The short gap is not itself a leave: the sample after it decides by position, and this
         // one is on another key, so the rest ends at the last inside sample (1020 ms).
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
         rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
@@ -753,7 +753,7 @@ public class KeyboardE1LoggingTests
         // Math.Min clamp keeps the reported value at exactly 3000 (the parser's old-cap rule
         // depends on a capped line carrying the cap itself).
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Ts += 10_000;                           // off the 30 ms cadence's cap boundary
         rig.Hold(c, 3500);
@@ -767,7 +767,7 @@ public class KeyboardE1LoggingTests
     public void HoldOn_EndsWhenTheGazeLeavesTheBox()
     {
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);
         rig.Hold(c, 150);                           // stays ~150 ms ...
         rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
@@ -784,7 +784,7 @@ public class KeyboardE1LoggingTests
     {
         // The cooldown is 400 ms: a 300 ms stay is entirely inside it, and is still measured.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);
         rig.Hold(c, 300);
         rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);

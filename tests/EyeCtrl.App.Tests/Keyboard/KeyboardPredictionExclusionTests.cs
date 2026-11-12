@@ -216,9 +216,8 @@ public class KeyboardPredictionExclusionTests
         var probe = Open(new Dictionary<string, int> { ["hellowonderfulworld"] = 1000 });
         try
         {
-            probe.Vm.KeyDwellCompleted += _ => { };
-            var keyActivations = 0;
-            probe.Vm.KeyDwellCompleted += _ => keyActivations++;
+            var keyActivations = new List<string>();
+            probe.Vm.KeyDwellCompleted += id => keyActivations.Add(id);
             string? inserted = null;
             probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
 
@@ -257,19 +256,23 @@ public class KeyboardPredictionExclusionTests
 
             var beforeMove = progress.Count;
             Feed(probe, overlap, 230_000, 1_190_000);
+            Check.WithCustomMessage("The overlap key must fire once before the leave leg.")
+                .That(keyActivations).HasSize(1);
+            var overlapKeyId = keyActivations[0];
 
-            // One look, one key: a second key activation now needs a leave. Stay INSIDE the key
-            // grid (the exclusion under test must still hold) but move to another key for 150 ms.
+            // One look, one key: a second key activation now needs a re-arm. A gaze on another key
+            // is still on the keyboard (F4), so the other key must actually FIRE to replace the
+            // latch; stay inside the key grid so the exclusion under test still holds.
             var leave = KeyCentres(probe.Window)
                 .Select(kv => kv.Value)
                 .OrderByDescending(pt => Math.Abs(pt.X - overlap.X) + Math.Abs(pt.Y - overlap.Y))
                 .First();
-            Feed(probe, leave, 1_220_000, 1_370_000);
-            Feed(probe, overlap, 1_400_000, 2_810_000);
+            Feed(probe, leave, 1_220_000, 1_910_000);
+            Feed(probe, overlap, 1_940_000, 3_350_000);
 
-            Check.WithCustomMessage("Fewer than two key activations occurred, so the hold did not "
-                    + "cross the window this test exists for.")
-                .That(keyActivations).IsGreaterOrEqualThan(2);
+            Check.WithCustomMessage("Fewer than two activations of the overlap key occurred, so the "
+                    + "hold did not cross the window this test exists for.")
+                .That(keyActivations.Count(id => id == overlapKeyId)).IsGreaterOrEqualThan(2);
             Check.WithCustomMessage(
                     "A word was inserted while the gaze was inside the key grid. The bar's "
                     + "half-diagonal hit circles bulge into the keys, so without the exclusion a "
@@ -294,8 +297,8 @@ public class KeyboardPredictionExclusionTests
         var probe = Open(new Dictionary<string, int> { ["hellowonderfulworldthisisalongword"] = 1000 });
         try
         {
-            var keyActivations = 0;
-            probe.Vm.KeyDwellCompleted += _ => keyActivations++;
+            var keyActivations = new List<string>();
+            probe.Vm.KeyDwellCompleted += id => keyActivations.Add(id);
             string? inserted = null;
             probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
 
@@ -331,19 +334,20 @@ public class KeyboardPredictionExclusionTests
             // first sample inside the key area resets the prediction target.
             Feed(probe, centre, 210_000, 1_170_000);
 
-            // One look, one key: the second activation needs a leave. Move to another key for
-            // 150 ms — still inside the key grid, so the prediction exclusion keeps applying.
+            // One look, one key: the second activation needs a re-arm. A gaze on another key is
+            // still on the keyboard (F4), so the other key must actually FIRE to replace the latch;
+            // stay inside the key grid so the prediction exclusion keeps applying.
             var leave = KeyCentres(probe.Window)
                 .Where(kv => kv.Key != "deleteWord")
                 .Select(kv => kv.Value)
                 .OrderByDescending(pt => Math.Abs(pt.X - centre.X) + Math.Abs(pt.Y - centre.Y))
                 .First();
-            Feed(probe, leave, 1_200_000, 1_350_000);
-            Feed(probe, centre, 1_380_000, 2_790_000);
+            Feed(probe, leave, 1_200_000, 1_890_000);
+            Feed(probe, centre, 1_920_000, 3_330_000);
 
-            Check.WithCustomMessage("The word-delete key itself never activated — the gaze hold was not "
-                    + "being processed as a key gaze.")
-                .That(keyActivations).IsGreaterOrEqualThan(2);
+            Check.WithCustomMessage("The word-delete key itself never activated twice — the gaze hold "
+                    + "was not being processed as a key gaze after the other key's fire.")
+                .That(keyActivations.Count(id => id == "deleteWord")).IsGreaterOrEqualThan(2);
             Check.WithCustomMessage(
                     "Looking at the output-less key inserted a word: its centre lies inside the first "
                     + "suggestion's half-diagonal hit circle, and the prediction detector ran "

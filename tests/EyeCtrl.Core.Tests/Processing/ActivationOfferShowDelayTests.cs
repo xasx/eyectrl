@@ -122,6 +122,44 @@ public class ActivationOfferShowDelayTests
     }
 
     [Fact]
+    public void PlacementB_ASettle80To130PxFromPTowardB_IsAShowDelayCandidate_NotAPendingReOffer()
+    {
+        // Placement B review-01 F5. At the owner's geometry (ring 200, R 80, hit 265: |B-P| = 475, no-move
+        // zone 345 around B) a settle 80–130 px from P along P→B is outside both R of P and hit + R of B, so it
+        // is a settle elsewhere: a show-delay candidate that replaces the live offer only at the show. (At
+        // 310 px there was no such band: 310 − d ≤ 280 for every d ≥ 30.) 150 px from P is inside the zone and
+        // still a swallowed pending. Mutation: hit + R or the offset back to the 5th sitting's → 100 px is
+        // Pending, red.
+        static ActivationOfferEngine OwnerEngine() => new(Screen, 2.0, 200, 700, 80) { OfferShowAfterMs = 1000 };
+        static PhysicalPoint TowardB(ActivationOffer offer, double d)
+        {
+            double len = offer.Point.DistanceTo(offer.Button);
+            return new PhysicalPoint(P.X + ((offer.Button.X - P.X) * d / len), P.Y + ((offer.Button.Y - P.Y) * d / len));
+        }
+
+        var engine = OwnerEngine();
+        var old = OldOfferAtP(engine, runEndUs: 100_000);
+        Check.That(old.Button.DistanceTo(P)).IsCloseTo(475.0, 1e-6);
+        var band = TowardB(old, 100);
+        Check.That(band.DistanceTo(old.Button)).IsCloseTo(375.0, 1e-6);   // beyond hit + R = 345
+
+        engine.Update(band, 200_000, true);
+        Check.That(engine.NotifyFixationSettled(band, 200_000)).IsEqualTo(SettleOutcome.Deferred);
+        Check.That(engine.OfferCandidatePoint).IsEqualTo(band);
+        Check.That(engine.CurrentOffer).IsSameReferenceAs(old);   // not closed, not moved during the wait
+
+        Feed(engine, band, 230_000, 680_000);
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(old.Id);
+        engine.Update(band, 700_000, true);
+        Check.That(engine.CurrentOffer!.Id).IsNotEqualTo(old.Id);
+        Check.That(engine.CurrentOffer.Point).IsEqualTo(band);
+
+        var inside = OwnerEngine();
+        var old2 = OldOfferAtP(inside, runEndUs: 100_000);
+        Check.That(inside.NotifyFixationSettled(TowardB(old2, 150), 200_000)).IsEqualTo(SettleOutcome.Pending);
+    }
+
+    [Fact]
     public void ALiveOldOffer_SurvivesTheCandidate_AndIsReplacedOnlyAtTheShow()
     {
         // Mutation: close the old offer at the candidate (ClearOfferState in the deferred branch) →

@@ -269,7 +269,7 @@ public class ReadingProofOwnerSetsTests
     /// 170/190/200 px off, then onto B) and #2/#17 (400 ms on B, then a slip), a blink at mid-fill, and a
     /// 250 ms glance off and back — on both sides of the word.
     /// <para>
-    /// Placement B (7th sitting, 2026-11-12): B is 410 px from P and the hit 265 px (310 / 200 before). The
+    /// Placement B (7th sitting, 2026-11-12): B is 475 px from P and the hit 265 px (310 / 200 before). The
     /// distances that were placed relative to the hit moved out by the same 65 px, so each keeps its role:
     /// the "just outside the hit" slip 215 → 280, the glance off 220 / 300 → 285 / 365, R3's near-miss words
     /// 220–260 → 285–325 and its line 230 → 295 px below B, and D's near misses 215 / 240 → 280 / 305. The
@@ -314,14 +314,19 @@ public class ReadingProofOwnerSetsTests
     /// expected miss per side.</summary>
     private static bool OutsideTheHit(string name) => name.EndsWith("slip 280", StringComparison.Ordinal);
 
-    /// <summary>The 130 reading paths: after the rest the eye drops to a line +70…+280 px below, starting at
+    /// <summary>The 190 reading paths: after the rest the eye drops to a line +70…+280 px below, starting at
     /// P −450…+150, and reads rightward (150 px words at 200/250/300 ms), on both sides; the same line read
-    /// on or back; and dry run 2's two slow R3 paths.</summary>
+    /// on or back; and dry run 2's two slow R3 paths.
+    /// <para>
+    /// Placement B review-01 F1: the lines +350 and +420 below the word run THROUGH the 475-px button (its
+    /// disc spans +236…+436 below P, its hit +71…+601), so they are read too (60 paths). Before, the lines at
+    /// +70…+280 crossed the 310-px button; they no longer do.
+    /// </para></summary>
     private static IEnumerable<Path> MustNotFire()
     {
         foreach (var (pAt, side) in new[] { (RightP, "R"), (LeftP, "L") })
         {
-            foreach (var dy in new[] { 70.0, 140.0, 210.0, 280.0 })
+            foreach (var dy in new[] { 70.0, 140.0, 210.0, 280.0, 350.0, 420.0 })
                 foreach (var dx in new[] { -450.0, -300.0, -150.0, 0.0, 150.0 })
                     foreach (var ms in new[] { 200.0, 250.0, 300.0 })
                         yield return new($"{side} read line +{dy} from P{dx:+0;-0;+0} {ms}ms", pAt, 7,
@@ -349,12 +354,13 @@ public class ReadingProofOwnerSetsTests
     }
 
     /// <summary>The residual risk, not a must-not-fire set: slow reading (400/500 ms words) on lines under the
-    /// word, refixation pairs (two looks 40 px apart: one fixation) and 120 px words.</summary>
+    /// word, refixation pairs (two looks 40 px apart: one fixation) and 120 px words. The lines +350 and +420
+    /// run through the 475-px button (placement B review-01 F1), +140 and +210 through the old 310-px one.</summary>
     private static IEnumerable<Path> Watch()
     {
         foreach (var (pAt, side) in new[] { (RightP, "R"), (LeftP, "L") })
         {
-            foreach (var dy in new[] { 140.0, 210.0 })
+            foreach (var dy in new[] { 140.0, 210.0, 350.0, 420.0 })
                 foreach (var dx in new[] { -300.0, -150.0, 0.0 })
                 {
                     foreach (var ms in new[] { 400.0, 500.0 })
@@ -548,21 +554,24 @@ public class ReadingProofOwnerSetsTests
     }
 
     [StaTheory]
-    [InlineData(500, 3, 5)]
-    [InlineData(600, 1, 1)]
+    [InlineData(500, 10, 13)]
+    [InlineData(600, 4, 5)]
     public void MustNotFire_NoReadingPathOffTheDisc_FiresTheButton(int buttonDwellMs, int onDisc33, int onDisc90)
     {
-        // Before F3 42 / 39 of these 130 fired at dwell 500 (dry run 2's F-1). Off the drawn disc nothing may
-        // fire. On it (a scripted reader walking THROUGH the opaque button), KE-D2 fills from a look on the
-        // face, and the counts are pinned so a change shows. Since the 7th sitting's placement B (B 475 px
-        // from P, hit 265) the lines under the word cross the disc less: 21 paths on it (48 at 310 px), and
-        // 3 / 5 fire at dwell 500, 1 / 1 at 600 (13 / 10 and 5 / 5 before). Mutants: no restart, a moved look
-        // credits at once, "moved" against B, the masked verdict, a disc as wide as the hit or the rim — red.
+        // Before F3 42 / 39 of the first 130 fired at dwell 500 (dry run 2's F-1). Off the drawn disc nothing
+        // may fire. On it (a scripted reader walking THROUGH the opaque button), KE-D2 fills from a look on
+        // the face, and the counts are pinned so a change shows. Placement B (7th sitting: B 475 px from P,
+        // hit 265): the lines +350 / +420 run through the new button (review-01 F1), so 63 of 190 paths cross
+        // the disc, and 10 / 13 fire at dwell 500, 4 / 5 at 600. Of those, the through-B lines give 7 / 8 and
+        // 3 / 4 — about what the lines through the old 310-px button gave (13 / 10, 5 / 5): the gain is that
+        // the button left the lines read next, not that reading through it got safer. Mutants: no restart, a
+        // moved look credits at once, "moved" against B, the masked verdict, a disc as wide as the hit or the
+        // rim — red.
         foreach (var (frameUs, rate) in Rates)
         {
             var results = RunAll("NF", MustNotFire(), frameUs, rate, buttonDwellMs);
-            Check.That(results).HasSize(130);
-            Check.That(results.Count(r => r.OnDisc)).IsEqualTo(21);
+            Check.That(results).HasSize(190);
+            Check.That(results.Count(r => r.OnDisc)).IsEqualTo(63);
             var offDisc = results.Where(r => r.Fired && !r.OnDisc).ToList();
             Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: reading paths OFF the disc that FIRED the button:\n{Table(offDisc)}")
                 .That(offDisc).IsEmpty();
@@ -581,9 +590,10 @@ public class ReadingProofOwnerSetsTests
                     + string.Join("\n", overCap.Select(r => $"   last real {r.LastRealLookMs:F0} {r}")))
                 .That(overCap).IsEmpty();
             // The absolute ceiling, so a runaway hold is still caught: the measured maximum rounded up to 50 ms,
-            // 2311 ms up / 2046 ms held (2000 / 1716 at 310 px, pinned 2050 / 1750). The farther hit is crossed
-            // later on the +140…+280 lines under the word, and a mature look there is real activity; the real
-            // sittings' stay-read time went down (12.11: 104 → 77 s, 10.11: 57 → 40 s).
+            // 2343 ms up (+350 from P−150, 250 ms words, dwell 600) / 2046 ms held (2000 / 1716 at 310 px,
+            // pinned 2050 / 1750). The farther hit is crossed later on the +140…+420 lines under the word, and a
+            // mature look there is real activity; the real sittings' stay-read time went down (12.11: 104 → 77 s,
+            // 10.11: 57 → 40 s).
             var longest = unfired.MaxBy(r => r.UpMs)!;
             Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {longest}").That(longest.UpMs).IsLessOrEqualThan(2350);
             var held = unfired.MaxBy(r => r.RingHeldMs)!;
@@ -609,18 +619,21 @@ public class ReadingProofOwnerSetsTests
     }
 
     [StaTheory]
-    [InlineData(500, 0, 3, 0, 3)]
-    [InlineData(600, 0, 0, 0, 0)]
+    [InlineData(500, 9, 7, 9, 7)]
+    [InlineData(600, 3, 0, 3, 0)]
     public void Watch_TheResidualRisk_StaysWhereThePrototypeMeasuredIt(int buttonDwellMs, int onDisc33, int offDisc33, int onDisc90, int offDisc90)
     {
         // Not a must-not-fire set: a single half-second look at a word inside the button's area is the same as
-        // a look at the button. Pinned, so a change shows. Since the 7th sitting's placement B (475 px / hit
-        // 265) no watch line crosses the disc, and 0 + 3 / 0 + 3 fire at dwell 500, none at 600 (11 + 4 /
-        // 12 + 4 and 6 + 0 / 6 + 0 at 310 px / hit 200).
+        // a look at the button. Pinned, so a change shows. Placement B (475 px / hit 265): the +140 / +210
+        // lines no longer cross the disc (0 + 3 at dwell 500), and the +350 / +420 lines through the new
+        // button give 9 + 4 at 500 and 3 + 0 at 600 — about what +140 / +210 gave through the old 310-px one
+        // (11 + 4 / 12 + 4, 6 + 0 / 6 + 0). The 4 off-disc fires there are the first word of the line from
+        // P−150, ~186 px from B: one 500 ms rest inside the hit, by this set's own definition a look at the
+        // button.
         foreach (var (frameUs, rate) in Rates)
         {
             var results = RunAll("W", Watch(), frameUs, rate, buttonDwellMs);
-            Check.That(results).HasSize(48);
+            Check.That(results).HasSize(96);
             var fired = results.Where(r => r.Fired).ToList();
             int on = fired.Count(r => r.OnDisc), off = fired.Count(r => !r.OnDisc);
             Check.WithCustomMessage($"{rate}, dwell {buttonDwellMs}: {on} on / {off} off the disc fired:\n{Table(fired)}")

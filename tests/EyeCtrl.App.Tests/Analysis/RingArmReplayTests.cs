@@ -643,10 +643,12 @@ public class RingArmReplayTests(ITestOutputHelper output)
     internal static readonly ArmSpec Hybrid = new("hybrid", Pinning.Hybrid, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx);
     internal static readonly ArmSpec HybridGlideOut = new("hybrid + glide-out", Pinning.Hybrid, GlideOutMs: GlideOutMs, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx);
 
-    /// <summary>The scripted chain: four holds 400 px apart (a live offer chains), a swallowed settle beside
-    /// the last P, a far hold; with <paramref name="withButtonVisit"/>, a 700 ms dwell on the last offer's
-    /// button (it fires; manual selection hides the ring for 2.33 s) and a hold long enough for the ring to
-    /// reappear. Deterministic (seeded).</summary>
+    /// <summary>The scripted chain: four holds 500 px apart, each outside the previous offer's no-move zone,
+    /// so each makes its own offer (a live offer chains), a swallowed settle beside the last P, a far hold;
+    /// with <paramref name="withButtonVisit"/>, a 700 ms dwell on the last offer's button (it fires; manual
+    /// selection hides the ring for 2.33 s) and a hold long enough for the ring to reappear. The button and
+    /// the settle are placed from the shipped B, so their roles hold at any placement. Deterministic
+    /// (seeded).</summary>
     internal static List<GazePoint> ScriptedSamples(bool withButtonVisit)
     {
         var samples = new List<GazePoint>();
@@ -657,22 +659,26 @@ public class RingArmReplayTests(ITestOutputHelper output)
             for (int t = 0; t < ms; t += 30, us += 30_000)
                 samples.Add(new GazePoint(x + rng.NextDouble() * 6 - 3, y + rng.NextDouble() * 6 - 3, us, true));
         }
-        Hold(1200, 800, 900);
-        Hold(1600, 800, 900);
-        Hold(2000, 800, 900);
+        // 500 px apart (400 before the 7th sitting): at |B-P| = 475 a hold 400 px on is only 342 px from the
+        // previous offer's B, inside its 345-px no-move zone (a near miss, not a new offer); 500 px on is 374.
+        Hold(900, 800, 900);
+        Hold(1400, 800, 900);
+        Hold(1900, 800, 900);
         Hold(2400, 800, 1500);
+        var b = GoingForItChains.ButtonFor(new PhysicalPoint(2400, 800));
         if (withButtonVisit)
         {
-            // P = (2400, 800) → B on the diagonal toward the screen centre: ≈ (2181, 1019) at 310 px, ≈ (2064,
-            // 1136) at the 7th sitting's 475 px. Look at the button long enough to dwell (500 ms at the
-            // session-end config), wobbling inside the hit area (165 px from the new B, inside 265).
+            // P = (2400, 800) → B on the diagonal toward the screen centre ((2064, 1136) at the 7th sitting's
+            // 475 px). Look at the button long enough to dwell (500 ms at the session-end config), wobbling
+            // ±60 px inside the hit area and on the disc.
             for (int t = 0; t < 700; t += 30, us += 30_000)
-                samples.Add(new GazePoint(2181 + (t / 30 % 2 == 0 ? 60 : -60), 1019 + rng.NextDouble() * 40 - 20, us, true));
+                samples.Add(new GazePoint(b.X + (t / 30 % 2 == 0 ? 60 : -60), b.Y + rng.NextDouble() * 40 - 20, us, true));
         }
         // P's side of the no-move zone: 170 px from P toward B, 305 px from B (inside hit + R = 345), so the
-        // settle is swallowed and the live offer stays. (99 px from P, at (2330, 870), before the 7th sitting:
-        // at 475 px that is 376 px from B, outside the zone, and it would make an offer of its own.)
-        Hold(2400 - 120, 800 + 120, 600);
+        // settle is swallowed and the live offer stays. (99 px from P before the 7th sitting: at 475 px that
+        // is 376 px from B, outside the zone, and it would make an offer of its own.)
+        double len = b.DistanceTo(new PhysicalPoint(2400, 800));
+        Hold(2400 + ((b.X - 2400) * 170 / len), 800 + ((b.Y - 800) * 170 / len), 600);
         Hold(1000, 1700, 1200);
         // Long enough for the fired offer's manual-selection visit (2.33 s) to close, so the ring's
         // reappear snap is part of the equivalence check.
@@ -724,9 +730,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
         Check.That(runOnly.DanceOverShare).IsStrictlyGreaterThan(0.5);
     }
 
-    /// <summary>The freeze chain: a hold that makes an offer at P = (2400, 800) (B ≈ (2181, 1019)), a brief look
-    /// elsewhere (no settle; the linger keeps the offer), then a 600 ms wobble on the button, so the hybrid's
-    /// hold starts by freezing a FOLLOWING ring. Deterministic (seeded).</summary>
+    /// <summary>The freeze chain: a hold that makes an offer at P = (2400, 800) (the shipped B, (2064, 1136) since
+    /// the 7th sitting), a brief look elsewhere (no settle; the linger keeps the offer), then a 600 ms wobble
+    /// on the button, so the hybrid's hold starts by freezing a FOLLOWING ring. Deterministic (seeded).</summary>
     internal static List<GazePoint> ScriptedFromElsewhere()
     {
         var samples = new List<GazePoint>();
@@ -737,22 +743,24 @@ public class RingArmReplayTests(ITestOutputHelper output)
             for (int t = 0; t < ms; t += 30, us += 30_000)
                 samples.Add(new GazePoint(x + rng.NextDouble() * 6 - 3, y + rng.NextDouble() * 6 - 3, us, true));
         }
+        var b = GoingForItChains.ButtonFor(new PhysicalPoint(2400, 800));
         Hold(2400, 800, 1200);
         Hold(1700, 1500, 240);
         for (int t = 0; t < 600; t += 30, us += 30_000)
-            samples.Add(new GazePoint(2181 + (t / 30 % 2 == 0 ? 50 : -50), 1019 + rng.NextDouble() * 30 - 15, us, true));
+            samples.Add(new GazePoint(b.X + (t / 30 % 2 == 0 ? 50 : -50), b.Y + rng.NextDouble() * 30 - 15, us, true));
         Hold(1000, 1700, 900);
         return samples;
     }
 
     internal enum SlipKind { Return, Grace, FlyThrough }
 
-    /// <summary>The slip chains: the freeze chain's offer (P = (2400, 800), B ≈ (2181, 1019)), then a brief
-    /// look at the button (2 samples in the hit area, so the hold is still unproven) and a slip out of the
-    /// hit area: <see cref="SlipKind.Return"/> 240 px from B (outside the 200-px hit, inside the 280-px no-move zone) for 180 ms,
-    /// back to B and out again; <see cref="SlipKind.Grace"/> 240 px from B for 660 ms, past the grace;
-    /// <see cref="SlipKind.FlyThrough"/> 310 px from B, beyond the zone. The edge-tolerant hold (A) decides
-    /// each differently. Deterministic (seeded).</summary>
+    /// <summary>The slip chains: the freeze chain's offer (P = (2400, 800), the shipped B), then a brief look at
+    /// the button (2 samples in the hit area, so the hold is still unproven) and a slip out of the hit area:
+    /// <see cref="SlipKind.Return"/> 305 px from B (outside the 265-px hit, inside the 345-px no-move zone)
+    /// for 180 ms, back to B and out again; <see cref="SlipKind.Grace"/> 305 px from B for 660 ms, past the
+    /// grace; <see cref="SlipKind.FlyThrough"/> 380 px from B, beyond the zone. (240 / 310 px at the 200-px
+    /// hit, before the 7th sitting.) The edge-tolerant hold (A) decides each differently. Deterministic
+    /// (seeded).</summary>
     internal static List<GazePoint> ScriptedSlips(SlipKind kind)
     {
         var samples = new List<GazePoint>();
@@ -766,7 +774,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
         void Hold(double x, double y, int ms) => At(x, y, ms / 30);
 
         // Perpendicular to the P-B line, so the slip point is much nearer B than P (a near miss).
-        const double bx = 2181, by = 1019, step = 0.7071067811865476;
+        var b = GoingForItChains.ButtonFor(new PhysicalPoint(2400, 800));
+        double bx = b.X, by = b.Y;
+        const double step = 0.7071067811865476;
         (double X, double Y) Slip(double d) => (bx + d * step, by + d * step);
 
         Hold(2400, 800, 1200);
@@ -775,15 +785,15 @@ public class RingArmReplayTests(ITestOutputHelper output)
         switch (kind)
         {
             case SlipKind.Return:
-                At(Slip(240).X, Slip(240).Y, 6);
+                At(Slip(305).X, Slip(305).Y, 6);
                 At(bx, by, 4);
-                At(Slip(240).X, Slip(240).Y, 5);
+                At(Slip(305).X, Slip(305).Y, 5);
                 break;
             case SlipKind.Grace:
-                At(Slip(240).X, Slip(240).Y, 22);
+                At(Slip(305).X, Slip(305).Y, 22);
                 break;
             default:
-                At(Slip(310).X, Slip(310).Y, 6);
+                At(Slip(380).X, Slip(380).Y, 6);
                 break;
         }
 

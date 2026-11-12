@@ -663,12 +663,16 @@ public class RingArmReplayTests(ITestOutputHelper output)
         Hold(2400, 800, 1500);
         if (withButtonVisit)
         {
-            // P = (2400, 800) → B ≈ (2181, 1019) on the diagonal toward the screen centre. Look at the button
-            // long enough to dwell (500 ms at the session-end config), wobbling inside the hit area.
+            // P = (2400, 800) → B on the diagonal toward the screen centre: ≈ (2181, 1019) at 310 px, ≈ (2064,
+            // 1136) at the 7th sitting's 475 px. Look at the button long enough to dwell (500 ms at the
+            // session-end config), wobbling inside the hit area (165 px from the new B, inside 265).
             for (int t = 0; t < 700; t += 30, us += 30_000)
                 samples.Add(new GazePoint(2181 + (t / 30 % 2 == 0 ? 60 : -60), 1019 + rng.NextDouble() * 40 - 20, us, true));
         }
-        Hold(2330, 870, 600);
+        // P's side of the no-move zone: 170 px from P toward B, 305 px from B (inside hit + R = 345), so the
+        // settle is swallowed and the live offer stays. (99 px from P, at (2330, 870), before the 7th sitting:
+        // at 475 px that is 376 px from B, outside the zone, and it would make an offer of its own.)
+        Hold(2400 - 120, 800 + 120, 600);
         Hold(1000, 1700, 1200);
         // Long enough for the fired offer's manual-selection visit (2.33 s) to close, so the ring's
         // reappear snap is part of the equivalence check.

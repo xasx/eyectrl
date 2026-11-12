@@ -41,7 +41,7 @@ public static class ActivationButtonPlacement
     /// </summary>
     /// <param name="point">The settle point P, in physical screen pixels.</param>
     /// <param name="ringSizeDip">The cursor ring's size in DIP (<c>CursorSettings.CircleSize</c>).</param>
-    /// <param name="offsetDip">The gap from the ring edge to B, in DIP (the shipped 55).</param>
+    /// <param name="offsetDip">The gap from the ring edge to B, in DIP (the shipped 137.5, 55 before the 7th sitting).</param>
     /// <param name="scale">The live DPI scale, applied to the DIP inputs.</param>
     /// <param name="buttonRadiusPx">The button's hit radius in physical pixels
     /// (<see cref="LayoutConstants.ActivationButtonHitRadiusPx"/>).</param>

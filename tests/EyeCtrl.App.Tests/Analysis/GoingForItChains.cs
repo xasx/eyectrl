@@ -76,7 +76,7 @@ internal static class GoingForItChains
     /// <summary>
     /// A drifted run, not a tracker gap: the eye holds at P, drifts 68 px behind and to the side and rests
     /// there, then leaves. M2 (re-checked at hit = <see cref="LayoutConstants.ActivationButtonHitRadiusPx"/>,
-    /// where B sits 310 px from P): the running centroid follows the drift, so the run does NOT end in it — it
+    /// where B sits 475 px from P since the 7th sitting; 310 before): the running centroid follows the drift, so the run does NOT end in it — it
     /// ends on the leave. <see cref="DriftKind.ToButton"/> goes for the button in 14 samples (the landing is
     /// on the P-B axis: a stay); <see cref="DriftKind.Away"/> looks 500 px to the side (its first sample,
     /// the run's end, is already outside the stay zone: no stay); <see cref="DriftKind.TurnAway"/> sets off
@@ -106,8 +106,9 @@ internal static class GoingForItChains
     }
 
     /// <summary>
-    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (240 px from B,
-    /// beside the button, much nearer B than P): the first post-run frame is inside B's no-move zone, so the
+    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (305 px from B,
+    /// beside the button, much nearer B than P; 240 at the 200-px hit, moved out with the 7th sitting's 265 so
+    /// it stays outside the hit and inside hit + R = 345): the first post-run frame is inside B's no-move zone, so the
     /// keep starts; the eye stays, the detector settles there 500 ms after the new run's anchor, so the
     /// settle reaches the ring on the keep's time-limit frame, ends the keep, and D refuses it as a near miss.
     /// The owed run-end release then lets the ring follow (fixup-01's deviation a; review-02 G1).
@@ -115,7 +116,7 @@ internal static class GoingForItChains
     internal static List<GazePoint> GapToNearMiss()
     {
         var (p, b, pt) = Geometry();
-        var miss = pt(p.DistanceTo(b), 240);
+        var miss = pt(p.DistanceTo(b), 305);
         return new Chain(61).Hold(p.X, p.Y, 1200).Skip(700).Hold(miss.X, miss.Y, 960)
             .Hold(1000, 1700, 1500).Samples;
     }

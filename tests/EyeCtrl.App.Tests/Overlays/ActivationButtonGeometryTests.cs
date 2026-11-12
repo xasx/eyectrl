@@ -40,20 +40,28 @@ public class ActivationButtonGeometryTests
     [InlineData(300.0, 2.0)]
     [InlineData(400.0, 2.0)]
     [InlineData(500.0, 2.0)]
-    public void TheDiscEdge_StaysFiveDipClearOfTheRingLine(double ringSizeDip, double scale)
+    public void TheDiscEdge_Stays87Point5DipClearOfTheRingLine(double ringSizeDip, double scale)
     {
-        // The placement puts B at ring/2 + 55 DIP from P, so the disc's edge (50 DIP radius) is
-        // 5 DIP clear of the ring's centre line. Mutation: grow the disc, or shrink the offset →
-        // the clearance goes under 5 DIP at the shipped offset.
+        // The placement puts B at ring/2 + 137.5 DIP from P (7th sitting, option B; 55 before), so the disc's
+        // edge (50 DIP radius) is 87.5 DIP clear of the ring's line (5 DIP before). Where the placement floor
+        // (hit + R + 30 px) pushes B farther, the gap only grows. Mutation: grow the disc, or shrink the
+        // offset → the gap goes under 87.5 DIP. (Before the 7th sitting this subtracted only the disc radius
+        // from |B-P|, so it measured the gap to P, not to the ring line, and a shrunk offset still passed.)
         var result = ActivationButtonPlacement.Place(
             P, ringSizeDip, LayoutConstants.ActivationButtonOffset, scale,
             LayoutConstants.ActivationButtonHitRadiusPx, fixationRadiusPx: 75, Screen);
 
         Check.That(result.Placed).IsTrue();
-        double clearancePx = result.ButtonCenter.DistanceTo(P) - (ActivationButtonFace.Diameter / 2 * scale);
+        double gapPx = result.ButtonCenter.DistanceTo(P) - (ringSizeDip / 2 * scale)
+            - (ActivationButtonFace.Diameter / 2 * scale);
         Check.WithCustomMessage(
-                $"ring {ringSizeDip} DIP at {scale}x: the disc edge is {clearancePx / scale:F2} DIP from the ring line")
-            .That(clearancePx).IsGreaterOrEqualThan(5.0 * scale - 1e-9);
+                $"ring {ringSizeDip} DIP at {scale}x: the disc edge is {gapPx / scale:F2} DIP from the ring line")
+            .That(gapPx).IsGreaterOrEqualThan(87.5 * scale - 1e-9);
+
+        // Above the floor the gap is exactly 87.5 DIP: the offset, not the floor, places B.
+        double floorPx = LayoutConstants.ActivationButtonHitRadiusPx + 75 + ActivationButtonPlacement.MinimumClearancePx;
+        if (((ringSizeDip / 2) + LayoutConstants.ActivationButtonOffset) * scale > floorPx)
+            Check.WithCustomMessage($"ring {ringSizeDip} DIP at {scale}x").That(gapPx / scale).IsCloseTo(87.5, 1e-6);
     }
 
     [Theory]

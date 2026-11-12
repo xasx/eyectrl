@@ -231,13 +231,14 @@ public class ActivationOfferShowDelayTests
         Check.That(engine.NotifyFixationSettled(b, 200_000)).IsEqualTo(SettleOutcome.OnButton);
         engine.NotifyFixationEnded(220_000);
 
-        // Past B: 220 px from B (outside the 200-px hit, inside hit + R), 580 from P. At the 200-px hit
-        // the old spot 170 px from B toward P is ON the button.
-        var nearMiss = new PhysicalPoint(b.X + (220 * ux), b.Y + (220 * uy));
+        // Past B: 300 px from B (outside the 265-px hit, inside hit + R = 340), 825 from P. (Was 220
+        // at the 200-px hit; the 7th sitting's hit 265 puts 220 ON the button.)
+        var nearMiss = new PhysicalPoint(b.X + (300 * ux), b.Y + (300 * uy));
         Check.That(engine.NotifyFixationSettled(nearMiss, 250_000)).IsEqualTo(SettleOutcome.Extended);
         engine.NotifyFixationEnded(270_000);
 
-        var pSide = new PhysicalPoint(P.X + (150 * ux), P.Y + (150 * uy));
+        // P's side: 200 px from P, 325 from B (150 from P before the 7th sitting's 525 px offset).
+        var pSide = new PhysicalPoint(P.X + (200 * ux), P.Y + (200 * uy));
         Check.That(engine.NotifyFixationSettled(pSide, 300_000)).IsEqualTo(SettleOutcome.Pending);
         Check.That(engine.OfferCandidatePoint).IsNull();
         Check.That(engine.CurrentOffer!.Id).IsEqualTo(old.Id);

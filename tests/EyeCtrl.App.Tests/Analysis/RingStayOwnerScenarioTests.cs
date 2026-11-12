@@ -282,13 +282,15 @@ public class RingStayOwnerScenarioTests
     }
 
     [StaFact]
-    public void OnTheRim_150To270PxFromB_TheRingStays()
+    public void OnTheRim_150To330PxFromB_TheRingStays()
     {
         // Today (hit 150, keep T, hit-keyed hold exits) every landing 160-190 px snapped the ring onto the
-        // button 560-660 ms into the dwell, and 220 px snapped at once. Now: the zone is hit + R = 280.
-        // (Toward P, 230-270 px from B is 40-80 px from the word: a settle there re-pins by design.)
+        // button 560-660 ms into the dwell, and 220 px snapped at once. Now: the zone is hit + R = 345 (280
+        // before the 7th sitting's hit 265). 300 and 330 px are outside the old zone and off the corridor in
+        // every direction here, so a stay zone keyed to the old 200-px hit lets the ring leave: red.
+        // (Toward P is not scripted: near P a settle re-pins by design.)
         foreach (var dir in new[] { "down", "beyond B", "side +", "side -" })
-            foreach (var dist in new[] { 150.0, 190.0, 230.0, 270.0 })
+            foreach (var dist in new[] { 150.0, 190.0, 230.0, 270.0, 300.0, 330.0 })
             {
                 var o = Run($"rim-{dist:0}-{dir.Replace(' ', '_')}", 2,
                     (rig, p, b) => { rig.Phase = "on B"; rig.Rest(Offset(b, p, dist, dir), 700, 12); });
@@ -308,6 +310,32 @@ public class RingStayOwnerScenarioTests
             rig.Phase = "on B";
             rig.Rest(b, 700, 12);
         });
+        StaysAtP(o);
+        FiresWithTheRingHidden(o);
+    }
+
+    [StaFact]
+    public void PlacementB_TravellingFromPToTheButton475PxAway_TheRingStaysOnTheWord_AndFires()
+    {
+        // The 7th sitting's option B: B is 475 px from P (165 px farther). The eye travels the whole way in
+        // 150 ms stops: 100 and 200 px along the P-B axis and 90 px off it (inside the 1.25 R = 100 px
+        // corridor; 386 and 289 px from B), then 395 px along it (80 px short of B), then onto B. The ring
+        // stays on the word the whole way, and the button fires. (The old-hit mutant is caught by the rim
+        // landings at 300 / 330 px; this one pins the whole trip at the new distance.)
+        var o = Run("placement-b-travel", 6, (rig, p, b) =>
+        {
+            double len = p.DistanceTo(b);
+            double ux = (b.X - p.X) / len, uy = (b.Y - p.Y) / len;
+            foreach (var along in new[] { 100.0, 200.0, 395.0 })
+            {
+                rig.Phase = $"stop {along:0}";
+                double side = along < 395 ? 90 : 0;
+                rig.Rest(new PhysicalPoint(p.X + (ux * along) - (uy * side), p.Y + (uy * along) + (ux * side)), 150, 6);
+            }
+            rig.Phase = "on B";
+            rig.Rest(b, 700, 12);
+        });
+        Check.That(o.B.DistanceTo(o.P)).IsCloseTo(475.0, 1e-6);
         StaysAtP(o);
         FiresWithTheRingHidden(o);
     }
@@ -418,8 +446,8 @@ public class RingStayOwnerScenarioTests
     {
         // 5th sitting offers #2/#17: 400 ms on B (86 % fill), then a slip 165-215 px below B. Today:
         // `HoldEnd Left` snapped the ring onto the button and the engine reset the fill. Now the ring stays;
-        // inside the 200-px hit (165, 190) the fill goes on and fires; at 215 the button's own 500 ms pause
-        // rule applies (the ring still stays).
+        // inside the hit the fill goes on and fires. Since the 7th sitting's 265-px hit that is all three
+        // slips (at the 200-px hit, 215 was outside and only the button's own 500 ms pause rule applied).
         foreach (var slip in new[] { 165.0, 190.0, 215.0 })
         {
             var o = Run($"log2-slip{slip:0}", 10, (rig, p, b) =>
@@ -487,11 +515,14 @@ public class RingStayOwnerScenarioTests
     }
 
     [StaFact]
-    public void TheButtonsPlace_AtRing200_IsUnchangedByTheBiggerHit()
+    public void TheButtonsPlace_AtRing200_IsTheRingEdgeOffset_AboveTheFloor()
     {
-        // The placement floor is hit + R + 30 = 310 px from P, exactly the owner's ring-edge offset at ring
-        // 200 ((100 + 55) DIP × 2.0): B does not move. (At smaller rings the floor now pushes B to 310 px.)
+        // Since the 7th sitting (option B) the owner's ring-edge offset at ring 200 is (100 + 137.5) DIP × 2.0
+        // = 475 px, above the placement floor hit + R + 30 = 265 + 80 + 30 = 375: B follows the offset, not the
+        // floor. (Before: the floor 200 + 80 + 30 = 310 equalled the offset (100 + 55) × 2.0.)
         var o = Run("place", 1, (rig, _, b) => { rig.Phase = "on B"; rig.Rest(b, 100, 4); });
-        Check.That(o.B.DistanceTo(o.P)).IsCloseTo(310.0, 1e-6);
+        Check.That(o.B.DistanceTo(o.P)).IsCloseTo(475.0, 1e-6);
+        Check.That(o.B.DistanceTo(o.P)).IsStrictlyGreaterThan(
+            LayoutConstants.ActivationButtonHitRadiusPx + 80 + ActivationButtonPlacement.MinimumClearancePx);
     }
 }

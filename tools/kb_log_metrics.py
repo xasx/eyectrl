@@ -130,10 +130,9 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      a lower-upper bound over the SAME n (lower = measured at or above R, upper =
                      also counting every old-cap line). At 600 the bounds coincide; with no
                      old-cap lines a single share is printed. The 3000 ms threshold (a
-                     ``capped=true ms=3000`` line) is the capped share.
-* blink               a rest survives a sample silence of up to 1 s (a blink), so a long rest
-                     is not cut short at the blink; a longer gap ends it at the last inside
-                     sample.
+                     ``capped=true ms=3000`` line) is the capped share. A rest survives a sample
+                     silence of up to 1 s (a blink), so a long rest is not cut short at the
+                     blink; a longer gap ends it at the last inside sample.
 * pick-then-undo     ``pickundo`` events / picks
 * chain-picks        a pick < 1 s after the previous pick with no key activation in between
 * near-move          activations within 1 s of a window move (``movems``)
@@ -204,6 +203,10 @@ HOLD_ON_GATE_MS = 150
 # ``capped=true ms=600`` line says only ">= 600", so above 600 that rest is unknown (letter_rest).
 LETTER_REST_THRESHOLDS_MS = (600, 900, 1200, 1500, 2000, 2500, 3000)
 OLD_HOLD_ON_CAP_MS = 600
+# The text line's fixed cell widths: the widest label (including "(capped)") and the widest
+# possible share ("100.0-100.0 %"), so its columns line up from one log to the next.
+LETTER_REST_LABEL_WIDTH = 15
+LETTER_REST_SHARE_WIDTH = 13
 MODE_CLASSES = {"shift", "caps", "mode", "switchsub"}
 # A stray page switch: a mode fire of one of these kinds (a page switch -- a sub-layout switch or
 # the emoji surface entering/leaving; shift/caps/modifier toggles are deliberate use, and a Flip
@@ -698,7 +701,7 @@ def _letter_rest_text(lr: dict[str, Any]) -> str:
         label = f">={t}" + (" (capped)" if t == last else "")
         bounded = lr["unknown_above_600"] and t > OLD_HOLD_ON_CAP_MS
         share = _pct_range(v["lower"], v["upper"]) if bounded else _pct(v["upper"])
-        cells.append(f"{label} {share}")
+        cells.append(f"{label:<{LETTER_REST_LABEL_WIDTH}} {share:>{LETTER_REST_SHARE_WIDTH}}")
     return (f"  {'letter rests':<20} n={lr['n']:<4} "
             f"old-cap unknown above 600: {lr['unknown_above_600']:<4} " + "  ".join(cells))
 

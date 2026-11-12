@@ -1084,8 +1084,9 @@ class LetterRest(unittest.TestCase):
                              {"at_least": at_least, "lower": share, "upper": share})
         # With no old-cap lines the text line shows one share, never a range.
         text = kb.render(m)
-        self.assertIn(">=900 75.0 %", text)
-        self.assertNotIn(">=900 75.0-", text)
+        line = next(l for l in text.splitlines() if "letter rests" in l)
+        self.assertIn("75.0 %", line)
+        self.assertNotIn("75.0-", line)
 
     def test_an_uncapped_600_is_a_real_600_and_an_unrelated_class_is_not_counted(self) -> None:
         lines = [
@@ -1114,8 +1115,9 @@ class CommandLine(unittest.TestCase):
         self.assertIn("n=12", proc.stdout)
         self.assertIn("old-cap unknown above 600: 4", proc.stdout)
         # All old-cap: every share above 600 is a 0..4-of-12 range, not a forced zero.
-        self.assertIn(">=900 0.0-33.3 %", proc.stdout)
-        self.assertIn(">=3000 (capped) 0.0-33.3 %", proc.stdout)
+        self.assertIn(">=900", proc.stdout)
+        self.assertIn("0.0-33.3 %", proc.stdout)
+        self.assertIn(">=3000 (capped)", proc.stdout)
 
     def test_json_report_round_trips(self) -> None:
         proc = run_cli(str(FIXTURE), "--json", "--edge", "bottom")

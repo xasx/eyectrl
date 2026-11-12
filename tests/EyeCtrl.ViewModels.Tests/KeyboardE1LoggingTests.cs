@@ -712,6 +712,8 @@ public class KeyboardE1LoggingTests
     [Fact]
     public void HoldOn_AGapLongerThanOneSecondEndsTheRestAtTheLastInsideSample()
     {
+        // The first sample after the gap lands back INSIDE the box, so only the 1 s bound can end
+        // the rest here; a missing or larger bound would credit the gap and report ~2550 ms.
         // No sample arrives during the gap, so the last inside sample is the only evidence and
         // the rest is cut there: 1020 ms, not the gap's end.
         using var rig = new Rig();
@@ -719,7 +721,8 @@ public class KeyboardE1LoggingTests
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
         rig.Ts += 1_200_000;                        // a 1.2 s dropout: over the 1 s survival
-        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);
+        rig.Hold(c, 300);                           // ... the first sample after it is INSIDE
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
 
         var hold = Fields(rig.Log.Of("holdon").Single());
         Check.That(hold["ms"]).IsEqualTo("1020");

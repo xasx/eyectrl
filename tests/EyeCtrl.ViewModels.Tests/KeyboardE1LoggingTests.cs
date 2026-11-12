@@ -645,16 +645,121 @@ public class KeyboardE1LoggingTests
     // ---- hold-on ---------------------------------------------------------------------------
 
     [Fact]
-    public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt600()
+    public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt3s()
     {
         using var rig = new Rig();
         var c = rig.Positions["key_0_0"];
         rig.Hold(c, DwellMs);                       // fires
-        rig.Hold(c, 900);                           // ...and the gaze stays well past the cap
+        rig.Hold(c, 3500);                          // ...and the gaze stays well past the cap
 
         var hold = Fields(rig.Log.Of("holdon").Single());
         Check.That(hold["seq"]).IsEqualTo("1");
-        Check.That(hold["ms"]).IsEqualTo("600");
+        Check.That(hold["ms"]).IsEqualTo("3000");
+        Check.That(hold["capped"]).IsEqualTo("True");
+    }
+
+    [Fact]
+    public void HoldOn_ARestOfTwoSeconds_IsReportedUncapped()
+    {
+        // Below the 3 s cap a rest is a measured value, not a floor: the double-letters decision
+        // reads its tail from exactly these lines.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 2000);                          // one 30 ms sample of overshoot, no cap
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That((double)int.Parse(hold["ms"])).IsCloseTo(2000.0, 100.0);
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_ALongRestStillEndsWhenTheGazeLeavesTheBox()
+    {
+        // 2.5 s is under the new cap: the LEAVE, not the cap, must close the line, and it must be
+        // closed at the leave so the rest's length stays a measurement.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 2500);                          // a long rest, still under the cap
+        rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That((double)int.Parse(hold["ms"])).IsCloseTo(2500.0, 100.0);
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_ABlinkDoesNotEndARest()
+    {
+        // The keyboard gets no samples during a blink; the rest must survive it (the T1 leave
+        // latch treats the same silence as no leave). 1020 ms inside + a 200 ms silence + 1530 ms
+        // inside = 2750 ms, with the gap counted because the gaze was still on the key after it.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 1000);                          // ~1 s inside
+        rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
+        rig.Hold(c, 1500);                          // ... and back inside, still on the key
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("2750");
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_AGapLongerThanOneSecondEndsTheRestAtTheLastInsideSample()
+    {
+        // The first sample after the gap lands back INSIDE the box, so only the 1 s bound can end
+        // the rest here; a missing or larger bound would credit the gap and report ~2550 ms.
+        // No sample arrives during the gap, so the last inside sample is the only evidence and
+        // the rest is cut there: 1020 ms, not the gap's end.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
+        rig.Ts += 1_200_000;                        // a 1.2 s dropout: over the 1 s survival
+        rig.Hold(c, 300);                           // ... the first sample after it is INSIDE
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("1020");
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_AfterAShortGapTheNextSampleOutsideTheBoxEndsTheRest()
+    {
+        // The short gap is not itself a leave: the sample after it decides by position, and this
+        // one is on another key, so the rest ends at the last inside sample (1020 ms).
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
+        rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
+        rig.Hold(rig.Positions["key_0_2"], 60);     // the next sample is outside the box
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("1020");
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_TheCappedValueIsExactlyTheCap_EvenWhenASampleOvershootsIt()
+    {
+        // A 10 ms phase shift makes the first sample past the cap land at 3010 ms; only the
+        // Math.Min clamp keeps the reported value at exactly 3000 (the parser's old-cap rule
+        // depends on a capped line carrying the cap itself).
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Ts += 10_000;                           // off the 30 ms cadence's cap boundary
+        rig.Hold(c, 3500);
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("3000");
         Check.That(hold["capped"]).IsEqualTo("True");
     }
 

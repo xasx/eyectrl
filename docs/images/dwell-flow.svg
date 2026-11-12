@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 250" font-family="Segoe UI, system-ui, sans-serif">
+  <rect width="880" height="250" rx="14" fill="#12121F"/>
+  <text x="440" y="30" fill="#D6DEF5" font-size="16" text-anchor="middle" font-weight="600">How a click happens — rest, move to the button, choose</text>
+
+  <!-- Panel 1: fixation -->
+  <rect x="24" y="52" width="240" height="150" rx="10" fill="#1A1A2E" stroke="#616BA0" stroke-width="1"/>
+  <text x="144" y="76" fill="#A5F3FC" font-size="13" text-anchor="middle" font-weight="600">1 · Rest your gaze</text>
+  <!-- target button -->
+  <rect x="122" y="128" width="44" height="26" rx="6" fill="#2A2A3E" stroke="#616BA0"/>
+  <!-- gaze ring -->
+  <circle cx="144" cy="141" r="26" fill="none" stroke="#A5F3FC" stroke-width="3" opacity="0.9"/>
+  <circle cx="144" cy="141" r="4" fill="#A5F3FC"/>
+  <text x="144" y="186" fill="#9AA4C8" font-size="11.5" text-anchor="middle">after ~300 ms the gaze settles</text>
+  <text x="144" y="199" fill="#9AA4C8" font-size="11.5" text-anchor="middle">into a fixation</text>
+
+  <path d="M272 127 L302 127 M296 121 L306 127 L296 133" stroke="#868FB5" stroke-width="2" fill="none"/>
+
+  <!-- Panel 2: activation button BESIDE the ring -->
+  <rect x="312" y="52" width="240" height="150" rx="10" fill="#1A1A2E" stroke="#616BA0" stroke-width="1"/>
+  <text x="432" y="76" fill="#A5F3FC" font-size="13" text-anchor="middle" font-weight="600">2 · Move onto the button</text>
+  <!-- gaze ring at the fixated point -->
+  <circle cx="392" cy="126" r="22" fill="none" stroke="#A5F3FC" stroke-width="3" opacity="0.9"/>
+  <circle cx="392" cy="126" r="4" fill="#A5F3FC"/>
+  <!-- activation button offset diagonally (toward the screen's middle) -->
+  <circle cx="464" cy="152" r="20" fill="none" stroke="#3E3E64" stroke-width="6"/>
+  <path d="M 464 132 A 20 20 0 1 1 445.7 144.6" fill="none" stroke="#A5F3FC" stroke-width="6" stroke-linecap="round"/>
+  <!-- look-here arrow from the ring to the button -->
+  <path d="M 412 136 L 436 146" stroke="#7EE787" stroke-width="2.5" stroke-dasharray="5 4"/>
+  <path d="M 432 140 L 442 148 L 430 152 Z" fill="#7EE787"/>
+  <text x="426" y="124" fill="#7EE787" font-size="10.5" text-anchor="middle" font-weight="600">look here</text>
+  <text x="432" y="196" fill="#9AA4C8" font-size="11.5" text-anchor="middle">the button appears beside the ring — dwell it</text>
+  <text x="432" y="209" fill="#9AA4C8" font-size="11.5" text-anchor="middle">(~700 ms; it fades after ~¾ s unattended)</text>
+
+  <path d="M560 127 L590 127 M584 121 L594 127 L584 133" stroke="#868FB5" stroke-width="2" fill="none"/>
+
+  <!-- Panel 3: action menu ring -->
+  <rect x="600" y="52" width="256" height="150" rx="10" fill="#1A1A2E" stroke="#616BA0" stroke-width="1"/>
+  <text x="728" y="76" fill="#A5F3FC" font-size="13" text-anchor="middle" font-weight="600">3 · Action menu opens</text>
+  <!-- mini ring, 5 nodes -->
+  <circle cx="728" cy="132" r="34" fill="none" stroke="#3E3E64" stroke-width="1.5" stroke-dasharray="3 4"/>
+  <circle cx="728" cy="98"  r="9" fill="#2A2A3E" stroke="#A5F3FC" stroke-width="1.5"/>
+  <circle cx="760" cy="121" r="9" fill="#2A2A3E" stroke="#616BA0"/>
+  <circle cx="748" cy="158" r="9" fill="#2A2A3E" stroke="#616BA0"/>
+  <circle cx="708" cy="158" r="9" fill="#2A2A3E" stroke="#616BA0"/>
+  <circle cx="696" cy="121" r="9" fill="#2A2A3E" stroke="#616BA0"/>
+  <text x="728" y="196" fill="#9AA4C8" font-size="11.5" text-anchor="middle">dwell the action you want (~600 ms) —</text>
+  <text x="728" y="209" fill="#9AA4C8" font-size="11.5" text-anchor="middle">it lands where you fixated in step 1</text>
+
+  <text x="440" y="238" fill="#868FB5" font-size="12" text-anchor="middle" font-style="italic">A sustained look away cancels; a brief glance (under ~½ s) does not.</text>
+</svg>

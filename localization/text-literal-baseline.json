@@ -1,9 +1,89 @@
 {
   "Entries": [
     {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: default device -> \\\"{endpointName}\\\"\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: session disconnected: {reason}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: session state={newState}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: volume={newVolume.ToString(\"F2\", CultureInfo.InvariantCulture)} mute={newMute}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"Active\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"DeviceDisconnected\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"Expired\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"FormatChanged\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"Inactive\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"RemoteSessionChanged\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"ServerShutdown\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"ServiceShutdown\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"SessionDisconnected\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "$\"Unknown({audioSessionState})\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "$\"Unknown({reason})\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",
       "Literal": "\"X2\"",
       "Count": 3
+    },
+    {
+      "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
+      "Literal": "$\"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped}\"",
+      "Count": 1
     },
     {
       "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",

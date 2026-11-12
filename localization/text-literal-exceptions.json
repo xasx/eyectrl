@@ -1563,6 +1563,102 @@
       "Literal": "\"Advanced\"",
       "Category": "id",
       "Reason": "C9 S6f: the Advanced tab id the probe completion compares against; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: default device -> \\\"{endpointName}\\\"\"",
+      "Category": "log",
+      "Reason": "F5: log-only audio change lines (session volume/mute, state, disconnect, default device); the formatters live in string-returning members so tests can pin their exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: session disconnected: {reason}\"",
+      "Category": "log",
+      "Reason": "F5: log-only audio change lines (session volume/mute, state, disconnect, default device); the formatters live in string-returning members so tests can pin their exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: session state={newState}\"",
+      "Category": "log",
+      "Reason": "F5: log-only audio change lines (session volume/mute, state, disconnect, default device); the formatters live in string-returning members so tests can pin their exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: volume={newVolume.ToString(\"F2\", CultureInfo.InvariantCulture)} mute={newMute}\"",
+      "Category": "log",
+      "Reason": "F5: log-only audio change lines (session volume/mute, state, disconnect, default device); the formatters live in string-returning members so tests can pin their exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"Active\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"DeviceDisconnected\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"Expired\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"FormatChanged\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"Inactive\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"RemoteSessionChanged\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"ServerShutdown\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"ServiceShutdown\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "\"SessionDisconnected\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "$\"Unknown({audioSessionState})\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/CoreAudioInterop.cs",
+      "Literal": "$\"Unknown({reason})\"",
+      "Category": "log",
+      "Reason": "F5: closed vocabulary names for audio session states, disconnect reasons and their unknown fallbacks; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
+      "Literal": "$\"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped}\"",
+      "Category": "log",
+      "Reason": "F5: the hide line counters (requested/played/failed/skipped, ints only), log-only; FormatHideLine is a member so tests pin the exact format. Never shown."
     }
   ]
 }

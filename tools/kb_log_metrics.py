@@ -123,6 +123,12 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      carry no ``lv`` and group into nothing -- read them by date, as before.
 * hold-on            by dwell class (unpenalised letters, penalised letters, mode keys): n,
                      median ms, and the share >= 150 ms (the uniform-600 gate wants >= 90 %)
+* letter rest        the double-letters decision's read-out, over the letter hold-ons: n and the
+                     share whose rest lasted >= 600/900/1200/1500/2000/2500/3000 ms. A line
+                     written under the old 600 ms cap (``capped=true ms=600``) says only
+                     ">= 600": above 600 the rest is unknown, so those lines are left out of the
+                     >600 denominators and counted in ``unknown_above_600``; the 3000 ms
+                     threshold (a ``capped=true ms=3000`` line) is the capped share.
 * pick-then-undo     ``pickundo`` events / picks
 * chain-picks        a pick < 1 s after the previous pick with no key activation in between
 * near-move          activations within 1 s of a window move (``movems``)
@@ -189,6 +195,10 @@ TALLY_ABORTS = ["a" + name for name in TALLY_FIRES]
 CHAIN_PICK_MS = 1000
 NEAR_MOVE_MS = 1000
 HOLD_ON_GATE_MS = 150
+# The double-letters decision's letter-rest read-out. 600 ms is the OLD hold-on cap: a
+# ``capped=true ms=600`` line says only ">= 600", so above 600 that rest is unknown (letter_rest).
+LETTER_REST_THRESHOLDS_MS = (600, 900, 1200, 1500, 2000, 2500, 3000)
+OLD_HOLD_ON_CAP_MS = 600
 MODE_CLASSES = {"shift", "caps", "mode", "switchsub"}
 # A stray page switch: a mode fire of one of these kinds (a page switch -- a sub-layout switch or
 # the emoji surface entering/leaving; shift/caps/modifier toggles are deliberate use, and a Flip
@@ -435,6 +445,30 @@ def _hold_stats(values: list[int]) -> dict[str, Any]:
     }
 
 
+def letter_rest(holds: list[dict[str, Any]]) -> dict[str, Any]:
+    """The double-letters decision's read-out: how long the gaze rested on a letter after firing.
+
+    ``holds`` are the hold-on events joined to LETTER activations (per session, as in
+    :func:`metrics`). A line written under the old 600 ms cap (``capped=true ms=600``) says only
+    ">= 600" -- the rest may have gone on much longer -- so above 600 it is unknown: those lines
+    are left out of the >600 denominators and counted in ``unknown_above_600``. At 600 they still
+    count as ">= 600". A line from the 3 s cap (``capped=true ms=3000``) is a floor of exactly
+    3000, which is the capped share.
+    """
+    n = len(holds)
+    unknown = sum(1 for h in holds if h.get("capped") is True and h["ms"] == OLD_HOLD_ON_CAP_MS)
+    thresholds: dict[str, Any] = {}
+    for threshold in LETTER_REST_THRESHOLDS_MS:
+        denominator = n if threshold <= OLD_HOLD_ON_CAP_MS else n - unknown
+        at_least = sum(1 for h in holds if h["ms"] >= threshold)
+        thresholds[str(threshold)] = {
+            "at_least": at_least,
+            "n": denominator,
+            "share": _share(at_least, denominator),
+        }
+    return {"n": n, "unknown_above_600": unknown, "thresholds": thresholds}
+
+
 def _at_least(part: int, whole: int, fraction: tuple[int, int]) -> bool:
     """part/whole >= numerator/denominator, exactly (integers only)."""
     return whole > 0 and part * fraction[1] >= whole * fraction[0]
@@ -551,12 +585,14 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
 
     # --- hold-on, by dwell class
     holds: dict[str, list[int]] = {"letters_unpenalised": [], "letters_penalised": [], "mode_keys": []}
+    letter_holds: list[dict[str, Any]] = []
     for h in (e for e in events if e["event"] == "holdon"):
         k = by_seq.get((h["session"], h.get("seq")))
         if k is None or not isinstance(h.get("ms"), int):
             continue
         if k.get("cls") == "letter":
             holds["letters_penalised" if k.get("penalty") else "letters_unpenalised"].append(h["ms"])
+            letter_holds.append(h)
         elif k.get("cls") in MODE_CLASSES:
             holds["mode_keys"].append(h["ms"])
 
@@ -617,6 +653,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "stray_modes_per_100_letters": None if not letters else 100 * strays / len(letters),
         "layouts": layout_groups(events),
         "hold_on": {name: _hold_stats(values) for name, values in holds.items()},
+        "letter_rest": letter_rest(letter_holds),
         "picks": len(picks),
         "picks_by_source": dict(Counter(str(p.get("src")) for p in picks)),
         "pick_undos": len(pick_undos),
@@ -639,6 +676,17 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
 
 def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{100 * x:.1f} %"
+
+
+def _letter_rest_text(lr: dict[str, Any]) -> str:
+    """One aligned line for the double-letters decision, with the old-cap caveat spelled out."""
+    last = LETTER_REST_THRESHOLDS_MS[-1]
+    cells = "  ".join(
+        (f">={t} (capped) {_pct(lr['thresholds'][str(t)]['share']):>7}" if t == last
+         else f">={t} {_pct(lr['thresholds'][str(t)]['share']):>7}")
+        for t in LETTER_REST_THRESHOLDS_MS)
+    return (f"  {'letter rests':<20} n={lr['n']:<4} "
+            f"old-cap unknown above 600: {lr['unknown_above_600']:<4} {cells}")
 
 
 def render(m: dict[str, Any]) -> str:
@@ -681,6 +729,7 @@ def render(m: dict[str, Any]) -> str:
     for name, h in m["hold_on"].items():
         median = "n/a" if h["median_ms"] is None else f"{h['median_ms']:g} ms"
         add(f"  {name:<20} n={h['n']:<4} median {median:<9} >=150 ms: {_pct(h['share_ge_150ms'])}")
+    add(_letter_rest_text(m["letter_rest"]))
     add(f"picks                     {m['picks']}   by source {m['picks_by_source']}")
     add(f"pick-then-undo            {m['pick_undos']}   rate {_pct(m['pick_then_undo_rate'])}")
     add(f"chain-picks               {m['chain_picks']}   = "

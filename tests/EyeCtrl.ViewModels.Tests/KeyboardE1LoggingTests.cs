@@ -645,17 +645,49 @@ public class KeyboardE1LoggingTests
     // ---- hold-on ---------------------------------------------------------------------------
 
     [Fact]
-    public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt600()
+    public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt3s()
     {
         using var rig = new Rig();
         var c = rig.Positions["key_0_0"];
         rig.Hold(c, DwellMs);                       // fires
-        rig.Hold(c, 900);                           // ...and the gaze stays well past the cap
+        rig.Hold(c, 3500);                          // ...and the gaze stays well past the cap
 
         var hold = Fields(rig.Log.Of("holdon").Single());
         Check.That(hold["seq"]).IsEqualTo("1");
-        Check.That(hold["ms"]).IsEqualTo("600");
+        Check.That(hold["ms"]).IsEqualTo("3000");
         Check.That(hold["capped"]).IsEqualTo("True");
+    }
+
+    [Fact]
+    public void HoldOn_ARestOfTwoSeconds_IsReportedUncapped()
+    {
+        // Below the 3 s cap a rest is a measured value, not a floor: the double-letters decision
+        // reads its tail from exactly these lines.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 2000);                          // one 30 ms sample of overshoot, no cap
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That((double)int.Parse(hold["ms"])).IsCloseTo(2000.0, 100.0);
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_ALongRestStillEndsWhenTheGazeLeavesTheBox()
+    {
+        // 2.5 s is under the new cap: the LEAVE, not the cap, must close the line, and it must be
+        // closed at the leave so the rest's length stays a measurement.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 2500);                          // a long rest, still under the cap
+        rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That((double)int.Parse(hold["ms"])).IsCloseTo(2500.0, 100.0);
+        Check.That(hold["capped"]).IsEqualTo("False");
     }
 
     [Fact]

@@ -146,6 +146,16 @@ class WholeDay(unittest.TestCase):
         self.assertEqual(hold["mode_keys"]["median_ms"], 300)
         self.assertAlmostEqual(hold["mode_keys"]["share_ge_150ms"], 2 / 3)
 
+    def test_letter_rest_reads_old_cap_hold_ons_honestly(self) -> None:
+        # All twelve letter hold-ons; four are old-cap lines (capped=true ms=600), which say only
+        # ">= 600". Above 600 they are unknown, so the denominators there are 8, not 12.
+        lr = self.m["letter_rest"]
+        self.assertEqual(lr["n"], 12)
+        self.assertEqual(lr["unknown_above_600"], 4)
+        self.assertEqual(lr["thresholds"]["600"], {"at_least": 4, "n": 12, "share": 4 / 12})
+        self.assertEqual(lr["thresholds"]["900"], {"at_least": 0, "n": 8, "share": 0.0})
+        self.assertEqual(lr["thresholds"]["3000"], {"at_least": 0, "n": 8, "share": 0.0})
+
     def test_picks_undo_rate_chain_picks_and_sources(self) -> None:
         self.assertEqual(self.m["picks"], 5)
         self.assertEqual(self.m["picks_by_source"], {"dict": 2, "pair": 1, "lm": 1, "sentence": 1})
@@ -1005,12 +1015,67 @@ class Sessions(unittest.TestCase):
         self.assertEqual(hold["mode_keys"]["median_ms"], 600)
 
 
+class LetterRest(unittest.TestCase):
+    """The double-letters decision: letter rests are measured to 3 s, and an old 600 ms capped
+    line is a floor ("only known >= 600"), never an exact 600."""
+
+    @staticmethod
+    def _letter(ms: int, seq: int, rest: int, capped: bool) -> list[str]:
+        return [
+            stamp_key(ms, seq, "letter"),
+            stamp_line(ms, f"holdon seq={seq} ms={rest} capped={'true' if capped else 'false'}"),
+        ]
+
+    def test_thresholds_count_the_rests_at_or_above_each(self) -> None:
+        lines = [
+            *self._letter(1000, 1, 600, True),     # old cap: only known >= 600
+            *self._letter(2000, 2, 2000, False),
+            *self._letter(3000, 3, 3000, True),    # new cap: the rest was at least 3 s
+            *self._letter(4000, 4, 500, False),
+        ]
+        lr = kb.metrics(kb.parse(lines))["letter_rest"]
+        self.assertEqual(lr["n"], 4)
+        self.assertEqual(lr["unknown_above_600"], 1)
+        self.assertEqual(lr["thresholds"]["600"], {"at_least": 3, "n": 4, "share": 0.75})
+        # The old-cap line drops out above 600: 2 of the remaining 3 rested >= 900 ms.
+        self.assertEqual(lr["thresholds"]["900"], {"at_least": 2, "n": 3, "share": 2 / 3})
+        self.assertEqual(lr["thresholds"]["2000"], {"at_least": 2, "n": 3, "share": 2 / 3})
+        self.assertEqual(lr["thresholds"]["2500"], {"at_least": 1, "n": 3, "share": 1 / 3})
+        self.assertEqual(lr["thresholds"]["3000"], {"at_least": 1, "n": 3, "share": 1 / 3})
+
+    def test_a_log_of_only_old_cap_lines_has_no_above_600_share_rather_than_zero(self) -> None:
+        lr = kb.metrics(kb.parse([*self._letter(1000, 1, 600, True)]))["letter_rest"]
+        self.assertEqual(lr["unknown_above_600"], 1)
+        self.assertEqual(lr["thresholds"]["600"]["share"], 1.0)
+        self.assertEqual(lr["thresholds"]["900"]["n"], 0)
+        self.assertIsNone(lr["thresholds"]["900"]["share"])
+
+    def test_an_uncapped_600_is_a_real_600_and_an_unrelated_class_is_not_counted(self) -> None:
+        lines = [
+            *self._letter(1000, 1, 600, False),
+            stamp_key(2000, 2, "space"),
+            stamp_line(2000, "holdon seq=2 ms=3000 capped=true"),
+        ]
+        lr = kb.metrics(kb.parse(lines))["letter_rest"]
+        self.assertEqual(lr["n"], 1)
+        self.assertEqual(lr["unknown_above_600"], 0)
+        self.assertEqual(lr["thresholds"]["600"]["share"], 1.0)
+        self.assertEqual(lr["thresholds"]["900"]["share"], 0.0)   # a measured 600 is a real value
+
+
 class CommandLine(unittest.TestCase):
     def test_text_report_names_the_c2_minimums(self) -> None:
         proc = run_cli(str(FIXTURE))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("letter activations        12", proc.stdout)
         self.assertIn("NOT MET -- keep logging", proc.stdout)
+
+    def test_text_report_includes_the_letter_rest_line(self) -> None:
+        proc = run_cli(str(FIXTURE))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("letter rests", proc.stdout)
+        self.assertIn("old-cap unknown above 600: 4", proc.stdout)
+        self.assertIn(">=3000 (capped)", proc.stdout)
 
     def test_json_report_round_trips(self) -> None:
         proc = run_cli(str(FIXTURE), "--json", "--edge", "bottom")

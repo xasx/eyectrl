@@ -208,8 +208,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private long _holdOnFireTimestampUs;
     private long _holdOnLastInsideUs;
 
-    /// <summary>The longest hold-on E1 reports; read across and past the cooldown.</summary>
-    private const int HoldOnCapMs = 600;
+    /// <summary>
+    /// The longest hold-on E1 reports: 3 s, so a letter rest's tail is visible to the
+    /// double-letters decision; read across and past the cooldown.
+    /// </summary>
+    private const int HoldOnCapMs = 3000;
 
     /// <summary>The E1 recorder: the keyboard's content-free event log.</summary>
     public KeyboardE1Recorder E1 { get; private set; }

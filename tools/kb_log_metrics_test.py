@@ -148,13 +148,14 @@ class WholeDay(unittest.TestCase):
 
     def test_letter_rest_reads_old_cap_hold_ons_honestly(self) -> None:
         # All twelve letter hold-ons; four are old-cap lines (capped=true ms=600), which say only
-        # ">= 600". Above 600 they are unknown, so the denominators there are 8, not 12.
+        # ">= 600". At 600 both bounds are 4/12; above 600 every old-cap line could be either
+        # side, so the range spans 0..4 of all twelve.
         lr = self.m["letter_rest"]
         self.assertEqual(lr["n"], 12)
         self.assertEqual(lr["unknown_above_600"], 4)
-        self.assertEqual(lr["thresholds"]["600"], {"at_least": 4, "n": 12, "share": 4 / 12})
-        self.assertEqual(lr["thresholds"]["900"], {"at_least": 0, "n": 8, "share": 0.0})
-        self.assertEqual(lr["thresholds"]["3000"], {"at_least": 0, "n": 8, "share": 0.0})
+        self.assertEqual(lr["thresholds"]["600"], {"at_least": 4, "lower": 4 / 12, "upper": 4 / 12})
+        self.assertEqual(lr["thresholds"]["900"], {"at_least": 0, "lower": 0.0, "upper": 4 / 12})
+        self.assertEqual(lr["thresholds"]["3000"], {"at_least": 0, "lower": 0.0, "upper": 4 / 12})
 
     def test_picks_undo_rate_chain_picks_and_sources(self) -> None:
         self.assertEqual(self.m["picks"], 5)
@@ -1014,6 +1015,21 @@ class Sessions(unittest.TestCase):
         self.assertEqual(hold["mode_keys"]["n"], 1)
         self.assertEqual(hold["mode_keys"]["median_ms"], 600)
 
+    def test_letter_rest_joins_per_session_like_the_hold_on_stats(self) -> None:
+        # Session 2 reuses seq 1 for a Space. A seq-only join would file that 3000 ms line as a
+        # letter (or drop the letter's line); the per-session join files neither.
+        events = kb.parse([
+            stamp_key(1000, 1, "letter"),
+            stamp_line(1000, "holdon seq=1 ms=900 capped=false"),
+            stamp_key(5000, 1, "space"),
+            stamp_line(5000, "holdon seq=1 ms=3000 capped=true"),
+        ])
+        lr = kb.metrics(events)["letter_rest"]
+        self.assertEqual(lr["n"], 1)
+        self.assertEqual(lr["thresholds"]["600"]["at_least"], 1)
+        self.assertEqual(lr["thresholds"]["900"]["at_least"], 1)
+        self.assertEqual(lr["thresholds"]["3000"]["at_least"], 0)
+
 
 class LetterRest(unittest.TestCase):
     """The double-letters decision: letter rests are measured to 3 s, and an old 600 ms capped
@@ -1036,19 +1052,40 @@ class LetterRest(unittest.TestCase):
         lr = kb.metrics(kb.parse(lines))["letter_rest"]
         self.assertEqual(lr["n"], 4)
         self.assertEqual(lr["unknown_above_600"], 1)
-        self.assertEqual(lr["thresholds"]["600"], {"at_least": 3, "n": 4, "share": 0.75})
-        # The old-cap line drops out above 600: 2 of the remaining 3 rested >= 900 ms.
-        self.assertEqual(lr["thresholds"]["900"], {"at_least": 2, "n": 3, "share": 2 / 3})
-        self.assertEqual(lr["thresholds"]["2000"], {"at_least": 2, "n": 3, "share": 2 / 3})
-        self.assertEqual(lr["thresholds"]["2500"], {"at_least": 1, "n": 3, "share": 1 / 3})
-        self.assertEqual(lr["thresholds"]["3000"], {"at_least": 1, "n": 3, "share": 1 / 3})
+        # Every share uses all four holds as its denominator. At 600 the old-cap line is known to
+        # be there, so both bounds are 3/4; above 600 it could be either side: 2/4..3/4.
+        self.assertEqual(lr["thresholds"]["600"], {"at_least": 3, "lower": 0.75, "upper": 0.75})
+        self.assertEqual(lr["thresholds"]["900"], {"at_least": 2, "lower": 0.5, "upper": 0.75})
+        self.assertEqual(lr["thresholds"]["2000"], {"at_least": 2, "lower": 0.5, "upper": 0.75})
+        self.assertEqual(lr["thresholds"]["2500"], {"at_least": 1, "lower": 0.25, "upper": 0.5})
+        self.assertEqual(lr["thresholds"]["3000"], {"at_least": 1, "lower": 0.25, "upper": 0.5})
 
-    def test_a_log_of_only_old_cap_lines_has_no_above_600_share_rather_than_zero(self) -> None:
+    def test_a_log_of_only_old_cap_lines_reports_the_full_range_above_600(self) -> None:
         lr = kb.metrics(kb.parse([*self._letter(1000, 1, 600, True)]))["letter_rest"]
+        self.assertEqual(lr["n"], 1)
         self.assertEqual(lr["unknown_above_600"], 1)
-        self.assertEqual(lr["thresholds"]["600"]["share"], 1.0)
-        self.assertEqual(lr["thresholds"]["900"]["n"], 0)
-        self.assertIsNone(lr["thresholds"]["900"]["share"])
+        self.assertEqual(lr["thresholds"]["600"], {"at_least": 1, "lower": 1.0, "upper": 1.0})
+        self.assertEqual(lr["thresholds"]["900"], {"at_least": 0, "lower": 0.0, "upper": 1.0})
+
+    def test_a_new_build_only_log_prints_a_single_share_at_every_threshold(self) -> None:
+        lines = [
+            *self._letter(1000, 1, 300, False),
+            *self._letter(2000, 2, 1000, False),
+            *self._letter(3000, 3, 2000, False),
+            *self._letter(4000, 4, 3000, True),
+        ]
+        m = kb.metrics(kb.parse(lines))
+        lr = m["letter_rest"]
+        self.assertEqual(lr["unknown_above_600"], 0)
+        expected = {600: 3, 900: 3, 1200: 2, 1500: 2, 2000: 2, 2500: 1, 3000: 1}
+        for threshold, at_least in expected.items():
+            share = at_least / 4
+            self.assertEqual(lr["thresholds"][str(threshold)],
+                             {"at_least": at_least, "lower": share, "upper": share})
+        # With no old-cap lines the text line shows one share, never a range.
+        text = kb.render(m)
+        self.assertIn(">=900 75.0 %", text)
+        self.assertNotIn(">=900 75.0-", text)
 
     def test_an_uncapped_600_is_a_real_600_and_an_unrelated_class_is_not_counted(self) -> None:
         lines = [
@@ -1059,8 +1096,8 @@ class LetterRest(unittest.TestCase):
         lr = kb.metrics(kb.parse(lines))["letter_rest"]
         self.assertEqual(lr["n"], 1)
         self.assertEqual(lr["unknown_above_600"], 0)
-        self.assertEqual(lr["thresholds"]["600"]["share"], 1.0)
-        self.assertEqual(lr["thresholds"]["900"]["share"], 0.0)   # a measured 600 is a real value
+        self.assertEqual(lr["thresholds"]["600"]["upper"], 1.0)
+        self.assertEqual(lr["thresholds"]["900"]["upper"], 0.0)   # a measured 600 is a real value
 
 
 class CommandLine(unittest.TestCase):
@@ -1074,8 +1111,11 @@ class CommandLine(unittest.TestCase):
         proc = run_cli(str(FIXTURE))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("letter rests", proc.stdout)
+        self.assertIn("n=12", proc.stdout)
         self.assertIn("old-cap unknown above 600: 4", proc.stdout)
-        self.assertIn(">=3000 (capped)", proc.stdout)
+        # All old-cap: every share above 600 is a 0..4-of-12 range, not a forced zero.
+        self.assertIn(">=900 0.0-33.3 %", proc.stdout)
+        self.assertIn(">=3000 (capped) 0.0-33.3 %", proc.stdout)
 
     def test_json_report_round_trips(self) -> None:
         proc = run_cli(str(FIXTURE), "--json", "--edge", "bottom")

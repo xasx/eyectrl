@@ -126,9 +126,14 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
 * letter rest        the double-letters decision's read-out, over the letter hold-ons: n and the
                      share whose rest lasted >= 600/900/1200/1500/2000/2500/3000 ms. A line
                      written under the old 600 ms cap (``capped=true ms=600``) says only
-                     ">= 600": above 600 the rest is unknown, so those lines are left out of the
-                     >600 denominators and counted in ``unknown_above_600``; the 3000 ms
-                     threshold (a ``capped=true ms=3000`` line) is the capped share.
+                     ">= 600": above 600 it could be either side of a threshold, so each share is
+                     a lower-upper bound over the SAME n (lower = measured at or above R, upper =
+                     also counting every old-cap line). At 600 the bounds coincide; with no
+                     old-cap lines a single share is printed. The 3000 ms threshold (a
+                     ``capped=true ms=3000`` line) is the capped share.
+* blink               a rest survives a sample silence of up to 1 s (a blink), so a long rest
+                     is not cut short at the blink; a longer gap ends it at the last inside
+                     sample.
 * pick-then-undo     ``pickundo`` events / picks
 * chain-picks        a pick < 1 s after the previous pick with no key activation in between
 * near-move          activations within 1 s of a window move (``movems``)
@@ -450,21 +455,23 @@ def letter_rest(holds: list[dict[str, Any]]) -> dict[str, Any]:
 
     ``holds`` are the hold-on events joined to LETTER activations (per session, as in
     :func:`metrics`). A line written under the old 600 ms cap (``capped=true ms=600``) says only
-    ">= 600" -- the rest may have gone on much longer -- so above 600 it is unknown: those lines
-    are left out of the >600 denominators and counted in ``unknown_above_600``. At 600 they still
-    count as ">= 600". A line from the 3 s cap (``capped=true ms=3000``) is a floor of exactly
-    3000, which is the capped share.
+    ">= 600": above 600 the rest is unknown. Both bounds use the SAME denominator, every letter
+    hold-on in the window: ``lower`` counts only measured rests at or above the threshold,
+    ``upper`` also counts every old-cap line as if it reached it. At 600 the old-cap lines are
+    known to be at least 600, so the bounds coincide; with no old-cap lines they coincide
+    everywhere (a single measured share). A line from the 3 s cap (``capped=true ms=3000``) is a
+    floor of exactly 3000, which is the capped share.
     """
     n = len(holds)
     unknown = sum(1 for h in holds if h.get("capped") is True and h["ms"] == OLD_HOLD_ON_CAP_MS)
     thresholds: dict[str, Any] = {}
     for threshold in LETTER_REST_THRESHOLDS_MS:
-        denominator = n if threshold <= OLD_HOLD_ON_CAP_MS else n - unknown
         at_least = sum(1 for h in holds if h["ms"] >= threshold)
+        upper = at_least + (unknown if threshold > OLD_HOLD_ON_CAP_MS else 0)
         thresholds[str(threshold)] = {
             "at_least": at_least,
-            "n": denominator,
-            "share": _share(at_least, denominator),
+            "lower": _share(at_least, n),
+            "upper": _share(upper, n),
         }
     return {"n": n, "unknown_above_600": unknown, "thresholds": thresholds}
 
@@ -678,15 +685,22 @@ def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{100 * x:.1f} %"
 
 
+def _pct_range(lower: float | None, upper: float | None) -> str:
+    return "n/a" if lower is None or upper is None else f"{100 * lower:.1f}-{100 * upper:.1f} %"
+
+
 def _letter_rest_text(lr: dict[str, Any]) -> str:
-    """One aligned line for the double-letters decision, with the old-cap caveat spelled out."""
+    """One aligned line for the double-letters decision, with the old-cap bounds spelled out."""
     last = LETTER_REST_THRESHOLDS_MS[-1]
-    cells = "  ".join(
-        (f">={t} (capped) {_pct(lr['thresholds'][str(t)]['share']):>7}" if t == last
-         else f">={t} {_pct(lr['thresholds'][str(t)]['share']):>7}")
-        for t in LETTER_REST_THRESHOLDS_MS)
+    cells = []
+    for t in LETTER_REST_THRESHOLDS_MS:
+        v = lr["thresholds"][str(t)]
+        label = f">={t}" + (" (capped)" if t == last else "")
+        bounded = lr["unknown_above_600"] and t > OLD_HOLD_ON_CAP_MS
+        share = _pct_range(v["lower"], v["upper"]) if bounded else _pct(v["upper"])
+        cells.append(f"{label} {share}")
     return (f"  {'letter rests':<20} n={lr['n']:<4} "
-            f"old-cap unknown above 600: {lr['unknown_above_600']:<4} {cells}")
+            f"old-cap unknown above 600: {lr['unknown_above_600']:<4} " + "  ".join(cells))
 
 
 def render(m: dict[str, Any]) -> str:

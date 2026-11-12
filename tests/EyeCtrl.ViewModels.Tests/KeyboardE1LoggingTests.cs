@@ -691,6 +691,76 @@ public class KeyboardE1LoggingTests
     }
 
     [Fact]
+    public void HoldOn_ABlinkDoesNotEndARest()
+    {
+        // The keyboard gets no samples during a blink; the rest must survive it (the T1 leave
+        // latch treats the same silence as no leave). 1020 ms inside + a 200 ms silence + 1530 ms
+        // inside = 2750 ms, with the gap counted because the gaze was still on the key after it.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 1000);                          // ~1 s inside
+        rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
+        rig.Hold(c, 1500);                          // ... and back inside, still on the key
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("2750");
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_AGapLongerThanOneSecondEndsTheRestAtTheLastInsideSample()
+    {
+        // No sample arrives during the gap, so the last inside sample is the only evidence and
+        // the rest is cut there: 1020 ms, not the gap's end.
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
+        rig.Ts += 1_200_000;                        // a 1.2 s dropout: over the 1 s survival
+        rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("1020");
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_AfterAShortGapTheNextSampleOutsideTheBoxEndsTheRest()
+    {
+        // The short gap is not itself a leave: the sample after it decides by position, and this
+        // one is on another key, so the rest ends at the last inside sample (1020 ms).
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
+        rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
+        rig.Hold(rig.Positions["key_0_2"], 60);     // the next sample is outside the box
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("1020");
+        Check.That(hold["capped"]).IsEqualTo("False");
+    }
+
+    [Fact]
+    public void HoldOn_TheCappedValueIsExactlyTheCap_EvenWhenASampleOvershootsIt()
+    {
+        // A 10 ms phase shift makes the first sample past the cap land at 3010 ms; only the
+        // Math.Min clamp keeps the reported value at exactly 3000 (the parser's old-cap rule
+        // depends on a capped line carrying the cap itself).
+        using var rig = new Rig();
+        var c = rig.Positions["key_0_0"];
+        rig.Hold(c, DwellMs);                       // fires
+        rig.Ts += 10_000;                           // off the 30 ms cadence's cap boundary
+        rig.Hold(c, 3500);
+
+        var hold = Fields(rig.Log.Of("holdon").Single());
+        Check.That(hold["ms"]).IsEqualTo("3000");
+        Check.That(hold["capped"]).IsEqualTo("True");
+    }
+
+    [Fact]
     public void HoldOn_EndsWhenTheGazeLeavesTheBox()
     {
         using var rig = new Rig();

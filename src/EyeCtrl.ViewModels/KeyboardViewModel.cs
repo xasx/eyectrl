@@ -214,6 +214,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private const int HoldOnCapMs = 3000;
 
+    /// <summary>
+    /// The longest sample silence a hold-on survives. No sample arrives during a blink or a short
+    /// tracker dropout, so the next sample is the only evidence of where the gaze was meanwhile.
+    /// Like the T1 leave latch, a silence this short is NOT a leave: the next sample decides by
+    /// position. A longer gap (a dropout, the hidden interval) ends the rest at the last sample
+    /// that was inside the box.
+    /// </summary>
+    private const int HoldOnMaxGapMs = 1000;
+
     /// <summary>The E1 recorder: the keyboard's content-free event log.</summary>
     public KeyboardE1Recorder E1 { get; private set; }
 
@@ -1042,7 +1051,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         bool isGazeInsideWindow, long timestampUs, long sinceLastSampleUs)
     {
         bool inside;
-        if (!isGazeInsideWindow || sinceLastSampleUs > MaxContinuousSampleGapUs)
+        // A silence is not a leave while it is short: a blink must not end a long rest, exactly as
+        // the T1 leave latch treats the same silence as no leave. The first sample after a short
+        // gap decides by position. A gap longer than HoldOnMaxGapMs ends the rest at the last
+        // sample that was inside the box.
+        if (!isGazeInsideWindow || sinceLastSampleUs > HoldOnMaxGapMs * MathConstants.MicrosecondsPerMillisecond)
             inside = false;
         else if (keyScreenBoxes is not null && keyScreenBoxes.TryGetValue(_holdOnKeyId, out var box))
             inside = box.Contains(gazePoint);

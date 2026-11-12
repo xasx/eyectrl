@@ -9,7 +9,8 @@ using EyeCtrl.Core.Processing;
 /// 250, R 75). One test per engine-level row of the ticket; each names the production one-liner
 /// mutation that turns it red.
 /// <para>
-/// The placement puts B 360 px from P on the diagonal (ring/2 + 55 DIP = 180 DIP at ScaleX 2.0), so
+/// The placement puts B 525 px from P on the diagonal (ring/2 + 137.5 DIP = 262.5 DIP at ScaleX 2.0; 360 px
+/// at the 55 DIP offset before the 7th sitting), and the hit radius is 265 px (200 before), so
 /// the clock arithmetic below is hand-checkable: one 30 ms sample credits 30 ms, the dwell is 700 ms,
 /// the expiry is 1000 ms and the outside-pause budget is 500 ms.
 /// </para>
@@ -21,10 +22,10 @@ public class ActivationOfferEngineTests
     private const double Scale = 2.0;
     private const double RingDip = 250;
     private const double FixationR = 75;
-    private const double OffsetPx = 360;
+    private const double OffsetPx = 525;
     private const long FrameUs = 30_000;
 
-    /// <summary>The shipped placement at this geometry: 360 px diagonally from P, toward the centre.</summary>
+    /// <summary>The shipped placement at this geometry: 525 px diagonally from P, toward the centre.</summary>
     private static PhysicalPoint B => new(
         P.X + (OffsetPx / Math.Sqrt(2)), P.Y + (OffsetPx / Math.Sqrt(2)));
 
@@ -32,27 +33,28 @@ public class ActivationOfferEngineTests
         => new(Screen, Scale, RingDip, dwellMs, FixationR);
 
     /// <summary>A point <paramref name="distancePx"/> from B, on the P→B line (toward P when shorter
-    /// than the 360 px offset, away from P when longer).</summary>
+    /// than the 525 px offset, away from P when longer).</summary>
     private static PhysicalPoint PointAtDistanceFromB(double distancePx)
     {
         var b = B;
         double unitX = (b.X - P.X) / OffsetPx;
         double unitY = (b.Y - P.Y) / OffsetPx;
-        // Toward P: B - d·unit. Past B: B + (d-360)·unit, i.e. still d from B along the line.
+        // Toward P: B - d·unit. Past B: B + (d-525)·unit, i.e. still d from B along the line.
         double signed = OffsetPx - distancePx;   // 0 at B; negative past B
         return new PhysicalPoint(P.X + (signed * unitX), P.Y + (signed * unitY));
     }
 
     /// <summary>
-    /// A point on P's side of the no-move zone: 150 px from P toward B, so 210 px from B — outside the
-    /// 150 px hit area, inside the 225 px zone, and nearer P than B (the swallowed-settle band).
+    /// A point on P's side of the no-move zone: 200 px from P toward B, so 325 px from B — outside the
+    /// 265 px hit area, inside the 340 px zone, and nearer P than B (the swallowed-settle band). (150 px from
+    /// P before the 7th sitting's 525 px offset: that is now 375 px from B, outside the zone.)
     /// </summary>
     private static PhysicalPoint PsidePoint()
     {
         var b = B;
         double unitX = (b.X - P.X) / OffsetPx;
         double unitY = (b.Y - P.Y) / OffsetPx;
-        return new PhysicalPoint(P.X + (150 * unitX), P.Y + (150 * unitY));
+        return new PhysicalPoint(P.X + (200 * unitX), P.Y + (200 * unitY));
     }
 
     private static void Feed(ActivationOfferEngine engine, PhysicalPoint point, long fromUs, int samples)
@@ -82,8 +84,9 @@ public class ActivationOfferEngineTests
         var offer = engine.CurrentOffer!;
         Check.That(offer).IsNotNull();
         Check.That(offer.Point).IsEqualTo(P);
-        Check.That(offer.Button.X).IsCloseTo(P.X + 254.558, 1e-3);
-        Check.That(offer.Button.Y).IsCloseTo(P.Y + 254.558, 1e-3);
+        // 525 / √2 per axis (254.558 at the old 360 px offset).
+        Check.That(offer.Button.X).IsCloseTo(P.X + 371.231, 1e-3);
+        Check.That(offer.Button.Y).IsCloseTo(P.Y + 371.231, 1e-3);
         Check.That(offer.HitRadiusPx).IsEqualTo(LayoutConstants.ActivationButtonHitRadiusPx);
         Check.That(offer.ExpiresAtUs).IsEqualTo(1_000_000);
         Check.That(engine.IsFired).IsFalse();
@@ -137,9 +140,12 @@ public class ActivationOfferEngineTests
         var offer = engine.CurrentOffer!;
         Check.That(offer.ExpiresAtUs).IsEqualTo(1_000_000);
 
-        var nearMiss = PointAtDistanceFromB(160);   // outside the 150 hit area, nearer B than P
-        Check.That(nearMiss.DistanceTo(offer.Button)).IsCloseTo(160, 1e-6);
-        Check.That(nearMiss.DistanceTo(P)).IsCloseTo(200, 1e-6);
+        // Past B on the line: outside the 265 hit area, inside the 340 zone, nearer B than P. (At the
+        // 265-px hit no point toward P is both outside the hit and nearer B: 525 / 2 = 262.5 < 265.)
+        // 300 px since the 7th sitting's hit 265 (was 220 at hit 200).
+        var nearMiss = PointAtDistanceFromB(-300);
+        Check.That(nearMiss.DistanceTo(offer.Button)).IsCloseTo(300, 1e-6);
+        Check.That(nearMiss.DistanceTo(P)).IsCloseTo(825, 1e-6);
 
         engine.NotifyFixationSettled(nearMiss, 500_000);
         Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);            // never replaced
@@ -298,20 +304,21 @@ public class ActivationOfferEngineTests
     [Fact]
     public void HitRadius_IsThePhysicalConstant_NotTheSharedButtonRadius()
     {
-        // Mutation: use SharedButtonRadius (50 DIP → 100 px) as the hit radius → the 149 px sample
-        // falls outside and the dwell never progresses, red.
+        // Mutation: use SharedButtonRadius (50 DIP → 100 px) as the hit radius → the 264 px sample
+        // falls outside and the dwell never progresses, red. 200 px since F2 (5th sitting, Q-hit = a);
+        // 265 px since the 7th sitting (the owner's option B, with the farther offer).
         var engine = NewEngine();
         engine.NotifyFixationSettled(P, 0);
-        Check.That(engine.CurrentOffer!.HitRadiusPx).IsEqualTo(150.0);
-        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(150.0);
+        Check.That(engine.CurrentOffer!.HitRadiusPx).IsEqualTo(265.0);
+        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(265.0);
         Check.That(LayoutConstants.SharedButtonRadius).IsEqualTo(50.0);
 
-        engine.Update(PointAtDistanceFromB(149), FrameUs, isValid: true);
+        engine.Update(PointAtDistanceFromB(264), FrameUs, isValid: true);
         Check.That(engine.DwellProgress).IsStrictlyGreaterThan(0.0);
 
         double credited = engine.DwellProgress;
-        engine.Update(PointAtDistanceFromB(151), 2 * FrameUs, isValid: true);
-        Check.That(engine.DwellProgress).IsEqualTo(credited);   // 151 px: outside, no credit
+        engine.Update(PointAtDistanceFromB(266), 2 * FrameUs, isValid: true);
+        Check.That(engine.DwellProgress).IsEqualTo(credited);   // 266 px: outside, no credit
     }
 
     // ── Expiry ───────────────────────────────────────────────────────────────
@@ -459,11 +466,12 @@ public class ActivationOfferEngineTests
         engine.NotifyFixationSettled(P, 0);
         var offer = engine.CurrentOffer!;
 
-        engine.FixationRadiusPx = 150;   // the zone grows from 225 to 300 around B
+        engine.FixationRadiusPx = 150;   // the zone grows from 340 to 415 around B (hit 265)
         Check.That(engine.FixationRadiusPx).IsEqualTo(150.0);
 
-        // 280 px from B, 80 px from P: outside the R75 zone, inside the R150 one, on P's side.
-        var wideZonePoint = PointAtDistanceFromB(280);
+        // 380 px from B, 145 px from P: outside the R75 zone, inside the R150 one, on P's side (was 280
+        // from B at the 360 px offset and hit 200).
+        var wideZonePoint = PointAtDistanceFromB(380);
         engine.NotifyFixationSettled(wideZonePoint, 100_000);
 
         Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);   // kept, not replaced
@@ -646,13 +654,15 @@ public class ActivationOfferEngineTests
         engine.NotifyFixationSettled(new PhysicalPoint(1000, 100), 0);
         Check.That(engine.CurrentOffer).IsNull();
 
-        // P outside every zone, but both placement sides land in one: P=(320,320) puts the preferred B
-        // at ~(574.56, 574.56) and the flipped one at (150,150) after the clamp.
+        // P outside every zone, but both placement sides land in one: P=(700,700) puts the preferred B
+        // at ~(1071.23, 1071.23) and the flipped one at ~(328.77, 328.77), unclamped and 525 px from P,
+        // so only the chrome can refuse it. (Moved from (320,320) at the 525 px offset: there the flip
+        // clamps to (265,265), inside hit + R, and the distance rule alone would refuse it.)
         engine.SetChromeZones(
-            new PhysicalRect(424.56, 424.56, 300, 300),
-            new PhysicalRect(0, 0, 300, 300));
+            new PhysicalRect(921.23, 921.23, 300, 300),
+            new PhysicalRect(178.77, 178.77, 300, 300));
 
-        engine.NotifyFixationSettled(new PhysicalPoint(320, 320), 100_000);
+        engine.NotifyFixationSettled(new PhysicalPoint(700, 700), 100_000);
         Check.That(engine.CurrentOffer).IsNull();
     }
 

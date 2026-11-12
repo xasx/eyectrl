@@ -23,25 +23,35 @@ public static class LayoutConstants
     /// Distance in logical pixels (DIP) from the cursor circle edge to the centre of the activation
     /// offer — the Euclidean gap, so the diagonal placement divides it into 1/√2 per axis. Moved here
     /// from <c>UIConstants</c> (ticket 7, re-check N9) so the Core placement function owns it; the only
-    /// production reader was a test, and <c>UIConstants</c> keeps an <c>int</c> alias.
+    /// production reader was a test. (<c>UIConstants</c> kept an <c>int</c> alias until the 7th sitting;
+    /// it was dropped when the value became 137.5.)
     ///
-    /// 55 DIP, as shipped: at the user's ring size 250 it puts the offer 180 DIP — 360 px at ScaleX 2.0 —
-    /// from the settle point.
+    /// 137.5 DIP since the 7th sitting (2026-11-12, the owner's option B; was 55): at the owner's ring size
+    /// 200 it puts the offer 237.5 DIP — 475 px at ScaleX 2.0 — from the settle point, 165 px farther than
+    /// before and the distance the sitting's replay measured. At 55 the button sat on the lines read next,
+    /// and one ordinary reading fixation there filled it. The drawn disc (50 DIP radius) now clears the
+    /// ring line by 87.5 DIP. Below the placement floor (hit + R + 30 px, e.g. at ScaleX 1.0) the floor
+    /// places the offer instead.
     /// </summary>
-    public const double ActivationButtonOffset = 55.0;
+    public const double ActivationButtonOffset = 137.5;
 
     /// <summary>
     /// Radius of the activation offer's dwell target in PHYSICAL pixels, never DPI-converted
-    /// (re-check N4). 150 px is the user's choice after the measured corner bias (75–130 px): the old
+    /// (re-check N4). 150 px was the user's choice after the measured corner bias (75–130 px): the old
     /// 100 px target (a 50 DIP <see cref="SharedButtonRadius"/>) let a biased near miss fall outside it,
-    /// and the offer would then move away from the attempt.
+    /// and the offer would then move away from the attempt. 200 px since the 5th sitting (2026-11-09,
+    /// owner answer Q-hit = a): the owner looks AT the round button, and the reported gaze landed
+    /// 150–230 px from its centre, just outside the old hit area. 265 px since the 7th sitting
+    /// (2026-11-12, the owner's option B, with the 475 px offer): grown with the farther offer so a look
+    /// that lands farther off still counts. The drawn disc stays 100 DIP; it is not sized from this
+    /// radius.
     /// <para>
     /// This is deliberately its own constant: <see cref="SharedButtonRadius"/> sizes about ten other
     /// buttons and must not move with this one. Do not derive it through a logical-to-physical
     /// conversion — bias and R live in physical pixels.
     /// </para>
     /// </summary>
-    public const double ActivationButtonHitRadiusPx = 150.0;
+    public const double ActivationButtonHitRadiusPx = 265.0;
 
     /// <summary>
     /// Radius of action menu buttons in logical pixels.

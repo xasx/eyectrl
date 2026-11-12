@@ -542,12 +542,20 @@ internal sealed class DragCoordinator : CoordinatorBase
             "Drag: end cause=drop trigger={Trigger} magnet={Magnet} raw=({RawX:F0}, {RawY:F0}) "
             + "clamped=({ClampedX:F0}, {ClampedY:F0}) final=({FinalX:F0}, {FinalY:F0}) "
             + "disc=({DiscX:F0}, {DiscY:F0}) r={DiscRadius:F0} rest={RestCount} withheld={Withheld} "
-            + "exitEntries={ExitEntries}",
+            + "exitEntries={ExitEntries} armedBy={ArmedBy} armMs={ArmMs}",
             KebabCase(d.Trigger.ToString()), KebabCase(d.Magnet.ToString()),
             d.RawPoint.X, d.RawPoint.Y, d.ClampedPoint.X, d.ClampedPoint.Y, final.X, final.Y,
             d.DiscCenter.X, d.DiscCenter.Y, d.DiscRadiusPhysical,
-            d.RestCount, d.RestWithheldCount, d.ExitZoneEntries);
+            d.RestCount, d.RestWithheldCount, d.ExitZoneEntries,
+            ArmedByName(d.ArmedBy), ArmMsText(d.ArmMs));
     }
+
+    /// <summary>The log vocabulary for what armed the drop: <c>never</c>, <c>distance</c>, <c>time</c>.</summary>
+    internal static string ArmedByName(DragArmedBy armedBy) => KebabCase(armedBy.ToString());
+
+    /// <summary>The arming time in whole ms, or <c>-</c> when the drop never armed.</summary>
+    private static string ArmMsText(long? armMs) =>
+        armMs is { } ms ? ms.ToString(System.Globalization.CultureInfo.InvariantCulture) : "-";
 
     /// <summary>
     /// S8 B11: the cancel's one end line — the cause, the grab origin (where the button is
@@ -558,10 +566,13 @@ internal sealed class DragCoordinator : CoordinatorBase
         if (!_dragEndPending) return;
         _dragEndPending = false;
 
+        var trail = Context?.DragTrailVM;
         Log.Information(
-            "Drag: end cause={Cause} origin=({OriginX:F0}, {OriginY:F0}) exitEntries={ExitEntries}",
+            "Drag: end cause={Cause} origin=({OriginX:F0}, {OriginY:F0}) exitEntries={ExitEntries} "
+            + "armedBy={ArmedBy} armMs={ArmMs}",
             CauseName(reason), _dragGrabOrigin.X, _dragGrabOrigin.Y,
-            Context?.DragTrailVM.ExitZoneEntries ?? 0);
+            trail?.ExitZoneEntries ?? 0,
+            ArmedByName(trail?.ArmedBy ?? DragArmedBy.Never), ArmMsText(trail?.ArmMs));
     }
 
     /// <summary>

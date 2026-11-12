@@ -12,7 +12,7 @@ using EyeCtrl.Core.Tests.Flow;
 /// instead of refused, so the activation button appears in the corners; beyond T it is still
 /// refused, the docked toolbar's summon band never clamps, and the ring stays pinned at the RAW P.
 /// The harness drives the real <see cref="GazeEngine"/> at the investigation's geometry
-/// (3840×2400 @2, ring 200, hit 150, R 80).
+/// (3840×2400 @2, ring 200, R 80), with the engine's shipped hit radius (265 px since the 7th sitting).
 /// </summary>
 public class ActivationOfferCornerClampTests
 {
@@ -45,6 +45,8 @@ public class ActivationOfferCornerClampTests
             settings.Dwell.FixationRadiusPixels = 80;
             settings.Dwell.FixationDetectionMs = 300;
             settings.Dwell.ActivationButtonDwellMs = 700;
+            // Pinned at the settle (500 = no show delay); round button B3's delay has its own tests.
+            settings.Dwell.OfferShowAfterMs = 500;
             settings.SelectionMode = SelectionMode.ManualSelection;
             Engine = new GazeEngine(Provider, Input, settings);
             Engine.ConfigureActivationOffers(Screen, scale: 2.0);
@@ -93,8 +95,8 @@ public class ActivationOfferCornerClampTests
         double rawX, double rawY, double expectedX, double expectedY)
     {
         // F1 (the fix): P up to T px past the edge is clamped to the screen; P′ is the offer's Point,
-        // it feeds the placement (|B-P′| = 310), and the completion lands on it. The ring keeps the
-        // RAW P. Mutant: drop the clamp (refuse every off-screen P again) → no offer, red.
+        // it feeds the placement (|B-P′| = 475 since the 7th sitting's 137.5 DIP offset; was 310), and the
+        // completion lands on it. The ring keeps the RAW P. Mutant: drop the clamp (refuse every off-screen P again) → no offer, red.
         using var h = new Harness();
         var raw = new PhysicalPoint(rawX, rawY);
         var expected = new PhysicalPoint(expectedX, expectedY);
@@ -104,7 +106,7 @@ public class ActivationOfferCornerClampTests
         var offer = h.Im.ActivationOffers?.CurrentOffer;
         Check.WithCustomMessage($"no offer for the clamped settle at ({rawX},{rawY})").That(offer).IsNotNull();
         Check.That(offer!.Point).IsEqualTo(expected);
-        Check.That(offer.Button.DistanceTo(expected)).IsCloseTo(310.0, 0.5);
+        Check.That(offer.Button.DistanceTo(expected)).IsCloseTo(475.0, 0.5);
 
         // The ring pin is unchanged: it stays at the raw settle point.
         Check.WithCustomMessage("the ring pin moved off the raw P").That(h.PinPoints).ContainsExactly(raw);

@@ -346,6 +346,10 @@
     "text": "Sprache / Language",
     "src": "49ec8cf6"
   },
+  "overlays.activationButton.name": {
+    "text": "Aktionsmenü",
+    "src": "11df39ca"
+  },
   "overlays.adaptationPreview.direction.atBaseline": {
     "text": "am Ausgangswert",
     "src": "32334352"
@@ -1829,6 +1833,14 @@
   "settings.dwell.activation.label": {
     "text": "Aktivator (ms)",
     "src": "3f69be87"
+  },
+  "settings.dwell.activation_show_after.description": {
+    "text": "Wie lange Sie auf eine Stelle schauen, bevor der Aktivator erscheint.",
+    "src": "03aeb2d9"
+  },
+  "settings.dwell.activation_show_after.label": {
+    "text": "Aktivator erscheint nach (ms)",
+    "src": "3887e935"
   },
   "settings.dwell.cooldown.description": {
     "text": "Wie lange ein neues Verweilen nach einer Auslösung warten muss.",

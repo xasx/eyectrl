@@ -264,6 +264,7 @@ public class ManualSelectionRecaptureTests
             public void Hide() { }
             public void HideImmediate() { }
             public void UpdateDwellProgress(double progress) { }
+            public void SetFillPaused(bool paused) { }
         }
     }
 }

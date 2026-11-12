@@ -156,6 +156,17 @@ public class ContainerRatioCensusTests
                     + "neighbours take Solo; the ring's preview path restates the same value in "
                     + "ActionMenuRingPainter)."),
             ],
+            // F1: the activation button's one sign, with no word under it. It is now the face's
+            // whole content, so it takes the label-less ratio (Solo, 0.58 -> 58 DIP); the board's
+            // little ring menu draws ~56 DIP tall on the 100 DIP disc. The two reads are the
+            // canvas Width and Height.
+            ["src/EyeCtrl.Controls/ActivationButtonFace.cs"] =
+            [
+                ("Solo", 2, "the one sign in the activation button's own face (F1): a label-less "
+                    + "disc, so the sign is its whole content. Solo (0.58 -> 58 DIP) draws the "
+                    + "owner's ring-menu board ~56 DIP tall; the two reads are the canvas Width "
+                    + "and Height."),
+            ],
         };
 
     [Fact]

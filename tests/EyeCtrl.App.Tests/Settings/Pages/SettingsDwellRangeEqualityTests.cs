@@ -41,7 +41,7 @@ public class SettingsDwellRangeEqualityTests
 
     public static TheoryData<string> Cases() => new()
     {
-        "d_fix", "d_act", "d_menu", "d_ManualSelection", "d_tool", "d_key", "d_pred", "d_rad",
+        "d_fix", "d_act", "d_act_show", "d_menu", "d_ManualSelection", "d_tool", "d_key", "d_pred", "d_rad",
         "d_cooldown", "d_resume", "d_manual_side", "av_drag_release", "av_drag_right_edge",
         "av_scroll_stop", "av_backdrop_hide", "av_repeat_stop", "ec_banner_dwell",
         "g_restart_notice",
@@ -70,6 +70,8 @@ public class SettingsDwellRangeEqualityTests
         "d_cooldown" => new("Dwell", id, 100, 5000,
             s => s.Dwell.DwellCooldownMs, (s, v) => s.Dwell.DwellCooldownMs = (int)v),
         // NEW rows.
+        "d_act_show" => new("Dwell", id, 500, 2500,
+            s => s.Dwell.OfferShowAfterMs, (s, v) => s.Dwell.OfferShowAfterMs = (int)v),
         "d_resume" => new("Dwell", id, 500, 3000,
             s => s.Dwell.ResumeDwellMs, (s, v) => s.Dwell.ResumeDwellMs = (int)v),
         "d_manual_side" => new("Dwell", id, 200, 2000,

@@ -27,8 +27,8 @@ public class CursorCircleViewModelHybridTests
         public List<RingReleaseEvent> Releases { get; } = new();
         public List<RingHoldStartEvent> Holds { get; } = new();
         public List<RingHoldEndEvent> HoldEnds { get; } = new();
-        public List<RingGoStartEvent> GoStarts { get; } = new();
-        public List<RingGoEndEvent> GoEnds { get; } = new();
+        public List<RingStayStartEvent> StayStarts { get; } = new();
+        public List<RingStayEndEvent> StayEnds { get; } = new();
 
         private long _us;
 
@@ -42,8 +42,8 @@ public class CursorCircleViewModelHybridTests
             Vm.RingReleased += e => Releases.Add(e);
             Vm.RingHoldStarted += e => Holds.Add(e);
             Vm.RingHoldEnded += e => HoldEnds.Add(e);
-            Vm.RingGoStarted += e => GoStarts.Add(e);
-            Vm.RingGoEnded += e => GoEnds.Add(e);
+            Vm.RingStayStarted += e => StayStarts.Add(e);
+            Vm.RingStayEnded += e => StayEnds.Add(e);
         }
 
         public void Frame(PhysicalPoint position, int steps = 1)
@@ -88,11 +88,12 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Hybrid_ApproachKeep_HoldsWhereThePinWas_ThenReleasesAfterTheGrace()
+    public void Hybrid_Stay_KeepsThePinThroughTheButtonVisit_ThenReleasesAfterTheGraceOutsideTheZone()
     {
         // The run ends while the landing gaze sits inside the offer's no-move zone (hit 150 + R 80)
-        // but outside the hit area: the pin is kept for up to 150 ms, and when the eye crosses into
-        // the hit area the hold begins with the ring still where it was pinned.
+        // but outside the hit area: the pin STAYS, the eye's entry into the hit area changes nothing
+        // (no hold), a slip back to the zone's edge changes nothing, and only 500 ms clearly outside the
+        // zone lets the ring follow.
         var rig = new Rig();
         var b = new PhysicalPoint(1400, 1000);
         rig.PinAt(P);
@@ -101,33 +102,30 @@ public class CursorCircleViewModelHybridTests
         rig.RunEnds();
         rig.Frame(new PhysicalPoint(1200, 1000));                 // 200 px from B: in the zone, not in the hit
 
-        Check.That(rig.Holds).IsEmpty();                          // approaching, not holding yet
+        Check.That(rig.StayStarts).HasSize(1);
         Check.That(rig.Vm.IsPinned).IsTrue();
         Check.That(rig.Vm.Position).IsEqualTo(P);                 // still at the pin
 
-        rig.State(InteractionState.Fixation);                     // the next run forms under the approach
-        // (a settle during the keep ends it and pins: pinned by Go_G9 below)
-
+        rig.State(InteractionState.Fixation);                     // the next run forms under the stay
         rig.Frame(new PhysicalPoint(1300, 1000));                 // 100 px from B: into the hit area
-
-        Check.That(rig.Holds).HasSize(1);
-        Check.That(rig.Holds[0].Kind).IsEqualTo(RingHoldStartKind.Approach);
-        Check.That(rig.Vm.Position).IsEqualTo(P);                 // the ring stays where it was pinned
-
         rig.Frame(new PhysicalPoint(1320, 1010), steps: 3);       // the eye dwells on the button...
-        Check.That(rig.Vm.Position).IsEqualTo(P);                 // ...and the ring does not follow
+        rig.Frame(new PhysicalPoint(1200, 1000), steps: 30);      // ...and on the zone's edge for 900 ms
 
-        rig.Frame(new PhysicalPoint(1200, 1000), steps: 10);      // 300 ms outside: within the grace
-        Check.That(rig.HoldEnds).IsEmpty();
+        Check.That(rig.Holds).IsEmpty();
+        Check.That(rig.StayEnds).IsEmpty();
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(P);                 // the ring never left the word
 
-        rig.Frame(new PhysicalPoint(1200, 1000), steps: 20);      // past 500 ms outside in total
+        rig.Frame(new PhysicalPoint(900, 1300), steps: 17);       // clearly elsewhere: t0 .. t0 + 480 ms
+        Check.That(rig.StayEnds).IsEmpty();
 
-        Check.That(rig.HoldEnds).HasSize(1);
-        Check.That(rig.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.Left);
-        Check.That(rig.HoldEnds[0].HeldMs).IsStrictlyGreaterThan(500);
-        Check.That(rig.Releases[^1].Cause).IsEqualTo(RingReleaseCause.HoldEnd);
+        rig.Frame(new PhysicalPoint(900, 1300));                  // t0 + 510 ms
+
+        Check.That(rig.StayEnds).HasSize(1);
+        Check.That(rig.StayEnds[0].Reason).IsEqualTo(RingStayEndReason.Left);
+        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
         Check.That(rig.Vm.IsPinned).IsFalse();
-        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(1200, 1000));   // snapped to the gaze
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(900, 1300));   // snapped to the gaze
     }
 
     [Fact]
@@ -386,48 +384,45 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Hybrid_ApproachWindow_LeavingTheZoneOrExpiring_Releases()
+    public void Hybrid_Stay_LeavingTheZone_ReleasesOnlyAfterTheGrace_AndStayingInsideNeverExpires()
     {
-        // The approach is a T = 500 ms window: leaving the going-for-it space (here the no-move zone
-        // only, the show message carries no P), or running the window out without entering the hit
-        // area, performs the deferred run-end release. Mutant: ignore the window (release immediately,
-        // or never expire) → the corresponding half reds.
-        var rig = new Rig();
+        // The stay has no time limit while the gaze is in the zone (here the no-move zone only, the
+        // show message carries no P), and a step out of the zone starts the grace instead of releasing
+        // at once. Mutants M3 (G = 0) and M4 (a time limit T restored) → the corresponding half reds.
         var b = new PhysicalPoint(1400, 1000);
+        var rig = new Rig();
         rig.PinAt(P);
         rig.Offer(b, hitRadiusPx: 150);
         rig.RunEnds();
-        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: approach starts
+        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the stay starts
 
-        rig.Frame(new PhysicalPoint(1000, 1000));                 // back out of the zone (400 px from B)
+        rig.Frame(new PhysicalPoint(1000, 1000));                 // out of the zone (400 px from B)
 
-        Check.That(rig.Releases).HasSize(1);
-        Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        rig.Frame(new PhysicalPoint(1000, 1000), steps: 17);      // the first outside sample + 510 ms
+
+        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
         Check.That(rig.Vm.IsPinned).IsFalse();
         Check.That(rig.Holds).IsEmpty();
 
-        // Staying inside the zone does not extend the window past 500 ms.
+        // Staying inside the zone keeps the pin far past the old 500 ms window.
         var rig2 = new Rig();
         rig2.PinAt(P);
         rig2.Offer(b, hitRadiusPx: 150);
         rig2.RunEnds();
-        rig2.Frame(new PhysicalPoint(1200, 1000));                // t0: the approach starts
-        rig2.Frame(new PhysicalPoint(1200, 1000), steps: 16);     // t0 + 480 ms: still kept
+        rig2.Frame(new PhysicalPoint(1200, 1000), steps: 40);     // 1.2 s on the zone's edge
         Check.That(rig2.Releases).IsEmpty();
         Check.That(rig2.Vm.IsPinned).IsTrue();
-
-        rig2.Frame(new PhysicalPoint(1200, 1000));                // t0 + 510 ms: the window ran out
-
-        Check.That(rig2.Releases).HasSize(1);
-        Check.That(rig2.Vm.IsPinned).IsFalse();
-        Check.That(rig2.Holds).IsEmpty();
+        Check.That(rig2.Vm.Position).IsEqualTo(P);
     }
 
     [Fact]
-    public void Hybrid_PendingLandingOnTheButton_KeepsThePin()
+    public void Hybrid_PendingLandingOnTheButton_StaysAtThePin()
     {
-        // The approach's other landing: the eye reaches the hit area on the very cursor that resolves
-        // the pending run-end. The hold begins with the ring right where it was pinned.
+        // The eye reaches the hit area on the very cursor that resolves the pending run-end: the stay
+        // begins with the ring right where it was pinned (no hold: the stay covers the button too).
         var rig = new Rig();
         var b = new PhysicalPoint(1400, 1000);
         rig.PinAt(P);
@@ -436,30 +431,28 @@ public class CursorCircleViewModelHybridTests
 
         rig.Frame(new PhysicalPoint(1300, 1000));                 // 100 px from B: inside the hit area
 
-        Check.That(rig.Holds).HasSize(1);
-        Check.That(rig.Holds[0].Kind).IsEqualTo(RingHoldStartKind.Keep);
+        Check.That(rig.StayStarts).HasSize(1);
+        Check.That(rig.Holds).IsEmpty();
         Check.That(rig.Vm.IsPinned).IsTrue();
         Check.That(rig.Vm.Position).IsEqualTo(P);
     }
 
     [Fact]
-    public void Hybrid_OfferCloseDuringTheApproach_Releases()
+    public void Hybrid_OfferCloseDuringTheStay_Releases()
     {
-        // X5 (fixup 01): the offer can close inside the 150 ms approach window (a teardown); the
-        // deferred run-end release must happen then, not wait for the window's expiry. Mutant:
-        // drop the approach-clear branch in Receive(HideActivationButtonMessage) → no release.
+        // X5 (fixup 01), now for the stay: the offer closes (a fire, an expiry, a teardown); the
+        // deferred run-end release happens then. Mutant M8: the stay ignores the Hide → no release.
         var rig = new Rig();
         var b = new PhysicalPoint(1400, 1000);
         rig.PinAt(P);
         rig.Offer(b, hitRadiusPx: 150);
         rig.RunEnds();
-        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the approach starts
+        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the stay starts
 
         rig.OfferCloses();
 
-        Check.That(rig.Holds).IsEmpty();
-        Check.That(rig.Releases).HasSize(1);
-        Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.OfferClosed);
+        Check.That(rig.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.OfferClosed);
+        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.OfferClosed);
         Check.That(rig.Vm.IsPinned).IsFalse();
         Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(1200, 1000));
     }
@@ -514,21 +507,20 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Hybrid_ExternalDwellHide_ReleasesAnApproachingPin()
+    public void Hybrid_ExternalDwellHide_ReleasesAStayingPin()
     {
-        // The F2c survivor (fixup 02): the same hide must cover the APPROACH window too — a run end
-        // inside the keep zone with the eye not yet in the hit area. Until the fixup-01 release this
-        // strand was invisible to both the holding and the pending tests. Same probe sequence.
+        // The F2c survivor (fixup 02), now for the stay: the same hide must cover a run end inside the
+        // stay zone with the eye not in the hit area. Same probe sequence.
         var rig = new Rig();
         var b = new PhysicalPoint(1400, 1000);
         rig.PinAt(P);
         rig.Offer(b, hitRadiusPx: 150);
         rig.RunEnds();
-        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the approach is active
+        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the stay is active
 
-        // The arrangement guard: the approach really was pending when the hide arrived — no hold, no
-        // release yet, and the pin still up.
-        Check.That(rig.Holds).IsEmpty();
+        // The arrangement guard: the stay really was on when the hide arrived — no hold, no release
+        // yet, and the pin still up.
+        Check.That(rig.StayStarts).HasSize(1);
         Check.That(rig.Releases).IsEmpty();
         Check.That(rig.Vm.IsPinned).IsTrue();
 
@@ -537,6 +529,7 @@ public class CursorCircleViewModelHybridTests
         rig.ExternalDwell(active: false);
         rig.Frame(new PhysicalPoint(2000, 1500), steps: 10);
 
+        Check.That(rig.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Hidden);
         Check.That(rig.Releases).HasSize(1);
         Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
         Check.That(rig.Vm.IsPinned).IsFalse();
@@ -671,8 +664,313 @@ public class CursorCircleViewModelHybridTests
         }
     }
 
-    // ── The going-for-it keep (T = 500 ms, the P-B corridor of half-width 1.25 R) ──────────────────
-    // P = (1000,1000), B = (1400,1000): 400 px apart on a horizontal axis; hit 150, R 80 (zone 230).
+    // ── The stay zone (F2, 5th sitting 2026-11-09, owner option A) ─────────────────────────────────
+    // The 5th sitting's geometry (the VM is parametric: the hit and R come in the show message, so these
+    // tests hold at any placement): hit 200, R 80, so B's no-move zone is 280 px; P = (1000,1000),
+    // B = (1310,1000): |B-P| = 310. The shipped geometry since the 7th sitting is hit 265 and |B-P| = 475.
+
+    private const double OwnerHit = 200;
+    private static readonly PhysicalPoint OwnerB = new(1310, 1000);
+
+    /// <summary>A pinned ring at P, a live offer at the owner's geometry, the run ended, and the gaze
+    /// resolving the pending release at <paramref name="landing"/> (the stay starts there when it is in Z).</summary>
+    private static Rig OwnerStay(PhysicalPoint landing, double? fixationRadiusPx = R)
+    {
+        var rig = new Rig();
+        rig.PinAt(P);
+        rig.OfferAt(OwnerB, OwnerHit, P, fixationRadiusPx);
+        rig.RunEnds();
+        rig.Frame(landing);
+        return rig;
+    }
+
+    private static PhysicalPoint Below(PhysicalPoint b, double dist) => new(b.X, b.Y + dist);
+
+    [Fact]
+    public void Stay_S1_OnTheButton_ThenOnItsRim_TheRingStaysOnTheWord()
+    {
+        // Report test 1 + 2: the eye on B (5 samples, or only 2: the old proven/unproven split), then on
+        // the rim 240 px from B (outside the 200-px hit, inside the 280-px zone) for 600 ms. Today:
+        // `HoldEnd Left` / `Unproven` and a snap onto the button. Mutant M1 (the stay keyed back to the
+        // hit radius) → released after 500 ms on the rim.
+        foreach (int onB in new[] { 5, 2 })
+        {
+            var rig = OwnerStay(OwnerB);
+            rig.Frame(OwnerB, steps: onB - 1);
+            rig.Frame(Below(OwnerB, 240), steps: 20);
+
+            Check.WithCustomMessage($"{onB} samples on B").That(rig.Releases).IsEmpty();
+            Check.That(rig.StayEnds).IsEmpty();
+            Check.That(rig.Holds).IsEmpty();
+            Check.That(rig.Vm.IsPinned).IsTrue();
+            Check.That(rig.Vm.Position).IsEqualTo(P);
+        }
+    }
+
+    [Fact]
+    public void Stay_S3_ANearMissSettleDuringTheStay_IsRefused_AndTheStayGoesOn()
+    {
+        // Report test 3: a settle 250 px below B (in the zone, much nearer B than P) during the stay.
+        // Today: the keep ends `Settled` and the ring follows. Mutant M5 (a near-miss settle releases
+        // again) → a release, the ring at the gaze.
+        var nearMiss = Below(OwnerB, 250);
+        var rig = OwnerStay(nearMiss);
+        rig.Frame(nearMiss, steps: 15);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(nearMiss);
+        rig.Frame(nearMiss, steps: 10);
+
+        Check.That(rig.Pins[^1].Applied).IsFalse();
+        Check.That(rig.Pins[^1].IgnoredNearOffer).IsTrue();
+        Check.That(rig.StayEnds).IsEmpty();
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+        Check.That(rig.Vm.Position).IsEqualTo(P);
+    }
+
+    [Fact]
+    public void Stay_S4_ARunEndInTheZone_NeverInTheHit_StaysPastTheOldTimeLimit()
+    {
+        // Report test 4: the run ends with the gaze 250 px from B (in the zone, never in the hit) and
+        // it stays there 700 ms. Today: the keep times out at T = 500 ms and snaps. Mutant M4 (T
+        // restored) → released at 500 ms.
+        var rim = Below(OwnerB, 250);
+        var rig = OwnerStay(rim);
+        rig.Frame(rim, steps: 23);                                // 720 ms
+
+        Check.That(rig.StayStarts).HasSize(1);
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(P);
+    }
+
+    [Fact]
+    public void Stay_S5_ClearlyOutsideTheZone_ReleasesAtTheGrace_NotBefore()
+    {
+        // Report test 5: during the stay the gaze goes 400 px off the corridor (and far from B). With the
+        // first outside sample at t0, a frame at t0 + 499.999 ms still stays, one at t0 + 500 ms releases
+        // onto the gaze. Today the keep's `Left` releases on the first outside frame. Mutants M3 (G = 0)
+        // and `>=` → `>`.
+        var away = new PhysicalPoint(1150, 1400);                 // 400 px off the P-B axis, 431 from B
+        foreach (var (gapUs, releases) in new[] { (469_999L, false), (470_000L, true) })
+        {
+            var rig = OwnerStay(OwnerB);
+            rig.Frame(away);                                      // t0
+            Check.That(rig.Releases).IsEmpty();
+            rig.Gap(gapUs);                                       // the next frame lands at t0 + gap + 30 ms
+            rig.Frame(away);
+
+            Check.WithCustomMessage($"gap {gapUs} us").That(rig.Releases.Count).IsEqualTo(releases ? 1 : 0);
+            Check.WithCustomMessage($"gap {gapUs} us").That(rig.Vm.IsPinned).IsEqualTo(!releases);
+            if (releases)
+            {
+                Check.That(rig.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Left);
+                Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
+                Check.That(rig.Vm.Position).IsEqualTo(away);
+            }
+        }
+    }
+
+    [Fact]
+    public void Stay_S6_ABriefExcursion_ResetsTheGrace()
+    {
+        // 300 ms clearly outside, back into the zone for one sample, 300 ms outside again: never 500 ms
+        // outside in one stretch, so the ring stays. Mutant: the outside timer not reset in the zone.
+        var away = new PhysicalPoint(1150, 1400);
+        var rig = OwnerStay(OwnerB);
+        rig.Frame(away, steps: 10);
+        rig.Frame(OwnerB);
+        rig.Frame(away, steps: 10);
+
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(P);
+    }
+
+    [Fact]
+    public void Stay_S7_TheZoneRadius_ComesFromTheOffersMessage()
+    {
+        // The zone is hit + the message's R: R 160 (zone 360) keeps a gaze 330 px below B for 600 ms; the
+        // settings' R 80 (zone 280) would release it. Mutant M6 (the setting's R) → released.
+        var wide = OwnerStay(Below(OwnerB, 330), fixationRadiusPx: 160);
+        wide.Frame(Below(OwnerB, 330), steps: 20);
+        Check.That(wide.Releases).IsEmpty();
+        Check.That(wide.Vm.IsPinned).IsTrue();
+
+        var narrow = OwnerStay(OwnerB, fixationRadiusPx: 40);     // zone 240
+        narrow.Frame(Below(OwnerB, 260), steps: 20);              // 260 px: outside 240, inside the settings' 280
+        Check.That(narrow.Releases).HasSize(1);
+    }
+
+    [Fact]
+    public void Stay_S8_APsSideSettleInTheZone_RePins_AndTheStayGoesOn()
+    {
+        // A settle in the zone but nearer P than B (the swallowed settle, the owner looking back at the
+        // word) re-pins as today, and the stay goes on at the new pin: a later look at the button's rim
+        // keeps the ring there. Mutant: every settle during the stay ends it.
+        var q = new PhysicalPoint(1060, 1030);                   // in the corridor, nearer P
+        var rig = OwnerStay(q);
+        rig.Frame(q, steps: 15);
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(q);
+        rig.Frame(q, steps: 12);                                  // the glide lands on q
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+        Check.That(rig.StayEnds).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(q);
+
+        rig.RunEnds();                                            // q's run ends: ignored under the stay
+        rig.Frame(Below(OwnerB, 240), steps: 20);
+
+        Check.That(rig.StayEnds).IsEmpty();
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(q);
+    }
+
+    [Fact]
+    public void Stay_S9_ASettleOutsideTheZone_EndsTheStay_AndPinsThere()
+    {
+        // The eye stops clearly elsewhere and the detector settles there before the grace ran out: the
+        // stay ends (settled elsewhere) and the ring glides to the new settle. No release in between.
+        var elsewhere = new PhysicalPoint(700, 1500);
+        var rig = OwnerStay(OwnerB);
+        rig.Frame(elsewhere, steps: 9);                           // 270 ms outside: inside the grace
+        rig.State(InteractionState.Fixation);
+
+        rig.Pin(elsewhere);
+
+        Check.That(rig.Pins[^1].Applied).IsTrue();
+        Check.That(rig.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Settled);
+        Check.That(rig.Releases).IsEmpty();
+
+        rig.Frame(elsewhere, steps: 12);
+        Check.That(rig.Vm.IsPinned).IsTrue();
+        Check.That(rig.Vm.Position).IsEqualTo(elsewhere);
+        Check.That(rig.StayEnds).HasSize(1);
+    }
+
+    [Fact]
+    public void Stay_S10_APinWithNoFixationUp_ChangesNothing()
+    {
+        // A pin refused for the state alone (no Fixation reported) is not a settle: the stay goes on.
+        var rig = OwnerStay(OwnerB);
+        rig.Pin(new PhysicalPoint(700, 1500));                    // the machine is in FreeLook
+
+        Check.That(rig.Pins[^1].Applied).IsFalse();
+        Check.That(rig.StayEnds).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(P);
+    }
+
+    [Fact]
+    public void Stay_S11_TheOfferClosingOrAHidingState_EndsTheStay()
+    {
+        // The Hide ends the stay with its release (offer-closed); a hiding state takes the hidden path.
+        // Mutant M8: the stay ignores the Hide.
+        var closed = OwnerStay(OwnerB);
+        closed.Frame(OwnerB, steps: 5);
+        closed.OfferCloses();
+        Check.That(closed.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.OfferClosed);
+        Check.That(closed.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.OfferClosed);
+        Check.That(closed.Vm.IsPinned).IsFalse();
+        Check.That(closed.Vm.Position).IsEqualTo(OwnerB);
+
+        var hidden = OwnerStay(OwnerB);
+        hidden.State(InteractionState.Paused);
+        Check.That(hidden.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Hidden);
+        Check.That(hidden.Vm.IsPinned).IsFalse();
+        Check.That(hidden.Vm.IsVisible).IsFalse();
+    }
+
+    [Fact]
+    public void Stay_S12_AFireHidesTheRing_TheHideThenTheHidingState()
+    {
+        // Guard 6: the fire posts the Hide and StateChanged(ManualSelectionActive) together. The Hide
+        // releases onto the gaze at B; the state change, delivered in the same dispatcher burst, hides
+        // the ring before any frame is drawn. After both, the ring is hidden and not pinned.
+        var rig = OwnerStay(OwnerB);
+        rig.State(InteractionState.Fixation);
+        rig.Frame(OwnerB, steps: 15);
+
+        rig.OfferCloses();
+        rig.State(InteractionState.ManualSelectionActive);
+
+        Check.That(rig.Vm.IsVisible).IsFalse();
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.OfferClosed);
+    }
+
+    [Fact]
+    public void Stay_S13_ANewShowReKeysTheZone()
+    {
+        // A new show while staying (its own B and P) re-keys Z: a gaze in the NEW zone but far outside the
+        // old one keeps the ring. Mutant M7 (the show ignored while staying) → released after the grace.
+        var rig = OwnerStay(OwnerB);
+        var b2 = new PhysicalPoint(1310, 1600);
+        rig.OfferAt(b2, OwnerHit, new PhysicalPoint(1000, 1600));
+        rig.Frame(Below(b2, 240), steps: 20);                     // 840 px below the old B
+
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(P);
+    }
+
+    [Fact]
+    public void Stay_S14_TheOfferClosesWhileASettlesRunStillHolds_ThePinStays_AndTheNextOfferGetsItsStay()
+    {
+        // The F3 hop: the swallowed settle re-pins at q during the stay and its run still holds when the
+        // old offer closes and the re-offer shows (Hide, then Show). Core's RunOnly pin is live, so the
+        // stay ends offer-closed WITHOUT a release; q's own run end then starts a stay keyed to the new
+        // offer. Mutant: the Hide always releases → the ring snaps to the gaze.
+        var q = new PhysicalPoint(1060, 1030);
+        var rig = OwnerStay(q);
+        rig.Frame(q, steps: 15);
+        rig.State(InteractionState.Fixation);
+        rig.Pin(q);
+        rig.Frame(q, steps: 12);
+
+        rig.OfferCloses();
+        var b2 = new PhysicalPoint(1370, 1030);
+        rig.OfferAt(b2, OwnerHit, q);
+
+        Check.That(rig.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.OfferClosed);
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        rig.Frame(q, steps: 3);
+        rig.RunEnds();
+        rig.Frame(Below(b2, 240), steps: 20);                     // the new button's rim
+
+        Check.That(rig.StayStarts).HasSize(2);
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.Position).IsEqualTo(q);
+    }
+
+    [Fact]
+    public void Stay_S15_NoButtonNoStay_ARunEndInTheGoneOffersZone_Releases()
+    {
+        // F2 review-01 R1: the button closes while the settle's run still holds (the pin stays, Core's
+        // run end will free it), then the run ends with the gaze 240 px below the OLD B — inside the
+        // stale zone the Hide leaves behind (B, P and R are not cleared). With no button up there is
+        // nothing to stay for: the run end releases onto the gaze. Mutant X2 (drop `_offerLive &&` from
+        // the stay start) → a stay keyed to the gone offer, the ring stuck on the old word, red.
+        var rig = new Rig();
+        rig.PinAt(P);
+        rig.OfferAt(OwnerB, OwnerHit, P);
+        rig.OfferCloses();
+        Check.That(rig.Vm.IsPinned).IsTrue();                     // the run still holds: Core's pin
+
+        rig.RunEnds();
+        var landing = Below(OwnerB, 240);
+        rig.Frame(landing);
+
+        Check.That(rig.StayStarts).IsEmpty();
+        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(landing);
+    }
+
+    // ── The stay's corridor (half-width 1.25 R around the segment P-B) ──────────────────────────────
+    // P = (1000,1000), B = (1400,1000): 400 px apart on a horizontal axis; hit 150, R 80 (zone 230), so
+    // the corridor reaches where B's zone does not.
 
     private static readonly PhysicalPoint GoB = new(1400, 1000);
 
@@ -690,11 +988,11 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
-    public void Go_G1_AGazeInTheCorridorOutsideTheZone_KeepsThePin_ThenTheHitEntryHolds()
+    public void Corridor_C1_AGazeInTheCorridorOutsideTheZone_StartsTheStay_AndTheHitChangesNothing()
     {
-        // G1: the run ends with the gaze 40 px from P toward B (360 px from B: outside the 230-px
-        // zone, so today it released at once). The pin stays; the hit entry starts the hold with the
-        // ring never having left P. Mutant M1: the zone only (no capsule) -> released at once.
+        // The run ends with the gaze 40 px from P toward B (360 px from B: outside the 230-px zone). The
+        // pin stays; the hit entry and the dwell keep it. Mutant M2: the zone only (no capsule) → the
+        // run end releases at once.
         var rig = GoRig();
 
         rig.Frame(new PhysicalPoint(1040, 1000));
@@ -702,296 +1000,107 @@ public class CursorCircleViewModelHybridTests
         Check.That(rig.Releases).IsEmpty();
         Check.That(rig.Vm.IsPinned).IsTrue();
         Check.That(rig.Vm.Position).IsEqualTo(P);
-        Check.That(rig.GoStarts).HasSize(1);
-        Check.That(rig.GoStarts[0].Dist).IsCloseTo(40.0, 1e-9);   // the ring (at P) to the gaze
-        Check.That(rig.GoStarts[0].Off!.Value).IsCloseTo(0.0, 1e-9);   // on the axis
+        Check.That(rig.StayStarts).HasSize(1);
+        Check.That(rig.StayStarts[0].Dist).IsCloseTo(40.0, 1e-9);   // the ring (at P) to the gaze
+        Check.That(rig.StayStarts[0].Off!.Value).IsCloseTo(0.0, 1e-9);   // on the axis
 
-        rig.Frame(new PhysicalPoint(1300, 1000));                 // 100 px from B: the hit area
+        rig.Frame(new PhysicalPoint(1100, 1010), steps: 14);      // 420 ms in the corridor
+        rig.Frame(new PhysicalPoint(1300, 1000), steps: 20);      // the hit area, 600 ms
 
-        Check.That(rig.Holds).HasSize(1);
-        Check.That(rig.Holds[0].Kind).IsEqualTo(RingHoldStartKind.Approach);
-        Check.That(rig.GoEnds).HasSize(1);
-        Check.That(rig.GoEnds[0].Reason).IsEqualTo(RingGoEndReason.Hit);
+        Check.That(rig.Holds).IsEmpty();
+        Check.That(rig.StayEnds).IsEmpty();
         Check.That(rig.Vm.Position).IsEqualTo(P);
         Check.That(rig.Releases).IsEmpty();
     }
 
     [Fact]
-    public void Go_G2_FourHundredMsInTheCorridor_ThenTheHit_TheRingIsStillAtP()
+    public void Corridor_C2_ALookBehindP_IsOutside_TheSegmentNotTheInfiniteLine()
     {
-        // G2: the eye lingers 390 ms in the corridor (today's window was 150 ms), then enters the hit
-        // area: the ring is still at P. Mutant M2: T back to 150 ms -> released before the hit.
-        var rig = GoRig();
-        rig.Frame(new PhysicalPoint(1100, 1010), steps: 14);      // t0 .. t0 + 390 ms
-
-        Check.That(rig.Releases).IsEmpty();
-        Check.That(rig.Vm.Position).IsEqualTo(P);
-
-        rig.Frame(new PhysicalPoint(1310, 1000));                 // the hit area
-
-        Check.That(rig.Holds.Select(h => h.Kind)).ContainsExactly(RingHoldStartKind.Approach);
-        Check.That(rig.Vm.Position).IsEqualTo(P);
-        Check.That(rig.Releases).IsEmpty();
-    }
-
-    [Fact]
-    public void Go_G3_LeavingTheCorridorSideways_ReleasesOnThatFrame()
-    {
-        // G3: a lateral of 120 px (> 1.25 R = 100, and 323 px from B: outside the zone too) releases on
-        // that very frame with the ring drawn at the gaze. Mutant M3: only T ends the keep. Mutant M7: the
-        // capsule half-width is the hit radius (150) -> a 120-px lateral still keeps.
-        var rig = GoRig();
-        rig.Frame(new PhysicalPoint(1040, 1000));
-        Check.That(rig.Releases).IsEmpty();
-
-        var sideways = new PhysicalPoint(1100, 1120);
-        rig.Frame(sideways);
-
-        Check.That(rig.Releases).HasSize(1);
-        Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
-        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Left);
-        Check.That(rig.GoEnds[0].Off!.Value).IsCloseTo(120.0, 1e-9);
-        Check.That(rig.Vm.IsPinned).IsFalse();
-        Check.That(rig.Vm.Position).IsEqualTo(sideways);
-    }
-
-    [Fact]
-    public void Go_G4_TheTimeLimitBoundary_LastFrameBeforeTKeeps_TheFrameAtTReleases()
-    {
-        // G4: with the first frame at t0 (the keep begins), a frame at t0 + 499.999 ms still keeps and
-        // one at exactly t0 + 500 ms releases (a Timeout). Mutant M4: `>` instead of `>=` at T.
-        foreach (var (gapUs, releases) in new[] { (469_999L, false), (470_000L, true) })
-        {
-            var rig = GoRig();
-            rig.Frame(new PhysicalPoint(1100, 1000));             // t0
-            rig.Gap(gapUs);                                       // the next frame lands at t0 + gap + 30 ms
-            rig.Frame(new PhysicalPoint(1100, 1000));
-
-            Check.WithCustomMessage($"gap {gapUs} us").That(rig.Releases.Count).IsEqualTo(releases ? 1 : 0);
-            Check.WithCustomMessage($"gap {gapUs} us").That(rig.Vm.IsPinned).IsEqualTo(!releases);
-            if (releases)
-            {
-                Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Timeout);
-                Check.That(rig.GoEnds[0].Ms).IsCloseTo(500.0, 1e-6);
-            }
-        }
-    }
-
-    [Fact]
-    public void Go_G4b_ATimeoutOffTheAxis_ReportsTimeout_NotLeft()
-    {
-        // F2: the keep times out while the gaze is still in the widened corridor: 90 px off the P-B axis
-        // (≤ 1.25 R = 100, 313.2 px from B: outside the 230-px zone). The window's expiry is a Timeout;
-        // the old R = 80 corridor would call the same frame a Left. Mutant: factor 1.0 → Left.
-        var rig = GoRig();
-        rig.Frame(new PhysicalPoint(1100, 1090));                 // t0: 90 px off the axis
-        rig.Gap(470_000);                                         // the next frame lands at t0 + 500 ms
-        rig.Frame(new PhysicalPoint(1100, 1090));
-
-        Check.That(rig.Releases).HasSize(1);
-        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Timeout);
-        Check.That(rig.GoEnds[0].Ms).IsCloseTo(500.0, 1e-6);
-        Check.That(rig.GoEnds[0].Off!.Value).IsCloseTo(90.0, 1e-9);
-        Check.That(rig.Vm.IsPinned).IsFalse();
-    }
-
-    [Fact]
-    public void Go_G5_ALookBehindP_AlongTheAxis_ReleasesAtOnce_TheSegmentNotTheInfiniteLine()
-    {
-        // G5: 200 px behind P on the P-B axis is 200 px from the segment (> 1.25 R = 100): released. An infinite
-        // line would call it on the way. Mutant M5: the infinite line instead of the segment. Both the
-        // first frame after the run end (step a) and a frame during the keep (step b) are checked.
+        // 200 px behind P on the P-B axis is 200 px from the segment (> 1.25 R = 100): outside Z. As the
+        // run end's landing it releases at once (no stay); during a stay it runs the grace out. Mutant:
+        // the infinite line instead of the segment.
         var behind = new PhysicalPoint(800, 1000);
 
         var atStart = GoRig();
         atStart.Frame(behind);
-        Check.That(atStart.GoStarts).IsEmpty();
+        Check.That(atStart.StayStarts).IsEmpty();
         Check.That(atStart.Releases).HasSize(1);
         Check.That(atStart.Vm.Position).IsEqualTo(behind);
 
         var during = GoRig();
         during.Frame(new PhysicalPoint(1040, 1000));
-        during.Frame(behind);
+        during.Frame(behind, steps: 18);                          // t0 .. t0 + 510 ms
         Check.That(during.Releases).HasSize(1);
-        Check.That(during.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Left);
+        Check.That(during.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Left);
+        Check.That(during.StayEnds[0].Off!.Value).IsCloseTo(200.0, 1e-9);
         Check.That(during.Vm.Position).IsEqualTo(behind);
     }
 
     [Fact]
-    public void Go_G6_TheCorridorUsesTheMessagesR_NotTheSetting()
+    public void Corridor_C3_TheCorridorUsesTheMessagesR_NotTheSetting()
     {
-        // G6: the corridor's half-width is 1.25 × the engine's R from the show message (settings say 80,
-        // so the settings' corridor is 100). R 105 gives 131 px: a 120-px lateral keeps (the settings'
-        // 100 would release); R 40 gives 50 px: a 60-px lateral releases (the settings' 100 would keep).
+        // The corridor's half-width is 1.25 × the engine's R from the show message (settings say 80, so
+        // the settings' corridor is 100). R 105 gives 131 px: a 120-px lateral stays (the settings' 100
+        // would release); R 40 gives 50 px: a 60-px lateral is outside (the settings' 100 would keep).
         // Mutant M6: the setting's R instead of the message's.
         var wide = GoRig(fixationRadiusPx: 105);
         wide.Frame(new PhysicalPoint(1040, 1000));
-        wide.Frame(new PhysicalPoint(1100, 1120));                // 120 px lateral; 323 px from B (zone 255)
+        wide.Frame(new PhysicalPoint(1100, 1120), steps: 20);     // 120 px lateral; 323 px from B (zone 255)
         Check.That(wide.Releases).IsEmpty();
         Check.That(wide.Vm.IsPinned).IsTrue();
 
         var narrow = GoRig(fixationRadiusPx: 40);
         narrow.Frame(new PhysicalPoint(1040, 1000));
-        narrow.Frame(new PhysicalPoint(1100, 1060));              // 60 px lateral; 306 px from B (zone 190)
+        narrow.Frame(new PhysicalPoint(1100, 1060), steps: 20);   // 60 px lateral; 306 px from B (zone 190)
         Check.That(narrow.Releases).HasSize(1);
-        Check.That(narrow.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Left);
+        Check.That(narrow.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Left);
     }
 
     [Fact]
-    public void Go_G6b_AtR80_TheCorridorBoundary_Keeps99PxOffTheAxis_AndReleases101()
+    public void Corridor_C4_AtR80_TheBoundary_Keeps99PxOffTheAxis_AndReleases101()
     {
-        // The widened corridor at R = 80: 1.25 R = 100 px. A gaze 99 px off the axis (315.9 px from B,
-        // outside the 230-px zone) still keeps the pin; one 101 px off (316.5 px from B) releases.
-        // Mutant: the factor at 1.0 → the 99-px sample releases; at 1.3 → the 101-px sample keeps.
+        // At R = 80, 1.25 R = 100 px. A gaze 99 px off the axis (315.9 px from B, outside the 230-px zone)
+        // stays for 600 ms; one 101 px off runs the grace out. Mutant: the factor at 1.0 → the 99-px gaze
+        // releases; at 1.3 → the 101-px gaze stays.
         var kept = GoRig();
         kept.Frame(new PhysicalPoint(1040, 1000));
-        kept.Frame(new PhysicalPoint(1100, 1099));                // 99 px lateral
+        kept.Frame(new PhysicalPoint(1100, 1099), steps: 20);
 
         Check.That(kept.Releases).IsEmpty();
-        Check.That(kept.Vm.IsPinned).IsTrue();
-        Check.That(kept.GoEnds).IsEmpty();
+        Check.That(kept.StayEnds).IsEmpty();
 
         var released = GoRig();
         released.Frame(new PhysicalPoint(1040, 1000));
-        released.Frame(new PhysicalPoint(1100, 1101));            // 101 px lateral
+        released.Frame(new PhysicalPoint(1100, 1101), steps: 20);
 
-        Check.That(released.Releases).HasSize(1);
-        Check.That(released.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
-        Check.That(released.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Left);
-        Check.That(released.GoEnds[0].Off!.Value).IsCloseTo(101.0, 1e-9);
+        Check.That(released.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
+        Check.That(released.StayEnds.Select(e => e.Reason)).ContainsExactly(RingStayEndReason.Left);
+        Check.That(released.StayEnds[0].Off!.Value).IsCloseTo(101.0, 1e-9);
         Check.That(released.Vm.IsPinned).IsFalse();
     }
 
     [Fact]
-    public void Go_G7_WithoutTheOffersPoint_TodaysZoneOnlyBehaviourApplies()
+    public void Corridor_C5_WithoutTheOffersPoint_TheZoneAloneApplies()
     {
-        // G7: a show message without P has no corridor: a gaze 40 px from P (360 px from B, outside the
-        // zone) releases at once, a gaze inside the zone keeps (and the log's off is unknown). The
-        // widened corridor must not leak into this path: 250 px from B is outside hit + R (230) though
-        // inside hit + 1.25 R (287.5), and it releases too (mutant: the no-P zone × 1.25 → keeps).
+        // A show message without P has no corridor: a gaze 40 px from P (360 px from B, outside the zone)
+        // releases at once, a gaze inside the zone stays (and the log's off is unknown). The corridor's
+        // 1.25 must not leak into the zone: 250 px from B is outside hit + R (230) though inside
+        // hit + 1.25 R (287.5), and it releases too.
         var outside = GoRig(withP: false);
         outside.Frame(new PhysicalPoint(1040, 1000));
         Check.That(outside.Releases).HasSize(1);
-        Check.That(outside.GoStarts).IsEmpty();
+        Check.That(outside.StayStarts).IsEmpty();
 
         var nearZone = GoRig(withP: false);
         nearZone.Frame(new PhysicalPoint(1150, 1000));            // 250 px from B
         Check.That(nearZone.Releases).HasSize(1);
-        Check.That(nearZone.GoStarts).IsEmpty();
+        Check.That(nearZone.StayStarts).IsEmpty();
 
         var inside = GoRig(withP: false);
         inside.Frame(new PhysicalPoint(1200, 1000));
         Check.That(inside.Releases).IsEmpty();
-        Check.That(inside.GoStarts).HasSize(1);
-        Check.That(inside.GoStarts[0].Off).IsNull();
-    }
-
-    [Fact]
-    public void Go_G8_TheOfferClosingOrAHidingState_DuringTheKeep_EndsIt()
-    {
-        // G8: Hide during the keep -> an offer-closed go end and release; a hiding state -> the hidden
-        // path (the pin cleared, the ring away). Mutant M8: hide does not end the keep.
-        var closed = GoRig();
-        closed.Frame(new PhysicalPoint(1040, 1000), steps: 2);
-        closed.OfferCloses();
-        Check.That(closed.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.OfferClosed);
-        Check.That(closed.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.OfferClosed);
-        Check.That(closed.Vm.IsPinned).IsFalse();
-
-        var hidden = GoRig();
-        hidden.Frame(new PhysicalPoint(1040, 1000), steps: 2);
-        hidden.State(InteractionState.Paused);
-        Check.That(hidden.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Hidden);
-        Check.That(hidden.Vm.IsPinned).IsFalse();
-        Check.That(hidden.Vm.IsVisible).IsFalse();
-    }
-
-    [Fact]
-    public void Go_G9_ASettleDuringTheKeep_EndsIt_AndPinsAsWithoutAKeep()
-    {
-        // G9 (fixup 01, review F1): the detector's settle needs >= 500 ms, so it reaches the ring on the
-        // keep's time-limit frame, while the keep is still active. It ENDS the keep (reason settled; the
-        // eye has stopped) and is then processed as without a keep: it pins and glides, so the next
-        // offer's keep can start from a pinned ring. Mutant MF1: the pin is still refused during the
-        // keep. Mutant MF1a: the pin is accepted but the keep is not ended. Mutant MF1b: the go-end
-        // reason is not `settled`.
-        var rig = GoRig();
-        rig.Frame(new PhysicalPoint(1100, 1000), steps: 17);      // t0 .. t0 + 480 ms: the keep runs
-        rig.State(InteractionState.Fixation);                     // the new run, anchored at the breakout
-
-        var settle = new PhysicalPoint(1100, 1000);               // 300 px from B: outside the zone
-        rig.Pin(settle);
-
-        Check.That(rig.Pins[^1].Applied).IsTrue();
-        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Settled);
-        Check.That(rig.Releases).IsEmpty();
-        Check.That(rig.Vm.IsPinned).IsTrue();
-
-        rig.Frame(settle, steps: 12);                             // the glide lands on the settle
-        Check.That(rig.Vm.IsPinned).IsTrue();
-        Check.That(rig.Vm.Position).IsEqualTo(settle);
-        Check.That(rig.GoEnds).HasSize(1);                        // the keep did not end a second time
-    }
-
-    [Fact]
-    public void Go_G9b_ANearMissSettleDuringTheKeep_EndsIt_ThenIsRefused_AndTheRingFollows()
-    {
-        // The settle that ends the keep is a near miss of the live offer (D refuses it): the keep ends
-        // as settled and the owed run-end release happens, so the ring follows the gaze instead of
-        // staying pinned at P with no keep. Mutant MF1c: no release after the refused pin.
-        var rig = GoRig();
-        var gaze = new PhysicalPoint(1400, 1190);                 // 190 px from B, near miss
-        rig.Frame(gaze, steps: 17);
-        rig.State(InteractionState.Fixation);
-
-        rig.Pin(gaze);
-
-        Check.That(rig.Pins[^1].Applied).IsFalse();
-        Check.That(rig.Pins[^1].IgnoredNearOffer).IsTrue();
-        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Settled);
-        Check.That(rig.Releases.Select(r => r.Cause)).ContainsExactly(RingReleaseCause.RunEnd);
-        Check.That(rig.Vm.IsPinned).IsFalse();
-        Check.That(rig.Vm.Position).IsEqualTo(gaze);
-    }
-
-    [Fact]
-    public void Go_G9c_APinWithNoFixationUp_DoesNotEndTheKeep()
-    {
-        // A pin refused for the state alone (no Fixation reported) is not a settle of a new run: the
-        // keep goes on.
-        var rig = GoRig();
-        rig.Frame(new PhysicalPoint(1100, 1000), steps: 3);
-
-        rig.Pin(new PhysicalPoint(1100, 1000));                   // the machine is in FreeLook
-
-        Check.That(rig.Pins[^1].Applied).IsFalse();
-        Check.That(rig.GoEnds).IsEmpty();
-        Check.That(rig.Vm.IsPinned).IsTrue();
-        Check.That(rig.Vm.Position).IsEqualTo(P);
-    }
-
-    [Fact]
-    public void Go_G10_ANearMissPark_TheKeepEndsByT_ThenTheRingFollows()
-    {
-        // G10: the eye parks 190 px from B (a near miss, inside the zone): the keep holds the ring at P
-        // for T, then ends with a Timeout and the ring follows the gaze (no stuck path).
-        var rig = GoRig();
-        var park = new PhysicalPoint(1400, 1190);
-        rig.Frame(park, steps: 17);                               // t0 .. t0 + 480 ms
-
-        Check.That(rig.Releases).IsEmpty();
-        Check.That(rig.Vm.Position).IsEqualTo(P);
-
-        rig.Frame(park);                                          // t0 + 510 ms
-
-        Check.That(rig.GoEnds.Select(e => e.Reason)).ContainsExactly(RingGoEndReason.Timeout);
-        Check.That(rig.Releases).HasSize(1);
-        Check.That(rig.Vm.IsPinned).IsFalse();
-        Check.That(rig.Vm.Position).IsEqualTo(park);
-
-        var next = new PhysicalPoint(1410, 1200);
-        rig.Frame(next);
-        Check.That(rig.Vm.Position).IsEqualTo(next);              // following
+        Check.That(inside.StayStarts).HasSize(1);
+        Check.That(inside.StayStarts[0].Off).IsNull();
     }
 
     [Fact]

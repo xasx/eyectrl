@@ -177,7 +177,9 @@ public class SimpleModeCurationTests
         // dwell is the one dwell control a caregiver is expected to find); it builds after d_cooldown.
         // d_status_chime is B3's tracker-disconnect chime: Simple because the owner hears it by
         // default and must be able to turn it off; it builds after d_cue_sound.
-        "Dwell" => ["Slider:d_act", "Slider:d_menu", "Slider:d_tool", "Slider:d_key",
+        // d_act_show is round button B3's show delay: Simple because the owner tunes when the activator
+        // appears beside its dwell; it builds right after d_act.
+        "Dwell" => ["Slider:d_act", "Slider:d_act_show", "Slider:d_menu", "Slider:d_tool", "Slider:d_key",
             "Slider:d_pred", "Slider:d_rad", "Slider:d_pause_grace", "Toggle:d_cue_sound",
             "Toggle:d_status_chime", "Button:d_reset"],
         "Keyboard" => ["Combo:k_layout", "Slider:k_size", "Toggle:k_pred", "Combo:k_lang",

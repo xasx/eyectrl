@@ -52,8 +52,8 @@ public class RingArmLookOracleTests
         yield return ("plain chain (visible swallowed settle)", ScriptedSamples(withButtonVisit: false));
         yield return ("dwell chain (fire, 2.33 s hide, reappear)", ScriptedSamples(withButtonVisit: true));
         yield return ("freeze chain (a following ring reaches the button)", ScriptedFromElsewhere());
-        yield return ("slip chain, return (unproven slip inside the zone, back in the hit area)", ScriptedSlips(SlipKind.Return));
-        yield return ("slip chain, grace (unproven slip inside the zone for 660 ms)", ScriptedSlips(SlipKind.Grace));
+        yield return ("slip chain, return (an unproven freeze slips inside the zone, back in the hit area)", ScriptedSlips(SlipKind.Return));
+        yield return ("slip chain, grace (an unproven freeze slips inside the zone for 660 ms)", ScriptedSlips(SlipKind.Grace));
         yield return ("slip chain, fly-through (unproven exit beyond the zone)", ScriptedSlips(SlipKind.FlyThrough));
         foreach (var (name, samples) in GoingForItChains.All())
             yield return ($"go chain: {name}", samples);
@@ -79,7 +79,8 @@ public class RingArmLookOracleTests
     // ── Outcomes through the real engine + VM (the oracle alone cannot tell a shared design flaw) ──
 
     private sealed record WiredRun(
-        List<(int Sample, string Event)> Log, List<ShowActivationButtonMessage> Offers, PhysicalPoint[] Position, bool[] Pinned)
+        List<(int Sample, string Event)> Log, List<ShowActivationButtonMessage> Offers, PhysicalPoint[] Position, bool[] Pinned,
+        PhysicalPoint[] Gaze)
     {
         public IEnumerable<string> Events => Log.Select(l => l.Event);
 
@@ -108,8 +109,8 @@ public class RingArmLookOracleTests
             offers.Add(m);
             log.Add((current, "offer"));
         });
-        vm.RingGoStarted += _ => log.Add((current, "go start"));
-        vm.RingGoEnded += e => log.Add((current, $"go end {e.Reason}"));
+        vm.RingStayStarted += _ => log.Add((current, "stay start"));
+        vm.RingStayEnded += e => log.Add((current, $"stay end {e.Reason}"));
         vm.RingHoldStarted += e => log.Add((current, $"hold start {e.Kind}"));
         vm.RingHoldEnded += e => log.Add((current, $"hold end {e.Reason}"));
         vm.RingReleased += e => log.Add((current, $"release {e.Cause}"));
@@ -117,97 +118,182 @@ public class RingArmLookOracleTests
 
         var position = new PhysicalPoint[samples.Count];
         var pinned = new bool[samples.Count];
+        // The gaze the VM itself was fed on each sample (the engine's filtered point, not the raw script).
+        var gaze = new PhysicalPoint[samples.Count];
+        messenger.Register<GazeCursorMovedMessage>(gaze, (_, m) => gaze[Math.Min(current, samples.Count - 1)] = m.Position);
         Walk(samples, SessionEnd, RingPinPolicy.RunOnly, messenger: messenger, afterSample: i =>
         {
             position[i] = drawn;
             pinned[i] = vm.IsPinned;
             current = i + 1;
         });
-        return new WiredRun(log, offers, position, pinned);
+        return new WiredRun(log, offers, position, pinned, gaze);
     }
 
     [Fact]
-    public void Outcome_AfterACorridorStop_TheReplacementOfferIsPinned_AndItsOwnApproachGetsAKeep()
+    public void Outcome_AfterACorridorStop_TheReplacementKeepsThePin_AndItsOwnApproachGetsAStay()
     {
-        // Review-01 F1: the settle that ends a corridor stop arrives on the keep's time-limit frame. It must
-        // end the keep (go end settled) and pin, so the replacement offer comes up with a PINNED ring and the
-        // next go-for-it toward the new button gets a keep of its own. Mutant MF1 (the pin refused during the
-        // keep) and MF1a (accepted, but the keep not ended: the replacement's Hide then ends it offer-closed
-        // and releases the new pin) both break this.
+        // The corridor stop's settle (P's side, inside the stay zone) re-pins during the stay; the engine then
+        // replaces the offer while that settle's run still holds. The Hide ends the stay WITHOUT a release
+        // (Core's RunOnly pin is live), so the replacement comes up with a PINNED ring at the new P, and the
+        // next look toward the new button gets a stay of its own. Mutant: the Hide always releases.
         var first = RunWired(GoingForItChains.StopNearP(null));
+        var events = first.Events.ToList();
 
-        Check.WithCustomMessage("the corridor stop's settle replaces the offer: " + string.Join(" | ", first.Events))
+        Check.WithCustomMessage("the corridor stop's settle replaces the offer: " + string.Join(" | ", events))
             .That(first.Offers.Count).IsGreaterOrEqualThan(2);
-        Check.That(first.Events).Contains("go end Settled");
-        Check.That(first.Events).Not.Contains("go end OfferClosed");
+        int closed = events.IndexOf("stay end OfferClosed");
+        Check.WithCustomMessage(string.Join(" | ", events)).That(closed).IsGreaterOrEqualThan(0);
+        Check.That(events[closed + 1]).IsEqualTo("offer");          // the Show follows; no release in between
         int replaced = first.Log.Where(l => l.Event == "offer").Skip(1).First().Sample;
         Check.WithCustomMessage($"the replacement offer is up at sample {replaced}: the ring must be pinned there")
             .That(first.Pinned[replaced]).IsTrue();
         var newPoint = first.Offers[1].OfferPoint!.Value;
-        Check.WithCustomMessage("the ring glides to the new P and rests there while the stop lasts")
+        Check.WithCustomMessage("the ring rests at the new P while the stop lasts")
             .That(Enumerable.Range(replaced, 14).Any(i => first.Pinned[i] && first.Position[i].DistanceTo(newPoint) < 1.0)).IsTrue();
 
-        // The eye now goes for the NEW button: the second offer's approach gets its keep.
+        // The eye now goes for the NEW button: its run end starts a stay keyed to the new offer, and the ring
+        // stays at the new P until that stay ends.
         var second = RunWired(GoingForItChains.StopNearP(first.Offers[1].ButtonCenter));
-        var events = second.Events.ToList();
-        int secondOffer = events.IndexOf("offer", events.IndexOf("offer") + 1);
-        Check.WithCustomMessage("the second approach: " + string.Join(" | ", events))
-            .That(secondOffer).IsGreaterOrEqualThan(0);
-        var afterSecond = events.Skip(secondOffer + 1).ToList();
-        Check.That(afterSecond).Contains("go start");
-        int goStart = afterSecond.IndexOf("go start");
-        Check.That(afterSecond.Skip(goStart).Take(3)).ContainsExactly("go start", "go end Hit", "hold start Approach");
+        var all = second.Events.ToList();
+        int secondOffer = all.IndexOf("offer", all.IndexOf("offer") + 1);
+        Check.WithCustomMessage("the second approach: " + string.Join(" | ", all)).That(secondOffer).IsGreaterOrEqualThan(0);
+        int secondOfferSample = second.Log.Where(l => l.Event == "offer").Skip(1).First().Sample;
+        int stayStart = second.FirstSample("stay start", secondOfferSample + 1);
+        Check.WithCustomMessage("the second approach: " + string.Join(" | ", all)).That(stayStart).IsGreaterOrEqualThan(0);
+        int stayEnd = second.Log.Where(l => l.Sample >= stayStart && l.Event.StartsWith("stay end", StringComparison.Ordinal))
+            .Select(l => l.Sample).First();
+        var p2 = second.Offers[1].OfferPoint!.Value;
+        Check.That(stayEnd - stayStart).IsStrictlyGreaterThan(10);
+        for (int i = stayStart; i < stayEnd; i++)
+        {
+            Check.WithCustomMessage($"sample {i}: the ring stays at the new P while the eye goes for the new button")
+                .That(second.Pinned[i] && second.Position[i].DistanceTo(p2) < 1.0).IsTrue();
+        }
     }
 
     [Fact]
-    public void Outcome_DriftEndedRun_GoingForTheButton_KeepsTheRingStillAtP_UntilTheHold()
+    public void Outcome_DriftEndedRun_GoingForTheButton_StaysStillAtP_ThroughTheButtonVisit()
     {
-        // F3: the run ends through fixation drift, 66 px from P (outside B's zone, inside the corridor): the
-        // keep starts, the hit entry hands it to the hold, and the ring never moves in between.
+        // F3, now with the stay: after a drifted run the eye goes for the button; the run ends on the way,
+        // on the P-B axis: the stay starts, the eye reaches the button and dwells, and the ring never moves
+        // and never freezes elsewhere until the stay ends (the fire closes the offer).
         var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.ToButton));
         var events = run.Events.ToList();
-        int start = events.IndexOf("go start");
+        int start = events.IndexOf("stay start");
         Check.WithCustomMessage(string.Join(" | ", events)).That(start).IsGreaterOrEqualThan(0);
-        Check.That(events.Skip(start).Take(3)).ContainsExactly("go start", "go end Hit", "hold start Approach");
+        int end = events.FindIndex(start, e => e.StartsWith("stay end", StringComparison.Ordinal));
+        Check.WithCustomMessage(string.Join(" | ", events)).That(end).IsStrictlyGreaterThan(start);
+        // The fire ends the stay: the walk completes the activation synchronously, so the manual selection's
+        // hiding state can reach the ring before the offer's Hide (the adapter posts the Hide first).
+        Check.WithCustomMessage(string.Join(" | ", run.Log.Select(l => $"{l.Sample}:{l.Event}")))
+            .That(events[end]).IsOneOf("stay end OfferClosed", "stay end Hidden");
+        Check.That(events.Skip(start).Take(end - start)).Not.Contains("hold start Freeze");
 
-        int startSample = run.Log.First(l => l.Event == "go start").Sample;
-        int holdSample = run.Log.First(l => l.Event == "hold start Approach").Sample;
-        for (int i = startSample; i <= holdSample; i++)
+        int startSample = run.Log.First(l => l.Event == "stay start").Sample;
+        int endSample = run.Log.First(l => l.Event == events[end]).Sample;
+        for (int i = startSample; i < endSample; i++)
         {
-            Check.WithCustomMessage($"sample {i}: the ring stays pinned and still while the eye goes for the button")
+            Check.WithCustomMessage($"sample {i}: the ring stays pinned and still while the eye is at the button")
                 .That(run.Pinned[i]).IsTrue();
             Check.That(run.Position[i]).IsEqualTo(run.Position[startSample]);
         }
     }
 
     [Fact]
-    public void Outcome_ANearMissSettleOnT_EndsTheKeep_IsRefused_AndTheRingFollows()
+    public void Outcome_ANearMissSettleDuringTheStay_IsRefused_AndTheRingStaysAtP()
     {
-        // Review-02 G1: the eye resumes at the near-miss spot after a gap, the keep starts, and the settle
-        // there reaches the ring on T: it ends the keep, D refuses it, and the owed run-end release lets the
-        // ring follow (no ring left pinned at P without a keep, hold or pending release).
+        // Review-02 G1, turned around by the stay: the eye resumes at the near-miss spot (305 px from B: in the
+        // zone, outside the 265-px hit; 240 / 200 before the 7th sitting) after a gap, the stay starts, and the settle there is refused (D). The
+        // stay goes on: the ring stays at P, with no release, until the eye leaves for the far hold.
         var run = RunWired(GoingForItChains.GapToNearMiss());
         var events = run.Events.ToList();
-        int settled = events.IndexOf("go end Settled");
-        Check.WithCustomMessage(string.Join(" | ", events)).That(settled).IsGreaterOrEqualThan(0);
-        Check.That(events.Skip(settled).Take(3)).ContainsExactly("go end Settled", "pin near-miss", "release RunEnd");
-        // The release is owed on the very sample the settle ends the keep, not at the next run end.
-        int settledSample = run.FirstSample("go end Settled");
-        Check.That(run.FirstSample("release RunEnd", settledSample)).IsEqualTo(settledSample);
-        Check.That(run.Pinned[settledSample]).IsFalse();
+        int start = events.IndexOf("stay start");
+        int nearMiss = events.IndexOf("pin near-miss");
+        Check.WithCustomMessage(string.Join(" | ", events)).That(start).IsGreaterOrEqualThan(0);
+        Check.WithCustomMessage(string.Join(" | ", events)).That(nearMiss).IsStrictlyGreaterThan(start);
+        Check.That(events.Skip(start).Take(nearMiss - start + 1).Where(e => e.StartsWith("stay end", StringComparison.Ordinal)
+            || e.StartsWith("release", StringComparison.Ordinal))).IsEmpty();
+
+        int startSample = run.FirstSample("stay start");
+        int nearMissSample = run.FirstSample("pin near-miss");
+        for (int i = startSample; i <= nearMissSample + 3; i++)
+        {
+            Check.WithCustomMessage($"sample {i}: the ring stays at P across the refused near-miss settle")
+                .That(run.Pinned[i] && run.Position[i] == run.Position[startSample]).IsTrue();
+        }
+    }
+
+    /// <summary>The stay zone Z of the offer that was up at <paramref name="sample"/>, by the VM's rule: B's
+    /// no-move zone (hit + R) or within <see cref="CursorCircleViewModel.HybridStayCorridorFactor"/> R of P-B.</summary>
+    private static Func<PhysicalPoint, bool> StayZoneAt(WiredRun run, int sample)
+    {
+        int shown = run.Log.Where(l => l.Event == "offer" && l.Sample <= sample).Count();
+        var offer = run.Offers[shown - 1];
+        var b = offer.ButtonCenter;
+        var p = offer.OfferPoint!.Value;
+        double r = offer.FixationRadiusPx!.Value;
+        return g => g.DistanceTo(b) <= offer.HitRadiusPx + r
+                    || DistanceToSegment(g, p, b) <= r * CursorCircleViewModel.HybridStayCorridorFactor;
     }
 
     [Fact]
-    public void Outcome_DriftEndedRun_LookingAway_FollowsAtOnce_WithNoKeep()
+    public void Outcome_DriftEndedRun_LookingAway_TheRingFollowsAtOnce()
     {
-        // F3, the other way: the same drift-ended run, then the eye looks 500 px to the side: no keep, the
-        // ring is released on the first frame after the run end and follows.
-        var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.Away));
-        var events = run.Events.ToList();
-        Check.WithCustomMessage(string.Join(" | ", events)).That(events).Not.Contains("go start");
-        Check.That(events).Contains("release RunEnd");
+        // F3, the other way (F2 review R5: pinned to one branch, no `if`). The drift stays within R of the
+        // running centroid, so the run holds through it; it ends on the first sample of the look 500 px to
+        // the side, and that landing is already outside Z. No stay: the run-end release lands on that very
+        // sample and the ring follows. Mutant: a stay without the zone check → a stay starts, red.
+        var samples = GoingForItChains.Drift(GoingForItChains.DriftKind.Away);
+        var run = RunWired(samples);
+        var trace = string.Join(" | ", run.Log.Select(l => $"{l.Sample}:{l.Event}"));
+        Check.WithCustomMessage(trace).That(run.Events).Not.Contains("stay start");
+
         int released = run.FirstSample("release RunEnd");
+        Check.WithCustomMessage(trace).That(released).IsGreaterOrEqualThan(0);
+        const int firstAwaySample = 30 + 14 + 20;   // Drift: Hold 900 ms at P, Move 14 samples, Hold 600 ms
+        Check.WithCustomMessage("the release is on the run-end landing, the first sample of the look away: " + trace)
+            .That(released).IsEqualTo(firstAwaySample);
+        Check.That(StayZoneAt(run, released)(run.Gaze[released])).IsFalse();
         Check.That(run.Pinned[released]).IsFalse();
+        Check.That(run.Position[released]).IsEqualTo(run.Gaze[released]);
+    }
+
+    [Fact]
+    public void Outcome_DriftEndedRun_SetsOffThenTurnsAway_StaysThenFollowsAfterTheGrace()
+    {
+        // F2 review R5, the stay branch made deterministic: after the same drift the eye sets off along the
+        // P-B axis (the run ends there, in the corridor, outside B's no-move zone: the stay STARTS), then turns
+        // away behind P. The ring is held exactly the grace past the first sample outside Z: the stay ends
+        // `Left` and releases 17 frames after it (t0 + 510 ms at 30 ms frames). Mutant: the stay never
+        // starts → red.
+        var run = RunWired(GoingForItChains.Drift(GoingForItChains.DriftKind.TurnAway));
+        var trace = string.Join(" | ", run.Log.Select(l => $"{l.Sample}:{l.Event}"));
+        int stay = run.FirstSample("stay start");
+        Check.WithCustomMessage("setting off for B must start a stay: " + trace).That(stay).IsGreaterOrEqualThan(0);
+
+        var inZone = StayZoneAt(run, stay);
+        Check.That(inZone(run.Gaze[stay])).IsTrue();
+
+        int firstOutside = Enumerable.Range(stay + 1, run.Gaze.Length - stay - 1).First(i => !inZone(run.Gaze[i]));
+        int left = run.FirstSample("stay end Left");
+        int released = run.FirstSample("release RunEnd");
+        // The first sample with (now − first outside) ≥ the grace: 17 frames on, at +510 ms.
+        int graceFrames = (CursorCircleViewModel.HybridStayGraceMs + 29) / 30;
+        Check.WithCustomMessage(trace).That(left).IsEqualTo(firstOutside + graceFrames);
+        Check.WithCustomMessage(trace).That(released).IsEqualTo(left);
+        Check.That(run.Pinned[released]).IsFalse();
+        for (int i = stay; i < released; i++)
+            Check.WithCustomMessage($"sample {i}: pinned through the stay").That(run.Pinned[i]).IsTrue();
+    }
+
+    private static double DistanceToSegment(PhysicalPoint g, PhysicalPoint a, PhysicalPoint b)
+    {
+        double vx = b.X - a.X, vy = b.Y - a.Y, wx = g.X - a.X, wy = g.Y - a.Y;
+        double len2 = (vx * vx) + (vy * vy);
+        double t = len2 <= 0 ? 0 : Math.Clamp(((wx * vx) + (wy * vy)) / len2, 0, 1);
+        double dx = wx - (t * vx), dy = wy - (t * vy);
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
     [Fact]
@@ -346,6 +432,8 @@ public class RingArmLookOracleTests
         Action? onRelease = null)
     {
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Dwell.FixationRadiusPixels = config.RadiusPx;
         settings.Dwell.FixationDetectionMs = config.OnsetMs;
         settings.Dwell.ActivationButtonDwellMs = config.ButtonDwellMs;

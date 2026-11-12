@@ -251,14 +251,16 @@ public partial class App : Application
             // owner's pick from the look. Both policies are set here, once, from the launch (the
             // class defaults stay as they are: the App is the composition root); the startup line is
             // ALWAYS written so every log names its arm, and the per-event lines the session scripts
-            // parse exist only when --ring-arm was given — a default launch writes only that line.
+            // parse exist only when --ring-arm was given or the settings file sets
+            // diagnostics.logRingEvents (F2: Setup never passes --ring-arm, so a sitting needs the key).
             im.RingPinPolicy = ringArmLaunch.PinPolicy;
             cursorVm.RingHoldPolicy = ringArmLaunch.HoldPolicy;
             if (ringArmLaunch.UnknownValue is { } unknownRingArm)
                 Log.Warning("{RingArm}", RingArmLog.UnknownArmLine(unknownRingArm));
-            Log.Information("{RingArm}", RingArmLog.StartupLine(ringArmLaunch));
-            if (ringArmLaunch.Specified)
-                _ringArmLog = new RingArmLog(im, cursorVm, line => Log.Information("{RingEvent}", line));
+            Log.Information("{RingArm}", RingArmLog.StartupLine(ringArmLaunch,
+                RingArmLog.LogsEvents(ringArmLaunch, settings.Diagnostics)));
+            _ringArmLog = RingArmLog.Create(ringArmLaunch, settings.Diagnostics, im, cursorVm,
+                line => Log.Information("{RingEvent}", line));
 
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();

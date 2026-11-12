@@ -347,6 +347,18 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\" state=\"",
+      "Category": "log",
+      "Reason": "The `Activation outcome` line's optional state= suffix (only result=other names one) -- a log-only fragment tools/activation_log_metrics.py parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\"Activation outcome #{0} mode={1} result={2}{3} heldMs={4:0}\"",
+      "Category": "log",
+      "Reason": "The `Activation outcome` line's format (round-button B1, salvaged from #322's R3: the owner's unintended-open count) -- a log-only line tools/activation_log_metrics.py parses; never shown."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
       "Literal": "\"adaptation-preview\"",
       "Category": "id",
@@ -1290,15 +1302,15 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"Ring go end ({0}) ms={1:0} off={2}\"",
+      "Literal": "\"Ring stay end ({0}) ms={1:0} off={2}\"",
       "Category": "log",
-      "Reason": "The Ring go end line's format (the going-for-it keep) -- a log-only line the look's readout parses; never shown."
+      "Reason": "The Ring stay end line's format (the stay zone, F2) -- a log-only line the look's readout parses; never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"Ring go start dist={0:0} off={1}\"",
+      "Literal": "\"Ring stay start dist={0:0} off={1}\"",
       "Category": "log",
-      "Reason": "The Ring go start line's format (the going-for-it keep) -- a log-only line the look's readout parses; never shown."
+      "Reason": "The Ring stay start line's format (the stay zone, F2) -- a log-only line the look's readout parses; never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -1332,12 +1344,6 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"approach\"",
-      "Category": "log",
-      "Reason": "A token of the Ring hold start line's kind -- a log-only value, never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"freeze\"",
       "Category": "log",
       "Reason": "A token of the Ring hold start line's kind -- a log-only value, never shown."
@@ -1350,21 +1356,9 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"hit\"",
-      "Category": "log",
-      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"hold-end\"",
       "Category": "log",
       "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"keep\"",
-      "Category": "log",
-      "Reason": "A token of the Ring hold start line's kind -- a log-only value, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -1376,7 +1370,7 @@
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"na\"",
       "Category": "log",
-      "Reason": "The Ring go lines' text for an unknown distance -- a log-only value, never shown."
+      "Reason": "The Ring stay lines' text for an unknown distance -- a log-only value, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
@@ -1406,19 +1400,13 @@
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"settled\"",
       "Category": "log",
-      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
+      "Reason": "A token of the Ring stay end line's reason -- a log-only value, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"state\"",
       "Category": "log",
       "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"timeout\"",
-      "Category": "log",
-      "Reason": "A token of the Ring go end line's reason -- a log-only value, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",

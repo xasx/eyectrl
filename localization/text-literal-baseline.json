@@ -291,6 +291,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\" state=\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActivationOutcomeLog.cs",
+      "Literal": "\"Activation outcome #{0} mode={1} result={2}{3} heldMs={4:0}\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
       "Literal": "\"adaptation-preview\"",
       "Count": 1
@@ -457,16 +467,6 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"Ring go end ({0}) ms={1:0} off={2}\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"Ring go start dist={0:0} off={1}\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
       "Count": 1
     },
@@ -492,7 +492,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"approach\"",
+      "Literal": "\"Ring stay end ({0}) ms={1:0} off={2}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring stay start dist={0:0} off={1}\"",
       "Count": 1
     },
     {
@@ -507,17 +512,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"hit\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"hold-end\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"keep\"",
       "Count": 1
     },
     {
@@ -558,11 +553,6 @@
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"state\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
-      "Literal": "\"timeout\"",
       "Count": 1
     },
     {

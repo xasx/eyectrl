@@ -290,6 +290,8 @@ public enum DragDropTrigger
 /// <param name="ExitZoneEntries">How many times this drag entered an exit (zone or off-screen).</param>
 /// <param name="ClampedPoint">The point after <c>ClampDropPoint</c>, before the edge magnet.</param>
 /// <param name="Magnet">The edge the S8 B10 magnet pulled the drop onto, or None.</param>
+/// <param name="ArmedBy">What armed the drop (Never: an Auto Selection settle before arming).</param>
+/// <param name="ArmMs">Ms from the drag's first gaze sample to arming; null when never armed.</param>
 public sealed record DragDropDiagnostics(
     DragDropTrigger Trigger,
     PhysicalPoint RawPoint,
@@ -299,7 +301,22 @@ public sealed record DragDropDiagnostics(
     int RestWithheldCount,
     int ExitZoneEntries,
     PhysicalPoint ClampedPoint,
-    DragMagnetEdges Magnet);
+    DragMagnetEdges Magnet,
+    DragArmedBy ArmedBy,
+    long? ArmMs);
+
+/// <summary>What let the drag's release dwell arm (owner Q1 = A, 11.11), for the drag-end log line.</summary>
+public enum DragArmedBy
+{
+    /// <summary>Not armed: the gaze stayed near the „Ziehen" item and the drag was under 2 s old.</summary>
+    Never,
+
+    /// <summary>The gaze went 300 DIP from where it rested when the drag started.</summary>
+    Distance,
+
+    /// <summary>The drag reached 2 s.</summary>
+    Time,
+}
 
 /// <summary>Why a drag was cancelled, for the coordinator's drag-end log line (S8 B11).</summary>
 public enum DragCancelReason

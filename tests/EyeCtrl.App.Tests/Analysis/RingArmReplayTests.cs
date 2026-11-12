@@ -52,6 +52,8 @@ public class RingArmReplayTests(ITestOutputHelper output)
     internal sealed class HoldLedger
     {
         public int Holds { get; set; }
+        /// <summary>Stays (F2): the run-end pin at P kept while the button is up and the gaze is in Z.</summary>
+        public int Stays { get; set; }
         public int Spurious { get; set; }
         public List<double> DurationsMs { get; } = new();
     }
@@ -63,6 +65,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
         var live = Run(samples, config);
 
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay), like RingPinModeReplayTests.Run: round button B3's
+        // delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Dwell.FixationRadiusPixels = config.RadiusPx;
         settings.Dwell.FixationDetectionMs = config.OnsetMs;
         settings.Dwell.ActivationButtonDwellMs = config.ButtonDwellMs;
@@ -281,26 +286,18 @@ public class RingArmReplayTests(ITestOutputHelper output)
 
     internal enum Pinning { Today, RunOnly, Never, Hybrid }
 
-    /// <summary>How the hybrid's hold starts.
-    /// <list type="bullet">
-    /// <item><see cref="Freeze"/> (the hybrid): any entry of the gaze into a live button's hit area stops
-    /// the ring where it is drawn; and a run that ends with the gaze inside the offer's no-move zone
-    /// (hit radius + R around B) keeps its pin for up to <see cref="ArmSpec.ApproachMs"/> while the eye
-    /// crosses into the hit area, so a ring pinned at P stays at P.</item>
-    /// <item><see cref="KeepPin"/> (rejected, too narrow): only a run that ends with the gaze already IN the
-    /// hit area keeps its pin; the filter crosses P→B in 2–3 samples, so it rarely fires.</item>
-    /// <item><see cref="BackToP"/> (rejected): any entry pins the ring at the offer's P, which pulls a ring
-    /// that was following the gaze BACK to P.</item>
-    /// </list></summary>
-    internal enum HoldStyle { Freeze, KeepPin, BackToP }
-
-    /// <param name="GoCorridorPx">The going-for-it keep (the VM's <c>InGo</c>): 0 = the approach holds only
-    /// while the gaze is inside B's no-move zone (hit + R, today's test); otherwise it also holds while the
-    /// gaze is within this many px of the segment P-B (a capsule). A negative value means
-    /// <see cref="CursorCircleViewModel.HybridGoCorridorFactor"/> × R (the VM's constant times the config's
+    /// <summary>The hybrid's arm (F2, the stay zone): a run that ends with a button up and the gaze in the
+    /// stay zone Z (B's no-move zone hit + R, or the P-B corridor) keeps its pin while the gaze stays in Z,
+    /// and releases after <see cref="StayGraceMs"/> clearly outside it, on the offer's close or a settle
+    /// outside Z; a FOLLOWING ring whose gaze enters the hit area freezes where it is drawn and holds
+    /// (<see cref="GraceMs"/> outside the hit area, an unproven hold also on leaving the no-move zone).</summary>
+    /// <param name="StayGraceMs">The stay's grace G; null = no stay (every run end releases).</param>
+    /// <param name="StayCorridorPx">The stay zone's corridor (the VM's <c>InStayZone</c>): 0 = B's no-move
+    /// zone only; otherwise also within this many px of the segment P-B (a capsule). A negative value means
+    /// <see cref="CursorCircleViewModel.HybridStayCorridorFactor"/> × R (the VM's constant times the config's
     /// fixation radius, as the VM takes the engine's R from the show message).</param>
     internal sealed record ArmSpec(string Name, Pinning Pinning, int GlideOutMs = 0, int GraceMs = 0, double ExitMarginPx = 0,
-        HoldStyle Hold = HoldStyle.Freeze, int ApproachMs = 150, int ProvenMs = 0, double GoCorridorPx = 0);
+        int? StayGraceMs = null, int ProvenMs = 0, double StayCorridorPx = 0);
 
     /// <summary>The distance from <paramref name="g"/> to the segment <paramref name="a"/>-<paramref name="b"/>.</summary>
     internal static double DistanceToSegment(PhysicalPoint g, PhysicalPoint a, PhysicalPoint b)
@@ -323,11 +320,11 @@ public class RingArmReplayTests(ITestOutputHelper output)
         bool hybrid = spec.Pinning == Pinning.Hybrid;
         var ledger = hybrid ? new HoldLedger() : null;
         double radiusPx = trace.Config.RadiusPx;
-        double corridorPx = spec.GoCorridorPx < 0
-            ? radiusPx * CursorCircleViewModel.HybridGoCorridorFactor
-            : spec.GoCorridorPx;
-        // The approach's space: B's no-move zone, or (going-for-it) also the capsule P-B.
-        bool InGo(PhysicalPoint g, ActivationOffer o) =>
+        double corridorPx = spec.StayCorridorPx < 0
+            ? radiusPx * CursorCircleViewModel.HybridStayCorridorFactor
+            : spec.StayCorridorPx;
+        // The stay zone Z: B's no-move zone, or also the capsule P-B.
+        bool InStayZone(PhysicalPoint g, ActivationOffer o) =>
             g.DistanceTo(o.Button) <= o.HitRadiusPx + radiusPx
             || (corridorPx > 0 && DistanceToSegment(g, o.Point, o.Button) <= corridorPx);
 
@@ -335,7 +332,10 @@ public class RingArmReplayTests(ITestOutputHelper output)
         ActivationOffer? offer = null;
         bool holding = false;
         bool pendingRunEndRelease = false;
-        long? approachUntilUs = null;
+        bool staying = false;
+        long? stayOutsideSinceUs = null;
+        // A settle pin applied and its run not ended yet (the VM's _runPinHeld).
+        bool runPinHeld = false;
         long? outsideSinceUs = null;
         long holdStartUs = 0;
         int holdInHitSamples = 0;
@@ -343,7 +343,6 @@ public class RingArmReplayTests(ITestOutputHelper output)
         void StartHold(long us, bool inPlace)
         {
             holding = true;
-            approachUntilUs = null;
             outsideSinceUs = null;
             holdStartUs = us;
             holdInHitSamples = 0;
@@ -376,42 +375,43 @@ public class RingArmReplayTests(ITestOutputHelper output)
                         model.Release();
                         break;
                     case Kind.Settled when spec.Pinning is Pinning.RunOnly or Pinning.Hybrid:
+                        // A settle outside the stay zone ends the stay (settled elsewhere) and pins.
+                        if (staying && previousState == InteractionState.Fixation && !InStayZone(e.Point, offer!))
+                            staying = false;
                         // The hybrid ignores a NEAR-MISS settle of a live offer: inside its no-move zone and
-                        // strictly nearer B than P (the engine's NearMiss rule). A swallowed settle (nearer
-                        // P) pins as before.
+                        // strictly nearer B than P (the engine's NearMiss rule); a stay goes on. A swallowed
+                        // settle (nearer P) pins as before, a stay going on at the new pin.
                         bool nearOffer = hybrid && offer is { } so
                             && e.Point.DistanceTo(so.Button) <= so.HitRadiusPx + radiusPx
                             && e.Point.DistanceTo(so.Button) < e.Point.DistanceTo(so.Point);
-                        // A settle during the going-for-it keep ENDS the keep (the eye has stopped) and is then
-                        // processed as without a keep: it pins, or a near miss is refused and the ring follows.
-                        bool endsKeep = hybrid && !holding && approachUntilUs is not null
-                            && previousState == InteractionState.Fixation;
-                        if (endsKeep) approachUntilUs = null;
-                        if (!holding && approachUntilUs is null)
+                        if (!holding && !nearOffer && previousState == InteractionState.Fixation)
                         {
-                            if (!nearOffer) model.Pin(e.Point);
-                            else if (endsKeep) model.Release();
+                            model.Pin(e.Point);
+                            runPinHeld = true;
                         }
                         break;
                     case Kind.State:
                         if (spec.Pinning is Pinning.RunOnly or Pinning.Hybrid
-                            && previousState == InteractionState.Fixation && e.State != InteractionState.Fixation
-                            && !holding && approachUntilUs is null)
+                            && previousState == InteractionState.Fixation && e.State != InteractionState.Fixation)
                         {
-                            // The hybrid defers the run-end release to this sample's cursor frame, where the
-                            // landing gaze is known. Releasing there, before the frame is applied, is the order
-                            // the VM sees anyway (release first, then the cursor message).
-                            if (hybrid && spec.Hold != HoldStyle.BackToP && e.State == InteractionState.FreeLook)
-                                pendingRunEndRelease = true;
-                            else
-                                model.Release();
+                            runPinHeld = false;
+                            if (!holding && !staying)
+                            {
+                                // The hybrid defers the run-end release to this sample's cursor frame, where the
+                                // landing gaze is known. Releasing there, before the frame is applied, is the
+                                // order the VM sees anyway (release first, then the cursor message).
+                                if (hybrid && e.State == InteractionState.FreeLook)
+                                    pendingRunEndRelease = true;
+                                else
+                                    model.Release();
+                            }
                         }
                         previousState = e.State;
                         model.State(e.State);
                         if (!model.IsVisible)
                         {
                             pendingRunEndRelease = false;
-                            approachUntilUs = null;
+                            staying = false;
                             // A hiding state clears the pin in the VM; the hold goes with it.
                             if (holding) EndHold(row.Us, release: false);
                         }
@@ -422,31 +422,39 @@ public class RingArmReplayTests(ITestOutputHelper output)
                     case Kind.OfferClosed:
                         offer = null;
                         if (holding) EndHold(row.Us, release: true);
-                        if (approachUntilUs is not null) { approachUntilUs = null; model.Release(); }
+                        else if (staying)
+                        {
+                            // A settle's run that still holds keeps Core's pin; its own run end decides.
+                            staying = false;
+                            if (!runPinHeld) model.Release();
+                        }
                         break;
                     case Kind.Cursor:
                         PhysicalPoint g = e.Frame.Position;
                         if (pendingRunEndRelease)
                         {
                             pendingRunEndRelease = false;
-                            double d0 = offer is { } po ? g.DistanceTo(po.Button) : double.MaxValue;
-                            if (offer is not null && model.IsPinned && d0 <= offer.HitRadiusPx)
-                                StartHold(row.Us, inPlace: false);           // lands on the button: keep the pin
-                            else if (spec.Hold == HoldStyle.Freeze && offer is not null && model.IsPinned
-                                     && spec.ApproachMs > 0 && InGo(g, offer))
-                                approachUntilUs = row.Us + (spec.ApproachMs * 1000L);  // heading for it: wait
+                            if (spec.StayGraceMs is not null && offer is not null && model.IsPinned && InStayZone(g, offer))
+                            {
+                                staying = true;                              // a button up, the gaze in Z: stay
+                                stayOutsideSinceUs = null;
+                                ledger!.Stays++;
+                            }
                             else
                                 model.Release();
                         }
-                        else if (approachUntilUs is { } until && offer is { } ao)
+                        else if (staying)
                         {
-                            double da = g.DistanceTo(ao.Button);
-                            if (da <= ao.HitRadiusPx)
-                                StartHold(row.Us, inPlace: false);
-                            else if (!InGo(g, ao) || row.Us >= until)
+                            if (InStayZone(g, offer!))
+                                stayOutsideSinceUs = null;
+                            else
                             {
-                                approachUntilUs = null;
-                                model.Release();
+                                stayOutsideSinceUs ??= row.Us;
+                                if (row.Us - stayOutsideSinceUs.Value >= spec.StayGraceMs!.Value * 1000L)
+                                {
+                                    staying = false;
+                                    model.Release();
+                                }
                             }
                         }
 
@@ -468,16 +476,8 @@ public class RingArmReplayTests(ITestOutputHelper output)
                                         EndHold(row.Us, release: true);
                                 }
                             }
-                            else if (approachUntilUs is null && d <= o.HitRadiusPx)
-                            {
-                                if (spec.Hold == HoldStyle.Freeze)
-                                    StartHold(row.Us, inPlace: true);
-                                else if (spec.Hold == HoldStyle.BackToP)
-                                {
-                                    StartHold(row.Us, inPlace: false);
-                                    model.Pin(o.Point, force: true);
-                                }
-                            }
+                            else if (!staying && d <= o.HitRadiusPx)
+                                StartHold(row.Us, inPlace: true);
                         }
                         if (holding && offer is { } ho && g.DistanceTo(ho.Button) <= ho.HitRadiusPx)
                             holdInHitSamples++;
@@ -488,7 +488,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
             drawn[i] = model.Drawn;
             visible[i] = model.IsVisible;
             pinned[i] = model.IsPinned;
-            holdingAt[i] = holding || approachUntilUs is not null;
+            holdingAt[i] = holding || staying;
         }
 
         return new ArmTrace(spec.Name, drawn, visible, pinned, ledger, holdingAt);
@@ -637,15 +637,18 @@ public class RingArmReplayTests(ITestOutputHelper output)
     /// <summary>The grace protects only a hold that has proven itself: a saccade crossing the 300 px hit
     /// area spends at most one or two samples in it, a deliberate look at least three (90 ms).</summary>
     internal const int HybridProvenMs = 90;
-    internal const int HybridApproachMs = 500;
-    internal const double HybridGoCorridorPx = -1;   // the corridor's half-width is 1.25 R (the VM's constant)
-    internal static readonly ArmSpec Hybrid = new("hybrid", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx);
-    internal static readonly ArmSpec HybridGlideOut = new("hybrid + glide-out", Pinning.Hybrid, GlideOutMs: GlideOutMs, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx);
+    /// <summary>The stay's grace G (the VM's <see cref="CursorCircleViewModel.HybridStayGraceMs"/>).</summary>
+    internal const int HybridStayGraceMs = CursorCircleViewModel.HybridStayGraceMs;
+    internal const double HybridStayCorridorPx = -1;   // the corridor's half-width is 1.25 R (the VM's constant)
+    internal static readonly ArmSpec Hybrid = new("hybrid", Pinning.Hybrid, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx);
+    internal static readonly ArmSpec HybridGlideOut = new("hybrid + glide-out", Pinning.Hybrid, GlideOutMs: GlideOutMs, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx);
 
-    /// <summary>The scripted chain: four holds 400 px apart (a live offer chains), a swallowed settle beside
-    /// the last P, a far hold; with <paramref name="withButtonVisit"/>, a 700 ms dwell on the last offer's
-    /// button (it fires; manual selection hides the ring for 2.33 s) and a hold long enough for the ring to
-    /// reappear. Deterministic (seeded).</summary>
+    /// <summary>The scripted chain: four holds 500 px apart, each outside the previous offer's no-move zone,
+    /// so each makes its own offer (a live offer chains), a swallowed settle beside the last P, a far hold;
+    /// with <paramref name="withButtonVisit"/>, a 700 ms dwell on the last offer's button (it fires; manual
+    /// selection hides the ring for 2.33 s) and a hold long enough for the ring to reappear. The button and
+    /// the settle are placed from the shipped B, so their roles hold at any placement. Deterministic
+    /// (seeded).</summary>
     internal static List<GazePoint> ScriptedSamples(bool withButtonVisit)
     {
         var samples = new List<GazePoint>();
@@ -656,18 +659,26 @@ public class RingArmReplayTests(ITestOutputHelper output)
             for (int t = 0; t < ms; t += 30, us += 30_000)
                 samples.Add(new GazePoint(x + rng.NextDouble() * 6 - 3, y + rng.NextDouble() * 6 - 3, us, true));
         }
-        Hold(1200, 800, 900);
-        Hold(1600, 800, 900);
-        Hold(2000, 800, 900);
+        // 500 px apart (400 before the 7th sitting): at |B-P| = 475 a hold 400 px on is only 342 px from the
+        // previous offer's B, inside its 345-px no-move zone (a near miss, not a new offer); 500 px on is 374.
+        Hold(900, 800, 900);
+        Hold(1400, 800, 900);
+        Hold(1900, 800, 900);
         Hold(2400, 800, 1500);
+        var b = GoingForItChains.ButtonFor(new PhysicalPoint(2400, 800));
         if (withButtonVisit)
         {
-            // P = (2400, 800) → B ≈ (2181, 1019) on the diagonal toward the screen centre. Look at the button
-            // long enough to dwell (500 ms at the session-end config), wobbling inside the hit area.
+            // P = (2400, 800) → B on the diagonal toward the screen centre ((2064, 1136) at the 7th sitting's
+            // 475 px). Look at the button long enough to dwell (500 ms at the session-end config), wobbling
+            // ±60 px inside the hit area and on the disc.
             for (int t = 0; t < 700; t += 30, us += 30_000)
-                samples.Add(new GazePoint(2181 + (t / 30 % 2 == 0 ? 60 : -60), 1019 + rng.NextDouble() * 40 - 20, us, true));
+                samples.Add(new GazePoint(b.X + (t / 30 % 2 == 0 ? 60 : -60), b.Y + rng.NextDouble() * 40 - 20, us, true));
         }
-        Hold(2330, 870, 600);
+        // P's side of the no-move zone: 170 px from P toward B, 305 px from B (inside hit + R = 345), so the
+        // settle is swallowed and the live offer stays. (99 px from P before the 7th sitting: at 475 px that
+        // is 376 px from B, outside the zone, and it would make an offer of its own.)
+        double len = b.DistanceTo(new PhysicalPoint(2400, 800));
+        Hold(2400 + ((b.X - 2400) * 170 / len), 800 + ((b.Y - 800) * 170 / len), 600);
         Hold(1000, 1700, 1200);
         // Long enough for the fired offer's manual-selection visit (2.33 s) to close, so the ring's
         // reappear snap is part of the equivalence check.
@@ -711,17 +722,17 @@ public class RingArmReplayTests(ITestOutputHelper output)
         var hybrid = Measure(trace, hybridArm, ring);
 
         Check.That(hybrid.DanceSettledS).IsStrictlyGreaterThan(0.2);
-        // Mutation: drop the hold (never start one) → the hybrid is run-only and this reds.
-        Check.That(hybridArm.Holds!.Holds).IsStrictlyGreaterThan(0);
+        // Mutation: drop the stay (never start one) → the hybrid is run-only and this reds.
+        Check.That(hybridArm.Holds!.Stays + hybridArm.Holds.Holds).IsStrictlyGreaterThan(0);
         Check.That(hybrid.DanceSettledSpeed).IsEqualTo(0.0);
         Check.That(hybrid.DanceOverShare).IsEqualTo(0.0);
         Check.That(never.DanceSettledSpeed).IsStrictlyGreaterThan(100.0);
         Check.That(runOnly.DanceOverShare).IsStrictlyGreaterThan(0.5);
     }
 
-    /// <summary>The freeze chain: a hold that makes an offer at P = (2400, 800) (B ≈ (2181, 1019)), a brief look
-    /// elsewhere (no settle; the linger keeps the offer), then a 600 ms wobble on the button, so the hybrid's
-    /// hold starts by freezing a FOLLOWING ring. Deterministic (seeded).</summary>
+    /// <summary>The freeze chain: a hold that makes an offer at P = (2400, 800) (the shipped B, (2064, 1136) since
+    /// the 7th sitting), a brief look elsewhere (no settle; the linger keeps the offer), then a 600 ms wobble
+    /// on the button, so the hybrid's hold starts by freezing a FOLLOWING ring. Deterministic (seeded).</summary>
     internal static List<GazePoint> ScriptedFromElsewhere()
     {
         var samples = new List<GazePoint>();
@@ -732,22 +743,24 @@ public class RingArmReplayTests(ITestOutputHelper output)
             for (int t = 0; t < ms; t += 30, us += 30_000)
                 samples.Add(new GazePoint(x + rng.NextDouble() * 6 - 3, y + rng.NextDouble() * 6 - 3, us, true));
         }
+        var b = GoingForItChains.ButtonFor(new PhysicalPoint(2400, 800));
         Hold(2400, 800, 1200);
         Hold(1700, 1500, 240);
         for (int t = 0; t < 600; t += 30, us += 30_000)
-            samples.Add(new GazePoint(2181 + (t / 30 % 2 == 0 ? 50 : -50), 1019 + rng.NextDouble() * 30 - 15, us, true));
+            samples.Add(new GazePoint(b.X + (t / 30 % 2 == 0 ? 50 : -50), b.Y + rng.NextDouble() * 30 - 15, us, true));
         Hold(1000, 1700, 900);
         return samples;
     }
 
     internal enum SlipKind { Return, Grace, FlyThrough }
 
-    /// <summary>The slip chains: the freeze chain's offer (P = (2400, 800), B ≈ (2181, 1019)), then a brief
-    /// look at the button (2 samples in the hit area, so the hold is still unproven) and a slip out of the
-    /// hit area: <see cref="SlipKind.Return"/> 190 px from B (inside the 230-px no-move zone) for 180 ms,
-    /// back to B and out again; <see cref="SlipKind.Grace"/> 190 px from B for 660 ms, past the grace;
-    /// <see cref="SlipKind.FlyThrough"/> 260 px from B, beyond the zone. The edge-tolerant hold (A) decides
-    /// each differently. Deterministic (seeded).</summary>
+    /// <summary>The slip chains: the freeze chain's offer (P = (2400, 800), the shipped B), then a brief look at
+    /// the button (2 samples in the hit area, so the hold is still unproven) and a slip out of the hit area:
+    /// <see cref="SlipKind.Return"/> 305 px from B (outside the 265-px hit, inside the 345-px no-move zone)
+    /// for 180 ms, back to B and out again; <see cref="SlipKind.Grace"/> 305 px from B for 660 ms, past the
+    /// grace; <see cref="SlipKind.FlyThrough"/> 380 px from B, beyond the zone. (240 / 310 px at the 200-px
+    /// hit, before the 7th sitting.) The edge-tolerant hold (A) decides each differently. Deterministic
+    /// (seeded).</summary>
     internal static List<GazePoint> ScriptedSlips(SlipKind kind)
     {
         var samples = new List<GazePoint>();
@@ -761,7 +774,9 @@ public class RingArmReplayTests(ITestOutputHelper output)
         void Hold(double x, double y, int ms) => At(x, y, ms / 30);
 
         // Perpendicular to the P-B line, so the slip point is much nearer B than P (a near miss).
-        const double bx = 2181, by = 1019, step = 0.7071067811865476;
+        var b = GoingForItChains.ButtonFor(new PhysicalPoint(2400, 800));
+        double bx = b.X, by = b.Y;
+        const double step = 0.7071067811865476;
         (double X, double Y) Slip(double d) => (bx + d * step, by + d * step);
 
         Hold(2400, 800, 1200);
@@ -770,15 +785,15 @@ public class RingArmReplayTests(ITestOutputHelper output)
         switch (kind)
         {
             case SlipKind.Return:
-                At(Slip(190).X, Slip(190).Y, 6);
+                At(Slip(305).X, Slip(305).Y, 6);
                 At(bx, by, 4);
-                At(Slip(190).X, Slip(190).Y, 5);
+                At(Slip(305).X, Slip(305).Y, 5);
                 break;
             case SlipKind.Grace:
-                At(Slip(190).X, Slip(190).Y, 22);
+                At(Slip(305).X, Slip(305).Y, 22);
                 break;
             default:
-                At(Slip(260).X, Slip(260).Y, 6);
+                At(Slip(380).X, Slip(380).Y, 6);
                 break;
         }
 
@@ -995,7 +1010,7 @@ public class RingArmReplayTests(ITestOutputHelper output)
         foreach (var (spec, arm, _) in ms.Where(x => x.arm.Holds is not null))
         {
             var h = arm.Holds!;
-            sb.AppendLine(inv, $"- **{spec.Name}** holds: {h.Holds} ({h.Spurious} spurious, < 150 ms in the hit area); duration median {Pct(h.DurationsMs, 0.5):0} ms, p95 {Pct(h.DurationsMs, 0.95):0} ms.");
+            sb.AppendLine(inv, $"- **{spec.Name}** stays: {h.Stays}; freeze holds: {h.Holds} ({h.Spurious} spurious, < 150 ms in the hit area); duration median {Pct(h.DurationsMs, 0.5):0} ms, p95 {Pct(h.DurationsMs, 0.95):0} ms.");
         }
         sb.AppendLine();
 
@@ -1005,21 +1020,21 @@ public class RingArmReplayTests(ITestOutputHelper output)
         sb.AppendLine("| Arm | > 100 px | Catch-ups / s | Peak step p95 | Teleport catch-ups / s | Still in Fixation | Dance px/s | Dance flips | Over button | Holds (spurious) |");
         sb.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
         var variants = new List<ArmSpec>();
-        // One knob at a time around the chosen hybrid (grace 500 ms once proven 90 ms, going-for-it keep 500 ms along the P-B corridor).
+        // One knob at a time around the chosen hybrid (stay zone hit + R or the 1.25 R corridor with a
+        // 500 ms grace; freeze hold grace 500 ms once proven 90 ms).
+        foreach (int stay in new[] { 0, 250, 500, 750 })
+            variants.Add(new ArmSpec($"hybrid stay grace {stay} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, StayGraceMs: stay, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx));
+        variants.Add(new ArmSpec("hybrid stay zone without the corridor", Pinning.Hybrid, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs));
+        variants.Add(new ArmSpec("hybrid without a stay", Pinning.Hybrid, GraceMs: HybridGraceMs, ProvenMs: HybridProvenMs));
         foreach (int grace in new[] { 0, 250, 500, 750 })
             foreach (double margin in new[] { 0.0, 50.0 })
-                variants.Add(new ArmSpec($"hybrid grace {grace} ms, exit +{margin:0} px", Pinning.Hybrid, GraceMs: grace, ExitMarginPx: margin, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx));
-        foreach (int approach in new[] { 0, 150, 300 })
-            variants.Add(new ArmSpec($"hybrid approach window {approach} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: approach, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx));
+                variants.Add(new ArmSpec($"hybrid freeze grace {grace} ms, exit +{margin:0} px", Pinning.Hybrid, GraceMs: grace, ExitMarginPx: margin, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx));
         foreach (int proven in new[] { 0, 90, 150, 300 })
-            variants.Add(new ArmSpec($"hybrid grace only once proven {proven} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: proven, GoCorridorPx: HybridGoCorridorPx));
-        variants.Add(new ArmSpec("REJECTED: hybrid keep-pin only, grace 500 ms", Pinning.Hybrid, GraceMs: 500, Hold: HoldStyle.KeepPin));
-        variants.Add(new ArmSpec("REJECTED: hybrid back-to-P, grace 500 ms", Pinning.Hybrid, GraceMs: 500, Hold: HoldStyle.BackToP));
-        variants.Add(new ArmSpec("REJECTED: hybrid back-to-P, grace 0 ms", Pinning.Hybrid, GraceMs: 0, Hold: HoldStyle.BackToP));
+            variants.Add(new ArmSpec($"hybrid freeze grace only once proven {proven} ms", Pinning.Hybrid, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: proven, StayCorridorPx: HybridStayCorridorPx));
         foreach (int glide in new[] { 80, 120, 200 })
             variants.Add(new ArmSpec($"glide-out {glide} ms", Pinning.Today, GlideOutMs: glide));
         foreach (int glide in new[] { 80, 120, 200 })
-            variants.Add(new ArmSpec($"hybrid + glide-out {glide} ms", Pinning.Hybrid, GlideOutMs: glide, GraceMs: HybridGraceMs, ApproachMs: HybridApproachMs, ProvenMs: HybridProvenMs, GoCorridorPx: HybridGoCorridorPx));
+            variants.Add(new ArmSpec($"hybrid + glide-out {glide} ms", Pinning.Hybrid, GlideOutMs: glide, GraceMs: HybridGraceMs, StayGraceMs: HybridStayGraceMs, ProvenMs: HybridProvenMs, StayCorridorPx: HybridStayCorridorPx));
         foreach (var spec in variants)
         {
             var arm = Play(trace, spec);

@@ -24,29 +24,23 @@ public class UIConstantsTests
     }
 
     [Fact]
-    public void ActivationButtonOffset_IsDefinedAndPositive()
+    public void ActivationButtonOffset_LivesInLayoutConstants_AndIsTheOwnersOptionB()
     {
-        Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
-        Check.That(UIConstants.ActivationButtonOffset).IsEqualTo(55);
-    }
-
-    [Fact]
-    public void ActivationButtonOffset_MovedToLayoutConstants_WithAnIntAliasKept()
-    {
-        // Ticket 7 (N9): Core's placement function owns the number now; the ViewModels alias stays an
-        // int for its existing readers. Mutation: change one without the other → red.
-        Check.That(LayoutConstants.ActivationButtonOffset).IsEqualTo(55.0);
-        Check.That(UIConstants.ActivationButtonOffset).IsEqualTo(55);
-        Check.That(UIConstants.ActivationButtonOffset)
-            .IsEqualTo((int)LayoutConstants.ActivationButtonOffset);
+        // Ticket 7 (N9): Core's placement function owns the number. 137.5 DIP since the 7th sitting
+        // (2026-11-12, the owner's option B: 475 px from P at ring 200 and 200 %); was 55. The ViewModels
+        // int alias was dropped then: (int)137.5 would have read 137, and only this test read it.
+        Check.That(LayoutConstants.ActivationButtonOffset).IsEqualTo(137.5);
+        Check.That(typeof(UIConstants).GetField("ActivationButtonOffset")).IsNull();
     }
 
     [Fact]
     public void ActivationButtonHitRadius_IsItsOwnPhysicalConstant()
     {
         // Ticket 7 (N4): the dwell target is physical pixels and its own constant. Mutation: bump or
-        // reuse SharedButtonRadius for it → red on the size that roughly ten other buttons read.
-        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(150.0);
+        // reuse SharedButtonRadius for it → red on the size that roughly ten other buttons read. 200 px
+        // since F2 (5th sitting, 2026-11-09: the owner's answer Q-hit = a; was 150); 265 px since the 7th
+        // sitting (2026-11-12, the owner's option B, with the 475 px offer).
+        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(265.0);
         Check.That(LayoutConstants.SharedButtonRadius).IsEqualTo(50.0);
         Check.That(LayoutConstants.ActivationButtonHitRadiusPx)
             .IsNotEqualTo(LayoutConstants.SharedButtonRadius);
@@ -80,6 +74,5 @@ public class UIConstantsTests
     {
         Check.That(UIConstants.ButtonRadius > 0).IsTrue();
         Check.That(UIConstants.ManualSelectionSideButtonGap > 0).IsTrue();
-        Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
     }
 }

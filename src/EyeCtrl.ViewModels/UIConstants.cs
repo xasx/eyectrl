@@ -35,13 +35,6 @@ public static class UIConstants
     public const double ManualSelectionSideButtonGap = 20.0;
 
     /// <summary>
-    /// Distance in logical pixels (DIPs) from the cursor circle edge to the center of the activation
-    /// button. An <c>int</c> alias of <see cref="LayoutConstants.ActivationButtonOffset"/>, kept for its
-    /// existing readers (the constants tests); Core's placement function owns the value now.
-    /// </summary>
-    public const int ActivationButtonOffset = (int)LayoutConstants.ActivationButtonOffset;
-
-    /// <summary>
     /// Distance from screen edges to the backdrop hide button center in logical pixels. The user
     /// chose 53 on 2026-10-13 off the 40/50/53 corner sheet: at 53 the button's 100-DIP dwell disc
     /// and its 105-DIP halo are fully on screen (at 40 the disc reached 10 DIP past the right and

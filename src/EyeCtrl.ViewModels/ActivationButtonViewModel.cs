@@ -43,10 +43,37 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     [ObservableProperty] private bool _isVisible;
 
     /// <summary>
-    /// The offer's hit radius in physical pixels, carried on the show message. The halo is sized from
-    /// it — outer radius at or inside <see cref="HitRadiusPixels"/> — so no drawn feedback ever lies
-    /// outside the area the dwell is counted within. No longer the fixation radius: since ticket 8 the
-    /// feedback is on the button's dwell, and the ring owns the hold's marking.
+    /// True while the button's fill is held in the engine's pause grace: the gaze has left the
+    /// button and the progress has stopped rising, so the window draws the fill dimmed (B2, port of
+    /// R2's <c>CursorCircleViewModel.IsFillPaused</c>). Entered after
+    /// <see cref="FillPausedStillFrames"/> valid still frames outside the hit area, left after
+    /// <see cref="FillPausedReleaseFrames"/> consecutive credited frames, and cleared at either end
+    /// of the fill and by every reset listed on <see cref="DwellProgress"/>. Derived from the frames:
+    /// the engine's progress only stands still (with the offer alive) when the sample in grace was
+    /// not credited.
+    /// </summary>
+    [ObservableProperty] private bool _isFillPaused;
+
+    /// <summary>Valid frames the fill must stand still before the paused look shows. Two frames
+    /// (60 ms at 30 ms) debounces a single out-of-area sample, while the engine's grace is 500 ms;
+    /// the fill is dimmed for the rest of the excursion.</summary>
+    public const int FillPausedStillFrames = 2;
+
+    /// <summary>Consecutive credited frames that end the paused look (fixup-01 F3). Symmetric with
+    /// the entry rule: one rising frame cannot clear it, so a gaze dithering across the hit area —
+    /// out, out, in, out, … credits a single sample per return — cannot strobe the dim at ~11 Hz.</summary>
+    public const int FillPausedReleaseFrames = 2;
+
+    private double _lastFillProgress;
+    private int _fillStillFrames;
+    private int _fillRisingFrames;
+
+    /// <summary>
+    /// The offer's hit radius in physical pixels, carried on the show message. The drawn disc is
+    /// deliberately smaller than it: the window draws a fixed 100 DIP face, so no drawn feedback ever
+    /// lies outside the area the dwell is counted within, and the hit area stays the offer engine's.
+    /// No longer the fixation radius: since ticket 8 the feedback is on the button's dwell, and the
+    /// ring owns the hold's marking.
     /// </summary>
     public double HitRadiusPixels { get; private set; }
 
@@ -65,9 +92,11 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     /// <inheritdoc />
     public void Receive(ShowActivationButtonMessage message)
     {
+        // F1: one sign for every selection mode, so the show carries no face choice. The position
+        // is all the window needs before it is shown.
         ButtonCenter = message.ButtonCenter;
         HitRadiusPixels = message.HitRadiusPx;
-        DwellProgress = 0;
+        ResetFillPause(0);
         _completionSent = false;
         IsVisible = true;
     }
@@ -76,7 +105,7 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     public void Receive(HideActivationButtonMessage message)
     {
         IsVisible = false;
-        DwellProgress = 0;
+        ResetFillPause(0);
         _completionSent = false;
     }
 
@@ -90,7 +119,7 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
         if (!message.Active)
             return;
         IsVisible = false;
-        DwellProgress = 0;
+        ResetFillPause(0);
         _completionSent = false;
     }
 
@@ -99,8 +128,70 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     {
         // Progress comes from Core's button-dwell ledger and is already 0 outside an offer, so the VM
         // only forwards it while the button is up. Gap-held samples carry the last value; skip them.
-        if (IsVisible && !message.IsInGap)
-            DwellProgress = message.Frame.ButtonDwellProgress;
+        if (!IsVisible || message.IsInGap)
+            return;
+
+        double progress = message.Frame.ButtonDwellProgress;
+        if (!double.IsFinite(progress))
+            progress = 0.0;
+        progress = Math.Clamp(progress, 0.0, 1.0);
+        DwellProgress = progress;
+        AdvanceFillPause(message.Position, progress);
+    }
+
+    /// <summary>
+    /// Derives the paused look from the frames (B2). The engine credits only samples inside the
+    /// button's hit area, so with the offer still alive a progress that has not risen over
+    /// <see cref="FillPausedStillFrames"/> valid frames, while the gaze is outside the hit area, is
+    /// exactly the pause grace. A single out-of-area sample never dims the fill, and the release needs
+    /// <see cref="FillPausedReleaseFrames"/> consecutive credited frames so a gaze dithering across
+    /// the area cannot strobe the dim.
+    /// </summary>
+    /// <param name="gaze">The sample's filtered gaze position, in physical pixels.</param>
+    /// <param name="progress">The frame's button-dwell progress, already clamped to 0–1.</param>
+    private void AdvanceFillPause(PhysicalPoint gaze, double progress)
+    {
+        // Neither end of the fill is "paused": 0 is nothing drawn, 1 is the fired wait for the
+        // accept/decline (the engine reports 1.0 while it waits).
+        if (progress <= 0 || progress >= 1)
+        {
+            ResetFillPause(progress);
+            return;
+        }
+
+        if (progress > _lastFillProgress)
+        {
+            _fillStillFrames = 0;
+            _fillRisingFrames++;
+        }
+        else
+        {
+            _fillRisingFrames = 0;
+            _fillStillFrames++;
+        }
+
+        _lastFillProgress = progress;
+
+        bool outsideHitArea = gaze.DistanceTo(ButtonCenter) > HitRadiusPixels;
+        if (IsFillPaused)
+        {
+            if (_fillRisingFrames >= FillPausedReleaseFrames)
+                IsFillPaused = false;
+        }
+        else if (outsideHitArea && _fillStillFrames >= FillPausedStillFrames)
+        {
+            IsFillPaused = true;
+        }
+    }
+
+    /// <summary>Clears the paused look and its frame bookkeeping for the next show.</summary>
+    private void ResetFillPause(double progress)
+    {
+        IsFillPaused = false;
+        DwellProgress = progress;
+        _lastFillProgress = progress;
+        _fillStillFrames = 0;
+        _fillRisingFrames = 0;
     }
 
     /// <inheritdoc />
@@ -117,7 +208,7 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
         if (!IsVisible || _completionSent)
             return;
         _completionSent = true;
-        DwellProgress = 1;
+        ResetFillPause(1);
         Messenger.Send(new ActivationCompletedMessage(message.Offer));
         Messenger.Send(new DwellActivationMessage());
     }

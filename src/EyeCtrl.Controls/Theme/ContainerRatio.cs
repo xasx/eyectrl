@@ -48,9 +48,9 @@ public static class ContainerRatio
     ///
     /// <para>
     /// Scoped by construction: <see cref="Dominant"/> still sizes the toolbar, the ring and the
-    /// quick-actions grid, which must not move. A caller takes this ratio only by asking
-    /// <see cref="EyeCtrl.Controls.DwellArcButton.Create"/>'s <c>IconSize.Solo</c>, which refuses a
-    /// label — the ratio names a label-less face.
+    /// quick-actions grid, which must not move. A caller takes this ratio only for a label-less
+    /// face: <see cref="EyeCtrl.Controls.DwellArcButton.Create"/>'s <c>IconSize.Solo</c> (which
+    /// refuses a label) and the activation button's own face since F1 dropped its word.
     /// </para>
     /// </summary>
     public const double Solo = 0.58;

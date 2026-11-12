@@ -405,7 +405,8 @@ public class GazeEngine : IDisposable
             if (e.PropertyName is nameof(DwellSettings.FixationRadiusPixels)
                                or nameof(DwellSettings.FixationDetectionMs)
                                or nameof(DwellSettings.ActivationButtonDwellMs)
-                               or nameof(DwellSettings.DwellCooldownMs))
+                               or nameof(DwellSettings.DwellCooldownMs)
+                               or nameof(DwellSettings.OfferShowAfterMs))
                 RequestFixationReconfiguration();
         };
         _settings.Dwell.PropertyChanged += _dwellSettingsChangedHandler;
@@ -593,6 +594,10 @@ public class GazeEngine : IDisposable
             // from the engine's 1 s default. The default is left alone so the report's lever table
             // keeps its baseline.
             OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs,
+            // Round button B3: the button shows once the rest has lasted the setting, measured from
+            // the detector's own settle age. The engine default (no wait) stays the replays' baseline.
+            OfferShowAfterMs = _settings.Dwell.OfferShowAfterMs,
+            SettleAgeMs = EffectiveSettleAgeMs(),
         };
         InteractionManager.AttachActivationOffers(offers);
         LogOfferEngineConfiguration(offers);
@@ -603,14 +608,21 @@ public class GazeEngine : IDisposable
     // gated behind a diagnostics flag.
     private void LogOfferEngineConfiguration(ActivationOfferEngine offers)
         => _logger?.LogInformation(
-            "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms",
+            "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms, show after {ShowAfter} ms (settle {Settle} ms)",
             offers.ScreenBoundsPx.Width,
             offers.ScreenBoundsPx.Height,
             offers.Scale,
             offers.RingSizeDip,
             offers.FixationRadiusPx,
             offers.DwellMs,
-            offers.OfferExpiryMs);
+            offers.OfferExpiryMs,
+            offers.OfferShowAfterMs,
+            offers.SettleAgeMs);
+
+    // The rest length at which the detector settles (FixationDetector: max(onset age, settle age)),
+    // the origin the show delay is measured from. Gaze thread, like every detector read.
+    private int EffectiveSettleAgeMs()
+        => Math.Max(_fixationDetector.FixationTimeMs, _fixationDetector.FixationSettleMs);
 
     // Runs on the gaze thread. Applies the current effective tolerance to the LIVE detector in place. No
     // rebuild, so an in-progress fixation is preserved across an adaptation step: the controller relaxes and
@@ -640,9 +652,15 @@ public class GazeEngine : IDisposable
         {
             int previousDwellMs = offers.DwellMs;
             double previousRadiusPx = offers.FixationRadiusPx;
+            int previousShowAfterMs = offers.OfferShowAfterMs;
+            int previousSettleAgeMs = offers.SettleAgeMs;
             offers.DwellMs = EffectiveActivationDwellMs();
             offers.FixationRadiusPx = EffectiveFixationRadius();
-            if (offers.DwellMs != previousDwellMs || offers.FixationRadiusPx != previousRadiusPx)
+            // Round button B3: the show delay is live like the dwell — it reaches the next settle.
+            offers.OfferShowAfterMs = _settings.Dwell.OfferShowAfterMs;
+            offers.SettleAgeMs = EffectiveSettleAgeMs();
+            if (offers.DwellMs != previousDwellMs || offers.FixationRadiusPx != previousRadiusPx
+                || offers.OfferShowAfterMs != previousShowAfterMs || offers.SettleAgeMs != previousSettleAgeMs)
                 LogOfferEngineConfiguration(offers);
         }
     }
@@ -756,8 +774,12 @@ public class GazeEngine : IDisposable
     {
         // Every expiry is logged for the live check, before the telemetry threshold below: a glance
         // that did not complete is exactly what the "no chase" and completion-count readings need.
+        // firstLookMs (round-button B1) is `none` for an offer that was never looked at — the
+        // "popped up while reading" count tools/activation_log_metrics.py reports. fillRestarts (F3) counts
+        // the looks elsewhere in the hit area that restarted the fill: reading through the button's area.
         _logger?.LogInformation(
-            "Offer expired unused #{Id} (dwell {Progress:P0})", offer.Id, progressAtExpiry);
+            "Offer expired unused #{Id} (dwell {Progress:P0}) firstLookMs={FirstLookMs} fillRestarts={FillRestarts}",
+            offer.Id, progressAtExpiry, offer.FirstLookLogValue, offer.FillRestarts);
 
         // The same threshold the age-based abandonment used: below it the gaze merely passed over the
         // button, not an attempt the user gave up on.
@@ -907,7 +929,13 @@ public class GazeEngine : IDisposable
             // sample is classified against the sample the engine has already seen (the engine's
             // documented call order). Both see only non-gap samples; the engine additionally gets the
             // raw validity so a tracker-reported invalid sample pauses the button dwell.
-            InteractionManager.NoteActivationGazeSample(filtered, gaze.TimestampMicroseconds, gaze.IsValid);
+            // The detector's own verdict on this sample, asked before it sees it (round button B3
+            // fixup-01): a delayed button shows only on a sample that continues the run. The raw point
+            // (calibrated, before the filter) tells the button's looks a saccade from a slide (F3 fixup-01).
+            InteractionManager.NoteActivationGazeSample(
+                filtered, gaze.TimestampMicroseconds, gaze.IsValid,
+                _fixationDetector.ContinuesRun(filtered, gaze.TimestampMicroseconds, gaze.IsValid),
+                new PhysicalPoint(corrected.X, corrected.Y));
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
         }
 

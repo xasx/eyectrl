@@ -3,25 +3,28 @@ namespace EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 
 using System.Windows;
-using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Media.Animation;
+using EyeCtrl.Controls;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
 /// <summary>
-/// The activation feedback: a symmetric halo centred on the offered button's centre B, drawn where
-/// the dwell is counted.
+/// The activation feedback (B2/F1): a solid round button centred on the offered button's centre B,
+/// drawn where the dwell is counted.
 ///
 /// <para>
-/// Since ticket 8 the halo is on the button — the one action that fires — and its outer radius never
-/// exceeds the button's hit radius, so no drawn feedback lies outside the counted area. Ticket 4's
-/// version was centred on the fixation point and sized from the fixation radius; the ring now owns
-/// the hold's marking, and this window only says how far the button's own dwell has come.
+/// The face is a static 100 DIP disc with the toolbar's look and the one sign the action menu
+/// gives it — a little ring menu, six open circles around a dot (<see cref="ActivationButtonFace"/>).
+/// The sign is the same in every selection mode; there is no word. The dwell fills the disc from
+/// the bottom in the accent colour; full = it fires. There is no growth, no motion and no arc head.
 /// </para>
 ///
 /// <para>
-/// The progress scalar moves the radius of two concentric full circles; there is no arc head, so no
-/// part of the feedback ever draws a moving mark beside the point the user is holding.
+/// The window only positions itself and forwards progress/paused to the face. It is sized around
+/// the disc plus a small edge margin, with no clamp: B is already clamped by the placement
+/// function, and clamping again here would move the drawn centre off the counted point.
 /// </para>
 /// </summary>
 public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOverlay
@@ -29,13 +32,9 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
     // UI Layout Constants
     private const int FadeInDurationMs = 150; // Duration of fade-in animation
     private const int FadeOutDurationMs = 100; // Duration of fade-out animation
-    private const double EdgeMarginDip = 2.0; // Slack between the halo's outer stroke edge and the window edge
+    private const double EdgeMarginDip = 2.0; // Slack between the disc's edge and the window edge
 
-    /// <summary>
-    /// The hit radius (physical px) the current halo was sized for. Set by <see cref="ShowAt"/>;
-    /// 0 before the first show, when there is no geometry to draw yet.
-    /// </summary>
-    private double _hitRadiusPixels;
+    private readonly ActivationButtonFace _face;
 
     public ActivationButtonWindow()
     {
@@ -44,32 +43,36 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
         IsClickThrough = true;
         ExcludeFromScreenCapture = true; // keep out of the magnifier/preview capture
         InitializeComponent();
+        _face = new ActivationButtonFace();
+        Content = _face;
         Opacity = 0;
+        // The word is gone (F1), so the sign alone must carry a name for UIA: the same short
+        // "Action menu" the sign depicts, never a mode name.
+        AutomationProperties.SetName(this, StringTable.Current.T("overlays.activationButton.name"));
     }
 
     /// <summary>
-    /// Centres the halo on <paramref name="buttonCenter"/> — the offer's B, in physical pixels — and
-    /// sizes the window around the largest radius the progress scalar can reach (the hit radius).
+    /// Centres the disc on <paramref name="buttonCenter"/> — the offer's B, in physical pixels.
     ///
     /// <para>
-    /// There is deliberately no screen clamping: B is already clamped on screen by the placement
-    /// function, and clamping again here would move the drawn centre off the counted point and break
-    /// "drawn = counted" at the edges. The cursor ring is centred the same way.
+    /// <paramref name="hitRadiusPixels"/> is the offer's counted hit radius
+    /// (<see cref="EyeCtrl.Core.LayoutConstants.ActivationButtonHitRadiusPx"/>), carried by the
+    /// show message for the offer contract. The drawn disc is deliberately smaller than it (100 DIP
+    /// across): the dwell is still counted exactly where the engine counts it, and
+    /// "drawn = counted" means the drawn centre is B, not that the drawn size equals the hit size.
     /// </para>
     /// </summary>
     public void ShowAt(PhysicalPoint buttonCenter, double hitRadiusPixels)
     {
-        _hitRadiusPixels = hitRadiusPixels;
-
-        var maxRadiusDip = ActivationButtonHaloGeometry.OuterRadiusDip(hitRadiusPixels, DpiHelper.ScaleX);
-        var halfExtentDip = maxRadiusDip + (ProgressHalo.StrokeThickness / 2) + EdgeMarginDip;
-        Width = 2 * halfExtentDip;
-        Height = 2 * halfExtentDip;
+        double side = ActivationButtonFace.Diameter + (2 * EdgeMarginDip);
+        Width = side;
+        Height = side;
 
         Left = DpiHelper.PhysicalToLogicalX(buttonCenter.X) - (Width / 2);
         Top = DpiHelper.PhysicalToLogicalY(buttonCenter.Y) - (Height / 2);
 
         UpdateDwellProgress(0);
+        SetFillPaused(false);
 
         var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(FadeInDurationMs));
         BeginAnimation(OpacityProperty, fadeIn);
@@ -81,7 +84,7 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
         fadeOut.Completed += (_, _) =>
         {
             base.Hide();
-            // Torn down for the whole show half of the cycle: drop the radius too, so nothing stale
+            // Torn down for the whole show half of the cycle: drop the progress too, so nothing stale
             // can be presented if the next show is late or its first frame is not pumped.
             UpdateDwellProgress(0);
         };
@@ -92,39 +95,23 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
     {
         // The fade-in is a HoldEnd animation, and a held animation outranks the base Opacity written
         // here — without clearing it first, the window would stay fully opaque while "hidden" and a
-        // re-show could present the previous halo (its last radius included) for a frame at the new
+        // re-show could present the previous fill (its last height included) for a frame at the new
         // gaze point. Clearing it makes Opacity = 0 take effect, and the base value is what a
         // pump-less read observes.
         BeginAnimation(OpacityProperty, null);
         Opacity = 0;
         UpdateDwellProgress(0);
+        SetFillPaused(false);
         base.Hide();
     }
 
-    /// <summary>
-    /// Draws the halo at the radius for <paramref name="progress"/> — half the hit radius at 0 through
-    /// the full hit radius at 1, in physical px divided by the live scale, both bands sharing it,
-    /// centred in the window. WPF draws an Ellipse's stroke INSIDE the element's bounds (review A's
-    /// probe E1: Width 100, stroke 10 renders geometry at (5, 5, 90, 90)), so the element's edge is
-    /// the stroke's outer edge and at full progress it lands exactly on the hit radius — no cap is
-    /// needed. No-op before <see cref="ShowAt"/> has supplied a radius: a progress notification can
-    /// arrive from the ViewModel's show path before the window has been placed.
-    /// </summary>
-    public void UpdateDwellProgress(double progress)
-    {
-        if (_hitRadiusPixels <= 0)
-            return;
+    /// <summary>Moves the fill's top edge and the content copies' clips for <paramref name="progress"/>.</summary>
+    public void UpdateDwellProgress(double progress) => _face.UpdateProgress(progress);
 
-        var radiusDip = ActivationButtonHaloGeometry.RadiusDip(_hitRadiusPixels, DpiHelper.ScaleX, progress);
-        ApplyRadius(ProgressHalo, radiusDip);
-        ApplyRadius(ProgressRing, radiusDip);
-    }
+    /// <summary>Dims the held fill while the engine's pause grace runs.</summary>
+    /// <param name="paused">True while the dwell is paused.</param>
+    public void SetFillPaused(bool paused) => _face.SetPaused(paused);
 
-    private void ApplyRadius(FrameworkElement band, double radiusDip)
-    {
-        band.Width = 2 * radiusDip;
-        band.Height = 2 * radiusDip;
-        Canvas.SetLeft(band, (Width / 2) - radiusDip);
-        Canvas.SetTop(band, (Height / 2) - radiusDip);
-    }
+    /// <summary>The face, for the headless layout gates.</summary>
+    internal ActivationButtonFace Face => _face;
 }

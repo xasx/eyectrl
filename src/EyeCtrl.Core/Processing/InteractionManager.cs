@@ -372,12 +372,31 @@ public class InteractionManager
     /// Feeds one non-gap sample to the offer engine (gaze thread). <paramref name="point"/> is the
     /// filtered point, <paramref name="isValid"/> the raw sample's validity: a sample the tracker
     /// reported invalid pauses the button dwell even though its held position looks valid.
+    /// <paramref name="continuesRun"/> is the fixation detector's verdict on this sample (round button
+    /// B3 fixup-01): a delayed offer shows only on a sample that continues its run. The same verdict,
+    /// unmasked by the state, segments the button's looks (F3). <paramref name="rawPoint"/> is the same
+    /// sample before the filter: a new look counts as a look elsewhere only after a raw jump (F3 fixup-01).
     /// </summary>
-    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid)
+    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid, bool? continuesRun = null,
+        PhysicalPoint? rawPoint = null)
     {
         if (_activationOffers is null) return;
-        _activationOffers.Update(point, timestampUs, isValid);
-        PublishActivationOfferState();
+        var candidate = _activationOffers.OfferCandidatePoint;
+        // Holistic review F4: a sample fed after the state left Fixation does not continue the settled
+        // run, so a waiting button never shows on it. A Pause or keyboard toggle can land on the
+        // dispatcher between this sample's request drain and its feed; without this the button would
+        // be published here and torn down by the next drain, a one-sample flash. The candidate's run
+        // is always a Fixation run, so nothing else changes. The looks (F3) take the raw verdict:
+        // reading words never reach Fixation, and a masked verdict would make every sample a new look.
+        _activationOffers.Update(point, timestampUs, isValid,
+            CurrentState == InteractionState.Fixation ? continuesRun : false,
+            continuesLook: continuesRun, rawPoint: rawPoint);
+        // A delayed offer (round button B3) shows here rather than at its settle. The corner fix's pin
+        // override still applies: a clamped candidate's offer keeps the ring at the RAW settle point.
+        var live = _activationOffers.CurrentOffer;
+        PublishActivationOfferState(
+            ringPinPoint: candidate is { } raw && _activationOffers.OfferCandidatePoint is null
+                          && live is not null && live.Point != raw ? raw : null);
     }
 
     /// <summary>
@@ -667,7 +686,8 @@ public class InteractionManager
         // ring: it belongs to the offer's P until the offer closes, and re-pinning on the user's own
         // button dwell is exactly the dance the live check found. Everything else pins here: a created
         // or replaced offer (already pinned by the publish), and a settle with no offer at all (chrome,
-        // an unplaceable side, no engine yet), which keeps the old pin-at-settle behaviour.
+        // an unplaceable side, no engine yet), which keeps the old pin-at-settle behaviour. A deferred
+        // settle (round button B3's show delay) pins nothing yet: its offer pins at the show.
         if (outcome is null or SettleOutcome.NoOffer)
             RaisePinRing(point, atOffer: false);
     }

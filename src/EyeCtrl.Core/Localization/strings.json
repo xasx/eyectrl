@@ -667,6 +667,13 @@
     "args": [],
     "crisis": true
   },
+  "overlays.activationButton.name": {
+    "text": "Action menu",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.adaptationPreview.direction.atBaseline": {
     "text": "at baseline",
     "who": "user",
@@ -3332,6 +3339,20 @@
   },
   "settings.dwell.activation.label": {
     "text": "Activation Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.activation_show_after.description": {
+    "text": "How long you look at one spot before the activator appears.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.activation_show_after.label": {
+    "text": "Activator appears after (ms)",
     "who": "user",
     "where": "settings",
     "fit": "row",

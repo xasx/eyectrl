@@ -52,6 +52,9 @@ public class ActivationOfferWiringTests
             settings.Dwell.FixationRadiusPixels = 90;
             settings.Dwell.FixationDetectionMs = 300;
             settings.Dwell.ActivationButtonDwellMs = 700;
+            // These rows pin the offer at the settle (SettleAt's 600 ms hold); round button B3's show
+            // delay has its own wiring tests (ActivationOfferShowDelayWiringTests). 500 = at the settle.
+            settings.Dwell.OfferShowAfterMs = 500;
             Settings = settings;
             Engine = new GazeEngine(Provider, Input, settings, effectiveSettings: effective);
             Engine.ConfigureActivationOffers(Screen, scale: 2.0);
@@ -252,7 +255,24 @@ public class ActivationOfferWiringTests
             offer.Button.Y + ((offer.Point.Y - offer.Button.Y) * t));
     }
 
+    /// <summary>The point at <paramref name="fromButtonPx"/> from B, perpendicular to the line P-B. At the
+    /// 200-px hit (F2) a near miss can no longer lie on the line toward P: at |B-P| = 360 the band "outside
+    /// the hit, nearer B than P" (200..180 px from B) is empty there, so the near miss sits beside B. (Still
+    /// empty since the 7th sitting: 265..262.5 px at |B-P| = 525.)</summary>
+    private static PhysicalPoint BesideB(ActivationOffer offer, double fromButtonPx)
+    {
+        double length = offer.Point.DistanceTo(offer.Button);
+        double ux = (offer.Button.X - offer.Point.X) / length, uy = (offer.Button.Y - offer.Point.Y) / length;
+        return new PhysicalPoint(offer.Button.X - (uy * fromButtonPx), offer.Button.Y + (ux * fromButtonPx));
+    }
+
     private const double HarnessRadiusPx = 90;
+
+    /// <summary>A swallowed settle's distance from B, toward P: outside the hit area, inside the no-move
+    /// zone (hit + R), nearer P than B and more than R from P (a run of its own) — 305 px from B, 220 from P
+    /// at the harness's |B-P| = 525 since the 7th sitting (240 / 120 at 360; hit + R - 10 = 230 at the
+    /// 150-px hit).</summary>
+    private static double SwallowedFromButtonPx(ActivationOffer offer) => offer.HitRadiusPx + 40;
 
     [Fact]
     public void ANearMissSettle_LeavesTheRingAtP()
@@ -262,7 +282,7 @@ public class ActivationOfferWiringTests
         // the button on it. Mutation: re-pin on an Extended settle → PinPoints gains the near miss.
         using var h = new Harness();
         var offer = h.SettleAt(P);
-        var nearMiss = TowardP(offer, offer.HitRadiusPx + 15);
+        var nearMiss = BesideB(offer, offer.HitRadiusPx + 15);
         Check.That(nearMiss.DistanceTo(offer.Button)).IsStrictlyLessThan(nearMiss.DistanceTo(P));
         Check.That(nearMiss.DistanceTo(P)).IsStrictlyGreaterThan(HarnessRadiusPx);   // a run of its own
 
@@ -283,7 +303,7 @@ public class ActivationOfferWiringTests
         // re-offer). The ring stays at P. Mutation: re-pin on a Pending settle → PinPoints gains it.
         using var h = new Harness();
         var offer = h.SettleAt(P);
-        var swallowed = TowardP(offer, offer.HitRadiusPx + HarnessRadiusPx - 10);
+        var swallowed = TowardP(offer, SwallowedFromButtonPx(offer));
         Check.That(swallowed.DistanceTo(P)).IsStrictlyLessThan(swallowed.DistanceTo(offer.Button));
         Check.That(swallowed.DistanceTo(P)).IsStrictlyGreaterThan(HarnessRadiusPx);
 
@@ -302,7 +322,7 @@ public class ActivationOfferWiringTests
         // ring must mark it. Mutation: pin only from a settle's publish → the ring stays at the old P.
         using var h = new Harness();
         var first = h.SettleAt(P);
-        var swallowed = TowardP(first, first.HitRadiusPx + HarnessRadiusPx - 10);
+        var swallowed = TowardP(first, SwallowedFromButtonPx(first));
 
         h.Feed(swallowed, samples: 40);                       // 1.2 s: past the 750 ms linger, still holding
 
@@ -656,13 +676,14 @@ public class ActivationOfferWiringTests
     public void NearbySettleOnPsSide_IsSwallowed_AndNeverMovesTheOffer()
     {
         // Decision 10 / R2: a settle inside the no-move zone nearer P than B extends the live offer, it
-        // never re-offers. P2 sits 122 px along P→B (238 px from B): outside the fixation radius (a new
-        // run), inside the 240 px hit + R zone, and nearer P than B. Mutation: let a settle inside the
-        // zone replace the offer → the id changes and the point moves, red.
+        // never re-offers. P2 sits 200 px along P→B (325 px from B at |B-P| = 525): outside the fixation
+        // radius (a new run), inside the 355 px hit + R zone, and nearer P than B. (122 px along before
+        // the 7th sitting's 525 px offset: that is now 403 px from B, outside the zone.) Mutation: let a
+        // settle inside the zone replace the offer → the id changes and the point moves, red.
         using var h = new Harness();
         var offer = h.SettleAt(P);
 
-        var p2 = new PhysicalPoint(P.X + (122 / Math.Sqrt(2)), P.Y + (122 / Math.Sqrt(2)));
+        var p2 = new PhysicalPoint(P.X + (200 / Math.Sqrt(2)), P.Y + (200 / Math.Sqrt(2)));
         h.Feed(p2, samples: 20);                              // a full run at P2, settling
 
         Check.That(h.Offers.CurrentOffer).IsNotNull();
@@ -1048,7 +1069,7 @@ public class ActivationOfferWiringTests
         var offer = h.SettleAt(P);
         Check.That(h.PinPoints).ContainsExactly(P);
 
-        var swallowed = TowardP(offer, offer.HitRadiusPx + HarnessRadiusPx - 10);
+        var swallowed = TowardP(offer, SwallowedFromButtonPx(offer));
         h.Feed(swallowed, samples: 20);
 
         Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);   // swallowed, not replaced

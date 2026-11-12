@@ -113,10 +113,10 @@ public interface IActivationButtonOverlay
     void Show();
 
     /// <summary>
-    /// Places the symmetric halo centred on <paramref name="buttonCenter"/> — the offer's B — and
-    /// sizes it for <paramref name="hitRadiusPixels"/> (physical px; the window divides the live DPI
-    /// scale out itself). There is no offset parameter on purpose: the drawn centre must be the
-    /// counted centre, and the halo's outer radius never exceeds the hit radius.
+    /// Places the disc centred on <paramref name="buttonCenter"/> — the offer's B — and sizes the
+    /// window around the fixed 100 DIP face. <paramref name="hitRadiusPixels"/> is the offer's
+    /// counted hit radius (physical px); the drawn disc is deliberately inside it, and there is no
+    /// offset parameter because the drawn centre must be the counted centre.
     /// </summary>
     void ShowAt(PhysicalPoint buttonCenter, double hitRadiusPixels);
 
@@ -127,6 +127,13 @@ public interface IActivationButtonOverlay
     void HideImmediate();
 
     void UpdateDwellProgress(double progress);
+
+    /// <summary>
+    /// Dims the held fill while the engine's pause grace runs (B2). Display only: the fill's value,
+    /// colour and clip are untouched.
+    /// </summary>
+    /// <param name="paused">True while the dwell is paused.</param>
+    void SetFillPaused(bool paused);
 }
 
 /// <summary>The manual-selection magnifier.</summary>

@@ -23,6 +23,12 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.dwell.activation.label"), 200, 2000, 50, 0,
                     () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.activation.description"), Simple = true },
+                // Round button B3: how long a rest lasts before the activator appears (500 = at the
+                // settle, as before). Right next to the activator's own dwell; live like it.
+                new SliderSpec("d_act_show",
+                    StringTable.Current.T("settings.dwell.activation_show_after.label"), 500, 2500, 100, 0,
+                    () => d.OfferShowAfterMs, v => { d.OfferShowAfterMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.activation_show_after.description"), Simple = true },
                 new SliderSpec("d_menu",
                     StringTable.Current.T("settings.dwell.action_menu.label"), 200, 2000, 50, 0,
                     () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
@@ -95,6 +101,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         var def = new Core.Settings.DwellSettings();
                         d.FixationDetectionMs = def.FixationDetectionMs;
                         d.ActivationButtonDwellMs = def.ActivationButtonDwellMs;
+                        d.OfferShowAfterMs = def.OfferShowAfterMs;
                         d.ActionMenuDwellMs = def.ActionMenuDwellMs;
                         d.ManualSelectionActionMenuDwellMs = def.ManualSelectionActionMenuDwellMs;
                         d.ManualSelectionSideButtonDwellMs = def.ManualSelectionSideButtonDwellMs;

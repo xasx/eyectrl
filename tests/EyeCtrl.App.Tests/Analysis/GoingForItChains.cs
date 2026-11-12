@@ -59,8 +59,9 @@ internal static class GoingForItChains
         ActivationButtonPlacement.Place(p, SessionEnd.RingSizeDip, LayoutConstants.ActivationButtonOffset, 2.0,
             LayoutConstants.ActivationButtonHitRadiusPx, SessionEnd.RadiusPx, Screen, [ToolbarRect]).ButtonCenter;
 
-    /// <summary>How a drift-based run ends: the eye goes for the button, or looks elsewhere.</summary>
-    internal enum DriftKind { ToButton, Away }
+    /// <summary>How a drift-based run ends: the eye goes for the button, looks elsewhere, or sets off for
+    /// the button and turns away (M2: the stay starts, then the eye leaves it).</summary>
+    internal enum DriftKind { ToButton, Away, TurnAway }
 
     private static (PhysicalPoint P, PhysicalPoint B, Func<double, double, (double X, double Y)> Pt) Geometry()
     {
@@ -73,11 +74,13 @@ internal static class GoingForItChains
     }
 
     /// <summary>
-    /// The run ends through fixation DRIFT, not a tracker gap (the sitting's mechanism): the eye holds at P,
-    /// drifts 68 px behind and to the side and rests there (the running centroid follows), then leaves. The
-    /// engine ends the run when the eye is ~66 px from P (251 px from B: outside B's no-move zone, 26 px off
-    /// the P-B axis: inside the corridor). <see cref="DriftKind.ToButton"/> then goes for the button in 14
-    /// samples; <see cref="DriftKind.Away"/> looks 500 px to the side.
+    /// A drifted run, not a tracker gap: the eye holds at P, drifts 68 px behind and to the side and rests
+    /// there, then leaves. M2 (re-checked at hit = <see cref="LayoutConstants.ActivationButtonHitRadiusPx"/>,
+    /// where B sits 475 px from P since the 7th sitting; 310 before): the running centroid follows the drift, so the run does NOT end in it — it
+    /// ends on the leave. <see cref="DriftKind.ToButton"/> goes for the button in 14 samples (the landing is
+    /// on the P-B axis: a stay); <see cref="DriftKind.Away"/> looks 500 px to the side (its first sample,
+    /// the run's end, is already outside the stay zone: no stay); <see cref="DriftKind.TurnAway"/> sets off
+    /// 200 px along the axis (the run ends there: a stay), then turns away behind P.
     /// </summary>
     internal static List<GazePoint> Drift(DriftKind kind)
     {
@@ -86,6 +89,13 @@ internal static class GoingForItChains
         var chain = new Chain(5).Hold(p.X, p.Y, 900).Move(w.X, w.Y, 14).Hold(w.X, w.Y, 600);
         if (kind == DriftKind.ToButton)
             chain.Move(b.X, b.Y, 14).Hold(b.X, b.Y, 800);
+        else if (kind == DriftKind.TurnAway)
+        {
+            // Sets off along the P-B axis (the run ends there, in the corridor), then turns away behind P.
+            var setOff = pt(200, 0);
+            var away = pt(-200, 500);
+            chain.Move(setOff.X, setOff.Y, 6).Move(away.X, away.Y, 5).Hold(away.X, away.Y, 1200);
+        }
         else
         {
             var away = pt(0, 500);
@@ -96,8 +106,9 @@ internal static class GoingForItChains
     }
 
     /// <summary>
-    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (190 px from B,
-    /// beside the button, much nearer B than P): the first post-run frame is inside B's no-move zone, so the
+    /// The run ends with a 700 ms sample-clock gap and the eye resumes AT the near-miss spot (305 px from B,
+    /// beside the button, much nearer B than P; 240 at the 200-px hit, moved out with the 7th sitting's 265 so
+    /// it stays outside the hit and inside hit + R = 345): the first post-run frame is inside B's no-move zone, so the
     /// keep starts; the eye stays, the detector settles there 500 ms after the new run's anchor, so the
     /// settle reaches the ring on the keep's time-limit frame, ends the keep, and D refuses it as a near miss.
     /// The owed run-end release then lets the ring follow (fixup-01's deviation a; review-02 G1).
@@ -105,7 +116,7 @@ internal static class GoingForItChains
     internal static List<GazePoint> GapToNearMiss()
     {
         var (p, b, pt) = Geometry();
-        var miss = pt(p.DistanceTo(b), 190);
+        var miss = pt(p.DistanceTo(b), 305);
         return new Chain(61).Hold(p.X, p.Y, 1200).Skip(700).Hold(miss.X, miss.Y, 960)
             .Hold(1000, 1700, 1500).Samples;
     }
@@ -156,8 +167,8 @@ internal static class GoingForItChains
         Add("to B: stop halfway 600 ms", Start(25).Move(mid.X, mid.Y, 3).Hold(mid.X, mid.Y, 600).Move(b.X, b.Y, 3).Hold(b.X, b.Y, 800));
         var off = Pt(d, 120);
         Add("to B: lands 120 px off-axis", Start(26).Move(off.X, off.Y, 4).Hold(off.X, off.Y, 800));
-        var miss = Pt(d, 190);
-        Add("near miss: parks 190 px from B", Start(27).Move(miss.X, miss.Y, 4).Hold(miss.X, miss.Y, 1500));
+        var miss = Pt(d, 240);
+        Add("near miss: parks 240 px from B", Start(27).Move(miss.X, miss.Y, 4).Hold(miss.X, miss.Y, 1500));
         var perp = Pt(0, 500);
         Add("away: perpendicular 500 px", Start(28).Move(perp.X, perp.Y, 3).Hold(perp.X, perp.Y, 1200));
         var back = Pt(-500, 0);
@@ -188,14 +199,15 @@ internal static class GoingForItChains
         var early = Pt(60, 20);
         Add("to B: run ends 40 px from P, stops 60 px past P for 300 ms, then to B", Gapped(42).Hold(near.X, near.Y, 60).Move(early.X, early.Y, 2).Hold(early.X, early.Y, 300).Move(b.X, b.Y, 6).Hold(b.X, b.Y, 800));
         Add("to B: run ends 40 px from P, stops 60 px past P for 600 ms (the keep times out)", Gapped(43).Hold(near.X, near.Y, 60).Move(early.X, early.Y, 2).Hold(early.X, early.Y, 600).Move(b.X, b.Y, 6).Hold(b.X, b.Y, 800));
-        Add("near miss: run ends 40 px from P, parks 190 px from B", Gapped(44).Hold(near.X, near.Y, 60).Move(miss.X, miss.Y, 6).Hold(miss.X, miss.Y, 1500));
+        Add("near miss: run ends 40 px from P, parks 240 px from B", Gapped(44).Hold(near.X, near.Y, 60).Move(miss.X, miss.Y, 6).Hold(miss.X, miss.Y, 1500));
         Add("away: run ends 40 px from P, then perpendicular 500 px", Gapped(45).Hold(near.X, near.Y, 60).Move(perp.X, perp.Y, 3).Hold(perp.X, perp.Y, 1200));
         var swerve = Pt(150, 130);
         Add("away: run ends 40 px from P, swerves 130 px off the axis", Gapped(46).Hold(near.X, near.Y, 60).Move(swerve.X, swerve.Y, 4).Hold(swerve.X, swerve.Y, 1200));
         var sideFar = Pt(40, 130);
         Add("away: run ends 130 px off the axis (outside the corridor)", Gapped(47).Hold(sideFar.X, sideFar.Y, 600));
-        list.Add(("drift: the run ends 66 px from P, then to B", Drift(DriftKind.ToButton)));
-        list.Add(("drift: the run ends 66 px from P, then away", Drift(DriftKind.Away)));
+        list.Add(("drift: a drifted run, then to B", Drift(DriftKind.ToButton)));
+        list.Add(("drift: a drifted run, then away", Drift(DriftKind.Away)));
+        list.Add(("drift: sets off for B, then turns away", Drift(DriftKind.TurnAway)));
         list.Add(("a corridor stop near P: the settle replaces the offer", StopNearP(null)));
         list.Add(("near miss: the run ends at the near-miss spot, the settle lands on T and D refuses it", GapToNearMiss()));
         return list;

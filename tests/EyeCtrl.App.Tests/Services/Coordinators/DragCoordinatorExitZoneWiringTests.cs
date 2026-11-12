@@ -171,7 +171,7 @@ public class DragCoordinatorExitZoneWiringTests
             var screen = ScreenGeometry.PrimaryScreenBoundsPhysical();
             var anchor = DragCoordinator.ExitAnchorPhysical;
             var arm = new PhysicalPoint(screen.X + (0.1 * screen.Width), anchor.Y);
-            var leave = DragTrailViewModel.SameSpotRadii * context.DragTrailVM.ReleaseRadiusPhysical;
+            var leave = DragTrailViewModel.DragArmDistancePhysical;
             Check.WithCustomMessage(
                     $"precondition: the rest ({at.X:F0}, {at.Y:F0}) is off the {screen.Width:F0}×{screen.Height:F0} px screen.")
                  .That(at.X >= screen.X && at.X <= screen.X + screen.Width

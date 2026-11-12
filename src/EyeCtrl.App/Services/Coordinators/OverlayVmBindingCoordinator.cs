@@ -176,12 +176,11 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    // Centred on the offer's B, sized for the offer's hit radius — both carried on the
-                    // show message, so the drawn feedback cannot disagree with the counted area.
-                    // Positioned BEFORE showing — the other order presents the previous halo at the new
-                    // point for a frame.
+                    // Position first, then the held flag, then show: the other order never presents
+                    // the previous fill at the new point for a frame.
                     activationButton.ShowAt(
                         Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
+                    activationButton.SetFillPaused(Context.ActivationVM.IsFillPaused);
                     activationButton.Show();
                 }
                 else
@@ -192,7 +191,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(ActivationButtonViewModel.ButtonCenter):
                 // Belt and braces for a replacement (ticket 8 fixup, review A F4/C18): Core closes the
                 // old offer before showing the new one, so the IsVisible edge above repositions — but a
-                // ButtonCenter change while already visible must reposition too, or the halo would sit
+                // ButtonCenter change while already visible must reposition too, or the disc would sit
                 // at the old B while the new B counts.
                 if (Context.ActivationVM.IsVisible)
                 {
@@ -202,6 +201,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 break;
             case nameof(ActivationButtonViewModel.DwellProgress):
                 activationButton.UpdateDwellProgress(Context.ActivationVM.DwellProgress);
+                break;
+            case nameof(ActivationButtonViewModel.IsFillPaused):
+                activationButton.SetFillPaused(Context.ActivationVM.IsFillPaused);
                 break;
         }
     }

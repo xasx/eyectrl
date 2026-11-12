@@ -31,6 +31,8 @@ public class GazeEngineAdapterOfferTests
     public void ShowMessage_CarriesTheOfferButtonCenterAndHitRadius()
     {
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         var provider = new TestFakes.FakeGazeProvider();
@@ -71,6 +73,8 @@ public class GazeEngineAdapterOfferTests
         // from the detector's effective radius (90). Mutants MAD1 (fill from the setting) and MAD1e
         // (fill from the detector's effective R) -> the message says 90, not 123.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         var provider = new TestFakes.FakeGazeProvider();
@@ -101,6 +105,8 @@ public class GazeEngineAdapterOfferTests
     public void RestingNeverActivates_ThroughTheAdapterAndTheVm()
     {
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         var provider = new TestFakes.FakeGazeProvider();
@@ -141,6 +147,8 @@ public class GazeEngineAdapterOfferTests
         // button's run, so resolving at FixationPoint instead of P goes red here. Mutation: resolve at
         // _interactionManager.FixationPoint.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         settings.SelectionMode = SelectionMode.AutoSelection;
@@ -199,6 +207,8 @@ public class GazeEngineAdapterOfferTests
         // DECLINE the named offer (releasing the fired lock), not act. Mutation: let the fallback
         // complete instead → a menu opens and the fresh settle gets no offer, red.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         settings.SelectionMode = SelectionMode.AutoSelection;
@@ -265,6 +275,8 @@ public class GazeEngineAdapterOfferTests
         // Pause-shaped wrong state during the resolve returns Declined, so the adapter must log a
         // declined reason. Mutation: log accepted unconditionally → the assertion goes red.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         var provider = new TestFakes.FakeGazeProvider();
@@ -318,6 +330,8 @@ public class GazeEngineAdapterOfferTests
         // the next corner report is diagnosed from. Mutants: drop the subscription → no line;
         // change a reason word → the line's tail is wrong.
         var settings = new EyeCtrlSettings();
+        // Pinned at the settle (500 = no show delay): round button B3's delay has its own tests.
+        settings.Dwell.OfferShowAfterMs = 500;
         settings.Cursor.FilterMode = GazeFilterMode.Direct;
         settings.Dwell.FixationRadiusPixels = 90;
         var provider = new TestFakes.FakeGazeProvider();

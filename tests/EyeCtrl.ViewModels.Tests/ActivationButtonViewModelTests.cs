@@ -272,4 +272,167 @@ public class ActivationButtonViewModelTests
         Check.That(cues).IsEqualTo(0);
         Check.That(vm.DwellProgress).IsEqualTo(0);
     }
+
+    // ── B2/F1: one sign, no per-mode face ─────────────────────────────────────
+    //
+    // The B2 tests that named a magnifier in ManualSelection and a menu in every other mode were
+    // removed with the per-mode content choice (F1): the VM no longer reads SelectionMode, and the
+    // window has one sign. Mode independence is structural (the VM takes no settings and the face
+    // takes no mode); the face's one sign is pinned by
+    // ActivationButtonWindowTests.TheFace_DrawsTheOneRingMenuSign_AndNoText, and the coordinator's
+    // show path by OverlayVmBindingCoordinatorTests.ActivationVisible_PositionsTheHaloBeforeShowingIt.
+
+    // ── B2: the paused fill, derived with R2's hysteresis ─────────────────────
+
+    private static readonly PhysicalPoint Inside = new(500 + 20, 300 + 20);
+
+    /// <summary>Far outside the offer's 150 px hit radius (the button centre is (500, 300)).</summary>
+    private static readonly PhysicalPoint Outside = new(200, 150);
+
+    private static GazeCursorMovedMessage At(double progress, PhysicalPoint position) =>
+        new(new GazeFrame(position, 0, IsInGap: false, ButtonDwellProgress: progress));
+
+    private static void ReachPaused(ActivationButtonViewModel vm)
+    {
+        vm.Receive(Show());
+        vm.Receive(At(0.2, Inside));
+        vm.Receive(At(0.3, Inside));
+        vm.Receive(At(0.3, Outside));
+        vm.Receive(At(0.3, Outside));
+    }
+
+    [Fact]
+    public void Paused_NeedsTwoStillFramesOutsideTheHitArea()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(Show());
+
+        _messenger.Send(At(0.2, Inside));
+        _messenger.Send(At(0.3, Inside));
+        Check.That(vm.IsFillPaused).IsFalse();
+
+        _messenger.Send(At(0.3, Outside));
+        Check.That(vm.IsFillPaused).IsFalse();      // one still frame is not evidence
+
+        _messenger.Send(At(0.3, Outside));
+        Check.That(vm.IsFillPaused).IsTrue();
+    }
+
+    [Fact]
+    public void Paused_IsNotEntered_WhileTheGazeStaysInsideTheHitArea()
+    {
+        // The engine pauses only when the sample was not credited; a still progress while the gaze
+        // is still inside the button is not the grace. Mutation: drop the outside check → red.
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(Show());
+        _messenger.Send(At(0.2, Inside));
+        for (int i = 0; i < 5; i++)
+            _messenger.Send(At(0.2, Inside));
+        Check.That(vm.IsFillPaused).IsFalse();
+    }
+
+    [Fact]
+    public void Paused_ReleasesOnlyAfterTwoConsecutiveRisingFrames()
+    {
+        // fixup-01 F3: one rising frame cannot clear it. Mutation: clear on the first rising frame →
+        // the assertion after the single 0.4 goes red (and the dithering test below strobes).
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(Show());
+        _messenger.Send(At(0.2, Inside));
+        _messenger.Send(At(0.3, Inside));
+        _messenger.Send(At(0.3, Outside));
+        _messenger.Send(At(0.3, Outside));
+        Check.That(vm.IsFillPaused).IsTrue();
+
+        _messenger.Send(At(0.4, Outside));
+        Check.That(vm.IsFillPaused).IsTrue();       // one credited frame is not enough
+
+        _messenger.Send(At(0.35, Outside));
+        Check.That(vm.IsFillPaused).IsTrue();       // a dip restarts the count
+
+        _messenger.Send(At(0.4, Outside));
+        _messenger.Send(At(0.45, Outside));
+        Check.That(vm.IsFillPaused).IsFalse();
+    }
+
+    [Fact]
+    public void Paused_DoesNotStrobeOnAlternatingFrames()
+    {
+        // A gaze dithering across the hit area credits one sample per return; without the two-frame
+        // release the dim would toggle at the frame rate. Mutation: paused = progress not rising →
+        // the frame-by-frame assertion goes red.
+        var vm = new ActivationButtonViewModel(_messenger);
+        ReachPaused(vm);
+        Check.That(vm.IsFillPaused).IsTrue();
+
+        double progress = 0.3;
+        for (int frame = 0; frame < 20; frame++)
+        {
+            // Alternate a credited frame (rising) with a still one; never two risings in a row.
+            if (frame % 2 == 0)
+            {
+                progress += 0.01;
+                _messenger.Send(At(progress, Outside));
+            }
+            else
+            {
+                _messenger.Send(At(progress, Outside));
+            }
+
+            Check.WithCustomMessage($"frame {frame}: the paused look strobed")
+                .That(vm.IsFillPaused).IsTrue();
+        }
+    }
+
+    [Fact]
+    public void Paused_IsClearedAtBothEndsOfTheFill_AndOnEveryReset()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        ReachPaused(vm);
+        Check.That(vm.IsFillPaused).IsTrue();
+
+        _messenger.Send(At(1.0, Outside));
+        Check.That(vm.IsFillPaused).IsFalse();
+
+        _messenger.Send(At(0.3, Outside));
+        _messenger.Send(At(0.3, Outside));
+        Check.That(vm.IsFillPaused).IsTrue();
+        _messenger.Send(At(0.0, Outside));
+        Check.That(vm.IsFillPaused).IsFalse();
+
+        ReachPaused(vm);
+        Check.That(vm.IsFillPaused).IsTrue();
+        _messenger.Send(new HideActivationButtonMessage());
+        Check.That(vm.IsFillPaused).IsFalse();
+        Check.That(vm.DwellProgress).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void GapFrames_DoNotAdvanceThePause()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(Show());
+        _messenger.Send(At(0.2, Inside));
+        _messenger.Send(At(0.3, Inside));
+        _messenger.Send(At(0.3, Outside));
+
+        _messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(Outside, 0, IsInGap: true, ButtonDwellProgress: 0.3)));
+        Check.That(vm.IsFillPaused).IsFalse();      // the gap frame is not a second still sample
+
+        _messenger.Send(At(0.3, Outside));
+        Check.That(vm.IsFillPaused).IsTrue();
+    }
+
+    [Fact]
+    public void Fire_ClearsThePausedLook_AtFullProgress()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        ReachPaused(vm);
+        Check.That(vm.IsFillPaused).IsTrue();
+
+        _messenger.Send(new ActivationOfferFiredMessage(Offer(3)));
+        Check.That(vm.IsFillPaused).IsFalse();
+        Check.That(vm.DwellProgress).IsEqualTo(1);
+    }
 }

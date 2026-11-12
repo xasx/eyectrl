@@ -253,8 +253,10 @@ public class DragEdgeMagnetTests
             });
             Messenger.Send(new StartDragTrailMessage(new PhysicalPoint(1900, 1900)));
 
-            // C2 fixup-01 R1: the release arms once the gaze has left its first spot after the start.
-            Send(new PhysicalPoint(1900, 1600), -StepUs);
+            // C2 fixup-01 R1: the release arms once the gaze has gone DragArmDistanceDip (600 px at
+            // DPI 2.0) from its first spot after the start: this spot is over 1,000 px from every
+            // rest below.
+            Send(new PhysicalPoint(600, 2200), -StepUs);
         }
 
         internal EyeCtrlSettings Settings { get; }

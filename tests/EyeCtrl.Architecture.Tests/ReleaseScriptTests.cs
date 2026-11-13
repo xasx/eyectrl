@@ -117,8 +117,10 @@ public class ReleaseScriptTests
             .That(refusal).Contains("-property:EyeCtrlUiAccess=true");
 
         // The result gate names the natives a working install needs, so "some dll" cannot pass.
+        // WebView2Loader.dll joined them (external review M12): Microsoft.Web.WebView2.Core.dll
+        // P/Invokes it, so a package without it ships a browser that cannot start.
         Check.That(script).Contains("$RequiredNativeDlls = @(");
-        foreach (var native in new[] { "onnxruntime.dll", "tobii_stream_engine.dll", "wpfgfx_cor3.dll", "PresentationNative_cor3.dll" })
+        foreach (var native in new[] { "onnxruntime.dll", "tobii_stream_engine.dll", "wpfgfx_cor3.dll", "PresentationNative_cor3.dll", "WebView2Loader.dll" })
         {
             Check.WithCustomMessage($"the loose-native gate must require {native}")
                 .That(script).Contains($"'{native}'");
@@ -256,7 +258,9 @@ public class ReleaseScriptTests
     {
         var script = File.ReadAllText(PublishScriptPath);
 
-        Check.That(script).Contains("$PackageNoiseExtensions = @('.pdb', '.lib')");
+        // '.xml' joined the noise list (external review M12): the WebView2 managed assemblies'
+        // IntelliSense doc files are package noise, not user content.
+        Check.That(script).Contains("$PackageNoiseExtensions = @('.pdb', '.lib', '.xml')");
         Check.That(script).Contains("$PackageNoiseNames = @('README.md')");
         Check.That(script).Contains("Remove-PackageNoise $packageDir");
         Check.WithCustomMessage("symbols stay embedded in the bundle, so stack traces keep file:line")

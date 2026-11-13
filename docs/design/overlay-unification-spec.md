@@ -7,15 +7,18 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 36 overlay windows and 7 dwell controls — 31 with XAML (30 under
-`Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
+EyeCtrl has 37 overlay windows and 7 dwell controls — 32 with XAML (31 under
+`Overlays/`, including `ActivationButtonWindow` and the T4 gaze browser
+`BrowseWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 4 without XAML (the
 code-only `NoteWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
 (`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
 (`SubPixelProbeWindow`), the T0(a) lag-mark button (`LagMarkWindow`, main's 27th XAML window
 under `Overlays/` — the 28th here, where the adaptation preview panel adds its own row) and
-the adaptation preview panel itself; enforced by
+the adaptation preview panel itself; the gaze-browser plan adds `BrowseWindow` (the 31st XAML
+window under `Overlays/` — 37 windows and 32 XAML windows here, its bridge contract lives in
+`docs/design/browse-bridge.md`); enforced by
 `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
@@ -82,6 +85,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |
 | **NoteNotice** | `NoteNoticeWindow` | `Transparent` + token-bordered card | code-only, no XAML | exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder) |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |
+| **Browse** | `BrowseWindow` | `BrushSurfaceDark` (palette token) chrome row over the WebView2 client area | XAML | collision-zone |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete

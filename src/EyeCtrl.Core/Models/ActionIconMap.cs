@@ -32,6 +32,7 @@ public static class ActionIconMap
         InteractionAction.ScrollMode => ActionIcon.ScrollMode,
         InteractionAction.PinNote => ActionIcon.PinNote,
         InteractionAction.Keyboard => ActionIcon.Keyboard,
+        InteractionAction.Browse => ActionIcon.Browse,
         _ => throw new ArgumentOutOfRangeException(
             nameof(action), action, "No ActionIcon is mapped for this InteractionAction."),
     };

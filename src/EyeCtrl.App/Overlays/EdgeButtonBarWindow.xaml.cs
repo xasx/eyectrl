@@ -25,6 +25,12 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
 
     public EdgeButtonBarWindow()
     {
+        // Same contract as the keyboard (whose shows summon this bar): the bar's buttons are
+        // dwell targets, so the bar must never take the foreground on Show — WPF's Show()
+        // activates when ShowActivated is true, and that programmatic activation ignores the
+        // WS_EX_NOACTIVATE style (owner feedback 2026-11-05: the focus theft the browser's
+        // address-box flow exposed).
+        ShowActivated = false;
         IsClickThrough = true;
         ExcludeFromScreenCapture = true; // the action-menu preview must never bake the edge bars in
         InitializeComponent();

@@ -70,12 +70,13 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
         // Ring / edge-bar show: idempotent (never hides), with the toolbar toggle's
         // suppression semantics — a show that leaves free-look active would let the next
-        // fixation pop an action menu over the keyboard.
-        messenger.Register<KeyboardCoordinator, KeyboardShowRequestedMessage>(this, (_, _) =>
+        // fixation pop an action menu over the keyboard. The sender labels the E1 shown line
+        // (review r2 M10: the browse address dwell reuses this message and is not the ring).
+        messenger.Register<KeyboardCoordinator, KeyboardShowRequestedMessage>(this, (_, msg) =>
             context.Dispatcher.BeginInvoke(() =>
             {
                 if (ShouldShow(_modal.KeyboardVisible))
-                    SetKeyboardVisible(true, manageSuppression: true, source: "ring");
+                    SetKeyboardVisible(true, manageSuppression: true, source: msg.Source);
             }));
 
         // Edge-bar Close: the keyboard's own escape — hides AND releases suppression so the

@@ -356,6 +356,9 @@ internal static class TestFakes
     internal static IOverlayManager MakeOverlayManager(
         IEdgeButtonBar? edgeButtonBar = null,
         IToolbarOverlay? toolbar = null,
+        // r2 I3: the browse summon re-asserts the ring above itself, so the default kit
+        // carries a recording fake instead of the throwing placeholder.
+
         IPauseIndicatorOverlay? pauseIndicator = null,
         IManualSelectionOverlay? manualSelection = null,
         IManualSelectionIndicatorOverlay? manualSelectionIndicator = null,
@@ -369,7 +372,7 @@ internal static class TestFakes
         Action? onReassertOverlayOrder = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
-            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration,
+            cursorCircle ?? new FakeCursorCircleOverlay(), activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration,
             trackStatus, onReassertOverlayOrder);
 
     /// <summary>No-op track-status overlay: <c>SettingsUiCoordinator.OnInitialize</c> dereferences
@@ -423,6 +426,8 @@ internal static class TestFakes
 
         public void Show() { }
         public void Hide() { }
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
         public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
         public void SetMode(bool isDocked, string edge) { }
         public void SetSelectionModeState(SelectionMode mode) { }
@@ -459,12 +464,15 @@ internal static class TestFakes
     /// <summary>No-op cursor circle: records nothing, just satisfies the interface.</summary>
     internal sealed class FakeCursorCircleOverlay : ICursorCircleOverlay
     {
+        public int RaiseToTopCalls;
+
         public void Show() { }
         public void Hide() { }
         public void UpdatePosition(PhysicalPoint point) { }
         public void MoveTo(PhysicalPoint point, bool glide) { }
         public void UpdateAppearance(CursorSettings settings) { }
         public void SetPinned(bool pinned) { }
+        public void RaiseToTop() => RaiseToTopCalls++;
     }
 
     /// <summary>No-op activation button: records nothing, just satisfies the interface.</summary>
@@ -707,7 +715,9 @@ internal static class TestFakes
             Moves.Add(point);
         }
 
-        public void LeftClick(PhysicalPoint point) { RecordInjection(); BareClickCount++; }
+        public PhysicalPoint? LastBareClick { get; private set; }
+
+        public void LeftClick(PhysicalPoint point) { RecordInjection(); BareClickCount++; LastBareClick = point; }
 
         public void RightClick(PhysicalPoint point) => RecordInjection();
 

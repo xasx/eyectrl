@@ -59,6 +59,8 @@ public enum ActionIcon
     Close,
     /// <summary>A keyboard with key rows and a space bar — the ring's show-keyboard action.</summary>
     Keyboard,
+    /// <summary>A browser window with a title bar and an address dash — the ring's open-browser action.</summary>
+    Browse,
     /// <summary>A keyboard with up and down chevrons — flips the keyboard between screen edges.</summary>
     KeyboardEdge,
     /// <summary>A camera with a clockwise arrow — captures the screen region again. Not a mouse: it re-shoots, not clicks.</summary>

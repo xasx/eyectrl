@@ -111,6 +111,8 @@ public class SettingsUiCoordinatorTests
 
         public void Show() { }
         public void Hide() { }
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
 
         public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) =>
             InitializeCalls.Add((buttonSize, dwellTimeMs, includeReset));

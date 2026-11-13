@@ -16,8 +16,10 @@ using System.Text.RegularExpressions;
 /// and end, and what are the top-level arguments of a call. Enough for this repository's shape —
 /// regular, verbatim and interpolated literals, escapes, and interpolation holes (including the
 /// one hole in this tree that contains a nested string, <c>$"{… ?? "<null>"}"</c>). Raw string
-/// literals are not used in <c>src/</c>; the scanner reports one as a bare regular literal if that
-/// ever changes, which fails the gates loudly rather than silently.
+/// literals ARE used in <c>src/</c> (the bridge script and the start page), where the scanner
+/// mis-lexes them as bare regular literals — those entries are baselined and excepted with a
+/// reason (r2 M6); a NEW one still fails the gates loudly. The scanner normalizes line endings
+/// before hashing, so the baseline does not depend on CRLF.
 /// </para>
 /// </summary>
 internal static class CSharpSourceText

@@ -89,6 +89,7 @@ public class OverlayClientOriginTests
         "ActivationButtonWindow",
         "AdaptationPreviewWindow",
         "BlockedInputBannerWindow",
+        "BrowseWindow",
         "CalibrationWindow",
         "CaregiverAlertWindow",
         "CueOverlayWindow",

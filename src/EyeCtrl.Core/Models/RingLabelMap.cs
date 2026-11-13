@@ -40,6 +40,7 @@ public static class RingLabelMap
         InteractionAction.ScrollMode => "overlays.ring.scrollMode",
         InteractionAction.PinNote => "overlays.ring.pinNote",
         InteractionAction.Keyboard => "overlays.ring.keyboard",
+        InteractionAction.Browse => "overlays.ring.browse",
         null => "overlays.ring.back",
         _ => action.Value.ToString(),
     };

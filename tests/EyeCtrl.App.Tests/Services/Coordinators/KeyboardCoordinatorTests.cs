@@ -820,6 +820,8 @@ public class KeyboardCoordinatorTests
         public double ExtentDip => 140;
         public void Show() { }
         public void Hide() { }
+        // T5: the browse summon re-asserts the visible toolbar above the browser window.
+        public void RaiseToTop() { }
         public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
         public void SetMode(bool isDocked, string edge) { }
         public void SetSelectionModeState(SelectionMode mode) { }
@@ -1570,10 +1572,12 @@ public class KeyboardCoordinatorTests
             .That(source.Contains(
                 "Register<KeyboardCoordinator,KeyboardToggledMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
                 + "SetKeyboardVisible(!_modal.KeyboardVisible,manageSuppression:true,source:\"toolbar-toggle\")));")).IsTrue();
-        Check.WithCustomMessage("The ring/edge-bar show no longer takes the keyboard's claim.")
+        Check.WithCustomMessage("The ring/edge-bar show no longer takes the keyboard's claim. "
+                + "The sender labels the E1 shown line (r2 M10: the browse address dwell reuses "
+                + "this message and is not the ring).")
             .That(source.Contains(
-                "Register<KeyboardCoordinator,KeyboardShowRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
-                + "{if(ShouldShow(_modal.KeyboardVisible))SetKeyboardVisible(true,manageSuppression:true,source:\"ring\");}));")).IsTrue();
+                "Register<KeyboardCoordinator,KeyboardShowRequestedMessage>(this,(_,msg)=>context.Dispatcher.BeginInvoke(()=>"
+                + "{if(ShouldShow(_modal.KeyboardVisible))SetKeyboardVisible(true,manageSuppression:true,source:msg.Source);}));")).IsTrue();
         Check.WithCustomMessage("The edge-bar Close no longer releases the keyboard's claim — "
                 + "fixation would stay off until restart.")
             .That(source.Contains(

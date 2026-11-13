@@ -1,0 +1,114 @@
+<local:OverlayWindow x:Class="EyeCtrl.App.Overlays.BrowseWindow"
+                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:local="clr-namespace:EyeCtrl.App.Overlays"
+                     WindowStyle="None" ResizeMode="NoResize"
+                     AllowsTransparency="False"
+                     Topmost="True" ShowInTaskbar="False"
+                     Background="{StaticResource BrushSurfaceDark}"
+                     ShowActivated="False">
+
+    <!-- The gaze browser: a chrome row (Back / Forward / Home / Reload / address / Close) over
+         the WebView2 client area. The window is NOT click-through and becomes focusable after
+         Show (the calibration precedent) — the address box takes real OS keyboard focus. The
+         window never dwells itself: the chrome buttons and the web origin are reported as
+         geometry, and the dwell targets live on BrowseViewModel. -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- The chrome row. Buttons are drawn affordances only — gaze dwells on BrowseViewModel's
+             chrome targets at these rects; a mouse click on them does nothing by design (the
+             owner controls the PC by gaze, and the foreground click is the web page's). -->
+        <Border Grid.Row="0" Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="0,0,0,1"
+                Padding="12">
+            <DockPanel>
+                <Border x:Name="ChromeBack" DockPanel.Dock="Left" Width="120" Height="120"
+                        AutomationProperties.AutomationId="chrome_back"
+                        Margin="0,0,16,0" Background="{StaticResource BrushSurfaceLight}"
+                        CornerRadius="{StaticResource StandardCornerRadius}">
+                    <Grid>
+                        <TextBlock Text="◀" FontSize="{StaticResource FontSizeDisplay}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Rectangle x:Name="ProgressBack" Height="3" VerticalAlignment="Bottom"
+                                   HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Border>
+                <Border x:Name="ChromeForward" DockPanel.Dock="Left" Width="120" Height="120"
+                        AutomationProperties.AutomationId="chrome_forward"
+                        Margin="0,0,16,0" Background="{StaticResource BrushSurfaceLight}"
+                        CornerRadius="{StaticResource StandardCornerRadius}">
+                    <Grid>
+                        <TextBlock Text="▶" FontSize="{StaticResource FontSizeDisplay}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Rectangle x:Name="ProgressForward" Height="3" VerticalAlignment="Bottom"
+                                   HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Border>
+                <Border x:Name="ChromeHome" DockPanel.Dock="Left" Width="120" Height="120"
+                        AutomationProperties.AutomationId="chrome_home"
+                        Margin="0,0,16,0" Background="{StaticResource BrushSurfaceLight}"
+                        CornerRadius="{StaticResource StandardCornerRadius}">
+                    <Grid>
+                        <TextBlock Text="⌂" FontSize="{StaticResource FontSizeDisplay}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Rectangle x:Name="ProgressHome" Height="3" VerticalAlignment="Bottom"
+                                   HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Border>
+                <Border x:Name="ChromeReload" DockPanel.Dock="Left" Width="120" Height="120"
+                        AutomationProperties.AutomationId="chrome_reload"
+                        Margin="0,0,16,0" Background="{StaticResource BrushSurfaceLight}"
+                        CornerRadius="{StaticResource StandardCornerRadius}">
+                    <Grid>
+                        <TextBlock Text="⟳" FontSize="{StaticResource FontSizeDisplay}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Rectangle x:Name="ProgressReload" Height="3" VerticalAlignment="Bottom"
+                                   HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Border>
+
+                <!-- Close is DOCKED RIGHT; the address box takes the remaining width. -->
+                <Border x:Name="ChromeClose" DockPanel.Dock="Right" Width="120" Height="120"
+                        AutomationProperties.AutomationId="chrome_close"
+                        Background="{StaticResource BrushSurfaceLight}" CornerRadius="{StaticResource StandardCornerRadius}">
+                    <Grid>
+                        <TextBlock Text="✕" FontSize="{StaticResource FontSizeDisplay}" Foreground="{StaticResource BrushTextPrimary}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Rectangle x:Name="ProgressClose" Height="3" VerticalAlignment="Bottom"
+                                   HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Border>
+
+                <Grid Margin="16,0,16,0" Height="120">
+                    <!-- Owner feedback 2026-11-05: the URL text at body size was too small to read
+                         at gaze distance — it scales with the row now (the themed display size, the
+                         same one the chrome glyphs use). Over-long addresses scroll in the field;
+                         the failure notices share the size, so they read at a glance too. -->
+                    <TextBox x:Name="AddressBox" AutomationProperties.AutomationId="chrome_address"
+                             VerticalContentAlignment="Center"
+                             Background="{StaticResource BrushSurfaceLight}"
+                             Foreground="{StaticResource BrushTextPrimary}"
+                             BorderBrush="{StaticResource BrushBorderSubtle}"
+                             FontSize="{StaticResource FontSizeDisplay}"/>
+                    <Rectangle x:Name="ProgressAddress" Height="3" VerticalAlignment="Bottom"
+                               HorizontalAlignment="Left" Fill="{StaticResource BrushAccent}"
+                               Visibility="Collapsed"/>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <!-- The WebView2 client area. The control is inserted by code on first Show — the host
+             is created lazily so a headless test that constructs this window never touches the
+             WebView2 assembly (IBrowseWebSource is the seam). -->
+        <Border x:Name="WebHostHost" Grid.Row="1" Background="Transparent"/>
+    </Grid>
+</local:OverlayWindow>

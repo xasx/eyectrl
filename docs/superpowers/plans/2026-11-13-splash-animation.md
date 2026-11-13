@@ -4,26 +4,28 @@
 
 **Goal:** Rebuild the splash as an animated brand moment — amber gaze dots arrive, the gaze dot blooms, a cyan dwell arc sweeps 180° while filling into its 120° brand position, title rises, card fades — on its own STA thread so every beat plays during the blocked main-thread startup, with T3 adaptive timing (calm 1.0 s catch-up floor).
 
-**Architecture:** The splash runs on a dedicated STA thread with its own dispatcher (the main thread is blocked for the splash's whole visible life — spec §8). `SplashWindow` owns the visuals and WPF glue; `SplashExitController` holds the pure beat/catch-up/dead-man decisions (headless-testable); `SplashThreadLauncher`/`SplashThreadHandle` own the thread, the marshalled proxy surface, and the bounded DPI report. All beats ride that thread's storyboards; readiness arrives via `BeginExit()` marshalled from `ShowOverlays`.
+**Architecture:** The splash runs on a dedicated STA thread with its own dispatcher (the main thread is blocked for the splash's whole visible life — spec §8). `SplashWindow` owns the visuals and WPF glue; `SplashExitController` holds the pure beat/catch-up/dead-man decisions (headless-testable); `SplashThreadLauncher`/`SplashThreadHandle` own the thread, the marshalled `ISplashWindow` proxy surface, and the bounded DPI report. The base fill runs as a storyboard clock with `BeginTime = 0.55 s`; the catch-up re-targets from captured current values (`From`/`To`, cubic ease-out) — never restarting the arc. Readiness arrives via `BeginExit()` marshalled from `ShowOverlays`.
 
 **Tech Stack:** WPF (.NET 10, `net10.0-windows`), xunit v3 (`xunit.v3`) + NFluent 3.1.0, Serilog static `Log`. Spike is a standalone console tool (not in the solution), mirroring the `tools/EyeCtrl.IconBuilder` pattern.
 
-**Spec:** `docs/superpowers/specs/2026-11-13-splash-animation-design.md` (rev 3.1, commit 57a9a5e2). Ledger L1–L16 there is binding; where this plan repeats a number, the spec wins.
+**Spec:** `docs/superpowers/specs/2026-11-13-splash-animation-design.md` (rev 3.2 — the r4 fixes touched three spec lines: §6 accepted-from states + the `Filled` wait, §7 the two bounded waits, §9 the factory wording). Ledger L1–L16 there is binding; where this plan repeats a number, the spec wins.
 
 ## Global Constraints
 
 - **Work in the existing worktree** `.worktrees/splash-animation` on branch `feat/splash-animation`. Do not commit anything outside it.
-- **Never paint a visible test window** (AGENTS.md rule): any test touching a showing API uses `InvisibleTestWindow.Prepare(window)` first; production `Show` calls happen only on the real splash thread. The window-factory seam (Task 6) is what keeps the real thread out of tests.
+- **Never paint a visible test window** (AGENTS.md rule): any test touching a showing API uses `InvisibleTestWindow.Prepare(window)` first; production `Show` calls happen only on the real splash thread. The `ISplashWindow` factory seam (Task 6) is what keeps the real thread mockable; the plan's thread tests use the real window only prepared-invisible.
 - **Source pins must stay green** (spec §9): the App source keeps the literal `ShowOverlays(splash, cursorCircle, toolbar, settings);` call, the local keeps the name `splash`, `.ShowNoTrackerSentence(` appears exactly once, `SplashWindow.ShowsNoTrackerSentence(...)` keeps its call shape in both pinned sites, and the predicate stays a static on `SplashWindow`.
 - **No App-level `StaticResource` / `OverlayStyles.xaml` lookups in splash XAML** — the splash thread has no Application resources. Theme values come from `Tokens` statics (`x:Static` for structs: fonts, corner radius) and frozen brushes assigned in code-behind. `Tokens.Current` is activated *before* the splash thread starts, so parse-time reads see the right theme.
-- **Pinned icon constants** (theme-independent, XAML literals): amber `#E8A33C`, bright amber `#F6C77E`, cyan `#A5F3FC`, tile `#141828`.
-- Card geometry (spec §4): fixed 440 × 336 DIP; padding 36/28; mark 150; gaps 12 and 8; sentence row 48 (two lines, `TextWrapping=Wrap`, always reserved).
-- Choreography (spec §5): trail 0–0.55 s (staggered 0/0.05/0.10 s, peaks .40/.55/.75) → dot pop 0.30–0.54 s (scale 0→1.15→1.0) → sweep+fill from 0.55 s, base course 3.0 s (rotate −180°→0°, dash 24.36→0, ease KeySpline `.3,.55,.3,1`) → title 0.25 s → hold 0.20 s → exit fade 0.30 s.
-- Timing (spec §6): catch-up duration `= min(remaining base course, 1.0 s)` (L16 — no lower bound, r3 #1); dead-man "not Closed by 15 s"; `BeginExit` arms a hard deadline at readiness + 3.0 s; both timers on the splash thread.
-- DPI: only the **main thread** calls `DpiHelper.Initialize` — with the splash-reported scale (wait ≤ 500 ms) or the `GetDpiForSystem` fallback; late reports are discarded (r3 #2).
-- Test commands run **one project per invocation** (multi-project args fail with MSB1008 on this box).
+- **Pinned icon constants** (theme-independent, XAML literals): amber `#E8A33C`, bright amber `#F6C77E`, cyan `#A5F3FC`, tile `#141828`. Gradient alphas live in the Colour's own bytes (`#73E8A33C` = 45 %, `#38E8A33C` = 22 %, `#00…` = 0) — `GradientStop` has no `Opacity` property.
+- **`KeySpline` easing goes through `SplineDoubleKeyFrame`** (WPF type, verified); code-side catch-up animations use `CubicEase` ease-out. Every `Storyboard.SetTargetProperty` call passes a `new PropertyPath(...)`, never a raw string.
+- Card geometry (spec §4): fixed 440 × 336 DIP; padding 36/28 (via `SplashLayout.CardPadding`); mark 150; gap 12 above the title; gap 8 *below* the title (title `Margin="0,12,0,8"` — the gap must NOT sit inside the 48 DIP sentence row); sentence row 48 (two lines, `TextWrapping=Wrap`, always reserved). The XAML references `SplashLayout` via `x:Static` — no re-typed literals.
+- Choreography (spec §5): trail 0–0.55 s (staggered 0/0.05/0.10 s, peaks .40/.55/.75) → dot pop 0.30–0.54 s (scale 0→1.15→1.0) → sweep+fill, base course 3.0 s from 0.55 s (rotate −180°→0°, dash 24.36→0, KeySpline `.3,.55,.3,1`) → on base-fill completion the beat is **Filled** (waiting — no title, no exit until readiness) → title 0.25 s → hold 0.20 s → exit fade 0.30 s.
+- Timing (spec §6): catch-up duration `= min(remaining base course, 1.0 s)` (L16 — no lower bound, r3 #1), accepted only from Idle/Entrance/Fill/**Filled** — once the tail has begun (CatchUp/Title/Hold/Exit/Closed) the request is ignored; dead-man "not Closed by 15 s"; `BeginExit` arms a hard deadline at readiness + 3.0 s; both timers on the splash thread, self-stopping one-shots.
+- DPI: only the **main thread** calls `DpiHelper.Initialize` — with the splash-reported scale or the `GetDpiForSystem` fallback; late reports are discarded (r3 #2). Bounded waits: ≤ 500 ms for the handle, ≤ 500 ms for the DPI report (spec §7, rev 3.2).
+- Dispatcher shutdown is owned by the **launcher**, never the window: the window raises `ExitFinished`; in STA tests nobody subscribes, so the test dispatcher survives.
+- Test commands: when passing a project path, pass exactly one (multi-project args fail with MSB1008 on this box). A solution-level `dotnet test --filter "Category!=UI"` (no path args) is the AGENTS.md-documented full-suite command and is fine.
 - NFluent naming: inclusive comparisons are `IsLessOrEqualThan`/`IsGreaterOrEqualThan`; strict are `IsStrictlyLessThan`/`IsStrictlyGreaterThan`.
-- Per repo rules: run GitNexus impact analysis before modifying shared symbols (`ShowOverlays`, `InitializeDpi` in Task 7) and `detect_changes` before committing Task 7.
+- Per repo rules: run GitNexus impact analysis before modifying shared symbols (`ShowOverlays`, `InitializeDpi` in Task 7) and `detect_changes` before committing Task 7. (The r4 review mentioned `wait-idle-tests.ps1` / `--blame-hang-timeout` conventions — neither exists in this repo; not adopted.)
 - No linter/formatter configured; follow file-scoped namespaces, Allman braces, `_camelCase` fields.
 
 ---
@@ -37,7 +39,7 @@
 
 **Interfaces:**
 - Consumes: nothing (standalone).
-- Produces: recorded evidence (RESULTS.md) that (a) a blocked STA thread freezes its own storyboards, and (b) a second STA thread's dispatcher keeps animating through that blockage, plus the frozen-brush proof. Tasks 3–6 rely on (b); RESULTS.md is committed with the plan.
+- Produces: recorded evidence (RESULTS.md) that (a) a blocked STA thread freezes its own *running* storyboards, and (b) a second STA thread's dispatcher keeps animating through that blockage, plus the frozen-brush proof. Tasks 3–6 rely on (b); RESULTS.md is committed.
 
 - [ ] **Step 1: Create the spike project**
 
@@ -56,57 +58,72 @@
 
 - [ ] **Step 2: Write the spike program**
 
+Both threads run dispatchers. Thread A blocks *inside a posted work item* — a true blockage with an already-running clock (a thread that never pumps proves nothing). Thread B runs `Dispatcher.Run()` and keeps animating through A's blockage.
+
 ```csharp
 // tools/SplashThreadSpike/Program.cs
-// Measures (a) whether storyboards on a BLOCKED STA thread advance, and (b) whether a SECOND
-// STA thread's dispatcher keeps animating through that blockage — the evidence behind the
-// splash-animation architecture (spec §8). Runs both windows OFF-SCREEN (Left = -32000).
+// Measures (a) whether a RUNNING storyboard on a BLOCKED STA thread advances, and (b) whether a
+// SECOND STA thread's dispatcher keeps animating through that blockage — the evidence behind the
+// splash-animation architecture (spec §8). Both windows run OFF-SCREEN (Left = -32000).
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 var resultsPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "RESULTS.md");
 
 double angleBlocked = 0, angleIndependent = 0;
 var blockedReady = new ManualResetEventSlim(false);
 var releaseBlocked = new ManualResetEventSlim(false);
-var independentDone = new ManualResetEventSlim(false);
 var brushProof = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-// ── Thread A: window + storyboard, then deliberately blocked ──
+// ── Thread A: window + RUNNING storyboard, then blocks inside its own dispatcher work item ──
 var threadA = new Thread(() =>
 {
+    var dispatcher = Dispatcher.CurrentDispatcher;
     var window = MakeWindow("blocked", out var rotate, out var clock);
     window.Show();
     window.BeginStoryboard(clock);
     CompositionTarget.Rendering += (_, _) => Volatile.Write(ref angleBlocked, rotate.Angle);
-    blockedReady.Set();
-    releaseBlocked.Wait();                                   // the blockage
+    // The blockage: posted onto the dispatcher, so the clock is running when the thread freezes.
+    dispatcher.BeginInvoke(new Action(() =>
+    {
+        blockedReady.Set();
+        releaseBlocked.Wait();                       // holds THIS dispatcher thread for ~2 s
+    }));
+    Dispatcher.Run();
     window.Close();
-    System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
 });
 threadA.SetApartmentState(ApartmentState.STA);
 threadA.IsBackground = true;
 threadA.Start();
 blockedReady.Wait(5000);
 
-// ── Thread B: independent dispatcher + same storyboard (the splash pattern) ──
+// ── Thread B: independent dispatcher, keeps pumping (the splash pattern) ──
 var threadB = new Thread(() =>
 {
     try
     {
         var brush = new SolidColorBrush(Color.FromRgb(0xE8, 0xA3, 0x3C));
-        brush.Freeze();                                      // frozen-brush proof
+        brush.Freeze();                              // frozen-brush proof
         brushProof.TrySetResult(brush.IsFrozen);
         var window = MakeWindow("independent", out var rotate, out var clock);
         window.Show();
         window.BeginStoryboard(clock);
         CompositionTarget.Rendering += (_, _) => Volatile.Write(ref angleIndependent, rotate.Angle);
-        independentDone.Wait(15000);                         // pump while A is blocked
+        var pump = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
+        {
+            // pump until the main thread signals us to stop
+            var until = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < until && Volatile.Read(ref angleIndependent) >= 0)
+                Dispatcher.DoEvents();
+            Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);
+        }), DispatcherPriority.Background);
+        Dispatcher.Run();
         window.Close();
-        System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
     }
     catch (Exception ex) { brushProof.TrySetException(ex); }
 });
@@ -118,13 +135,16 @@ threadB.Start();
 Thread.Sleep(700);
 var a0 = Volatile.Read(ref angleBlocked);
 var b0 = Volatile.Read(ref angleIndependent);
-releaseBlocked.Set();                                        // block thread A for ~2 s
+releaseBlocked.Set();                                // block thread A inside its work item for ~2 s
 Thread.Sleep(2000);
 var a1 = Volatile.Read(ref angleBlocked);
 var b1 = Volatile.Read(ref angleIndependent);
-independentDone.Set();
 
-var brushFrozen = brushProof.Task.Wait(3000) && brushProof.Task.Result;
+// shut both dispatchers down
+threadA.Join(1000);
+brushProof.Task.Wait(1000);
+
+var brushFrozen = brushProof.Task.Result;
 var blockedDelta = Math.Abs(a1 - a0);
 var independentDelta = Math.Abs(b1 - b0);
 var verdict = blockedDelta < 1.0 && independentDelta > 60.0 && brushFrozen;
@@ -142,6 +162,7 @@ File.WriteAllText(resultsPath, $"""
 
 Sampling note: values are written by each thread's own `CompositionTarget.Rendering` handler into
 volatile fields — a blocked thread stops firing the handler, which is exactly the evidence wanted.
+Thread A blocks INSIDE a posted dispatcher work item, so its clock is provably running first.
 """);
 Console.WriteLine(File.ReadAllText(resultsPath));
 Environment.Exit(verdict ? 0 : 1);
@@ -166,10 +187,12 @@ static Window MakeWindow(string tag, out RotateTransform rotate, out Storyboard 
     clock = new Storyboard();
     clock.Children.Add(anim);
     Storyboard.SetTarget(anim, grid);
-    Storyboard.SetTargetProperty(anim, "RenderTransform.Angle");
+    Storyboard.SetTargetProperty(anim, new PropertyPath("RenderTransform.Angle"));
     return window;
 }
 ```
+
+(Practical note for the executor: `Dispatcher.DoEvents()` is not a real API — implement the B-thread pump with a `DispatcherFrame` loop, or simply let thread B call `Dispatcher.Run()` and have the MAIN thread post `BeginInvokeShutdown` to B after sampling. Either is fine; the measured quantities are the volatile angles.)
 
 - [ ] **Step 3: Run the spike**
 
@@ -188,25 +211,55 @@ git commit -m "spike(splash): blocked-thread vs independent-dispatcher animation
 ### Task 2: SplashLayout constants + re-targeted sentence fit gate
 
 **Files:**
-- Create: `src/EyeCtrl.App/Overlays/SplashLayout.cs`
-- Modify: `tests/EyeCtrl.App.Tests/Localization/Fit/GermanGateTests.cs` (the splash test only, ~lines 292-330)
+- Create: `src/EyeCtrl.App/Overlays/SplashLayout.cs` (**public** — XAML `x:Static` resolves public members)
+- Modify: `tests/EyeCtrl.App.Tests/Localization/Fit/GermanGateTests.cs` (the splash test only, ~lines 292-333)
 - Test: same file (re-targeted)
 
 **Interfaces:**
-- Produces: `SplashLayout` constants (`CardWidth=440`, `CardHeight=336`, `SidePadding=36`, `InnerWidth=368`, `PaddingTop=28`, `PaddingBottom=28`, `MarkSize=150`, `GapMarkToTitle=12`, `GapTitleToSentence=8`, `SentenceRowHeight=48`) — consumed by Task 3's XAML and the fit gate.
-- The old test `TheSplashSentence_FitsTheWorkArea_InEnglishAndGerman` is replaced by `TheSplashSentence_FitsTheReservedRow_InEnglishAndGerman`.
+- Produces: `SplashLayout` public constants (`CardWidth=440`, `CardHeight=336`, `SidePadding=36`, `InnerWidth=368`, `PaddingTop=28`, `PaddingBottom=28`, `MarkSize=150`, `GapMarkToTitle=12`, `GapTitleToSentence=8`, `SentenceRowHeight=48`) plus `public static Thickness CardPadding => new(36, 28, 36, 28);` — consumed by Task 3's XAML (via `x:Static`) and this gate.
+- The old test `TheSplashSentence_FitsTheWorkArea_InEnglishAndGerman` is replaced by `TheSplashSentence_FitsTheReservedRow_InEnglishAndGerman`, which now measures **the real window's content** (no drift between constants and XAML, r4 #6).
 
-- [ ] **Step 1: Write the re-targeted gate (failing first — the constants do not exist yet)**
+- [ ] **Step 1: Create SplashLayout (the gate compiles against it)**
+
+```csharp
+namespace EyeCtrl.App.Overlays;
+
+using System.Windows;
+
+/// <summary>
+/// The splash card's fixed geometry (spec §4) — theme-independent layout constants shared by the
+/// window XAML (via x:Static) and the fit gates, so the two cannot drift. All values in DIP.
+/// Public because XAML's StaticExtension resolves public members only. The card is fixed-size on
+/// purpose: the no-tracker sentence's row is always reserved so showing it never reflows.
+/// </summary>
+public static class SplashLayout
+{
+    public const double CardWidth = 440;
+    public const double CardHeight = 336;
+    public const double SidePadding = 36;
+    public const double InnerWidth = CardWidth - 2 * SidePadding;   // 368
+    public const double PaddingTop = 28;
+    public const double PaddingBottom = 28;
+    public const double MarkSize = 150;
+    public const double GapMarkToTitle = 12;
+    public const double GapTitleToSentence = 8;                     // lives BELOW the title, outside the 48 DIP row
+    public const double SentenceRowHeight = 48;                     // two lines
+
+    public static Thickness CardPadding => new(SidePadding, PaddingTop, SidePadding, PaddingBottom);
+}
+```
+
+- [ ] **Step 2: Rewrite the gate to measure the real window (failing — the new XAML does not exist yet)**
 
 In `GermanGateTests.cs`, replace the splash test and its helper with:
 
 ```csharp
     /// <summary>
-    /// The splash's sentence must fit the card's RESERVED two-line row (spec §4): natural width
-    /// ≤ 2 × inner width so wrapping places it in two rows, wrapped height ≤ the 48 DIP row, and
-    /// the whole content height ≤ the 336 DIP card. English, the German draft and the shipped
-    /// German; a sentence repeated ten times must fail (the teeth). Replaces the rev-1-era
-    /// work-area gate (r2 #6/#7, r3): the card is fixed-size, so the work area proves nothing.
+    /// The splash's sentence must fit the card's RESERVED two-line row (spec §4): wrapped height
+    /// ≤ the 48 DIP row at the card's inner width, natural width ≤ 2 × inner width (wrapping can
+    /// then place it in two rows), and the whole real content height ≤ the 336 DIP card. Measured
+    /// on the REAL SplashWindow content so the gate and the XAML cannot drift (r4 #6). English,
+    /// the German draft and the shipped German; a sentence repeated ten times must fail (teeth).
     /// </summary>
     [StaFact]
     public void TheSplashSentence_FitsTheReservedRow_InEnglishAndGerman()
@@ -222,87 +275,59 @@ In `GermanGateTests.cs`, replace the splash test and its helper with:
         Check.WithCustomMessage(english.ToString()).That(english.Fits).IsTrue();
         Check.WithCustomMessage(german.ToString()).That(german.Fits).IsTrue();
         Check.WithCustomMessage(shipped.ToString()).That(shipped.Fits).IsTrue();
-        Check.WithCustomMessage($"Splash content height exceeds the card: {FitText.Dip(SplashContentHeight())} of {FitText.Dip(SplashLayout.CardHeight)}")
-            .That(SplashContentHeight()).IsLessOrEqualThan(SplashLayout.CardHeight);
     }
 
-    private static double SplashContentHeight()
-    {
-        var family = Tokens.FontStandard;
-        var typeface = new Typeface(family, FontStyles.Normal, FontWeights.Normal);
-        var title = new FormattedText("EyeCtrl", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            typeface, Tokens.FontSizeDisplay, null, 1.0);
-        return SplashLayout.PaddingTop + SplashLayout.MarkSize + SplashLayout.GapMarkToTitle
-             + Math.Ceiling(title.Height) + SplashLayout.GapTitleToSentence
-             + SplashLayout.SentenceRowHeight + SplashLayout.PaddingBottom;
-    }
-
+    /// <summary>Wraps the sentence inside the REAL splash window and measures the actual row fit.</summary>
     private static FitVerdict SplashSentence(string sentence)
     {
-        var family = Tokens.FontStandard;
-        var typeface = new Typeface(family, FontStyles.Normal, FontWeights.Normal);
-        var natural = new FormattedText(sentence, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            typeface, Tokens.FontSizeSubtitle, null, 1.0);
-        var wrapped = new TextBlock
+        EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new SplashWindow();
+        try
         {
-            Text = sentence,
-            TextWrapping = TextWrapping.Wrap,
-            FontFamily = family,
-            FontSize = Tokens.FontSizeSubtitle,
-            MaxWidth = SplashLayout.InnerWidth,
-        };
-        wrapped.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-        var widthOk = natural.Width <= SplashLayout.InnerWidth * 2;
-        var heightOk = wrapped.DesiredSize.Height <= SplashLayout.SentenceRowHeight;
-        return new FitVerdict(widthOk && heightOk,
-            $"natural {FitText.Dip(natural.Width)} (limit 2×{FitText.Dip(SplashLayout.InnerWidth)}), "
-            + $"wrapped {FitText.Dip(wrapped.DesiredSize.Height)} of {FitText.Dip(SplashLayout.SentenceRowHeight)}",
-            family.Source, SplashLayout.SentenceRowHeight - wrapped.DesiredSize.Height);
+            window.ShowNoTrackerSentence();
+            window.NoTrackerSentence.Text = sentence;
+
+            // Wrapped at the card's inner width — the constraint the row actually gives it.
+            window.NoTrackerSentence.Measure(new System.Windows.Size(SplashLayout.InnerWidth, double.PositiveInfinity));
+            var wrappedHeight = window.NoTrackerSentence.DesiredSize.Height;
+
+            var typeface = new Typeface(Tokens.FontStandard, FontStyles.Normal, Tokens.FontWeightMedium);
+            var natural = new FormattedText(sentence, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, Tokens.FontSizeSubtitle, null, 1.0);
+
+            // The whole real content (mark + title + reserved row + paddings) must fit the card.
+            var root = (System.Windows.FrameworkElement)window.Content;
+            window.Content = null;
+            root.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            var contentHeight = root.DesiredSize.Height;
+
+            var widthOk = natural.Width <= SplashLayout.InnerWidth * 2;
+            var heightOk = wrappedHeight <= SplashLayout.SentenceRowHeight;
+            var cardOk = contentHeight <= SplashLayout.CardHeight;
+            return new FitVerdict(widthOk && heightOk && cardOk,
+                $"natural {FitText.Dip(natural.Width)} (limit 2×{FitText.Dip(SplashLayout.InnerWidth)}), "
+                + $"wrapped {FitText.Dip(wrappedHeight)} of {FitText.Dip(SplashLayout.SentenceRowHeight)}, "
+                + $"content {FitText.Dip(contentHeight)} of {FitText.Dip(SplashLayout.CardHeight)}",
+                FitText.ResolvedFace(window.NoTrackerSentence), SplashLayout.SentenceRowHeight - wrappedHeight);
+        }
+        finally { window.Close(); }
     }
 ```
 
 Also add the missing usings at the top of the file if absent: `System.Globalization`, `System.Windows`, `System.Windows.Media`, and `EyeCtrl.Controls.Theme` (for `Tokens`).
 
-- [ ] **Step 2: Run the gate to verify it fails to compile (constants missing)**
+- [ ] **Step 3: Run the gate to verify it fails (compile error: new XAML not written yet)**
 
 Run: `dotnet build tests/EyeCtrl.App.Tests`
-Expected: FAIL — `SplashLayout` does not exist.
+Expected: **compile error** — `SplashWindow` still has the old layout (the gate itself compiles; if the old window's members are missing, that is this task's expected red).
 
-- [ ] **Step 3: Create SplashLayout**
+- [ ] **Step 4: Commit the constants + gate together with Task 3's XAML**
 
-```csharp
-namespace EyeCtrl.App.Overlays;
-
-/// <summary>
-/// The splash card's fixed geometry (spec §4) — theme-independent layout constants shared by the
-/// window XAML and the fit gates. All values in DIP. The card is fixed-size on purpose: the
-/// no-tracker sentence's row is always reserved so showing it never reflows the card.
-/// </summary>
-internal static class SplashLayout
-{
-    internal const double CardWidth = 440;
-    internal const double CardHeight = 336;
-    internal const double SidePadding = 36;
-    internal const double InnerWidth = CardWidth - 2 * SidePadding;   // 368
-    internal const double PaddingTop = 28;
-    internal const double PaddingBottom = 28;
-    internal const double MarkSize = 150;
-    internal const double GapMarkToTitle = 12;
-    internal const double GapTitleToSentence = 8;
-    internal const double SentenceRowHeight = 48;                     // two lines
-}
-```
-
-- [ ] **Step 4: Run the gate to verify it passes**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~TheSplashSentence_FitsTheReservedRow"`
-Expected: PASS (English + both German variants fit; tenfold fails).
-
-- [ ] **Step 5: Commit**
+This task's gate stays red until Task 3's window exists; commit at the end of Task 3 (single commit covers constants + gate + window — they are one deliverable). Do NOT commit a red gate alone.
 
 ```bash
-git add src/EyeCtrl.App/Overlays/SplashLayout.cs tests/EyeCtrl.App.Tests/Localization/Fit/GermanGateTests.cs
-git commit -m "feat(splash): fixed-card layout constants + reserved-row sentence fit gate"
+git add src/EyeCtrl.App/Overlays/SplashLayout.cs
+git commit -m "feat(splash): fixed-card layout constants (gate lands with the window in the next commit)"
 ```
 
 ---
@@ -318,7 +343,7 @@ git commit -m "feat(splash): fixed-card layout constants + reserved-row sentence
 
 **Interfaces:**
 - Consumes: `SplashLayout` (Task 2), `Tokens` statics.
-- Produces: `SplashWindow` with `internal bool SentenceShown { get; }`, `internal bool DeclaresNoOrderRepair { get; }`, `internal void BeginExit()`, `internal void ForceClose()`, `internal void ShowNoTrackerSentence()` (kept — source pin), element names `NoTrackerSentence`, `TitleText`, `MarkHost`, `SplashContent`. `BeginExit`/`ForceClose` are implemented as safe stubs here (log + `Close()`), completed in Task 5 — Task 6's proxy targets these signatures.
+- Produces: `SplashWindow` with `internal bool SentenceShown { get; }`, `internal bool DeclaresNoOrderRepair { get; }`, `internal void BeginExit()` (safe stub, replaced in Task 5), `internal void ForceClose()`, `internal void ShowNoTrackerSentence()` (kept — source pin), element names `NoTrackerSentence`, `TitleText`, `MarkHost`, `Tile`, `DwellArc`, `GazeDot`, `Bloom`, `SplashContent`. **No `SplashExitController` here** — the controller arrives in Task 4; Task 3 must build on its own (r4 #1).
 
 - [ ] **Step 1: Write the construction test (failing — new API does not exist)**
 
@@ -352,7 +377,7 @@ public class SplashWindowConstructionTests
             Check.That(splash.DeclaresNoOrderRepair).IsTrue();
             Check.That(splash.SentenceShown).IsFalse();
             Check.That(splash.NoTrackerSentence.Opacity).IsEqualTo(0);
-            Check.That(splash.NoTrackerSentence.TextWrapping).IsEqualTo(TextWrapping.Wrap);
+            Check.That(splash.NoTrackerSentence.Margin).IsEqualTo(new Thickness(0));   // the 8 DIP gap lives below the title
             Check.That(System.Windows.Automation.AutomationProperties.GetAutomationId(splash.NoTrackerSentence))
                 .IsEqualTo("Splash_NoTracker");
             // the mark's parts exist (names the storyboards target)
@@ -365,13 +390,41 @@ public class SplashWindowConstructionTests
         }
         finally { splash.Close(); }
     }
+
+    /// <summary>
+    /// Spec §8: the splash thread has NO Application resources — the window must construct on a
+    /// bare STA thread. This is the resource-independence proof the r4 review asked the spike to
+    /// carry; it belongs here where the real XAML is under test.
+    /// </summary>
+    [Fact]
+    public void TheWindow_ConstructsOnABareStaThread_WithoutApplicationResources()
+    {
+        Exception? failure = null;
+        var constructed = new ManualResetEventSlim(false);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var splash = new SplashWindow();     // no WpfApplicationGate, no Application
+                Check.That(splash.NoTrackerSentence).IsNotNull();
+                splash.Close();
+            }
+            catch (Exception ex) { failure = ex; }
+            finally { constructed.Set(); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
+        Check.That(constructed.Wait(5000)).IsTrue();
+        Check.WithCustomMessage($"Splash did not construct without Application resources: {failure}").That(failure).IsNull();
+    }
 }
 ```
 
 - [ ] **Step 2: Run to verify failure**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowConstructionTests"`
-Expected: FAIL — `IsClickThrough` false / `SentenceShown`, `DeclaresNoOrderRepair`, `BeginExit`, `ForceClose` missing.
+Expected: **compile error** — `IsClickThrough` settable via ctor initializer already exists but `SentenceShown`, `DeclaresNoOrderRepair` do not.
 
 - [ ] **Step 3: Rewrite SplashWindow.xaml**
 
@@ -388,27 +441,29 @@ Expected: FAIL — `IsClickThrough` false / `SentenceShown`, `DeclaresNoOrderRep
         Height="{x:Static overlays:SplashLayout.CardHeight}">
     <!-- NO App-level StaticResource here: the splash thread has no Application resources (spec §8).
          Theme-derived values (surfaces, text) are assigned in the constructor from Tokens' frozen
-         brushes; pinned icon constants are literals. -->
-    <Border x:Name="CardBorder" CornerRadius="{x:Static theme:Tokens.LargeCornerRadius}" Padding="36,28,36,28">
+         brushes; pinned icon constants are literals with alpha in the colour bytes. -->
+    <Border x:Name="CardBorder" CornerRadius="{x:Static theme:Tokens.LargeCornerRadius}"
+            Padding="{x:Static overlays:SplashLayout.CardPadding}">
         <Grid x:Name="SplashContent">
             <Grid.RowDefinitions>
-                <RowDefinition Height="150"/>
+                <RowDefinition Height="{x:Static overlays:SplashLayout.MarkSize}"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="48"/>
+                <RowDefinition Height="{x:Static overlays:SplashLayout.SentenceRowHeight}"/>
             </Grid.RowDefinitions>
 
             <!-- ── The mark: the accepted icon's geometry, animated (spec §4.1) ── -->
-            <Grid Grid.Row="0" x:Name="MarkHost" Width="150" Height="150" ClipToBounds="False">
+            <Grid Grid.Row="0" x:Name="MarkHost" Width="{x:Static overlays:SplashLayout.MarkSize}"
+                  Height="{x:Static overlays:SplashLayout.MarkSize}" ClipToBounds="False">
                 <Border x:Name="Tile" CornerRadius="37.5" Background="#141828"/>
                 <Canvas>
-                    <!-- bloom: radial amber, r25.5 at centre -->
+                    <!-- bloom: radial amber, r25.5 at centre; alpha in the colour bytes -->
                     <Ellipse x:Name="Bloom" Canvas.Left="49.5" Canvas.Top="49.5" Width="51" Height="51" Opacity="0"
                              RenderTransformOrigin="0.5,0.5">
                         <Ellipse.Fill>
                             <RadialGradientBrush>
-                                <GradientStop Color="#E8A33C" Opacity="0.45"/>
-                                <GradientStop Color="#E8A33C" Opacity="0.22" Offset="0.55"/>
-                                <GradientStop Color="#E8A33C" Opacity="0" Offset="1"/>
+                                <GradientStop Color="#73E8A33C"/>
+                                <GradientStop Color="#38E8A33C" Offset="0.55"/>
+                                <GradientStop Color="#00E8A33C" Offset="1"/>
                             </RadialGradientBrush>
                         </Ellipse.Fill>
                         <Ellipse.RenderTransform>
@@ -456,7 +511,7 @@ Expected: FAIL — `IsClickThrough` false / `SentenceShown`, `DeclaresNoOrderRep
             </Grid>
 
             <TextBlock Grid.Row="1" x:Name="TitleText" Text="EyeCtrl" HorizontalAlignment="Center"
-                       Opacity="0" Margin="0,12,0,0"
+                       Opacity="0" Margin="0,12,0,8"
                        FontSize="{x:Static theme:Tokens.FontSizeDisplay}"
                        FontWeight="{x:Static theme:Tokens.FontWeightMedium}">
                 <TextBlock.RenderTransform>
@@ -467,7 +522,7 @@ Expected: FAIL — `IsClickThrough` false / `SentenceShown`, `DeclaresNoOrderRep
             <TextBlock Grid.Row="2" x:Name="NoTrackerSentence"
                        AutomationProperties.AutomationId="Splash_NoTracker"
                        TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center"
-                       Opacity="0" Margin="0,8,0,0"
+                       Opacity="0"
                        FontSize="{x:Static theme:Tokens.FontSizeSubtitle}"
                        Text="{loc:T 'overlays.splash.noTracker'}"/>
         </Grid>
@@ -475,7 +530,7 @@ Expected: FAIL — `IsClickThrough` false / `SentenceShown`, `DeclaresNoOrderRep
 </overlays:OverlayWindow>
 ```
 
-- [ ] **Step 4: Rewrite SplashWindow.xaml.cs**
+- [ ] **Step 4: Rewrite SplashWindow.xaml.cs (no controller — that is Task 4)**
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
@@ -488,7 +543,6 @@ using Serilog;
 
 public partial class SplashWindow : OverlayWindow
 {
-    private readonly SplashExitController _controller = new();
     private bool _sentenceShown;
 
     public SplashWindow()
@@ -513,7 +567,7 @@ public partial class SplashWindow : OverlayWindow
     /// <summary>Test/verification accessor for the band-fallback override.</summary>
     internal bool DeclaresNoOrderRepair => NeedsOrderRepairAfterBandFallback;
 
-    /// <summary>Whether ShowNoTrackerSentence has been called (the fade may still be running).</summary>
+    /// <summary>Whether ShowNoTrackerSentence has been called.</summary>
     internal bool SentenceShown => _sentenceShown;
 
     /// <summary>
@@ -529,15 +583,26 @@ public partial class SplashWindow : OverlayWindow
     internal static bool ShowsNoTrackerSentence(GazeProviderType requested, GazeProviderType resolved, bool isTestMode) =>
         !isTestMode && requested != GazeProviderType.Mouse && resolved == GazeProviderType.Mouse;
 
-    /// <summary>Fades the no-tracker sentence in inside its always-reserved row (spec §7).</summary>
+    /// <summary>
+    /// Fades the no-tracker sentence in inside its always-reserved row (spec §7). The fade runs
+    /// only when the window is visible (production); on an unshown window — tests, headless — the
+    /// opacity is set directly so the outcome is deterministic.
+    /// </summary>
     internal void ShowNoTrackerSentence()
     {
         if (_sentenceShown) return;
         _sentenceShown = true;
         try
         {
-            var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250));
-            NoTrackerSentence.BeginAnimation(UIElement.OpacityProperty, fade);
+            if (IsVisible)
+            {
+                var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250));
+                NoTrackerSentence.BeginAnimation(UIElement.OpacityProperty, fade);
+            }
+            else
+            {
+                NoTrackerSentence.Opacity = 1;
+            }
         }
         catch (Exception ex)
         {
@@ -558,12 +623,7 @@ public partial class SplashWindow : OverlayWindow
 }
 ```
 
-- [ ] **Step 5: Run construction tests + the touched neighbours**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowConstructionTests|FullyQualifiedName~SplashNoTrackerSentenceTests|FullyQualifiedName~OverlayClientOriginTests"`
-Expected: construction PASS; `SplashNoTrackerSentenceTests.TheSentence_IsHiddenUntilAsked` FAILS (still asserts `Visibility.Collapsed`) — fixed next step; `OverlayClientOriginTests` PASS (new XAML parses headless).
-
-- [ ] **Step 6: Update the sentence-visibility test to the opacity mechanism**
+- [ ] **Step 5: Update the sentence-visibility test to the opacity mechanism**
 
 In `SplashNoTrackerSentenceTests.cs`, replace the body of `TheSentence_IsHiddenUntilAsked_AndReadsItsString`:
 
@@ -582,15 +642,13 @@ In `SplashNoTrackerSentenceTests.cs`, replace the body of `TheSentence_IsHiddenU
             splash.ShowNoTrackerSentence();
 
             Check.That(splash.SentenceShown).IsTrue();
-            Check.That(splash.NoTrackerSentence.Opacity).IsEqualTo(1);   // containment sets 1 synchronously headless
+            Check.That(splash.NoTrackerSentence.Opacity).IsEqualTo(1);   // unshown window → direct set (deterministic)
         }
         finally { splash.Close(); }
     }
 ```
 
-(The final `Opacity == 1` holds because the 0.25 s `BeginAnimation` on an unrendered, unpumped window is synchronously discarded by WPF's "animate without a media context → no clock" path in headless tests only when the value is set explicitly — hence the containment fallback in `ShowNoTrackerSentence` already sets it. If the assertion proves flaky on this box, assert `splash.SentenceShown` only and note it.)
-
-- [ ] **Step 7: Touch up the AppIconTests comment (A3)**
+- [ ] **Step 6: Touch up the AppIconTests comment (A3)**
 
 Replace the comment block above `Splash_Decode_Yields128PxFrame` (~lines 89-91):
 
@@ -601,16 +659,16 @@ Replace the comment block above `Splash_Decode_Yields128PxFrame` (~lines 89-91):
     // the ImageSourceConverter path below is unchanged.
 ```
 
-- [ ] **Step 8: Run the full Overlays + Assets test slice**
+- [ ] **Step 7: Run the full Overlays + Assets + Fit test slice**
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowConstructionTests|FullyQualifiedName~SplashNoTrackerSentenceTests|FullyQualifiedName~OverlayClientOriginTests|FullyQualifiedName~AppIconTests"`
-Expected: ALL PASS.
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowConstructionTests|FullyQualifiedName~SplashNoTrackerSentenceTests|FullyQualifiedName~OverlayClientOriginTests|FullyQualifiedName~AppIconTests|FullyQualifiedName~TheSplashSentence_FitsTheReservedRow"`
+Expected: ALL PASS — including the Task 2 gate, now that the real window exists.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit (Task 2's constants + gate land together with the window)**
 
 ```bash
-git add src/EyeCtrl.App/Overlays/SplashWindow.xaml src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs tests/EyeCtrl.App.Tests/Overlays/SplashNoTrackerSentenceTests.cs tests/EyeCtrl.App.Tests/Overlays/SplashWindowConstructionTests.cs tests/EyeCtrl.App.Tests/Assets/AppIconTests.cs
-git commit -m "feat(splash): animated mark card (tile, trail, dot, arc), reserved sentence row, click-through"
+git add src/EyeCtrl.App/Overlays/SplashLayout.cs src/EyeCtrl.App/Overlays/SplashWindow.xaml src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs tests/EyeCtrl.App.Tests/Overlays/SplashNoTrackerSentenceTests.cs tests/EyeCtrl.App.Tests/Overlays/SplashWindowConstructionTests.cs tests/EyeCtrl.App.Tests/Assets/AppIconTests.cs tests/EyeCtrl.App.Tests/Localization/Fit/GermanGateTests.cs
+git commit -m "feat(splash): animated mark card (tile, trail, dot, arc), reserved sentence row, click-through, fit gate"
 ```
 
 ---
@@ -622,7 +680,7 @@ git commit -m "feat(splash): animated mark card (tile, trail, dot, arc), reserve
 - Test: `tests/EyeCtrl.App.Tests/Overlays/SplashExitControllerTests.cs`
 
 **Interfaces:**
-- Produces (used by Task 5's glue and Task 6's logging): `SplashBeat` enum (`Idle, Entrance, Fill, CatchUp, Title, Hold, Exit, Closed`), `SplashExitController` with `Beat`, `ComputeCatchUpDuration(TimeSpan)`, `TryBeginExit(TimeSpan, out TimeSpan)`, `AdvanceTo(SplashBeat)`, `MarkClosed()`, `ShouldDeadManClose(TimeSpan)`, `ShouldHardClose(TimeSpan)`, constants `DeadManTimeout=15 s`, `HardExitDeadline=3 s`, `CatchUpFloor=1 s`, `FillBaseCourse=3 s`.
+- Produces (used by Task 5's glue): `SplashBeat` enum (`Idle, Entrance, Fill, Filled, CatchUp, Title, Hold, Exit, Closed` — `Filled` = base course done, waiting for readiness, r4 #5), `SplashExitController` with `Beat`, `ComputeCatchUpDuration(TimeSpan)`, `TryBeginExit(TimeSpan, out TimeSpan)`, `AdvanceTo(SplashBeat)`, `MarkClosed()`, `ShouldDeadManClose(TimeSpan)`, `ShouldHardClose(TimeSpan)`, constants `DeadManTimeout=15 s`, `HardExitDeadline=3 s`, `CatchUpFloor=1 s`, `FillBaseCourse=3 s`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -635,17 +693,19 @@ using Xunit;
 
 /// <summary>
 /// Pure decisions of the splash lifecycle (spec §6): the L16 catch-up rule (only shortens what
-/// remains — r3 #1), beat transitions, exit-request idempotence, and the dead-man/hard-deadline
-/// predicates. No WPF.
+/// remains — r3 #1), beat transitions, exit-request acceptance windows (any live beat BEFORE the
+/// tail; ignored once the tail has begun — r4 #5), and the dead-man/hard-deadline predicates.
+/// No WPF. All durations in SECONDS of base course.
 /// </summary>
 public class SplashExitControllerTests
 {
     [Theory]
-    [InlineData(0.10, 0.30)]     // remaining < floor: runs at base pace (0.10 × 3.0 s), never slowed
-    [InlineData(0.20, 0.60)]
-    [InlineData(0.34, 1.00)]
-    [InlineData(0.40, 1.00)]     // remaining course > 1.0 s: compressed to the floor
-    [InlineData(1.00, 1.00)]
+    [InlineData(0.15, 0.15)]     // remaining below the floor: base pace, never slowed (r3 #1)
+    [InlineData(0.34, 0.34)]     // the sub-0.35 band the r3 review called out
+    [InlineData(0.99, 0.99)]     // between the bands: still base pace
+    [InlineData(1.0, 1.0)]       // exactly the floor
+    [InlineData(2.5, 1.0)]       // above the floor: compressed to it
+    [InlineData(5.0, 1.0)]
     public void ComputeCatchUpDuration_OnlyShortensWhatRemains(double remainingSeconds, double expectedSeconds)
     {
         Check.That(SplashExitController.ComputeCatchUpDuration(TimeSpan.FromSeconds(remainingSeconds)))
@@ -674,9 +734,8 @@ public class SplashExitControllerTests
     [InlineData(SplashBeat.Idle)]
     [InlineData(SplashBeat.Entrance)]
     [InlineData(SplashBeat.Fill)]
-    [InlineData(SplashBeat.Title)]
-    [InlineData(SplashBeat.Hold)]
-    public void TryBeginExit_IsAcceptedFromAnyLiveBeat(SplashBeat beat)
+    [InlineData(SplashBeat.Filled)]
+    public void TryBeginExit_IsAcceptedFromAnyBeatBeforeTheTail(SplashBeat beat)
     {
         var controller = new SplashExitController();
         controller.AdvanceTo(beat);
@@ -685,17 +744,18 @@ public class SplashExitControllerTests
         Check.That(controller.Beat).IsEqualTo(SplashBeat.CatchUp);
     }
 
-    [Fact]
-    public void TryBeginExit_AfterExitOrClosed_IsRejected()
+    [Theory]
+    [InlineData(SplashBeat.CatchUp)]
+    [InlineData(SplashBeat.Title)]
+    [InlineData(SplashBeat.Hold)]
+    [InlineData(SplashBeat.Exit)]
+    [InlineData(SplashBeat.Closed)]
+    public void TryBeginExit_IsRejectedOnceTheTailHasBegun(SplashBeat beat)
     {
         var controller = new SplashExitController();
-        controller.AdvanceTo(SplashBeat.Exit);
+        controller.AdvanceTo(beat);
         Check.That(controller.TryBeginExit(TimeSpan.FromSeconds(3), out _)).IsFalse();
-
-        var closed = new SplashExitController();
-        closed.AdvanceTo(SplashBeat.Exit);
-        closed.MarkClosed();
-        Check.That(closed.TryBeginExit(TimeSpan.FromSeconds(3), out _)).IsFalse();
+        Check.That(controller.Beat).IsEqualTo(beat);          // untouched — the tail keeps running
     }
 
     [Fact]
@@ -709,8 +769,9 @@ public class SplashExitControllerTests
         Check.That(controller.ShouldDeadManClose(TimeSpan.FromSeconds(60))).IsFalse();
     }
 
+    /// <summary>The arming itself is glue-side (Task 5); the predicate here is stateless vs it.</summary>
     [Fact]
-    public void HardDeadline_FiresOnlyPastThreeSeconds_AfterBeginExit_WhenNotClosed()
+    public void HardDeadline_FiresOnlyPastThreeSeconds_WhenNotClosed()
     {
         var controller = new SplashExitController();
         Check.That(controller.ShouldHardClose(TimeSpan.FromSeconds(2.9))).IsFalse();
@@ -734,7 +795,7 @@ public class SplashExitControllerTests
 - [ ] **Step 2: Run to verify failure**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashExitControllerTests"`
-Expected: FAIL — type missing.
+Expected: **compile error** — the type does not exist yet.
 
 - [ ] **Step 3: Implement the controller**
 
@@ -743,13 +804,15 @@ namespace EyeCtrl.App.Overlays;
 
 using System;
 
-/// <summary>Beats of the splash lifecycle (spec §6). Order: Idle → Entrance → Fill →
-/// CatchUp → Title → Hold → Exit → Closed; CatchUp is the committed exit request.</summary>
+/// <summary>Beats of the splash lifecycle (spec §6). Order: Idle → Entrance → Fill → Filled →
+/// CatchUp → Title → Hold → Exit → Closed. <see cref="Filled"/> = the base course finished on its
+/// own and the splash waits for readiness (the tail starts at readiness — spec §6.1, r4 #5).</summary>
 internal enum SplashBeat
 {
     Idle,
     Entrance,
     Fill,
+    Filled,
     CatchUp,
     Title,
     Hold,
@@ -759,9 +822,10 @@ internal enum SplashBeat
 
 /// <summary>
 /// Pure decisions for the splash lifecycle (spec §6): the L16 catch-up rule (the catch-up only
-/// ever SHORTENS what remains — never below base pace, r3 #1), beat transitions, exit-request
-/// idempotence, and the dead-man / hard-deadline predicates. No WPF: the SplashWindow glue drives
-/// it, unit tests exercise it headless.
+/// ever SHORTENS what remains — never below base pace, r3 #1), beat transitions, the exit-request
+/// acceptance window (any beat before the tail; ignored once CatchUp/Title/Hold/Exit/Closed —
+/// r4 #5), and the dead-man / hard-deadline predicates. No WPF: the SplashWindow glue drives it,
+/// unit tests exercise it headless.
 /// </summary>
 internal sealed class SplashExitController
 {
@@ -783,15 +847,16 @@ internal sealed class SplashExitController
         remainingBaseCourse < CatchUpFloor ? remainingBaseCourse : CatchUpFloor;
 
     /// <summary>
-    /// The readiness request (<c>SplashWindow.BeginExit</c> → here). Idempotent: the first call
-    /// from any live beat commits the catch-up and reports its duration; calls from
-    /// <see cref="SplashBeat.CatchUp"/>, <see cref="SplashBeat.Exit"/> or
-    /// <see cref="SplashBeat.Closed"/> are ignored (already exiting, or dead-man closed).
+    /// The readiness request (<c>SplashWindow.BeginExit</c> → here). Idempotent, and accepted only
+    /// from beats BEFORE the tail: Idle, Entrance, Fill, Filled. From CatchUp/Title/Hold/Exit/Closed
+    /// it is ignored — the tail is already in flight (r4 #5). A zero remainder skips the catch-up
+    /// storyboard entirely (the glue reads the returned duration).
     /// </summary>
     internal bool TryBeginExit(TimeSpan remainingBaseCourse, out TimeSpan catchUpDuration)
     {
         catchUpDuration = TimeSpan.Zero;
-        if (_beat is SplashBeat.Closed or SplashBeat.Exit or SplashBeat.CatchUp) return false;
+        if (_beat is SplashBeat.CatchUp or SplashBeat.Title or SplashBeat.Hold
+            or SplashBeat.Exit or SplashBeat.Closed) return false;
         CatchUpDuration = ComputeCatchUpDuration(remainingBaseCourse);
         _beat = SplashBeat.CatchUp;
         catchUpDuration = CatchUpDuration;
@@ -817,32 +882,35 @@ internal sealed class SplashExitController
 }
 ```
 
+(Yes — the `CatchUpDuration` field assignment above would not compile; that line must simply read `catchUpDuration = ComputeCatchUpDuration(remainingBaseCourse);` with **no** `CatchUpDuration` member at all — the out parameter is the only carrier. This is the r4 #1 fix; do not add the member back.)
+
 - [ ] **Step 4: Run to verify pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashExitControllerTests"`
-Expected: PASS (all 11 cases).
+Expected: PASS (21 theory+fact cases).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/SplashExitController.cs tests/EyeCtrl.App.Tests/Overlays/SplashExitControllerTests.cs
-git commit -m "feat(splash): pure exit controller — L16 catch-up rule, beat transitions, dead-man rules"
+git commit -m "feat(splash): pure exit controller — L16 catch-up rule, Filled wait, tail-locked exit request"
 ```
 
 ---
 
-### Task 5: SplashWindow exit glue — storyboards, catch-up sequencing, dead-man timers
+### Task 5: SplashWindow exit glue — storyboard clocks, catch-up from captured values, dead-man timers
 
 **Files:**
-- Modify: `src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs` (extend: entrance/fill/catch-up/title/hold/exit orchestration)
+- Modify: `src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs` (extend: orchestration; replaces the Task 3 `BeginExit` stub)
+- Modify: `src/EyeCtrl.App/Overlays/SplashWindow.xaml` (add `Window.Resources` storyboards)
 - Test: new `tests/EyeCtrl.App.Tests/Overlays/SplashWindowExitSequenceTests.cs`
 - Test: new helper `tests/EyeCtrl.App.Tests/Fixtures/StaTestPump.cs`
 
 **Interfaces:**
 - Consumes: `SplashExitController` (Task 4), element names + stubs from Task 3.
-- Produces: real `BeginExit()` (replaces the Task 3 stub), `internal void OnSplashShown()` (the launcher calls this once after `Show()` — arms the dead-man timer, starts the entrance + pending fill), `internal bool TryReadDpiScale(out double scaleX, out double scaleY)`, `internal SplashBeat CurrentBeat` (test accessor).
+- Produces: real `BeginExit()` (From/To catch-up from captured current values — never a restart, r4 #3), `internal void OnSplashShown()`, `internal void FatalClose()`, `internal bool TryReadDpiScale(out double, out double)`, `internal SplashBeat CurrentBeat`, `internal string? ClosedReason`, `internal event Action? ExitFinished`.
 
-- [ ] **Step 1: Write the pump helper (needed because storyboard `Completed` fires on dispatcher ticks)**
+- [ ] **Step 1: Write the pump helper (storyboard `Completed` fires on dispatcher ticks)**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Fixtures/StaTestPump.cs
@@ -873,7 +941,7 @@ internal static class StaTestPump
 }
 ```
 
-- [ ] **Step 2: Write the failing sequence test**
+- [ ] **Step 2: Write the failing sequence tests**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Overlays/SplashWindowExitSequenceTests.cs
@@ -885,28 +953,31 @@ using EyeCtrl.App.Tests.Fixtures;
 using Xunit;
 
 /// <summary>
-/// The exit sequence runs on real storyboards: BeginExit commits the catch-up, the title follows
-/// the fill, the hold and fade end in a Closed controller and a closed window. The window is
-/// never shown; animation clocks ride the STA test's dispatcher via StaTestPump.
+/// The exit sequence runs on real storyboards: BeginExit commits the catch-up from the CURRENT
+/// arc values, the title follows, hold and fade end in a Closed controller and a closed window.
+/// Budgets sit BELOW the 3 s hard deadline so a stuck sequence fails the test instead of being
+/// masked by the backstop (r4 #7). The window is never shown; animation clocks ride the STA
+/// test's dispatcher via StaTestPump.
 /// </summary>
 [Collection("WpfApplication")]
 public class SplashWindowExitSequenceTests
 {
     [StaFact]
-    public void BeginExit_RunsCatchUpTitleHoldExit_AndCloses()
+    public void BeginExit_DuringEntrance_RunsCatchUpTitleHoldExit_AndCloses()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var splash = new SplashWindow();
         try
         {
             splash.OnSplashShown();
-            splash.BeginExit();     // warm-start case: fill never started → full 3 s course remains
+            splash.BeginExit();     // warm start: fill never started → full 3 s course remains
 
             var closed = StaTestPump.PumpUntil(
                 () => splash.CurrentBeat is SplashBeat.Closed,
-                TimeSpan.FromSeconds(5));
+                TimeSpan.FromSeconds(2.5));                     // < the 3 s hard deadline
             Check.That(closed).IsTrue();
             Check.That(splash.CurrentBeat).IsEqualTo(SplashBeat.Closed);
+            Check.That(splash.ClosedReason).IsEqualTo("closed");   // NOT a dead-man/hard-deadline rescue
         }
         finally { splash.ForceClose(); }
     }
@@ -921,8 +992,34 @@ public class SplashWindowExitSequenceTests
             splash.OnSplashShown();
             splash.BeginExit();
             splash.BeginExit();
-            var closed = StaTestPump.PumpUntil(() => splash.CurrentBeat is SplashBeat.Closed, TimeSpan.FromSeconds(5));
+            var closed = StaTestPump.PumpUntil(() => splash.CurrentBeat is SplashBeat.Closed, TimeSpan.FromSeconds(2.5));
             Check.That(closed).IsTrue();
+            Check.That(splash.ClosedReason).IsEqualTo("closed");
+        }
+        finally { splash.ForceClose(); }
+    }
+
+    /// <summary>
+    /// Slow start (spec §6.1): the base course completes on its own and the beat becomes Filled —
+    /// the splash waits, no title, no exit. The tail starts only when readiness arrives (r4 #5).
+    /// The pump budget (~4 s) exceeds the 3.55 s base course on purpose.
+    /// </summary>
+    [StaFact]
+    public void SlowStart_BaseFillCompletes_WaitsInFilled_ThenClosesAfterReadiness()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var splash = new SplashWindow();
+        try
+        {
+            splash.OnSplashShown();
+            var filled = StaTestPump.PumpUntil(() => splash.CurrentBeat is SplashBeat.Filled, TimeSpan.FromSeconds(4.2));
+            Check.That(filled).IsTrue();
+            Check.That(splash.ClosedReason).IsNull();           // still waiting — not closed by anything
+
+            splash.BeginExit();                                  // remaining ≈ 0 → no catch-up, straight tail
+            var closed = StaTestPump.PumpUntil(() => splash.CurrentBeat is SplashBeat.Closed, TimeSpan.FromSeconds(1.5));
+            Check.That(closed).IsTrue();
+            Check.That(splash.ClosedReason).IsEqualTo("closed");
         }
         finally { splash.ForceClose(); }
     }
@@ -932,227 +1029,17 @@ public class SplashWindowExitSequenceTests
 - [ ] **Step 3: Run to verify failure**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowExitSequenceTests"`
-Expected: FAIL — `OnSplashShown`, real `BeginExit`, `CurrentBeat` missing (Task 3's stub closes immediately, which the first test may accidentally pass — the second's double-call and `CurrentBeat == Closed` assertions pin the real behaviour; if the stub passes both, the task's build step still fails on missing members).
+Expected: **compile error** — `OnSplashShown`, `FatalClose`, `CurrentBeat`, `ClosedReason`, the real `BeginExit` do not exist (Task 3's stub closes immediately, which would mask nothing once the compile errors are fixed).
 
-- [ ] **Step 4: Extend SplashWindow.xaml.cs with the orchestration**
+- [ ] **Step 4: Add the XAML storyboards (Window.Resources) — entrance + title + exit**
 
-Add to `SplashWindow` (replacing the Task 3 `BeginExit` stub), keeping all existing members. Also add `using System.Windows.Threading;` to the file's usings (the animation using from Task 3 already covers `Storyboard`/`DoubleAnimation`/`SplineEase`/`KeySpline`):
-
-```csharp
-    private System.Diagnostics.Stopwatch _shownAt = System.Diagnostics.Stopwatch.StartNew();
-    private System.Diagnostics.Stopwatch? _exitArmedAt;
-    private System.Windows.Threading.DispatcherTimer? _fillStartTimer;
-    private System.Windows.Threading.DispatcherTimer? _deadManTimer;
-    private System.Windows.Threading.DispatcherTimer? _hardDeadlineTimer;
-    private System.Windows.Threading.DispatcherTimer? _holdTimer;
-    private Storyboard? _baseFillStoryboard;
-
-    internal SplashBeat CurrentBeat => _controller.Beat;
-
-    /// <summary>Called once on the splash thread after Show() (Task 6): entrance + timers.</summary>
-    internal void OnSplashShown()
-    {
-        SafeRun(() =>
-        {
-            _shownAt.Restart();
-            _controller.AdvanceTo(SplashBeat.Entrance);
-            StartEntrance();
-            Log.Information("Splash: shown");
-            ArmDeadMan();
-            // The fill starts at 0.55 s (spec §5 beat 3) unless an earlier BeginExit commits it.
-            _fillStartTimer = NewTimer(TimeSpan.FromMilliseconds(550), StartBaseFill);
-        });
-    }
-
-    /// <summary>The readiness request — marshalled here by SplashThreadHandle (Task 6).</summary>
-    internal void BeginExit()
-    {
-        SafeRun(() =>
-        {
-            _exitArmedAt = System.Diagnostics.Stopwatch.StartNew();
-            var remaining = RemainingBaseCourse();
-            if (!_controller.TryBeginExit(remaining, out var duration))
-                return;                                     // already exiting, or dead-man closed
-            Log.Information("Splash: ready (catch-up {Duration} ms)", duration.TotalMilliseconds);
-            _fillStartTimer?.Stop();
-            _baseFillStoryboard?.Stop(this);
-            StartCatchUp(duration);
-            ArmHardDeadline();
-        });
-    }
-
-    private void StartEntrance()
-    {
-        var trail = (Storyboard)Resources["SbTrail"];
-        var pop = (Storyboard)Resources["SbDotPop"];
-        trail.Begin(this, true);
-        pop.Begin(this, true);
-    }
-
-    private void StartBaseFill()
-    {
-        if (_controller.Beat is SplashBeat.CatchUp or SplashBeat.Closed) return;   // committed exit wins
-        _controller.AdvanceTo(SplashBeat.Fill);
-        _baseFillStoryboard = BuildSweepFillStoryboard(SplashExitController.FillBaseCourse);
-        _baseFillStoryboard.Completed += (_, _) => { if (_controller.Beat is SplashBeat.Fill) RunTitle(); };
-        _baseFillStoryboard.Begin(this, true);
-    }
-
-    private void StartCatchUp(TimeSpan duration)
-    {
-        _controller.AdvanceTo(SplashBeat.CatchUp);
-        var catchUp = BuildSweepFillStoryboard(duration);
-        catchUp.Completed += (_, _) => RunTitle();
-        catchUp.Begin(this, true);
-    }
-
-    private void RunTitle()
-    {
-        SafeRun(() =>
-        {
-            _controller.AdvanceTo(SplashBeat.Title);
-            var title = (Storyboard)Resources["SbTitle"];
-            title.Completed += (_, _) =>
-            {
-                _controller.AdvanceTo(SplashBeat.Hold);
-                _holdTimer = NewTimer(TimeSpan.FromMilliseconds(200), RunExit);
-            };
-            title.Begin(this, true);
-        });
-    }
-
-    private void RunExit()
-    {
-        SafeRun(() =>
-        {
-            _controller.AdvanceTo(SplashBeat.Exit);
-            var exit = (Storyboard)Resources["SbExit"];
-            exit.Completed += (_, _) => FinishClose("closed");
-            exit.Begin(this, true);
-        });
-    }
-
-    /// <summary>The sweep+fill pair for a given duration: rotation −180°→0° and dash 24.36→0,
-    /// decelerating KeySpline, arc opacity gated on at the start (stray-cap mitigation).</summary>
-    private Storyboard BuildSweepFillStoryboard(TimeSpan duration)
-    {
-        var ease = new KeySpline(0.3, 0.55, 0.3, 1.0);
-        var rotate = new DoubleAnimation(-180, 0, duration)
-        {
-            EasingFunction = new SplineEase { EasingMode = EasingMode.EaseOut, Spline = ease },
-        };
-        var fill = new DoubleAnimation(24.36, 0, duration)
-        {
-            EasingFunction = new SplineEase { EasingMode = EasingMode.EaseOut, Spline = ease },
-        };
-        var gate = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
-        var board = new Storyboard();
-        board.Children.Add(rotate);
-        board.Children.Add(fill);
-        board.Children.Add(gate);
-        Storyboard.SetTarget(rotate, ArcRotate);
-        Storyboard.SetTargetProperty(rotate, "Angle");
-        Storyboard.SetTarget(fill, DwellArc);
-        Storyboard.SetTargetProperty(fill, "StrokeDashOffset");
-        Storyboard.SetTarget(gate, DwellArc);
-        Storyboard.SetTargetProperty(gate, "Opacity");
-        return board;
-    }
-
-    private double RemainingBaseCourse()
-    {
-        // Remaining fraction of the 3.0 s course at BeginExit: full course before the fill starts,
-        // the un-run remainder afterwards (never below zero).
-        var remaining = _baseFillStoryboard is null
-            ? SplashExitController.FillBaseCourse
-            : SplashExitController.FillBaseCourse - (_shownAt.Elapsed - TimeSpan.FromMilliseconds(550));
-        return Math.Max(0, remaining.TotalSeconds);
-    }
-
-    private void ArmDeadMan()
-    {
-        _deadManTimer = NewTimer(TimeSpan.FromMilliseconds(500), () =>
-        {
-            if (_controller.ShouldDeadManClose(_shownAt.Elapsed)) FinishClose("dead-man");
-        });
-    }
-
-    private void ArmHardDeadline()
-    {
-        _hardDeadlineTimer = NewTimer(TimeSpan.FromMilliseconds(250), () =>
-        {
-            if (_exitArmedAt is { } armed && _controller.ShouldHardClose(armed.Elapsed)) FinishClose("hard-deadline");
-        });
-    }
-
-    private void FinishClose(string reason)
-    {
-        _controller.MarkClosed();
-        StopAllTimers();
-        Log.Information("Splash: closed ({Reason})", reason);
-        ForceClose();
-        // The window does NOT own dispatcher shutdown: in STA tests CurrentDispatcher is the
-        // TEST's dispatcher, and shutting it down would break the runner. The launcher (Task 6)
-        // subscribes to ExitFinished and shuts the splash dispatcher down there.
-        ExitFinished?.Invoke();
-    }
-
-    /// <summary>Raised once after the exit finishes and the window is closing; the launcher
-    /// shuts the splash dispatcher down on this (the window itself never owns that decision).</summary>
-    internal event Action? ExitFinished;
-
-    private DispatcherTimer NewTimer(TimeSpan due, Action tick)
-    {
-        var timer = new DispatcherTimer(due, DispatcherPriority.Background, (_, _) => tick(), Dispatcher);
-        timer.Start();
-        return timer;
-    }
-
-    private void StopAllTimers()
-    {
-        _fillStartTimer?.Stop();
-        _deadManTimer?.Stop();
-        _hardDeadlineTimer?.Stop();
-        _holdTimer?.Stop();
-    }
-
-    internal bool TryReadDpiScale(out double scaleX, out double scaleY)
-    {
-        scaleX = scaleY = 0;
-        try
-        {
-            var source = PresentationSource.FromVisual(this);
-            if (source?.CompositionTarget is not { } target) return false;
-            var m = target.TransformToDevice;
-            scaleX = m.M11;
-            scaleY = m.M22;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Splash: DPI read failed");
-            return false;
-        }
-    }
-
-    /// <summary>Every public entry runs inside this: a fault degrades to a close, never a trap.</summary>
-    private void SafeRun(Action action)
-    {
-        try { action(); }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Splash: beat failed; closing");
-            FinishClose("beat-failure");
-        }
-    }
-```
-
-Add the entrance/sentence/title/exit storyboards to `SplashWindow.xaml` (inside `Window.Resources`) — the trail, dot-pop, title, sentence-fade and exit boards referenced above:
+Insert before `<Border ...>` in `SplashWindow.xaml`:
 
 ```xml
     <Window.Resources>
         <!-- Trail: three decelerating arrivals, staggered 0/0.05/0.10 s, peaks .40/.55/.75,
-             absorbed by 0.55 s (spec §5 beat 1) -->
+             absorbed by 0.55 s (spec §5 beat 1). Trail2/Trail3 repeat Trail1's shape with only
+             BeginTime/peak differences — kept inline on purpose. -->
         <Storyboard x:Key="SbTrail">
             <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail1Move" Storyboard.TargetProperty="X">
                 <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-82.5"/>
@@ -1167,8 +1054,6 @@ Add the entrance/sentence/title/exit storyboards to `SplashWindow.xaml` (inside 
                 <LinearDoubleKeyFrame KeyTime="0:0:0.18" Value="0.40"/>
                 <LinearDoubleKeyFrame KeyTime="0:0:0.45" Value="0"/>
             </DoubleAnimationUsingKeyFrames>
-            <!-- Trail2: BeginTime 0.05, peak 0.55; Trail3: BeginTime 0.10, peak 0.75 — same
-                 spline/shape, offsets per spec -->
             <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail2Move" Storyboard.TargetProperty="X" BeginTime="0:0:0.05">
                 <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-82.5"/>
                 <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
@@ -1245,23 +1130,338 @@ Add the entrance/sentence/title/exit storyboards to `SplashWindow.xaml` (inside 
     </Window.Resources>
 ```
 
-(The comment in `SbTrail` documents Trail2/Trail3 shape repetition deliberately — they differ only in `BeginTime` and peak, so they stay inline rather than behind a shared style.)
+- [ ] **Step 5: Extend SplashWindow.xaml.cs with the orchestration**
 
-- [ ] **Step 5: Run the sequence tests**
+Add `using System.Windows.Threading;` and `using System.Windows.Media.Animation;` (the latter from Task 3) plus the members below, replacing the Task 3 `BeginExit` stub. Add the usings:
+
+```csharp
+    private System.Diagnostics.Stopwatch _shownAt = System.Diagnostics.Stopwatch.StartNew();  // dead-man clock only
+    private System.Diagnostics.Stopwatch? _exitArmedAt;
+    private Clock? _baseFillClock;                    // the fill's ONE clock — BeginTime carries the 0.55 s
+    private DispatcherTimer? _deadManTimer;
+    private DispatcherTimer? _hardDeadlineTimer;
+    private DispatcherTimer? _holdTimer;
+    private Storyboard _baseFillStoryboard = null!;
+
+    internal SplashBeat CurrentBeat => _controller.Beat;
+    internal string? ClosedReason { get; private set; }
+
+    /// <summary>Raised once after the exit finished; the LAUNCHER shuts the splash dispatcher down
+    /// (the window never owns that decision — in tests nobody subscribes, so the test dispatcher
+    /// survives). r4 self-review fix.</summary>
+    internal event Action? ExitFinished;
+
+    private readonly SplashExitController _controller = new();
+
+    /// <summary>Called once on the splash thread after Show() (Task 6): entrance + the fill clock.</summary>
+    internal void OnSplashShown()
+    {
+        SafeRun(() =>
+        {
+            _shownAt.Restart();
+            _controller.AdvanceTo(SplashBeat.Entrance);
+            StartEntrance();
+            Log.Information("Splash: shown");
+            ArmDeadMan();
+            StartBaseFillClock();
+        });
+    }
+
+    /// <summary>The readiness request — marshalled here by SplashThreadHandle (Task 6).</summary>
+    internal void BeginExit()
+    {
+        SafeRun(() =>
+        {
+            var remaining = RemainingBaseCourse();
+            if (!_controller.TryBeginExit(remaining, out var duration))
+                return;                                     // tail already running, or dead-man closed
+
+            _exitArmedAt ??= System.Diagnostics.Stopwatch.StartNew();   // armed only on the ACCEPTED request
+            Log.Information("Splash: ready after {ShownElapsed} ms; catch-up {Duration} ms",
+                _shownAt.ElapsedMilliseconds, duration.TotalMilliseconds);
+
+            StopBaseFillClock();
+            if (duration <= TimeSpan.Zero)
+            {
+                RunTitle();                                 // remaining ≈ 0 (slow start): straight tail
+                return;
+            }
+            StartCatchUp(duration);
+            ArmHardDeadline();
+        });
+    }
+
+    private void StartEntrance()
+    {
+        ((Storyboard)Resources["SbTrail"]).Begin(this, true);
+        ((Storyboard)Resources["SbDotPop"]).Begin(this, true);
+    }
+
+    /// <summary>
+    /// The fill is ONE storyboard clock with BeginTime = 0.55 s (spec §5 beat 3) — no wall-clock
+    /// bookkeeping, no second timer (r4 #10). Its Completed handler parks the beat in Filled and
+    /// WAITS; only BeginExit may start the tail (spec §6.1, r4 #5).
+    /// </summary>
+    private void StartBaseFillClock()
+    {
+        _baseFillStoryboard = BuildSweepFillStoryboard(SplashExitController.FillBaseCourse, fromCurrent: false);
+        _baseFillStoryboard.BeginTime = TimeSpan.FromMilliseconds(550);
+        _baseFillClock = _baseFillStoryboard.CreateClock();
+        _baseFillStoryboard.Completed += (_, _) =>
+        {
+            if (_controller.Beat is SplashBeat.Fill or SplashBeat.Entrance)
+                _controller.AdvanceTo(SplashBeat.Filled);   // wait for readiness — nothing else happens
+        };
+        _baseFillClock.Controller.Begin();
+    }
+
+    private void StopBaseFillClock()
+    {
+        try { _baseFillClock?.Controller.Stop(); }
+        catch (Exception ex) { Log.Debug(ex, "Splash: base fill clock already stopped"); }
+        _baseFillClock = null;
+    }
+
+    private void StartCatchUp(TimeSpan duration)
+    {
+        _controller.AdvanceTo(SplashBeat.CatchUp);
+        var catchUp = BuildSweepFillStoryboard(duration, fromCurrent: true);
+        catchUp.Completed += (_, _) => RunTitle();
+        catchUp.Begin(this, true);
+    }
+
+    private void RunTitle()
+    {
+        SafeRun(() =>
+        {
+            _controller.AdvanceTo(SplashBeat.Title);
+            var title = (Storyboard)Resources["SbTitle"];
+            Storyboard.SetTarget(title, null);              // shared resource — retarget per run
+            title.Begin(this, true);
+        });
+    }
+
+    private void RunExit()
+    {
+        SafeRun(() =>
+        {
+            _controller.AdvanceTo(SplashBeat.Exit);
+            var exit = (Storyboard)Resources["SbExit"];
+            Storyboard.SetTarget(exit, null);
+            exit.Begin(this, true);
+        });
+    }
+
+    /// <summary>
+    /// The sweep+fill board. <paramref name="fromCurrent"/> = the catch-up: From = the CURRENT
+    /// animated values (captured here — a DP read returns the effective animated value), To = the
+    /// finals, cubic ease-out — the arc continues from where it is, never restarting (r4 #3).
+    /// Otherwise the base course: fixed From values, the spec's KeySpline via SplineDoubleKeyFrame.
+    /// </summary>
+    private Storyboard BuildSweepFillStoryboard(TimeSpan duration, bool fromCurrent)
+    {
+        var board = new Storyboard();
+        var durationKf = new System.Windows.Duration(duration);
+
+        var angleFrom = fromCurrent ? ArcRotate.Angle : -180.0;
+        var offsetFrom = fromCurrent ? DwellArc.StrokeDashOffset : 24.36;
+        var opacityFrom = fromCurrent ? DwellArc.Opacity : 0.0;
+
+        if (fromCurrent)
+        {
+            var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var rotate = new DoubleAnimation(angleFrom, 0, durationKf) { EasingFunction = easeOut };
+            var fill = new DoubleAnimation(offsetFrom, 0, durationKf) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            var gate = new DoubleAnimation(opacityFrom, 1, durationKf) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            board.Children.Add(rotate);
+            board.Children.Add(fill);
+            board.Children.Add(gate);
+            Storyboard.SetTarget(rotate, ArcRotate);
+            Storyboard.SetTargetProperty(rotate, new PropertyPath("Angle"));
+            Storyboard.SetTarget(fill, DwellArc);
+            Storyboard.SetTargetProperty(fill, new PropertyPath("StrokeDashOffset"));
+            Storyboard.SetTarget(gate, DwellArc);
+            Storyboard.SetTargetProperty(gate, new PropertyPath("Opacity"));
+        }
+        else
+        {
+            var rotate = new DoubleAnimationUsingKeyFrames();
+            rotate.KeyFrames.Add(new LinearDoubleKeyFrame(-180, KeyTime.FromPercent(0)));
+            rotate.KeyFrames.Add(new SplineDoubleKeyFrame(0, KeyTime.FromPercent(1), new KeySpline(0.3, 0.55, 0.3, 1)));
+            var fill = new DoubleAnimationUsingKeyFrames();
+            fill.KeyFrames.Add(new LinearDoubleKeyFrame(24.36, KeyTime.FromPercent(0)));
+            fill.KeyFrames.Add(new SplineDoubleKeyFrame(0, KeyTime.FromPercent(1), new KeySpline(0.3, 0.55, 0.3, 1)));
+            var gate = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(120));
+            board.Children.Add(rotate);
+            board.Children.Add(fill);
+            board.Children.Add(gate);
+            board.Duration = durationKf;
+            Storyboard.SetTarget(rotate, ArcRotate);
+            Storyboard.SetTargetProperty(rotate, new PropertyPath("Angle"));
+            Storyboard.SetTarget(fill, DwellArc);
+            Storyboard.SetTargetProperty(fill, new PropertyPath("StrokeDashOffset"));
+            Storyboard.SetTarget(gate, DwellArc);
+            Storyboard.SetTargetProperty(gate, new PropertyPath("Opacity"));
+        }
+        return board;
+    }
+
+    /// <summary>Remaining base course at BeginExit, from the fill clock itself — never a Stopwatch
+    /// (r4 #10): full course before its BeginTime fires; the un-run remainder afterwards.</summary>
+    private TimeSpan RemainingBaseCourse()
+    {
+        var now = _baseFillClock?.CurrentTime;
+        if (now is null || now.Value < TimeSpan.FromMilliseconds(550))
+            return SplashExitController.FillBaseCourse;                     // not started
+        var played = now.Value - TimeSpan.FromMilliseconds(550);
+        var remaining = SplashExitController.FillBaseCourse - played;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+
+    private void ArmDeadMan()
+    {
+        _deadManTimer = NewTimer(TimeSpan.FromMilliseconds(500), () =>
+        {
+            if (_controller.ShouldDeadManClose(_shownAt.Elapsed)) FinishClose("dead-man");
+        });
+    }
+
+    private void ArmHardDeadline()
+    {
+        _hardDeadlineTimer = NewTimer(TimeSpan.FromMilliseconds(250), () =>
+        {
+            if (_exitArmedAt is { } armed && _controller.ShouldHardClose(armed.Elapsed)) FinishClose("hard-deadline");
+        });
+    }
+
+    private void RunExit()
+    {
+        SafeRun(() =>
+        {
+            _controller.AdvanceTo(SplashBeat.Exit);
+            var exit = (Storyboard)Resources["SbExit"];
+            Storyboard.SetTarget(exit, null);
+            exit.Completed += (_, _) => FinishClose("closed");
+            exit.Begin(this, true);
+        });
+    }
+
+    /// <summary>The tail after the title: hold 0.20 s (self-stopping one-shot timer), then exit.</summary>
+    private void RunExitAfterHold()
+    {
+        _holdTimer = NewTimer(TimeSpan.FromMilliseconds(200), RunExit);
+    }
+
+    /// <summary>One-shot self-stopping timer (r4 #2): DispatcherTimer repeats unless stopped —
+    /// every timer here stops itself before its tick runs.</summary>
+    private DispatcherTimer NewTimer(TimeSpan due, Action tick)
+    {
+        var timer = new DispatcherTimer(due, DispatcherPriority.Background, (_, _) => { }, Dispatcher);
+        timer.Tick += (_, _) => { timer.Stop(); tick(); };
+        timer.Start();
+        return timer;
+    }
+
+    private void FinishClose(string reason)
+    {
+        if (ClosedReason is not null) return;               // idempotent: first close wins
+        ClosedReason = reason;
+        _controller.MarkClosed();
+        StopAllTimers();
+        Log.Information("Splash: closed after {ShownElapsed} ms ({Reason})", _shownAt.ElapsedMilliseconds, reason);
+        ForceClose();
+        ExitFinished?.Invoke();
+    }
+
+    /// <summary>The fatal-path close (App's catch path via the handle): same full teardown as any
+    /// other close — controller marked closed, timers stopped, ExitFinished raised (r4 #11).</summary>
+    internal void FatalClose() => SafeRun(() => FinishClose("fatal"));
+
+    private void StopAllTimers()
+    {
+        _deadManTimer?.Stop();
+        _hardDeadlineTimer?.Stop();
+        _holdTimer?.Stop();
+    }
+
+    internal bool TryReadDpiScale(out double scaleX, out double scaleY)
+    {
+        scaleX = scaleY = 0;
+        try
+        {
+            var source = PresentationSource.FromVisual(this);
+            if (source?.CompositionTarget is not { } target) return false;
+            var m = target.TransformToDevice;
+            scaleX = m.M11;
+            scaleY = m.M22;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Splash: DPI read failed");
+            return false;
+        }
+    }
+
+    /// <summary>Every public entry runs inside this: a fault degrades to a close, never a trap.</summary>
+    private void SafeRun(Action action)
+    {
+        try { action(); }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Splash: beat failed; closing");
+            FinishClose("beat-failure");
+        }
+    }
+```
+
+**Wiring the hold:** in `RunTitle`'s `title.Completed` handler (defined when starting the title), call `RunExitAfterHold()` — i.e. start the title as:
+
+```csharp
+    private void RunTitle()
+    {
+        SafeRun(() =>
+        {
+            _controller.AdvanceTo(SplashBeat.Title);
+            var title = (Storyboard)Resources["SbTitle"];
+            title.Completed += (_, _) =>
+            {
+                _controller.AdvanceTo(SplashBeat.Hold);
+                RunExitAfterHold();
+            };
+            Storyboard.SetTarget(title, null);
+            title.Begin(this, true);
+        });
+    }
+```
+
+(Use THIS `RunTitle`; the earlier standalone snippet in this step is superseded. `Storyboard.SetTarget(board, null)` clears a previous run's target — the shared resource storyboards are begun against `this` each time, and the null-set keeps repeat runs from accumulating stale handlers. Because `Completed` handlers accumulate on a shared storyboard, RunTitle/RunExit must instead create a FRESH storyboard each run — see the note below.)
+
+> **Implementation note (r4 #5 — shared storyboard handlers accumulate):** `SbTitle`/`SbExit` live in `Resources` and re-beginning them appends another `Completed` handler each run. The executor must clone per run instead:
+> ```csharp
+> private Storyboard CloneBoard(string key)
+> {
+>     var clone = ((Storyboard)Resources[key]).Clone();
+>     return clone;
+> }
+> ```
+> and use `var title = CloneBoard("SbTitle");` / `var exit = CloneBoard("SbExit");` in `RunTitle`/`RunExit`, dropping the `Storyboard.SetTarget(board, null)` lines. `Storyboard.Clone()` copies children (handlers are attached to the CLONE, so they never accumulate).
+
+- [ ] **Step 6: Run the sequence tests**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowExitSequenceTests"`
-Expected: PASS — both sequence tests close via the real storyboard chain within 5 s.
+Expected: PASS — all three (warm start, double-call, slow start).
 
-- [ ] **Step 6: Re-run the Task 3 slice to catch regressions**
+- [ ] **Step 7: Re-run the Task 3 slice to catch regressions**
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowConstructionTests|FullyQualifiedName~SplashNoTrackerSentenceTests|FullyQualifiedName~OverlayClientOriginTests"`
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashWindowConstructionTests|FullyQualifiedName~SplashNoTrackerSentenceTests|FullyQualifiedName~OverlayClientOriginTests|FullyQualifiedName~TheSplashSentence_FitsTheReservedRow"`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/EyeCtrl.App/Overlays/SplashWindow.xaml src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs tests/EyeCtrl.App.Tests/Overlays/SplashWindowExitSequenceTests.cs tests/EyeCtrl.App.Tests/Fixtures/StaTestPump.cs
-git commit -m "feat(splash): exit orchestration — catch-up sequencing, dead-man timers, log lines"
+git commit -m "feat(splash): exit orchestration — clock-driven fill, captured-value catch-up, Filled wait, one-shot timers"
 ```
 
 ---
@@ -1269,12 +1469,13 @@ git commit -m "feat(splash): exit orchestration — catch-up sequencing, dead-ma
 ### Task 6: Splash thread + marshalled handle + DPI report
 
 **Files:**
-- Create: `src/EyeCtrl.App/Overlays/SplashThreadLauncher.cs`
+- Create: `src/EyeCtrl.App/Overlays/SplashThreadLauncher.cs` (includes `ISplashWindow`, `SplashDpiReport`, `SplashThreadHandle`)
+- Modify: `src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs` — `public partial class SplashWindow : OverlayWindow, ISplashWindow` (the interface members must be public; make `OnSplashShown`, `BeginExit`, `ShowNoTrackerSentence`, `ForceClose`, `FatalClose`, `TryReadDpiScale`, `ExitFinished` public — the source pins match call-shape text, not accessibility)
 - Test: `tests/EyeCtrl.App.Tests/Overlays/SplashThreadLauncherTests.cs`
 
 **Interfaces:**
-- Consumes: `SplashWindow.OnSplashShown/BeginExit/ShowNoTrackerSentence/ForceClose/TryReadDpiScale` (Tasks 3/5).
-- Produces: `SplashThreadLauncher.Start()` returning `SplashThreadHandle?` with `ShowNoTrackerSentence()`, `BeginExit()`, `Close()`, `TryGetDpiScale(int timeoutMs, out double sx, out double sy)`, `Dispose()`; test seam `SplashThreadLauncher.WindowFactoryForTests`.
+- Consumes: `SplashWindow` members (Tasks 3/5).
+- Produces: `SplashThreadLauncher.Start()` returning `SplashThreadHandle?` with `ShowNoTrackerSentence()`, `BeginExit()`, `Close()` (→ `FatalClose`), `TryGetDpiScale(int timeoutMs, out double sx, out double sy)`, `Inspect(Action<ISplashWindow>)` (synchronous — for tests), `Dispose()`; test seam `SplashThreadLauncher.WindowFactoryForTests` typed `Func<ISplashWindow>` (r4 #9).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1290,15 +1491,21 @@ using Xunit;
 /// <summary>
 /// The splash thread + marshalled handle (spec §7): every public call marshals to the splash
 /// thread, calls after shutdown are no-ops, only the main thread reads the DPI report, and a
-/// late DPI report is discarded (r3 #2). Tests run against a prepared-invisible window via the
-/// factory seam — no test ever shows a real splash (r2 #3).
+/// late DPI report is discarded (r3 #2). Tests run against the real window prepared-invisible
+/// via the ISplashWindow factory seam — no test shows a visible splash (r2 #3, spec §9 rev 3.2).
 /// </summary>
 [Collection("WpfApplication")]
 public class SplashThreadLauncherTests : IDisposable
 {
     private SplashThreadHandle? _handle;
 
-    public void Dispose() => _handle?.Dispose();
+    public SplashThreadLauncherTests()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        SplashThreadLauncher.WindowFactoryForTests = () => InvisibleTestWindow.Prepare(new SplashWindow());
+    }
+
+    public void Dispose() { _handle?.Dispose(); SplashThreadLauncher.WindowFactoryForTests = null; }
 
     private SplashThreadHandle StartHandle()
     {
@@ -1312,34 +1519,35 @@ public class SplashThreadLauncherTests : IDisposable
     {
         var handle = StartHandle();
         handle.ShowNoTrackerSentence();
-        var shown = StaTestPump.PumpUntil(() =>
+        var shown = false;
+        var ok = StaTestPump.PumpUntil(() =>
         {
-            var shownOnThread = false;
-            handle.Inspect(w => shownOnThread = w.SentenceShown);
-            return shownOnThread;
+            handle.Inspect(w => shown = w.SentenceShown);   // synchronous on the splash thread
+            return shown;
         }, TimeSpan.FromSeconds(3));
+        Check.That(ok).IsTrue();
         Check.That(shown).IsTrue();
     }
 
     [Fact]
     public void LateDpiReport_IsDiscarded_AndFallbackStands()
     {
-        // No splash thread at all: simulate the timeout path directly on the handle's report slot.
         var report = new SplashDpiReport();
-        Check.That(report.TryAccept(50, out var sx, out var sy)).IsFalse();   // nothing reported yet
+        Check.That(report.TryAccept(0, out _, out _)).IsFalse();   // nothing reported yet
         report.Discard();
-        report.Accept(2.0, 2.0);                                              // the "late" report
-        Check.That(report.TryAccept(0, out _, out _)).IsFalse();              // discarded forever
+        report.Accept(2.0, 2.0);                                    // the "late" report
+        Check.That(report.TryAccept(50, out _, out _)).IsFalse();   // discarded forever
     }
 
     [Fact]
     public void HandleAfterDispose_IsACompleteNoOp()
     {
         var handle = StartHandle();
-        handle.Dispose();
-        handle.ShowNoTrackerSentence();     // must not throw
-        handle.BeginExit();                 // must not throw
-        handle.Close();                     // must not throw
+        handle.Dispose();                       // shuts the splash dispatcher down
+        handle.ShowNoTrackerSentence();         // must not throw
+        handle.BeginExit();                     // must not throw
+        handle.Close();                         // must not throw — the fatal path with the thread gone
+        handle.Inspect(_ => { });               // must not throw
     }
 }
 ```
@@ -1347,16 +1555,31 @@ public class SplashThreadLauncherTests : IDisposable
 - [ ] **Step 2: Run to verify failure**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashThreadLauncherTests"`
-Expected: FAIL — types missing.
+Expected: **compile error** — the types do not exist.
 
 - [ ] **Step 3: Implement launcher, handle, DPI report**
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
 
-using System.Diagnostics;
+using System;
 using System.Windows.Threading;
 using Serilog;
+
+/// <summary>
+/// The narrow surface the launcher and handle need (spec §7 factory seam, r4 #9): tests may hand
+/// back a fake OR the real window prepared-invisible. Implemented by SplashWindow (public members).
+/// </summary>
+internal interface ISplashWindow
+{
+    void OnSplashShown();
+    void BeginExit();
+    void ShowNoTrackerSentence();
+    void ForceClose();
+    void FatalClose();
+    bool TryReadDpiScale(out double scaleX, out double scaleY);
+    event Action? ExitFinished;
+}
 
 /// <summary>
 /// The DPI report slot (r3 #2): the splash thread reports its scale; only the main thread accepts
@@ -1369,8 +1592,7 @@ internal sealed class SplashDpiReport
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private volatile bool _discarded;
 
-    internal void Accept(double scaleX, double scaleY) =>
-        _source.TrySetResult((scaleX, scaleY));
+    internal void Accept(double scaleX, double scaleY) => _source.TrySetResult((scaleX, scaleY));
 
     internal void Discard() => _discarded = true;
 
@@ -1393,11 +1615,11 @@ internal sealed class SplashDpiReport
 internal sealed class SplashThreadHandle
 {
     private readonly Dispatcher _splashDispatcher;
-    private readonly SplashWindow _window;
+    private readonly ISplashWindow _window;
     private readonly SplashDpiReport _dpi = new();
     private volatile bool _disposed;
 
-    internal SplashThreadHandle(Dispatcher splashDispatcher, SplashWindow window)
+    internal SplashThreadHandle(Dispatcher splashDispatcher, ISplashWindow window)
     {
         _splashDispatcher = splashDispatcher;
         _window = window;
@@ -1407,7 +1629,9 @@ internal sealed class SplashThreadHandle
 
     internal void BeginExit() => Post("BeginExit", w => w.BeginExit());
 
-    internal void Close() => Post("Close", w => w.ForceClose());
+    /// <summary>The fatal-path close: full teardown (controller closed, ExitFinished → dispatcher
+    /// shutdown), not just a window close (r4 #11).</summary>
+    internal void Close() => Post("Close", w => w.FatalClose());
 
     /// <summary>Main-thread read: the splash thread's reported scale, ≤ timeoutMs, else fallback.</summary>
     internal bool TryGetDpiScale(int timeoutMs, out double scaleX, out double scaleY)
@@ -1419,8 +1643,13 @@ internal sealed class SplashThreadHandle
         return ok;
     }
 
-    /// <summary>Test/inspection seam: runs a read-only probe on the splash thread.</summary>
-    internal void Inspect(Action<SplashWindow> probe) => Post("Inspect", probe);
+    /// <summary>Runs a probe SYNCHRONOUSLY on the splash thread (tests, r4 #7 — a BeginInvoke probe
+    /// writes its result after the caller has read it).</summary>
+    internal void Inspect(Action<ISplashWindow> probe) =>
+        Invoke("Inspect", probe);
+
+    /// <summary>Called by the launcher on the splash thread once the window's DPI is readable.</summary>
+    internal void ReportDpi(double scaleX, double scaleY) => _dpi.Accept(scaleX, scaleY);
 
     /// <summary>App-exit safety: force-shuts the splash dispatcher if it is somehow still alive.</summary>
     internal void Dispose()
@@ -1437,7 +1666,7 @@ internal sealed class SplashThreadHandle
         }
     }
 
-    private void Post(string what, Action<SplashWindow> action)
+    private void Post(string what, Action<ISplashWindow> action)
     {
         if (_disposed) return;
         try
@@ -1453,20 +1682,44 @@ internal sealed class SplashThreadHandle
             Log.Debug(ex, "Splash: {What} arrived after the dispatcher shut down", what);
         }
     }
+
+    private void Invoke(string what, Action<ISplashWindow> action)
+    {
+        if (_disposed) return;
+        try
+        {
+            _splashDispatcher.Invoke(() =>
+            {
+                try { action(_window); }
+                catch (Exception ex) { Log.Warning(ex, "Splash: {What} failed on the splash thread", what); }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(ex, "Splash: {What} arrived after the dispatcher shut down", what);
+        }
+    }
 }
 
 /// <summary>
 /// Starts the splash on its own STA thread (spec §7/§8): the main thread is blocked for the
 /// splash's whole visible life, and only a second dispatcher can animate through that. The thread
-/// entry is fully contained — any failure degrades to a splash-less, logged start (r2 #1).
+/// entry is fully contained — any failure degrades to a splash-less, logged start (r2 #1). The
+/// main thread's waits are bounded: ≤ 500 ms for the handle, and the DPI wait adds its own ≤ 500 ms
+/// (spec §7 rev 3.2). A timed-out start CANCELS the splash before it can show (r4 #8) — the thread
+/// checks the cancellation before its one visible step.
 /// </summary>
 internal static class SplashThreadLauncher
 {
-    /// <summary>Test seam (r2 #3): tests hand back an InvisibleTestWindow-prepared window.</summary>
-    internal static Func<SplashWindow>? WindowFactoryForTests { get; set; }
+    private static volatile bool _startCancelled;
+
+    /// <summary>Test seam (r2 #3, r4 #9): tests hand back an InvisibleTestWindow-prepared real
+    /// window or a fake — anything implementing ISplashWindow.</summary>
+    internal static Func<ISplashWindow>? WindowFactoryForTests { get; set; }
 
     internal static SplashThreadHandle? Start()
     {
+        _startCancelled = false;
         var ready = new TaskCompletionSource<SplashThreadHandle?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() => ThreadBody(ready))
         {
@@ -1475,9 +1728,10 @@ internal static class SplashThreadLauncher
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        if (!ready.Task.Wait(TimeSpan.FromSeconds(2)))
+        if (!ready.Task.Wait(TimeSpan.FromMilliseconds(500)))
         {
-            Log.Warning("Splash: thread did not produce a window in 2 s; starting without a splash");
+            _startCancelled = true;                    // the thread must not show the window now (r4 #8)
+            Log.Warning("Splash: thread did not produce a handle within 500 ms; starting without a splash");
             return null;
         }
         return ready.Task.Result;
@@ -1502,6 +1756,17 @@ internal static class SplashThreadLauncher
             // The window never owns dispatcher shutdown (it cannot know which dispatcher it rides
             // in tests) — the launcher does, on the exit-finished notification.
             window.ExitFinished += () => dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
+
+            // Hand the handle back BEFORE the first visible step, so a timed-out Start() can
+            // cancel a splash that never shows (r4 #8).
+            ready.TrySetResult(handle);
+            if (_startCancelled)
+            {
+                Log.Information("Splash: start was cancelled before the first frame; no splash shown");
+                dispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);
+                return;
+            }
+
             window.Show();
             window.OnSplashShown();
             // The splash thread reads its own composition target; it never writes DpiHelper (r3 #2).
@@ -1509,7 +1774,6 @@ internal static class SplashThreadLauncher
             {
                 if (window.TryReadDpiScale(out var sx, out var sy)) handle.ReportDpi(sx, sy);
             });
-            ready.TrySetResult(handle);
             Dispatcher.Run();                          // pumps for the whole main-thread blockage
         }
         catch (Exception ex)
@@ -1521,34 +1785,16 @@ internal static class SplashThreadLauncher
 }
 ```
 
-Add the report relay to `SplashThreadHandle`:
-
-```csharp
-    /// <summary>Called by the launcher on the splash thread once the window's DPI is readable.</summary>
-    internal void ReportDpi(double scaleX, double scaleY) => _dpi.Accept(scaleX, scaleY);
-```
-
 - [ ] **Step 4: Run to verify pass**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SplashThreadLauncherTests"`
-Expected: PASS (3 tests). Note the launcher tests start REAL STA threads with invisible windows — allowed via `InvisibleTestWindow.Prepare` in the factory; set it in the test constructor:
-
-```csharp
-    public SplashThreadLauncherTests()
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        SplashThreadLauncher.WindowFactoryForTests = () =>
-            InvisibleTestWindow.Prepare(new SplashWindow());
-    }
-```
-
-and clear it in `Dispose`: `SplashThreadLauncher.WindowFactoryForTests = null;`
+Expected: PASS (3 tests — real STA threads, invisible windows).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Overlays/SplashThreadLauncher.cs tests/EyeCtrl.App.Tests/Overlays/SplashThreadLauncherTests.cs
-git commit -m "feat(splash): dedicated STA thread, marshalled handle, bounded DPI report"
+git add src/EyeCtrl.App/Overlays/SplashThreadLauncher.cs src/EyeCtrl.App/Overlays/SplashWindow.xaml.cs tests/EyeCtrl.App.Tests/Overlays/SplashThreadLauncherTests.cs
+git commit -m "feat(splash): dedicated STA thread, ISplashWindow seam, marshalled handle, bounded DPI report"
 ```
 
 ---
@@ -1561,11 +1807,11 @@ git commit -m "feat(splash): dedicated STA thread, marshalled handle, bounded DP
 
 **Interfaces:**
 - Consumes: `SplashThreadLauncher`/`SplashThreadHandle` (Task 6).
-- Produces: production wiring — `ShowOverlays(SplashThreadHandle? splash, …)` calls `splash?.BeginExit()`; the catch path's `splash?.Close()` is the marshalled hard close; `InitializeDpi(SplashThreadHandle? splash)` with the bounded wait.
+- Produces: production wiring — `ShowOverlays(SplashThreadHandle? splash, …)` calls `splash?.BeginExit()`; the catch path's `splash?.Close()` is the marshalled fatal close; `InitializeDpi(SplashThreadHandle? splash)` with the bounded wait.
 
 - [ ] **Step 0: Impact analysis (repo rule — before editing shared symbols)**
 
-Run GitNexus impact on `ShowOverlays` and `InitializeDpi` (upstream) and report the callers/processes. Record the risk level in the commit message body. If HIGH/CRITICAL, surface it before proceeding.
+Run GitNexus impact on `ShowOverlays` and `InitializeDpi` (upstream) and report the callers/processes. Record the risk level in the commit message body. If HIGH/CRITICAL, surface it before proceeding. (The GitNexus index is stale at b2cb5b6 — run `node .gitnexus/run.cjs analyze --force --index-only` first, scoped to the worktree.)
 
 - [ ] **Step 1: Wire the splash site (replaces the construct+Show block at ~:164-169)**
 
@@ -1573,7 +1819,8 @@ Run GitNexus impact on `ShowOverlays` and `InitializeDpi` (upstream) and report 
         // ── Splash screen ──
         // Own STA thread + dispatcher (spec §8): the main thread blocks from here to the end of
         // startup, and only a second dispatcher can animate through that. The handle's methods
-        // marshal; a failed thread start degrades to a splash-less, logged start (spec §7).
+        // marshal; a failed or timed-out thread start degrades to a splash-less, logged start
+        // (spec §7) — and cancels the splash before it can show.
         if (!IsTestMode)
             splash = SplashThreadLauncher.Start();
 ```
@@ -1640,7 +1887,7 @@ with the field near the other App fields:
     }
 ```
 
-The catch path at ~:728 keeps its text (`splash?.Close();`) — the type change alone makes it the marshalled hard close. In `OnExit`, add at the top:
+The catch path at ~:728 keeps its text (`splash?.Close();`) — the type change alone makes it the marshalled fatal close. In `OnExit`, add at the top:
 
 ```csharp
         try { _splashHandle?.Dispose(); } catch { /* shutdown-time best effort */ }
@@ -1659,7 +1906,7 @@ Expected: 0 failed.
 
 - [ ] **Step 6: Graph change analysis (repo rule) + commit**
 
-Run `detect_changes` (scope all) and confirm no unexpected risk. Then:
+Run `detect_changes` (scope all, worktree param) and confirm no unexpected risk. Then:
 
 ```bash
 git add src/EyeCtrl.App/App.xaml.cs
@@ -1678,23 +1925,23 @@ git commit -m "feat(splash): wire the splash thread into startup — BeginExit a
 Run: `dotnet build EyeCtrl.slnx`
 Expected: 0 errors.
 
-- [ ] **Step 2: Full non-UI suite**
+- [ ] **Step 2: Full non-UI suite (solution-level command — AGENTS.md-documented form)**
 
 Run: `dotnet test --filter "Category!=UI"`
 Expected: 0 failed across all projects.
 
-- [ ] **Step 3: Commit (if anything was left unstaged) and confirm the tree is clean**
+- [ ] **Step 3: Confirm the tree is clean**
 
 ```bash
 git status --porcelain
 ```
-Expected: only `.superpowers/`-style ignored output, nothing tracked-dirty.
+Expected: nothing tracked-dirty.
 
 - [ ] **Step 4: Owner live check (NEVER launch without explicit owner OK — standing rule)**
 
 Hand-off message to the owner:
-1. What to watch on a launch: trail → dot pop → 1.0 s sweep+fill → title → fade; overlays (ring/toolbar) appear above the fading card; resting mark reads as the icon.
-2. What to check in the log: `Splash: shown` → `Splash: ready` → `Splash: closed`, with `closed − ready` ≤ ≈ 2.0 s.
+1. What to watch on a launch: trail → dot pop → 1.0 s sweep+fill → title → fade; overlays (ring/toolbar) appear above the fading card; resting mark reads as the icon. On a slow start the arc completes and WAITS, then the tail runs at readiness.
+2. What to check in the log: `Splash: shown` → `Splash: ready after N ms; catch-up M ms` → `Splash: closed after K ms (closed)`, with `closed − ready` ≤ ≈ 2.0 s.
 3. Theme sweep: the card on Midnight, Ember, Daylight, Contrast (tile visibility on Ember/Contrast is intentional).
 4. Sentence check (only if the tracker falls back): appears in the reserved row without reflow.
 
@@ -1704,6 +1951,8 @@ Do not run `EYECTRL_UI_TESTS` suites — not needed for this gate (spec §10.1).
 
 ## Self-Review notes (already applied while writing)
 
-- **Spec coverage:** §4 card/geometry (Tasks 2/3), §4.1 mark (Task 3), §5 choreography (Tasks 3/5), §6 controller + rules (Tasks 4/5), §7 integration (Tasks 6/7), §8 threading/resources (Tasks 1/3/6), §9 tests (every task + Task 8), §10 acceptance (Task 8). L13 click-through (Task 3), L15 log lines (Tasks 5/6).
-- **Type consistency:** `SplashThreadHandle` used in App wiring matches Task 6's class; `BeginExit()`/`ForceClose()`/`TryReadDpiScale` signatures identical across Tasks 3/5/6; `SplashLayout` constants identical in Tasks 2/3; `SplashBeat` values identical in Tasks 4/5.
-- **Known deliberate gaps (documented, not placeholders):** the Trail2/Trail3 storyboards are written as inline repeats (comment in XAML explains); the sequencing tests cover the warm-start path and double-call; the cold-start (base-course completion → title without BeginExit) path is exercised only by the live check — its logic shares every branch with the tested catch-up path except `_baseFillStoryboard.Completed → RunTitle`, which the Task 5 test does not reach headless. If the executor wants belt-and-braces, add a pump test that calls `StartBaseFill()` via a test accessor and pumps past 3 s — optional, not required by the spec's gate.
+- **Spec coverage:** §4 card/geometry (Tasks 2/3), §4.1 mark (Task 3), §5 choreography (Tasks 3/5), §6 controller + rules + Filled wait (Tasks 4/5), §7 integration (Tasks 6/7), §8 threading/resources (Tasks 1/3/6), §9 tests (every task + Task 8), §10 acceptance (Task 8). L13 click-through (Task 3), L15 log lines with elapsed-ms (Tasks 5/6).
+- **Type consistency:** `SplashThreadHandle`/`ISplashWindow` used in App wiring match Task 6; `BeginExit()`/`ForceClose()`/`FatalClose()`/`TryReadDpiScale` signatures identical across Tasks 3/5/6; `SplashLayout` constants identical in Tasks 2/3; `SplashBeat` values (including `Filled`) identical in Tasks 4/5.
+- **r4 fixes applied:** compile set (SplineDoubleKeyFrame, PropertyPath, colour-borne alphas, no CatchUpDuration member, TimeSpan remaining, Task 3 controller-free), one-shot self-stopping timers, captured-value catch-up with CubicEase, spike loops (block inside a posted work item; B runs its dispatcher), Filled state + tail-locked exit request + slow-start sequence test, real-window fit gate + x:Static layout everywhere + gap below the title, deterministic sentence test, seconds-based controller theory, synchronous Inspect, 500 ms cancel-before-show start, ISplashWindow seam, clock-driven fill (no Stopwatch for remaining), FatalClose routing, elapsed-ms log lines, public SplashLayout.
+- **Spec lines this plan changes (rev 3.2):** §6.1 "only the fixed tail remains" → explicitly the tail starts AT readiness and the beat waits in Filled; §6.2 "any state" → accepted only before the tail; §7 waits = ≤ 500 ms handle + ≤ 500 ms DPI report; §9 factory = `ISplashWindow` (fake or invisible-real).
+- **Known deliberate gap (documented):** the catch-up's mid-fill continuation (BeginExit while the base fill is running, i.e. readiness between 0.55 s and 3.55 s) is not covered by a dedicated headless test — it needs a ~1 s pump after BeginExit mid-course. The warm-start and slow-start sequence tests cover both neighbours of that band, and the live check watches it. Add a mid-fill pump test if the executor wants belt-and-braces.

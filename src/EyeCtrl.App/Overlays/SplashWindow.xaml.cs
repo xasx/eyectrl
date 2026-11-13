@@ -7,7 +7,7 @@ using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Enums;
 using Serilog;
 
-public partial class SplashWindow : OverlayWindow
+public partial class SplashWindow : OverlayWindow, ISplashWindow
 {
     private bool _sentenceShown;
 
@@ -26,8 +26,9 @@ public partial class SplashWindow : OverlayWindow
 
     /// <summary>Raised once after the exit finished; the LAUNCHER shuts the splash dispatcher down
     /// (the window never owns that decision — in tests nobody subscribes, so the test dispatcher
-    /// survives). r4 self-review fix.</summary>
-    internal event Action? ExitFinished;
+    /// survives). r4 self-review fix. Public as part of ISplashWindow (the source pins match
+    /// call-shape text, not accessibility).</summary>
+    public event Action? ExitFinished;
 
     public SplashWindow()
     {
@@ -71,9 +72,9 @@ public partial class SplashWindow : OverlayWindow
     /// <summary>
     /// Fades the no-tracker sentence in inside its always-reserved row (spec §7). The fade runs
     /// only when the window is visible (production); on an unshown window — tests, headless — the
-    /// opacity is set directly so the outcome is deterministic.
+    /// opacity is set directly so the outcome is deterministic. Public as part of ISplashWindow.
     /// </summary>
-    internal void ShowNoTrackerSentence()
+    public void ShowNoTrackerSentence()
     {
         if (_sentenceShown) return;
         _sentenceShown = true;
@@ -96,8 +97,9 @@ public partial class SplashWindow : OverlayWindow
         }
     }
 
-    /// <summary>Called once on the splash thread after Show() (Task 6): entrance + the fill clock.</summary>
-    internal void OnSplashShown()
+    /// <summary>Called once on the splash thread after Show() (Task 6): entrance + the fill clock.
+    /// Public as part of ISplashWindow.</summary>
+    public void OnSplashShown()
     {
         SafeRun(() =>
         {
@@ -110,8 +112,9 @@ public partial class SplashWindow : OverlayWindow
         });
     }
 
-    /// <summary>The readiness request — marshalled here by SplashThreadHandle (Task 6).</summary>
-    internal void BeginExit()
+    /// <summary>The readiness request — marshalled here by SplashThreadHandle (Task 6). Public as
+    /// part of ISplashWindow.</summary>
+    public void BeginExit()
     {
         SafeRun(() =>
         {
@@ -345,8 +348,9 @@ public partial class SplashWindow : OverlayWindow
     }
 
     /// <summary>The fatal-path close (App's catch path via the handle): same full teardown as any
-    /// other close — controller marked closed, timers stopped, ExitFinished raised (r4 #11).</summary>
-    internal void FatalClose() => SafeRun(() => FinishClose("fatal"));
+    /// other close — controller marked closed, timers stopped, ExitFinished raised (r4 #11).
+    /// Public as part of ISplashWindow.</summary>
+    public void FatalClose() => SafeRun(() => FinishClose("fatal"));
 
     private void StopAllTimers()
     {
@@ -355,7 +359,9 @@ public partial class SplashWindow : OverlayWindow
         _holdTimer?.Stop();
     }
 
-    internal bool TryReadDpiScale(out double scaleX, out double scaleY)
+    /// <summary>Public as part of ISplashWindow: the launcher's DPI report reads it on the splash
+    /// thread.</summary>
+    public bool TryReadDpiScale(out double scaleX, out double scaleY)
     {
         scaleX = scaleY = 0;
         try
@@ -385,8 +391,9 @@ public partial class SplashWindow : OverlayWindow
         }
     }
 
-    /// <summary>Exception-contained hard close used by the fatal path and the dead-man timers.</summary>
-    internal void ForceClose()
+    /// <summary>Exception-contained hard close used by the fatal path and the dead-man timers.
+    /// Public as part of ISplashWindow.</summary>
+    public void ForceClose()
     {
         try { Close(); }
         catch (Exception ex) { Log.Warning(ex, "Splash: hard close failed"); }

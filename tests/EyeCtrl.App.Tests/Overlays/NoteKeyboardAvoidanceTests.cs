@@ -306,6 +306,91 @@ public class NoteKeyboardAvoidanceTests
     }
 
     [StaFact]
+    public void AKeyboardYieldAndUnYieldMidEdit_MovesTheNoteAndItsCellsClearOfTheKeyboard()
+    {
+        // The reported bug's shape, on the top edge: a note enters Edit while the keyboard is
+        // DOCKED, so it steps clear of the docked rect. The toolbar appears on that edge and the
+        // keyboard yields 132 DIP toward the centre — straight onto the note. The toolbar hides,
+        // and the gaze-off un-yield takes the keyboard back to the docked rect. Both are position
+        // changes only: no size change, no VM flip, no button change. Without the probe's position
+        // source the keyboard's rects never reach the note and the yielded keyboard covers its
+        // text, ✓ Done and ↩ Discard (the yield half of the report's "The same holds for a yield
+        // that moves the keyboard onto a note").
+        var yielded = new Rect(KeyboardTop.Left, KeyboardTop.Top + 132, KeyboardTop.Width, KeyboardTop.Height);
+        var yieldedBar = new Rect(EdgeBarTop.Left, EdgeBarTop.Top + 132, EdgeBarTop.Width, EdgeBarTop.Height);
+
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // Docked: the anchor lies under the keyboard, and Edit steps the card clear of it.
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            probe.RaiseChanged();
+            var docked = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage($"the docked keyboard must not cover the note ({docked.Window})")
+                .That(docked.Window.IntersectsWith(KeyboardTop)).IsFalse();
+
+            // The toolbar appears on the keyboard's edge: the yield moves the keyboard onto the
+            // note's spot. The probe's raise must re-place it clear of the yielded rect.
+            probe.RectsProvider = () => new[] { ToPhysical(yielded), ToPhysical(yieldedBar) };
+            probe.RaiseChanged();
+
+            var afterYield = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage(
+                    $"the caretaker never saw the keyboard move: the note stayed at {docked.Window} "
+                    + $"under the yielded keyboard {yielded}")
+                .That(afterYield.Window).IsNotEqualTo(docked.Window);
+            Check.WithCustomMessage($"the note {afterYield.Window} must clear the yielded keyboard {yielded}")
+                .That(afterYield.Window.IntersectsWith(yielded)).IsFalse();
+            Check.That(GapFrom(afterYield.Window, yielded))
+                .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            AssertCellsClear(afterYield, yielded, yieldedBar);
+
+            // The toolbar hides and the gaze-off un-yield returns the keyboard to the docked edge:
+            // the note and both of its exit cells stay clear of the rect it now occupies.
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            probe.RaiseChanged();
+            var afterUnYield = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage(
+                    $"the note {afterUnYield.Window} must clear the un-yielded keyboard {KeyboardTop}")
+                .That(afterUnYield.Window.IntersectsWith(KeyboardTop)).IsFalse();
+            Check.That(GapFrom(afterUnYield.Window, KeyboardTop))
+                .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            AssertCellsClear(afterUnYield, KeyboardTop, EdgeBarTop);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    /// <summary>The ✓ Done (slot 0) and ↩ Discard (slot 3) dwell cells of an Edit placement must
+    /// stay a key's reach clear of every rect the keyboard occupies — the cells are what the
+    /// caretaker dwells on, not the card's chrome.</summary>
+    private static void AssertCellsClear(NotePlacement placement, params Rect[] keyboardRects)
+    {
+        foreach (var slot in new[] { 0, 3 })
+        {
+            var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
+            var cell = new Rect(
+                placement.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
+                placement.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
+                LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+            foreach (var rect in keyboardRects)
+            {
+                Check.WithCustomMessage($"dwell cell {slot} ({cell}) must not sit under the keyboard ({rect})")
+                    .That(cell.IntersectsWith(rect)).IsFalse();
+                Check.That(GapFrom(cell, rect))
+                    .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+            }
+        }
+    }
+
+    [StaFact]
     public void TheMoveStatesOtherSide_StaysTheSideThatExists()
     {
         // The Move state's "Other side" offer must remain a side that EXISTS beside the note: a

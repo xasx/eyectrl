@@ -241,6 +241,9 @@ public class KeyboardSoundServiceLatchTests
 
         svc.OnKeyboardHidden();
         Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=1 skipped=1");
+        // The click queued first-click diagnostics work (production scheduler): drain it so no
+        // pool-thread item lands inside a later test's statics (fixup 01 flake).
+        AudioSessionDiagnostics.DrainQueuedWork();
     }
 
     private sealed class ThrowingPlayer : IClickSoundPlayer

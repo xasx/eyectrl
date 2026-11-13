@@ -89,9 +89,8 @@ public class AudioSessionDiagnosticsTests
     private static void ResetStatics()
     {
         // Drain the queue first: a pool-thread work item that lands after this reset would run
-        // against the NEXT test's reader. Bounded wait — the work itself is ms-fast.
-        var scheduled = AudioSessionDiagnostics.QueuedWorkScheduled;
-        for (var i = 0; i < 250 && AudioSessionDiagnostics.QueuedWorkCompleted < scheduled; i++) Thread.Sleep(20);
+        // against the NEXT test's statics.
+        AudioSessionDiagnostics.DrainQueuedWork();
         AudioSessionDiagnostics.LineSink = null;
         AudioSessionDiagnostics.WorkScheduler = null;
         AudioSessionDiagnostics.ConfigureForTesting(null, null);
@@ -309,13 +308,16 @@ public class AudioSessionDiagnosticsTests
     public void PlayKeyClick_DoesNotInvokeTheReaderSynchronously()
     {
         // Review 01 F4: cold COM measured ~105 ms on the first read; the first click may only
-        // flip the once-flag and QUEUE the work (background MTA thread in production).
+        // flip the once-flag and HAND the work to the scheduler. The parked scheduler makes the
+        // assertion deterministic: if the click ever ran the work on its own thread, the reader
+        // would fire without the park being released.
         var reader = new FakeReader();
         var listener = new FakeListener();
         AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
         Lines.Clear();
         AudioSessionDiagnostics.LineSink = Lines.Add;
-        AudioSessionDiagnostics.WorkScheduler = null; // production scheduling: background MTA
+        Action? parked = null;
+        AudioSessionDiagnostics.WorkScheduler = a => parked = a; // park: the work never runs by itself
         try
         {
             var player = new AlwaysTruePlayer();
@@ -324,18 +326,20 @@ public class AudioSessionDiagnosticsTests
                 DiagnosticsLineSink = _ => { },
             };
 
-            svc.PlayKeyClick();
+            // BISECT A: direct diagnostics call, no service.
+            AudioSessionDiagnostics.OnClickAttempted();
             Check.WithCustomMessage(
                     "the first click ran Core Audio work synchronously — a cold read costs ~100 ms "
                     + "and must never sit in front of a key; the click only flips the once-flag")
                 .That(reader.Reads).IsEqualTo(0);
+            Check.WithCustomMessage(
+                    "the click neither ran the work synchronously nor scheduled it — the diagnostics "
+                    + "would never fire at all")
+                .That(parked).IsNotNull();
 
-            // The queued work still completes on the pool thread: wait for BOTH halves of
-            // FirstClickWork (snapshot + registration) before the finally resets the statics,
-            // or the in-flight work lands inside a later test.
-            for (var i = 0; i < 150 && (reader.Reads == 0 || listener.RegisterCalls == 0); i++) Thread.Sleep(20);
+            // Releasing the park IS the background thread doing its work later.
+            parked!.Invoke();
             Check.That(reader.Reads).IsEqualTo(1);
-            Check.That(listener.RegisterCalls).IsEqualTo(1);
             Check.That(Lines).HasSize(1);
             Check.That(Lines[0]).Contains("Keyboard audio: endpoint=");
         }

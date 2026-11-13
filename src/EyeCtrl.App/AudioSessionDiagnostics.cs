@@ -170,6 +170,18 @@ internal static class AudioSessionDiagnostics
         });
     }
 
+    /// <summary>Bounded wait until every scheduled diagnostics work item has completed. Tests
+    /// that queue (the production default scheduler) MUST drain in their finally: a pool-thread
+    /// work item that lands inside a LATER test runs against that test's statics — observed as
+    /// production snapshot lines appearing in another test's sink (fixup 01 flake).</summary>
+    internal static void DrainQueuedWork(int timeoutMs = 5000)
+    {
+        var scheduled = Volatile.Read(ref _queuedWorkScheduled);
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (Volatile.Read(ref _queuedWorkCompleted) < scheduled && Environment.TickCount64 < deadline)
+            Thread.Sleep(10);
+    }
+
     /// <summary>Production runs the diagnostics work on an MTA thread-pool thread (COM is happy
     /// there, the UI thread never waits); the test scheduler keeps the seam synchronous. Both
     /// counters let tests drain the queue before they reset the statics — a pool-thread work

@@ -178,6 +178,12 @@ public class KeyboardClickSoundDiagnosticsTests
                     + "a missing forward loses the reset (requested=2) or the hide line itself")
                 .That(lines).ContainsExactly("Keyboard click: requested=1 played=1 failed=0 skipped=0");
         }
-        finally { window.Close(); }
+        finally
+        {
+            // The click queued first-click diagnostics work (production scheduler): drain it so
+            // no pool-thread item lands inside a later test's statics (fixup 01 flake).
+            AudioSessionDiagnostics.DrainQueuedWork();
+            window.Close();
+        }
     }
 }

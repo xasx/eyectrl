@@ -273,6 +273,73 @@ public class KeyboardDoubleLettersTests
         Check.That(rig.Fired).ContainsExactly("key_0_0");
     }
 
+    [Theory]
+    [InlineData(100, -80)]    // 80 px above the top row
+    [InlineData(100, 280)]    // 80 px below the bottom row
+    [InlineData(-80, 100)]    // 80 px past the left edge
+    [InlineData(2700, 100)]   // 80 px past the right edge
+    public void An80PxWobblePastAKeyAreaEdge_DoesNotRearmTheKey(int x, int y)
+    {
+        // Review 01 F2: the text keys sit flush with the KeyRows edges, so an edge-key wobble is
+        // outside the raw key area (a top-row wobble is on the prediction bar). The leave clock
+        // must use the key area grown by ONE key pitch (220 px here) so this cannot re-arm.
+        var rig = new Rig();
+        rig.Fire("key_0_0");
+        rig.HoldThrough(1_850_000, "key_0_0");
+
+        rig.HoldAt(new PhysicalPoint(x, y), 300, inside: false);
+        rig.Hold("key_0_0", DwellMs);
+
+        Check.That(rig.Fired).ContainsExactly("key_0_0");
+    }
+
+    [Fact]
+    public void ALookOneAndAHalfPitchesPastTheEdgeFor120Ms_RearmsTheKey()
+    {
+        var rig = new Rig();
+        rig.Fire("key_0_0");
+        rig.HoldThrough(1_850_000, "key_0_0");
+
+        rig.HoldAt(new PhysicalPoint(100, -330), 150, inside: false);   // 1.5 pitches above the top
+        rig.Hold("key_0_0", 900);
+
+        Check.That(rig.Fired).ContainsExactly("key_0_0", "key_0_0");
+    }
+
+    [Fact]
+    public void ARepeatDwell_DoesNotCreditAGapLongerThan150Ms()
+    {
+        // Review 01 F4 / M5: a blink or dropout over the gap clamp must not be credited as on-key
+        // time toward the 1200 ms. 600 ms credited + a 3 s gap + 500 ms would be 4100 ms if the gap
+        // were credited; the correct clock restarts at the gap sample and never reaches 1200.
+        var rig = new Rig();
+        rig.Fire("key_0_0");
+        rig.HoldThrough(1_850_000, "key_0_0");
+        rig.Hold("key_0_0", 600);
+
+        rig.Ts += 3_000_000;             // no samples for 3 s while the gaze stays on the key
+        rig.Hold("key_0_0", 500);
+
+        Check.That(rig.Fired).ContainsExactly("key_0_0");
+    }
+
+    [Fact]
+    public void ARepeatDwell_DoesNotCreditAnOffKeyboardExcursionUnder120Ms()
+    {
+        // Review 01 F4 / M6: an off-keyboard look shorter than the 120 ms latch leave must PAUSE
+        // the second dwell, not be credited on return. 700 ms credited + 90 ms off + 420 ms back
+        // is 1120 ms of true on-key time; crediting the 90 ms would reach 1210 and fire.
+        var rig = new Rig();
+        rig.Fire("key_0_0");
+        rig.HoldThrough(1_850_000, "key_0_0");
+        rig.Hold("key_0_0", 700);
+
+        rig.HoldAt(Nowhere, 90, inside: false);
+        rig.Hold("key_0_0", 420);
+
+        Check.That(rig.Fired).ContainsExactly("key_0_0");
+    }
+
     [Fact]
     public void ALookOffTheKeyboardFor120Ms_RearmsTheFiredKey()
     {
@@ -317,8 +384,6 @@ public class KeyboardDoubleLettersTests
     [Theory]
     [InlineData("enter")]
     [InlineData("tab")]
-    [InlineData("backspace")]
-    [InlineData("deleteWord")]
     [InlineData("space")]
     public void NonTextKeys_NeverRepeatByASecondDwell(string keyId)
     {
@@ -326,8 +391,53 @@ public class KeyboardDoubleLettersTests
         rig.Hold(keyId, 700);   // covers the 600 ms app-escaping floor and the 450 ms plain one
         Check.WithCustomMessage($"arrange: {keyId} must fire once").That(rig.Fired).ContainsExactly(keyId);
 
-        // Cooldown plus twice the repeat dwell: a text key would fire at least once more.
+        // Cooldown plus twice the repeat dwell: a text or deletion key would fire at least once more.
         rig.Hold(keyId, CooldownMs + 2400);
+
+        Check.That(rig.Fired).ContainsExactly(keyId);
+    }
+
+    // ---- deletion keys (review 01 F3b) --------------------------------------------------------
+
+    [Theory]
+    [InlineData("backspace")]
+    [InlineData("deleteWord")]
+    public void DeletionKeys_RepeatByASecondDwell(string keyId)
+    {
+        var rig = new Rig();
+        rig.Fire(keyId);
+
+        rig.Hold(keyId, CooldownMs + 1200);
+
+        Check.That(rig.Fired).ContainsExactly(keyId, keyId);
+    }
+
+    [Theory]
+    [InlineData("backspace")]
+    [InlineData("deleteWord")]
+    public void DeletionKeys_DoNotRepeatByAShortSecondDwell(string keyId)
+    {
+        var rig = new Rig();
+        rig.Fire(keyId);
+
+        rig.Hold(keyId, CooldownMs + 1000);
+
+        Check.That(rig.Fired).ContainsExactly(keyId);
+    }
+
+    [Theory]
+    [InlineData("backspace")]
+    [InlineData("deleteWord")]
+    public void DeletionKeys_DoNotRepeatByAWobble(string keyId)
+    {
+        var rig = new Rig();
+        rig.Fire(keyId);
+        rig.HoldThrough(1_850_000, keyId);
+
+        // A 400 ms wobble 80 px above the edge key: inside the one-pitch margin, so the strict
+        // re-arm rule keeps the latch, and the paused second dwell is only 450 ms deep.
+        rig.HoldAt(new PhysicalPoint(Positions[keyId].X, -80), 400, inside: false);
+        rig.Hold(keyId, DwellMs);
 
         Check.That(rig.Fired).ContainsExactly(keyId);
     }

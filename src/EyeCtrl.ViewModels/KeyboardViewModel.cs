@@ -66,22 +66,27 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // another NORMAL dwell — the resting-gaze re-fire (Enter 3 times in 2.5 s, the second 1028 ms
     // after the first with no restart) that the old cooldown-only rule allowed. A gaze on another
     // key is still on the keyboard: a fire there replaces the latch, and that replacement is the
-    // "another key fires" re-arm. A TEXT key on the latch may still type a deliberate double by
-    // dwelling a second time (see RepeatDwellUs); non-text keys never do.
+    // "another key fires" re-arm. A repeatable key on the latch (a text key, Backspace or Wort
+    // löschen) may still type a deliberate double by dwelling a second time (see RepeatDwellUs);
+    // Enter, Tab, Space and the other mode keys never do.
     private string? _rearmLatchedKeyId;
     private long? _rearmLeaveStartedUs;
-    // Whether the latched key can second-dwell (a plain text key: letter, digit or symbol). A
-    // special-action key (Enter, Tab, Backspace, Wort löschen, modifiers, page switches) and the
-    // emoji surface are false, so they keep the plain A rule.
+    // Whether the latched key can second-dwell (a plain text key, Backspace or Wort löschen). A
+    // special-action key such as Enter, Tab, a modifier or a page switch is false, and so is the
+    // emoji surface; those keep the plain A rule.
     private bool _rearmLatchedKeyIsRepeatable;
 
-    // The latched text key's second-dwell clock: credited ON-KEY time after the post-activation
+    // The latched repeatable key's second-dwell clock: credited ON-KEY time after the post-activation
     // cooldown. An off-key excursion of at most RepeatExcursionToleranceUs pauses the clock; a
     // longer one resets it. Reset with the latch on every path that clears it.
     private long _repeatDwellUs;
     private long _repeatLastOnKeyUs;
     private bool _repeatOnKey;
     private long? _repeatExcursionStartedUs;
+    // True while NearestKeyId is the second-dwell candidate. Its abandoned attempt is SILENT:
+    // main never made the just-fired key a candidate, so F4 must not invent an E1 abandon line,
+    // a restart count or a struggle-sink abandonment for it (review 01 F1).
+    private bool _nearestKeyIsRepeatDwell;
 
     /// <summary>
     /// How long a pending landing anchor stays good after the un-yield's move (owner decision,
@@ -148,7 +153,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     internal const long RearmLeaveUs = 120 * MathConstants.MicrosecondsPerMillisecond;
 
     /// <summary>
-    /// How long the latched TEXT key must be dwelled a second time to type a double. The clock
+    /// How long the latched repeatable key must be dwelled a second time to type a double. The clock
     /// starts when the latched key's dwell may start — AFTER the post-activation cooldown — and
     /// counts on-key time only; see <see cref="RepeatExcursionToleranceUs"/>.
     ///
@@ -500,6 +505,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private void ResetInteractionState()
     {
         NearestKeyId = null;
+        _nearestKeyIsRepeatDwell = false;
         NearestKeyProgress = 0;
         _nearestKeyEnteredTimestamp = 0;
         _lastOnKeyTimestampUs = 0;
@@ -585,12 +591,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         // "One look, one key": advance the fired key's leave clock on EVERY delivered sample —
         // including those during the cooldown, which return below before any dwell decision. The
-        // leave is a look OFF the keyboard key area, not off the key: a gaze on another key is
-        // still on the keyboard, and only that key's own fire (which replaces the latch) re-arms
-        // the fired key. The KB7 replay measured the key-area rect and the whole keyboard window
-        // as identical (same 37 fires, same 2 repeats, same 20 A..B..A returns), so the
-        // containment the window already passes is the rule and no second flag is needed.
-        AdvanceRearmLatch(isGazeInsideWindow, timestampUs, sinceLastSampleUs);
+        // leave is a look OFF the keyboard, not off the key: a gaze on another key is still on
+        // the keyboard, and only that key's own fire (which replaces the latch) re-arms the fired
+        // key. "Off" means outside the key area grown by ONE key pitch: the margin closes the
+        // edge-key hole (64–86 px past the top row is on the prediction bar, outside KeyRows, and
+        // used to clear the latch) while a real look 1.5 pitches out still re-arms. The geometry
+        // is the boxes/centres the VM already receives; no window rect is needed.
+        AdvanceRearmLatch(
+            IsGazeInsideKeyboardReach(gazePoint, keyScreenPositions, keyScreenBoxes, isGazeInsideWindow),
+            timestampUs, sinceLastSampleUs);
 
         // A SHOW's landing anchor is released when the gaze has been continuously OFF the key area
         // for RearmLeaveUs (the latch's rule): a look at the prediction bar or anywhere else proves
@@ -621,17 +630,23 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         if (!isGazeInsideWindow)
         {
-            // A look off the keyboard is an off-key excursion for the latched text key's second
+            // A look off the keyboard is an off-key excursion for the latched repeatable key's second
             // dwell: pause it (the latch's own 120 ms leave ends it shortly). This must run before
             // NearestKeyId is cleared, or a return would credit the off-keyboard interval as
             // on-key time.
             AdvanceRepeatDwell(null, timestampUs, sinceLastSampleUs);
             if (NearestKeyId != null)
             {
-                _e1Restarts++;
-                EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, AbandonReason.GazeLeft);
+                // A repeat-dwell candidate is NOT a normal key candidate: main never had it as
+                // NearestKeyId, so leaving it writes no abandon and no restart (review 01 F1).
+                if (!_nearestKeyIsRepeatDwell)
+                {
+                    _e1Restarts++;
+                    EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, AbandonReason.GazeLeft);
+                }
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
+                _nearestKeyIsRepeatDwell = false;
             }
             _lastGazeInsideWindowPoint = null;
             return;
@@ -661,6 +676,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             {
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
+                _nearestKeyIsRepeatDwell = false;
             }
             return;
         }
@@ -680,6 +696,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 {
                     NearestKeyProgress = 0;
                     NearestKeyId = null;
+                    _nearestKeyIsRepeatDwell = false;
                 }
                 return;
             }
@@ -689,7 +706,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // below is the same.
         string? pickedKeyId = KeyTargeting.PickKey(gazePoint, keyScreenPositions, keyScreenBoxes);
 
-        // The latched TEXT key's second dwell: while the gaze is on it, the outline fills over
+        // The latched repeatable key's second dwell: while the gaze is on it, the outline fills over
         // RepeatDwellUs; on completion the key fires again and re-latches, so a triple needs
         // another full second dwell. A short excursion pauses the fill (AdvanceRepeatDwell); a
         // non-text latch has no second dwell and keeps the old "cannot start another normal dwell"
@@ -719,7 +736,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         string? nearestId = pickedKeyId;
 
-        // "One look, one key": a NON-text key that just fired may not start another dwell while
+        // "One look, one key": a non-repeatable latched key may not start another dwell while
         // the gaze is still on it. Nulling the candidate (rather than skipping the dwell code)
         // routes it through the ordinary NearestKeyId change: no progress is shown and no
         // telemetry is invented. Other keys never match the latch, so they dwell normally.
@@ -729,8 +746,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (nearestId != NearestKeyId)
         {
             if (NearestKeyId != null)
-                _e1Restarts++;
-            EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, AbandonReason.NearestChanged);
+            {
+                // A repeat-dwell candidate is silent when left: main never had it as a candidate
+                // (review 01 F1).
+                if (!_nearestKeyIsRepeatDwell)
+                {
+                    _e1Restarts++;
+                    EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, AbandonReason.NearestChanged);
+                }
+            }
+            _nearestKeyIsRepeatDwell = false;
             NearestKeyProgress = 0;
             NearestKeyId = nearestId;
             _nearestKeyEnteredTimestamp = timestampUs;
@@ -785,6 +810,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         EmitActivation(keyScreenPositions, gazePoint, keyId, timestampUs, keyScreenBoxes);
         NearestKeyProgress = 0;
         NearestKeyId = null;
+        _nearestKeyIsRepeatDwell = false;
         _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
         KeyDwellCompleted?.Invoke(keyId);
     }
@@ -1756,7 +1782,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>
     /// "One look, one key": whether <paramref name="keyId"/> is the key that just fired and still
     /// owes a leave, so it may not start a new NORMAL dwell. Null (no key under the gaze) and every
-    /// other key are never latched. A repeatable text key is handled by the second-dwell path
+    /// other key are never latched. A repeatable key is handled by the second-dwell path
     /// instead, so in practice this guards the non-text latch. Cleared by the hide reset, a layout
     /// replacement, a grid rebuild (sub-layout swap or emoji change), a suggestion pick, and by
     /// the leave itself.
@@ -1790,24 +1816,75 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Whether a latched key may second-dwell: a plain TEXT key (letter, digit or symbol) from the
-    /// active text sub-layout. Special-action keys (Enter, Tab, Backspace, Wort löschen, modifiers,
-    /// page switches) and the emoji surface never do; they keep the plain A rule.
+    /// Whether a latched key may second-dwell: a plain text key (letter, digit or symbol) from the
+    /// active text sub-layout, plus Backspace and Wort löschen (review 01 F3b). Enter, Tab,
+    /// modifiers, page switches, Space and the emoji/accents switches never do; they keep the
+    /// plain A rule. Backspace/Wort löschen keep the strict re-arm rule too, so a wobble never
+    /// repeats a deletion.
     /// </summary>
     private bool IsRepeatableTextKey(string? keyId)
     {
         if (keyId is null || IsEmojiMode) return false;
         if (!TryResolveKey(keyId, out var definition, out _, out _) || definition is null) return false;
-        return string.IsNullOrEmpty(definition.SpecialAction) && !string.IsNullOrEmpty(definition.Output);
+        if (string.IsNullOrEmpty(definition.SpecialAction))
+            return !string.IsNullOrEmpty(definition.Output);
+        return string.Equals(definition.SpecialAction, "backspace", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(definition.SpecialAction, "deleteWord", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// One sample of the fired key's leave clock. A sample anywhere ON the keyboard key area resets
-    /// the run — a gaze on another key is still on the keyboard, and that key re-arms the latch by
-    /// its own fire replacing it. A stream pause longer than
+    /// Whether the gaze is still on the keyboard for the re-arm latch: inside the union of the key
+    /// boxes grown by ONE key pitch on every side. The pitch is the median nearest-centre distance
+    /// (218 px on the KB7 geometry). The margin closes the edge-key hole: a 64–86 px wobble past the
+    /// top row lands on the prediction bar, outside the key AREA, and would otherwise clear the
+    /// latch after 120 ms; one pitch is far enough out that a real look 1.5 pitches away still
+    /// re-arms. Uses the boxes/centres the VM already receives; no window rect is added.
+    /// </summary>
+    private static bool IsGazeInsideKeyboardReach(PhysicalPoint gaze,
+        Dictionary<string, PhysicalPoint> centres, IReadOnlyDictionary<string, PhysicalRect>? boxes,
+        bool isGazeInsideWindow)
+    {
+        if (isGazeInsideWindow) return true;
+        if (boxes is not { Count: > 0 } || centres.Count < 2) return false;
+
+        var points = centres.Values.ToArray();
+        var nearest = new List<double>(points.Length);
+        for (var i = 0; i < points.Length; i++)
+        {
+            var best = double.MaxValue;
+            for (var j = 0; j < points.Length; j++)
+            {
+                if (i == j) continue;
+                var distance = points[i].DistanceSquaredTo(points[j]);
+                if (distance < best) best = distance;
+            }
+            if (best < double.MaxValue) nearest.Add(Math.Sqrt(best));
+        }
+        if (nearest.Count == 0) return false;
+        nearest.Sort();
+        var pitch = nearest[nearest.Count / 2];
+        if (pitch <= 0) return false;
+
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var box in boxes.Values)
+        {
+            minX = Math.Min(minX, box.X);
+            minY = Math.Min(minY, box.Y);
+            maxX = Math.Max(maxX, box.X + box.Width);
+            maxY = Math.Max(maxY, box.Y + box.Height);
+        }
+        return gaze.X >= minX - pitch && gaze.X <= maxX + pitch
+            && gaze.Y >= minY - pitch && gaze.Y <= maxY + pitch;
+    }
+
+    /// <summary>
+    /// One sample of the fired key's leave clock. A sample anywhere ON the keyboard reach — the key
+    /// area grown by one key pitch — resets the run; a gaze on another key is still on the keyboard,
+    /// and that key re-arms the latch by its own fire replacing it. A stream pause longer than
     /// <see cref="MaxContinuousSampleGapUs"/> resets the run and does not complete a leave (a blink
     /// or a tracker dropout is not evidence that the gaze moved). Once the gaze has been
-    /// continuously off the key area for <see cref="RearmLeaveUs"/>, the latch clears and the key
+    /// continuously off the reach for <see cref="RearmLeaveUs"/>, the latch clears and the key
     /// is eligible again.
     /// </summary>
     private void AdvanceRearmLatch(bool isGazeInsideWindow, long timestampUs, long sinceLastSampleUs)
@@ -1831,7 +1908,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// One sample of the latched text key's second-dwell clock. Returns true when the repeat fires.
+    /// One sample of the latched repeatable key's second-dwell clock. Returns true when the repeat fires.
     /// The clock starts after the post-fire cooldown and counts ONLY on-key time: an off-key
     /// excursion of at most <see cref="RepeatExcursionToleranceUs"/> pauses it, a longer one resets
     /// it, and a sample gap longer than <see cref="MaxContinuousSampleGapUs"/> resets it. A null
@@ -1898,9 +1975,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs,
                 AbandonReason.NearestChanged);
             NearestKeyId = keyId;
-            // The abandonment above is measured by the normal path against the normal dwell; scale
-            // the repeat clock into that unit so the line reports the progress the repeat reached.
-            _nearestKeyEnteredTimestamp = timestampUs - RepeatElapsedAsNormalUs(keyId);
+            _nearestKeyIsRepeatDwell = true;
+            // This candidate is silent in E1/sink while it lives (review 01 F1); the stamp only
+            // keeps the ordinary candidate bookkeeping consistent.
+            _nearestKeyEnteredTimestamp = timestampUs;
             _lastOnKeyTimestampUs = timestampUs;
             _e1DwellStartPoint = gazePoint;
             StartDwellOffsets(keyScreenPositions, gazePoint, keyId);
@@ -1913,14 +1991,6 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyProgress = Math.Min(1.0, _repeatDwellUs / (double)RepeatDwellUs);
     }
 
-    /// <summary>The repeat progress expressed in normal-dwell microseconds, for E1's pct only.</summary>
-    private long RepeatElapsedAsNormalUs(string keyId)
-    {
-        var normalUs = KeyDwellMsFor(keyId) * MathConstants.MicrosecondsPerMillisecond;
-        return _repeatDwellUs >= RepeatDwellUs
-            ? normalUs
-            : (_repeatDwellUs * normalUs) / RepeatDwellUs;
-    }
 
     private void ArmDwellSuppressionCore(bool clearWhenUnavailable)
     {

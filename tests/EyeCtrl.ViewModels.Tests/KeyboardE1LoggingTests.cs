@@ -805,6 +805,61 @@ public class KeyboardE1LoggingTests
         Check.That(holds.Select(h => h["seq"])).ContainsExactly("1", "2");
     }
 
+    // ---- repeat-dwell attempts are silent (review 01 F1) --------------------------------------
+
+    [Fact]
+    public void ARepeatDwellAttempt_WritesNoAbandonLineAndNoSinkOutcome()
+    {
+        var baselineSink = new FakeSink();
+        string[] baselineAbandons;
+        using (var baseline = new Rig(sink: baselineSink))
+        {
+            baseline.Hold(baseline.Positions["key_0_0"], 270);        // 60 % of the 450 ms dwell
+            baseline.Hold(baseline.Positions["key_0_1"], StepMs);     // key change: the normal abandon
+            baselineAbandons = baseline.Log.Of("abandon");
+            Check.WithCustomMessage("arrange: the normal abandon must be logged")
+                .That(baselineAbandons).HasSize(1);
+            Check.That(Fields(baselineAbandons[0])["pct"]).IsEqualTo("60");
+            Check.That(baselineSink.Outcomes.Count(o => o.Kind == OutcomeKind.Abandoned)).IsEqualTo(1);
+        }
+
+        var repeatSink = new FakeSink();
+        using (var withRepeat = new Rig(sink: repeatSink))
+        {
+            withRepeat.Hold(withRepeat.Positions["key_0_0"], 270);
+            withRepeat.Hold(withRepeat.Positions["key_0_1"], StepMs);
+
+            // Fire a letter, rest 600 ms after its cooldown, then move on: this is a second-dwell
+            // candidate that does not complete. Main never made the just-fired key a candidate,
+            // so it must add no abandon line and no sink abandonment.
+            withRepeat.Hold(withRepeat.Positions["key_0_2"], DwellMs);
+            withRepeat.Hold(withRepeat.Positions["key_0_2"], CooldownMs + 600);
+            withRepeat.Hold(withRepeat.Positions["key_0_0"], StepMs);
+
+            Check.WithCustomMessage("the failed repeat attempt added an E1 abandon line")
+                .That(withRepeat.Log.Of("abandon")).ContainsExactly(baselineAbandons);
+            var repeatAbandons = repeatSink.Outcomes
+                .Where(o => o.Kind == OutcomeKind.Abandoned).ToList();
+            var baselineAbandonsSink = baselineSink.Outcomes
+                .Where(o => o.Kind == OutcomeKind.Abandoned).ToList();
+            Check.WithCustomMessage("the failed repeat attempt added a sink abandonment")
+                .That(repeatAbandons).ContainsExactly(baselineAbandonsSink);
+        }
+    }
+
+    [Fact]
+    public void AFailedRepeatAttempt_DoesNotRaiseTheNextNonTextKeyRestarts()
+    {
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["backspace"], DwellMs);              // fires (non-text)
+        rig.Hold(rig.Positions["backspace"], CooldownMs + 600);    // a repeat candidate; it does not complete
+        rig.Hold(rig.Positions["deleteWord"], DwellMs);            // the next non-text fire
+
+        var line = Fields(rig.Log.Of("key").Last());
+        Check.WithCustomMessage("the failed repeat attempt raised the next non-text key's restarts")
+            .That(line["restarts"]).IsEqualTo("0");
+    }
+
     // ---- modes -----------------------------------------------------------------------------
 
     [Fact]

@@ -197,7 +197,11 @@ internal static class SplashThreadLauncher
             window.ExitFinished += () => dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
 
             // Hand the handle back BEFORE the first visible step, so a timed-out Start() can
-            // cancel a splash that never shows (r4 #8).
+            // cancel a splash that never shows (r4 #8). Residual race (F1): the main thread's
+            // wait may time out microseconds AFTER TrySetResult — the thread then reads a stale
+            // _startCancelled and shows anyway. Bounded and self-healing: the main thread already
+            // returned null (splash-less start stands), and OnSplashShown armed the 15 s dead-man,
+            // so the stray splash closes itself, ExitFinished shuts the dispatcher down.
             ready.TrySetResult(handle);
             if (_startCancelled)
             {
@@ -207,8 +211,10 @@ internal static class SplashThreadLauncher
             }
 
             // The one visible step needs the WPF window (ISplashWindow does not carry Show):
-            // production always has one; a fake that is not a Window degrades to a splash-less
-            // start via the containment below.
+            // production always has one. A fake that is not a Window throws on this cast — the
+            // start degrades to splash-less AND, with the catch's InvokeShutdown, the already
+            // delivered dead handle's calls become logged no-ops (they throw onto a shut-down
+            // dispatcher and are caught by the handle's own containment).
             ((Window)window).Show();
             window.OnSplashShown();
             // The splash thread reads its own composition target; it never writes DpiHelper (r3 #2).
@@ -223,6 +229,7 @@ internal static class SplashThreadLauncher
         {
             Log.Warning(ex, "Splash: thread failed; starting without a splash");
             ready.TrySetResult(null);
+            try { Dispatcher.CurrentDispatcher.InvokeShutdown(); } catch { }   // dead handle's Invoke/Dispose then throw → caught → logged no-op
         }
     }
 }

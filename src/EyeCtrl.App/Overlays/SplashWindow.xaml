@@ -11,6 +11,98 @@
     <!-- NO App-level StaticResource here: the splash thread has no Application resources (spec §8).
          Theme-derived values (surfaces, text) are assigned in the constructor from Tokens' frozen
          brushes; pinned icon constants are literals with alpha in the colour bytes. -->
+    <Window.Resources>
+        <!-- Trail: three decelerating arrivals, staggered 0/0.05/0.10 s, peaks .40/.55/.75,
+             absorbed by 0.55 s (spec §5 beat 1). Trail2/Trail3 repeat Trail1's shape with only
+             BeginTime/peak differences — kept inline on purpose. -->
+        <Storyboard x:Key="SbTrail">
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail1Move" Storyboard.TargetProperty="X">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-82.5"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail1Move" Storyboard.TargetProperty="Y">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-63.75"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail1" Storyboard.TargetProperty="Opacity">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.18" Value="0.40"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.45" Value="0"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail2Move" Storyboard.TargetProperty="X" BeginTime="0:0:0.05">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-82.5"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail2Move" Storyboard.TargetProperty="Y" BeginTime="0:0:0.05">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-63.75"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail2" Storyboard.TargetProperty="Opacity" BeginTime="0:0:0.05">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.18" Value="0.55"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.45" Value="0"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail3Move" Storyboard.TargetProperty="X" BeginTime="0:0:0.10">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-82.5"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail3Move" Storyboard.TargetProperty="Y" BeginTime="0:0:0.10">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="-63.75"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.45" Value="0" KeySpline="0.3,0.75,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Trail3" Storyboard.TargetProperty="Opacity" BeginTime="0:0:0.10">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.18" Value="0.75"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.45" Value="0"/>
+            </DoubleAnimationUsingKeyFrames>
+        </Storyboard>
+
+        <!-- Dot pop 0.30–0.54 s: scale 0→1.15→1.0, bloom to peak then the .25→.32 breath (§5 beat 2) -->
+        <Storyboard x:Key="SbDotPop">
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="DotScale" Storyboard.TargetProperty="ScaleX" BeginTime="0:0:0.30">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.12" Value="1.15" KeySpline="0.3,0.7,0.3,1"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.24" Value="1" KeySpline="0.3,0.6,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="DotScale" Storyboard.TargetProperty="ScaleY" BeginTime="0:0:0.30">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.12" Value="1.15" KeySpline="0.3,0.7,0.3,1"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.24" Value="1" KeySpline="0.3,0.6,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="GazeDot" Storyboard.TargetProperty="Opacity" BeginTime="0:0:0.30">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.02" Value="1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="BloomScale" Storyboard.TargetProperty="ScaleX" BeginTime="0:0:0.30">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0.2"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.12" Value="1" KeySpline="0.3,0.7,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="BloomScale" Storyboard.TargetProperty="ScaleY" BeginTime="0:0:0.30">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0.2"/>
+                <SplineDoubleKeyFrame KeyTime="0:0:0.12" Value="1" KeySpline="0.3,0.7,0.3,1"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="Bloom" Storyboard.TargetProperty="Opacity" BeginTime="0:0:0.30">
+                <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.12" Value="0.5"/>
+                <LinearDoubleKeyFrame KeyTime="0:0:0.24" Value="0.25"/>
+            </DoubleAnimationUsingKeyFrames>
+            <DoubleAnimation Storyboard.TargetName="Bloom" Storyboard.TargetProperty="Opacity"
+                             From="0.25" To="0.32" BeginTime="0:0:0.54" AutoReverse="True"
+                             RepeatBehavior="Forever"/>
+        </Storyboard>
+
+        <Storyboard x:Key="SbTitle">
+            <DoubleAnimation Storyboard.TargetName="TitleText" Storyboard.TargetProperty="Opacity"
+                             From="0" To="1" Duration="0:0:0.25"/>
+            <DoubleAnimation Storyboard.TargetName="TitleRise" Storyboard.TargetProperty="Y"
+                             From="8" To="0" Duration="0:0:0.25"/>
+        </Storyboard>
+
+        <Storyboard x:Key="SbExit">
+            <DoubleAnimation Storyboard.TargetName="SplashContent" Storyboard.TargetProperty="Opacity"
+                             From="1" To="0" Duration="0:0:0.3"/>
+        </Storyboard>
+    </Window.Resources>
     <Border x:Name="CardBorder" CornerRadius="{x:Static theme:Tokens.LargeCornerRadius}"
             Padding="{x:Static overlays:SplashLayout.CardPadding}">
         <Grid x:Name="SplashContent">

@@ -179,7 +179,7 @@ public class KeyboardPredictionClickTests
 /// <para>No window, no audio device, no COM — plain facts.</para>
 /// </summary>
 [Collection("KeyboardAudioDiagnostics")]
-public class KeyboardSoundServiceLatchTests
+public class KeyboardSoundServiceLatchTests : F5AudioDiagnosticsTestBase
 {
     private static System.Reflection.FieldInfo? PlayerField() =>
         typeof(KeyboardSoundService).GetField("_player", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -241,9 +241,9 @@ public class KeyboardSoundServiceLatchTests
 
         svc.OnKeyboardHidden();
         Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=1 skipped=1");
-        // The click queued first-click diagnostics work (production scheduler): drain it and
-        // ASSERT the drain (review 03 S3) so no pool-thread item lands inside a later test's
-        // statics silently (fixup 01 flake).
+        // The click queued first-click diagnostics work: the collection-wide park scheduler holds
+        // it — run it deterministically, then ASSERT the drain (review 03 S3).
+        RunParkedWork();
         Check.That(AudioSessionDiagnostics.DrainQueuedWork()).IsTrue();
     }
 

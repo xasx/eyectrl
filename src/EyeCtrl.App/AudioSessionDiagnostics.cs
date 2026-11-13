@@ -90,6 +90,7 @@ internal static class AudioSessionDiagnostics
     private static int _firstClickDone;
     private static bool _endpointEventsAttached, _sessionEventsAttached;
     private static int _failureLogged;
+    private static int _failureReportCount;
     // R4 (review 02): the shutdown latch. After Shutdown, queued or late work must not
     // re-register or log — the process is exiting and App.OnExit has already torn the
     // listeners down.
@@ -99,6 +100,11 @@ internal static class AudioSessionDiagnostics
     /// reported. One failure is reported for the app's lifetime; the latch keeps it at one
     /// (review 02's fail-once rule).</summary>
     internal static bool FailureLogged => Volatile.Read(ref _failureLogged) == 1;
+
+    /// <summary>Test seam (review 05 V1): how many failure LINES were actually emitted. The
+    /// fail-once latch must keep this at 1 per app lifetime — a bool cannot detect a second
+    /// report (mutant M10), a count can.</summary>
+    internal static int FailureReportCount => Volatile.Read(ref _failureReportCount);
     /// <summary>
     /// Test seam for WHERE the Core Audio work runs. Production (null) queues onto a background
     /// MTA thread-pool thread — review 01 F4: cold COM costs ~105 ms, and no Core Audio call may
@@ -126,6 +132,7 @@ internal static class AudioSessionDiagnostics
             _endpointEventsAttached = false;
             _sessionEventsAttached = false;
             _failureLogged = 0;
+            _failureReportCount = 0;
             _shutDown = 0;
             _queuedWorkScheduled = 0;
             _queuedWorkCompleted = 0;
@@ -308,6 +315,7 @@ internal static class AudioSessionDiagnostics
         if (Interlocked.Exchange(ref _failureLogged, 1) == 1) return;
         var detail = ex is null ? "failed" : $"failed ({ex.GetType().Name}: {ex.Message})";
         Emit($"Keyboard audio diagnostics: {what} {detail}; staying silent about further failures.");
+        Interlocked.Increment(ref _failureReportCount); // review 05 V1: the assertion counts LINES
     }
 
     /// <summary>App teardown (App.OnExit): latch the diagnostics off FIRST (no queued or late

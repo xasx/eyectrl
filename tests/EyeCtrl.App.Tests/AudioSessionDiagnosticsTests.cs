@@ -277,13 +277,15 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
             Check.ThatCode(() => svc.PlayKeyClick()).DoesNotThrow();
             Check.That(player.Calls).IsEqualTo(2); // the click path never learned about the COM mess
 
-            // Run the parked diagnostics work: the failure report must be latched to one, and a
-            // late transition after the latch must not report again.
+            // Run the parked diagnostics work: the failure report must be latched to ONE LINE,
+            // and a late transition after the latch must not report again (review 05 V1: the
+            // COUNT, not a bool, is what detects a second line — mutant M10).
             RunParkedWork();
             Check.That(AudioSessionDiagnostics.FailureLogged).IsTrue();
+            Check.That(AudioSessionDiagnostics.FailureReportCount).IsEqualTo(1);
             AudioSessionDiagnostics.OnKeyboardTransition();
             RunParkedWork();
-            Check.That(AudioSessionDiagnostics.FailureLogged).IsTrue(); // latch held
+            Check.That(AudioSessionDiagnostics.FailureReportCount).IsEqualTo(1); // exactly one line, ever
         }
         finally { ResetStatics(); }
     }
@@ -539,6 +541,100 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
                 "else{if(wasVisible)Context.OverlayManager.Keyboard.NotifyClickSoundHidden();"
                 + "Context.OverlayManager.Keyboard.Hide();"))
             .IsTrue();
+    }
+
+    [Fact]
+    public void AWorkerRegistrationAcquiresTheEnumerator_AndRegistersExactlyOnce()
+    {
+        // Review 05 V3: WITHOUT real COM — a managed fake IMMDeviceEnumerator through the factory
+        // seam proves TryRegister ACQUIRES the shared enumerator (lazily) and registers exactly
+        // once. Mutant L1 (the `_enumerator ??=` removed from TryRegister) throws here → RED.
+        var fake = new FakeDeviceEnumerator();
+        CoreAudioInterop.EnumeratorFactoryForTesting = () => fake;
+        CoreAudioInterop.ResetSharedEnumeratorForTesting();
+        try
+        {
+            var observer = new CoreAudioInterop.CoreAudioChangeObserver();
+            Check.That(observer.HasEnumerator).IsFalse(); // construction: still lazy
+
+            Check.That(observer.TryRegister(_ => { })).IsTrue();
+            Check.WithCustomMessage(
+                    "a worker registration did not acquire the enumerator — the endpoint callback "
+                    + "would never register (review 05 V3, mutant L1)")
+                .That(observer.HasEnumerator).IsTrue();
+            Check.That(fake.Registrations).IsEqualTo(1); // exactly one registration
+
+            Check.That(observer.TryRegister(_ => { })).IsTrue();
+            Check.That(fake.Registrations).IsEqualTo(1); // idempotent: still one
+        }
+        finally
+        {
+            CoreAudioInterop.EnumeratorFactoryForTesting = null;
+            CoreAudioInterop.ResetSharedEnumeratorForTesting();
+        }
+    }
+
+    [Fact]
+    public void BothRegistrationBodiesAcquireTheEnumeratorInsideTheComLock()
+    {
+        // Review 05 V3 (L2's pin): TryRegisterSessionEvents' acquisition is a CACHE HIT after
+        // TryRegister (its _onChange guard returns before the lock when unset), so behaviour can
+        // never observe its removal — this source pin holds BOTH bodies' acquisition lines (L1
+        // and L2 each remove one → RED), and the production factory fallback stays NewEnumerator.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "CoreAudioInterop.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("TryRegister no longer acquires the shared enumerator inside its _comLock")
+            .That(source.Contains(
+                "lock(_comLock){if(_shutDown||_endpointAttached)return_endpointAttached;_enumerator??=AcquireSharedEnumerator();"))
+            .IsTrue();
+        Check.WithCustomMessage("TryRegisterSessionEvents no longer acquires the shared enumerator inside its _comLock")
+            .That(source.Contains(
+                "lock(_comLock){if(_shutDown||_sessionAttached)return_sessionAttached;_enumerator??=AcquireSharedEnumerator();"))
+            .IsTrue();
+        Check.WithCustomMessage(
+                "the production enumerator factory no longer falls back to the real MMDeviceEnumerator "
+                + "coclass — the test seam must never replace the production path")
+            .That(source.Contains("_sharedEnumerator??=EnumeratorFactoryForTesting?.Invoke()??NewEnumerator()"))
+            .IsTrue();
+    }
+
+    private sealed class FakeDeviceEnumerator : CoreAudioInterop.IMMDeviceEnumerator
+    {
+        public int Registrations;
+        public int Unregistrations;
+
+        public int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices)
+        {
+            devices = IntPtr.Zero;
+            return unchecked((int)0x80004005);
+        }
+
+        public int GetDefaultAudioEndpoint(int dataFlow, int role, out CoreAudioInterop.IMMDevice device)
+        {
+            device = null!;
+            return unchecked((int)0x80004005);
+        }
+
+        public int GetDevice(string deviceId, out CoreAudioInterop.IMMDevice device)
+        {
+            device = null!;
+            return unchecked((int)0x80004005);
+        }
+
+        public int RegisterEndpointNotificationCallback(CoreAudioInterop.IMMNotificationClient client)
+        {
+            Registrations++;
+            return 0;
+        }
+
+        public int UnregisterEndpointNotificationCallback(CoreAudioInterop.IMMNotificationClient client)
+        {
+            Unregistrations++;
+            return 0;
+        }
     }
 
     private sealed class ThrowingListener : AudioSessionDiagnostics.IAudioChangeListener

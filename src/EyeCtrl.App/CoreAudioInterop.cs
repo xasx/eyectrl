@@ -296,13 +296,24 @@ internal static class CoreAudioInterop
     private static readonly object EnumeratorLock = new();
     private static IMMDeviceEnumerator? _sharedEnumerator;
 
+    /// <summary>
+    /// Review 05 V3 test seam: the factory behind <see cref="AcquireSharedEnumerator"/>, so a
+    /// worker registration's ACQUISITION can be pinned with a managed fake and no real COM. The
+    /// production default stays <see cref="NewEnumerator"/> (the real MMDeviceEnumerator coclass),
+    /// held by the composition/source pin in the tests.
+    /// </summary>
+    internal static Func<IMMDeviceEnumerator>? EnumeratorFactoryForTesting { get; set; }
+
+    /// <summary>Test-only reset so a fake-factory test gets a fresh shared instance.</summary>
+    internal static void ResetSharedEnumeratorForTesting() => _sharedEnumerator = null;
+
     internal static IMMDeviceEnumerator AcquireSharedEnumerator()
     {
         var existing = _sharedEnumerator;
         if (existing is not null) return existing;
         lock (EnumeratorLock)
         {
-            return _sharedEnumerator ??= NewEnumerator();
+            return _sharedEnumerator ??= EnumeratorFactoryForTesting?.Invoke() ?? NewEnumerator();
         }
     }
 

@@ -21,7 +21,7 @@ using Xunit;
 /// </para>
 /// </summary>
 [Collection("KeyboardAudioDiagnostics")]
-public class KeyboardClickSoundDiagnosticsTests
+public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
 {
     private sealed class FakePlayer(bool result) : IClickSoundPlayer
     {
@@ -180,9 +180,9 @@ public class KeyboardClickSoundDiagnosticsTests
         }
         finally
         {
-            // The click queued first-click diagnostics work (production scheduler): drain it and
-            // ASSERT the drain (review 03 S3) so no pool-thread item lands inside a later test's
-            // statics silently (fixup 01 flake).
+            // The click queued first-click diagnostics work: the collection-wide park scheduler
+            // holds it — run it deterministically, then ASSERT the drain (review 03 S3).
+            RunParkedWork();
             Check.That(AudioSessionDiagnostics.DrainQueuedWork()).IsTrue();
             window.Close();
         }

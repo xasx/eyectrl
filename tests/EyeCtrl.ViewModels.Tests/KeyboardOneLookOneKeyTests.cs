@@ -6,13 +6,21 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
-/// "One look, one key" (keyboard-UX round 01, item 1 A): after a key fires, that same key cannot
-/// start another dwell until the gaze has been continuously off it for
-/// <see cref="KeyboardViewModel.RearmLeaveUs"/>. Before this, only the post-activation cooldown
-/// stood between a resting gaze and the next fire: the owner's log shows Enter firing three times
-/// in 2.5 s, the second 1028 ms after the first with <c>restarts=0</c> and a 483 ms hold-on. A
-/// sample on another key, a null pick and an outside-the-window gaze all count as a leave; a
-/// tracker pause longer than the gap clamp neither counts toward one nor completes one.
+/// "One look, one key" (keyboard-UX round 01, item 1 A, extended by F4): after a key fires, that
+/// same key cannot start another NORMAL dwell until the gaze has been continuously off the
+/// keyboard KEY AREA for <see cref="KeyboardViewModel.RearmLeaveUs"/>. F4 changed the leave from
+/// "off the key" to "off the keyboard": a gaze on a neighbouring key is still on the keyboard,
+/// and only that key's own fire (which replaces the latch) re-arms the fired key. A suggestion
+/// pick also re-arms. Before this, only the post-activation cooldown stood between a resting gaze
+/// and the next fire: the owner's log shows Enter firing three times in 2.5 s, the second 1028 ms
+/// after the first with <c>restarts=0</c> and a 483 ms hold-on. A tracker pause longer than the
+/// gap clamp neither counts toward a leave nor completes one.
+///
+/// <para>
+/// F4 also gave TEXT keys a deliberate second dwell (see KeyboardDoubleLettersTests); a non-text
+/// key keeps firing exactly once and is the focus of most of this file — otherwise the long-rest
+/// cases would now type a double by design.
+/// </para>
 ///
 /// <para>
 /// Item 1 B, the second half of the file: a SHOW arms the same one-shot landing guard the
@@ -52,6 +60,7 @@ public class KeyboardOneLookOneKeyTests
     {
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         vm.Configure(DwellMs, CooldownMs);
+        vm.SetLayout(Layout());
         var fired = new List<string>();
         vm.KeyDwellCompleted += fired.Add;
         return (vm, fired);
@@ -88,13 +97,15 @@ public class KeyboardOneLookOneKeyTests
     }
 
     [Fact]
-    public void RestingOnALetterForThreeSeconds_FiresExactlyOnce()
+    public void RestingOnALetterForThreeSeconds_TypesTheSecondDwellOnce()
     {
-        // Letters are included: "0 resting repeats measured" is not a licence to leave them out.
+        // F4: letters are repeatable by a deliberate second dwell. 450 ms fire, 400 ms cooldown,
+        // 1200 ms second dwell → the second fire at ~2050 ms; a third would need another 1200 ms
+        // after its cooldown (3650 ms), so three seconds holds exactly two.
         var (vm, fired) = Rig();
         Feed(vm, Letter, 0, 3_000_000);
 
-        Check.That(fired).ContainsExactly("key_0_0");
+        Check.That(fired).ContainsExactly("key_0_0", "key_0_0");
     }
 
     [Fact]
@@ -110,16 +121,34 @@ public class KeyboardOneLookOneKeyTests
     }
 
     [Theory]
+    [InlineData(90)]     // below the 120 ms leave
+    [InlineData(120)]    // exactly at the boundary
+    [InlineData(150)]    // comfortably past it
+    public void ANeighbourExcursionWithTheGazeStillOnTheKeyboard_DoesNotRearmTheKey(int offMs)
+    {
+        // F4: a gaze on the neighbour is still ON the keyboard. Only another key's FIRE replaces
+        // the latch; a sub-dwell glance at the neighbour does not re-arm the fired key.
+        var (vm, fired) = FiredEnter();
+
+        Feed(vm, Letter, 1_030_000, 1_030_000 + offMs * 1_000L);
+        Feed(vm, Enter, 1_060_000 + offMs * 1_000L, 3_000_000);
+
+        Check.WithCustomMessage(
+                $"{offMs} ms on a neighbouring key (inside the keyboard) re-armed the fired key")
+            .That(fired).HasSize(1);
+    }
+
+    [Theory]
     [InlineData(90, 1)]     // below the 120 ms leave: still one look
     [InlineData(120, 2)]    // exactly at the boundary: re-armed (the comparison is `>=`)
     [InlineData(150, 2)]    // comfortably past it
-    public void AnExcursionOfAtLeastTheLeaveTime_RearmsTheKey(int offMs, int expectedFires)
+    public void AnOffKeyboardExcursionOfAtLeastTheLeaveTime_RearmsTheKey(int offMs, int expectedFires)
     {
         var (vm, fired) = FiredEnter();
 
-        // Look at the neighbour for offMs, then back. 120 is the same rule the prediction bar's
-        // slot latch uses; 90 must not be enough.
-        Feed(vm, Letter, 1_030_000, 1_030_000 + offMs * 1_000L);
+        // Off the KEY AREA (the window passes that containment), not merely off the key: 120 is
+        // the same rule the prediction bar's slot latch uses; 90 must not be enough.
+        Feed(vm, Clear, 1_030_000, 1_030_000 + offMs * 1_000L, inside: false);
         Feed(vm, Enter, 1_060_000 + offMs * 1_000L, 3_000_000);
 
         Check.That(fired).HasSize(expectedFires);
@@ -143,11 +172,11 @@ public class KeyboardOneLookOneKeyTests
     {
         var (vm, fired) = FiredEnter();
 
-        // The gaze moved off (the leave clock starts), then the stream drops out for a second on
-        // the neighbour. Crediting the silence would complete the leave on one sample; the rule
-        // is that a gap neither counts toward a leave nor completes one.
-        vm.ProcessKeyGaze(TwoKeys, Letter, true, 1_030_000, Boxes);
-        vm.ProcessKeyGaze(TwoKeys, Letter, true, 2_030_000, Boxes);
+        // The gaze moved off the keyboard (the leave clock starts), then the stream drops out for a
+        // second while it is off the key area. Crediting the silence would complete the leave on one
+        // sample; the rule is that a gap neither counts toward a leave nor completes one.
+        vm.ProcessKeyGaze(TwoKeys, Clear, false, 1_030_000, Boxes);
+        vm.ProcessKeyGaze(TwoKeys, Clear, false, 2_030_000, Boxes);
 
         // Back on the fired key: still one look, so it may not fire again.
         Feed(vm, Enter, 2_060_000, 3_500_000);
@@ -158,14 +187,15 @@ public class KeyboardOneLookOneKeyTests
     [Fact]
     public void NonContiguousOffSamples_DoNotRearmTheKey()
     {
-        // F2: a leave is 120 ms CONTIGUOUS. Short off runs with a sample back on the fired key
-        // between them never add up: three off samples (60 ms) then one on-key sample, repeated.
+        // F2: a leave is 120 ms CONTIGUOUS and OFF THE KEY AREA. Short off runs with a sample back
+        // on the fired key between them never add up: three off samples (60 ms) then one on-key
+        // sample, repeated.
         var (vm, fired) = FiredEnter();
 
         var t = 1_030_000;
         for (var i = 0; i < 8; i++)
         {
-            Feed(vm, Letter, t, t + 60_000);
+            Feed(vm, Clear, t, t + 60_000, inside: false);
             vm.ProcessKeyGaze(TwoKeys, Enter, true, t + 90_000, Boxes);
             t += 120_000;
         }
@@ -177,7 +207,7 @@ public class KeyboardOneLookOneKeyTests
 
         // A contiguous leave of at least 120 ms does re-arm it.
         t += 1_030_000;
-        Feed(vm, Letter, t, t + 150_000);
+        Feed(vm, Clear, t, t + 150_000, inside: false);
         Feed(vm, Enter, t + 180_000, t + 1_500_000);
 
         Check.That(fired).ContainsExactly("enter", "enter");
@@ -192,8 +222,8 @@ public class KeyboardOneLookOneKeyTests
         Feed(vm, Enter, 0, 600_000);
         Check.That(fired).ContainsExactly("enter");
 
-        Feed(vm, Letter, 630_000, 780_000);       // a 150 ms leave, wholly inside the cooldown
-        Feed(vm, Enter, 810_000, 2_500_000);      // back; the cooldown ends at 1 s
+        Feed(vm, Clear, 630_000, 780_000, inside: false);   // a 150 ms off-key-area leave, inside the cooldown
+        Feed(vm, Enter, 810_000, 2_500_000);                // back; the cooldown ends at 1 s
 
         // After the cooldown the re-armed Enter dwells and fires again.
         Check.That(fired).ContainsExactly("enter", "enter");
@@ -445,8 +475,12 @@ public class KeyboardOneLookOneKeyTests
         DefaultSubLayout = "letters",
         SubLayouts = new Dictionary<string, SubLayout>
         {
-            ["letters"] = new() { Label = "ABC", Rows = new List<List<KeyDefinition>>() },
-            ["numbers"] = new() { Label = "123", Rows = new List<List<KeyDefinition>>() },
+            ["letters"] = new()
+            {
+                Label = "ABC",
+                Rows = [[new KeyDefinition { Label = "a", Output = "a" }]],
+            },
+            ["numbers"] = new() { Label = "123", Rows = [] },
         },
     };
 }

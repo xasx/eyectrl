@@ -648,7 +648,7 @@ public class KeyboardE1LoggingTests
     public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt3s()
     {
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 3500);                          // ...and the gaze stays well past the cap
 
@@ -664,7 +664,7 @@ public class KeyboardE1LoggingTests
         // Below the 3 s cap a rest is a measured value, not a floor: the double-letters decision
         // reads its tail from exactly these lines.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 2000);                          // one 30 ms sample of overshoot, no cap
         rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
@@ -680,7 +680,7 @@ public class KeyboardE1LoggingTests
         // 2.5 s is under the new cap: the LEAVE, not the cap, must close the line, and it must be
         // closed at the leave so the rest's length stays a measurement.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 2500);                          // a long rest, still under the cap
         rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
@@ -697,7 +697,7 @@ public class KeyboardE1LoggingTests
         // latch treats the same silence as no leave). 1020 ms inside + a 200 ms silence + 1530 ms
         // inside = 2750 ms, with the gap counted because the gaze was still on the key after it.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside
         rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
@@ -717,7 +717,7 @@ public class KeyboardE1LoggingTests
         // No sample arrives during the gap, so the last inside sample is the only evidence and
         // the rest is cut there: 1020 ms, not the gap's end.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
         rig.Ts += 1_200_000;                        // a 1.2 s dropout: over the 1 s survival
@@ -735,7 +735,7 @@ public class KeyboardE1LoggingTests
         // The short gap is not itself a leave: the sample after it decides by position, and this
         // one is on another key, so the rest ends at the last inside sample (1020 ms).
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside (last inside at 1020 ms)
         rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
@@ -753,7 +753,7 @@ public class KeyboardE1LoggingTests
         // Math.Min clamp keeps the reported value at exactly 3000 (the parser's old-cap rule
         // depends on a capped line carrying the cap itself).
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Ts += 10_000;                           // off the 30 ms cadence's cap boundary
         rig.Hold(c, 3500);
@@ -767,7 +767,7 @@ public class KeyboardE1LoggingTests
     public void HoldOn_EndsWhenTheGazeLeavesTheBox()
     {
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);
         rig.Hold(c, 150);                           // stays ~150 ms ...
         rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
@@ -784,7 +784,7 @@ public class KeyboardE1LoggingTests
     {
         // The cooldown is 400 ms: a 300 ms stay is entirely inside it, and is still measured.
         using var rig = new Rig();
-        var c = rig.Positions["key_0_0"];
+        var c = rig.Positions["space"];
         rig.Hold(c, DwellMs);
         rig.Hold(c, 300);
         rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);
@@ -803,6 +803,61 @@ public class KeyboardE1LoggingTests
 
         var holds = rig.Log.Of("holdon").Select(Fields).ToList();
         Check.That(holds.Select(h => h["seq"])).ContainsExactly("1", "2");
+    }
+
+    // ---- repeat-dwell attempts are silent (review 01 F1) --------------------------------------
+
+    [Fact]
+    public void ARepeatDwellAttempt_WritesNoAbandonLineAndNoSinkOutcome()
+    {
+        var baselineSink = new FakeSink();
+        string[] baselineAbandons;
+        using (var baseline = new Rig(sink: baselineSink))
+        {
+            baseline.Hold(baseline.Positions["key_0_0"], 270);        // 60 % of the 450 ms dwell
+            baseline.Hold(baseline.Positions["key_0_1"], StepMs);     // key change: the normal abandon
+            baselineAbandons = baseline.Log.Of("abandon");
+            Check.WithCustomMessage("arrange: the normal abandon must be logged")
+                .That(baselineAbandons).HasSize(1);
+            Check.That(Fields(baselineAbandons[0])["pct"]).IsEqualTo("60");
+            Check.That(baselineSink.Outcomes.Count(o => o.Kind == OutcomeKind.Abandoned)).IsEqualTo(1);
+        }
+
+        var repeatSink = new FakeSink();
+        using (var withRepeat = new Rig(sink: repeatSink))
+        {
+            withRepeat.Hold(withRepeat.Positions["key_0_0"], 270);
+            withRepeat.Hold(withRepeat.Positions["key_0_1"], StepMs);
+
+            // Fire a letter, rest 600 ms after its cooldown, then move on: this is a second-dwell
+            // candidate that does not complete. Main never made the just-fired key a candidate,
+            // so it must add no abandon line and no sink abandonment.
+            withRepeat.Hold(withRepeat.Positions["key_0_2"], DwellMs);
+            withRepeat.Hold(withRepeat.Positions["key_0_2"], CooldownMs + 600);
+            withRepeat.Hold(withRepeat.Positions["key_0_0"], StepMs);
+
+            Check.WithCustomMessage("the failed repeat attempt added an E1 abandon line")
+                .That(withRepeat.Log.Of("abandon")).ContainsExactly(baselineAbandons);
+            var repeatAbandons = repeatSink.Outcomes
+                .Where(o => o.Kind == OutcomeKind.Abandoned).ToList();
+            var baselineAbandonsSink = baselineSink.Outcomes
+                .Where(o => o.Kind == OutcomeKind.Abandoned).ToList();
+            Check.WithCustomMessage("the failed repeat attempt added a sink abandonment")
+                .That(repeatAbandons).ContainsExactly(baselineAbandonsSink);
+        }
+    }
+
+    [Fact]
+    public void AFailedRepeatAttempt_DoesNotRaiseTheNextNonTextKeyRestarts()
+    {
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["backspace"], DwellMs);              // fires (non-text)
+        rig.Hold(rig.Positions["backspace"], CooldownMs + 600);    // a repeat candidate; it does not complete
+        rig.Hold(rig.Positions["deleteWord"], DwellMs);            // the next non-text fire
+
+        var line = Fields(rig.Log.Of("key").Last());
+        Check.WithCustomMessage("the failed repeat attempt raised the next non-text key's restarts")
+            .That(line["restarts"]).IsEqualTo("0");
     }
 
     // ---- modes -----------------------------------------------------------------------------

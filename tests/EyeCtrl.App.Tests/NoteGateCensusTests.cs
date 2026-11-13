@@ -88,6 +88,8 @@ public class NoteGateCensusTests
             "exempt", "shows only in ScrollMode (ScrollModeController.ApplyCurrentState) — a suspending state (NoteManager.InteractionStateSuspendsNotes); made click-through by main #226"),
         ["EyeCtrl.App/Overlays/TargetHighlightWindow.xaml"] = (
             "exempt", "the action-menu target highlight — shows only with the action menu (OverlayMessageCoordinator), a suspending state (review 01 M1)"),
+        ["EyeCtrl.App/Overlays/SplashWindow.xaml.cs"] = (
+            "exempt", "the startup splash — shown once at startup (before any notes can exist) on its own thread and closed at readiness; click-through (L13), so it can never swallow a dwell either"),
         };
 
     // ONE regex over BOTH file types (fixup 01 M1, review 01 n3): the constructor and runtime C#

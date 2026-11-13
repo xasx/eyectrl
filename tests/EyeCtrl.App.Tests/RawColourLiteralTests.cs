@@ -44,6 +44,8 @@ public class RawColourLiteralTests
             "the Contrast palette itself (spec §10.7) — gated by tools/palette_validate.py",
         ["src/EyeCtrl.Controls/Theme/DaylightTheme.cs"] =
             "the Daylight palette itself (spec §10.8) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] =
+            "the accepted icon's pinned constants redrawn live (tile #141828, amber #E8A33C, bright amber #F6C77E, cyan #A5F3FC), gradient alphas in the colour bytes (spec §4.1) — theme-independent by design, and the splash thread has no Application resources to resolve palette brushes from (spec §8)",
     };
 
     /// <summary>

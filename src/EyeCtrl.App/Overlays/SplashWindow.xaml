@@ -2,27 +2,98 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        xmlns:theme="clr-namespace:EyeCtrl.Controls.Theme;assembly=EyeCtrl.Controls"
         xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen" Topmost="True" ShowInTaskbar="False"
-        SizeToContent="WidthAndHeight">
-    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource LargeCornerRadius}" Padding="40,30">
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Image Source="/Assets/eyectrl.ico"
-                   Width="64" Height="64"
-                   HorizontalAlignment="Center" Margin="0,0,0,16"/>
-            <TextBlock Text="EyeCtrl"
-                       Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeDisplay}" FontWeight="{StaticResource FontWeightMedium}"
-                       HorizontalAlignment="Center" Margin="0,0,0,16"/>
-            <ProgressBar IsIndeterminate="True"
-                         Width="200" Height="4"
-                         Foreground="{StaticResource BrushAccentSuccess}" Background="{StaticResource BrushSurfaceMedium}"
-                         BorderThickness="0"/>
-            <TextBlock x:Name="NoTrackerSentence" Visibility="Collapsed"
+        Width="{x:Static overlays:SplashLayout.CardWidth}"
+        Height="{x:Static overlays:SplashLayout.CardHeight}">
+    <!-- NO App-level StaticResource here: the splash thread has no Application resources (spec §8).
+         Theme-derived values (surfaces, text) are assigned in the constructor from Tokens' frozen
+         brushes; pinned icon constants are literals with alpha in the colour bytes. -->
+    <Border x:Name="CardBorder" CornerRadius="{x:Static theme:Tokens.LargeCornerRadius}"
+            Padding="{x:Static overlays:SplashLayout.CardPadding}">
+        <Grid x:Name="SplashContent">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="{x:Static overlays:SplashLayout.MarkRowLength}"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="{x:Static overlays:SplashLayout.SentenceRowLength}"/>
+            </Grid.RowDefinitions>
+
+            <!-- ── The mark: the accepted icon's geometry, animated (spec §4.1) ── -->
+            <Grid Grid.Row="0" x:Name="MarkHost" Width="{x:Static overlays:SplashLayout.MarkSize}"
+                  Height="{x:Static overlays:SplashLayout.MarkSize}" ClipToBounds="False">
+                <Border x:Name="Tile" CornerRadius="{x:Static overlays:SplashLayout.TileCornerRadius}" Background="#141828"/>
+                <Canvas>
+                    <!-- bloom: radial amber, r25.5 at centre; alpha in the colour bytes -->
+                    <Ellipse x:Name="Bloom" Canvas.Left="49.5" Canvas.Top="49.5" Width="51" Height="51" Opacity="0"
+                             RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.Fill>
+                            <RadialGradientBrush>
+                                <GradientStop Color="#73E8A33C"/>
+                                <GradientStop Color="#38E8A33C" Offset="0.55"/>
+                                <GradientStop Color="#00E8A33C" Offset="1"/>
+                            </RadialGradientBrush>
+                        </Ellipse.Fill>
+                        <Ellipse.RenderTransform>
+                            <ScaleTransform x:Name="BloomScale" ScaleX="0.2" ScaleY="0.2"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <!-- trail dots: r2.6 / 3.75 / 4.9 (lead dot bright amber) -->
+                    <Ellipse x:Name="Trail1" Canvas.Left="72.4" Canvas.Top="72.4" Width="5.2" Height="5.2"
+                             Fill="#E8A33C" Opacity="0">
+                        <Ellipse.RenderTransform>
+                            <TranslateTransform x:Name="Trail1Move" X="-82.5" Y="-63.75"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <Ellipse x:Name="Trail2" Canvas.Left="71.25" Canvas.Top="71.25" Width="7.5" Height="7.5"
+                             Fill="#E8A33C" Opacity="0">
+                        <Ellipse.RenderTransform>
+                            <TranslateTransform x:Name="Trail2Move" X="-82.5" Y="-63.75"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <Ellipse x:Name="Trail3" Canvas.Left="70.1" Canvas.Top="70.1" Width="9.8" Height="9.8"
+                             Fill="#F6C77E" Opacity="0">
+                        <Ellipse.RenderTransform>
+                            <TranslateTransform x:Name="Trail3Move" X="-82.5" Y="-63.75"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <!-- gaze dot r12 -->
+                    <Ellipse x:Name="GazeDot" Canvas.Left="63" Canvas.Top="63" Width="24" Height="24"
+                             Fill="#E8A33C" Opacity="0" RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.RenderTransform>
+                            <ScaleTransform x:Name="DotScale" ScaleX="0" ScaleY="0"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <!-- dwell arc r57 w4.9, rest = 120° from 12 o'clock CW; dash units are stroke
+                         multiples: arc length 119.4 px / stroke 4.9 ≈ 24.36 (spec §5) -->
+                    <Path x:Name="DwellArc"
+                          Data="M75,18 A57,57 0 0 1 124.36,103.5"
+                          Stroke="#A5F3FC" StrokeThickness="4.9"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeDashCap="Round"
+                          StrokeDashArray="24.36 1000" StrokeDashOffset="24.36" Opacity="0">
+                        <Path.RenderTransform>
+                            <RotateTransform x:Name="ArcRotate" Angle="-180" CenterX="75" CenterY="75"/>
+                        </Path.RenderTransform>
+                    </Path>
+                </Canvas>
+            </Grid>
+
+            <TextBlock Grid.Row="1" x:Name="TitleText" Text="EyeCtrl" HorizontalAlignment="Center"
+                       Opacity="0" Margin="0,12,0,8"
+                       FontSize="{x:Static theme:Tokens.FontSizeDisplay}"
+                       FontWeight="{x:Static theme:Tokens.FontWeightMedium}">
+                <TextBlock.RenderTransform>
+                    <TranslateTransform x:Name="TitleRise" Y="8"/>
+                </TextBlock.RenderTransform>
+            </TextBlock>
+
+            <TextBlock Grid.Row="2" x:Name="NoTrackerSentence"
                        AutomationProperties.AutomationId="Splash_NoTracker"
-                       Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
-                       HorizontalAlignment="Center" TextAlignment="Center" Margin="0,16,0,0"
+                       TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center"
+                       Opacity="0"
+                       FontSize="{x:Static theme:Tokens.FontSizeSubtitle}"
                        Text="{loc:T 'overlays.splash.noTracker'}"/>
-        </StackPanel>
+        </Grid>
     </Border>
 </overlays:OverlayWindow>

@@ -37,12 +37,14 @@ public class SplashNoTrackerSentenceTests
         var splash = InvisibleTestWindow.Prepare(new SplashWindow()); // never shown
         try
         {
-            Check.That(splash.NoTrackerSentence.Visibility).IsEqualTo(Visibility.Collapsed);
+            Check.That(splash.SentenceShown).IsFalse();
+            Check.That(splash.NoTrackerSentence.Opacity).IsEqualTo(0);   // reserved row, hidden by opacity
             Check.That(splash.NoTrackerSentence.Text).IsEqualTo(StringTable.Current.T("overlays.splash.noTracker"));
 
             splash.ShowNoTrackerSentence();
 
-            Check.That(splash.NoTrackerSentence.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(splash.SentenceShown).IsTrue();
+            Check.That(splash.NoTrackerSentence.Opacity).IsEqualTo(1);   // unshown window → direct set (deterministic)
         }
         finally { splash.Close(); }
     }

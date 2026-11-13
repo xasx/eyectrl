@@ -101,10 +101,14 @@ public class RawGeometryLiteralTests
         // (18-48, clamped on load) and no token can vouch for a user value.
         ["src/EyeCtrl.App/Overlays/NotePlaceHereWindow.cs"] =
             "the Place-here label font binds the guarded TextSizeDip setting (T6 fixup-06 G1) - a value no token can express",
-        // EMPTY, and that is the finished state. Task 12 migrated the last nine files onto
-        // ContainerRatio, so every scanned file's geometry and typography values now come from
-        // the token surface. Any new entry is a regression, not a step in a migration: it means
-        // a literal was written and waved through. Prefer migrating the value.
+        ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] =
+            "the tile radius is the mark's own pinned geometry (spec §4.1, half the 75 DIP centre) via SplashLayout.TileCornerRadius through x:Static - theme-independent, no Tokens member can express it, and the CornerRadius pool admits only Tokens forms",
+        // Task 12 migrated the last nine files onto ContainerRatio, so every scanned file's
+        // geometry and typography values come from the token surface. A new entry for a MIGRATION
+        // leftover is a regression, not a step: it means a literal was written and waved through.
+        // Prefer migrating the value. The splash entry below is not a migration leftover: it
+        // protects a spec §4.1 pinned constant no token can express (the colour scanner's
+        // SplashWindow entry exists for the same reason).
         //
         // A note for whoever considers adding one back: DwellArcButton's remaining site,
         // `FontSize = fontSize ?? dia * (dia < BadgeDiameterThreshold ? ...)`, passes because

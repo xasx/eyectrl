@@ -18,6 +18,10 @@ using Serilog;
 /// Automation focus hook</b>. "Off by default" was true of adaptation's *effects* but not of its footprint.
 /// </para>
 /// <para>
+/// The focus hook (the sensitive-context detector) is no longer part of this runtime: it is also the
+/// keyboard's E1 password mute, so App.OnStartup runs it for the whole session (owner decision 12.11).
+/// </para>
+/// <para>
 /// Services are resolved lazily on first activation (hence <see cref="IServiceProvider"/> rather than
 /// constructor-injected instances — resolving <c>AdaptationCueService</c> is what constructs
 /// <c>CueOverlayWindow</c>, which must not happen while disabled). Every participant's <c>Start</c> is
@@ -142,9 +146,9 @@ public sealed class AdaptationActivation : IDisposable
         services.GetRequiredService<AdaptationLog>().Start(coordinator);
         services.GetRequiredService<DriftNoticeService>().Start(coordinator);
         services.GetRequiredService<CaregiverAlertService>().Start(coordinator);
-        // Sensitive-context detection only matters while feedback can be shown, so the system-wide UIA focus
-        // hook goes in and out with the rest of the runtime (§8.10).
-        services.GetRequiredService<ISensitiveContextDetector>().Start();
+        // NOT the sensitive-context detector: it is the keyboard's E1 password mute as well as this
+        // runtime's feedback gate, so App.OnStartup starts it for the whole session (owner decision
+        // 12.11 — with adaptation off it never ran, and no password typing was ever muted).
         Log.Information("Adaptation runtime activated");
     }
 
@@ -185,7 +189,8 @@ public sealed class AdaptationActivation : IDisposable
         services.GetRequiredService<AdaptationLog>().Dispose();
         services.GetRequiredService<DriftNoticeService>().Dispose();
         services.GetRequiredService<CaregiverAlertService>().Dispose();
-        services.GetRequiredService<ISensitiveContextDetector>().Stop();
+        // The sensitive-context detector stays running: the keyboard's E1 password mute depends on it
+        // whether or not adaptation is on (see StartRuntime).
         Log.Information("Adaptation runtime deactivated; effective settings back at baseline");
     }
 

@@ -114,7 +114,13 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
                 return;
             }
 
-            bool? decision = EvaluateFocusedElement(element.Current.ProcessId, OwnProcessId, element.Current.IsPassword);
+            // The process id first: own-process focus (EyeCtrl's keyboard, an overlay) retains WITHOUT reading
+            // IsPassword — a cross-thread UIA read of our own UI from this callback is avoidable work, and a
+            // fault there would wrongly clear an active sensitive context (review r1 F4).
+            int processId = element.Current.ProcessId;
+            bool? decision = processId == OwnProcessId
+                ? null
+                : EvaluateFocusedElement(processId, OwnProcessId, element.Current.IsPassword);
             if (decision.HasValue)
                 System.Threading.Volatile.Write(ref _isSensitive, decision.Value);
         }

@@ -181,7 +181,7 @@ public class NoVisibleTestWindowGuardTests
             "Diagnostics/SubPixel/ProbeRingOnScreenGateTests.cs", "Diagnostics/SubPixel/SubPixelProbeC5ExitTests.cs",
             "Diagnostics/SubPixel/SubPixelProbeContrastTests.cs", "Diagnostics/SubPixel/SubPixelProbeCornerLabelTests.cs",
             "Diagnostics/SubPixel/SubPixelProbeLabelTests.cs", "Diagnostics/SubPixel/SubPixelProbeUsabilityTests.cs",
-            "Diagnostics/SubPixel/SubPixelProbeWindowTests.cs"),
+            "Diagnostics/SubPixel/SubPixelProbeWindowTests.cs", "Services/KeyboardProbeMoveTests.cs"),
         Group(LiveCheckBuilder, "Localization/Step3LiveCheckTests.cs"),
     }.SelectMany(d => d).ToDictionary(p => p.Key, p => p.Value);
 

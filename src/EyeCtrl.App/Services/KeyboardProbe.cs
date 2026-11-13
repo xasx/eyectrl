@@ -11,9 +11,11 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// The production <see cref="IKeyboardProbe"/> (P1 D5): reads the keyboard VM's visibility, the
 /// keyboard window's laid-out bounds and the shared edge bar's button union. Change sources are
-/// the same set GazeConsumerInventory wires (P1 D5), each raising <see cref="IKeyboardProbe.Changed"/>
-/// one dispatcher hop later (Background — after layout), so a reader reacting to a flip sees the
-/// geometry the flip produced, not the one it replaced.
+/// the same set GazeConsumerInventory wires (P1 D5) PLUS the keyboard window's position: a
+/// toolbar yield / gaze-off un-yield moves the window without changing its size or the VM, and a
+/// reader (the notes' Edit card) must re-derive against the rect it landed on. Each source raises
+/// <see cref="IKeyboardProbe.Changed"/> one dispatcher hop later (Background — after layout), so a
+/// reader reacting to a flip sees the geometry the flip produced, not the one it replaced.
 /// </summary>
 internal sealed class KeyboardProbe : IKeyboardProbe, IDisposable
 {
@@ -42,8 +44,13 @@ internal sealed class KeyboardProbe : IKeyboardProbe, IDisposable
         // window it reads.
         _keyboardVm.PropertyChanged += OnKeyboardVmPropertyChanged;
         var window = _keyboard();
-        window.SizeChanged += OnKeyboardLayoutChanged;
-        window.Loaded += OnKeyboardLayoutChanged;
+        window.SizeChanged += OnKeyboardGeometryChanged;
+        window.Loaded += OnKeyboardGeometryChanged;
+        // A yield (the toolbar appears on the keyboard's edge) and the gaze-off un-yield move the
+        // window by setting Left/Top: no size change, no VM flip, so without this the note's Edit
+        // card keeps a placement derived against the vacated rect. LocationChanged covers every
+        // such move, including a Flip and a DPI change, and fires once per axis that changed.
+        window.LocationChanged += OnKeyboardGeometryChanged;
         if (_edgeBarVm() is { } bar)
             bar.ButtonSetChanged += Raise;
         _messenger.Register<KeyboardProbe, KeyboardEdgeToggledMessage>(this, (_, _) => Raise());
@@ -77,7 +84,7 @@ internal sealed class KeyboardProbe : IKeyboardProbe, IDisposable
             Raise();
     }
 
-    private void OnKeyboardLayoutChanged(object? sender, System.EventArgs e) => Raise();
+    private void OnKeyboardGeometryChanged(object? sender, System.EventArgs e) => Raise();
 
     private void Raise() =>
         _dispatcher.InvokeAsync(() =>
@@ -91,8 +98,9 @@ internal sealed class KeyboardProbe : IKeyboardProbe, IDisposable
         _disposed = true;
         _keyboardVm.PropertyChanged -= OnKeyboardVmPropertyChanged;
         var window = _keyboard();
-        window.SizeChanged -= OnKeyboardLayoutChanged;
-        window.Loaded -= OnKeyboardLayoutChanged;
+        window.SizeChanged -= OnKeyboardGeometryChanged;
+        window.Loaded -= OnKeyboardGeometryChanged;
+        window.LocationChanged -= OnKeyboardGeometryChanged;
         if (_edgeBarVm() is { } bar)
             bar.ButtonSetChanged -= Raise;
         _messenger.UnregisterAll(this);

@@ -77,8 +77,8 @@ using Microsoft.Extensions.Logging;
 /// dispatcher-marshalled from the service's three pipe arms (a client registering or moving a
 /// target under a visible panel must re-check before the reader dwells it). The service
 /// re-checks on every raise — delivered one dispatcher hop after the trigger
-/// (Background: after layout), plus the keyboard window's own SizeChanged/Loaded (final review
-/// F2: a keyboard relayout raises no VM flip).
+/// (Background: after layout), plus the keyboard window's own SizeChanged/LocationChanged/Loaded
+/// (final review F2: a keyboard relayout raises no VM flip; a position-only move raises neither).
 /// </para>
 /// <para>
 /// The toolbar itself is NOT a source: the panel's placement (§3.3) puts it beyond the strip's
@@ -429,10 +429,17 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
             return;
         _hookedKeyboard = keyboard;
         keyboard.SizeChanged += OnKeyboardLayoutChanged;
+        // A POSITION-only move (the gaze-driven UnYield; a Flip shares the shape but already
+        // re-checks through KeyboardEdgeToggledMessage) changes the rect with no size change and
+        // no VM flip, so the re-check would stay blind to a keyboard that moved back under a
+        // panel. Joined here, the same lazy once-only seam as SizeChanged.
+        keyboard.LocationChanged += OnKeyboardLocationChanged;
         keyboard.Loaded += OnKeyboardLoaded;
     }
 
     private void OnKeyboardLayoutChanged(object? sender, SizeChangedEventArgs e) => OnConsumersChanged();
+
+    private void OnKeyboardLocationChanged(object? sender, EventArgs e) => OnConsumersChanged();
 
     private void OnKeyboardLoaded(object? sender, RoutedEventArgs e) => OnConsumersChanged();
 
@@ -454,6 +461,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         if (_hookedKeyboard is not null)
         {
             _hookedKeyboard.SizeChanged -= OnKeyboardLayoutChanged;
+            _hookedKeyboard.LocationChanged -= OnKeyboardLocationChanged;
             _hookedKeyboard.Loaded -= OnKeyboardLoaded;
         }
         _messenger.UnregisterAll(this);

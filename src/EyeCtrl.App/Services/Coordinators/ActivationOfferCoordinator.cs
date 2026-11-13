@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services.Coordinators;
 
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -18,7 +19,8 @@ using EyeCtrl.ViewModels.Messages;
 /// after a display change. Core rebuilds the engine on the gaze thread and drops a live offer, which
 /// is right: its B was placed for the old geometry.</item>
 /// <item><b>Chrome zones.</b> No offer may be made over EyeCtrl's own controls (decision 8), so the
-/// zones are re-published on every trigger the plan lists: keyboard show, hide and layout; toolbar
+/// zones are re-published on every trigger the plan lists: keyboard show, hide, layout and a
+/// position-only move (the gaze-driven un-yield); toolbar
 /// slide-in, slide-out and auto-hide; the prediction bar's relayout; the action and modes menus'
 /// show and hide. The push goes through <c>InteractionManager.SetActivationChromeZones</c> as plain
 /// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
@@ -59,6 +61,15 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private bool _suspended;
     private bool _modalSuspended;
     private PhysicalRect? _lagMarkZone;
+    // The keyboard's POSITION-only move raises no trigger this coordinator listens to: the
+    // gaze-driven UnYield (KeyboardWindow.UnYieldIfGazeHasLeft → Place(…, UnYield)) moves the
+    // window while the toolbar is already off screen, so no toolbar-visibility event and no VM
+    // property flip arrives. (A Flip shares the position-only shape but does publish, through
+    // KeyboardEdgeToggledMessage.) The cached zone would keep the pre-move rect — the round button
+    // on the keyboard's strip while the owner types, and none in the strip it vacated. Hooked
+    // lazily the same way GazeConsumerInventory reaches the window, and once only: the manager's
+    // Keyboard is the app-lifetime singleton (CloseAll closes, it never recreates).
+    private KeyboardWindow? _hookedKeyboard;
 
     public ActivationOfferCoordinator(
         ToolbarLifecycleCoordinator toolbar,
@@ -261,7 +272,10 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     // costs one publish.
     private void SchedulePublish()
     {
-        if (Context is null || _publishScheduled)
+        if (Context is null)
+            return;
+        HookKeyboardLocationEvents();
+        if (_publishScheduled)
             return;
         _publishScheduled = true;
         Context.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
@@ -292,6 +306,36 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         });
     }
 
+    /// <summary>
+    /// The keyboard's position-only move is a zone trigger (owner bug of 13.11: after a
+    /// gaze-driven <c>UnYield</c> the round button turned up on the keyboard's strip and none in
+    /// the strip it vacated): the window moves back without any toolbar event or VM flip, so the
+    /// cached zone would keep the yielded rect. Lazy and once only, the same way
+    /// <c>GazeConsumerInventory</c> reaches the window: nothing resolves the overlay manager until
+    /// a keyboard is actually up, so a headless context (no overlays) stays constructible, and the
+    /// manager's <c>Keyboard</c> is the app-lifetime singleton (CloseAll closes, it never
+    /// recreates) — a second hook could only double-publish.
+    /// <para>
+    /// UI thread only: <see cref="System.Windows.Window.LocationChanged"/>'s accessors verify
+    /// dispatcher affinity, so a future off-thread <c>SchedulePublish</c> caller must skip here
+    /// and let the next UI-thread trigger install the hook (review-01 N1).
+    /// </para>
+    /// </summary>
+    private void HookKeyboardLocationEvents()
+    {
+        if (Context is null || Context.Dispatcher is not { } dispatcher || !dispatcher.CheckAccess())
+            return;
+        if (_hookedKeyboard is not null || !Context.KeyboardVM.IsVisible)
+            return;
+        var keyboard = Context.OverlayManager?.Keyboard;
+        if (keyboard is null)
+            return;
+        _hookedKeyboard = keyboard;
+        keyboard.LocationChanged += OnKeyboardLocationChanged;
+    }
+
+    private void OnKeyboardLocationChanged(object? _, EventArgs __) => SchedulePublish();
+
     private void ConfigureEngine()
     {
         if (Context is null)
@@ -307,6 +351,11 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
 
     protected override void OnDispose()
     {
+        if (_hookedKeyboard is not null)
+        {
+            _hookedKeyboard.LocationChanged -= OnKeyboardLocationChanged;
+            _hookedKeyboard = null;
+        }
         if (Context is null)
             return;
         _toolbar.ToolbarVisibilityChanged -= OnToolbarVisibilityChanged;

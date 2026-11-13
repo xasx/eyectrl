@@ -138,6 +138,19 @@ public class KeyboardClickSoundDiagnosticsTests
         finally { CultureInfo.CurrentCulture = previous; }
     }
 
+    [Fact]
+    public void TheShippedClickWav_PassesThePcm16Factory()
+    {
+        // Review 01 F6: DefaultPlayerFactory requires PCM-16 (WavHeader); the old SoundPlayer also
+        // accepted float and 8-bit. If the shipped asset ever drifts to such a format, every click
+        // would silently become "skipped" — this pin turns that into red. Plays nothing.
+        var wav = System.IO.Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Assets", "click.wav");
+        Check.WithCustomMessage($"the shipped click.wav at {wav} no longer passes the PCM-16 factory: "
+            + "every key click would be silently skipped")
+            .That(KeyboardSoundService.DefaultPlayerFactory(wav)).IsNotNull();
+    }
+
     [StaFact]
     public void TheWindow_ForwardsTheRealTransitionsToItsSoundService()
     {

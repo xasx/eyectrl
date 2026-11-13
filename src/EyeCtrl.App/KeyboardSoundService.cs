@@ -8,11 +8,18 @@ using Serilog;
 /// Play-through seam for the key click (the ICuePlayer pattern from DwellCueService): tests
 /// substitute fakes here, production is <see cref="WinmmClickPlayer"/>. The bool is the point
 /// of the seam — winmm's own verdict, which System.Media.SoundPlayer discarded (F5).
+/// <para>
+/// What the verdict means under SND_ASYNC (measured, review 01 F5): winmm answers BEFORE it
+/// opens the file, so true = the request was QUEUED — a missing wav still returns true and the
+/// failure happens invisibly on winmm's worker. false = a synchronous refusal (no wave device,
+/// invalid call). Neither word means the click was heard; the hide line's played=N failed=0
+/// proves only that every request reached winmm.
+/// </para>
 /// </summary>
 internal interface IClickSoundPlayer
 {
-    /// <summary>true = playback started; false = winmm refused it (device, endpoint or audio
-    /// session) — a silent, unloggable failure the hide line must now count.</summary>
+    /// <summary>true = playback request queued by winmm; false = synchronous refusal (device,
+    /// endpoint or audio session) — a silent failure the hide line must now count.</summary>
     bool Play();
 }
 

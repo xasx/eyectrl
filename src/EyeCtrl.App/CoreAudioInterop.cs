@@ -70,9 +70,10 @@ internal static class CoreAudioInterop
 
     // ---- COM interfaces (audiosessiontypes.h / mmdeviceapi.h), vtable order exact ----
 
-    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E4"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMMDeviceEnumerator
     {
+        // SDK: mmdeviceapi.h:757 (IID), vtable mmdeviceapi.h:761-787.
         [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
         [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
         [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string deviceId, out IMMDevice device);
@@ -83,15 +84,17 @@ internal static class CoreAudioInterop
     [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMMDevice
     {
+        // SDK: mmdeviceapi.h:427 (IID), vtable mmdeviceapi.h:431-451.
         [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
         [PreserveSig] int OpenPropertyStore(int stgmAccess, out IPropertyStore properties);
         [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string deviceId);
         [PreserveSig] int GetState(out int state);
     }
 
-    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IPropertyStore
     {
+        // SDK: propsys.h:516 (IID). Vtable: GetCount, GetAt, GetValue, SetValue, Commit.
         [PreserveSig] int GetCount(out int propertyCount);
         [PreserveSig] int GetAt(int property, out PropertyKey key);
         [PreserveSig] int GetValue(ref PropertyKey key, out PropVariant value);
@@ -102,6 +105,8 @@ internal static class CoreAudioInterop
     [ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IAudioSessionManager2
     {
+        // SDK: audiopolicy.h:1155 (IID); vtable order audiopolicy.h:1202-1244 (IAudioSessionManager
+        // part first: GetAudioSessionControl, GetSimpleAudioVolume — see audiopolicy.h:780, :824).
         // IAudioSessionManager
         [PreserveSig] int GetAudioSessionControl(IntPtr audioSessionGuid, int streamFlags, out IntPtr sessionControl);
         [PreserveSig] int GetSimpleAudioVolume(ref Guid audioSessionGuid, int streamFlags, out ISimpleAudioVolume audioVolume);
@@ -113,9 +118,10 @@ internal static class CoreAudioInterop
         [PreserveSig] int UnregisterDuckNotification(IntPtr duckNotification);
     }
 
-    [ComImport, Guid("E2F5FF11-26DA-4784-8362-14C086C327E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IAudioSessionEnumerator
     {
+        // SDK: audiopolicy.h:1058 (IID), vtable audiopolicy.h:1062-1065.
         [PreserveSig] int GetCount(out int sessionCount);
         [PreserveSig] int GetSession(int sessionIndex, out IAudioSessionControl session);
     }
@@ -123,6 +129,7 @@ internal static class CoreAudioInterop
     [ComImport, Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IAudioSessionControl
     {
+        // SDK: audiopolicy.h:337 (IID). Vtable: state, display/icon path, grouping param, events.
         [PreserveSig] int GetState(out int state);
         [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string displayName);
         [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string displayName, ref Guid eventContext);
@@ -134,9 +141,11 @@ internal static class CoreAudioInterop
         [PreserveSig] int UnregisterAudioSessionNotification(IAudioSessionEvents events);
     }
 
-    [ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [ComImport, Guid("bfb7ff88-7239-4fc9-8fa2-07c950be9c6d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IAudioSessionControl2
     {
+        // SDK: audiopolicy.h:545 (IID). IAudioSessionControl vtable first, then the Control2 tail
+        // (audiopolicy.h:549-563).
         // IAudioSessionControl
         [PreserveSig] int GetState(out int state);
         [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string displayName);
@@ -158,6 +167,7 @@ internal static class CoreAudioInterop
     [ComImport, Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface ISimpleAudioVolume
     {
+        // SDK: Audioclient.h:1642 (IID), vtable Audioclient.h:1646-1660.
         [PreserveSig] int SetMasterVolume(float level, ref Guid eventContext);
         [PreserveSig] int GetMasterVolume(out float level);
         [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
@@ -165,19 +175,24 @@ internal static class CoreAudioInterop
     }
 
     /// <summary>Implemented by the managed <see cref="SessionEvents"/> CCW, registered on our
-    /// session control. Fires on WASAPI threads — the handlers only format and log.</summary>
-    [ComImport, Guid("24918AC6-3176-44AA-9854-7925FBE5E775"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    /// session control. Fires on WASAPI threads — the handlers only format and log.
+    /// SDK: audiopolicy.h:151 (IID), vtable audiopolicy.h:155-190 — ALL SEVEN slots, in header
+    /// order; dropping a slot shifts every later call on a WASAPI thread (an access violation,
+    /// review 01 F2).</summary>
+    [ComImport, Guid("24918ACC-64B3-37C1-8CA9-74A66E9957A8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IAudioSessionEvents
     {
         [PreserveSig] int OnDisplayNameChanged([MarshalAs(UnmanagedType.LPWStr)] string displayName, ref Guid eventContext);
         [PreserveSig] int OnIconPathChanged([MarshalAs(UnmanagedType.LPWStr)] string iconPath, ref Guid eventContext);
         [PreserveSig] int OnSimpleVolumeChanged(float newVolume, [MarshalAs(UnmanagedType.Bool)] bool newMute, ref Guid eventContext);
+        [PreserveSig] int OnChannelVolumeChanged(int channelCount, IntPtr newChannelVolumeArray, int changedChannel, ref Guid eventContext);
+        [PreserveSig] int OnGroupingParamChanged(ref Guid newGroupingParam, ref Guid eventContext);
         [PreserveSig] int OnStateChanged(int newState);
         [PreserveSig] int OnSessionDisconnected(int disconnectReason);
     }
 
     /// <summary>Implemented by the managed <see cref="EndpointNotificationClient"/> CCW,
-    /// registered on the device enumerator.</summary>
+    /// registered on the device enumerator. SDK: mmdeviceapi.h:273 (IID), vtable :277-299.</summary>
     [ComImport, Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMMNotificationClient
     {
@@ -325,25 +340,8 @@ internal static class CoreAudioInterop
                         {
                             if (control.GetState(out var state) != SOk)
                                 return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, true, null, null, null);
-                            (double? Level, bool? Mute)? volume = null;
-                            if (TryParseSessionGuid(sessionGuidText, out var sessionGuid))
-                            {
-                                var guid = sessionGuid;
-                                if (manager.GetSimpleAudioVolume(ref guid, 0, out var simpleVolume) == SOk && simpleVolume is not null)
-                                {
-                                    try
-                                    {
-                                        if (simpleVolume.GetMasterVolume(out var level) == SOk && simpleVolume.GetMute(out var mute) == SOk)
-                                            volume = ((double)level, mute);
-                                    }
-                                    finally
-                                    {
-                                        Release(simpleVolume);
-                                    }
-                                }
-                            }
                             return new AudioSessionDiagnostics.AudioStateSnapshot(
-                                endpointName, true, volume?.Level, volume?.Mute, StateName(state));
+                                endpointName, true, ReadVolume(manager, control, sessionGuidText), ReadMute(manager, control, sessionGuidText), StateName(state));
                         }
                         finally
                         {
@@ -364,6 +362,84 @@ internal static class CoreAudioInterop
             {
                 Release(enumerator);
             }
+        }
+    }
+
+    /// <summary>
+    /// The session's volume (then mute) for the snapshot line. Review 01 F3: the preferred path
+    /// is a straight QI of the FOUND session control for <see cref="ISimpleAudioVolume"/> —
+    /// re-resolving by a GUID parsed out of the identifier can open a fresh EMPTY session when
+    /// the GUID matches no open session, a side effect a read-only diagnostics walk must not
+    /// have. The GUID fallback only runs with a control-derived GUID, which by construction
+    /// names the open session. Every failure degrades to a null field (rendered as "?").
+    /// </summary>
+    private static double? ReadVolume(IAudioSessionManager2 manager, IAudioSessionControl control, string? sessionGuidText)
+    {
+        try
+        {
+            var viaQI = (ISimpleAudioVolume)control;
+            try
+            {
+                return viaQI.GetMasterVolume(out var level) == SOk ? level : null;
+            }
+            finally
+            {
+                Release(viaQI);
+            }
+        }
+        catch (InvalidCastException)
+        {
+            // The control does not expose the volume interface: fall back to the manager, with
+            // the session's own GUID.
+            if (!TryParseSessionGuid(sessionGuidText, out var sessionGuid)) return null;
+            var guid = sessionGuid;
+            if (manager.GetSimpleAudioVolume(ref guid, 0, out var simpleVolume) != SOk || simpleVolume is null) return null;
+            try
+            {
+                return simpleVolume.GetMasterVolume(out var level) == SOk ? level : null;
+            }
+            finally
+            {
+                Release(simpleVolume);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool? ReadMute(IAudioSessionManager2 manager, IAudioSessionControl control, string? sessionGuidText)
+    {
+        try
+        {
+            var viaQI = (ISimpleAudioVolume)control;
+            try
+            {
+                return viaQI.GetMute(out var mute) == SOk ? mute : null;
+            }
+            finally
+            {
+                Release(viaQI);
+            }
+        }
+        catch (InvalidCastException)
+        {
+            if (!TryParseSessionGuid(sessionGuidText, out var sessionGuid)) return null;
+            var guid = sessionGuid;
+            if (manager.GetSimpleAudioVolume(ref guid, 0, out var simpleVolume) != SOk || simpleVolume is null) return null;
+            try
+            {
+                return simpleVolume.GetMute(out var mute) == SOk ? mute : null;
+            }
+            finally
+            {
+                Release(simpleVolume);
+            }
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -469,6 +545,13 @@ internal static class CoreAudioInterop
             Safe(() => onChange(AudioSessionDiagnostics.FormatVolumeChange(newVolume, newMute)));
             return SOk;
         }
+
+        // Sustain-only slots (audiopolicy.h:172, :181): channel-volume and grouping-param changes
+        // are not diagnostics the F5 hypotheses need, but the slots MUST exist — WASAPI calls them
+        // by position, and a missing slot sends the call past the CCW's vtable.
+        public int OnChannelVolumeChanged(int channelCount, IntPtr newChannelVolumeArray, int changedChannel, ref Guid eventContext) => SOk;
+
+        public int OnGroupingParamChanged(ref Guid newGroupingParam, ref Guid eventContext) => SOk;
 
         public int OnStateChanged(int newState)
         {

@@ -212,6 +212,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         keyboard.SetSettings(settings);
 
         var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
+        // F5: the Core Audio diagnostics pair must exist before the first click can use it
+        // (review 01 F1) — idempotent, no COM here, and pinned by the composition test.
+        AudioSessionDiagnostics.EnsureProductionWiring();
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
 
         _keyboardSnapshot = CaptureSnapshot(settings);

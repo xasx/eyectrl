@@ -80,8 +80,12 @@ internal static class AudioSessionDiagnostics
     }
 
     private static readonly object Gate = new();
-    private static IAudioStateReader? _reader;
-    private static IAudioChangeListener? _listener;
+    // Production wiring (review 01 F1): the Core Audio pair is the DEFAULT — constructed when
+    // this type is first touched and re-installable via EnsureProductionWiring. Tests replace
+    // both through ConfigureForTesting; the KeyboardCoordinator calls EnsureProductionWiring
+    // where it builds the sound service, and a composition test pins that call.
+    private static IAudioStateReader? _reader = new CoreAudioInterop.CoreAudioStateReader();
+    private static IAudioChangeListener? _listener = new CoreAudioInterop.CoreAudioChangeObserver();
     private static Action<string>? _changeLine;
     private static int _firstClickDone;
     private static bool _endpointEventsAttached, _sessionEventsAttached;
@@ -90,6 +94,14 @@ internal static class AudioSessionDiagnostics
     /// <summary>Test seam: every diagnostics line (snapshots and change events) is captured here
     /// instead of Serilog when set.</summary>
     internal static Action<string>? LineSink { get; set; }
+
+    /// <summary>
+    /// Test seam for WHERE the Core Audio work runs. Production (null) queues onto a background
+    /// MTA thread-pool thread — review 01 F4: cold COM costs ~105 ms, and no Core Audio call may
+    /// ever run synchronously inside a key fire or a window transition. Tests install an inline
+    /// runner for determinism.
+    /// </summary>
+    internal static Action<Action>? WorkScheduler { get; set; }
 
     /// <summary>Test wiring; production uses the Core Audio implementations (CoreAudioInterop).</summary>
     internal static void ConfigureForTesting(IAudioStateReader? reader, IAudioChangeListener? listener)
@@ -106,29 +118,91 @@ internal static class AudioSessionDiagnostics
         }
     }
 
-    /// <summary>Every click funnels here; the once-guard keeps the cost to one Interlocked read
-    /// after the first click — never COM on the typing path.</summary>
+    /// <summary>Production composition (KeyboardCoordinator.LoadKeyboard): restore the Core Audio
+    /// pair if tests (or a future dispose path) left it unset. Idempotent, cheap, no COM here —
+    /// constructing the reader/observer does not touch WASAPI.</summary>
+    public static void EnsureProductionWiring()
+    {
+        lock (Gate)
+        {
+            _reader ??= new CoreAudioInterop.CoreAudioStateReader();
+            _listener ??= new CoreAudioInterop.CoreAudioChangeObserver();
+        }
+    }
+
+    /// <summary>Test accessor for the composition pin: true iff the REAL Core Audio pair is wired.</summary>
+    internal static bool ProductionWired =>
+        _reader is CoreAudioInterop.CoreAudioStateReader && _listener is CoreAudioInterop.CoreAudioChangeObserver;
+
+    /// <summary>The queued unit of the first click: one snapshot, then event registration.</summary>
+    private static void FirstClickWork()
+    {
+        LogSnapshot();
+        TryRegisterChangeEvents();
+    }
+
+    /// <summary>Every click funnels here; the once-guard keeps the synchronous cost to one
+    /// Interlocked read — the COM work itself is queued off the typing path (review 01 F4:
+    /// a cold first read measures ~105 ms and must never delay a key).</summary>
     public static void OnClickAttempted()
     {
         if (Interlocked.CompareExchange(ref _firstClickDone, 1, 0) != 0) return;
-        LogSnapshot();
-        TryRegisterChangeEvents();
+        RunOffTypingPath(FirstClickWork);
     }
 
     /// <summary>
     /// A real keyboard show/hide after the first click: a baseline snapshot (boundary state of
     /// the typing session) plus a retry of any registration that is still missing. A no-op
-    /// before the first click — nothing to baseline yet, and COM stays off the pre-click path.
+    /// before the first click — nothing to baseline yet. The work is queued off the typing path,
+    /// exactly like the first-click work.
     /// </summary>
     public static void OnKeyboardTransition()
     {
         if (Volatile.Read(ref _firstClickDone) == 0) return;
-        LogSnapshot();
-        lock (Gate)
+        RunOffTypingPath(() =>
         {
-            if (_endpointEventsAttached && _sessionEventsAttached) return;
+            LogSnapshot();
+            lock (Gate)
+            {
+                if (_endpointEventsAttached && _sessionEventsAttached) return;
+            }
+            TryRegisterChangeEvents();
+        });
+    }
+
+    /// <summary>Production runs the diagnostics work on an MTA thread-pool thread (COM is happy
+    /// there, the UI thread never waits); the test scheduler keeps the seam synchronous. Both
+    /// counters let tests drain the queue before they reset the statics — a pool-thread work
+    /// item that lands inside a later test would bump THAT test's reader (review 01 fixup:
+    /// observed as a full-suite-only flake in Transitions_BeforeAnyClick_DoNothing).</summary>
+    internal static int QueuedWorkScheduled => Volatile.Read(ref _queuedWorkScheduled);
+    internal static int QueuedWorkCompleted => Volatile.Read(ref _queuedWorkCompleted);
+    private static int _queuedWorkScheduled, _queuedWorkCompleted;
+
+    private static void RunOffTypingPath(Action work)
+    {
+        void Run()
+        {
+            try
+            {
+                work();
+            }
+            catch
+            {
+                // The queued work is fully guarded internally; this is the last-resort net so a
+                // thread-pool thread can never surface an unhandled exception into the process.
+            }
+            Interlocked.Increment(ref _queuedWorkCompleted);
         }
-        TryRegisterChangeEvents();
+
+        Interlocked.Increment(ref _queuedWorkScheduled);
+        var scheduler = WorkScheduler;
+        if (scheduler is not null)
+        {
+            scheduler(Run);
+            return;
+        }
+        ThreadPool.QueueUserWorkItem(_ => Run());
     }
 
     private static void TryRegisterChangeEvents()
@@ -154,8 +228,13 @@ internal static class AudioSessionDiagnostics
     {
         try
         {
-            var snapshot = _reader?.Read();
-            Emit(snapshot?.FormatLine() ?? "Keyboard audio: state unavailable (Core Audio read failed)");
+            var reader = _reader;
+            if (reader is null)
+            {
+                Emit("Keyboard audio: diagnostics not configured (no reader wired)");
+                return;
+            }
+            Emit(reader.Read()?.FormatLine() ?? "Keyboard audio: state unavailable (Core Audio read failed)");
         }
         catch (Exception ex)
         {

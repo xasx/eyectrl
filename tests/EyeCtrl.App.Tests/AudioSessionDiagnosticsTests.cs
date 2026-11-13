@@ -82,12 +82,18 @@ public class AudioSessionDiagnosticsTests
         var listener = new FakeListener();
         AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
         AudioSessionDiagnostics.LineSink = Lines.Add;
+        AudioSessionDiagnostics.WorkScheduler = a => a(); // deterministic: inline, like the old sync path
         return (reader, listener);
     }
 
     private static void ResetStatics()
     {
+        // Drain the queue first: a pool-thread work item that lands after this reset would run
+        // against the NEXT test's reader. Bounded wait — the work itself is ms-fast.
+        var scheduled = AudioSessionDiagnostics.QueuedWorkScheduled;
+        for (var i = 0; i < 250 && AudioSessionDiagnostics.QueuedWorkCompleted < scheduled; i++) Thread.Sleep(20);
         AudioSessionDiagnostics.LineSink = null;
+        AudioSessionDiagnostics.WorkScheduler = null;
         AudioSessionDiagnostics.ConfigureForTesting(null, null);
         Lines.Clear();
     }
@@ -206,6 +212,7 @@ public class AudioSessionDiagnosticsTests
         var reader = new FakeReader();
         var listener = new FakeListener { RegisterResult = false };
         AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        AudioSessionDiagnostics.WorkScheduler = a => a(); // deterministic: inline
         Lines.Clear();
         AudioSessionDiagnostics.LineSink = Lines.Add;
         try
@@ -248,6 +255,7 @@ public class AudioSessionDiagnosticsTests
         var listener = new ThrowingListener();
         AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
         AudioSessionDiagnostics.LineSink = Lines.Add;
+        AudioSessionDiagnostics.WorkScheduler = a => a(); // deterministic: inline
         try
         {
             var lines2 = new List<string>();
@@ -273,17 +281,63 @@ public class AudioSessionDiagnosticsTests
     }
 
     [Fact]
-    public void Unconfigured_DoesNothing()
+    public void EnsureProductionWiring_RestoresTheCoreAudioPair_AfterTestsUnsetIt()
     {
-        // Production's first seconds: nothing wired yet — a click must not blow up on a null reader.
+        // Review 01 F1 (inverted — the old Unconfigured_DoesNothing pinned the broken state):
+        // production must NEVER run unwired. KeyboardCoordinator.LoadKeyboard calls
+        // EnsureProductionWiring before it builds the sound service; this is that call's contract.
         AudioSessionDiagnostics.ConfigureForTesting(null, null);
+        AudioSessionDiagnostics.WorkScheduler = a => a(); // deterministic: inline
         Lines.Clear();
         AudioSessionDiagnostics.LineSink = Lines.Add;
         try
         {
-            Check.ThatCode(() => AudioSessionDiagnostics.OnClickAttempted()).DoesNotThrow();
-            // The reader was absent → the state-unavailable line still reported honestly.
-            Check.That(Lines).ContainsExactly("Keyboard audio: state unavailable (Core Audio read failed)");
+            // Unset and unwired: the state line must say so honestly.
+            AudioSessionDiagnostics.OnClickAttempted();
+            Check.That(Lines).ContainsExactly("Keyboard audio: diagnostics not configured (no reader wired)");
+
+            AudioSessionDiagnostics.EnsureProductionWiring();
+            Check.WithCustomMessage(
+                    "EnsureProductionWiring must install the REAL Core Audio reader and observer — "
+                    + "production without them logs 'not configured' forever and registers nothing")
+                .That(AudioSessionDiagnostics.ProductionWired).IsTrue();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void PlayKeyClick_DoesNotInvokeTheReaderSynchronously()
+    {
+        // Review 01 F4: cold COM measured ~105 ms on the first read; the first click may only
+        // flip the once-flag and QUEUE the work (background MTA thread in production).
+        var reader = new FakeReader();
+        var listener = new FakeListener();
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        Lines.Clear();
+        AudioSessionDiagnostics.LineSink = Lines.Add;
+        AudioSessionDiagnostics.WorkScheduler = null; // production scheduling: background MTA
+        try
+        {
+            var player = new AlwaysTruePlayer();
+            var svc = new KeyboardSoundService(new KeyboardSettings(), "irrelevant.wav", _ => player)
+            {
+                DiagnosticsLineSink = _ => { },
+            };
+
+            svc.PlayKeyClick();
+            Check.WithCustomMessage(
+                    "the first click ran Core Audio work synchronously — a cold read costs ~100 ms "
+                    + "and must never sit in front of a key; the click only flips the once-flag")
+                .That(reader.Reads).IsEqualTo(0);
+
+            // The queued work still completes on the pool thread: wait for BOTH halves of
+            // FirstClickWork (snapshot + registration) before the finally resets the statics,
+            // or the in-flight work lands inside a later test.
+            for (var i = 0; i < 150 && (reader.Reads == 0 || listener.RegisterCalls == 0); i++) Thread.Sleep(20);
+            Check.That(reader.Reads).IsEqualTo(1);
+            Check.That(listener.RegisterCalls).IsEqualTo(1);
+            Check.That(Lines).HasSize(1);
+            Check.That(Lines[0]).Contains("Keyboard audio: endpoint=");
         }
         finally { ResetStatics(); }
     }
@@ -337,5 +391,84 @@ public class AudioSessionDiagnosticsTests
     {
         public int Calls;
         public bool Play() { Calls++; return true; }
+    }
+}
+
+/// <summary>
+/// Review 01 F2's pins: every COM interface's IID must equal the Windows SDK header value, and
+/// every callback/vtable interface must declare its methods in exact header order. A wrong IID
+/// makes the OS answer E_NOINTERFACE (the instrument silently never runs); a wrong order or a
+/// dropped slot makes WASAPI call past the CCW's vtable — an access violation mid-typing.
+/// Each expected value cites its SDK header and line (Windows Kits 10.0.26100.0).
+/// No COM is touched: these are pure metadata assertions.
+/// </summary>
+public class CoreAudioInteropPinTests
+{
+    private static void PinIid<T>(string expected, string citation) =>
+        Check.WithCustomMessage($"the IID of {typeof(T).Name} drifted from the SDK ({citation})")
+            .That(typeof(T).GUID.ToString("D")).IsEqualTo(expected.ToLowerInvariant());
+
+    [Fact]
+    public void TheIids_AreTheSdkHeaderValues()
+    {
+        // mmdeviceapi.h
+        PinIid<CoreAudioInterop.IMMDeviceEnumerator>("A95664D2-9614-4F35-A746-DE8DB63617E6", "mmdeviceapi.h:757");
+        PinIid<CoreAudioInterop.IMMDevice>("D666063F-1587-4E43-81F1-B948E807363F", "mmdeviceapi.h:427");
+        PinIid<CoreAudioInterop.IMMNotificationClient>("7991EEC9-7E89-4D85-8390-6C703CEC60C0", "mmdeviceapi.h:273");
+        PinIid<CoreAudioInterop.IPropertyStore>("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99", "propsys.h:516");
+        // audiopolicy.h
+        PinIid<CoreAudioInterop.IAudioSessionManager2>("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F", "audiopolicy.h:1155");
+        PinIid<CoreAudioInterop.IAudioSessionEnumerator>("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8", "audiopolicy.h:1058");
+        PinIid<CoreAudioInterop.IAudioSessionControl>("F4B1A599-7266-4319-A8CA-E70ACB11E8CD", "audiopolicy.h:337");
+        PinIid<CoreAudioInterop.IAudioSessionControl2>("bfb7ff88-7239-4fc9-8fa2-07c950be9c6d", "audiopolicy.h:545");
+        PinIid<CoreAudioInterop.IAudioSessionEvents>("24918ACC-64B3-37C1-8CA9-74A66E9957A8", "audiopolicy.h:151");
+        // Audioclient.h
+        PinIid<CoreAudioInterop.ISimpleAudioVolume>("87CE5498-68D6-44E5-9215-6DA47EF883D8", "Audioclient.h:1642");
+        PinIid<CoreAudioInterop.MMDeviceEnumeratorComObject>("BCDE0395-E52F-467C-8E3D-C4579291692E", "mmdeviceapi.h:1541 (CLSID)");
+    }
+
+    private static void PinOrder<T>(string[] expected, string citation) =>
+        Check.WithCustomMessage($"the vtable order of {typeof(T).Name} drifted from the SDK ({citation}) — "
+            + "a shifted slot makes WASAPI call the wrong managed method or past the vtable entirely")
+            .That(typeof(T).GetMethods().Select(m => m.Name).ToArray())
+            .ContainsExactly(expected);
+
+    [Fact]
+    public void TheCallbackVtables_AreInSdkHeaderOrder()
+    {
+        // audiopolicy.h:155-190 — the full seven-slot order, OnChannelVolumeChanged and
+        // OnGroupingParamChanged included (the two slots whose absence was review 01 F2).
+        PinOrder<CoreAudioInterop.IAudioSessionEvents>(
+            ["OnDisplayNameChanged", "OnIconPathChanged", "OnSimpleVolumeChanged",
+             "OnChannelVolumeChanged", "OnGroupingParamChanged", "OnStateChanged", "OnSessionDisconnected"],
+            "audiopolicy.h:155-190");
+        // mmdeviceapi.h:277-299.
+        PinOrder<CoreAudioInterop.IMMNotificationClient>(
+            ["OnDeviceStateChanged", "OnDeviceAdded", "OnDeviceRemoved", "OnDefaultDeviceChanged", "OnPropertyValueChanged"],
+            "mmdeviceapi.h:277-299");
+        // audiopolicy.h:337+ (control) + :549-563 (control2 tail).
+        PinOrder<CoreAudioInterop.IAudioSessionControl2>(
+            ["GetState", "GetDisplayName", "SetDisplayName", "GetIconPath", "SetIconPath",
+             "GetGroupingParam", "SetGroupingParam", "RegisterAudioSessionNotification",
+             "UnregisterAudioSessionNotification", "GetSessionIdentifier", "GetSessionInstanceIdentifier",
+             "GetProcessId", "IsSystemSoundsSession", "SetDuckingPreference"],
+            "audiopolicy.h:337-563");
+        // Audioclient.h:1646-1660.
+        PinOrder<CoreAudioInterop.ISimpleAudioVolume>(
+            ["SetMasterVolume", "GetMasterVolume", "SetMute", "GetMute"],
+            "Audioclient.h:1646-1660");
+        // mmdeviceapi.h:431-451.
+        PinOrder<CoreAudioInterop.IMMDevice>(
+            ["Activate", "OpenPropertyStore", "GetId", "GetState"],
+            "mmdeviceapi.h:431-451");
+        // mmdeviceapi.h:761-787.
+        PinOrder<CoreAudioInterop.IMMDeviceEnumerator>(
+            ["EnumAudioEndpoints", "GetDefaultAudioEndpoint", "GetDevice",
+             "RegisterEndpointNotificationCallback", "UnregisterEndpointNotificationCallback"],
+            "mmdeviceapi.h:761-787");
+        // audiopolicy.h:1062-1065.
+        PinOrder<CoreAudioInterop.IAudioSessionEnumerator>(
+            ["GetCount", "GetSession"],
+            "audiopolicy.h:1062-1065");
     }
 }

@@ -7,33 +7,82 @@ using NFluent;
 using Xunit;
 
 /// <summary>
+/// The exclusive collection for the F5 click-sound diagnostics tests: every attempted click
+/// funnels into AudioSessionDiagnostics' app-lifetime once-guard (a static), so the test classes
+/// that click — the latch tests, the service counters and the audio-diagnostics tests — must
+/// never interleave. DisableParallelization is also what the
+/// WpfApplicationCreatorIsolationTests scan demands of any file that creates the WPF Application.
+/// </summary>
+[CollectionDefinition("KeyboardAudioDiagnostics", DisableParallelization = true)]
+public class KeyboardAudioDiagnosticsCollection
+{
+}
+
+/// <summary>
+/// Review 04 T4: the COLLECTION-WIDE scheduler for every test in this collection that can queue
+/// diagnostics work. The constructor parks the work (the real thread pool is never reached from
+/// a test) and hands the test a queue it can inspect and run; Dispose completes whatever the
+/// test left parked (so the schedule/complete counters stay balanced) and requires a clean drain
+/// before the statics reset — loud, per review 02 R6. No queued item can ever land inside
+/// another test's window (the fixup-01/03 flake family).
+/// </summary>
+public abstract class F5AudioDiagnosticsTestBase : IDisposable
+{
+    private readonly Queue<Action> _parked = new();
+
+    protected F5AudioDiagnosticsTestBase()
+    {
+        AudioSessionDiagnostics.ConfigureForTesting(null, null); // drains (trivially at ctor time)
+        AudioSessionDiagnostics.WorkScheduler = _parked.Enqueue; // park: NEVER the real pool
+    }
+
+    /// <summary>The work this test parked but has not run yet (inspectable per test).</summary>
+    protected Queue<Action> Parked => _parked;
+
+    /// <summary>Runs every parked diagnostics work item in FIFO order — the "background thread
+    /// did its work now" step, without threads.</summary>
+    protected void RunParkedWork()
+    {
+        while (_parked.Count > 0) _parked.Dequeue().Invoke();
+    }
+
+    /// <summary>Deterministic cleanup: run everything the test parked, then reset the statics.
+    /// (Under the park scheduler this never waits — everything completes at Invoke.)</summary>
+    protected void ResetStatics()
+    {
+        RunParkedWork();
+        AudioSessionDiagnostics.WorkScheduler = null;
+        AudioSessionDiagnostics.ConfigureForTesting(null, null);
+    }
+
+    public void Dispose()
+    {
+        // Complete whatever the test left parked (deterministic — the counters stay balanced),
+        // then require a clean drain (loud, review 02 R6) before the statics reset.
+        RunParkedWork();
+        Check.That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsTrue();
+        AudioSessionDiagnostics.WorkScheduler = null;
+        AudioSessionDiagnostics.ConfigureForTesting(null, null);
+    }
+}
+
+/// <summary>
 /// F5's diagnostics half, all behind the <see cref="AudioSessionDiagnostics"/> seams (no real
-/// COM, no real audio): the snapshot and change line formats (word-for-word, culture-invariant),
-/// the once-per-app-lifetime first-click guard, the show/hide baseline snapshots, the
-/// registration retry for a session that winmm has not created yet, and — the owner-safety
-/// rule — that a Core Audio failure can never throw into the typing path and never blocks a
-/// click. A source pin holds the coordinator's forwarding of the real transitions in place.
-/// <para>
-/// Runs in the exclusive "KeyboardAudioDiagnostics" collection (see
-/// <see cref="KeyboardAudioDiagnosticsCollection"/> for why).
-/// </para>
-/// <para>
-/// Fixup 03: every test uses the PARK scheduler seam — the diagnostics work never runs by
-/// itself; the test runs it explicitly (<c>RunParkedWork</c>). That makes timing races
-/// impossible (the fixup-01/02 flake family came from pool-scheduled items landing inside other
-/// tests' windows), and line-content assertions stay on the dedicated format tests instead of a
-/// shared capture.
-/// </para>
+/// COM, no real audio — see <see cref="TheObserverAcquiresTheEnumeratorLazily"/> for the one
+/// deliberate in-process exception): the once-per-app-lifetime first-click guard, the show/hide
+/// baseline snapshots, the registration retry for a session that winmm has not created yet, and
+/// — the owner-safety rule — that a Core Audio failure can never throw into the typing path and
+/// never blocks a click. Source pins hold the coordinator forwarding and the LoadKeyboard wiring
+/// in place. Every test inherits the collection-wide park scheduler
+/// (<see cref="F5AudioDiagnosticsTestBase"/>).
 /// </summary>
 [Collection("KeyboardAudioDiagnostics")]
-public class AudioSessionDiagnosticsTests
+public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
 {
     private sealed class FakeReader : AudioSessionDiagnostics.IAudioStateReader
     {
         public int Reads;
         public bool ThrowOnRead;
-        public AudioSessionDiagnostics.AudioStateSnapshot? Next { get; set; } =
-            new("Speakers", true, 0.8, false, "Active");
 
         public AudioSessionDiagnostics.AudioStateSnapshot? Read()
         {
@@ -41,6 +90,9 @@ public class AudioSessionDiagnosticsTests
             if (ThrowOnRead) throw new InvalidOperationException("com gone");
             return Next;
         }
+
+        public AudioSessionDiagnostics.AudioStateSnapshot? Next { get; set; } =
+            new("Speakers", true, 0.8, false, "Active");
     }
 
     private sealed class FakeListener : AudioSessionDiagnostics.IAudioChangeListener
@@ -66,61 +118,12 @@ public class AudioSessionDiagnosticsTests
         public void Shutdown() => ShutdownCalls++;
     }
 
-    private sealed class BlockingReader : AudioSessionDiagnostics.IAudioStateReader
-    {
-        private readonly ManualResetEventSlim _release;
-        public BlockingReader(ManualResetEventSlim release) => _release = release;
-        public AudioSessionDiagnostics.AudioStateSnapshot? Read()
-        {
-            _release.Wait(30_000); // a hung AudioSrv RPC, simulated (released by the test)
-            return null;
-        }
-    }
-
-    private sealed class BlockingListener : AudioSessionDiagnostics.IAudioChangeListener
-    {
-        private readonly ManualResetEventSlim _release;
-        public BlockingListener(ManualResetEventSlim release) => _release = release;
-        public bool TryRegister(Action<string> onChangeLine)
-        {
-            _release.Wait(30_000);
-            return true;
-        }
-
-        public bool TryRegisterSessionEvents()
-        {
-            _release.Wait(30_000);
-            return true;
-        }
-
-        public void Shutdown() => _release.Wait(30_000);
-    }
-
-    private static (FakeReader Reader, FakeListener Listener, Queue<Action> Parked) Configure()
+    private static (FakeReader Reader, FakeListener Listener) Configure()
     {
         var reader = new FakeReader();
         var listener = new FakeListener();
-        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
-        // Park scheduler: the diagnostics work never runs by itself. Tests run it explicitly via
-        // RunParkedWork — deterministic, no threads, no stragglers (review 03 fixup).
-        var parked = new Queue<Action>();
-        AudioSessionDiagnostics.WorkScheduler = parked.Enqueue;
-        return (reader, listener, parked);
-    }
-
-    /// <summary>Runs every parked diagnostics work item in FIFO order (the "background thread
-    /// did its work" step of each test, without threads).</summary>
-    private static void RunParkedWork(Queue<Action> parked)
-    {
-        while (parked.Count > 0) parked.Dequeue().Invoke();
-    }
-
-    private static void ResetStatics()
-    {
-        // No drain needed under the park scheduler (nothing runs on the pool), but keep the
-        // counters consistent for the next test.
-        AudioSessionDiagnostics.WorkScheduler = null;
-        AudioSessionDiagnostics.ConfigureForTesting(null, null);
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener); // drains (trivially under park)
+        return (reader, listener);
     }
 
     // ---- formats ----
@@ -179,52 +182,49 @@ public class AudioSessionDiagnosticsTests
     [Fact]
     public void FirstClick_SnapshotsOnce_AndRegistersOnce_RegardlessOfHowManyClicksFollow()
     {
-        var (reader, listener, parked) = Configure();
+        var (reader, listener) = Configure();
         AudioSessionDiagnostics.OnClickAttempted();
-        RunParkedWork(parked);
+        RunParkedWork();
         AudioSessionDiagnostics.OnClickAttempted();
         AudioSessionDiagnostics.OnClickAttempted();
-        RunParkedWork(parked);
+        RunParkedWork();
 
         Check.That(reader.Reads).IsEqualTo(1);
         Check.That(listener.RegisterCalls).IsEqualTo(1);
         Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
-        ResetStatics();
     }
 
     [Fact]
     public void Transitions_BeforeAnyClick_DoNothing()
     {
-        var (reader, listener, parked) = Configure();
+        var (reader, listener) = Configure();
         AudioSessionDiagnostics.OnKeyboardTransition();
         AudioSessionDiagnostics.OnKeyboardTransition();
-        RunParkedWork(parked);
+        RunParkedWork(); // nothing was queued — this must be a no-op
 
         // Counter-based (review 03 fixup: parallel production emitters made a shared log-line
         // capture racy): a transition before the first click must touch NO reader and NO listener.
         Check.That(reader.Reads).IsEqualTo(0);
         Check.That(listener.RegisterCalls).IsEqualTo(0);
         Check.That(AudioSessionDiagnostics.FailureLogged).IsFalse();
-        ResetStatics();
     }
 
     [Fact]
     public void Transitions_AfterFirstClick_Snapshot_ButNeverReRegisterCompleteAttachments()
     {
-        var (reader, listener, parked) = Configure();
+        var (reader, listener) = Configure();
         AudioSessionDiagnostics.OnClickAttempted();
-        RunParkedWork(parked);
+        RunParkedWork();
         var readsAfterFirstClick = reader.Reads;
 
         AudioSessionDiagnostics.OnKeyboardTransition();
-        RunParkedWork(parked);
+        RunParkedWork();
         AudioSessionDiagnostics.OnKeyboardTransition();
-        RunParkedWork(parked);
+        RunParkedWork();
 
         Check.That(reader.Reads).IsEqualTo(readsAfterFirstClick + 2); // two baselines
         Check.That(listener.RegisterCalls).IsEqualTo(1);
         Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
-        ResetStatics();
     }
 
     [Fact]
@@ -233,35 +233,31 @@ public class AudioSessionDiagnosticsTests
         var reader = new FakeReader();
         var listener = new FakeListener { RegisterResult = false };
         AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
-        var parked = new Queue<Action>();
-        AudioSessionDiagnostics.WorkScheduler = parked.Enqueue;
         AudioSessionDiagnostics.OnClickAttempted();
-        RunParkedWork(parked);
+        RunParkedWork();
         Check.That(listener.RegisterCalls).IsEqualTo(1);
 
         AudioSessionDiagnostics.OnKeyboardTransition();
-        RunParkedWork(parked);
+        RunParkedWork();
         Check.WithCustomMessage(
                 "an endpoint listener that failed to attach must be retried at the next real "
                 + "transition — registration is the only way change events ever fire")
             .That(listener.RegisterCalls).IsEqualTo(2);
-        ResetStatics();
     }
 
     [Fact]
     public void SessionEvents_RegistrationIsRetriedUntilItAttaches()
     {
-        var (reader, listener, parked) = Configure();
+        var (reader, listener) = Configure();
         listener.SessionResults = new Queue<bool>([false, false, true]);
         AudioSessionDiagnostics.OnClickAttempted(); // attach attempt 1: false (no session yet)
-        RunParkedWork(parked);
+        RunParkedWork();
         AudioSessionDiagnostics.OnKeyboardTransition(); // attempt 2: false (still none)
-        RunParkedWork(parked);
+        RunParkedWork();
         AudioSessionDiagnostics.OnKeyboardTransition(); // attempt 3: true (session appeared)
-        RunParkedWork(parked);
+        RunParkedWork();
 
         Check.That(listener.SessionRegisterCalls).IsEqualTo(3);
-        ResetStatics();
     }
 
     // ---- the owner-safety rule: a COM failure can never throw into the click path ----
@@ -272,8 +268,6 @@ public class AudioSessionDiagnosticsTests
         var reader = new FakeReader { ThrowOnRead = true };
         var listener = new ThrowingListener();
         AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
-        var parked = new Queue<Action>();
-        AudioSessionDiagnostics.WorkScheduler = parked.Enqueue;
         try
         {
             var player = new AlwaysTruePlayer();
@@ -282,14 +276,13 @@ public class AudioSessionDiagnosticsTests
             Check.ThatCode(() => svc.PlayKeyClick()).DoesNotThrow();
             Check.ThatCode(() => svc.PlayKeyClick()).DoesNotThrow();
             Check.That(player.Calls).IsEqualTo(2); // the click path never learned about the COM mess
-            Check.That(parked).HasSize(1); // the once-guard parks exactly ONE diagnostics work item
 
-            // Run the parked diagnostics work NOW: the failure report must be latched to one.
-            RunParkedWork(parked);
+            // Run the parked diagnostics work: the failure report must be latched to one, and a
+            // late transition after the latch must not report again.
+            RunParkedWork();
             Check.That(AudioSessionDiagnostics.FailureLogged).IsTrue();
-
             AudioSessionDiagnostics.OnKeyboardTransition();
-            RunParkedWork(parked);
+            RunParkedWork();
             Check.That(AudioSessionDiagnostics.FailureLogged).IsTrue(); // latch held
         }
         finally { ResetStatics(); }
@@ -302,9 +295,9 @@ public class AudioSessionDiagnosticsTests
         // production must NEVER run unwired. KeyboardCoordinator.LoadKeyboard calls
         // EnsureProductionWiring before it builds the sound service; this is that call's contract.
         // The unwired first click must not throw (the observer-side line is emitted honestly).
+        // The parked work is completed only AFTER the pair is reset again, so no real COM runs
+        // in the testhost (review 04 T5/T4).
         AudioSessionDiagnostics.ConfigureForTesting(null, null);
-        var parked = new Queue<Action>();
-        AudioSessionDiagnostics.WorkScheduler = parked.Enqueue;
         try
         {
             var player = new AlwaysTruePlayer();
@@ -312,13 +305,17 @@ public class AudioSessionDiagnosticsTests
 
             Check.ThatCode(() => svc.PlayKeyClick()).DoesNotThrow();
             Check.That(player.Calls).IsEqualTo(1); // the unwired state never blocks a click
-            RunParkedWork(parked); // the diagnostics work runs honestly against "not configured"
+            RunParkedWork(); // the parked work runs against "unwired" — honest, COM-free
 
             AudioSessionDiagnostics.EnsureProductionWiring();
             Check.WithCustomMessage(
                     "EnsureProductionWiring must install the REAL Core Audio reader and observer — "
                     + "production without them would never read state or register listeners")
                 .That(AudioSessionDiagnostics.ProductionWired).IsTrue();
+
+            // Reset to unwired BEFORE the parked work runs: then the work emits the honest
+            // "not configured" line via Serilog instead of touching real Core Audio.
+            AudioSessionDiagnostics.ConfigureForTesting(null, null);
         }
         finally { ResetStatics(); }
     }
@@ -327,14 +324,11 @@ public class AudioSessionDiagnosticsTests
     public void PlayKeyClick_DoesNotInvokeTheReaderSynchronously()
     {
         // Review 01 F4: cold COM measured ~105 ms on the first read; the first click may only
-        // flip the once-flag and HAND the work to the scheduler. The parked scheduler makes the
+        // flip the once-flag and HAND the work to the scheduler. The park scheduler makes the
         // assertion deterministic: if the click ever ran the work on its own thread, the reader
-        // would fire without the park being released.
+        // would fire without the park being run.
         var reader = new FakeReader();
-        var listener = new FakeListener();
-        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
-        var parked = new Queue<Action>();
-        AudioSessionDiagnostics.WorkScheduler = parked.Enqueue;
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener: null);
         try
         {
             var player = new AlwaysTruePlayer();
@@ -348,10 +342,9 @@ public class AudioSessionDiagnosticsTests
             Check.WithCustomMessage(
                     "the click neither ran the work synchronously nor scheduled it — the diagnostics "
                     + "would never fire at all")
-                .That(parked).HasSize(1);
+                .That(Parked).HasSize(1);
 
-            // Releasing the park IS the background thread doing its work later.
-            RunParkedWork(parked);
+            RunParkedWork(); // the background thread doing its work, deterministically
             Check.That(reader.Reads).IsEqualTo(1);
         }
         finally { ResetStatics(); }
@@ -360,40 +353,20 @@ public class AudioSessionDiagnosticsTests
     [Fact]
     public void TheObserverAcquiresTheEnumeratorLazily_AndTheWiringNeverDoes()
     {
-        // Review 03 S1: the observer's MMDeviceEnumerator (CoCreate ~44 ms cold) must be acquired
-        // lazily on the WORKER (inside _comLock, at the first registration) — never in the
-        // constructor that EnsureProductionWiring touches on the UI thread, and never by the
-        // wiring call itself. Uses the real observer (read-only COM + an in-process registration
-        // that this test unregisters again); the creation counter is the seam.
-        var before = CoreAudioInterop.EnumeratorCreations;
+        // Review 04 T3: the S1 pin is PER INSTANCE — a fresh observer holds NO enumerator after
+        // construction and after wiring; the S1-eager mutant (field initializer) makes this true
+        // immediately, regardless of test order or what other tests created. No COM: the
+        // true-after-worker-run side is probe-proven on this PC (fixup 03's probe line).
         var observer = new CoreAudioInterop.CoreAudioChangeObserver();
-        Check.WithCustomMessage("constructing the observer acquired the shared enumerator — "
-                + "that CoCreate would run on the UI thread at startup")
-            .That(CoreAudioInterop.EnumeratorCreations).IsEqualTo(before);
+        Check.WithCustomMessage(
+                "the observer acquired the shared MMDeviceEnumerator in its CONSTRUCTOR — that "
+                + "CoCreate (~44 ms cold) would run on the UI thread at startup (review 03 S1)")
+            .That(observer.HasEnumerator).IsFalse();
 
-        // EnsureProductionWiring with the pair already wired: no acquisition, no throwaway pair.
+        // Wiring with the pair already configured must not give this INSTANCE an enumerator.
         AudioSessionDiagnostics.ConfigureForTesting(new FakeReader(), new FakeListener());
         AudioSessionDiagnostics.EnsureProductionWiring();
-        Check.That(CoreAudioInterop.EnumeratorCreations).IsEqualTo(before);
-
-        // The first worker registration CREATES the shared instance (unless an earlier worker
-        // read already did) and later uses are cache hits: the count may move by AT MOST one —
-        // never more, and never on the UI path (asserted above).
-        try
-        {
-            Check.ThatCode(() => observer.TryRegister(_ => { })).DoesNotThrow();
-            var afterTry = CoreAudioInterop.EnumeratorCreations;
-            Check.WithCustomMessage(
-                    "one worker registration moved the creation count by more than one — the shared "
-                    + "enumerator must be created at most once, ever")
-                .That(new[] { before, before + 1 }).Contains(afterTry);
-            observer.TryRegisterSessionEvents(); // may return false (probe-like: no own session)
-            Check.That(CoreAudioInterop.EnumeratorCreations).IsEqualTo(afterTry);
-        }
-        finally
-        {
-            observer.Shutdown(); // unregister the real in-process callback again
-        }
+        Check.That(observer.HasEnumerator).IsFalse();
     }
 
     [Fact]
@@ -401,23 +374,90 @@ public class AudioSessionDiagnosticsTests
     {
         // Review 03 S2 (mutant X2 survived): park a TRANSITION, shutdown, then release it — the
         // latch inside TransitionWork must suppress the late snapshot AND the registration retry.
-        var (reader, listener, parked) = Configure();
+        var (reader, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted();
+        RunParkedWork();
+        var readsAfterClick = reader.Reads;
+        AudioSessionDiagnostics.OnKeyboardTransition(); // parked transition
+        AudioSessionDiagnostics.Shutdown(); // latch
+
+        RunParkedWork(); // the late transition, running after the latch
+        Check.WithCustomMessage(
+                "a transition work item that runs after Shutdown logged or registered — the "
+                + "shutdown latch must silence late work (review 03 S2, mutant X2)")
+            .That(listener.RegisterCalls).IsEqualTo(1);
+        Check.That(reader.Reads).IsEqualTo(readsAfterClick);
+    }
+
+    [Fact]
+    public void QueuedWork_AfterShutdown_RegistersNothing_AndLogsNothing()
+    {
+        // Review 04 T2/X4: the FIRST-CLICK variant of the after-shutdown latch. The first click
+        // parks its work; the shutdown latch must silence that late work too — no snapshot read,
+        // no registration.
+        var (reader, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // parked first click: never run yet
+        AudioSessionDiagnostics.Shutdown(); // latch
+
+        RunParkedWork(); // the late first-click work, running after the latch
+        Check.WithCustomMessage(
+                "first-click work that runs after Shutdown read state or registered — the "
+                + "shutdown latch must silence late work (review 04 X4)")
+            .That(reader.Reads).IsEqualTo(0);
+        Check.That(listener.RegisterCalls).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void Shutdown_ForwardsToTheListener()
+    {
+        // Review 02 R3/R4: Shutdown is SIGNAL-AND-RETURN — it latches, hands the teardown to the
+        // pool, and returns immediately; this test waits for the pool-delivered call instead of
+        // assuming synchronous delivery (review 04: restored after the fixup-03 rework lost it).
+        var (reader, listener) = Configure();
+        AudioSessionDiagnostics.Shutdown();
+        var deadline = Environment.TickCount64 + 2000;
+        while (listener.ShutdownCalls == 0 && Environment.TickCount64 < deadline) Thread.Sleep(10);
+        Check.WithCustomMessage("Shutdown did not forward the teardown to the listener within 2 s")
+            .That(listener.ShutdownCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void BlockedCom_NeverBlocksTheUiThreadEntries()
+    {
+        // Review 02 R3 / review 04 T2 (mutant X3): a hung AudioSrv RPC must not freeze the UI
+        // thread. The listener blocks forever; EnsureProductionWiring is lock-free, the click
+        // only parks, and Shutdown is signal-and-return (the blocking teardown runs on the pool).
+        // Nothing on the test thread may wait behind them.
+        var release = new ManualResetEventSlim(false);
+        var blockingListener = new BlockingListener(release);
+        AudioSessionDiagnostics.ConfigureForTesting(new FakeReader(), blockingListener);
         try
         {
-            AudioSessionDiagnostics.OnClickAttempted(); // first click: work runs, registered
-            RunParkedWork(parked);
-            var readsAfterClick = reader.Reads;
-            AudioSessionDiagnostics.OnKeyboardTransition(); // parked transition
-            AudioSessionDiagnostics.Shutdown(); // latch
-
-            RunParkedWork(parked); // the late transition, running after the latch
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AudioSessionDiagnostics.EnsureProductionWiring();
+            AudioSessionDiagnostics.OnClickAttempted(); // parked — never runs the blocked listener here
+            AudioSessionDiagnostics.Shutdown(); // signal-and-return: the teardown blocks on the POOL
+            sw.Stop();
             Check.WithCustomMessage(
-                    "a transition work item that runs after Shutdown logged or registered — the "
-                    + "shutdown latch must silence late work (review 03 S2, mutant X2)")
-                .That(listener.RegisterCalls).IsEqualTo(1);
-            Check.That(reader.Reads).IsEqualTo(readsAfterClick);
+                    "a blocked diagnostics listener delayed the UI-thread entry points — a hung "
+                    + "AudioSrv RPC would freeze gaze control")
+                .That(sw.ElapsedMilliseconds).IsStrictlyLessThan(100);
+
+            sw.Restart();
+            AudioSessionDiagnostics.EnsureProductionWiring();
+            sw.Stop();
+            Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(100);
         }
-        finally { ResetStatics(); }
+        finally
+        {
+            // Unblock the listener, run the parked work (now fast — the block is released), and
+            // only then reset the statics (the drain-throwing ConfigureForTesting stays loud).
+            release.Set();
+            RunParkedWork();
+            AudioSessionDiagnostics.DrainQueuedWork();
+            AudioSessionDiagnostics.WorkScheduler = null;
+            AudioSessionDiagnostics.ConfigureForTesting(null, null);
+        }
     }
 
     [Fact]
@@ -425,19 +465,13 @@ public class AudioSessionDiagnosticsTests
     {
         // Review 02 R6: the drain must say whether it actually drained. An item parked by the
         // scheduler is scheduled but never completed — exactly the timeout case.
-        var (reader, listener, parked) = Configure();
-        try
-        {
-            Check.That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsTrue();
+        var (reader, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // parked: scheduled, never completed
+        Check.WithCustomMessage("a drain that gave up silently would hide the fixup-01 flake again")
+            .That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsFalse();
 
-            AudioSessionDiagnostics.OnClickAttempted(); // parked: scheduled, never completed
-            Check.WithCustomMessage("a drain that gave up silently would hide the fixup-01 flake again")
-                .That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsFalse();
-
-            RunParkedWork(parked); // complete it: the drain reports success again
-            Check.That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsTrue();
-        }
-        finally { ResetStatics(); }
+        RunParkedWork(); // complete it: the drain reports success again
+        Check.That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsTrue();
     }
 
     [Fact]
@@ -514,22 +548,26 @@ public class AudioSessionDiagnosticsTests
         public void Shutdown() { }
     }
 
+    private sealed class BlockingListener(ManualResetEventSlim release) : AudioSessionDiagnostics.IAudioChangeListener
+    {
+        public bool TryRegister(Action<string> onChangeLine)
+        {
+            release.Wait(30_000);
+            return true;
+        }
+
+        public bool TryRegisterSessionEvents()
+        {
+            release.Wait(30_000);
+            return true;
+        }
+
+        public void Shutdown() => release.Wait(30_000);
+    }
+
     private sealed class AlwaysTruePlayer : IClickSoundPlayer
     {
         public int Calls;
         public bool Play() { Calls++; return true; }
     }
-}
-
-/// <summary>
-/// The exclusive collection for the F5 click-sound diagnostics tests: every attempted click
-/// funnels into AudioSessionDiagnostics' app-lifetime once-guard (a static), so the three test
-/// classes that click — the latch tests, the service counters and the audio-diagnostics tests —
-/// must never interleave. DisableParallelization is also what the
-/// WpfApplicationCreatorIsolationTests scan demands of any file that creates the WPF
-/// Application (the window-forwarding test does).
-/// </summary>
-[CollectionDefinition("KeyboardAudioDiagnostics", DisableParallelization = true)]
-public class KeyboardAudioDiagnosticsCollection
-{
 }

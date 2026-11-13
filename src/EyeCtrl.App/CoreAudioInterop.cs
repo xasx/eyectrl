@@ -288,20 +288,13 @@ internal static class CoreAudioInterop
     /// A diagnostics path does not need eager release; the process exit cleans up.
     /// <para>
     /// The CoCreate costs ~44 ms cold (review 03 S1), so this must only be called from the
-    /// diagnostics worker — the observer acquires lazily inside its _comLock, and construction of
-    /// the reader/observer never touches it. <see cref="EnumeratorAcquisitions"/> exposes the call
-    /// count so tests can pin that contract.
+    /// diagnostics worker — the observer acquires lazily inside its _comLock (pinned per INSTANCE
+    /// via HasEnumerator), and construction of the reader/observer never touches it. The process
+    /// exit releases it.
     /// </para>
     /// </summary>
     private static readonly object EnumeratorLock = new();
     private static IMMDeviceEnumerator? _sharedEnumerator;
-    private static int _enumeratorCreations;
-
-    /// <summary>Test seam (fixup 03 S1): how often the process-wide instance was CREATED. The
-    /// first touch of the diagnostics type on the UI thread must leave this at its old value, and
-    /// the first worker registration must move it by exactly one; cache hits (reader reads,
-    /// session-events retries) do not count.</summary>
-    internal static int EnumeratorCreations => Volatile.Read(ref _enumeratorCreations);
 
     internal static IMMDeviceEnumerator AcquireSharedEnumerator()
     {
@@ -309,12 +302,7 @@ internal static class CoreAudioInterop
         if (existing is not null) return existing;
         lock (EnumeratorLock)
         {
-            if (_sharedEnumerator is null)
-            {
-                _sharedEnumerator = NewEnumerator();
-                Interlocked.Increment(ref _enumeratorCreations);
-            }
-            return _sharedEnumerator;
+            return _sharedEnumerator ??= NewEnumerator();
         }
     }
 
@@ -379,8 +367,11 @@ internal static class CoreAudioInterop
         // Fixup 03 S1: the enumerator is LAZY — its CoCreate costs ~44 ms cold and must run on the
         // worker (inside _comLock), never in this constructor (which the UI thread's
         // EnsureProductionWiring touches). Shutdown uses it only if a registration ever happened.
+        // Review 04 T3: HasEnumerator exposes the laziness per INSTANCE — construction and wiring
+        // must leave it null; only a worker registration fills it.
         private readonly object _comLock = new();
         private IMMDeviceEnumerator? _enumerator;
+        internal bool HasEnumerator => _enumerator is not null;
         private Action<string>? _onChange;
         private EndpointNotificationClient? _endpointClient;
         private IAudioSessionControl? _sessionControl;

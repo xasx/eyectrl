@@ -99,7 +99,6 @@ internal static class AudioSessionDiagnostics
     /// reported. One failure is reported for the app's lifetime; the latch keeps it at one
     /// (review 02's fail-once rule).</summary>
     internal static bool FailureLogged => Volatile.Read(ref _failureLogged) == 1;
-
     /// <summary>
     /// Test seam for WHERE the Core Audio work runs. Production (null) queues onto a background
     /// MTA thread-pool thread — review 01 F4: cold COM costs ~105 ms, and no Core Audio call may
@@ -108,9 +107,16 @@ internal static class AudioSessionDiagnostics
     /// </summary>
     internal static Action<Action>? WorkScheduler { get; set; }
 
-    /// <summary>Test wiring; production uses the Core Audio implementations (CoreAudioInterop).</summary>
+    /// <summary>Test wiring; production uses the Core Audio implementations (CoreAudioInterop).
+    /// Review 04 T4: DRAINS first and REFUSES to reconfigure while queued diagnostics work is in
+    /// flight — silently zeroing the counters under parked items resurrected the fixup-01 flake
+    /// family and made later drains time out. Tests run their parked work first (the collection
+    /// base class does it in Dispose), or this throws — loud, per R6.</summary>
     internal static void ConfigureForTesting(IAudioStateReader? reader, IAudioChangeListener? listener)
     {
+        if (!DrainQueuedWork())
+            throw new InvalidOperationException(
+                "queued F5 diagnostics work did not drain within 5 s; run the parked work before reconfiguring");
         lock (Gate)
         {
             _reader = reader;
@@ -121,8 +127,6 @@ internal static class AudioSessionDiagnostics
             _sessionEventsAttached = false;
             _failureLogged = 0;
             _shutDown = 0;
-            // Test hygiene: a parked-never-run item from a previous test must not make every
-            // later drain time out (review 03 fixup: TheDrain parks exactly such an item).
             _queuedWorkScheduled = 0;
             _queuedWorkCompleted = 0;
         }

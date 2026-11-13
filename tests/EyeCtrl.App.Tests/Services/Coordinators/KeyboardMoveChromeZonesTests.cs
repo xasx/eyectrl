@@ -136,6 +136,51 @@ public class KeyboardMoveChromeZonesTests
     }
 
     [StaFact]
+    public void ShownAfterInitialize_TheUnYieldStillRepublishes()
+    {
+        // Production order (review-01 F1): the coordinator initializes at app start with the
+        // keyboard HIDDEN; the hook is installed by the show's VM flip (ShowKeyboardMessage, after
+        // Show and PlaceForShow). Installing it only in OnInitialize would leave it uninstalled
+        // for the whole session - exactly the owner's bug - so this test must fail for that
+        // mutant while the rest of the class stays green.
+        var keyboard = NewShownKeyboard();
+        try
+        {
+            keyboard.SetScreenEdge("top");
+            keyboard.PlaceForShow(
+                SystemParameters.WorkArea, keyboard.ActualWidth, keyboard.ActualHeight);
+
+            using var rig = new CoordinatorRig(keyboard, visible: false);
+            rig.KeyboardVm.IsVisible = true;
+            Pump();
+            Check.That(rig.Last.HasValue).IsTrue();
+            var unYielded = rig.Last!.Value;
+
+            keyboard.SetToolbarOccupancy(true, "top", ToolbarExtentDip);
+            Pump();
+            keyboard.SetToolbarOccupancy(false, "none", 0);
+            Pump();
+            var before = rig.Publishes;
+
+            keyboard.Place(
+                SystemParameters.WorkArea, keyboard.ActualWidth, keyboard.ActualHeight,
+                KeyboardMove.UnYield);
+            Pump();
+
+            Check.WithCustomMessage(
+                    "a show-then-UnYield must republish the zones - the hook has to be installed "
+                    + "by the show's VM flip, not only at initialization")
+                .That(rig.Publishes).IsEqualTo(before + 1);
+            Check.That(rig.Last.HasValue).IsTrue();
+            CheckSameRect(unYielded, rig.Last!.Value, "the republished zone after a show-then-UnYield");
+        }
+        finally
+        {
+            keyboard.Close();
+        }
+    }
+
+    [StaFact]
     public void ABurstOfPositionAndLayoutTriggers_CoalescesToOnePublish()
     {
         // The existing SchedulePublish contract must survive the new trigger: a yield that moves
@@ -327,14 +372,14 @@ public class KeyboardMoveChromeZonesTests
         private readonly GazeEngine _engine;
         private readonly KeyboardWindow _keyboard;
 
-        public CoordinatorRig(KeyboardWindow keyboard)
+        public CoordinatorRig(KeyboardWindow keyboard, bool visible = true)
         {
             _keyboard = keyboard;
             var settings = new EyeCtrlSettings();
             var messenger = new WeakReferenceMessenger();
             _engine = new GazeEngine(
                 new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), settings);
-            KeyboardVm = new KeyboardViewModel(settings, messenger) { IsVisible = true };
+            KeyboardVm = new KeyboardViewModel(settings, messenger) { IsVisible = visible };
             Context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
             {
                 GazeEngine = _engine,

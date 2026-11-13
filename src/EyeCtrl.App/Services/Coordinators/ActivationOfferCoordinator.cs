@@ -20,7 +20,7 @@ using EyeCtrl.ViewModels.Messages;
 /// is right: its B was placed for the old geometry.</item>
 /// <item><b>Chrome zones.</b> No offer may be made over EyeCtrl's own controls (decision 8), so the
 /// zones are re-published on every trigger the plan lists: keyboard show, hide, layout and a
-/// position-only move (the gaze-driven un-yield, a Flip); toolbar
+/// position-only move (the gaze-driven un-yield); toolbar
 /// slide-in, slide-out and auto-hide; the prediction bar's relayout; the action and modes menus'
 /// show and hide. The push goes through <c>InteractionManager.SetActivationChromeZones</c> as plain
 /// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
@@ -61,10 +61,11 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private bool _suspended;
     private bool _modalSuspended;
     private PhysicalRect? _lagMarkZone;
-    // The keyboard's POSITION-only moves raise no trigger this coordinator listens to: the
-    // gaze-driven UnYield (KeyboardWindow.UnYieldIfGazeHasLeft → Place(…, UnYield)) and a Flip
-    // move the window while the toolbar is already off screen, so no toolbar-visibility event and
-    // no VM property flip arrives. The cached zone would keep the pre-move rect — the round button
+    // The keyboard's POSITION-only move raises no trigger this coordinator listens to: the
+    // gaze-driven UnYield (KeyboardWindow.UnYieldIfGazeHasLeft → Place(…, UnYield)) moves the
+    // window while the toolbar is already off screen, so no toolbar-visibility event and no VM
+    // property flip arrives. (A Flip shares the position-only shape but does publish, through
+    // KeyboardEdgeToggledMessage.) The cached zone would keep the pre-move rect — the round button
     // on the keyboard's strip while the owner types, and none in the strip it vacated. Hooked
     // lazily the same way GazeConsumerInventory reaches the window, and once only: the manager's
     // Keyboard is the app-lifetime singleton (CloseAll closes, it never recreates).
@@ -314,10 +315,17 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     /// a keyboard is actually up, so a headless context (no overlays) stays constructible, and the
     /// manager's <c>Keyboard</c> is the app-lifetime singleton (CloseAll closes, it never
     /// recreates) — a second hook could only double-publish.
+    /// <para>
+    /// UI thread only: <see cref="System.Windows.Window.LocationChanged"/>'s accessors verify
+    /// dispatcher affinity, so a future off-thread <c>SchedulePublish</c> caller must skip here
+    /// and let the next UI-thread trigger install the hook (review-01 N1).
+    /// </para>
     /// </summary>
     private void HookKeyboardLocationEvents()
     {
-        if (_hookedKeyboard is not null || Context is null || !Context.KeyboardVM.IsVisible)
+        if (Context is null || Context.Dispatcher is not { } dispatcher || !dispatcher.CheckAccess())
+            return;
+        if (_hookedKeyboard is not null || !Context.KeyboardVM.IsVisible)
             return;
         var keyboard = Context.OverlayManager?.Keyboard;
         if (keyboard is null)

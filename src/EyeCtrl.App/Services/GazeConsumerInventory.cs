@@ -429,9 +429,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
             return;
         _hookedKeyboard = keyboard;
         keyboard.SizeChanged += OnKeyboardLayoutChanged;
-        // A POSITION-only move (the gaze-driven UnYield, a Flip) changes the rect with no size
-        // change and no VM flip, so the re-check would stay blind to a keyboard that moved back
-        // under a panel. Joined here, the same lazy once-only seam as SizeChanged.
+        // A POSITION-only move (the gaze-driven UnYield; a Flip shares the shape but already
+        // re-checks through KeyboardEdgeToggledMessage) changes the rect with no size change and
+        // no VM flip, so the re-check would stay blind to a keyboard that moved back under a
+        // panel. Joined here, the same lazy once-only seam as SizeChanged.
         keyboard.LocationChanged += OnKeyboardLocationChanged;
         keyboard.Loaded += OnKeyboardLoaded;
     }

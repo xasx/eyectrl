@@ -88,9 +88,10 @@ public class AudioSessionDiagnosticsTests
 
     private static void ResetStatics()
     {
-        // Drain the queue first: a pool-thread work item that lands after this reset would run
-        // against the NEXT test's statics.
-        AudioSessionDiagnostics.DrainQueuedWork();
+        // Drain the queue first (R6: loud on timeout — resetting under an in-flight item would
+        // resurrect the fixup-01 flake).
+        if (!AudioSessionDiagnostics.DrainQueuedWork())
+            throw new InvalidOperationException("queued F5 diagnostics work did not drain within 5 s");
         AudioSessionDiagnostics.LineSink = null;
         AudioSessionDiagnostics.WorkScheduler = null;
         AudioSessionDiagnostics.ConfigureForTesting(null, null);
@@ -353,9 +354,143 @@ public class AudioSessionDiagnosticsTests
         try
         {
             Check.ThatCode(() => AudioSessionDiagnostics.Shutdown()).DoesNotThrow();
+            // Signal-and-return (R3): the teardown runs on the pool — wait for it instead of
+            // assuming synchronous delivery.
+            for (var i = 0; i < 100 && listener.ShutdownCalls == 0; i++) Thread.Sleep(20);
             Check.That(listener.ShutdownCalls).IsEqualTo(1);
         }
         finally { ResetStatics(); }
+    }
+
+    // ---- review 02 fixup tests ---------------------------------------------------------------
+
+    [Fact]
+    public void BlockedCom_NeverBlocksTheUiThreadEntries()
+    {
+        // Review 02 R3: a hung AudioSrv RPC must not freeze the UI thread. The reader and the
+        // listener block on a release handle (simulating a hung RPC); the queued work runs on a
+        // pool thread, EnsureProductionWiring is lock-free, and Shutdown is signal-and-return.
+        // Nothing on the test thread may wait behind them.
+        var release = new ManualResetEventSlim(false);
+        var blockingReader = new BlockingReader(release);
+        var blockingListener = new BlockingListener(release);
+        AudioSessionDiagnostics.ConfigureForTesting(blockingReader, blockingListener);
+        AudioSessionDiagnostics.WorkScheduler = null; // production scheduling: pool thread
+        Lines.Clear();
+        AudioSessionDiagnostics.LineSink = Lines.Add;
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AudioSessionDiagnostics.EnsureProductionWiring();
+            AudioSessionDiagnostics.OnClickAttempted();
+            AudioSessionDiagnostics.Shutdown();
+            sw.Stop();
+            Check.WithCustomMessage(
+                    "a blocked diagnostics read/listener delayed the UI-thread entry points — a hung "
+                    + "AudioSrv RPC would freeze gaze control")
+                .That(sw.ElapsedMilliseconds).IsStrictlyLessThan(100);
+
+            sw.Restart();
+            AudioSessionDiagnostics.EnsureProductionWiring();
+            sw.Stop();
+            Check.That(sw.ElapsedMilliseconds).IsStrictlyLessThan(100);
+        }
+        finally
+        {
+            // Unblock the pool item, then drain it properly before the statics reset.
+            release.Set();
+            AudioSessionDiagnostics.DrainQueuedWork();
+            AudioSessionDiagnostics.LineSink = null;
+            AudioSessionDiagnostics.WorkScheduler = null;
+            AudioSessionDiagnostics.ConfigureForTesting(null, null);
+            Lines.Clear();
+        }
+    }
+
+    [Fact]
+    public void QueuedWork_AfterShutdown_RegistersNothing_AndLogsNothing()
+    {
+        // Review 02 R4: work queued before the exit-time hide must not re-register or log after
+        // Shutdown. Park the work so its execution is provably AFTER the latch.
+        var (reader, listener) = Configure();
+        Action? parked = null;
+        AudioSessionDiagnostics.WorkScheduler = a => parked = a;
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted();
+            AudioSessionDiagnostics.Shutdown();
+
+            parked!.Invoke(); // the "late" work, running after the latch
+            Check.WithCustomMessage(
+                    "work that runs after Shutdown re-registered the listeners or logged — a dying "
+                    + "process must stay silent")
+                .That(listener.RegisterCalls).IsEqualTo(0);
+            Check.That(Lines).IsEmpty();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void TheDrain_ReportsSuccess_AndTimesOutLoudly()
+    {
+        // Review 02 R6: the drain must say whether it actually drained. An item parked by the
+        // scheduler is scheduled but never completed — exactly the timeout case.
+        var (reader, listener) = Configure();
+        try
+        {
+            Check.That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsTrue();
+
+            Action? parked = null;
+            AudioSessionDiagnostics.WorkScheduler = a => parked = a; // park: scheduled, not completed
+            AudioSessionDiagnostics.OnClickAttempted();
+            Check.WithCustomMessage("a drain that gave up silently would hide the fixup-01 flake again")
+                .That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsFalse();
+
+            parked!.Invoke(); // complete it: the drain reports success again
+            Check.That(AudioSessionDiagnostics.DrainQueuedWork(200)).IsTrue();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void LoadKeyboard_WiresTheProductionAudioPair()
+    {
+        // Review 02 R5 (+ its mutant O6): the composition test alone could not see production
+        // drop the wiring. This pin holds the LoadKeyboard call — the only production site — in
+        // place, immediately before the sound service it serves.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "LoadKeyboard no longer calls EnsureProductionWiring before building the sound "
+                + "service: production would run the Core Audio diagnostics unwired (review 01 F1)")
+            .That(source.Contains(
+                "AudioSessionDiagnostics.EnsureProductionWiring();"
+                + "keyboard.SetSoundService(newKeyboardSoundService(settings.Keyboard,wavPath));"))
+            .IsTrue();
+    }
+
+    [Fact]
+    public void TheInteropUsesNoEagerComReleases()
+    {
+        // Review 02 R1/R2's discipline pin: the previous release bugs were FinalReleaseComObject
+        // calls on RCWs shared between the reader, the observer and the device-change callback.
+        // The file must contain NO eager COM release at all — shared RCWs (the enumerator, the
+        // session control) simply go out of scope; only native memory is cleared explicitly.
+        // Comments are stripped first (the release discipline is DOCUMENTED in them).
+        var source = SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+            SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "CoreAudioInterop.cs")));
+
+        Check.WithCustomMessage(
+                "CoreAudioInterop.cs contains an eager COM release (FinalReleaseComObject or "
+                + "Marshal.Release): it would separate an RCW another holder shares — the exact "
+                + "review 02 R1/R2 defect class (dead mute reads, dead re-registration)")
+            .That(source.Contains("FinalReleaseComObject") || source.Contains("Marshal.ReleaseComObject"))
+            .IsFalse();
     }
 
     [Fact]
@@ -389,6 +524,32 @@ public class AudioSessionDiagnosticsTests
         public bool TryRegister(Action<string> onChangeLine) => throw new InvalidOperationException("com gone");
         public bool TryRegisterSessionEvents() => throw new InvalidOperationException("com gone");
         public void Shutdown() { }
+    }
+
+    private sealed class BlockingReader(ManualResetEventSlim release) : AudioSessionDiagnostics.IAudioStateReader
+    {
+        public AudioSessionDiagnostics.AudioStateSnapshot? Read()
+        {
+            release.Wait(30_000); // a hung AudioSrv RPC, simulated (released by the test)
+            return null;
+        }
+    }
+
+    private sealed class BlockingListener(ManualResetEventSlim release) : AudioSessionDiagnostics.IAudioChangeListener
+    {
+        public bool TryRegister(Action<string> onChangeLine)
+        {
+            release.Wait(30_000);
+            return true;
+        }
+
+        public bool TryRegisterSessionEvents()
+        {
+            release.Wait(30_000);
+            return true;
+        }
+
+        public void Shutdown() => release.Wait(30_000);
     }
 
     private sealed class AlwaysTruePlayer : IClickSoundPlayer

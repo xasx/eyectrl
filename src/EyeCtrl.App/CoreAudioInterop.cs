@@ -230,218 +230,124 @@ internal static class CoreAudioInterop
     {
         var hr = enumerator.GetDefaultAudioEndpoint(DataFlowRender, RoleMultimedia, out var device);
         if (hr != SOk || device is null) return null;
-        try
-        {
-            return ReadFriendlyName(device);
-        }
-        finally
-        {
-            Release(device);
-        }
+        // Release discipline (review 02 R1/R2): no eager release — the RCW simply goes out of scope.
+        return ReadFriendlyName(device);
     }
 
     internal static string? ReadFriendlyName(IMMDevice device)
     {
         var hr = device.OpenPropertyStore(StgmRead, out var store);
         if (hr != SOk || store is null) return null;
+        var key = PkeyDeviceFriendlyName;
+        hr = store.GetValue(ref key, out var value);
+        if (hr != SOk) return null;
         try
         {
-            var key = PkeyDeviceFriendlyName;
-            hr = store.GetValue(ref key, out var value);
-            if (hr != SOk) return null;
-            try
-            {
-                return value.Vt == VtLpwstr ? Marshal.PtrToStringUni(value.PointerValue) : null;
-            }
-            finally
-            {
-                PropVariantClear(ref value);
-            }
+            // PropVariantClear frees NATIVE memory, not an RCW — still required.
+            return value.Vt == VtLpwstr ? Marshal.PtrToStringUni(value.PointerValue) : null;
         }
         finally
         {
-            Release(store);
+            PropVariantClear(ref value);
         }
     }
 
     /// <summary>Our process's session control, or null when winmm has not created it yet (the
-    /// first click's PlaySound is what creates it). Never the system sounds session.</summary>
-    internal static IAudioSessionControl? FindOwnSessionControl(IAudioSessionEnumerator sessions, out string? sessionGuidText)
+    /// first click's PlaySound is what creates it). Never the system sounds session. The returned
+    /// control is NOT released by this walk — the diagnostics path lets RCWs go (see the release
+    /// discipline on <see cref="AcquireSharedEnumerator"/>).</summary>
+    internal static IAudioSessionControl? FindOwnSessionControl(IAudioSessionEnumerator sessions)
     {
-        sessionGuidText = null;
         var hr = sessions.GetCount(out var count);
         if (hr != SOk) return null;
         for (var i = 0; i < count; i++)
         {
             hr = sessions.GetSession(i, out var control);
             if (hr != SOk || control is null) continue;
-            var control2 = (IAudioSessionControl2)control;
             try
             {
+                var control2 = (IAudioSessionControl2)control;
                 if (control2.GetProcessId(out var pid) != SOk || pid != Environment.ProcessId) continue;
                 if (control2.IsSystemSoundsSession() == SOk) continue;
-                if (control2.GetSessionIdentifier(out sessionGuidText) != SOk) sessionGuidText = null;
                 return control;
             }
             catch
             {
-                Release(control);
+                // A session that refuses the Control2 QI is not ours to read; move on.
             }
         }
         return null;
     }
 
-    /// <summary>The session GUID is the last {...} group of the session identifier.</summary>
-    internal static bool TryParseSessionGuid(string? sessionIdentifier, out Guid sessionGuid)
-    {
-        sessionGuid = Guid.Empty;
-        if (string.IsNullOrEmpty(sessionIdentifier)) return false;
-        var brace = sessionIdentifier.LastIndexOf('{');
-        return brace >= 0 && Guid.TryParse(sessionIdentifier.Substring(brace), out sessionGuid);
-    }
+    /// <summary>
+    /// ONE process-wide enumerator RCW, shared by the reader, the observer and the default-device
+    /// callback, and deliberately NEVER released (review 02 R2): MMDeviceEnumerator hands out one
+    /// identity per MTA, so every activation here returns the same RCW — a FinalReleaseComObject
+    /// by any holder separates it for all the others (that was the silent re-registration kill),
+    /// and even a balanced ReleaseComObject by one holder unbalances another's in-flight COM call.
+    /// A diagnostics path does not need eager release; the process exit cleans up.
+    /// </summary>
+    private static readonly object EnumeratorLock = new();
+    private static IMMDeviceEnumerator? _sharedEnumerator;
 
-    internal static void Release(object? comObject)
+    internal static IMMDeviceEnumerator AcquireSharedEnumerator()
     {
-        if (comObject is null) return;
-        try
+        var existing = _sharedEnumerator;
+        if (existing is not null) return existing;
+        lock (EnumeratorLock)
         {
-            Marshal.FinalReleaseComObject(comObject);
-        }
-        catch
-        {
-            // Release races at teardown are harmless here; the diagnostics must never throw.
+            return _sharedEnumerator ??= NewEnumerator();
         }
     }
 
     // ---- production implementations of the AudioSessionDiagnostics seams ----
 
     /// <summary>Walks the default endpoint's sessions for OUR process's session and reads its
-    /// state. Every failure path returns null/degrades — the caller formats whatever came back.</summary>
+    /// state. Every failure path returns null/degrades — the caller formats whatever came back.
+    /// Release discipline (review 02 R1/R2): no eager COM release anywhere on this path — the
+    /// enumerator is the process-wide shared one, and every other RCW simply goes out of scope.</summary>
     internal sealed class CoreAudioStateReader : AudioSessionDiagnostics.IAudioStateReader
     {
         public AudioSessionDiagnostics.AudioStateSnapshot? Read()
         {
-            var enumerator = NewEnumerator();
-            try
-            {
-                var endpointName = ReadDefaultEndpointFriendlyName(enumerator);
-                if (enumerator.ActivateSessionManager(out var manager) != SOk || manager is null)
-                    return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
-                try
-                {
-                    if (manager.GetSessionEnumerator(out var sessions) != SOk || sessions is null)
-                        return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
-                    try
-                    {
-                        var control = FindOwnSessionControl(sessions, out var sessionGuidText);
-                        if (control is null)
-                            return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
-                        try
-                        {
-                            if (control.GetState(out var state) != SOk)
-                                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, true, null, null, null);
-                            return new AudioSessionDiagnostics.AudioStateSnapshot(
-                                endpointName, true, ReadVolume(manager, control, sessionGuidText), ReadMute(manager, control, sessionGuidText), StateName(state));
-                        }
-                        finally
-                        {
-                            Release(control);
-                        }
-                    }
-                    finally
-                    {
-                        Release(sessions);
-                    }
-                }
-                finally
-                {
-                    Release(manager);
-                }
-            }
-            finally
-            {
-                Release(enumerator);
-            }
+            var enumerator = AcquireSharedEnumerator();
+            var endpointName = ReadDefaultEndpointFriendlyName(enumerator);
+            if (enumerator.ActivateSessionManager(out var manager) != SOk || manager is null)
+                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
+            if (manager.GetSessionEnumerator(out var sessions) != SOk || sessions is null)
+                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
+            var control = FindOwnSessionControl(sessions);
+            if (control is null)
+                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
+            if (control.GetState(out var state) != SOk)
+                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, true, null, null, null);
+            var (level, mute) = ReadVolumeAndMute(control);
+            return new AudioSessionDiagnostics.AudioStateSnapshot(
+                endpointName, true, level, mute, StateName(state));
         }
     }
 
     /// <summary>
-    /// The session's volume (then mute) for the snapshot line. Review 01 F3: the preferred path
-    /// is a straight QI of the FOUND session control for <see cref="ISimpleAudioVolume"/> —
-    /// re-resolving by a GUID parsed out of the identifier can open a fresh EMPTY session when
-    /// the GUID matches no open session, a side effect a read-only diagnostics walk must not
-    /// have. The GUID fallback only runs with a control-derived GUID, which by construction
-    /// names the open session. Every failure degrades to a null field (rendered as "?").
+    /// The session's volume AND mute, read from ONE cast of the found control (review 02 R1:
+    /// casting an RCW returns the same RCW, so releasing the cast separates the control itself —
+    /// the previous two-method read lost every mute value that way). A control that does not
+    /// expose the volume interface (or any failure) degrades to nulls, rendered as "?".
     /// </summary>
-    private static double? ReadVolume(IAudioSessionManager2 manager, IAudioSessionControl control, string? sessionGuidText)
+    private static (double? Level, bool? Mute) ReadVolumeAndMute(IAudioSessionControl control)
     {
         try
         {
-            var viaQI = (ISimpleAudioVolume)control;
-            try
-            {
-                return viaQI.GetMasterVolume(out var level) == SOk ? level : null;
-            }
-            finally
-            {
-                Release(viaQI);
-            }
-        }
-        catch (InvalidCastException)
-        {
-            // The control does not expose the volume interface: fall back to the manager, with
-            // the session's own GUID.
-            if (!TryParseSessionGuid(sessionGuidText, out var sessionGuid)) return null;
-            var guid = sessionGuid;
-            if (manager.GetSimpleAudioVolume(ref guid, 0, out var simpleVolume) != SOk || simpleVolume is null) return null;
-            try
-            {
-                return simpleVolume.GetMasterVolume(out var level) == SOk ? level : null;
-            }
-            finally
-            {
-                Release(simpleVolume);
-            }
+            var volume = (ISimpleAudioVolume)control;
+            if (volume.GetMasterVolume(out var level) == SOk && volume.GetMute(out var mute) == SOk)
+                return ((double)level, mute);
+            return (null, null);
         }
         catch
         {
-            return null;
+            return (null, null);
         }
     }
 
-    private static bool? ReadMute(IAudioSessionManager2 manager, IAudioSessionControl control, string? sessionGuidText)
-    {
-        try
-        {
-            var viaQI = (ISimpleAudioVolume)control;
-            try
-            {
-                return viaQI.GetMute(out var mute) == SOk ? mute : null;
-            }
-            finally
-            {
-                Release(viaQI);
-            }
-        }
-        catch (InvalidCastException)
-        {
-            if (!TryParseSessionGuid(sessionGuidText, out var sessionGuid)) return null;
-            var guid = sessionGuid;
-            if (manager.GetSimpleAudioVolume(ref guid, 0, out var simpleVolume) != SOk || simpleVolume is null) return null;
-            try
-            {
-                return simpleVolume.GetMute(out var mute) == SOk ? mute : null;
-            }
-            finally
-            {
-                Release(simpleVolume);
-            }
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     /// <summary>Registers the endpoint notification client immediately and the session events
     /// once our session exists (the retry contract of AudioSessionDiagnostics). Holds every
@@ -449,12 +355,19 @@ internal static class CoreAudioInterop
     internal sealed class CoreAudioChangeObserver : AudioSessionDiagnostics.IAudioChangeListener
     {
         private readonly object _gate = new();
+        // R3 (review 02): _gate is state-only and _comLock is taken ONLY by the diagnostics worker
+        // (pool threads) — never by the UI thread — so a hung AudioSrv RPC can delay the queued
+        // work but can never freeze EnsureProductionWiring, Shutdown or a key.
+        private readonly object _comLock = new();
+        private readonly IMMDeviceEnumerator _enumerator = AcquireSharedEnumerator();
         private Action<string>? _onChange;
-        private IMMDeviceEnumerator? _enumerator;
         private EndpointNotificationClient? _endpointClient;
         private IAudioSessionControl? _sessionControl;
         private SessionEvents? _sessionEvents;
         private bool _endpointAttached, _sessionAttached;
+        private volatile bool _shutDown;
+
+        public void SignalShutdown() => _shutDown = true;
 
         public bool TryRegister(Action<string> onChangeLine)
         {
@@ -462,14 +375,13 @@ internal static class CoreAudioInterop
             {
                 _onChange = onChangeLine;
                 if (_endpointAttached) return true;
-                var enumerator = NewEnumerator();
+            }
+            // COM outside _gate (R3); _comLock serializes concurrent worker registrations.
+            lock (_comLock)
+            {
+                if (_shutDown || _endpointAttached) return _endpointAttached;
                 var client = new EndpointNotificationClient(onChangeLine);
-                if (enumerator.RegisterEndpointNotificationCallback(client) != SOk)
-                {
-                    Release(enumerator);
-                    return false;
-                }
-                _enumerator = enumerator;
+                if (_enumerator.RegisterEndpointNotificationCallback(client) != SOk) return false;
                 _endpointClient = client;
                 _endpointAttached = true;
                 return true;
@@ -481,55 +393,47 @@ internal static class CoreAudioInterop
             lock (_gate)
             {
                 if (_sessionAttached) return true;
-                if (_onChange is null) return false; // TryRegister must come first
-                if (_enumerator is null) return false;
+            }
+            if (_shutDown) return false;
+            if (_onChange is null) return false; // TryRegister must come first
+            // COM outside _gate (R3).
+            lock (_comLock)
+            {
+                if (_shutDown || _sessionAttached) return _sessionAttached;
                 if (_enumerator.ActivateSessionManager(out var manager) != SOk || manager is null) return false;
-                try
-                {
-                    if (manager.GetSessionEnumerator(out var sessions) != SOk || sessions is null) return false;
-                    try
-                    {
-                        var control = FindOwnSessionControl(sessions, out _);
-                        if (control is null) return false; // not created yet — retry at the next transition
-                        var events = new SessionEvents(_onChange);
-                        if (control.RegisterAudioSessionNotification(events) != SOk)
-                        {
-                            Release(control);
-                            return false;
-                        }
-                        _sessionControl = control;
-                        _sessionEvents = events;
-                        _sessionAttached = true;
-                        return true;
-                    }
-                    finally
-                    {
-                        Release(sessions);
-                    }
-                }
-                finally
-                {
-                    Release(manager);
-                }
+                if (manager.GetSessionEnumerator(out var sessions) != SOk || sessions is null) return false;
+                var control = FindOwnSessionControl(sessions);
+                if (control is null) return false; // not created yet — retry at the next transition
+                var events = new SessionEvents(_onChange);
+                if (control.RegisterAudioSessionNotification(events) != SOk) return false;
+                _sessionControl = control;
+                _sessionEvents = events;
+                _sessionAttached = true;
+                return true;
             }
         }
 
         public void Shutdown()
         {
-            lock (_gate)
+            _shutDown = true; // no late registration after shutdown (review 02 R4)
+            // Bounded: never wait on an in-flight COM call from the UI thread (R3). If the worker
+            // holds _comLock past 200 ms, the process exit cleans up instead.
+            if (!Monitor.TryEnter(_comLock, 200)) return;
+            try
             {
                 if (_sessionControl is not null && _sessionEvents is not null)
                     _sessionControl.UnregisterAudioSessionNotification(_sessionEvents);
-                if (_enumerator is not null && _endpointClient is not null)
+                if (_endpointClient is not null)
                     _enumerator.UnregisterEndpointNotificationCallback(_endpointClient);
-                Release(_enumerator);
-                Release(_sessionControl);
-                _enumerator = null;
                 _endpointClient = null;
                 _sessionControl = null;
                 _sessionEvents = null;
                 _endpointAttached = false;
                 _sessionAttached = false;
+            }
+            finally
+            {
+                Monitor.Exit(_comLock);
             }
         }
     }
@@ -607,25 +511,13 @@ internal static class CoreAudioInterop
             {
                 if (deviceId is not null)
                 {
-                    var enumerator = NewEnumerator();
-                    try
+                    // The process-wide shared enumerator (review 02 R2): creating and releasing a
+                    // second one here separated the observer's held RCW on every device change.
+                    var enumerator = AcquireSharedEnumerator();
+                    if (enumerator.GetDevice(deviceId, out var device) == SOk && device is not null)
                     {
-                        if (enumerator.GetDevice(deviceId, out var device) == SOk && device is not null)
-                        {
-                            try
-                            {
-                                var name = ReadFriendlyName(device);
-                                if (name is not null) return name;
-                            }
-                            finally
-                            {
-                                Release(device);
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        Release(enumerator);
+                        var name = ReadFriendlyName(device);
+                        if (name is not null) return name;
                     }
                 }
             }
@@ -643,7 +535,8 @@ internal static class CoreAudioInterop
 internal static class CoreAudioEnumeratorExtensions
 {
     /// <summary>Activates IAudioSessionManager2 on the enumerator's default render endpoint.
-    /// Non-zero HRESULT or a null manager on any failure (the caller degrades).</summary>
+    /// Non-zero HRESULT or a null manager on any failure (the caller degrades). Release
+    /// discipline: the device RCW simply goes out of scope (review 02 R1/R2).</summary>
     public static int ActivateSessionManager(this CoreAudioInterop.IMMDeviceEnumerator enumerator,
         out CoreAudioInterop.IAudioSessionManager2? manager)
     {
@@ -651,19 +544,12 @@ internal static class CoreAudioEnumeratorExtensions
         var iid = CoreAudioInterop.IidIAudioSessionManager2;
         var hr = enumerator.GetDefaultAudioEndpoint(CoreAudioInterop.DataFlowRender, CoreAudioInterop.RoleMultimedia, out var device);
         if (hr != CoreAudioInterop.SOk || device is null) return hr == CoreAudioInterop.SOk ? unchecked((int)0x80004005) : hr; // E_FAIL when the endpoint itself is gone
-        try
+        hr = device.Activate(ref iid, CoreAudioInterop.ClsCtxAll, IntPtr.Zero, out var iface);
+        if (hr == CoreAudioInterop.SOk && iface is not null)
         {
-            hr = device.Activate(ref iid, CoreAudioInterop.ClsCtxAll, IntPtr.Zero, out var iface);
-            if (hr == CoreAudioInterop.SOk && iface is not null)
-            {
-                manager = (CoreAudioInterop.IAudioSessionManager2)iface;
-                return CoreAudioInterop.SOk;
-            }
-            return hr == CoreAudioInterop.SOk ? unchecked((int)0x80004005) : hr;
+            manager = (CoreAudioInterop.IAudioSessionManager2)iface;
+            return CoreAudioInterop.SOk;
         }
-        finally
-        {
-            CoreAudioInterop.Release(device);
-        }
+        return hr == CoreAudioInterop.SOk ? unchecked((int)0x80004005) : hr;
     }
 }

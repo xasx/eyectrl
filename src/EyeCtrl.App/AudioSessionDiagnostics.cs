@@ -89,7 +89,11 @@ internal static class AudioSessionDiagnostics
     private static Action<string>? _changeLine;
     private static int _firstClickDone;
     private static bool _endpointEventsAttached, _sessionEventsAttached;
-    private static bool _failureLogged;
+    private static int _failureLogged;
+    // R4 (review 02): the shutdown latch. After Shutdown, queued or late work must not
+    // re-register or log — the process is exiting and App.OnExit has already torn the
+    // listeners down.
+    private static int _shutDown;
 
     /// <summary>Test seam: every diagnostics line (snapshots and change events) is captured here
     /// instead of Serilog when set.</summary>
@@ -114,29 +118,32 @@ internal static class AudioSessionDiagnostics
             _firstClickDone = 0;
             _endpointEventsAttached = false;
             _sessionEventsAttached = false;
-            _failureLogged = false;
+            _failureLogged = 0;
+            _shutDown = 0;
         }
     }
 
     /// <summary>Production composition (KeyboardCoordinator.LoadKeyboard): restore the Core Audio
     /// pair if tests (or a future dispose path) left it unset. Idempotent, cheap, no COM here —
-    /// constructing the reader/observer does not touch WASAPI.</summary>
+    /// constructing the reader/observer does not touch WASAPI. LOCK-FREE on purpose (review 02
+    /// R3): this runs on the UI thread at every settings apply, so it must never wait on a lock
+    /// that the diagnostics worker may hold across a COM call.</summary>
     public static void EnsureProductionWiring()
     {
-        lock (Gate)
-        {
-            _reader ??= new CoreAudioInterop.CoreAudioStateReader();
-            _listener ??= new CoreAudioInterop.CoreAudioChangeObserver();
-        }
+        Interlocked.CompareExchange(ref _reader, new CoreAudioInterop.CoreAudioStateReader(), null);
+        Interlocked.CompareExchange(ref _listener, new CoreAudioInterop.CoreAudioChangeObserver(), null);
     }
 
     /// <summary>Test accessor for the composition pin: true iff the REAL Core Audio pair is wired.</summary>
     internal static bool ProductionWired =>
         _reader is CoreAudioInterop.CoreAudioStateReader && _listener is CoreAudioInterop.CoreAudioChangeObserver;
 
-    /// <summary>The queued unit of the first click: one snapshot, then event registration.</summary>
+    /// <summary>The queued unit of the first click: one snapshot, then event registration.
+    /// The latch is re-checked at execution time: work queued before App.OnExit's shutdown must
+    /// not register or log afterwards (review 02 R4).</summary>
     private static void FirstClickWork()
     {
+        if (Volatile.Read(ref _shutDown) == 1) return;
         LogSnapshot();
         TryRegisterChangeEvents();
     }
@@ -146,6 +153,7 @@ internal static class AudioSessionDiagnostics
     /// a cold first read measures ~105 ms and must never delay a key).</summary>
     public static void OnClickAttempted()
     {
+        if (Volatile.Read(ref _shutDown) == 1) return;
         if (Interlocked.CompareExchange(ref _firstClickDone, 1, 0) != 0) return;
         RunOffTypingPath(FirstClickWork);
     }
@@ -158,28 +166,34 @@ internal static class AudioSessionDiagnostics
     /// </summary>
     public static void OnKeyboardTransition()
     {
+        if (Volatile.Read(ref _shutDown) == 1) return;
         if (Volatile.Read(ref _firstClickDone) == 0) return;
-        RunOffTypingPath(() =>
-        {
-            LogSnapshot();
-            lock (Gate)
-            {
-                if (_endpointEventsAttached && _sessionEventsAttached) return;
-            }
-            TryRegisterChangeEvents();
-        });
+        RunOffTypingPath(TransitionWork);
+    }
+
+    /// <summary>The queued unit of a transition: baseline snapshot + registration retry, with
+    /// the same late-work latch as <see cref="FirstClickWork"/>.</summary>
+    private static void TransitionWork()
+    {
+        if (Volatile.Read(ref _shutDown) == 1) return;
+        LogSnapshot();
+        if (_endpointEventsAttached && _sessionEventsAttached) return;
+        TryRegisterChangeEvents();
     }
 
     /// <summary>Bounded wait until every scheduled diagnostics work item has completed. Tests
     /// that queue (the production default scheduler) MUST drain in their finally: a pool-thread
     /// work item that lands inside a LATER test runs against that test's statics — observed as
-    /// production snapshot lines appearing in another test's sink (fixup 01 flake).</summary>
-    internal static void DrainQueuedWork(int timeoutMs = 5000)
+    /// production snapshot lines appearing in another test's sink (fixup 01 flake). Returns
+    /// false on timeout (review 02 R6) so the caller can fail loudly instead of silently
+    /// resetting the statics under an in-flight item.</summary>
+    internal static bool DrainQueuedWork(int timeoutMs = 5000)
     {
         var scheduled = Volatile.Read(ref _queuedWorkScheduled);
         var deadline = Environment.TickCount64 + timeoutMs;
         while (Volatile.Read(ref _queuedWorkCompleted) < scheduled && Environment.TickCount64 < deadline)
             Thread.Sleep(10);
+        return Volatile.Read(ref _queuedWorkCompleted) >= scheduled;
     }
 
     /// <summary>Production runs the diagnostics work on an MTA thread-pool thread (COM is happy
@@ -219,15 +233,26 @@ internal static class AudioSessionDiagnostics
 
     private static void TryRegisterChangeEvents()
     {
+        if (Volatile.Read(ref _shutDown) == 1) return;
         try
         {
             var listener = _listener;
             if (listener is null) return;
+            _changeLine ??= Emit;
+            // R3 (review 02): the COM calls run OUTSIDE Gate — the UI thread takes Gate in
+            // EnsureProductionWiring/Shutdown and must never wait behind a hung AudioSrv RPC.
+            // The attached flags are read racily and the winners published under the lock; a
+            // duplicate registration attempt is impossible because the listener's own state
+            // guard is idempotent.
+            var endpointWasAttached = _endpointEventsAttached;
+            var sessionWasAttached = _sessionEventsAttached;
+            var endpointAttached = endpointWasAttached || listener.TryRegister(_changeLine);
+            var sessionAttached = endpointAttached &&
+                (sessionWasAttached || listener.TryRegisterSessionEvents());
             lock (Gate)
             {
-                _changeLine ??= Emit;
-                if (!_endpointEventsAttached) _endpointEventsAttached = listener.TryRegister(_changeLine);
-                if (_endpointEventsAttached && !_sessionEventsAttached) _sessionEventsAttached = listener.TryRegisterSessionEvents();
+                _endpointEventsAttached = endpointAttached;
+                _sessionEventsAttached = sessionAttached;
             }
         }
         catch (Exception ex)
@@ -266,28 +291,33 @@ internal static class AudioSessionDiagnostics
     /// this is a diagnostics note, never a typing-path event.</summary>
     private static void ReportFailure(string what, Exception? ex)
     {
-        lock (Gate)
-        {
-            if (_failureLogged) return;
-            _failureLogged = true;
-        }
+        // Interlocked, not a lock (review 02 R3): this can run on the worker thread while the UI
+        // thread wants Gate; a rare duplicate failure line would be harmless, the latch keeps it
+        // to one in practice.
+        if (Interlocked.Exchange(ref _failureLogged, 1) == 1) return;
         var detail = ex is null ? "failed" : $"failed ({ex.GetType().Name}: {ex.Message})";
         Emit($"Keyboard audio diagnostics: {what} {detail}; staying silent about further failures.");
     }
 
-    /// <summary>App teardown (App.OnExit): unregister the COM listeners while the process is
-    /// still alive rather than letting WASAPI call into a dying CCW. Best-effort.</summary>
+    /// <summary>App teardown (App.OnExit): latch the diagnostics off FIRST (no queued or late
+    /// work may register or log afterwards — review 02 R4), then hand the COM teardown to the
+    /// pool. SIGNAL-AND-RETURN (review 02 R3): this runs on the UI thread and must never wait on
+    /// an in-flight or hung COM call — the process exit cleans up whatever is still running.</summary>
     public static void Shutdown()
     {
-        lock (Gate)
+        Volatile.Write(ref _shutDown, 1);
+        var listener = _listener;
+        if (listener is null) return;
+        ThreadPool.QueueUserWorkItem(_ =>
         {
-            try { _listener?.Shutdown(); }
+            try
+            {
+                listener.Shutdown();
+            }
             catch
             {
                 // Teardown: never let COM ruin the exit path.
             }
-            _endpointEventsAttached = false;
-            _sessionEventsAttached = false;
-        }
+        });
     }
 }

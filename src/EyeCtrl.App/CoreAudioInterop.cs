@@ -286,9 +286,22 @@ internal static class CoreAudioInterop
     /// by any holder separates it for all the others (that was the silent re-registration kill),
     /// and even a balanced ReleaseComObject by one holder unbalances another's in-flight COM call.
     /// A diagnostics path does not need eager release; the process exit cleans up.
+    /// <para>
+    /// The CoCreate costs ~44 ms cold (review 03 S1), so this must only be called from the
+    /// diagnostics worker — the observer acquires lazily inside its _comLock, and construction of
+    /// the reader/observer never touches it. <see cref="EnumeratorAcquisitions"/> exposes the call
+    /// count so tests can pin that contract.
+    /// </para>
     /// </summary>
     private static readonly object EnumeratorLock = new();
     private static IMMDeviceEnumerator? _sharedEnumerator;
+    private static int _enumeratorCreations;
+
+    /// <summary>Test seam (fixup 03 S1): how often the process-wide instance was CREATED. The
+    /// first touch of the diagnostics type on the UI thread must leave this at its old value, and
+    /// the first worker registration must move it by exactly one; cache hits (reader reads,
+    /// session-events retries) do not count.</summary>
+    internal static int EnumeratorCreations => Volatile.Read(ref _enumeratorCreations);
 
     internal static IMMDeviceEnumerator AcquireSharedEnumerator()
     {
@@ -296,7 +309,12 @@ internal static class CoreAudioInterop
         if (existing is not null) return existing;
         lock (EnumeratorLock)
         {
-            return _sharedEnumerator ??= NewEnumerator();
+            if (_sharedEnumerator is null)
+            {
+                _sharedEnumerator = NewEnumerator();
+                Interlocked.Increment(ref _enumeratorCreations);
+            }
+            return _sharedEnumerator;
         }
     }
 
@@ -358,8 +376,11 @@ internal static class CoreAudioInterop
         // R3 (review 02): _gate is state-only and _comLock is taken ONLY by the diagnostics worker
         // (pool threads) — never by the UI thread — so a hung AudioSrv RPC can delay the queued
         // work but can never freeze EnsureProductionWiring, Shutdown or a key.
+        // Fixup 03 S1: the enumerator is LAZY — its CoCreate costs ~44 ms cold and must run on the
+        // worker (inside _comLock), never in this constructor (which the UI thread's
+        // EnsureProductionWiring touches). Shutdown uses it only if a registration ever happened.
         private readonly object _comLock = new();
-        private readonly IMMDeviceEnumerator _enumerator = AcquireSharedEnumerator();
+        private IMMDeviceEnumerator? _enumerator;
         private Action<string>? _onChange;
         private EndpointNotificationClient? _endpointClient;
         private IAudioSessionControl? _sessionControl;
@@ -377,9 +398,12 @@ internal static class CoreAudioInterop
                 if (_endpointAttached) return true;
             }
             // COM outside _gate (R3); _comLock serializes concurrent worker registrations.
+            // Fixup 03 S1: the lazy acquisition runs HERE, on the worker, inside _comLock —
+            // never in the constructor the UI thread touches.
             lock (_comLock)
             {
                 if (_shutDown || _endpointAttached) return _endpointAttached;
+                _enumerator ??= AcquireSharedEnumerator();
                 var client = new EndpointNotificationClient(onChangeLine);
                 if (_enumerator.RegisterEndpointNotificationCallback(client) != SOk) return false;
                 _endpointClient = client;
@@ -400,6 +424,7 @@ internal static class CoreAudioInterop
             lock (_comLock)
             {
                 if (_shutDown || _sessionAttached) return _sessionAttached;
+                _enumerator ??= AcquireSharedEnumerator(); // fixup 03 S1: lazy, worker-only
                 if (_enumerator.ActivateSessionManager(out var manager) != SOk || manager is null) return false;
                 if (manager.GetSessionEnumerator(out var sessions) != SOk || sessions is null) return false;
                 var control = FindOwnSessionControl(sessions);
@@ -423,15 +448,14 @@ internal static class CoreAudioInterop
             {
                 if (_sessionControl is not null && _sessionEvents is not null)
                     _sessionControl.UnregisterAudioSessionNotification(_sessionEvents);
-                if (_endpointClient is not null)
+                if (_enumerator is not null && _endpointClient is not null)
                     _enumerator.UnregisterEndpointNotificationCallback(_endpointClient);
                 _endpointClient = null;
                 _sessionControl = null;
                 _sessionEvents = null;
                 _endpointAttached = false;
                 _sessionAttached = false;
-            }
-            finally
+            }            finally
             {
                 Monitor.Exit(_comLock);
             }

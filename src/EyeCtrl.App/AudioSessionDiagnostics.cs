@@ -95,9 +95,10 @@ internal static class AudioSessionDiagnostics
     // listeners down.
     private static int _shutDown;
 
-    /// <summary>Test seam: every diagnostics line (snapshots and change events) is captured here
-    /// instead of Serilog when set.</summary>
-    internal static Action<string>? LineSink { get; set; }
+    /// <summary>Test seam (fixup 03 S1 verification): true once a diagnostics failure has been
+    /// reported. One failure is reported for the app's lifetime; the latch keeps it at one
+    /// (review 02's fail-once rule).</summary>
+    internal static bool FailureLogged => Volatile.Read(ref _failureLogged) == 1;
 
     /// <summary>
     /// Test seam for WHERE the Core Audio work runs. Production (null) queues onto a background
@@ -120,18 +121,29 @@ internal static class AudioSessionDiagnostics
             _sessionEventsAttached = false;
             _failureLogged = 0;
             _shutDown = 0;
+            // Test hygiene: a parked-never-run item from a previous test must not make every
+            // later drain time out (review 03 fixup: TheDrain parks exactly such an item).
+            _queuedWorkScheduled = 0;
+            _queuedWorkCompleted = 0;
         }
     }
 
     /// <summary>Production composition (KeyboardCoordinator.LoadKeyboard): restore the Core Audio
-    /// pair if tests (or a future dispose path) left it unset. Idempotent, cheap, no COM here —
-    /// constructing the reader/observer does not touch WASAPI. LOCK-FREE on purpose (review 02
-    /// R3): this runs on the UI thread at every settings apply, so it must never wait on a lock
-    /// that the diagnostics worker may hold across a COM call.</summary>
+    /// pair if tests (or a future dispose path) left it unset. Idempotent and cheap. LOCK-FREE on
+    /// purpose (review 02 R3): this runs on the UI thread at every settings apply, so it must
+    /// never wait on a lock the diagnostics worker may hold across a COM call.
+    /// Fixup 03 S1: it constructs nothing when the pair is already wired, and construction itself
+    /// acquires no COM — the observer's MMDeviceEnumerator (CoCreate ~44 ms cold) is acquired
+    /// lazily on the diagnostics worker, inside its _comLock. This must never touch or wait on
+    /// the audio stack: the owner would have no gaze control while it ran.</summary>
     public static void EnsureProductionWiring()
     {
-        Interlocked.CompareExchange(ref _reader, new CoreAudioInterop.CoreAudioStateReader(), null);
-        Interlocked.CompareExchange(ref _listener, new CoreAudioInterop.CoreAudioChangeObserver(), null);
+        // The guards keep the Interlocked version from constructing a throwaway observer/reader
+        // on every settings apply (review 03 S1).
+        if (Volatile.Read(ref _listener) is null)
+            Interlocked.CompareExchange(ref _listener, new CoreAudioInterop.CoreAudioChangeObserver(), null);
+        if (Volatile.Read(ref _reader) is null)
+            Interlocked.CompareExchange(ref _reader, new CoreAudioInterop.CoreAudioStateReader(), null);
     }
 
     /// <summary>Test accessor for the composition pin: true iff the REAL Core Audio pair is wired.</summary>
@@ -279,12 +291,7 @@ internal static class AudioSessionDiagnostics
         }
     }
 
-    private static void Emit(string line)
-    {
-        var sink = LineSink;
-        if (sink is not null) sink(line);
-        else Log.Information("{Line}", line);
-    }
+    private static void Emit(string line) => Log.Information("{Line}", line);
 
     /// <summary>A failure of the diagnostics layer costs ONE line for the app's lifetime; after
     /// that the degraded instruments (the show/hide snapshots) run silently. Information level:

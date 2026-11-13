@@ -180,9 +180,10 @@ public class KeyboardClickSoundDiagnosticsTests
         }
         finally
         {
-            // The click queued first-click diagnostics work (production scheduler): drain it so
-            // no pool-thread item lands inside a later test's statics (fixup 01 flake).
-            AudioSessionDiagnostics.DrainQueuedWork();
+            // The click queued first-click diagnostics work (production scheduler): drain it and
+            // ASSERT the drain (review 03 S3) so no pool-thread item lands inside a later test's
+            // statics silently (fixup 01 flake).
+            Check.That(AudioSessionDiagnostics.DrainQueuedWork()).IsTrue();
             window.Close();
         }
     }

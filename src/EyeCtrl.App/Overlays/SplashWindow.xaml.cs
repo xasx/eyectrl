@@ -124,13 +124,13 @@ public partial class SplashWindow : OverlayWindow
                 _shownAt.ElapsedMilliseconds, duration.TotalMilliseconds);
 
             StopBaseFillClock();
+            ArmHardDeadline();                          // every accepted request is backstopped — also the straight-to-title path (review Minor 2)
             if (duration <= TimeSpan.Zero)
             {
                 RunTitle();                                 // remaining ≈ 0 (slow start): straight tail
                 return;
             }
             StartCatchUp(duration);
-            ArmHardDeadline();
         });
     }
 
@@ -154,7 +154,7 @@ public partial class SplashWindow : OverlayWindow
         _baseFillStoryboard.BeginTime = TimeSpan.FromMilliseconds(550);
         _baseFillStoryboard.Completed += (_, _) =>
         {
-            if (_controller.Beat is SplashBeat.Fill or SplashBeat.Entrance)
+            if (_controller.Beat is SplashBeat.Entrance)
                 _controller.AdvanceTo(SplashBeat.Filled);   // wait for readiness — nothing else happens
         };
         _baseFillStoryboard.Begin(this, isControllable: true);
@@ -217,12 +217,24 @@ public partial class SplashWindow : OverlayWindow
     /// animated values (captured here — a DP read returns the effective animated value), To = the
     /// finals, cubic ease-out — the arc continues from where it is, never restarting (r4 #3).
     /// Otherwise the base course: fixed From values, the spec's KeySpline via SplineDoubleKeyFrame.
+    ///
+    /// The rotate child targets the ARC ELEMENT (DwellArc) with the "RenderTransform.Angle"
+    /// sub-path, not the RotateTransform itself: with the window as containing object, a clock on a
+    /// direct Freezable target ticks (state, CurrentTime, Completed all run) but its values never
+    /// reach the DP — probed headless (SplashClockProbe P6/D1–D3 vs E4/E5/F1/F2, probe file since
+    /// deleted); the element target + sub-path applies in every environment, and the animation
+    /// still lands on the same ArcRotate instance, so the captured-value read below stays valid.
     /// </summary>
     private Storyboard BuildSweepFillStoryboard(TimeSpan duration, bool fromCurrent)
     {
         var board = new Storyboard();
         var durationKf = new System.Windows.Duration(duration);
 
+        // The capture reads the CURRENT animated values. That is only valid because BeginExit stops
+        // the fill clock and begins the catch-up in the SAME synchronous call: ClockController.Stop()
+        // defers the property reversion to the next tick (PendingInteractiveStop), so the DPs still
+        // hold the fill's animated values here. BeginExit_MidFill pins this capture-order dependency
+        // — a synchronous reversion would capture the rest values and restart the arc (r4 #3).
         var angleFrom = fromCurrent ? ArcRotate.Angle : -180.0;
         var offsetFrom = fromCurrent ? DwellArc.StrokeDashOffset : 24.36;
         var opacityFrom = fromCurrent ? DwellArc.Opacity : 0.0;
@@ -236,8 +248,8 @@ public partial class SplashWindow : OverlayWindow
             board.Children.Add(rotate);
             board.Children.Add(fill);
             board.Children.Add(gate);
-            Storyboard.SetTarget(rotate, ArcRotate);
-            Storyboard.SetTargetProperty(rotate, new PropertyPath("Angle"));
+            Storyboard.SetTarget(rotate, DwellArc);
+            Storyboard.SetTargetProperty(rotate, new PropertyPath("RenderTransform.Angle"));
             Storyboard.SetTarget(fill, DwellArc);
             Storyboard.SetTargetProperty(fill, new PropertyPath("StrokeDashOffset"));
             Storyboard.SetTarget(gate, DwellArc);
@@ -256,8 +268,8 @@ public partial class SplashWindow : OverlayWindow
             board.Children.Add(fill);
             board.Children.Add(gate);
             board.Duration = durationKf;
-            Storyboard.SetTarget(rotate, ArcRotate);
-            Storyboard.SetTargetProperty(rotate, new PropertyPath("Angle"));
+            Storyboard.SetTarget(rotate, DwellArc);
+            Storyboard.SetTargetProperty(rotate, new PropertyPath("RenderTransform.Angle"));
             Storyboard.SetTarget(fill, DwellArc);
             Storyboard.SetTargetProperty(fill, new PropertyPath("StrokeDashOffset"));
             Storyboard.SetTarget(gate, DwellArc);
@@ -267,28 +279,37 @@ public partial class SplashWindow : OverlayWindow
     }
 
     /// <summary>Remaining base course at BeginExit, from the fill clock itself — never a Stopwatch
-    /// (r4 #10): full course before its BeginTime fires; the un-run remainder afterwards.</summary>
+    /// (r4 #10). GetCurrentTime is COURSE-LOCAL: null inside the 0.55 s BeginTime delay, then
+    /// 0 → base course (clamped at the end while Filled), so the un-run remainder is
+    /// FillBaseCourse − now, clamped at zero. The 550 ms offset must NOT be subtracted again
+    /// (review fix: that made mid-fill remainders 550 ms too long — an L16 violation whenever the
+    /// true remainder sat below the 1 s floor — and turned the Filled "0 remaining → straight to
+    /// title" path into dead code).</summary>
     private TimeSpan RemainingBaseCourse()
     {
         var now = _baseFillStoryboard?.GetCurrentTime(this);
-        if (now is null || now.Value < TimeSpan.FromMilliseconds(550))
-            return SplashExitController.FillBaseCourse;                     // not started
-        var played = now.Value - TimeSpan.FromMilliseconds(550);
-        var remaining = SplashExitController.FillBaseCourse - played;
+        if (now is null) return SplashExitController.FillBaseCourse;      // still inside the 0.55 s BeginTime delay
+        var remaining = SplashExitController.FillBaseCourse - now.Value;  // course-local: 0 at course start
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
+    /// <summary>Dead-man backstop (L9): ONE self-stopping shot scheduled AT the deadline — the
+    /// predicate is re-checked in the tick (review fix: a short poll fired once while the sequence
+    /// was still young and never again, so a hung sequence had no rescue).</summary>
     private void ArmDeadMan()
     {
-        _deadManTimer = NewTimer(TimeSpan.FromMilliseconds(500), () =>
+        _deadManTimer = NewTimer(SplashExitController.DeadManTimeout, () =>
         {
             if (_controller.ShouldDeadManClose(_shownAt.Elapsed)) FinishClose("dead-man");
         });
     }
 
+    /// <summary>Hard-deadline backstop (L9): ONE self-stopping shot AT the deadline after the
+    /// accepted request (review Minor 2: armed on EVERY accepted BeginExit — also the
+    /// straight-to-title path); the predicate is re-checked in the tick.</summary>
     private void ArmHardDeadline()
     {
-        _hardDeadlineTimer = NewTimer(TimeSpan.FromMilliseconds(250), () =>
+        _hardDeadlineTimer = NewTimer(SplashExitController.HardExitDeadline, () =>
         {
             if (_exitArmedAt is { } armed && _controller.ShouldHardClose(armed.Elapsed)) FinishClose("hard-deadline");
         });
@@ -301,10 +322,12 @@ public partial class SplashWindow : OverlayWindow
     }
 
     /// <summary>One-shot self-stopping timer (r4 #2): DispatcherTimer repeats unless stopped —
-    /// every timer here stops itself before its tick runs.</summary>
+    /// the timer stops itself before its tick runs. Registers exactly one Tick handler
+    /// (review Minor 6: the constructor callback slot stays empty instead of holding a no-op).</summary>
     private DispatcherTimer NewTimer(TimeSpan due, Action tick)
     {
-        var timer = new DispatcherTimer(due, DispatcherPriority.Background, (_, _) => { }, Dispatcher);
+        var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
+        timer.Interval = due;
         timer.Tick += (_, _) => { timer.Stop(); tick(); };
         timer.Start();
         return timer;

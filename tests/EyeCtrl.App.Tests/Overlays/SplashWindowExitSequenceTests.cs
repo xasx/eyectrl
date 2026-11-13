@@ -128,4 +128,48 @@ public class SplashWindowExitSequenceTests
             splash.ForceClose();
         }
     }
+
+    /// <summary>
+    /// Mid-fill request (the scenario r4 #3 exists for): the base course is visibly playing when
+    /// readiness arrives — the catch-up must CONTINUE the arc from the captured value (no backward
+    /// jump, no restart) and close normally. Pins the capture-order dependency (the fill clock's
+    /// ClockController.Stop() defers property reversion to the next tick, and BeginExit captures
+    /// and begins in the same synchronous call) and the mid-fill band of the course-local
+    /// RemainingBaseCourse read.
+    /// </summary>
+    [StaFact]
+    public void BeginExit_MidFill_CatchUpContinuesFromTheCapturedValue_AndCloses()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var splash = InvisibleTestWindow.PrepareCloaked(new SplashWindow());
+        var keeper = OpenRenderLoopKeeper();
+        try
+        {
+            splash.OnSplashShown();
+            var playing = StaTestPump.PumpUntil(() => Math.Abs(splash.ArcRotate.Angle - (-180.0)) > 1, TimeSpan.FromSeconds(1.5));
+            Check.That(playing).IsTrue();                    // the base fill clock drives the arc — it started past its 0.55 s delay
+            StaTestPump.PumpUntil(() => false, TimeSpan.FromMilliseconds(900));   // stay in the fill: well past the delay
+            var angleAtRequest = splash.ArcRotate.Angle;
+            Check.WithCustomMessage($"the fill should be mid-course at the request, angle={angleAtRequest}")
+                .That(angleAtRequest > -170.0).IsTrue();
+
+            splash.BeginExit();
+            double minAngle = double.MaxValue;
+            var closed = StaTestPump.PumpUntil(() =>
+            {
+                minAngle = Math.Min(minAngle, splash.ArcRotate.Angle);
+                return splash.CurrentBeat is SplashBeat.Closed;
+            }, TimeSpan.FromSeconds(2.5));                   // < the 3 s hard deadline
+            Check.That(closed).IsTrue();
+            Check.That(splash.CurrentBeat).IsEqualTo(SplashBeat.Closed);
+            Check.That(splash.ClosedReason).IsEqualTo("closed");
+            Check.WithCustomMessage($"the arc jumped backwards: min {minAngle} against the captured {angleAtRequest}")
+                .That(minAngle >= angleAtRequest - 2.0).IsTrue();
+        }
+        finally
+        {
+            keeper.Close();
+            splash.ForceClose();
+        }
+    }
 }

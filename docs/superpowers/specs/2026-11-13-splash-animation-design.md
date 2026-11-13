@@ -1,7 +1,7 @@
 # Startup Splash Animation — Design
 
 - **Date:** 2026-11-13
-- **Status:** Rev 3. Rev 1 (84d3e1ed) — external r1 (12 findings, all valid) → owner picked the separate STA splash thread (L11). Rev 2 (61eb723b) — external r2 (8 findings + nit, all verified valid) → this revision folds them in and records the owner's V2 pick for the warm-start catch-up floor (L16). Rev 1's render-thread animation claim was wrong and is struck (L10 superseded).
+- **Status:** Rev 3.1 (r3 processed — one formula fix, one DPI-thread rule, seven leftover values; reviewer verdict: no blockers left). Rev 1 (84d3e1ed) — external r1 (12 findings, all valid) → owner picked the separate STA splash thread (L11). Rev 2 (61eb723b) — external r2 (8 findings + nit, all verified valid) → owner's V2 pick recorded as L16. Rev 1's render-thread animation claim was wrong and is struck (L10 superseded).
 - **Scope:** `SplashWindow` (thread model, card content, geometry, choreography, adaptive timing), its exit hand-off, the DPI initialization, and the affected tests. No changes to startup ordering on the main thread, DI, provider resolution, or any other overlay.
 
 ## 1. Summary
@@ -54,7 +54,7 @@ Width 440 with 36 DIP side padding gives a 368 DIP inner width; the German sente
 
 ### 4.1 The mark (the accepted icon's geometry, animated)
 
-The mark plays **on the icon's own tile**: a 150 × 150 DIP rounded square, radius 37.5 (= the icon's rx24 on its 96 grid, scaled), fill `#141828` — in **every** theme (L12). On Midnight/Ember (dark surfaces) it blends into the card exactly like the approved mockups; on Daylight (`SurfaceDark = #E7E8F0`, light) it keeps the icon's dark-on-dark look instead of washing out. Both mark colors are pinned to the icon's values, theme-independent:
+The mark plays **on the icon's own tile**: a 150 × 150 DIP rounded square, radius 37.5 (= the icon's rx24 on its 96 grid, scaled), fill `#141828` — in **every** theme (L12). On Midnight it nearly blends into the card (`#1A1A2E` surface vs `#141828` tile); on Ember and Contrast the navy tile reads as a distinct square (intentional — it is the icon's tile; the owner's live check covers both), and on Daylight (`SurfaceDark = #E7E8F0`, light) it keeps the icon's dark-on-dark look instead of washing out. Both mark colors are pinned to the icon's values, theme-independent:
 
 | Element | Geometry | Color |
 |---|---|---|
@@ -81,7 +81,7 @@ The mark's elements then rest in the icon's composition until the exit fade cove
 ## 6. T3 — adaptive fill (owner pick) on one clock
 
 1. **Stretch:** the fill runs its slow base course (3.0 s duration from its 0.55 s start) to completion regardless of startup. On long startups the base course outlasts the wait and the arc simply arrives on its own — it never stalls and never restarts; on such starts the catch-up below is a no-op and only the fixed tail remains.
-2. **Catch up on readiness (calm floor, L16 — owner pick V2):** when `Complete()` fires (see naming below), the remaining rotation and fill re-target to their final values **from their current animated values** (a DP read returns the effective animated value, so screen and state cannot drift), cubic ease-out, over `duration = max(0.35 s, min(remaining base-course time, 1.0 s))` — never compressed harder than a readable 1.0 s floor, never slower than the base pace. Warm start (ready ≈ 0.45 s): the whole sweep + fill runs 0.45 → 1.45 s, title by ≈ 1.7 s, closed ≈ 2.2 s (ready → close ≈ 1.75 s). Slow starts are unchanged (the remaining course simply runs at base pace).
+2. **Catch up on readiness (calm floor, L16 — owner pick V2):** when `Complete()` fires (see naming below), the remaining rotation and fill re-target to their final values **from their current animated values** (a DP read returns the effective animated value, so screen and state cannot drift), cubic ease-out, over `duration = min(remaining base-course time, 1.0 s)` — never compressed harder than a readable 1.0 s floor, and never slower than the base pace (the catch-up only ever *shortens* what remains; a 0 s remainder skips straight to the title). Warm start (ready ≈ 0.45 s): the whole sweep + fill runs 0.45 → 1.45 s, title by ≈ 1.7 s, closed ≈ 2.2 s (ready → close ≈ 1.75 s). Slow starts are unchanged (the remaining course simply runs at base pace).
 3. **Fixed tail:** title rise 0.25 s → hold 0.20 s → exit fade 0.30 s → `Close()`. The worst-case ready → close is the floor catch-up (1.0 s) + tail (0.75 s) ≈ **1.75 s** — the click-through card under the already-raised overlays makes that tail cost-free (r2 #2).
 
 **Naming (r1 #10):** the main thread calls `SplashWindow.BeginExit()`; that marshals onto the splash thread, where the controller's `Complete()` runs. One name per side, stated once here.
@@ -89,7 +89,7 @@ The mark's elements then rest in the icon's composition until the exit fade cove
 **`SplashExitController`** (new, `src/EyeCtrl.App/Overlays/SplashExitController.cs`, `internal`, covered by the existing `InternalsVisibleTo` App → App.Tests) owns the beats as a small state machine:
 
 ```
-Idle → Entrance (beats 1-2) → Fill (base 3.0 s course) → CatchUp (0.35 s, on Complete())
+Idle → Entrance (beats 1-2) → Fill (base 3.0 s course) → CatchUp (≤ 1.0 s per L16, on Complete())
      → Title (0.25 s) → Hold (0.20 s) → Exit (0.30 s) → Closed
 ```
 
@@ -105,7 +105,7 @@ Idle → Entrance (beats 1-2) → Fill (base 3.0 s course) → CatchUp (0.35 s, 
 | Site | Today | Change |
 |---|---|---|
 | `App.xaml.cs:165-169` | construct + `Show()` on main thread | start the splash thread; `splash` becomes a thread-safe handle/proxy exposing `ShowNoTrackerSentence()`, `BeginExit()`, `Close()` (each marshals to the splash thread; safe if the thread never started or already shut down) |
-| `InitializeDpi` (`App.xaml.cs:996`) | reads the splash's `PresentationSource` on the main thread | reworked: the splash thread reads its own `CompositionTarget.TransformToDevice` and reports the scale back; the main thread's wait is bounded at 500 ms and falls back to `GetDpiForSystem` on timeout — the same path test mode uses (`App.xaml.cs:1007-1012`) |
+| `InitializeDpi` (`App.xaml.cs:996`) | reads the splash's `PresentationSource` on the main thread | reworked: the splash thread reads its own `CompositionTarget.TransformToDevice` and **reports** the scale to the main thread; **only the main thread calls `DpiHelper.Initialize`** — with the reported scale, or the `GetDpiForSystem` fallback on timeout (the same path test mode uses, `App.xaml.cs:1007-1012`). A report arriving after the timeout is discarded — the splash thread never writes the shared static, so a late report cannot overwrite the fallback mid-DI-build (r3 #2) |
 | `App.xaml.cs:236` | `splash.ShowNoTrackerSentence()` | same call on the proxy — marshals; the sentence fades in (0.25 s) in its reserved row |
 | `App.xaml.cs:380` → `ShowOverlays` (`:963`) | `splash?.Close()` | `splash?.BeginExit()` — marshals; the catch-up + tail then run on the splash thread |
 | `App.xaml.cs:728` (catch) | `splash?.Close()` | `splash?.Close()` on the proxy (marshalled hard close, no theatrics); a no-op if the splash thread is gone |
@@ -121,7 +121,7 @@ Idle → Entrance (beats 1-2) → Fill (base 3.0 s course) → CatchUp (0.35 s, 
 
 ## 8. Threading model and resources (replaces rev 1 §8 / L10)
 
-- **Why a separate thread:** rev 1 claimed transform/opacity storyboards keep running while the UI thread is busy. That claim was wrong for this design — `OnStartup` runs synchronously from `splash.Show()` (`:168`) to ~line 745 with no pumping, readiness at `:380` is followed by ≈ 0.35 s of further blockage (§2), and the fill (`StrokeDashOffset`), title, and catch-up are UI-thread-bound regardless. Whether WPF hands some transform animations to a render thread is beside the point and is no longer relied on; the plan's task-0 spike measures it only as recorded evidence.
+- **Why a separate thread:** rev 1 claimed transform/opacity storyboards keep running while the UI thread is busy. That claim was wrong for this design — `OnStartup` runs synchronously from `splash.Show()` (`:168`) to ~line 725 (the try block's end) with no pumping, readiness at `:380` is followed by ≈ 0.35 s of further blockage (§2), and the fill (`StrokeDashOffset`), title, and catch-up are UI-thread-bound regardless. Whether WPF hands some transform animations to a render thread is beside the point and is no longer relied on; the plan's task-0 spike measures it only as recorded evidence.
 - **The splash thread** is STA, owns the window, its `Dispatcher`, all storyboards, and its timers. It pumps for the whole main-thread blockage, so every beat plays as designed and the dead-man timers can fire.
 - **Marshalled surface (the only cross-thread calls):** `ShowNoTrackerSentence()`, `BeginExit()`, `Close()` → `Dispatcher.BeginInvoke` onto the splash thread; the DPI scale report (splash → main, once, before the DI build). Anything arriving after the dispatcher shut down is a logged no-op.
 - **Resources (r2 #5 — audit answered in code):** `ThemeBase.CachedBrush` freezes every brush at creation (`ThemeBase.cs:39`) and `CachedFont` publishes `FontFamily` as read-only-once-published (`ThemeBase.cs:48-49` — FontFamily cannot be frozen), so `Tokens` colors, brushes, and the base constructor's `Tokens.FontStandard` are safe from the splash thread. The splash still avoids App-level `StaticResource`s and `OverlayStyles.xaml` (XAML-declared brushes with thread affinity); it builds its own frozen brushes from `Tokens` color values (`Color` is a struct; reads are thread-safe) and the pinned icon constants (`#E8A33C`, `#A5F3FC`, `#F6C77E`, `#141828`). Fonts/brushes the splash creates stay on its thread.
@@ -133,8 +133,8 @@ Idle → Entrance (beats 1-2) → Fill (base 3.0 s course) → CatchUp (0.35 s, 
 | Area | Test | Mode |
 |---|---|---|
 | Task-0 spike (not a test — recorded evidence) | Measure animated values across a blocked UI thread; prove the splash dispatcher pumps during main-thread blockage and the frozen-brush approach works. Runs **off-screen or windowless** (r2 #3). The resource audit is already answered in code (r2 #5) | disposable console spike, results committed to the plan |
-| Controller logic | New: state transitions, `Complete()` idempotence from every state, catch-up parameter math (pure), dead-man rules (not-Closed-by-15 s, readiness + 2 s hard deadline, re-entry no-op), exception containment | headless unit |
-| Marshalling | Calls on the proxy from a non-splash thread marshal safely; calls after dispatcher shutdown are logged no-ops; fatal-path `Close` from the main thread works with the splash thread gone — all through the window-factory seam (fake/invisible window; no test shows a real splash, r2 #3) | headless/STA unit |
+| Controller logic | New: state transitions, `Complete()` idempotence from every state, catch-up parameter math (pure — covering remaining time below 0.35 s, between 0.35 and 1.0 s, and above 1.0 s, r3 #1), dead-man rules (not-Closed-by-15 s, readiness + 3.0 s hard deadline, re-entry no-op), exception containment | headless unit |
+| Marshalling | Calls on the proxy from a non-splash thread marshal safely; calls after dispatcher shutdown are logged no-ops; fatal-path `Close` from the main thread works with the splash thread gone; a DPI report arriving after the 500 ms timeout is discarded and the main thread's fallback value stands (r3 #2) — all through the window-factory seam (fake/invisible window; no test shows a real splash, r2 #3) | headless/STA unit |
 | Window construction | Existing `OverlayClientOriginTests` keeps constructing `SplashWindow` (new XAML must parse clean); new non-launching STA test: mark elements + tile backdrop present, sentence row reserved 2 lines, `AutomationId` intact, `IsClickThrough` true | `StaFact`, no `Show()` |
 | Sentence fit | `GermanGateTests.TheSplashSentence_FitsTheWorkArea_InEnglishAndGerman` re-targeted: natural width ≤ 2 × card inner width, wrapped height ≤ reserved row, **and full content height ≤ 336** (the whole card, not only the sentence row — r2 #7), measured against the **card inner width** (368 DIP), not the work area — English, shipped German, and the existing 10× overlong stress case | headless |
 | Source pins (r2 #8) | `SplashNoTrackerSentenceTests` (:54) pins the `SplashWindow.ShowsNoTrackerSentence(settings…)` call shape and that `.ShowNoTrackerSentence(` appears exactly once; `ControlStatusWiringTests` (:62) pins the predicate inside `new ControlStatusService(…)`; `ToolbarLifecycleCoordinatorTests` (:286) pins the literal `ShowOverlays(splash, cursorCircle, toolbar, settings);` — so the proxy local keeps the name `splash`, the predicate stays a static on `SplashWindow`, and the sentence call stays once | headless source-scan, must stay green |
@@ -143,7 +143,7 @@ Idle → Entrance (beats 1-2) → Fill (base 3.0 s course) → CatchUp (0.35 s, 
 | Icon harness | `AppIconTests.Splash_Decode_Yields128PxFrame` keeps pinning WIC frame order; its comment says the splash's XAML renders that URI — the splash no longer hosts the ico `Image`; the comment is updated (test + assertion unchanged) | headless |
 | App-launching FlaUI | Unchanged — no splash in test mode; no new opt-in tests | `EYECTRL_UI_TESTS` only |
 
-No visible windows in any test (`InvisibleTestWindow` rules do not apply: nothing new calls `Show`). No named pipes involved.
+No test puts a visible window on screen: the splash thread itself calls `Show` in production, so what keeps tests off-screen is the **window-factory seam** — tests inject a fake or invisible window and never start the real splash thread against a real `SplashWindow` (`InvisibleTestWindow` rules do not apply: no test calls `Show` on a real window). No named pipes involved.
 
 ## 10. Acceptance criteria
 
@@ -169,15 +169,15 @@ No visible windows in any test (`InvisibleTestWindow` rules do not apply: nothin
 | L10 | ~~`StrokeDashOffset` fill may stall under UI-thread blockage~~ **SUPERSEDED** — rev 1's render-thread claim was wrong; the splash thread makes the question moot | r1 #1/#2 | — |
 | L11 | **Separate STA splash thread** with its own dispatcher; marshalled `ShowNoTrackerSentence`/`BeginExit`/`Close`; frozen-brush resources; reworked `InitializeDpi`; task-0 spike first | Owner pick after r1 #1/#2 — the only in-scope option that keeps T3 real; standard WPF splash pattern | Yield the dispatcher mid-`OnStartup` (reentrancy risk); static splash (drops the feature) |
 | L12 | Mark plays on the icon's dark tile (`#141828`, rx 37.5) in every theme | Keeps the approved dark-on-dark mark look on Daylight's light surface | Theme-conditional backdrop; light-theme mark without backing |
-| L13 | `IsClickThrough = true` on the splash | The gaze engine runs during the tail; a 440×320 card must not swallow dwells (r1 #4) | Keep it input-opaque |
+| L13 | `IsClickThrough = true` on the splash | The gaze engine runs during the tail; a 440×336 card must not swallow dwells (r1 #4) | Keep it input-opaque |
 | L14 | Card 440 × 336; fit gate = sentence rules **+ full content height ≤ 336** (EN + DE + 10× overlong) | German sentence needs wrap + reserved two lines (r1 #5/#6); real font metrics leave 320 with ~1 DIP slack (r2 #7) | 420×270 fixed; 440×320; work-area-based gate (passes while the real card clips) |
 | L15 | `Splash: shown/ready/closed` log lines with elapsed-ms | Acceptance by log, not by eye (r1 suggested addition) | Eye-only acceptance |
-| L16 | Catch-up calm floor = 1.0 s: `duration = max(0.35 s, min(remaining base-course time, 1.0 s))` | Owner pick V2 from the warm-start demo (r2 #2): with readiness at ≈ 0.45 s the rev-2 0.35 s catch-up was a snap; the click-through card under already-raised overlays makes a calmer tail cost-free | V1 snap (0.35 s), V3 floor 1.4 s |
+| L16 | Catch-up calm floor = 1.0 s: `duration = min(remaining base-course time, 1.0 s)` (r3 #1: no 0.35 s lower bound — the catch-up only ever shortens what remains, never slows it below base pace) | Owner pick V2 from the warm-start demo (r2 #2): with readiness at ≈ 0.45 s the rev-2 0.35 s catch-up was a snap; the click-through card under already-raised overlays makes a calmer tail cost-free | V1 snap (0.35 s), V3 floor 1.4 s |
 
 ## 12. Work items (for the implementation plan)
 
 0. **Threading spike (first):** blocked-UI-thread animation measurement (recorded evidence for §8), frozen-brush proof, splash-dispatcher pumping proof; runs **off-screen or windowless** (r2 #3). The freezability audit is answered in code (r2 #5) — task 2's XAML simply avoids `OverlayStyles.xaml`.
-1. Layout budget + fit gate: card 440×320, reserved 2-line sentence row, re-targeted `GermanGateTests`.
+1. Layout budget + fit gate: card 440×336, reserved 2-line sentence row, re-targeted `GermanGateTests` (sentence + full content height).
 2. Splash window content: mark on its tile, trail/dot/bloom/arc geometry + declared storyboards, title, sentence row (opacity fade), `IsClickThrough`.
 3. `SplashExitController`: state machine, storyboard-`Completed`-driven transitions, catch-up from current values, dead-man rules, exception containment, dispatcher shutdown.
 4. Splash thread + proxy: STA thread with thread-entry try/catch containment + `IsBackground`, window-factory seam for tests, marshalled `ShowNoTrackerSentence`/`BeginExit`/`Close`, `Splash:` log lines, bounded DPI wait + `InitializeDpi` rework, `OnExit` safety.

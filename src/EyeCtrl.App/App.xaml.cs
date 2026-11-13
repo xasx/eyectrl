@@ -57,6 +57,9 @@ public partial class App : Application
     private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
     private DispatcherTimer? _heartbeatTimer;
+    // The startup splash's marshalled handle (SplashThreadLauncher.Start), stashed for OnExit's
+    // best-effort dispose — the splash thread may outlive a failed startup's catch path.
+    private SplashThreadHandle? _splashHandle;
 
     // Dispatcher-fault budget for the standalone crash policy (see InitializeApp's
     // DispatcherUnhandledException registration). Touched only on the UI thread.
@@ -136,7 +139,7 @@ public partial class App : Application
             return;
         }
 
-        SplashWindow? splash = null;
+        SplashThreadHandle? splash = null;
         try
         {
             var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args);
@@ -162,11 +165,14 @@ public partial class App : Application
             ThemeStartup.Apply(settings, Resources);
 
             // ── Splash screen ──
+            // Own STA thread + dispatcher (spec §8): the main thread blocks from here to the end of
+            // startup, and only a second dispatcher can animate through that. The handle's methods
+            // marshal; a failed or timed-out thread start degrades to a splash-less, logged start
+            // (spec §7) — and cancels the splash before it can show.
             if (!IsTestMode)
-            {
-                splash = new SplashWindow();
-                splash.Show();
-            }
+                splash = SplashThreadLauncher.Start();
+
+            _splashHandle = splash;
 
             InitializeDpi(splash);
 
@@ -826,6 +832,8 @@ public partial class App : Application
     {
         Log.Information("Shutdown");
 
+        try { _splashHandle?.Dispose(); } catch { /* shutdown-time best effort */ }
+
         // Every step is best-effort: an exception in any step used to skip every step after it —
         // including the single-instance mutex release and the log flush — and then rethrow into
         // the dying dispatcher. The ORDER below is unchanged (see the original ordering notes).
@@ -955,12 +963,12 @@ public partial class App : Application
     }
 
     private static void ShowOverlays(
-        SplashWindow? splash,
+        SplashThreadHandle? splash,
         ICursorCircleOverlay cursorCircle,
         IToolbarOverlay toolbar,
         EyeCtrlSettings settings)
     {
-        splash?.Close();
+        splash?.BeginExit();      // the exit choreography runs on the splash thread (spec §7)
         cursorCircle.Show();
         toolbar.Show();
         toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
@@ -990,21 +998,18 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Initializes <see cref="DpiHelper"/> from the splash window's composition target.
-    /// In test mode no splash is shown, so it falls back to the Win32 system DPI.
+    /// Initializes <see cref="DpiHelper"/> from the splash thread's reported composition target,
+    /// waiting at most 500 ms; on timeout (or without a splash) it falls back to the Win32 system
+    /// DPI — the same values the test-mode path used. ONLY this main-thread method writes
+    /// DpiHelper; a splash report arriving after the timeout is discarded (r3 #2).
     /// </summary>
-    private static void InitializeDpi(SplashWindow? splash)
+    private static void InitializeDpi(SplashThreadHandle? splash)
     {
-        if (splash != null)
+        if (splash is not null && splash.TryGetDpiScale(500, out var scaleX, out var scaleY))
         {
-            var source = PresentationSource.FromVisual(splash);
-            if (source?.CompositionTarget != null)
-            {
-                var m = source.CompositionTarget.TransformToDevice;
-                DpiHelper.Initialize(m.M11, m.M22);
-            }
+            DpiHelper.Initialize(scaleX, scaleY);
         }
-        if (IsTestMode)
+        else
         {
             var dpi = GetDpiForSystem();
             var scale = dpi / (double)DpiStandardScale;

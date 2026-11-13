@@ -25,8 +25,10 @@ public interface IKeyboardProbe
     /// <summary>
     /// Raised one dispatcher hop after any of the probe's sources change the keyboard's on-screen
     /// geometry: the keyboard VM's IsVisible/IsEmojiMode, the keyboard window's SizeChanged/Loaded,
-    /// KeyboardEdgeToggledMessage, and the edge bar's ButtonSetChanged — the same source set
-    /// GazeConsumerInventory wires.
+    /// the keyboard window's POSITION (a toolbar yield, the gaze-off un-yield, a Flip, a DPI move —
+    /// LocationChanged), KeyboardEdgeToggledMessage, and the edge bar's ButtonSetChanged — the same
+    /// source set GazeConsumerInventory wires, plus the window's position, which a note's Edit
+    /// card must follow and the inventory has no use for.
     /// </summary>
     event Action? Changed;
 }

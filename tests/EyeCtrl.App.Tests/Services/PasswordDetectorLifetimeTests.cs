@@ -55,6 +55,30 @@ public class PasswordDetectorLifetimeTests
         Check.WithCustomMessage("exactly one startup start call")
             .That(lines.Count(l => l.Contains("ISensitiveContextDetector>().Start()", StringComparison.Ordinal)))
             .IsEqualTo(1);
+
+        // Review r1 F1: the previous-line check misses a BRACED if and a move into a lambda/event handler.
+        // The call must sit at the same block depth as the adaptation runtime's own startup line, which
+        // runs on every startup path.
+        var anchor = lines.FindIndex(l => l == "_serviceProvider.GetRequiredService<AdaptationActivation>().Start(gazeEngine);");
+        Check.WithCustomMessage("the adaptation startup anchor line must exist in OnStartup")
+            .That(anchor).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("the detector start must be at the same block depth as AdaptationActivation.Start "
+                + "(not inside an if-block, a lambda or an event handler)")
+            .That(DepthAt(lines, at)).IsEqualTo(DepthAt(lines, anchor));
+    }
+
+    /// <summary>Brace depth before line <paramref name="index"/>, ignoring string/char literals and // comments.</summary>
+    private static int DepthAt(System.Collections.Generic.IReadOnlyList<string> lines, int index)
+    {
+        var depth = 0;
+        for (var i = 0; i < index; i++)
+        {
+            var code = System.Text.RegularExpressions.Regex.Replace(lines[i], "\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])'", string.Empty);
+            var comment = code.IndexOf("//", StringComparison.Ordinal);
+            if (comment >= 0) code = code.Substring(0, comment);
+            depth += code.Count(c => c == '{') - code.Count(c => c == '}');
+        }
+        return depth;
     }
 
     [Fact]
@@ -84,6 +108,6 @@ public class PasswordDetectorLifetimeTests
         Check.WithCustomMessage("OnExit must remove the system-wide focus hook in its own step")
             .That(stop).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage("the stop must run while the provider is still alive")
-            .That(stop < dispose).IsTrue();
+            .That(stop).IsStrictlyLessThan(dispose);
     }
 }

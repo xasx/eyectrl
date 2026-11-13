@@ -169,41 +169,40 @@ public class KeyboardPredictionClickTests
 }
 
 /// <summary>
-/// The containment half of the key-click work (S1): <see cref="KeyboardSoundService.PlayKeyClick"/>
-/// swallows and latches a <see cref="System.Media.SoundPlayer"/> failure, so a corrupt or
-/// deleted-after-startup click.wav costs one log line instead of throwing on every key effect.
-/// <c>SoundPlayer</c> validates the wav only in <c>Play()</c> (<c>Load()</c> accepts garbage —
-/// measured in <see cref="DwellCueServiceTests.GarbageWav_NeverConstructsAPlayer"/>), and its
-/// <c>Play</c> cannot be intercepted (not virtual — the reason the cue service got an
-/// <c>ICuePlayer</c> seam, B1). This class therefore drives the latch through the REAL
-/// <c>SoundPlayer</c> with a garbage wav, which <c>Play()</c> rejects deterministically
-/// (measured: <c>InvalidOperationException</c>).
-///
-/// <para>
-/// No window is involved — plain facts, outside the WpfApplication collection.
-/// </para>
+/// The containment half of the key-click work (S1), re-cut by F5: the player sits behind the
+/// <see cref="IClickSoundPlayer"/> seam, and the two failure classes now behave differently.
+/// winmm's FALSE return is a counted failure — never a latch, because the sound "came back"
+/// for the owner — while a managed exception still latches the player to null so a broken
+/// player costs one log line, not every key effect. The wav validation itself moved from
+/// SoundPlayer's per-Play check to the constructor (WavHeader, the DwellCueService pattern),
+/// which turns the old garbage-wav latch test into the no-player/skipped case below.
+/// <para>No window, no audio device, no COM — plain facts.</para>
 /// </summary>
-public class KeyboardSoundServiceLatchTests
+[Collection("KeyboardAudioDiagnostics")]
+public class KeyboardSoundServiceLatchTests : F5AudioDiagnosticsTestBase
 {
+    private static System.Reflection.FieldInfo? PlayerField() =>
+        typeof(KeyboardSoundService).GetField("_player", BindingFlags.NonPublic | BindingFlags.Instance);
+
     [Fact]
-    public void CorruptWav_FirstClickLatches_EveryLaterClickIsASilentNoOp()
+    public void GarbageWav_ConstructsNoPlayer_AndClicksCountAsSkips()
     {
         var bad = Path.Combine(Path.GetTempPath(), $"keyclick_{Guid.NewGuid():N}.wav");
-        File.WriteAllBytes(bad, new byte[200]); // exists → player constructed; Play() rejects it
+        File.WriteAllBytes(bad, new byte[200]); // exists, but no PCM-16 header → no player at all
         try
         {
-            var svc = new KeyboardSoundService(new KeyboardSettings(), bad); // click sound on by default
+            var lines = new List<string>();
+            var svc = new KeyboardSoundService(new KeyboardSettings(), bad) { DiagnosticsLineSink = lines.Add };
 
-            Check.ThatCode(svc.PlayKeyClick).DoesNotThrow(); // one contained failure, one log line
-            Check.ThatCode(svc.PlayKeyClick).DoesNotThrow(); // latched: never re-attempts Play()
+            Check.ThatCode(svc.PlayKeyClick).DoesNotThrow();
+            Check.ThatCode(svc.PlayKeyClick).DoesNotThrow();
 
-            var player = typeof(KeyboardSoundService)
-                .GetField("_player", BindingFlags.NonPublic | BindingFlags.Instance)!
-                .GetValue(svc);
             Check.WithCustomMessage(
-                    "The service survived two clicks but did not latch: _player is still "
-                    + "constructed, so every later key effect would re-attempt Play() and re-throw.")
-                .That(player).IsNull();
+                    "a garbage wav must be rejected at construction (WavHeader), not at play time — "
+                    + "F5 moved the validation so a failed play is winmm's verdict, not SoundPlayer's throw")
+                .That(PlayerField()!.GetValue(svc)).IsNull();
+            svc.OnKeyboardHidden();
+            Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=0 skipped=2");
         }
         finally { File.Delete(bad); }
     }
@@ -218,9 +217,39 @@ public class KeyboardSoundServiceLatchTests
         Check.ThatCode(svc.PlayKeyClick).DoesNotThrow();
         Check.ThatCode(svc.PlayKeyClick).DoesNotThrow();
 
-        var player = typeof(KeyboardSoundService)
-            .GetField("_player", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .GetValue(svc);
-        Check.That(player).IsNull();
+        Check.That(PlayerField()!.GetValue(svc)).IsNull();
+    }
+
+    [Fact]
+    public void ManagedException_FirstClickContainsItAndLatches_LaterClicksAreCountedSkips()
+    {
+        var lines = new List<string>();
+        var player = new ThrowingPlayer();
+        var svc = new KeyboardSoundService(new KeyboardSettings(), "irrelevant.wav", _ => player)
+        {
+            DiagnosticsLineSink = lines.Add,
+        };
+
+        Check.ThatCode(svc.PlayKeyClick).DoesNotThrow(); // one contained failure, one warning line
+        Check.WithCustomMessage(
+                "the service survived the click but did not latch: a broken player must not be "
+                + "re-attempted on every key effect")
+            .That(PlayerField()!.GetValue(svc)).IsNull();
+
+        Check.ThatCode(svc.PlayKeyClick).DoesNotThrow(); // latched: the throwing Play is never re-attempted
+        Check.That(player.Calls).IsEqualTo(1);
+
+        svc.OnKeyboardHidden();
+        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=1 skipped=1");
+        // The click queued first-click diagnostics work: the collection-wide park scheduler holds
+        // it — run it deterministically, then ASSERT the drain (review 03 S3).
+        RunParkedWork();
+        Check.That(AudioSessionDiagnostics.DrainQueuedWork()).IsTrue();
+    }
+
+    private sealed class ThrowingPlayer : IClickSoundPlayer
+    {
+        public int Calls;
+        public bool Play() { Calls++; throw new InvalidOperationException("boom"); }
     }
 }

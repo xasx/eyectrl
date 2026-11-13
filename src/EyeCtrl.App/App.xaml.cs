@@ -864,6 +864,9 @@ public partial class App : Application
         Step("dispose ring arm log", () => _ringArmLog?.Dispose());
         Step("dispose blocked-input coordinator", () => _blockedInput?.Dispose());
         Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
+        // F5: the audio diagnostics' COM listeners outlive every service instance — unregister
+        // them while the process is still alive rather than letting WASAPI call into a dying CCW.
+        Step("unregister audio diagnostics", AudioSessionDiagnostics.Shutdown);
 
         if (_serviceProvider != null)
         {

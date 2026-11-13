@@ -212,6 +212,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         keyboard.SetSettings(settings);
 
         var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
+        // F5: the Core Audio diagnostics pair must exist before the first click can use it
+        // (review 01 F1) — idempotent, no COM here, and pinned by the composition test.
+        AudioSessionDiagnostics.EnsureProductionWiring();
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
 
         _keyboardSnapshot = CaptureSnapshot(settings);
@@ -409,6 +412,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
         if (visible)
         {
+            // F5: the click counters' window opens on a REAL show only (the transition decision is
+            // E1's, recorded just above) — a repeated show request while the keyboard is up must
+            // not reset a running show's counters.
+            if (!wasVisible) Context.OverlayManager.Keyboard.NotifyClickSoundShown();
             Context.OverlayManager.Keyboard.Show();
             // R2-4: refresh the occupancy state BEFORE the show placement, without placing.
             // Toolbar visibility changes reach the keyboard through BeginInvoke, so a hide still
@@ -433,6 +440,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         }
         else
         {
+            // F5: a REAL hide closes the counter window and writes one hide line for the show
+            // that just ended.
+            if (wasVisible) Context.OverlayManager.Keyboard.NotifyClickSoundHidden();
             Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
                 ApplyKeyboardSuppression(visible: false);

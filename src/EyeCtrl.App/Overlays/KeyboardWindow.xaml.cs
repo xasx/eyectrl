@@ -349,6 +349,14 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     public void SetSoundService(KeyboardSoundService svc) => _soundService = svc;
+
+    /// <summary>
+    /// F5: the coordinator forwards the REAL show/hide transitions (the same transition decision
+    /// E1's shown/hidden lines use) so the click counters' window and the audio-diagnostics
+    /// baseline open and close with the keyboard. Pure state — no UI, safe headless.
+    /// </summary>
+    internal void NotifyClickSoundShown() => _soundService?.OnKeyboardShown();
+    internal void NotifyClickSoundHidden() => _soundService?.OnKeyboardHidden();
     public void SetSettings(EyeCtrlSettings settings)
     {
         _settings = settings;

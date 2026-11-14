@@ -157,7 +157,10 @@ public partial class SplashWindow : OverlayWindow, ISplashWindow
         _baseFillStoryboard.BeginTime = TimeSpan.FromMilliseconds(550);
         _baseFillStoryboard.Completed += (_, _) =>
         {
-            if (_controller.Beat is SplashBeat.Entrance)
+            // Entrance OR Fill: the spec's step list runs Entrance → Fill → Filled — a fill that
+            // completes while the beat is Fill must park in Filled exactly like one that completes
+            // during Entrance, or Filled would be unreachable from it.
+            if (_controller.Beat is SplashBeat.Entrance or SplashBeat.Fill)
                 _controller.AdvanceTo(SplashBeat.Filled);   // wait for readiness — nothing else happens
         };
         _baseFillStoryboard.Begin(this, isControllable: true);

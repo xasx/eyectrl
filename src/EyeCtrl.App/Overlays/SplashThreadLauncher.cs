@@ -40,7 +40,9 @@ internal sealed class SplashDpiReport
         scaleX = scaleY = 0;
         if (_discarded) return false;
         if (!_source.Task.Wait(timeoutMs)) return false;
-        if (_discarded) return false;                 // raced: report arrived late
+        // No re-check after the wait: Discard() is only ever called after a TryAccept already
+        // returned false (SplashThreadHandle.TryGetDpiScale's timeout path), on the same main
+        // thread — a discard cannot arrive DURING a wait, so a successful wait is readable.
         (scaleX, scaleY) = _source.Task.Result;
         return true;
     }
@@ -90,13 +92,16 @@ internal sealed class SplashThreadHandle
     /// <summary>Called by the launcher on the splash thread once the window's DPI is readable.</summary>
     internal void ReportDpi(double scaleX, double scaleY) => _dpi.Accept(scaleX, scaleY);
 
-    /// <summary>App-exit safety: force-shuts the splash dispatcher if it is somehow still alive.</summary>
+    /// <summary>App-exit safety: force-shuts the splash dispatcher if it is somehow still alive.
+    /// BeginInvokeShutdown alone — the former Send-priority Invoke barrier had no timeout and
+    /// blocks forever when the splash thread is stuck (Dispose runs first in App.OnExit, before
+    /// the single-instance lock release); a queued barrier serves nothing, the shutdown request
+    /// itself is delivered by the dispatcher when it next pumps, or never if it cannot.</summary>
     internal void Dispose()
     {
         _disposed = true;
         try
         {
-            _splashDispatcher.Invoke(() => { }, DispatcherPriority.Send);
             _splashDispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);
         }
         catch (Exception ex)
@@ -189,7 +194,10 @@ internal static class SplashThreadLauncher
             {
                 e.Handled = true;                      // the brief's SetHandled() — the API is a property
                 Log.Warning(e.Exception, "Splash: unhandled exception on the splash thread; closing");
-                try { window.ForceClose(); } catch { /* already closing */ }
+                // FatalClose (idempotent), not ForceClose: the state must reach Closed, the timers
+                // must stop and the "Splash: closed" line must land (spec §7 — acceptance criterion
+                // 2 reads the log), exactly like every other close path.
+                try { window.FatalClose(); } catch { /* already closing */ }
                 dispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);
             };
             // The window never owns dispatcher shutdown (it cannot know which dispatcher it rides

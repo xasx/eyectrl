@@ -155,17 +155,19 @@ internal sealed class SplashThreadHandle
 /// </summary>
 internal static class SplashThreadLauncher
 {
-    private static volatile bool _startCancelled;
-
     /// <summary>Test seam (r2 #3, r4 #9): tests hand back an InvisibleTestWindow-prepared real
     /// window or a fake — anything implementing ISplashWindow.</summary>
     internal static Func<ISplashWindow>? WindowFactoryForTests { get; set; }
 
     internal static SplashThreadHandle? Start()
     {
-        _startCancelled = false;
         var ready = new TaskCompletionSource<SplashThreadHandle?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() => ThreadBody(ready))
+        // The cancel signal is PER START (no shared static): a leftover thread's late cancel
+        // read can never be confused by a later Start() — only THIS start's timeout can set it.
+        // The source carries no timer and is intentionally not disposed: the leftover thread
+        // must still be able to read the token after Start() has returned.
+        var cancel = new CancellationTokenSource();
+        var thread = new Thread(() => ThreadBody(ready, cancel.Token))
         {
             IsBackground = true,
             Name = "EyeCtrlSplash",
@@ -174,14 +176,14 @@ internal static class SplashThreadLauncher
         thread.Start();
         if (!ready.Task.Wait(TimeSpan.FromMilliseconds(500)))
         {
-            _startCancelled = true;                    // the thread must not show the window now (r4 #8)
+            cancel.Cancel();                           // the thread must not show the window now (r4 #8)
             Log.Warning("Splash: thread did not produce a handle within 500 ms; starting without a splash");
             return null;
         }
         return ready.Task.Result;
     }
 
-    private static void ThreadBody(TaskCompletionSource<SplashThreadHandle?> ready)
+    private static void ThreadBody(TaskCompletionSource<SplashThreadHandle?> ready, CancellationToken cancel)
     {
         try
         {
@@ -205,13 +207,14 @@ internal static class SplashThreadLauncher
             window.ExitFinished += () => dispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
 
             // Hand the handle back BEFORE the first visible step, so a timed-out Start() can
-            // cancel a splash that never shows (r4 #8). Residual race (F1): the main thread's
-            // wait may time out microseconds AFTER TrySetResult — the thread then reads a stale
-            // _startCancelled and shows anyway. Bounded and self-healing: the main thread already
+            // cancel a splash that never shows (r4 #8) — the token is per-start, so only THIS
+            // start's timeout can set it. Residual race (F1): the main thread's wait may time
+            // out microseconds AFTER TrySetResult — the thread then reads the token before the
+            // Cancel() lands and shows anyway. Bounded and self-healing: the main thread already
             // returned null (splash-less start stands), and OnSplashShown armed the 15 s dead-man,
             // so the stray splash closes itself, ExitFinished shuts the dispatcher down.
             ready.TrySetResult(handle);
-            if (_startCancelled)
+            if (cancel.IsCancellationRequested)
             {
                 Log.Information("Splash: start was cancelled before the first frame; no splash shown");
                 dispatcher.BeginInvokeShutdown(DispatcherPriority.Normal);

@@ -84,10 +84,9 @@ public class SplashThreadLauncherTests : IDisposable
     /// <summary>
     /// Spec §9, r4 #8: a factory that cannot deliver a window inside the 500 ms handle wait
     /// cancels the splash BEFORE its one visible step — Start() returns null and the app starts
-    /// splash-less. The stray splash thread wakes late, finds _startCancelled set and shuts down
-    /// without ever showing; the post-assertion sleep stays past that wake point so the flag
-    /// cannot be reset by the next test's Start() before the stray thread has read it (the F1
-    /// residual race).
+    /// splash-less. The cancel signal is per-start (a CancellationTokenSource local to Start()),
+    /// so the leftover thread's late cancel read can never be confused by another test's Start()
+    /// resetting a shared flag — no post-assertion settle wait is needed.
     /// </summary>
     [Fact]
     public void Start_FactoryBlocksPastTheWait_ReturnsNull()
@@ -101,7 +100,6 @@ public class SplashThreadLauncherTests : IDisposable
         {
             var handle = SplashThreadLauncher.Start();
             Check.That(handle).IsNull();        // splash-less start — the designed degradation
-            Thread.Sleep(400);                  // > the 100 ms the stray thread still needs past the timeout
         }
         finally { RestoreDefaultFactory(); }
     }

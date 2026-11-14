@@ -126,14 +126,14 @@ public partial class SplashWindow : OverlayWindow, ISplashWindow
             Log.Information("Splash: ready after {ShownElapsed} ms; catch-up {Duration} ms",
                 _shownAt.ElapsedMilliseconds, duration.TotalMilliseconds);
 
-            StopBaseFillClock();
-            ArmHardDeadline();                          // every accepted request is backstopped — also the straight-to-title path (review Minor 2)
+            ArmHardDeadline();                          // every accepted request is backstopped — both paths (review Minor 2)
             if (duration <= TimeSpan.Zero)
             {
-                RunTitle();                                 // remaining ≈ 0 (slow start): straight tail
-                return;
-            }
-            StartCatchUp(duration);
+                RunTitle();                                 // remaining ≈ 0 (slow start): straight tail. The Filling fill
+                return;                                     // clock is left RUNNING, still holding the finals — stopping it
+            }                                               // would revert the resting arc to hidden/rest (I1, spec §5/§6.1)
+            StopBaseFillClock();                            // still immediately precedes StartCatchUp: the capture (r4 #3)
+            StartCatchUp(duration);                         // reads the values the stopping clock still holds
         });
     }
 

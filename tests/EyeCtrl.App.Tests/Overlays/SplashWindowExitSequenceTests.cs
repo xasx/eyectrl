@@ -118,6 +118,18 @@ public class SplashWindowExitSequenceTests
             Check.That(splash.ClosedReason).IsNull();           // still waiting — not closed by anything
 
             splash.BeginExit();                                  // remaining ≈ 0 → no catch-up, straight tail
+            var tail = StaTestPump.PumpUntil(
+                () => splash.CurrentBeat is SplashBeat.Hold or SplashBeat.Exit or SplashBeat.Closed,
+                TimeSpan.FromSeconds(1.0));
+            Check.That(tail).IsTrue();
+            // I1 pin: the straight-to-title tail must leave the Filling fill clock holding the
+            // finals — stopping it (as the code once did) reverts the resting arc on the next tick.
+            // A revert would read 0 / −180, far outside the tolerance.
+            Check.WithCustomMessage($"DwellArc.Opacity while the tail runs = {splash.DwellArc.Opacity} (reverted?)")
+                .That(splash.DwellArc.Opacity).IsCloseTo(1, 1e-6);
+            Check.WithCustomMessage($"ArcRotate.Angle while the tail runs = {splash.ArcRotate.Angle} (reverted?)")
+                .That(splash.ArcRotate.Angle).IsCloseTo(0, 1e-6);
+
             var closed = StaTestPump.PumpUntil(() => splash.CurrentBeat is SplashBeat.Closed, TimeSpan.FromSeconds(1.5));
             Check.That(closed).IsTrue();
             Check.That(splash.ClosedReason).IsEqualTo("closed");

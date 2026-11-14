@@ -8,9 +8,17 @@ using Xunit;
 
 /// <summary>
 /// The splash thread + marshalled handle (spec §7): every public call marshals to the splash
-/// thread, calls after shutdown are no-ops, only the main thread reads the DPI report, and a
-/// late DPI report is discarded (r3 #2). Tests run against the real window prepared-invisible
-/// via the ISplashWindow factory seam — no test shows a visible splash (r2 #3, spec §9 rev 3.2).
+/// thread, calls after shutdown are no-ops, only the main thread reads the DPI report, a late
+/// DPI report is discarded (r3 #2), and a timed-out or failing factory start degrades to a
+/// splash-less start (r4 #8). Tests run against the real window via the ISplashWindow factory
+/// seam — no test shows a visible splash (r2 #3, spec §9 rev 3.2).
+///
+/// <para>The factory hands back <see cref="InvisibleTestWindow.PrepareCloaked"/> (DWM cloak), the
+/// same form SplashWindowExitSequenceTests uses and documents: the splash cannot join the
+/// Opacity=0 pin family because its XAML animates ELEMENT opacities, so a future "fade the
+/// window itself" refactor would put a visible card on screen during dotnet test — the DWM cloak
+/// hides the window whatever its Opacity does. The launcher SHOWS the window on the splash
+/// thread (sanctioned invisible-show: the prepared tag is trusted by the runtime guard).</para>
 /// </summary>
 [Collection("WpfApplication")]
 public class SplashThreadLauncherTests : IDisposable
@@ -20,10 +28,15 @@ public class SplashThreadLauncherTests : IDisposable
     public SplashThreadLauncherTests()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        SplashThreadLauncher.WindowFactoryForTests = () => InvisibleTestWindow.Prepare(new SplashWindow());
+        RestoreDefaultFactory();
     }
 
     public void Dispose() { _handle?.Dispose(); SplashThreadLauncher.WindowFactoryForTests = null; }
+
+    /// <summary>The factory the constructor installed; a test that swaps in a throwing or
+    /// blocking factory restores this before it ends (Dispose then nulls it).</summary>
+    private static void RestoreDefaultFactory() =>
+        SplashThreadLauncher.WindowFactoryForTests = () => InvisibleTestWindow.PrepareCloaked(new SplashWindow());
 
     private SplashThreadHandle StartHandle()
     {
@@ -66,5 +79,45 @@ public class SplashThreadLauncherTests : IDisposable
         handle.BeginExit();                     // must not throw
         handle.Close();                         // must not throw — the fatal path with the thread gone
         handle.Inspect(_ => { });               // must not throw
+    }
+
+    /// <summary>
+    /// Spec §9, r4 #8: a factory that cannot deliver a window inside the 500 ms handle wait
+    /// cancels the splash BEFORE its one visible step — Start() returns null and the app starts
+    /// splash-less. The stray splash thread wakes late, finds _startCancelled set and shuts down
+    /// without ever showing; the post-assertion sleep stays past that wake point so the flag
+    /// cannot be reset by the next test's Start() before the stray thread has read it (the F1
+    /// residual race).
+    /// </summary>
+    [Fact]
+    public void Start_FactoryBlocksPastTheWait_ReturnsNull()
+    {
+        SplashThreadLauncher.WindowFactoryForTests = () =>
+        {
+            Thread.Sleep(600);                  // > the 500 ms handle wait
+            return InvisibleTestWindow.PrepareCloaked(new SplashWindow());
+        };
+        try
+        {
+            var handle = SplashThreadLauncher.Start();
+            Check.That(handle).IsNull();        // splash-less start — the designed degradation
+            Thread.Sleep(400);                  // > the 100 ms the stray thread still needs past the timeout
+        }
+        finally { RestoreDefaultFactory(); }
+    }
+
+    /// <summary>Spec §9, r2 #1: a faulting factory degrades to a splash-less, logged start —
+    /// the thread entry's containment completes the (null) handle and shuts its dispatcher down;
+    /// Start() returns null instead of throwing.</summary>
+    [Fact]
+    public void Start_FactoryThrows_ReturnsNull()
+    {
+        SplashThreadLauncher.WindowFactoryForTests = () => throw new InvalidOperationException("the factory failed");
+        try
+        {
+            var handle = SplashThreadLauncher.Start();
+            Check.That(handle).IsNull();        // containment, not a process kill
+        }
+        finally { RestoreDefaultFactory(); }
     }
 }

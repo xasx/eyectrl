@@ -1,6 +1,8 @@
 // tests/EyeCtrl.App.Tests/Overlays/SplashWindowConstructionTests.cs
 namespace EyeCtrl.App.Tests.Overlays;
 
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
@@ -43,8 +45,11 @@ public class SplashWindowConstructionTests
 
     /// <summary>
     /// Spec §8: the splash thread has NO Application resources — the window must construct on a
-    /// bare STA thread. This is the resource-independence proof the r4 review asked the spike to
-    /// carry; it belongs here where the real XAML is under test.
+    /// bare STA thread. HALF of the resource-independence proof, and on its own an overclaim:
+    /// Application.Current is process-shared, so a StaticResource here would still RESOLVE and
+    /// this test would stay green. What it proves is that nothing the XAML or the code-behind
+    /// needs is MISSING without an Application; <see cref="TheSplashXaml_ReferencesNoApplicationResources"/>
+    /// is the other half — it proves the XAML never ASKS for one. The two together close spec §8.
     /// </summary>
     [Fact]
     public void TheWindow_ConstructsOnABareStaThread_WithoutApplicationResources()
@@ -69,5 +74,23 @@ public class SplashWindowConstructionTests
         thread.Start();
         Check.That(constructed.Wait(5000)).IsTrue();
         Check.WithCustomMessage($"Splash did not construct without Application resources: {failure}").That(failure).IsNull();
+    }
+
+    /// <summary>
+    /// The other half of the resource-independence proof (spec §8): the splash XAML contains NO
+    /// StaticResource and NO DynamicResource — an App-level lookup on the splash thread would
+    /// resolve against the process-shared Application.Current and silently depend on whatever
+    /// the main thread merged, which is exactly what §8 forbids. Comments are stripped first:
+    /// the XAML's explanatory comment names StaticResource, but a comment is not live code.
+    /// </summary>
+    [Fact]
+    public void TheSplashXaml_ReferencesNoApplicationResources()
+    {
+        var path = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Overlays", "SplashWindow.xaml");
+        var xaml = SourceScanner.StripComments(File.ReadAllText(path));
+        Check.WithCustomMessage("SplashWindow.xaml resolves an App-level StaticResource — the splash thread has no Application resources (spec §8)")
+            .That(Regex.IsMatch(xaml, @"\bStaticResource\b")).IsFalse();
+        Check.WithCustomMessage("SplashWindow.xaml resolves a DynamicResource — the splash thread has no Application resources (spec §8)")
+            .That(Regex.IsMatch(xaml, @"\bDynamicResource\b")).IsFalse();
     }
 }

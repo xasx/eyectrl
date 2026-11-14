@@ -3,8 +3,11 @@ namespace EyeCtrl.App.Tests.Keyboard;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
 
 /// <summary>
 /// Loads the three SHIPPED layout files — not synthetic JSON — and checks the specialAction
@@ -285,17 +288,19 @@ public class ShippedLayoutFilesTests
     [Fact]
     public void Qwertz_Letters_IsVariantA_ExactlyAsApproved()
     {
-        // T6 variant A (owner-approved 2026-11-11): the letters page, exactly as the ticket pins
-        // it. Wort löschen takes the top-left slot at Win's old 2.0 width (today's label, frame
-        // and accessible name), `?` takes row 0's right end as a plain text key, ß takes the
-        // third row's right end at 1.2 (today's output/shiftOutput), and the footer is the
-        // owner's exact ten-key row: Win Strg ⇥ 123 Fn #+= , ⌴ . ↵. Rows are centred, so the
-        // R1–R3 sums 12.8/12.2/12.8 keep every letter at its pre-edit position (see
-        // Letters_NoLetterMoves_ByUnitOffset).
+        // T6 variant A (owner-approved 2026-11-11), revised by F6 (owner choice 2026-11-14): the
+        // letters page, exactly as the ticket pins it. Wort löschen takes the top-left slot at
+        // Win's old 2.0 width (today's label, frame and accessible name), ß takes the third row's
+        // right end at 1.2 (today's output/shiftOutput), and F6 swaps ⌫ and `?`: ⌫ keeps its
+        // `backspace` action, glyph, label frame and "Rücktaste" name and takes row 0's right end
+        // at 0.8 (the owner types backspace with the upper right), while `?` becomes a plain text
+        // key at ⌫'s old third-row slot, width 1.2. The footer is the owner's exact ten-key row:
+        // Win Strg ⇥ 123 Fn #+= , ⌴ . ↵. Rows are centred, so the R1–R3 sums 12.8/12.2/12.8 keep
+        // every letter at its pre-edit position (see Letters_NoLetterMoves_ByUnitOffset).
         var layout = Load("qwertz.json");
         var letters = layout.SubLayouts["letters"];
 
-        // Row 0: Aa 2.0 | Q..P | ? 0.8 = 12.8.
+        // Row 0: Aa 2.0 | Q..P | ⌫ 0.8 = 12.8.
         var row0 = letters.Rows[0];
         var delWd = row0[0];
         Check.That(delWd.SpecialAction).IsEqualTo("deleteWord");
@@ -303,21 +308,25 @@ public class ShippedLayoutFilesTests
         Check.That(delWd.Label).IsEqualTo("Aa");
         Check.That(delWd.LabelFrame).IsEqualTo("eraseLeft");
         Check.That(delWd.AccessibleName).IsEqualTo("Wort löschen");
-        var question = row0[^1];
-        Check.That(question.Output).IsEqualTo("?");
-        Check.That(question.SpecialAction).IsNull();
-        Check.That(question.Width).IsCloseTo(0.8, 0.01);
+        var backspace = row0[^1];
+        Check.That(backspace.Label).IsEqualTo("⌫");
+        Check.That(backspace.Output).IsEqualTo("");
+        Check.That(backspace.SpecialAction).IsEqualTo("backspace");
+        Check.That(backspace.AccessibleName).IsEqualTo("Rücktaste");
+        Check.That(backspace.Width).IsCloseTo(0.8, 0.01);
         Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
 
-        // Row 2: Alt ⇧ | Y..Ü | ⌫ 1.2 (today's position) | ß 1.2 = 12.8.
+        // Row 2: Alt ⇧ | Y..Ü | ? 1.2 (⌫'s old slot) | ß 1.2 = 12.8.
         var row2 = letters.Rows[2];
+        var question = row2[^2];
+        Check.That(question.Output).IsEqualTo("?");
+        Check.That(question.SpecialAction).IsNull();
+        Check.That(question.Width).IsCloseTo(1.2, 0.01);
         var sharpS = row2[^1];
         Check.That(sharpS.Output).IsEqualTo("ß");
         Check.That(sharpS.ShiftOutput).IsEqualTo("ẞ");
         Check.That(sharpS.SpecialAction).IsNull();
         Check.That(sharpS.Width).IsCloseTo(1.2, 0.01);
-        Check.That(row2.Single(k => k.SpecialAction == "backspace").Width).IsCloseTo(1.2, 0.01);
-        Check.That(row2.IndexOf(row2.Single(k => k.SpecialAction == "backspace"))).IsEqualTo(row2.Count - 2);
         Check.That(row2.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
 
         // Row 3: the owner's footer, in order, at the approved widths — 12.8.
@@ -348,6 +357,87 @@ public class ShippedLayoutFilesTests
                 .That(key.Width).IsCloseTo(width, 0.01);
         }
         Check.That(footer.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+    }
+
+    [Fact]
+    public void Qwertz_BackspaceAtItsNewTopRightSlot_RepeatsByLongLook_AndNotByWobble()
+    {
+        // F4's deletion-key rule at F6's new slot: ⌫ is the letters page's top-right key now, so a
+        // gaze user must still get a deliberate second deletion by holding it, and an edge wobble
+        // above the top row must not re-arm it. The page is laid out from the shipped file with the
+        // window's own box arithmetic at 1.5x and driven through KeyboardViewModel.ProcessKeyGaze —
+        // the path the window calls.
+        const double keySize = 70 * 1.5;
+        const int dwellMs = 450;
+        const int cooldownMs = 400;
+        const int stepUs = 30_000;
+
+        var layout = Load("qwertz.json");
+        var letters = layout.SubLayouts["letters"];
+        Check.WithCustomMessage("⌫ is not the letters page's top-right key — F6's slot moved")
+            .That(letters.Rows[0][^1].SpecialAction).IsEqualTo("backspace");
+
+        var positions = new Dictionary<string, PhysicalPoint>(StringComparer.Ordinal);
+        var boxes = new Dictionary<string, PhysicalRect>(StringComparer.Ordinal);
+        for (var r = 0; r < letters.Rows.Count; r++)
+        {
+            var row = letters.Rows[r];
+            var rowWidth = row.Sum(k => LandingBoxWidth(k.Width, keySize) + 4);
+            var x = -rowWidth / 2;
+            var y = r * (keySize + 4);
+            foreach (var key in row)
+            {
+                var width = LandingBoxWidth(key.Width, keySize);
+                var id = key.SpecialAction ?? $"key_{r}_{positions.Count}";
+                positions[id] = new PhysicalPoint(x + (width + 4) / 2, y + keySize / 2);
+                boxes[id] = new PhysicalRect(x + 2, y + 2, width, keySize - 4);
+                x += width + 4;
+            }
+        }
+
+        var at = positions["backspace"];
+        var aboveTheTopRow = new PhysicalPoint(at.X, -80);
+
+        (KeyboardViewModel Vm, List<string> Fired) Rig()
+        {
+            var vm = new KeyboardViewModel(
+                new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } },
+                new WeakReferenceMessenger());
+            vm.Configure(dwellMs, cooldownMs);
+            vm.SetLayout(layout);
+            var fired = new List<string>();
+            vm.KeyDwellCompleted += id => fired.Add(id);
+            return (vm, fired);
+        }
+
+        long Hold(KeyboardViewModel vm, PhysicalPoint point, long fromUs, int ms, bool inside)
+        {
+            var until = fromUs + (ms * 1000L);
+            for (var t = fromUs; t <= until; t += stepUs)
+                vm.ProcessKeyGaze(positions, point, inside, t, boxes);
+            return until + stepUs;
+        }
+
+        // The long look: fire, wait out the cooldown, then a 1250 ms second dwell → a second ⌫.
+        var (vm, fired) = Rig();
+        var ts = Hold(vm, at, 1_000_000, dwellMs, inside: true);
+        Check.WithCustomMessage("arrange: the top-right ⌫ must fire once").That(fired).ContainsExactly("backspace");
+        ts = Hold(vm, at, ts, cooldownMs, inside: true);
+        Hold(vm, at, ts, 1250, inside: true);
+        Check.WithCustomMessage("⌫ at F6's slot no longer repeats by a long second dwell")
+            .That(fired).ContainsExactly("backspace", "backspace");
+
+        // The wobble: fire, wait out the cooldown, wobble 80 px above the top row for 400 ms, then
+        // come back for a normal 450 ms dwell. The latch must survive and the return must not fire.
+        var (wobbleVm, wobbleFired) = Rig();
+        var wobbleTs = Hold(wobbleVm, at, 1_000_000, dwellMs, inside: true);
+        wobbleTs = Hold(wobbleVm, at, wobbleTs, cooldownMs, inside: true);
+        Check.WithCustomMessage("arrange: the wobble half must start from one fire")
+            .That(wobbleFired).ContainsExactly("backspace");
+        wobbleTs = Hold(wobbleVm, aboveTheTopRow, wobbleTs, 400, inside: false);
+        Hold(wobbleVm, at, wobbleTs, dwellMs, inside: true);
+        Check.WithCustomMessage("⌫ at F6's slot re-fired after a 400 ms edge wobble")
+            .That(wobbleFired).ContainsExactly("backspace");
     }
 
     [Fact]

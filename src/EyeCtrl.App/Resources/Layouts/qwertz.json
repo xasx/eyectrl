@@ -17,7 +17,7 @@
           { "label": "I", "output": "i", "shiftOutput": "I", "width": 1.0 },
           { "label": "O", "output": "o", "shiftOutput": "O", "width": 1.0 },
           { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 },
-          { "label": "?", "output": "?", "width": 0.8 }
+          { "label": "⌫", "output": "", "width": 0.8, "specialAction": "backspace", "accessibleName": "Rücktaste" }
         ],
         [
           { "label": "⬆", "labelFrame": "capsArrow", "output": "", "width": 1.2, "specialAction": "toggle:capslock", "accessibleName": "Feststelltaste" },
@@ -44,7 +44,7 @@
           { "label": "N", "output": "n", "shiftOutput": "N", "width": 1.0 },
           { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 },
           { "label": "\u00dc", "output": "\u00fc", "shiftOutput": "\u00dc", "width": 1.0 },
-          { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
+          { "label": "?", "output": "?", "width": 1.2 },
           { "label": "ß", "output": "ß", "shiftOutput": "ẞ", "width": 1.2 }
         ],
         [

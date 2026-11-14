@@ -64,8 +64,10 @@ public static class KeyboardAdjacencyMap
         ['b'] = ['v','g','h','n'],
         ['n'] = ['b','h','j','m'],
         ['m'] = ['n','j','k'],
-        // ß sits at the letters page's third-row right end (T6 variant A): ⌫ on its left, ↵ below,
-        // and ä's box above-left overlaps it — its only letter neighbour. The entry exists in
+        // ß sits at the letters page's third-row right end (T6 variant A; F6 put ? on its left,
+        // where ⌫ used to be): ? on its left, ↵ below, and ä's box above-left overlaps it — its
+        // only LETTER neighbour. The map is letter-to-letter on purpose: ⌫, ?, ↵ and the footer
+        // keys have no entries, so a ⌫→? slip earns no adjacency discount. The entry exists in
         // BOTH directions (ß→ä and ä→ß): AreAdjacent reads only the TYPED character's set
         // (FuzzyEditDistance), so a one-directional entry would discount only one of the two
         // slips — "weiä" for "weiß" would cost the full 1.0.

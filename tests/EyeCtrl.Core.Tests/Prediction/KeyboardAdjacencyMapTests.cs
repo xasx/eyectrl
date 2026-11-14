@@ -13,16 +13,18 @@ public class KeyboardAdjacencyMapTests
     [Fact]
     public void Qwertz_SharpS_IsAdjacentToAumlaut_BothWays()
     {
-        // ß took the third row's right end (variant A): ⌫ left, ↵ below, ä's box above-left.
-        // The relation must be pinned in BOTH directions: AreAdjacent reads only the typed
-        // character's set (FuzzyEditDistance passes the typed char first), so a one-directional
-        // entry discounts only one of the two slips — the owner's own "weiä" for "weiß" would
-        // cost the full 1.0 with ß→ä alone.
+        // ß took the third row's right end (variant A); F6 swapped ⌫ and ? so ? is its left
+        // neighbour and ⌫ is now the top row's last key. ⌫, ? and ↵ are not letters and have no
+        // map entry, so ä's box above-left stays ß's only letter relation. The relation must be
+        // pinned in BOTH directions: AreAdjacent reads only the typed character's set
+        // (FuzzyEditDistance passes the typed char first), so a one-directional entry discounts
+        // only one of the two slips — the owner's own "weiä" for "weiß" would cost the full 1.0
+        // with ß→ä alone.
         var map = KeyboardAdjacencyMap.For("QWERTZ");
         Check.That(KeyboardAdjacencyMap.AreAdjacent(map, 'ß', 'ä')).IsTrue();
         Check.That(KeyboardAdjacencyMap.AreAdjacent(map, 'ä', 'ß')).IsTrue();
         // Not adjacent to anything else on that row or the row above: ü is two keys away
-        // (⌫ sits between), and the footer keys (/, ., Space, ↵) are not letters.
+        // (? sits between), and the footer keys (/, ., Space, ↵) are not letters.
         Check.That(KeyboardAdjacencyMap.AreAdjacent(map, 'ß', 'ü')).IsFalse();
         Check.That(KeyboardAdjacencyMap.AreAdjacent(map, 'ä', 'ü')).IsFalse();
         Check.That(KeyboardAdjacencyMap.AreAdjacent(map, 'ß', 'p')).IsFalse();

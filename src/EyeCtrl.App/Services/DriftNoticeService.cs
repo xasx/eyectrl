@@ -110,7 +110,7 @@ public sealed class DriftNoticeService : IDisposable
         catch (Exception ex)
         {
             // Teardown touches a WPF window (the live notice). A throw must not abort the rest of
-            // the disable path — the caregiver service's Dispose and the UIA hook stop follow.
+            // the disable path — the caregiver service's Dispose follows.
             Log.Warning(ex, "Failed to withdraw the drift notice from the banner slot during teardown.");
         }
     }

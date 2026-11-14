@@ -698,11 +698,18 @@ public partial class App : Application
                     canInterrupt: im.CurrentState == InteractionState.FreeLook);
             };
 
+            // The password-field detector (system-wide UIA focus hook) runs for the whole session, NOT with
+            // adaptation: the keyboard's E1 log mutes per-key lines through it in every app's password
+            // field. It used to start only with the adaptation runtime, so with adaptation off (the
+            // default, and the owner's setting) no password typing was ever muted (owner decision 12.11).
+            // Stopped by the explicit exit step in OnExit.
+            _serviceProvider.GetRequiredService<ISensitiveContextDetector>().Start();
+
             // Struggle-detection adaptation. AdaptationActivation starts and stops the whole runtime —
             // coordinator tick timer, the cue / drift-notice / log / caregiver-alert subscribers (resolving the cue service is
-            // what constructs its overlay HWND), and the system-wide UIA focus hook — on the
-            // AdaptationSettings.Enabled edge. Since the setting is off by default, none of that exists until
-            // the user opts in, and it is torn back down when they opt out.
+            // what constructs its overlay HWND) — on the AdaptationSettings.Enabled edge. Since the setting is
+            // off by default, none of that exists until the user opts in, and it is torn back down when they
+            // opt out.
             // §7.4 persisted learned offsets — only read when the feature is on (§9.1 disabled = current
             // cost); a mid-session first enable then starts learned at zero, conservatively.
             if (settings.Adaptation.Enabled)
@@ -905,6 +912,9 @@ public partial class App : Application
             // runtime" with the whole teardown skipped. Dispose is idempotent (Deactivate no-ops once
             // inactive), so the singleton's later disposal inside provider disposal is a no-op.
             Step("deactivate adaptation runtime", () => _serviceProvider.GetRequiredService<AdaptationActivation>().Dispose());
+            // The session-long password detector (started in OnStartup): remove its system-wide UIA focus hook
+            // while the provider is alive. Stop is idempotent, so the container's later Dispose is a no-op.
+            Step("stop password-field detector", () => _serviceProvider.GetRequiredService<ISensitiveContextDetector>().Stop());
             Step("dispose service provider", () => _serviceProvider.Dispose()); // Disposes all IDisposable singletons including ManualSelectionDwellService
         }
 

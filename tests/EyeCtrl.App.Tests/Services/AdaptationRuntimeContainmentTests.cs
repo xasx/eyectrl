@@ -86,7 +86,7 @@ public class AdaptationRuntimeContainmentTests
         activation.StartCore(null);
 
         Check.That(activation.IsActive).IsFalse();
-        Check.That(activations).IsEqualTo(0); // no tick timer, no overlay HWNDs, no system-wide UIA hook
+        Check.That(activations).IsEqualTo(0); // no tick timer, no overlay HWNDs (the UIA password hook runs regardless)
     }
 
     [Fact]

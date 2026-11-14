@@ -416,8 +416,8 @@ public class CaregiverAlertServiceTests
     [Fact]
     public void Dispose_SwallowsAPresenterFailure_NeverBreaksTeardown() // implementation-review F6 follow-up
     {
-        // StopRuntime stops the system-wide UIA focus hook AFTER this Dispose — a WPF failure here
-        // would abort the rest of the teardown and leak the hook (§11: swallow, like the chime).
+        // A WPF failure here would abort the rest of StopRuntime's teardown (§11: swallow, like the
+        // chime).
         var (svc, _, _, presenter, _, clock) = Make();
         clock.Now = 1_000_000;
         Run(svc, clock, Struggle(0.6), ticks: 241); // fires, window up

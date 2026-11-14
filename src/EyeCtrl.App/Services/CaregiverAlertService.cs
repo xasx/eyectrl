@@ -211,9 +211,9 @@ public sealed class CaregiverAlertService : IDisposable
             catch (Exception ex)
             {
                 // §11 / implementation-review F6: this is the only subscriber teardown that does
-                // thread-affine WPF work, and StopRuntime stops the system-wide UIA focus hook
-                // AFTER it — a throw here would abort the rest of the teardown and leak the hook.
-                // Swallow, exactly like the chime.
+                // thread-affine WPF work — a throw here would abort the rest of StopRuntime's teardown.
+                // Swallow, exactly like the chime. (The UIA focus hook is no longer part of that
+                // teardown: the password detector runs for the whole session.)
                 Log.Warning(ex, "Failed to hide the caregiver alert window during teardown.");
             }
         }

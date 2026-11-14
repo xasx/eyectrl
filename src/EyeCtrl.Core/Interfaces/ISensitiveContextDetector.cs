@@ -9,6 +9,12 @@ namespace EyeCtrl.Core.Interfaces;
 /// UI-Automation failure or unavailability it reports <em>not</em> sensitive — a false negative only shows a
 /// subtle cue and never exposes the credential, with <c>AdaptationSettings.SuppressInSensitiveContexts</c>
 /// (default true) as the backstop.
+/// <para>
+/// It is ALSO the keyboard's password guard (<c>KeyboardViewModel.SensitiveNow</c>): the E1 log's per-key
+/// mute, no dictionary/bigram learning, an empty prediction bar and no language-model query while a password
+/// field has focus. So it runs for the whole session (started in <c>App.OnStartup</c>, stopped in
+/// <c>OnExit</c>), never only with adaptation — with adaptation off it used to never run at all.
+/// </para>
 /// </summary>
 public interface ISensitiveContextDetector : IDisposable
 {

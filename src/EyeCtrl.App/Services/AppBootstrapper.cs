@@ -708,8 +708,9 @@ public class AppBootstrapper
             sp.GetRequiredService<GazeEngine>().InteractionManager));
 
         // Starts/stops the whole adaptation runtime on the Enabled edge, so the opt-in feature costs nothing
-        // (no tick timer, no overlay HWNDs, no system-wide UIA focus hook) while it is off. Resolves its
-        // participants lazily from the container, hence the IServiceProvider dependency.
+        // (no tick timer, no overlay HWNDs) while it is off. The UIA focus hook is NOT part of it: the
+        // sensitive-context detector runs for the whole session (App.OnStartup) as the E1 password mute.
+        // Resolves its participants lazily from the container, hence the IServiceProvider dependency.
         services.AddSingleton(sp => new AdaptationActivation(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp));

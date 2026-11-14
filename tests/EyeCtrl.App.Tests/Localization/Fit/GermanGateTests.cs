@@ -2,8 +2,11 @@ namespace EyeCtrl.App.Tests.Localization.Fit;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Settings;
 using EyeCtrl.App.Tests.TestSupport;
@@ -290,19 +293,20 @@ public class GermanGateTests
     }
 
     /// <summary>
-    /// Binding (B5): the splash's no-tracker sentence is one unwrapped line in a SizeToContent
-    /// splash, so the splash grows with it; the bound is that the grown splash still fits the
-    /// 200 % work area's width with the 48 DIP margin either side. English, the German draft and the
-    /// shipped German; a sentence repeated ten times must fail (the teeth).
+    /// The splash's sentence must fit the card's RESERVED two-line row (spec §4): wrapped height
+    /// ≤ the 48 DIP row at the card's inner width, natural width ≤ 2 × inner width (wrapping can
+    /// then place it in two rows), and the whole real content height ≤ the 336 DIP card. Measured
+    /// on the REAL SplashWindow content so the gate and the XAML cannot drift (r4 #6). English,
+    /// the German draft and the shipped German; a sentence repeated ten times must fail (teeth).
     /// </summary>
     [StaFact]
-    public void TheSplashSentence_FitsTheWorkArea_InEnglishAndGerman()
+    public void TheSplashSentence_FitsTheReservedRow_InEnglishAndGerman()
     {
         const string key = "overlays.splash.noTracker";
         var english = SplashSentence(StringTable.EmbeddedEnglish.T(key));
         var german = SplashSentence(GermanDraft.Table.T(key));
         var shipped = SplashSentence(ShippedGerman.Load().T(key));
-        var overLong = SplashSentence(string.Join(" ", Enumerable.Repeat(GermanDraft.Table.T(key), 10)));
+        var overLong = SplashSentence(string.Join(" ", Enumerable.Repeat(ShippedGerman.Load().T(key), 10)));
         _output.WriteLine($"English: {english}");
         _output.WriteLine($"German: {german}");
         Check.WithCustomMessage("The splash-sentence gate passed a tenfold sentence: it cannot fail.").That(overLong.Fits).IsFalse();
@@ -311,7 +315,7 @@ public class GermanGateTests
         Check.WithCustomMessage(shipped.ToString()).That(shipped.Fits).IsTrue();
     }
 
-    /// <summary>The splash's content at 2.0 with the sentence shown: its desired width against the work area less 2 × 48 DIP.</summary>
+    /// <summary>Wraps the sentence inside the REAL splash window and measures the actual row fit.</summary>
     private static FitVerdict SplashSentence(string sentence)
     {
         EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
@@ -320,14 +324,29 @@ public class GermanGateTests
         {
             window.ShowNoTrackerSentence();
             window.NoTrackerSentence.Text = sentence;
+
+            // Wrapped at the card's inner width — the constraint the row actually gives it.
+            window.NoTrackerSentence.Measure(new System.Windows.Size(SplashLayout.InnerWidth, double.PositiveInfinity));
+            var wrappedHeight = window.NoTrackerSentence.DesiredSize.Height;
+
+            var typeface = new Typeface(Tokens.FontStandard, FontStyles.Normal, Tokens.FontWeightMedium, FontStretches.Normal);
+            var natural = new FormattedText(sentence, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                typeface, Tokens.FontSizeSubtitle, null, 1.0);
+
+            // The whole real content (mark + title + reserved row + paddings) must fit the card.
             var root = (System.Windows.FrameworkElement)window.Content;
             window.Content = null;
             root.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-            var width = root.DesiredSize.Width;
-            var room = AppFitMeasurers.ReferenceWorkArea.Width - 2 * 48;
-            return new FitVerdict(width <= room,
-                $"splash {FitText.Dip(width)} DIP wide; room {FitText.Dip(room)}",
-                FitText.ResolvedFace(window.NoTrackerSentence), room - width);
+            var contentHeight = root.DesiredSize.Height;
+
+            var widthOk = natural.Width <= SplashLayout.InnerWidth * 2;
+            var heightOk = wrappedHeight <= SplashLayout.SentenceRowHeight;
+            var cardOk = contentHeight <= SplashLayout.CardHeight;
+            return new FitVerdict(widthOk && heightOk && cardOk,
+                $"natural {FitText.Dip(natural.Width)} (limit 2×{FitText.Dip(SplashLayout.InnerWidth)}), "
+                + $"wrapped {FitText.Dip(wrappedHeight)} of {FitText.Dip(SplashLayout.SentenceRowHeight)}, "
+                + $"content {FitText.Dip(contentHeight)} of {FitText.Dip(SplashLayout.CardHeight)}",
+                FitText.ResolvedFace(window.NoTrackerSentence), SplashLayout.SentenceRowHeight - wrappedHeight);
         }
         finally { window.Close(); }
     }

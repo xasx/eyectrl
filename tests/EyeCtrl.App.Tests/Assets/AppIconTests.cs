@@ -87,8 +87,9 @@ public class AppIconTests
     }
 
     // A3 — WPF shows WIC's first-enumerated frame; with the BMP-16..128 + PNG-256 layout that
-    // is the 128 px frame (r2-measured). SplashWindow's XAML string goes through the same
-    // ImageSourceConverter path, so converting the full pack URI string mirrors production.
+    // is the 128 px frame (r2-measured). The splash no longer hosts the ico Image (the animated
+    // mark is drawn live), so this pin now covers the exe/tray consumers of the same pack URI;
+    // the ImageSourceConverter path below is unchanged.
     [StaFact]
     public void Splash_Decode_Yields128PxFrame()
     {

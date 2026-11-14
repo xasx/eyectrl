@@ -586,11 +586,13 @@ public class UiAccessBandTests
 
     /// <summary>
     /// Sticky review-02 N3: a NoteWindow fallback MUST repair the order (the Resume strip has to go
-    /// back above the note); only the cursor ring is exempt. A future override on NoteWindow would
-    /// silently let a re-raised note cover the strip.
+    /// back above the note); only two windows are exempt — the cursor ring (hidden whenever the
+    /// surface it could cover is up) and the splash (its repair would run from the splash thread
+    /// and touch main-thread windows, r2 #4). A future override on NoteWindow would silently let a
+    /// re-raised note cover the strip.
     /// </summary>
     [StaFact]
-    public void NoteWindow_NeedsTheOrderRepair_AndOnlyTheRingIsExempt()
+    public void NoteWindow_NeedsTheOrderRepair_AndOnlyTheRingAndSplashAreExempt()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
 
@@ -602,10 +604,11 @@ public class UiAccessBandTests
             .Select(t => t.FullName)
             .ToList();
         Check.WithCustomMessage(
-                "Only CursorCircleWindow may opt out of the order repair; these also do: "
+                "Only CursorCircleWindow and SplashWindow may opt out of the order repair; these also do: "
                 + string.Join(", ", overriders))
-            .That(overriders).HasSize(1);
-        Check.That(overriders[0]).IsEqualTo(typeof(CursorCircleWindow).FullName);
+            .That(overriders).HasSize(2);
+        Check.WithCustomMessage("the order-repair opt-out allow-list changed").That(overriders)
+            .Contains(typeof(CursorCircleWindow).FullName, typeof(SplashWindow).FullName);
 
         var note = InvisibleTestWindow.Prepare(new NoteWindow("c9f2-repair"));
         var ring = InvisibleTestWindow.Prepare(new CursorCircleWindow());
@@ -614,7 +617,7 @@ public class UiAccessBandTests
             Check.WithCustomMessage(
                     "a NoteWindow fallback must repair the order so the Resume strip stays above it")
                 .That(NeedsOrderRepair(note)).IsTrue();
-            Check.WithCustomMessage("the ring is the one window exempt from the repair")
+            Check.WithCustomMessage("the ring is exempt from the repair")
                 .That(NeedsOrderRepair(ring)).IsFalse();
         }
         finally

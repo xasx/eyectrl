@@ -67,13 +67,20 @@ public class AppBootstrapper
     /// touching this path.
     /// </para>
     /// </param>
+    /// <param name="clock">
+    /// The clock every consumer resolves. Production omits it (so the container owns
+    /// <see cref="TimeProvider.System"/>); a wiring test passes a fake so it can prove a consumer
+    /// took the CONTAINER's clock rather than its own <c>?? TimeProvider.System</c> fallback — the
+    /// two are the same instance in production, which makes that assertion untestable otherwise.
+    /// </param>
     /// <returns>Configured service provider</returns>
     public static ServiceProvider BuildServiceProvider(
         EyeCtrlSettings settings,
         string settingsFilePath,
         Dispatcher dispatcher,
         bool isTestMode,
-        string appDataDir)
+        string appDataDir,
+        TimeProvider? clock = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appDataDir);
         var services = new ServiceCollection();
@@ -89,8 +96,9 @@ public class AppBootstrapper
         // has exactly one place that chooses the system clock; the consumers below resolve it rather
         // than each naming TimeProvider.System themselves. CalibrationClockWiringTests pins the
         // identity — a frozen clock here would hang every calibration session, visible to no
-        // headless test that supplies its own fake.
-        services.AddSingleton(TimeProvider.System);
+        // headless test that supplies its own fake. `clock` is only supplied by a test that wants
+        // to tell "the container's clock" from a consumer's own system-clock fallback.
+        services.AddSingleton(clock ?? TimeProvider.System);
 
         // Settings (singleton instances)
         // Only register root settings - sub-settings accessed via properties

@@ -530,7 +530,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     // underneath it (2026-08-18 field report). SetActive(false) also resets
                     // any in-flight toolbar dwell.
                     Context.ToolbarVM.SetActive(false);
-                    Context.OverlayManager.TaskSwitcher.ShowFullScreen();
+                    Context.OverlayManager.TaskSwitcher.ShowFullScreen(CurrentToolbarKeepOut());
                     // The queued ForceShow's SetActive(true) runs after the synchronous disarm
                     // above and would re-arm dwell under the open switcher. Re-assert once behind
                     // it (same dispatcher priority, FIFO), only if the session is still open.
@@ -560,6 +560,21 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 }
             });
         }
+    }
+
+    /// <summary>
+    /// The docked toolbar band the switcher's tiles must start clear of, or <c>null</c>. The band
+    /// comes from the same physical-bounds seam <c>ActivationChromeZones.CollectFromProduction</c>
+    /// reads, so the keep-out is the toolbar's REAL position at open time, never a constant. A
+    /// floating or hidden band contributes nothing: the edge margins alone apply, and the T1
+    /// landing guard covers the floating-toolbar landing.
+    /// </summary>
+    private ToolbarKeepOut? CurrentToolbarKeepOut()
+    {
+        if (Context is null) return null;
+        var toolbar = Context.OverlayManager.Toolbar;
+        if (!Context.Settings.Toolbar.IsDocked || !toolbar.IsOnScreen) return null;
+        return new ToolbarKeepOut(toolbar.GetPhysicalBounds(), Context.Settings.Toolbar.DockedEdge);
     }
 
     protected override void OnDispose()

@@ -385,10 +385,24 @@ public interface ITrackStatusOverlay
     bool TryGetVisibleBounds(out PhysicalRect bounds);
 }
 
+/// <summary>
+/// The toolbar band the task switcher must keep its tiles clear of: the band's real on-screen
+/// bounds in PHYSICAL pixels (<see cref="IToolbarOverlay.GetPhysicalBounds"/>) plus the edge it is
+/// docked to. The coordinator passes it only while the band is docked and on screen; <c>null</c>
+/// (floating or hidden) means "edge margins only" — the T1 landing guard covers the
+/// floating-toolbar landing.
+/// </summary>
+public readonly record struct ToolbarKeepOut(PhysicalRect Bounds, string DockedEdge);
+
 /// <summary>The task switcher.</summary>
 public interface ITaskSwitcherOverlay
 {
-    void ShowFullScreen();
+    /// <summary>
+    /// Shows the fullscreen switcher, laying its tiles clear of <paramref name="toolbarKeepOut"/>
+    /// (the docked band's real bounds) when one is given.
+    /// </summary>
+    void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut);
+
     void HideOverlay();
 }
 

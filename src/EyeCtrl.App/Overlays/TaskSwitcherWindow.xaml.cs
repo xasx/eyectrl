@@ -39,6 +39,12 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // The close glyph fills the whole disc, so it takes the Dominant ratio. Assigned here
         // rather than in XAML because XAML cannot multiply (QuickActionsGridWindow pattern).
         CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
+
+        // Pin the hint row to the height TaskSwitcherLayout reserves for it. An Auto row measures
+        // the same today (the 100 DIP disc plus its 12 DIP top/bottom margins), but the tile area's
+        // row capacity is computed against this constant — a font or template change that grew the
+        // row would otherwise silently clip the bottom full row the geometry promised.
+        HintRow.Height = TaskSwitcherLayout.HintRowHeight;
     }
 
     public void Configure(TaskSwitcherViewModel viewModel, IAppIconProvider iconProvider)
@@ -53,9 +59,10 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// pushes each tile's real on-screen rectangle (clamped to its visible face) into the
     /// VM, which creates the dwell target there. The VM has already set IsVisible (that is
     /// what triggered this call); creating targets only post-layout keeps them off the
-    /// (0,0) placeholder during the layout gap.
+    /// (0,0) placeholder during the layout gap. The tile viewport is laid clear of the docked
+    /// toolbar band and the screen edges by <see cref="TaskSwitcherLayout"/> before the show.
     /// </summary>
-    public void ShowFullScreen()
+    public void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut)
     {
         // Resolve icons for each tile (View-side concern; the tile VM stores only ProcessId)
         if (_iconProvider != null && _viewModel != null)
@@ -64,15 +71,61 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
                 tile.Icon = _iconProvider.GetIcon(tile.ProcessId);
         }
 
+        var screenWidth = SystemParameters.PrimaryScreenWidth;
+        var screenHeight = SystemParameters.PrimaryScreenHeight;
+
+        // The keep-out arrives in physical pixels (IToolbarOverlay.GetPhysicalBounds); the pure
+        // helper works in DIP and converts once through the live scale. Applying the layout as
+        // margins around the tile viewport is what makes the grid's drawn geometry — and therefore
+        // the dwell targets registered from it — match the computed area.
+        ApplyLayout(
+            ComputeLayout(toolbarKeepOut, screenWidth, screenHeight,
+                DpiHelper.ScaleX, DpiHelper.ScaleY, _viewModel?.Tiles.Count ?? 0),
+            screenWidth);
+
         // Cover the primary screen
-        Width = SystemParameters.PrimaryScreenWidth;
-        Height = SystemParameters.PrimaryScreenHeight;
+        Width = screenWidth;
+        Height = screenHeight;
         Left = 0;
         Top = 0;
         Show();
 
         // After layout, push real tile positions into the VM (which creates the dwell targets).
         Dispatcher.BeginInvoke(UpdateTilePositions, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Composes the physical toolbar keep-out into the pure DIP layout. Split out so the
+    /// physical-to-DIP conversion is testable headlessly at DPI 1.0 and 2.0 without touching the
+    /// process-wide <see cref="DpiHelper"/> state.
+    /// </summary>
+    internal static TaskSwitcherLayout.Result ComputeLayout(
+        ToolbarKeepOut? toolbarKeepOut,
+        double screenWidthDip, double screenHeightDip,
+        double scaleX, double scaleY, int tileCount)
+        => TaskSwitcherLayout.Compute(
+            screenWidthDip, screenHeightDip,
+            toolbarKeepOut is { } keepOut
+                ? TaskSwitcherLayout.ToDip(keepOut.Bounds, scaleX, scaleY)
+                : null,
+            toolbarKeepOut?.DockedEdge,
+            tileCount);
+
+    /// <summary>
+    /// Applies a computed layout to the window's elements: the tile viewport's margins (which
+    /// define the area the helper measured), the block width/height (full columns and shown rows),
+    /// and the hint row's clearance above a bottom-docked toolbar band. The hint row's own height
+    /// is pinned in the constructor, so its layout slot is exactly
+    /// <see cref="TaskSwitcherLayout.HintRowHeight"/> plus that clearance. Split from
+    /// <see cref="ShowFullScreen"/> so it is testable without showing the window.
+    /// </summary>
+    internal void ApplyLayout(TaskSwitcherLayout.Result layout, double screenWidthDip)
+    {
+        TilesScroll.Margin = new Thickness(
+            layout.Area.X, layout.Area.Y, screenWidthDip - layout.Area.Right, 0);
+        TilesScroll.Width = layout.Block.Width;
+        TilesScroll.Height = layout.Block.Height;
+        HintRow.Margin = new Thickness(0, 0, 0, layout.HintBottomMargin);
     }
 
     /// <summary>

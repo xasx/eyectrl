@@ -231,7 +231,9 @@ relies on the outline and the r2-flagged weak separabilities are covered by SD10
 - `CreateProse` is shared by both windows (`SetupProgressWindow.cs:89-91`) and hard-codes centre
   alignment today (`UninstallChoiceWindow.cs:288-305`) — it gets **alignment + size parameters** (B
   left-aligns screens 1/progress and centres screen 2, r3 F8); fit classes measure the **shipped boxes**:
-  prose 40 at ≈1388 (choice) / ≈1168 (progress), result text 44 bold at ≈1168, stage 36.
+  prose 40 at ≈1388 (choice) / 1168 (progress), result text 44 bold at the derived `TitleFitWidth`
+  1094 (progress band title: 1344 − padding 176 − mark 52 − gap 22; shipped in implementation,
+  2026-11-15), stage 36.
 - Fit chain (r1 F10): new fit classes touch `strings.json` `fit` values (Core), `StringTableSchema.cs:108-112`,
   `tools/strings_validate.py:129-132` and `AppFitMeasurers.cs:51` (App.Tests) — "no App changes" holds
   only for App **runtime** code. `update.result.degraded` (~150 chars DE) and
@@ -248,8 +250,10 @@ relies on the outline and the r2-flagged weak separabilities are covered by SD10
 - `SetupProgressWindowContrastTests` pins the tree shape `Border → StackPanel → Children[0]/[1]`
   (`:53-60`) and the failure title to `AccentDanger` (`:77`) — SD4/D7 deliberately breaks the second and
   every direction breaks the first; the tree pin becomes a per-direction structure test. The positional
-  `new SetupDisplayResult("failure", IsFailure: true)` (`:75`) keeps compiling via the state field's
-  default value (§6).
+  `new SetupDisplayResult("failure", IsFailure: true)` (`:75`) was **retargeted** during implementation
+  (record note 2026-11-15): §6's own ruling removed `IsFailure`, so the construction became
+  `new SetupDisplayResult("failure", SetupDisplayState.Failure)` (interim in Task 3, final per-direction
+  rewrite in Task 5).
 - `SetupProgressWindowTests` read `TitleText` (`:122`) and `StageText` (`:40`, `:60-66`, `:124`) — under
   D8 `:122` retargets to a new **`ResultText` accessor** (the body element; the title stays the process
   title, r3 F4), and the stage UI needs an active-stage accessor or these tests move to the new seam.
@@ -261,7 +265,9 @@ relies on the outline and the r2-flagged weak separabilities are covered by SD10
 - New tests: verb-aware ordered-plan seam (data-driven lists per D9 — uninstall plans one stage today;
   repair/revert = no fabricated steps),
   state mapping incl. neutral cancel, B tint derivation per theme, **sweep-vs-fill contrast ≥ 3:1 per
-  theme for every button kind**, **button template contains no `IsMouseOver` setter**.
+  theme for every button kind**, **button template carries no hover reaction** (shipped as
+  `Template.Triggers.Count == 0` — the only way a `ControlTemplate` can react to `IsMouseOver` —
+  plus named border/presenter reference checks; implementation note 2026-11-15).
 - `NoVisibleTestWindow` guard unchanged — none of these tests shows a window.
 
 ## 8. Verification plan

@@ -7,30 +7,33 @@ using System.Runtime.InteropServices;
 /// Declares this test process's DPI awareness ONCE, before any test runs.
 ///
 /// <para>
-/// The shell's image factory (<c>SHCreateItemFromParsingName</c> / <c>IShellItemImageFactory</c>,
-/// used by S3-B's real icon extraction test) sets the PROCESS's DPI awareness on first use when the
-/// process has none: measured here, the first extraction flipped a fresh test host from
-/// DPI_AWARENESS_UNAWARE (SM_CXSCREEN = 1920, virtualized at the owner's 200 %) to system aware
-/// (SM_CXSCREEN = 3840, physical). That is a mid-run, process-wide change that cannot be undone, and
-/// it made <c>Win32InputSimulatorScrollAtAndRestoreTests.GF1_TheBatchedRestoreLeg…</c> fail whenever a
-/// concurrent icon test landed between the test's two <c>GetSystemMetrics</c> reads (1920 to encode,
-/// 3840 to decode → 959 instead of 1919): a heisen-test whose result depended on test ordering.
+/// WPF's first imaging use (here: the icon tests' <c>Imaging.CreateBitmapSourceFromHBitmap</c> /
+/// <c>FromHIcon</c>; in a WPF app, the first media or <c>HwndSource</c> use at startup) sets the
+/// PROCESS's DPI awareness when the process has none: measured on this machine, a fresh test host
+/// went from DPI_AWARENESS_UNAWARE (SM_CXSCREEN = 1920, virtualized at the owner's 200 %) to SYSTEM
+/// aware (SM_CXSCREEN = 3840, physical). The shell's image calls themselves leave awareness alone
+/// (measured with a probe that does not touch WPF) — it is WPF that flips it.
 /// </para>
 ///
 /// <para>
-/// Declaring the awareness up front removes the flip: every read in the process now agrees, whatever
-/// order the tests run in. Per-monitor v2 matches what the WPF app itself runs with; a host that
-/// already fixed its awareness (a manifest, a newer test runner) simply refuses the call, which is
-/// why the result is ignored.
+/// That mid-run, process-wide and irreversible change made
+/// <c>Win32InputSimulatorScrollAtAndRestoreTests.GF1_TheBatchedRestoreLeg…</c> fail whenever a
+/// concurrent icon test landed between the test's two <c>GetSystemMetrics</c> reads (1920 to encode,
+/// 3840 to decode → 959 instead of 1919): a heisen-test whose result depended on test ordering.
+/// Declaring the awareness up front removes the flip — every read in the process now agrees, whatever
+/// order the tests run in — and <b>system aware matches the product</b>: EyeCtrl.App declares no DPI
+/// awareness in either manifest, so WPF makes it system-aware at startup. A host that already fixed
+/// its awareness (a manifest, a newer test runner) refuses the call, which is why the result is
+/// ignored.
 /// </para>
 /// </summary>
 internal static class DpiAwarenessInitializer
 {
-    /// <summary>winuser.h: <c>DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2</c> is <c>(HANDLE)-4</c>.</summary>
-    private static readonly IntPtr PerMonitorAwareV2 = new(-4);
+    /// <summary>winuser.h: <c>DPI_AWARENESS_CONTEXT_SYSTEM_AWARE</c> is <c>(HANDLE)-2</c>.</summary>
+    private static readonly IntPtr SystemAware = new(-2);
 
     [ModuleInitializer]
-    internal static void DeclarePerMonitorAwareV2() => _ = SetProcessDpiAwarenessContext(PerMonitorAwareV2);
+    internal static void DeclareSystemAware() => _ = SetProcessDpiAwarenessContext(SystemAware);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

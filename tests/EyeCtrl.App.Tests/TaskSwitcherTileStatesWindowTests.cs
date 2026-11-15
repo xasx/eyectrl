@@ -834,7 +834,8 @@ public class TaskSwitcherTileStatesWindowTests
     }
 
     /// <summary>Minimal IWindowManager fake: a fixed list plus the foreground the show path reads.</summary>
-    private sealed class FakeWindowManager : IWindowManager    {
+    private sealed class FakeWindowManager : IWindowManager
+    {
         private readonly IReadOnlyList<AppWindow> _windows;
         private readonly IntPtr? _foreground;
 

@@ -240,7 +240,7 @@ internal class UninstallChoiceWindow : Window
 
     /// <summary>
     /// The production button factory. Also used by the fit class, so the measured control is the
-    /// button the window draws: 420 x 160 DIP, 28 DIP wrapping text, theme tokens, and the SDK's
+    /// button the window draws: 420 x 160 DIP, 32 DIP wrapping text, theme tokens, and the SDK's
     /// Invoke-mode dwell. SD8 anatomy: an outlined (not filled) face — light surfaces with a
     /// subtle border, the danger face outlined in AccentDanger — and an explicit, trigger-free
     /// template so the Aero2 hover never replaces the fills under the gaze (r2 F2).
@@ -481,7 +481,11 @@ internal class UninstallChoiceWindow : Window
             _prose1 = CreateProse(
                 _strings.T("uninstall.choice.question"), maxWidth: SetupWindowMetrics.BodyWidthChoice);
             prose.Children.Add(_prose1);
-            prose.Children.Add(CreateProse(_strings.T("uninstall.choice.detail"), secondary: true));
+            // r6 minor: every choice-window prose line wraps in the BodyWidthChoice box (spec §6) —
+            // the detail kept the progress-window default (1168) until this fix.
+            prose.Children.Add(CreateProse(
+                _strings.T("uninstall.choice.detail"), secondary: true,
+                maxWidth: SetupWindowMetrics.BodyWidthChoice));
             prose.Children.Add(CreateProse(
                 _strings.T("uninstall.choice.noChoice"), dim: true,
                 size: SetupWindowMetrics.DimFontSize, maxWidth: SetupWindowMetrics.BodyWidthChoice));

@@ -53,7 +53,6 @@ internal sealed class SetupProgressWindow : Window
         public SetupStage Stage = default;
         public System.Windows.Shapes.Path Glyph = null!;
         public TextBlock Label = null!;
-        public bool Done;
         public bool Active;
     }
 
@@ -277,7 +276,6 @@ internal sealed class SetupProgressWindow : Window
         foreach (var other in _stageRows.Where(r => r != row && r.Active))
         {
             other.Active = false;
-            other.Done = true;
             other.Glyph.Data = Geometry.Parse("M4 12.5 L9.5 18 L20 6.5");
             other.Glyph.Fill = null;
             other.Glyph.Stroke = Tokens.BrushAccentSuccess;

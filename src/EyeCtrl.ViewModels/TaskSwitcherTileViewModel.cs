@@ -7,8 +7,9 @@ using EyeCtrl.Core.Models;
 /// One tile in the Task Switcher overlay, representing a single open window.
 /// WPF-free (ViewModels targets plain net10.0): the icon is stored as a boxed
 /// <c>object?</c> and resolved by the View (<c>TaskSwitcherWindow</c>) via
-/// <c>IAppIconProvider</c> using <see cref="ProcessId"/>. WPF's Image.Source
-/// binding accepts any object that is an ImageSource at runtime.
+/// <c>IAppIconProvider</c> from the tile's window handle and process id (S3-B: the icon is the
+/// window's, not the process's). WPF's Image.Source binding accepts any object that is an
+/// ImageSource at runtime.
 /// </summary>
 public partial class TaskSwitcherTileViewModel : ObservableObject
 {
@@ -18,7 +19,7 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
     /// <summary>Window title (from GetWindowText).</summary>
     public string Title { get; }
 
-    /// <summary>Owning process ID — used by the View to resolve the icon.</summary>
+    /// <summary>Owning process ID — the View's icon lookup passes it alongside <see cref="Hwnd"/>.</summary>
     public uint ProcessId { get; }
 
     /// <summary>Owning process name (for diagnostics / future icon lookup strategies).</summary>

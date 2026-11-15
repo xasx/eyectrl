@@ -17,6 +17,7 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Core.Status;
 using EyeCtrl.Platform.Gaze;
+using EyeCtrl.Platform.Icons;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;

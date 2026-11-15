@@ -8,12 +8,13 @@ using EyeCtrl.App.Services;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Platform.Icons;
 using EyeCtrl.ViewModels;
 
 /// <summary>
 /// Fullscreen Task Switcher overlay. Shows a grid of tiles (one per open window)
-/// and resolves each tile's process icon via <see cref="IAppIconProvider"/> (the tile
-/// VM stores only the ProcessId to stay WPF-free). NOT click-through — it must receive
+/// and resolves each tile's app icon via <see cref="IAppIconProvider"/> (the tile
+/// VM stores only the handle and process id to stay WPF-free). NOT click-through — it must receive
 /// dwell. Positions are computed after layout and pushed back into the VM's DwellDetector
 /// so gaze hit-testing uses real screen coordinates (H3 fix).
 /// </summary>
@@ -77,13 +78,10 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             DpiHelper.ScaleX, DpiHelper.ScaleY, tileCount: 0).Capacity;
         _viewModel?.ApplyTileCapacity(capacity);
 
-        // Resolve icons for each window tile (View-side concern; the tile VM stores only ProcessId).
-        // After the capacity trim, so a window that lost its slot never pays for an icon lookup.
-        if (_iconProvider != null && _viewModel != null)
-        {
-            foreach (var tile in _viewModel.Tiles)
-                tile.Icon = _iconProvider.GetIcon(tile.ProcessId);
-        }
+        // Resolve icons for each window tile (View-side concern; the tile VM stores only the handle
+        // and process id). After the capacity trim, so a window that lost its slot never pays for
+        // an icon lookup.
+        ResolveIcons();
 
         // The keep-out arrives in physical pixels (IToolbarOverlay.GetPhysicalBounds); the pure
         // helper works in DIP and converts once through the live scale. Applying the layout as
@@ -104,6 +102,22 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
         // After layout, push real tile positions into the VM (which creates the dwell targets).
         Dispatcher.BeginInvoke(UpdateTilePositions, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Resolves every WINDOW tile's icon through the seam, one call per window (S3-B: the icon is
+    /// the window's, not its process's — every Store app shares <c>ApplicationFrameHost</c>). The
+    /// "Show desktop" tile is not a window and keeps its own drawn glyph; <see cref="TaskSwitcherViewModel.Tiles"/>
+    /// is the window-only list, so it is never asked for. Split out of <see cref="ShowFullScreen"/> so
+    /// the wiring is testable without showing the window.
+    /// </summary>
+    internal void ResolveIcons()
+    {
+        if (_iconProvider == null || _viewModel == null)
+            return;
+
+        foreach (var tile in _viewModel.Tiles)
+            tile.Icon = _iconProvider.GetIcon(tile.Hwnd, tile.ProcessId);
     }
 
     /// <summary>

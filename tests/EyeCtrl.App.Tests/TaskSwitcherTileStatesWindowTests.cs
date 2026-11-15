@@ -17,6 +17,7 @@ using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Platform.Icons;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -169,6 +170,121 @@ public class TaskSwitcherTileStatesWindowTests
         {
             if (language == "German") StringTable.ResetToEmbeddedEnglish();
         }
+    }
+
+    /// <summary>
+    /// S3-B: every window tile draws its app icon at <b>40 DIP</b> (was 32) with high-quality
+    /// scaling, and each tile shows ITS OWN window's icon — the grid asks the per-window seam once
+    /// per tile, so two Store apps in one frame-host process can never share an icon. At 1.0 and at
+    /// the owner's 200 %, English and German, the enlarged icon, the title and the S2-B badge must
+    /// all stay inside the unchanged 184 × 104 DIP face, and the content column must still fit its
+    /// row (the badge theory measures the same column without a height bound).
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0, "English")]
+    [InlineData(2.0, "English")]
+    [InlineData(1.0, "German")]
+    [InlineData(2.0, "German")]
+    public void WindowTile_DrawsItsOwnAppIconAt40Dip_AndEverythingStaysInsideTheFace(
+        double scale, string language)
+    {
+        if (language == "German") StringTable.Activate(ShippedGerman.Load());
+        try
+        {
+            var icons = new FakeIconProvider();
+            using var laid = Laid.Open(
+                [
+                    Win(1, "Quarterly report - a long document title that the tile trims", minimized: true),
+                    Win(2, "Editor"),
+                ],
+                scale: scale, icons: icons);
+
+            var faces = laid.Faces();
+            Check.That(faces).HasSize(2);
+
+            for (var index = 0; index < faces.Count; index++)
+            {
+                var container = faces[index].Container;
+                var face = laid.Bounds(faces[index].Border);
+                var tile = laid.ViewModel.Tiles[index];
+
+                var image = laid.Find<Image>(container, "TileIcon")
+                    ?? throw new InvalidOperationException("The tile template has no Image named TileIcon.");
+                var iconBox = laid.Bounds(image);
+
+                Check.WithCustomMessage(
+                        $"{language} at {scale:0.0}x: the tile icon is {FitText.Dip(iconBox.Width)} x "
+                        + $"{FitText.Dip(iconBox.Height)} DIP, not the design's 40 x 40.")
+                    .That(iconBox.Width).IsCloseTo(40, 0.5);
+                Check.That(iconBox.Height).IsCloseTo(40, 0.5);
+                Check.WithCustomMessage("A 40 DIP icon must be drawn with high-quality scaling.")
+                    .That(RenderOptions.GetBitmapScalingMode(image)).IsEqualTo(BitmapScalingMode.HighQuality);
+
+                // Per WINDOW, not per process: the tile carries the image its own handle resolved.
+                Check.That(image.Source).IsSameReferenceAs(icons.IconFor(tile.Hwnd));
+                Check.WithCustomMessage($"The icon {Box(iconBox)} leaves the tile face {Box(face)}.")
+                    .That(Inside(face, iconBox, inset: 8)).IsTrue();
+
+                // The title kept its size and still fits the face.
+                var title = Descendants<TextBlock>(faces[index].Border)
+                    .First(t => t.Text == tile.Title);
+                Check.WithCustomMessage($"{language} at {scale:0.0}x: the title {Box(laid.Bounds(title))} "
+                        + $"leaves the face {Box(face)}.")
+                    .That(Inside(face, laid.Bounds(title), inset: 8)).IsTrue();
+
+                // The content column (icon + title + badge) still fits the row it is given.
+                var content = (FrameworkElement)image.Parent;
+                var slot = LayoutInformation.GetLayoutSlot(content);
+                content.Measure(new Size(slot.Width, double.PositiveInfinity));
+                var needed = content.DesiredSize.Height;
+                laid.Relayout();
+                Check.WithCustomMessage(
+                        $"{language} at {scale:0.0}x: the 40 DIP icon grew the content column to "
+                        + $"{FitText.Dip(needed)} DIP but the row gives it {FitText.Dip(slot.Height)} — the "
+                        + "badge would overlap the progress bar.")
+                    .That(needed).IsLessOrEqualThan(slot.Height);
+                Check.WithCustomMessage(
+                        $"{language} at {scale:0.0}x: only {FitText.Dip(slot.Height - needed)} DIP of headroom "
+                        + "is left; the tile was squeezed, not re-fitted.")
+                    .That(slot.Height - needed).IsGreaterOrEqualThan(0.5);
+                _output.WriteLine(
+                    $"{language} at {scale:0.0}x: icon {Box(iconBox)}; face {Box(face)}; "
+                    + $"title {Box(laid.Bounds(title))}; column needs {FitText.Dip(needed)} of "
+                    + $"{FitText.Dip(slot.Height)} DIP (headroom {FitText.Dip(slot.Height - needed)})");
+            }
+
+            // The badge is still inside the face with the taller icon above it.
+            var badge = laid.Find<Border>(faces[0].Container, "MinimizedBadge")!;
+            Check.That(Inside(laid.Bounds(faces[0].Border), laid.Bounds(badge), inset: 8)).IsTrue();
+        }
+        finally
+        {
+            if (language == "German") StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    /// <summary>
+    /// S3-B's View wiring: the icon pass asks the seam once per WINDOW tile, with that tile's own
+    /// handle and process id (never a process-wide lookup), and never for the "Show desktop" tile —
+    /// which is not a window and draws its own glyph.
+    /// </summary>
+    [StaFact]
+    public void ResolveIcons_AsksTheProviderOncePerWindowTile_AndNeverForTheDesktopTile()
+    {
+        var icons = new FakeIconProvider();
+        using var laid = Laid.Open([Win(1, "Editor"), Win(2, "Browser")], icons: icons);
+
+        Check.That(laid.ViewModel.HasDesktopTile).IsTrue();
+        Check.WithCustomMessage("the desktop tile must not be offered to the icon seam")
+            .That(icons.Requests).HasSize(laid.ViewModel.Tiles.Count);
+
+        var expected = laid.ViewModel.Tiles.Select(t => (t.Hwnd, t.ProcessId)).ToList();
+        Check.That(icons.Requests).ContainsExactly(expected);
+        Check.That(laid.ViewModel.Tiles.Select(t => t.Icon))
+            .ContainsOnlyElementsThatMatch(icon => icon is not null);
+
+        var desktop = laid.ViewModel.PanelItems.Single(t => t.IsDesktop);
+        Check.That(desktop.Icon).IsNull();
     }
 
     [StaFact]
@@ -527,7 +643,8 @@ public class TaskSwitcherTileStatesWindowTests
         /// directly, at 2.0 through the fit host's 200 % render chain.
         /// </summary>
         internal static Laid Open(
-            IReadOnlyList<AppWindow> windows, double scale = 1.0, IntPtr? foreground = null)
+            IReadOnlyList<AppWindow> windows, double scale = 1.0, IntPtr? foreground = null,
+            IAppIconProvider? icons = null)
         {
             WpfApplicationGate.EnsureApplicationWithTokens();
 
@@ -543,6 +660,12 @@ public class TaskSwitcherTileStatesWindowTests
             // the panel that will actually be drawn (window tiles + the desktop tile).
             viewModel.ApplyTileCapacity(TaskSwitcherLayout.Compute(
                 ScreenWidth, ScreenHeight, TopBand, "Top", tileCount: 0).Capacity);
+            if (icons is not null)
+            {
+                // Production's icon step, in its place: after the capacity trim, before the layout.
+                window.Configure(viewModel, icons);
+                window.ResolveIcons();
+            }
             var layout = TaskSwitcherLayout.Compute(
                 ScreenWidth, ScreenHeight, TopBand, "Top", viewModel.PanelItems.Count);
             window.ApplyLayout(layout, ScreenWidth);
@@ -676,6 +799,38 @@ public class TaskSwitcherTileStatesWindowTests
             _window.Close();
             ViewModel.Dispose();
         }
+    }
+
+    /// <summary>
+    /// A per-WINDOW icon double: a distinct frozen glyph per handle plus the request log. The log is
+    /// what proves the View asks once per window tile (and never for the desktop tile); the distinct
+    /// instances are what prove each tile got its own window's icon, not a shared process icon.
+    /// </summary>
+    private sealed class FakeIconProvider : IAppIconProvider
+    {
+        private readonly Dictionary<IntPtr, ImageSource> _icons = [];
+
+        internal List<(IntPtr Hwnd, uint ProcessId)> Requests { get; } = [];
+
+        public ImageSource GetIcon(IntPtr hwnd, uint processId)
+        {
+            Requests.Add((hwnd, processId));
+            if (!_icons.TryGetValue(hwnd, out var icon))
+            {
+                var drawing = new GeometryDrawing(
+                    new SolidColorBrush(Color.FromRgb((byte)(0x40 + (hwnd.ToInt64() & 0x3F)), 0x80, 0xC0)),
+                    null,
+                    new RectangleGeometry(new Rect(0, 0, 24, 24)));
+                drawing.Freeze();
+                var image = new DrawingImage(drawing);
+                image.Freeze();
+                _icons[hwnd] = icon = image;
+            }
+
+            return icon;
+        }
+
+        internal ImageSource IconFor(IntPtr hwnd) => _icons[hwnd];
     }
 
     /// <summary>Minimal IWindowManager fake: a fixed list plus the foreground the show path reads.</summary>

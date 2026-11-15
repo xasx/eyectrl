@@ -69,7 +69,16 @@
                                             </Style.Triggers>
                                         </Style>
                                     </StackPanel.Style>
-                                    <Image Source="{Binding Icon}" Width="32" Height="32" Margin="0,0,0,4"/>
+                                    <!-- S3-B: 40 DIP (was 32). The icon SOURCE is the fix's other half:
+                                         a 40 DIP draw at the owner's 200 % is 80 physical px, so the
+                                         provider resolves a 64-96 px shell image (and the neutral
+                                         default glyph for a window with no icon). HighQuality scaling
+                                         is what makes a larger source actually look sharper than the
+                                         old 32 px upscale. The tile face is unchanged (184 x 104 DIP:
+                                         the 200 x 120 cell less the template's 8 DIP margin), and the
+                                         column's remaining headroom is re-checked by the S2-B theory. -->
+                                    <Image x:Name="TileIcon" Source="{Binding Icon}" Width="40" Height="40"
+                                           Margin="0,0,0,2" RenderOptions.BitmapScalingMode="HighQuality"/>
                                     <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"
                                                TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                                MaxWidth="180"/>
@@ -82,7 +91,12 @@
                                          is what makes it a BADGE: without it the Border stretches to the
                                          content column and a long, trimmed title turns it into a light band
                                          across the tile (~167 DIP instead of ~82). -->
-                                    <Border x:Name="MinimizedBadge" Margin="0,3,0,0" Padding="6,1"
+                                    <!-- S3-B: the 8 DIP the 40 DIP icon adds is paid for by the badge's own
+                                         slack (3 -> 2 DIP above it, 1 -> 0 DIP inside its pill, which
+                                         still hugs a 12 DIP line), 2 DIP of the icon-to-title gap, and
+                                         2 DIP from the accent bar's top gap. The title keeps its size
+                                         and its row. -->
+                                    <Border x:Name="MinimizedBadge" Margin="0,2,0,0" Padding="6,0"
                                             HorizontalAlignment="Center"
                                             Background="{StaticResource BrushSurfaceLight}"
                                             CornerRadius="{StaticResource SmallCornerRadius}"
@@ -132,7 +146,7 @@
                                      700ms dwell builds, which reads as "not dwellable" (2026-08-17
                                      field report) — every other dwell surface in the app shows this. -->
                                 <ProgressBar Grid.Row="1" Value="{Binding DwellProgress}" Maximum="1" Minimum="0"
-                                             Height="6" Margin="0,6,0,0"
+                                             Height="6" Margin="0,4,0,0"
                                              Foreground="{StaticResource BrushAccent}" Background="Transparent"
                                              BorderThickness="0" Focusable="False" IsHitTestVisible="False"
                                              Opacity="{Binding IsDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>

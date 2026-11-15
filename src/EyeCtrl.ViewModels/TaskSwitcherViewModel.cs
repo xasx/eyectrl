@@ -15,7 +15,9 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Fullscreen Task Switcher overlay ViewModel. Enumerates open windows via
-/// <see cref="IWindowManager"/> into <see cref="Tiles"/> when toggled on, exposes
+/// <see cref="IWindowManager"/> into <see cref="Tiles"/> when toggled on — leaving out the
+/// window that is in the foreground at that moment, so the switcher never offers the window the
+/// owner means to leave — and exposes
 /// dwell targets over each tile plus a dedicated close target (<see cref="CloseTargetId"/>,
 /// a pure dismissal that never selects a window), and sends
 /// <see cref="TaskSwitcherSelectionMessage"/> when a tile is dwelt on. WPF-free
@@ -83,6 +85,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private SessionOutcome _sessionOutcome = SessionOutcome.Other;
     private string? _sessionPickedTargetId;
     private int _sessionTileCount;
+    private bool _sessionCurrentExcluded;
     private int _sessionSlot = -1;
     private bool _anchorValid;
     private bool _sessionOpen;
@@ -150,14 +153,31 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
         _landingGuard.Arm(anchor);
 
+        // The window the owner is in gets no tile, so the window used BEFORE it becomes the
+        // first tile (Windows Alt-Tab does the same). Read here — at the open, in the same show
+        // path that enumerates — and never cached: the foreground at this instant is the only
+        // authority on "current". It is read before IsVisible flips, i.e. before the View shows
+        // anything; every overlay is WS_EX_NOACTIVATE anyway, so the owner's app still holds the
+        // foreground. Fail-closed: a null (desktop, shell, EyeCtrl's own window) excludes nothing,
+        // as does a foreground that is not in the enumerated list.
+        var currentWindow = _windowManager.TryGetEligibleForegroundWindow();
+        var currentExcluded = false;
+
         foreach (var window in _windowManager.EnumerateOpenWindows())
         {
+            if (currentWindow is { } current && window.Hwnd == current)
+            {
+                currentExcluded = true;
+                continue;
+            }
+
             Tiles.Add(new TaskSwitcherTileViewModel(
                 window.Hwnd, window.Title, window.ProcessId, window.ProcessName,
                 new PhysicalPoint(0, 0)));
         }
 
         _sessionTileCount = Tiles.Count;
+        _sessionCurrentExcluded = currentExcluded;
 
         // Flip IsVisible so the EventCoordinator shows the fullscreen window. This is the
         // show trigger — the coordinator watches IsVisible. Dwell processing is harmless
@@ -378,6 +398,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         _sessionPickedTargetId = null;
         _sessionSlot = -1;
         _sessionTileCount = 0;
+        _sessionCurrentExcluded = false;
         _registeredTiles.Clear();
         _eligibleAt.Clear();
     }
@@ -413,6 +434,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// pass completes (reachable is final), or from the close when the session never got there.
     /// <c>sinceLastCloseMs</c> is the previous close → THIS session's OPEN, never this flush
     /// (the two differ by the layout latency, which would bias the quick-reopen predicate).
+    /// <c>currentExcluded</c> says whether the foreground window at the open was left out of the
+    /// tiles (one boolean — never which window it was).
     /// </summary>
     private void WriteOpenLineIfPending()
     {
@@ -433,7 +456,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
                 : "none";
 
             var line = string.Create(CultureInfo.InvariantCulture,
-                $"Task switcher opened: tiles={_sessionTileCount} reachable={_registeredTiles.Count} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId}");
+                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId}");
             _logger?.LogInformation("{Line}", line);
         }
         catch (Exception)

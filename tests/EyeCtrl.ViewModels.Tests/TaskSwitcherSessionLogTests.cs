@@ -38,12 +38,38 @@ public class TaskSwitcherSessionLogTests
         h.Layout(reachable: 3);
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=5 reachable=3 anchorValid=true sinceLastCloseMs=none lastOutcome=none");
+            "Task switcher opened: tiles=5 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=none lastOutcome=none");
         Check.That(h.Entries[0].Level).IsEqualTo(LogLevel.Information);
 
         // A second layout pass (a re-registration) must not write the open line twice.
         h.Vm.UpdateCloseButtonPosition(h.Close);
         Check.That(h.CountLines("Task switcher opened:")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void OpenLine_SaysWhetherTheForegroundWindowWasLeftOut()
+    {
+        // S2-A's field tells the day log whether the grid the owner saw was the full enumeration
+        // or one window short. Both values are pinned: `true` for a foreground that was a tile,
+        // `false` for the next session where nothing ordinary was in front (the fail-closed null).
+        using var h = new Harness(windowCount: 3, foreground: new IntPtr(2));
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Layout(columns: 3);
+
+        Check.That(h.Lines[0]).IsEqualTo(
+            "Task switcher opened: tiles=2 currentExcluded=true reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none");
+
+        h.At(500);
+        h.Toggle();                              // close (Other) at 500 ms
+        h.SetForeground(null);                   // next session: EyeCtrl itself / the desktop
+        h.At(5500);
+        h.Sample(h.Away, 5500);
+        h.Open();
+        h.Layout(columns: 3);
+
+        Check.That(h.Lines.Last()).IsEqualTo(
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=5000 lastOutcome=Other");
     }
 
     [Fact]
@@ -64,7 +90,7 @@ public class TaskSwitcherSessionLogTests
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).ContainsExactly(new IntPtr(picked + 1));
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=9 reachable=9 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
+            "Task switcher opened: tiles=9 currentExcluded=false reachable=9 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
             $"Task switcher closed: outcome=Picked openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=200 liftToEntryMs=100 slot=4 row=1 col=1");
     }
 
@@ -83,7 +109,7 @@ public class TaskSwitcherSessionLogTests
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).IsEmpty();
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=2 reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
             $"Task switcher closed: outcome=CloseDisc openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
     }
 
@@ -118,7 +144,7 @@ public class TaskSwitcherSessionLogTests
         h.Toggle();
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=3 reachable=0 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
             "Task switcher closed: outcome=Other openMs=500 guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
     }
 
@@ -159,7 +185,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(closedAt).IsNotNull();
         Check.That(h.Lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=4 reachable=4 anchorValid=false sinceLastCloseMs=none lastOutcome=none");
+            "Task switcher opened: tiles=4 currentExcluded=false reachable=4 anchorValid=false sinceLastCloseMs=none lastOutcome=none");
         Check.That(h.Lines[1]).IsEqualTo(
             $"Task switcher closed: outcome=Picked openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=n/a liftToEntryMs=n/a slot=2 row=1 col=0");
     }
@@ -190,7 +216,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
-            "Task switcher opened: tiles=6 reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
+            "Task switcher opened: tiles=6 currentExcluded=false reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
             StringComparison.Ordinal))).IsTrue();
     }
 
@@ -217,7 +243,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
-            "Task switcher opened: tiles=3 reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
             StringComparison.Ordinal))).IsTrue();
     }
 
@@ -273,6 +299,7 @@ public class TaskSwitcherSessionLogTests
         private readonly FakeTimeProvider _clock = new();
         private readonly WeakReferenceMessenger _messenger = new();
         private readonly Capture _capture = new();
+        private readonly FakeWindowManager _windowManager;
         private readonly long _startMs;
         /// <summary>The fake clock reading at the toggle that opened the current session.</summary>
         private long _openedAtMs;
@@ -290,19 +317,26 @@ public class TaskSwitcherSessionLogTests
         internal Harness(
             int windowCount = 3,
             IReadOnlyList<AppWindow>? windows = null,
-            ILogger<TaskSwitcherViewModel>? logger = null)
+            ILogger<TaskSwitcherViewModel>? logger = null,
+            IntPtr? foreground = null)
         {
             DpiHelper.Initialize(1.0, 1.0);
             _startMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+            _windowManager = new FakeWindowManager(
+                windows ?? Enumerable.Range(1, windowCount)
+                    .Select(i => new AppWindow(new IntPtr(i), $"Window {i}", (uint)(100 + i), "app")).ToArray(),
+                foreground);
             Vm = new TaskSwitcherViewModel(
-                new FakeWindowManager(windows ?? Enumerable.Range(1, windowCount)
-                    .Select(i => new AppWindow(new IntPtr(i), $"Window {i}", (uint)(100 + i), "app")).ToArray()),
+                _windowManager,
                 new EyeCtrlSettings(),
                 _messenger,
                 logger: logger ?? _capture,
                 timeProvider: _clock);
             _messenger.Register<Harness, TaskSwitcherSelectionMessage>(this, (_, m) => Selections.Add(m.Hwnd));
         }
+
+        /// <summary>What the next open sees in front (null = nothing eligible, e.g. EyeCtrl itself).</summary>
+        internal void SetForeground(IntPtr? hwnd) => _windowManager.Foreground = hwnd;
 
         /// <summary>The fake clock, in whole milliseconds since the harness was created.</summary>
         internal long NowMs => _clock.GetUtcNow().ToUnixTimeMilliseconds() - _startMs;
@@ -404,11 +438,17 @@ public class TaskSwitcherSessionLogTests
     {
         private readonly IReadOnlyList<AppWindow> _windows;
 
-        internal FakeWindowManager(IReadOnlyList<AppWindow> windows) => _windows = windows;
+        internal FakeWindowManager(IReadOnlyList<AppWindow> windows, IntPtr? foreground = null)
+        {
+            _windows = windows;
+            Foreground = foreground;
+        }
+
+        internal IntPtr? Foreground { get; set; }
 
         public IReadOnlyList<AppWindow> EnumerateOpenWindows() => _windows;
         public void BringToFront(IntPtr hwnd) { }
-        public IntPtr? TryGetEligibleForegroundWindow() => null;
+        public IntPtr? TryGetEligibleForegroundWindow() => Foreground;
         public void Minimize(IntPtr hwnd) { }
         public void MaximizeOrRestore(IntPtr hwnd) { }
         public bool CloseWindow(IntPtr hwnd) => false;

@@ -59,11 +59,30 @@ public sealed class FreshEntryGuard
 
     private readonly HashSet<string> _eligible = new();
     private readonly HashSet<string> _seen = new();
+    private readonly Action? _onAnchorLifted;
+    private readonly Action<string>? _onTargetEligible;
     private PhysicalPoint? _anchor;
     private PhysicalPoint? _current;
     private PhysicalPoint? _previous;
     private double _releaseDistancePhysicalSquared;
     private bool _anchorLifted;
+
+    /// <summary>
+    /// Creates a guard. Both hooks are optional, read-only observations for the session log
+    /// (T3 measures <c>guardLiftMs</c> and <c>liftToEntryMs</c> from them); neither can change
+    /// the rule, and the guard behaves exactly as it did without them.
+    /// <paramref name="onAnchorLifted"/> runs once, on the sample that lifts (A) — never for an
+    /// invalid anchor, which starts with the gate already open (and is a "no lift" for the log's
+    /// purposes). <paramref name="onTargetEligible"/> runs once per target, with its id, on the
+    /// sample that makes it eligible. Both are invoked synchronously inside
+    /// <see cref="ObserveValidSample"/>, on the surface's thread; a hook must be cheap and must
+    /// not throw — the caller is the gaze path.
+    /// </summary>
+    public FreshEntryGuard(Action? onAnchorLifted = null, Action<string>? onTargetEligible = null)
+    {
+        _onAnchorLifted = onAnchorLifted;
+        _onTargetEligible = onTargetEligible;
+    }
 
     /// <summary>Whether the guard currently gates anything. A disarmed guard allows everything.</summary>
     public bool IsArmed { get; private set; }
@@ -126,7 +145,11 @@ public sealed class FreshEntryGuard
         {
             var dx = position.X - anchor.X;
             var dy = position.Y - anchor.Y;
-            _anchorLifted = dx * dx + dy * dy > _releaseDistancePhysicalSquared;
+            if (dx * dx + dy * dy > _releaseDistancePhysicalSquared)
+            {
+                _anchorLifted = true;
+                _onAnchorLifted?.Invoke();
+            }
         }
 
         _previous = _current;
@@ -156,7 +179,10 @@ public sealed class FreshEntryGuard
                 : _previous is not { } previous || !target.HitTest(previous);
 
             if (entered)
+            {
                 _eligible.Add(target.Id);
+                _onTargetEligible?.Invoke(target.Id);
+            }
         }
     }
 

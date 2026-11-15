@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
@@ -10,6 +11,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Fullscreen Task Switcher overlay ViewModel. Enumerates open windows via
@@ -19,6 +21,13 @@ using EyeCtrl.ViewModels.Messages;
 /// <see cref="TaskSwitcherSelectionMessage"/> when a tile is dwelt on. WPF-free
 /// (ViewModels targets plain net10.0): the View (TaskSwitcherWindow) resolves icons via
 /// IAppIconProvider using each tile's ProcessId.
+/// <para>
+/// T3: the VM also writes ONE content-free <c>Information</c> line per open and one per close
+/// (see <see cref="WriteOpenLineIfPending"/> / <see cref="BuildCloseLine"/>). The debate's
+/// look-time ladder is decided by the share of picks followed by a reopen within 10 s, which
+/// only these lines can measure. The lines carry integers, booleans and closed-set ids only —
+/// never a window title, process name or path — so the log cannot spell out what was on screen.
+/// </para>
 /// </summary>
 public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     IRecipient<TaskSwitcherToggledMessage>
@@ -26,17 +35,58 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private readonly IWindowManager _windowManager;
     private readonly IMessenger _messenger;
     private readonly EyeCtrlSettings _settings;  // H2 fix: declared + assigned
+    private readonly ILogger<TaskSwitcherViewModel>? _logger;
+    private readonly TimeProvider _timeProvider;
 
     public ObservableCollection<TaskSwitcherTileViewModel> Tiles { get; } = new();
 
     /// <summary>Landing guard: no tile accumulates from the gaze that opened the switcher.</summary>
-    private readonly FreshEntryGuard _landingGuard = new();
+    private readonly FreshEntryGuard _landingGuard;
 
     // Last valid (non-gap) sample the VM saw, and whether the most recent sample was a gap. The VM
     // is a live IRecipient while hidden, so the sample stream is continuous across sessions; the
     // gap flag is what makes an anchor taken during a blink invalid rather than the stale point.
     private PhysicalPoint? _lastValidSample;
     private bool _lastSampleWasGap;
+
+    /// <summary>
+    /// How a switcher session ended. The ids written to the log are the closed set the ticket
+    /// names: <c>Picked</c> (a tile switch), <c>CloseDisc</c>, <c>PausedDismiss</c> (a tile look
+    /// while paused — a dismissal, never a switch) and <c>Other</c> (any other hide path: the
+    /// toggle, a coordinator dismissal, a shutdown).
+    /// </summary>
+    private enum SessionOutcome
+    {
+        Other,
+        Picked,
+        CloseDisc,
+        PausedDismiss,
+    }
+
+    /// <summary>
+    /// Two tile faces count as the same grid row when their physical tops differ by no more than
+    /// this. A WrapPanel gives every item in a row the same Y, so this only absorbs sub-pixel
+    /// rounding at fractional display scales.
+    /// </summary>
+    private const double RowTolerancePhysical = 1.0;
+
+    // Session record (T3). Reset at every show; the open line is written once the View has
+    // finished its post-layout registration (reachable is only known then), the close line from
+    // the hide path. Logging is best-effort: every write is wrapped, because a failing sink must
+    // never reach the gaze path.
+    private readonly List<(string TargetId, double Top)> _registeredTiles = new();
+    private readonly Dictionary<string, DateTimeOffset> _eligibleAt = new(StringComparer.Ordinal);
+    private DateTimeOffset _sessionOpenedAt;
+    private DateTimeOffset? _guardLiftedAt;
+    private DateTimeOffset? _lastCloseAt;
+    private string _lastOutcomeId = "none";
+    private SessionOutcome _sessionOutcome = SessionOutcome.Other;
+    private string? _sessionPickedTargetId;
+    private int _sessionTileCount;
+    private int _sessionSlot = -1;
+    private bool _anchorValid;
+    private bool _sessionOpen;
+    private bool _openLineWritten;
 
     /// <summary>Reserved dwell-target id for the switcher's close button (not a window tile).</summary>
     public const string CloseTargetId = "__taskswitcher_close__";
@@ -49,12 +99,18 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         EyeCtrlSettings settings,
         IMessenger messenger,
         IStruggleTelemetrySink? sink = null,
-        IDwellDetectorRegistry? dwellRegistry = null)
+        IDwellDetectorRegistry? dwellRegistry = null,
+        ILogger<TaskSwitcherViewModel>? logger = null,
+        TimeProvider? timeProvider = null)
         : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.TaskSwitcher, sink, dwellRegistry, settings.Dwell)
     {
         _windowManager = windowManager;
         _messenger = messenger;
         _settings = settings;  // H2 fix: assigned
+        _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        // The guard's two hooks only timestamp the session log; neither can change a decision.
+        _landingGuard = new FreshEntryGuard(OnGuardAnchorLifted, OnGuardTargetEligible);
     }
 
     /// <summary>
@@ -85,7 +141,14 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // The landing guard: anchor the rule at the gaze that opened the switcher. The anchor is
         // invalid when the last sample was a gap — a blink at opening says nothing about where
         // the gaze is, and the frozen point would otherwise be trusted as a real landing spot.
-        _landingGuard.Arm(_lastSampleWasGap ? null : _lastValidSample);
+        var anchor = _lastSampleWasGap ? null : _lastValidSample;
+
+        // T3: start the session record before anything can hide it again. The open line waits
+        // for the View's layout pass (reachable is not known until then) or, for a session that
+        // closes first, is flushed by the close.
+        BeginSession(anchorValid: anchor is not null);
+
+        _landingGuard.Arm(anchor);
 
         foreach (var window in _windowManager.EnumerateOpenWindows())
         {
@@ -93,6 +156,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
                 window.Hwnd, window.Title, window.ProcessId, window.ProcessName,
                 new PhysicalPoint(0, 0)));
         }
+
+        _sessionTileCount = Tiles.Count;
 
         // Flip IsVisible so the EventCoordinator shows the fullscreen window. This is the
         // show trigger — the coordinator watches IsVisible. Dwell processing is harmless
@@ -106,6 +171,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// </summary>
     public void HideOverlay()
     {
+        // A pick hides the overlay here AND the dispatcher hides it again once it has brought
+        // the window forward. Only the hide that actually closes a visible session writes the
+        // close line (T3: one line per session, not two).
+        var closedASession = IsVisible;
+
         IsVisible = false;
         DwellDetector.ClearTargets();
         Tiles.Clear();
@@ -114,6 +184,9 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // VM is a DI singleton — the next show reuses this instance, AppBootstrapper pattern).
         CloseDwellProgress = 0;
         CloseDwellPaused = false;
+
+        if (closedASession)
+            EndSession();
     }
 
     /// <summary>
@@ -163,6 +236,13 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// Called by the View after layout to register the close disc as a dwell target.
     /// Mirrors <see cref="QuickActionsGridViewModel.UpdateCloseButtonPosition"/> — same
     /// physical-pixel convention and the same <see cref="DwellSettings.ToolbarButtonDwellMs"/>.
+    /// <para>
+    /// It is also the LAST step of the View's post-layout registration pass
+    /// (<c>TaskSwitcherWindow.UpdateTilePositions</c> registers every visible tile face, then
+    /// this), which is where the open line's <c>reachable</c> count is final — so this flushes
+    /// it. A session that hides before any layout flushes the open line from the close path
+    /// instead (T3).
+    /// </para>
     /// </summary>
     public void UpdateCloseButtonPosition(PhysicalPoint screenCenter)
     {
@@ -170,6 +250,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             CloseTargetId, screenCenter,
             DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
             _settings.Dwell.ToolbarButtonDwellMs));
+
+        WriteOpenLineIfPending();
     }
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
@@ -185,9 +267,23 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // (OS input); it only hides the overlay.
         if (targetId == CloseTargetId)
         {
+            _sessionOutcome = SessionOutcome.CloseDisc;
             HideOverlay();
             return;
         }
+
+        // T3: record what this activation was before hiding, while the tile list is still alive.
+        // A tile look is a switch (Picked) unless paused, where it is a dismiss (PausedDismiss) —
+        // the same distinction the send below makes. The grid position is read from the faces
+        // the View registered, so the log follows the layout that was actually drawn.
+        var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
+        if (tile != null)
+        {
+            _sessionPickedTargetId = targetId;
+            _sessionSlot = Tiles.IndexOf(tile);
+            _sessionOutcome = LastSampleWasPaused ? SessionOutcome.PausedDismiss : SessionOutcome.Picked;
+        }
+
         // targetId is the hwnd string. While paused the dwell is a DISMISS, never a switch —
         // suppressing the selection send (OS input) but keeping HideOverlay is what keeps the
         // overlay escapable while still obeying "no input leaves EyeCtrl while paused".
@@ -239,11 +335,199 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     {
         var tile = Tiles.FirstOrDefault(t => t.Hwnd == hwnd);
         if (tile != null)
+        {
             tile.Position = screenRect.Center;
+
+            // T3: the faces registered in this session, in registration (= display) order, with
+            // their physical top edge. `reachable` for the open line is this list's count, and
+            // the picked tile's row/col come from these tops — the geometry that was drawn, not
+            // a recomputed grid. A re-registration of the same tile replaces its entry.
+            var targetId = hwnd.ToString();
+            var existing = _registeredTiles.FindIndex(entry => entry.TargetId == targetId);
+            if (existing >= 0)
+                _registeredTiles[existing] = (targetId, screenRect.Y);
+            else
+                _registeredTiles.Add((targetId, screenRect.Y));
+        }
 
         DwellDetector.AddTarget(new DwellTarget(
             hwnd.ToString(),
             screenRect,
             _settings.Dwell.ToolbarButtonDwellMs));
     }
+
+    // ── T3 session log ────────────────────────────────────────────────────────────────────────
+    // One Information line per open and one per close, so the quick-reopen rate (an open whose
+    // lastOutcome is Picked and whose sinceLastCloseMs < 10000) can be computed from the day log.
+    // Both lines stay content-free: every value is an integer, a boolean or one of the closed
+    // ids above. The debate's look-time ladder is decided by these numbers, so they are worth
+    // keeping exact — and worth keeping safe: every write is wrapped, because a throwing sink
+    // must never reach the gaze path.
+
+    /// <summary>Starts the record for one session: open time, fresh outcome, fresh grid data.</summary>
+    private void BeginSession(bool anchorValid)
+    {
+        _sessionOpen = true;
+        _openLineWritten = false;
+        _sessionOpenedAt = _timeProvider.GetUtcNow();
+        _anchorValid = anchorValid;
+        _guardLiftedAt = null;
+        _sessionOutcome = SessionOutcome.Other;
+        _sessionPickedTargetId = null;
+        _sessionSlot = -1;
+        _sessionTileCount = 0;
+        _registeredTiles.Clear();
+        _eligibleAt.Clear();
+    }
+
+    /// <summary>Writes the open line once, then the close line, and remembers the outcome.</summary>
+    private void EndSession()
+    {
+        if (!_sessionOpen)
+            return;
+
+        // A session that hid before its layout pass still owes its open line; the two lines must
+        // stay paired and in order in the log.
+        WriteOpenLineIfPending();
+        _sessionOpen = false;
+
+        var closedAt = _timeProvider.GetUtcNow();
+        try
+        {
+            var line = BuildCloseLine(closedAt);
+            _logger?.LogInformation("{Line}", line);
+        }
+        catch (Exception)
+        {
+            // A logging failure must never reach the gaze path.
+        }
+
+        _lastCloseAt = closedAt;
+        _lastOutcomeId = OutcomeId(_sessionOutcome);
+    }
+
+    /// <summary>
+    /// Writes "Task switcher opened: …" once per session. Called when the View's registration
+    /// pass completes (reachable is final), or from the close when the session never got there.
+    /// </summary>
+    private void WriteOpenLineIfPending()
+    {
+        if (!_sessionOpen || _openLineWritten)
+            return;
+
+        _openLineWritten = true;
+        try
+        {
+            var sinceLastClose = _lastCloseAt is { } lastClose
+                ? ElapsedMs(lastClose, _timeProvider.GetUtcNow()).ToString(CultureInfo.InvariantCulture)
+                : "none";
+
+            var line = string.Create(CultureInfo.InvariantCulture,
+                $"Task switcher opened: tiles={_sessionTileCount} reachable={_registeredTiles.Count} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId}");
+            _logger?.LogInformation("{Line}", line);
+        }
+        catch (Exception)
+        {
+            // A logging failure must never reach the gaze path.
+        }
+    }
+
+    /// <summary>
+    /// Builds the close line. <c>guardLiftMs</c> is <c>n/a</c> when the opening anchor was
+    /// invalid (there was no distance gate to lift) and <c>never</c> when it did not lift before
+    /// the close; <c>liftToEntryMs</c> is the lift→entry span for a pick and <c>n/a</c>
+    /// otherwise; <c>slot/row/col</c> are <c>-</c> when no tile was picked.
+    /// </summary>
+    private string BuildCloseLine(DateTimeOffset closedAt)
+    {
+        var openMs = ElapsedMs(_sessionOpenedAt, closedAt).ToString(CultureInfo.InvariantCulture);
+        var guardLiftMs = GuardLiftMs();
+        var liftToEntryMs = LiftToEntryMs();
+        var (row, col) = TileGridPosition(_registeredTiles, _sessionPickedTargetId);
+
+        var slot = _sessionSlot >= 0 ? _sessionSlot.ToString(CultureInfo.InvariantCulture) : "-";
+        var rowText = row >= 0 ? row.ToString(CultureInfo.InvariantCulture) : "-";
+        var colText = col >= 0 ? col.ToString(CultureInfo.InvariantCulture) : "-";
+
+        return string.Create(CultureInfo.InvariantCulture,
+            $"Task switcher closed: outcome={OutcomeId(_sessionOutcome)} openMs={openMs} guardLiftMs={guardLiftMs} liftToEntryMs={liftToEntryMs} slot={slot} row={rowText} col={colText}");
+    }
+
+    /// <summary>The distance gate's lift, in ms after the open, or <c>n/a</c> / <c>never</c>.</summary>
+    private string GuardLiftMs()
+    {
+        if (!_anchorValid)
+            return "n/a";
+        if (_guardLiftedAt is not { } lifted)
+            return "never";
+        return ElapsedMs(_sessionOpenedAt, lifted).ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Lift→entry for the picked tile; <c>n/a</c> for every other outcome.</summary>
+    private string LiftToEntryMs()
+    {
+        if (_sessionOutcome != SessionOutcome.Picked || !_anchorValid
+            || _guardLiftedAt is not { } lifted
+            || _sessionPickedTargetId is not { } picked
+            || !_eligibleAt.TryGetValue(picked, out var eligibleAt))
+        {
+            return "n/a";
+        }
+
+        return ElapsedMs(lifted, eligibleAt).ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>One closed-set id per outcome; the values are pinned by the session-log tests.</summary>
+    private static string OutcomeId(SessionOutcome outcome)
+    {
+        switch (outcome)
+        {
+            case SessionOutcome.Picked: return "Picked";
+            case SessionOutcome.CloseDisc: return "CloseDisc";
+            case SessionOutcome.PausedDismiss: return "PausedDismiss";
+            default: return "Other";
+        }
+    }
+
+    /// <summary>
+    /// The picked tile's grid position, read from the registered faces: rows are runs of equal
+    /// top edges (within <see cref="RowTolerancePhysical"/>), columns are the ordinal inside the
+    /// run. Returns (-1, -1) when no tile was picked (or it was never registered).
+    /// </summary>
+    private static (int Row, int Col) TileGridPosition(
+        IReadOnlyList<(string TargetId, double Top)> registered, string? pickedTargetId)
+    {
+        if (pickedTargetId is null)
+            return (-1, -1);
+
+        var row = -1;
+        var col = 0;
+        var rowTop = double.NaN;
+        foreach (var (targetId, top) in registered)
+        {
+            if (row < 0 || Math.Abs(top - rowTop) > RowTolerancePhysical)
+            {
+                row++;
+                col = 0;
+                rowTop = top;
+            }
+
+            if (targetId == pickedTargetId)
+                return (row, col);
+
+            col++;
+        }
+
+        return (-1, -1);
+    }
+
+    /// <summary>Whole milliseconds between two clock reads, never negative.</summary>
+    private static long ElapsedMs(DateTimeOffset from, DateTimeOffset to) =>
+        Math.Max(0, (long)Math.Round((to - from).TotalMilliseconds));
+
+    /// <summary>The guard's distance gate lifted on this sample (T3 hook; timestamps only).</summary>
+    private void OnGuardAnchorLifted() => _guardLiftedAt ??= _timeProvider.GetUtcNow();
+
+    /// <summary>A target became dwell-eligible on this sample (T3 hook; timestamps only).</summary>
+    private void OnGuardTargetEligible(string targetId) => _eligibleAt.TryAdd(targetId, _timeProvider.GetUtcNow());
 }

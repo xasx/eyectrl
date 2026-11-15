@@ -33,6 +33,16 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
     public bool IsMinimized { get; }
 
     /// <summary>
+    /// True for the switcher's "Show desktop" tile — the last tile of a session, which is not a
+    /// window at all (its <see cref="Hwnd"/> is <see cref="IntPtr.Zero"/> and its title is empty).
+    /// The View draws it outlined with its own glyph and label; the VM gives it
+    /// <c>TaskSwitcherViewModel.DesktopTargetId</c> as a dwell target and minimises the session's
+    /// windows when it fires. Display and hit-testing are otherwise identical to a window tile —
+    /// it is a normal dwell target under every slice-1 rule.
+    /// </summary>
+    public bool IsDesktop { get; }
+
+    /// <summary>
     /// Process icon as a boxed object. Set by the View (TaskSwitcherWindow) via
     /// IAppIconProvider after the tile is created. Typed as <c>object?</c> (not
     /// <c>ImageSource</c>) so this VM stays WPF-free (ViewModels targets plain net10.0).
@@ -53,13 +63,14 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
 
     public TaskSwitcherTileViewModel(
         IntPtr hwnd, string title, uint processId, string processName, PhysicalPoint position,
-        bool isMinimized = false)
+        bool isMinimized = false, bool isDesktop = false)
     {
         Hwnd = hwnd;
         Title = title;
         ProcessId = processId;
         ProcessName = processName;
         IsMinimized = isMinimized;
+        IsDesktop = isDesktop;
         _position = position;
     }
 }

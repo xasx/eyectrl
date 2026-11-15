@@ -32,6 +32,8 @@ internal sealed class QuickActionDispatcher : CoordinatorBase
         });
         m.Register<QuickActionDispatcher, TaskSwitcherSelectionMessage>(this, (_, msg) =>
             context.Dispatcher.BeginInvoke(() => HandleTaskSwitcherSelection(msg)));
+        m.Register<QuickActionDispatcher, TaskSwitcherShowDesktopMessage>(this, (_, msg) =>
+            context.Dispatcher.BeginInvoke(() => HandleShowDesktop(msg)));
     }
 
     internal void HandleTaskSwitcherSelection(TaskSwitcherSelectionMessage msg)
@@ -41,6 +43,52 @@ internal sealed class QuickActionDispatcher : CoordinatorBase
         // HideOverlay is public on the VM so the coordinator can dismiss after a selection
         // (in addition to the toggle path inside Receive).
         Context.OverlayManager.TaskSwitcher.HideOverlay();
+    }
+
+    /// <summary>
+    /// S3-A "Show desktop": minimises exactly the windows the switcher session enumerated, one by
+    /// one through <see cref="Core.Interfaces.IWindowManager.MinimizeNonBlocking"/>, and dismisses
+    /// the overlay. Deliberately NOT the shell's MinimizeAll/ToggleDesktop: those act on every
+    /// window the shell owns, and this owner controls the PC only by eye — an EyeCtrl surface
+    /// going with them would take their control away. The handle list is the session's snapshot
+    /// (the current window included, EyeCtrl's own process already excluded by the view model).
+    ///
+    /// <para>
+    /// <b>This runs on the UI dispatcher, which is also where every gaze sample and every overlay
+    /// dwell is delivered.</b> So the loop must never block: it uses the non-blocking
+    /// <see cref="Core.Interfaces.IWindowManager.MinimizeNonBlocking"/> (ShowWindowAsync), because
+    /// a synchronous ShowWindow on a hung window would freeze the whole gaze path — Pause
+    /// included — and leave a gaze-only owner without control. Each minimise is individually
+    /// guarded so one bad handle cannot leave the rest of the desktop up, and the dismiss is
+    /// guarded too; exceptions are the only thing contained here, blocking is designed out.
+    /// </para>
+    /// </summary>
+    internal void HandleShowDesktop(TaskSwitcherShowDesktopMessage msg)
+    {
+        if (Context is null) return;
+
+        foreach (var hwnd in msg.Hwnds)
+        {
+            try
+            {
+                Context.WindowManager.MinimizeNonBlocking(hwnd);
+            }
+            catch (Exception ex)
+            {
+                // A throwing implementation (or a mock in tests) must not abandon the remaining
+                // windows.
+                Log.Error(ex, "Show desktop: minimising window {Hwnd} failed", hwnd);
+            }
+        }
+
+        try
+        {
+            Context.OverlayManager.TaskSwitcher.HideOverlay();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Show desktop: dismissing the task switcher failed");
+        }
     }
 
     /// <summary>

@@ -64,23 +64,35 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// </summary>
     public void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut)
     {
-        // Resolve icons for each tile (View-side concern; the tile VM stores only ProcessId)
+        var screenWidth = SystemParameters.PrimaryScreenWidth;
+        var screenHeight = SystemParameters.PrimaryScreenHeight;
+
+        // S3-A capacity first: the "Show desktop" tile takes a visible slot, so it can cost the
+        // last WINDOW its tile. Capacity is a property of the grid region alone (columns x rows),
+        // never of the tile count, so measuring it with an empty count gives the same figure the
+        // final layout will use. The VM trims the window tiles it cannot show; the overflow chip
+        // then counts them, and the desktop tile keeps the last slot.
+        var capacity = ComputeLayout(
+            toolbarKeepOut, screenWidth, screenHeight,
+            DpiHelper.ScaleX, DpiHelper.ScaleY, tileCount: 0).Capacity;
+        _viewModel?.ApplyTileCapacity(capacity);
+
+        // Resolve icons for each window tile (View-side concern; the tile VM stores only ProcessId).
+        // After the capacity trim, so a window that lost its slot never pays for an icon lookup.
         if (_iconProvider != null && _viewModel != null)
         {
             foreach (var tile in _viewModel.Tiles)
                 tile.Icon = _iconProvider.GetIcon(tile.ProcessId);
         }
 
-        var screenWidth = SystemParameters.PrimaryScreenWidth;
-        var screenHeight = SystemParameters.PrimaryScreenHeight;
-
         // The keep-out arrives in physical pixels (IToolbarOverlay.GetPhysicalBounds); the pure
         // helper works in DIP and converts once through the live scale. Applying the layout as
         // margins around the tile viewport is what makes the grid's drawn geometry — and therefore
-        // the dwell targets registered from it — match the computed area.
+        // the dwell targets registered from it — match the computed area. The tile count is the
+        // DRAWN panel: window tiles plus the desktop tile, when the session has one.
         ApplyLayout(
             ComputeLayout(toolbarKeepOut, screenWidth, screenHeight,
-                DpiHelper.ScaleX, DpiHelper.ScaleY, _viewModel?.Tiles.Count ?? 0),
+                DpiHelper.ScaleX, DpiHelper.ScaleY, _viewModel?.PanelItems.Count ?? 0),
             screenWidth);
 
         // Cover the primary screen
@@ -129,12 +141,18 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     }
 
     /// <summary>
-    /// For each tile, compute its real on-screen rectangle (the drawn tile face) and push its
+    /// For each panel tile, compute its real on-screen rectangle (the drawn tile face) and push its
     /// VISIBLE part — the intersection with the ScrollViewer's viewport — into the VM, so the
     /// DwellDetector hit-tests exactly what is drawn: not a circle that ignores the corners,
     /// and not the hidden remainder of a row the viewport clips. Tiles with no visible area
     /// get NO target: gaze resting on the bottom band (the hint row, the close disc) must
     /// never silently switch windows through a tile that is not on screen.
+    /// <para>
+    /// S3-A: the panel is the window tiles plus the session's desktop tile. The desktop tile
+    /// registers through its own reserved-target call — same rectangle rule, but its id is not a
+    /// window handle. It is always in a shown row (the VM trimmed the window list to make room),
+    /// so it can never be the tile the viewport clips.
+    /// </para>
     /// </summary>
     private void UpdateTilePositions()
     {
@@ -188,7 +206,10 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             if (visibleRect.Width <= 0 || visibleRect.Height <= 0)
                 continue;   // fully clipped (or edge-touching): no target, no invisible accumulation
 
-            _viewModel.UpdateTilePosition(tile.Hwnd, visibleRect);
+            if (tile.IsDesktop)
+                _viewModel.UpdateDesktopTilePosition(visibleRect);
+            else
+                _viewModel.UpdateTilePosition(tile.Hwnd, visibleRect);
         }
 
         // Register the close disc as a dwell target too (same physical-pixel convention).

@@ -1217,6 +1217,12 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.ViewModels/TaskSwitcherViewModel.cs",
+      "Literal": "\"__taskswitcher_desktop__\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
       "Path": "src/EyeCtrl.ViewModels/SelectionModeIcons.cs",
       "Literal": "\"SelectionAuto\"",
       "Category": "id",

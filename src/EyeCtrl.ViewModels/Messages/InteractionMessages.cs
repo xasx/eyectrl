@@ -373,6 +373,21 @@ public record TaskSwitcherToggledMessage;
 public record TaskSwitcherSelectionMessage(IntPtr Hwnd);
 
 /// <summary>
+/// Sent by the Task Switcher's "Show desktop" tile when it fires: minimise every window of the
+/// session, then the switcher is already closing. Consumed by the App's
+/// <c>QuickActionDispatcher</c> on the UI (gaze-dwell) thread, which calls
+/// <c>IWindowManager.MinimizeNonBlocking</c> once per handle, so a hung window cannot stall dwell — never
+/// the shell's MinimizeAll/ToggleDesktop, which would also minimise EyeCtrl's own surfaces and take
+/// away the owner's only control.
+/// </summary>
+/// <param name="Hwnds">
+/// The windows this session enumerated — the left-out foreground window included, EyeCtrl's own
+/// process and any window the enumeration filtered out excluded. A snapshot taken at the open, so
+/// the action cannot touch a window that appeared after the owner saw the grid.
+/// </param>
+public record TaskSwitcherShowDesktopMessage(IReadOnlyList<IntPtr> Hwnds);
+
+/// <summary>
 /// Published after a dwell activation's effect has run on an EyeCtrl surface (the overlay VM base
 /// class, the settings window, the emoji category bar, the eye-care banner, notes, and manual
 /// selection — spec 2026-09-23 §Mechanism). Consumed by the App's DwellCueService for the

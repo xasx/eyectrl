@@ -183,6 +183,7 @@ public class TaskSwitcherCurrentWindowTests
         }
 
         public void Minimize(IntPtr hwnd) { }
+        public void MinimizeNonBlocking(IntPtr hwnd) { }
 
         public void MaximizeOrRestore(IntPtr hwnd) { }
 

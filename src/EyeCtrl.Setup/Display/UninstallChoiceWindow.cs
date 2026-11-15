@@ -281,28 +281,54 @@ internal class UninstallChoiceWindow : Window
         return button;
     }
 
-    /// <summary>
-    /// The production prose factory: one centred, wrapping 36 DIP line in its 1280 DIP box.
-    /// The <c>setupProse</c> fit class measures exactly this control.
-    /// </summary>
-    internal static TextBlock CreateProse(string text, bool strong = false, bool secondary = false, bool dim = false)
+    /// <summary>A prose line: 40 DIP (or an explicit size), left-aligned by default, wrapping in its
+    /// body box. Both windows consume it (r3 F8: the old centre-only signature could not serve B).
+    /// The plain tier renders Normal — the weight ladder below belongs to button labels, not prose.</summary>
+    internal static TextBlock CreateProse(
+        string text,
+        bool strong = false,
+        bool secondary = false,
+        bool dim = false,
+        TextAlignment alignment = TextAlignment.Left,
+        double size = SetupWindowMetrics.ProseFontSize,
+        double maxWidth = SetupWindowMetrics.BodyWidthProgress)
     {
         return new TextBlock
         {
             Text = text,
             TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = SetupWindowMetrics.ProseWidth,
+            TextAlignment = alignment,
+            MaxWidth = maxWidth,
             FontFamily = Tokens.FontStandard,
-            FontSize = SetupWindowMetrics.ProseFontSize,
-            FontWeight = strong ? Tokens.FontWeightStrong : Tokens.FontWeightMedium,
-            Foreground = dim
-                ? Tokens.BrushTextDim
-                : secondary ? Tokens.BrushTextSecondary : Tokens.BrushTextPrimary,
+            FontSize = size,
+            FontWeight = strong ? Tokens.FontWeightStrong
+                : dim || secondary ? Tokens.FontWeightMedium
+                : FontWeights.Normal,
+            Foreground = dim ? Tokens.BrushTextDim
+                : secondary ? Tokens.BrushTextSecondary
+                : Tokens.BrushTextPrimary,
             Margin = new Thickness(0, 0, 0, 12),
         };
     }
+
+    /// <summary>The band/choice title and result-body text: 44 bold, TextPrimary, wrapping.</summary>
+    internal static TextBlock CreateTitle(string text) => new()
+    {
+        Text = text,
+        FontSize = SetupWindowMetrics.TitleFontSize,
+        FontWeight = Tokens.FontWeightStrong,
+        Foreground = Tokens.BrushTextPrimary,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    /// <summary>A stage-row label: 36 semibold, pending-dim base colour (the window paints states).</summary>
+    internal static TextBlock CreateStageLabel(string text) => new()
+    {
+        Text = text,
+        FontSize = SetupWindowMetrics.StageFontSize,
+        FontWeight = Tokens.FontWeightMedium,
+        Foreground = Tokens.BrushTextDim,
+    };
 
     private Grid BuildScreen(bool confirm)
     {

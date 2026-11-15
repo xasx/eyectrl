@@ -1728,35 +1728,35 @@
     "text": "Starting the previous version",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupStage",
     "args": []
   },
   "rollback.progress.swap": {
     "text": "Putting the previous version back",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupStage",
     "args": []
   },
   "rollback.progress.title": {
     "text": "Restoring the previous version",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "rollback.result.allFailed": {
     "text": "EyeCtrl could not be started. The other eye control stays available. Please get the caregiver.",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "rollback.result.degraded": {
     "text": "The rollback did not work as planned. Version {0} is running, but it cannot click in windows with administrator rights (for example Task Manager).",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": [
       "version"
     ]
@@ -1765,21 +1765,21 @@
     "text": "The rollback failed. The installed version is unchanged.",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "rollback.result.notApplied": {
     "text": "Rollback not possible: there is no previous version.",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "rollback.result.ok": {
     "text": "EyeCtrl runs version {0} again.",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": [
       "version"
     ]
@@ -1788,7 +1788,7 @@
     "text": "The previous version is damaged or wrongly signed. Nothing was changed.",
     "who": "user",
     "where": "rollback",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "settings.action_menu.jump.label": {
@@ -6146,7 +6146,7 @@
     "text": "Cancelled. EyeCtrl stays installed.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.choice.cancel": {
@@ -6181,7 +6181,7 @@
     "text": "If nothing is chosen, nothing happens.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupDim",
     "args": []
   },
   "uninstall.choice.question": {
@@ -6195,7 +6195,7 @@
     "text": "Uninstall EyeCtrl",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.confirmDelete.detail": {
@@ -6216,7 +6216,7 @@
     "text": "Really delete everything?",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.confirmDelete.yes": {
@@ -6230,7 +6230,7 @@
     "text": "EyeCtrl is uninstalled, but some files in {0} could not be deleted.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": [
       "folder"
     ]
@@ -6239,35 +6239,35 @@
     "text": "EyeCtrl is uninstalled. Settings and logs were deleted.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.done.kept": {
     "text": "EyeCtrl is uninstalled. Settings and logs were kept.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.failed": {
     "text": "Uninstall failed. EyeCtrl stays installed and the settings are unchanged.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.needsHelp": {
     "text": "Windows asks for a confirmation that gaze cannot reach. Please get the caregiver.",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "uninstall.working": {
     "text": "Uninstalling EyeCtrl",
     "who": "user",
     "where": "uninstall",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "update.confirm.detail": {
@@ -6345,49 +6345,49 @@
     "text": "Starting the new version",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupStage",
     "args": []
   },
   "update.progress.stop": {
     "text": "Closing EyeCtrl",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupStage",
     "args": []
   },
   "update.progress.swap": {
     "text": "Putting the new version in place",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupStage",
     "args": []
   },
   "update.progress.title": {
     "text": "Installing the update",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "update.progress.verify": {
     "text": "Checking files",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupStage",
     "args": []
   },
   "update.result.allFailed": {
     "text": "EyeCtrl could not be started. The other eye control stays available. Please get the caregiver.",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "update.result.degraded": {
     "text": "The update did not work as planned. Version {0} is running, but it cannot click in windows with administrator rights (for example Task Manager).",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": [
       "version"
     ]
@@ -6396,21 +6396,21 @@
     "text": "The update failed. Nothing else was changed.",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "update.result.notApplied": {
     "text": "Update not possible: part of EyeCtrl was still running. Nothing was changed.",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   },
   "update.result.ok": {
     "text": "Update installed. EyeCtrl now runs version {0}.",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": [
       "version"
     ]
@@ -6419,7 +6419,7 @@
     "text": "The update did not work. The previous version {0} is running again.",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": [
       "version"
     ]
@@ -6428,7 +6428,7 @@
     "text": "The update is damaged or wrongly signed. Nothing was changed.",
     "who": "user",
     "where": "update",
-    "fit": "setupProse",
+    "fit": "setupTitle",
     "args": []
   }
 }

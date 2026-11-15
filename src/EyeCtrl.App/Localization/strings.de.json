@@ -936,39 +936,39 @@
   },
   "rollback.progress.start": {
     "text": "Vorherige Version wird gestartet",
-    "src": "5a3ee733"
+    "src": "86ec9652"
   },
   "rollback.progress.swap": {
     "text": "Vorherige Version wird eingesetzt",
-    "src": "8473a9c7"
+    "src": "e1bd6870"
   },
   "rollback.progress.title": {
     "text": "Vorherige Version wird wiederhergestellt",
-    "src": "a5a9e012"
+    "src": "7c62b4e4"
   },
   "rollback.result.allFailed": {
     "text": "EyeCtrl ließ sich nicht starten. Die andere Blicksteuerung bleibt verfügbar. Bitte die Betreuungsperson holen.",
-    "src": "f0357751"
+    "src": "bcabff6e"
   },
   "rollback.result.degraded": {
     "text": "Die Rückkehr zur vorherigen Version hat nicht wie geplant funktioniert. Version {0} läuft, kann aber nicht in Fenster mit Administratorrechten klicken (z. B. Task-Manager).",
-    "src": "678a6b58"
+    "src": "64ff67cf"
   },
   "rollback.result.failed": {
     "text": "Die Rückkehr zur vorherigen Version ist fehlgeschlagen. Die installierte Version ist unverändert.",
-    "src": "24121d62"
+    "src": "c4abc2dc"
   },
   "rollback.result.notApplied": {
     "text": "Rückkehr nicht möglich: Es gibt keine vorherige Version.",
-    "src": "2a921753"
+    "src": "da8c5b93"
   },
   "rollback.result.ok": {
     "text": "EyeCtrl läuft wieder mit Version {0}.",
-    "src": "f49deba8"
+    "src": "b828c153"
   },
   "rollback.result.verifyFailed": {
     "text": "Die vorherige Version ist beschädigt oder falsch signiert. Nichts wurde geändert.",
-    "src": "46d0adfe"
+    "src": "a611ea74"
   },
   "settings.action_menu.jump.label": {
     "text": "Vorschau des Aktionsmenüs",
@@ -3343,7 +3343,7 @@
   },
   "uninstall.cancelled": {
     "text": "Abgebrochen. EyeCtrl bleibt installiert.",
-    "src": "e3b82adc"
+    "src": "4e997d62"
   },
   "uninstall.choice.cancel": {
     "text": "Abbrechen – nichts ändern",
@@ -3363,7 +3363,7 @@
   },
   "uninstall.choice.noChoice": {
     "text": "Ohne Auswahl passiert nichts.",
-    "src": "d6f6fc65"
+    "src": "8f39d44d"
   },
   "uninstall.choice.question": {
     "text": "Einstellungen und Protokolle behalten?",
@@ -3371,7 +3371,7 @@
   },
   "uninstall.choice.title": {
     "text": "EyeCtrl deinstallieren",
-    "src": "4d2db947"
+    "src": "a690dad5"
   },
   "uninstall.confirmDelete.detail": {
     "text": "Einstellungen, Protokolle, Aufzeichnungen und heruntergeladene Sprachmodelle von EyeCtrl werden gelöscht. Das lässt sich nicht rückgängig machen.",
@@ -3383,7 +3383,7 @@
   },
   "uninstall.confirmDelete.title": {
     "text": "Wirklich alles löschen?",
-    "src": "7991acb8"
+    "src": "1b86841a"
   },
   "uninstall.confirmDelete.yes": {
     "text": "Ja, alles löschen",
@@ -3391,27 +3391,27 @@
   },
   "uninstall.done.deleteIncomplete": {
     "text": "EyeCtrl ist deinstalliert, aber einige Dateien in {0} ließen sich nicht löschen.",
-    "src": "c6f03c4a"
+    "src": "8bf81a6b"
   },
   "uninstall.done.deleted": {
     "text": "EyeCtrl ist deinstalliert. Einstellungen und Protokolle sind gelöscht.",
-    "src": "7144e1be"
+    "src": "5a0afe79"
   },
   "uninstall.done.kept": {
     "text": "EyeCtrl ist deinstalliert. Einstellungen und Protokolle sind erhalten.",
-    "src": "a1618888"
+    "src": "84a5bdd7"
   },
   "uninstall.failed": {
     "text": "Deinstallation fehlgeschlagen. EyeCtrl bleibt installiert, die Einstellungen sind unverändert.",
-    "src": "d73bd316"
+    "src": "0824b0d1"
   },
   "uninstall.needsHelp": {
     "text": "Windows verlangt eine Bestätigung, die per Blick nicht erreichbar ist. Bitte die Betreuungsperson holen.",
-    "src": "408f87b0"
+    "src": "735dade6"
   },
   "uninstall.working": {
     "text": "EyeCtrl wird deinstalliert",
-    "src": "b92ffc47"
+    "src": "452db187"
   },
   "update.confirm.detail": {
     "text": "EyeCtrl ist dabei etwa eine Minute nicht bedienbar und startet danach von selbst neu.",
@@ -3451,50 +3451,50 @@
   },
   "update.progress.start": {
     "text": "Neue Version wird gestartet",
-    "src": "336b5f9c"
+    "src": "75891c9f"
   },
   "update.progress.stop": {
     "text": "EyeCtrl wird beendet",
-    "src": "9527f031"
+    "src": "f6958ac6"
   },
   "update.progress.swap": {
     "text": "Neue Version wird eingesetzt",
-    "src": "4f30e8b0"
+    "src": "35722af3"
   },
   "update.progress.title": {
     "text": "Update wird installiert",
-    "src": "f46ea929"
+    "src": "68c6c13d"
   },
   "update.progress.verify": {
     "text": "Dateien werden geprüft",
-    "src": "6b09239a"
+    "src": "ba467036"
   },
   "update.result.allFailed": {
     "text": "EyeCtrl ließ sich nicht starten. Die andere Blicksteuerung bleibt verfügbar. Bitte die Betreuungsperson holen.",
-    "src": "f0357751"
+    "src": "bcabff6e"
   },
   "update.result.degraded": {
     "text": "Das Update hat nicht wie geplant funktioniert. Version {0} läuft, kann aber nicht in Fenster mit Administratorrechten klicken (z. B. Task-Manager).",
-    "src": "99d95d72"
+    "src": "5432e35a"
   },
   "update.result.failed": {
     "text": "Das Update ist fehlgeschlagen. Sonst wurde nichts geändert.",
-    "src": "5b99e10e"
+    "src": "612ddbb6"
   },
   "update.result.notApplied": {
     "text": "Update nicht möglich: Ein Teil von EyeCtrl lief noch. Nichts wurde geändert.",
-    "src": "d5999d5b"
+    "src": "0d28ae0a"
   },
   "update.result.ok": {
     "text": "Update installiert. EyeCtrl läuft jetzt mit Version {0}.",
-    "src": "8db8254e"
+    "src": "acc50bfb"
   },
   "update.result.rolledBack": {
     "text": "Das Update hat nicht funktioniert. Die vorherige Version {0} läuft wieder.",
-    "src": "669007cf"
+    "src": "0e294a89"
   },
   "update.result.verifyFailed": {
     "text": "Das Update ist beschädigt oder falsch signiert. Nichts wurde geändert.",
-    "src": "7e5825b3"
+    "src": "998897c6"
   }
 }

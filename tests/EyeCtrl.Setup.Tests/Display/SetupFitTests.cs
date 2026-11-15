@@ -13,19 +13,24 @@ using EyeCtrl.Sdk.Wpf;
 using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
-/// C9 S6e's two fit classes, measured in their production controls at the owner's 2.0:
-/// <c>setup420x160</c> (every choice button, 28 DIP, wrapping) and <c>setupProse</c> (every 36 DIP
-/// prose line in its 1280 x 384 DIP box). English is the baseline; the German draft from the file
-/// the App ships is measured too, with no exceptions.
+/// C9 S6e's five fit classes, measured in their production controls at the owner's 2.0:
+/// <c>setup420x160</c> (every choice button, 32 DIP, wrapping), <c>setupProse</c> (every 40 DIP
+/// prose line in its 1168 x 384 DIP box), <c>setupTitle</c> (the 44 DIP bold band/result title in
+/// its 1094 x 468 DIP box) and <c>setupStage</c>/<c>setupDim</c> (36 DIP single rows, measured as
+/// the label's full natural width in its 1168 − 30 − 24 DIP slot). English is the baseline; the
+/// German draft from the file the App ships is measured too, with no exceptions.
 /// </summary>
 [Collection(SetupUiWindowsCollection.Name)]
 public sealed class SetupFitTests
 {
     [Fact]
-    public void TheTwoSetupClasses_HaveTheirKeys_AndNoGermanIsMissing()
+    public void TheFiveSetupClasses_HaveTheirKeys_AndNoGermanIsMissing()
     {
         Check.That(FitCatalog.ItemsOf("setup420x160")).HasSize(5);
-        Check.That(FitCatalog.ItemsOf("setupProse")).HasSize(35);
+        Check.That(FitCatalog.ItemsOf("setupTitle")).HasSize(24);
+        Check.That(FitCatalog.ItemsOf("setupStage")).HasSize(6);
+        Check.That(FitCatalog.ItemsOf("setupDim")).HasSize(1);
+        Check.That(FitCatalog.ItemsOf("setupProse")).HasSize(4);
         Check.That(GermanDraft.MissingKeys()).IsEmpty();
         Check.WithCustomMessage("The German draft logged load warnings:\n  " + string.Join("\n  ", GermanDraft.LoadWarnings))
             .That(GermanDraft.LoadWarnings).IsEmpty();
@@ -41,56 +46,42 @@ public sealed class SetupFitTests
             foreach (var item in FitCatalog.ItemsOf("setup420x160"))
             {
                 var english = MeasureButton(item.Key, item.Text);
-                Check.WithCustomMessage($"{item}: {english}").That(english.Fits).IsTrue();
+                Check.WithCustomMessage($"{item}: {english.Detail}")
+                    .That(english.Fits).IsTrue();
             }
 
             foreach (var item in GermanDraft.ItemsOf("setup420x160"))
             {
                 var german = MeasureButton(item.Key, item.Text);
-                Check.WithCustomMessage($"{item} \"{item.Text}\": {german}").That(german.Fits).IsTrue();
+                Check.WithCustomMessage($"{item} \"{item.Text}\": {german.Detail}")
+                    .That(german.Fits).IsTrue();
             }
         });
     }
 
     [Fact]
-    public void EveryEnglishAndGermanProseLine_FitsItsBox()
-    {
-        RunSta(() =>
-        {
-            foreach (var item in FitCatalog.ItemsOf("setupProse"))
-            {
-                var text = Expand(item, item.Text);
-                var english = MeasureProse(text);
-                Check.WithCustomMessage($"{item} \"{text}\": {english}").That(english.Fits).IsTrue();
-            }
-
-            foreach (var item in GermanDraft.ItemsOf("setupProse"))
-            {
-                var text = Expand(item, item.Text);
-                var german = MeasureProse(text);
-                Check.WithCustomMessage($"{item} \"{text}\": {german}").That(german.Fits).IsTrue();
-            }
-        });
-    }
+    public void EveryEnglishAndGermanProseLine_FitsItsBox() => ForBothTables("setupProse", MeasureProse);
 
     [Fact]
-    public void AnOverLongText_FailsBothClasses()
+    public void EveryEnglishAndGermanTitle_FitsItsBox() => ForBothTables("setupTitle", MeasureTitle);
+
+    [Fact]
+    public void EveryEnglishAndGermanStageRow_FitsItsBox() => ForBothTables("setupStage", MeasureStageRow);
+
+    [Fact]
+    public void EveryEnglishAndGermanDimHint_FitsItsBox() => ForBothTables("setupDim", MeasureDim);
+
+    private void ForBothTables(string fitClass, Func<FitCatalog.Item, FitVerdict> measure)
     {
         RunSta(() =>
         {
-            using var pipe = Dwell.UseTestPipeForTests("eyectrl_dwell_setup_test_" + Guid.NewGuid().ToString("N"));
+            foreach (var item in FitCatalog.ItemsOf(fitClass))
+                Check.WithCustomMessage($"{item}: {measure(item).Detail}")
+                    .That(measure(item).Fits).IsTrue();
 
-            foreach (var text in new[]
-                     {
-                         new string('W', 300),
-                         string.Join(" ", Enumerable.Repeat("Wwww", 2000)),
-                     })
-            {
-                Check.WithCustomMessage($"setup420x160 passed an over-long text: {MeasureButton("fit.probe", text)}")
-                    .That(MeasureButton("fit.probe", text).Fits).IsFalse();
-                Check.WithCustomMessage($"setupProse passed an over-long text: {MeasureProse(text)}")
-                    .That(MeasureProse(text).Fits).IsFalse();
-            }
+            foreach (var item in GermanDraft.ItemsOf(fitClass))
+                Check.WithCustomMessage($"{item} \"{item.Text}\": {measure(item).Detail}")
+                    .That(measure(item).Fits).IsTrue();
         });
     }
 
@@ -159,23 +150,90 @@ public sealed class SetupFitTests
         _ => ButtonKind.Normal,
     };
 
-    private static FitVerdict MeasureProse(string text)
+    private static FitVerdict MeasureProse(FitCatalog.Item item)
     {
+        var text = Expand(item, item.Text);
         var block = UninstallChoiceWindow.CreateProse(text);
-        var panel = new StackPanel { Width = SetupWindowMetrics.ProseWidth };
+        var panel = new StackPanel { Width = SetupWindowMetrics.BodyWidthProgress };
         panel.Children.Add(block);
-        using var host = FitHost.Open(
-            panel, width: SetupWindowMetrics.ProseWidth, family: Tokens.FontStandard);
-
+        using var host = FitHost.Open(panel, width: SetupWindowMetrics.BodyWidthProgress, family: Tokens.FontStandard);
         var (run, runWidth) = FitText.WidestRun(block, text);
-        var height = FitText.NaturalHeight(host, block, SetupWindowMetrics.ProseWidth);
-        var ok = runWidth <= SetupWindowMetrics.ProseWidth && height <= SetupWindowMetrics.ProseHeight;
+        var height = FitText.NaturalHeight(host, block, SetupWindowMetrics.BodyWidthProgress);
+        var ok = runWidth <= SetupWindowMetrics.BodyWidthProgress && height <= SetupWindowMetrics.ProseHeight;
         return new FitVerdict(ok,
-            $"widest run '{run}' {FitText.Dip(runWidth)} vs {SetupWindowMetrics.ProseWidth}, wrapped height "
+            $"widest run '{run}' {FitText.Dip(runWidth)} vs {SetupWindowMetrics.BodyWidthProgress}, wrapped height "
             + $"{FitText.Dip(height)} vs {SetupWindowMetrics.ProseHeight}",
             FitText.ResolvedFace(block),
-            Math.Min(SetupWindowMetrics.ProseWidth - runWidth, SetupWindowMetrics.ProseHeight - height));
+            Math.Min(SetupWindowMetrics.BodyWidthProgress - runWidth, SetupWindowMetrics.ProseHeight - height));
     }
+
+    private static FitVerdict MeasureTitle(FitCatalog.Item item)
+    {
+        var text = Expand(item, item.Text);
+        var block = UninstallChoiceWindow.CreateTitle(text);
+        var panel = new StackPanel { Width = SetupWindowMetrics.TitleFitWidth };
+        panel.Children.Add(block);
+        using var host = FitHost.Open(panel, width: SetupWindowMetrics.TitleFitWidth, family: Tokens.FontStandard);
+        var (run, runWidth) = FitText.WidestRun(block, text);
+        var height = FitText.NaturalHeight(host, block, SetupWindowMetrics.TitleFitWidth);
+        var ok = runWidth <= SetupWindowMetrics.TitleFitWidth && height <= SetupWindowMetrics.TitleFitHeight;
+        return new FitVerdict(ok,
+            $"widest run '{run}' {FitText.Dip(runWidth)} vs {SetupWindowMetrics.TitleFitWidth}, wrapped height "
+            + $"{FitText.Dip(height)} vs {SetupWindowMetrics.TitleFitHeight}",
+            FitText.ResolvedFace(block),
+            Math.Min(SetupWindowMetrics.TitleFitWidth - runWidth, SetupWindowMetrics.TitleFitHeight - height));
+    }
+
+    private static FitVerdict MeasureStageRow(FitCatalog.Item item)
+    {
+        var block = UninstallChoiceWindow.CreateStageLabel(item.Text);
+        return MeasureRow(block, item.Text);
+    }
+
+    private static FitVerdict MeasureDim(FitCatalog.Item item)
+    {
+        var block = UninstallChoiceWindow.CreateProse(
+            item.Text, dim: true, size: SetupWindowMetrics.DimFontSize);
+        return MeasureRow(block, item.Text);
+    }
+
+    private static FitVerdict MeasureRow(TextBlock block, string text)
+    {
+        // r3 F15: the label sits at BodyWidthProgress − glyph 30 − gap 24 and clips as a whole
+        // line — the bound is its full natural width there, not the widest unbreakable word.
+        var slot = SetupWindowMetrics.BodyWidthProgress - 30 - 24;
+        var panel = new StackPanel { Width = SetupWindowMetrics.BodyWidthProgress };
+        panel.Children.Add(block);
+        using var host = FitHost.Open(panel, width: SetupWindowMetrics.BodyWidthProgress, family: Tokens.FontStandard);
+        var width = FitText.NaturalWidth(block, text);
+        var ok = width <= slot;
+        return new FitVerdict(ok,
+            $"natural width {FitText.Dip(width)} vs the label slot {FitText.Dip(slot)}",
+            FitText.ResolvedFace(block), slot - width);
+    }
+
+    [Fact]
+    public void AnOverLongText_FailsEveryClass()
+    {
+        RunSta(() =>
+        {
+            using var pipe = Dwell.UseTestPipeForTests("eyectrl_dwell_setup_test_" + Guid.NewGuid().ToString("N"));
+
+            var singleWord = new string('W', 300);                                 // width path
+            var manyWords = string.Join(" ", Enumerable.Repeat("Wwww", 2000));    // wrapped-height path
+
+            Check.That(MeasureButton("fit.probe", singleWord).Fits).IsFalse();
+            Check.That(MeasureProse(ProbeItem("setupProse", singleWord)).Fits).IsFalse();
+            Check.That(MeasureProse(ProbeItem("setupProse", manyWords)).Fits).IsFalse();
+            Check.That(MeasureTitle(ProbeItem("setupTitle", singleWord)).Fits).IsFalse();
+            Check.That(MeasureTitle(ProbeItem("setupTitle", manyWords)).Fits).IsFalse();
+            Check.That(MeasureStageRow(ProbeItem("setupStage", singleWord)).Fits).IsFalse();
+            Check.That(MeasureDim(ProbeItem("setupDim", singleWord)).Fits).IsFalse();
+        });
+    }
+
+    private static FitCatalog.Item ProbeItem(string fitClass, string text) =>
+        new(fitClass + ".probe", "", text, Array.Empty<string>());
 
     private static string Expand(FitCatalog.Item item, string text)
     {

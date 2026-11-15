@@ -130,6 +130,9 @@ FIT_CLASSES = [
     # setupProse is a 36 DIP prose line in its 1280 x 384 DIP box.
     "setup420x160",
     "setupProse",
+    "setupTitle",
+    "setupStage",
+    "setupDim",
 ]
 
 REQUIRED_ENGLISH_META = {"text", "who", "where", "fit", "args"}

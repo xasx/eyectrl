@@ -196,7 +196,7 @@ relies on the outline and the r2-flagged weak separabilities are covered by SD10
 | # | Decision | Rationale | Status |
 |---|---|---|---|
 | D1 | Pick a direction: A / B / C | r1 Q8 + r2 update: **A strongest overall** (36-DIP stepper, centred buttons, centred confirm); B = "A plus a band", highest layout risk, but **B4's tinted band is the best danger framing**; C lowest risk, weakest for gaze (stage states, outline targets, r2 F6's 110-DIP off-centre — fixed in r3 by centring). r2 reviewer's recommendation: **A's layout with B4's tinted band**, decided only after SD8's shared button anatomy (r2 F1–F4, applied in r3) | **B picked (owner, 2026-11-15)** — with D8/D9 modifications; A/C kept as mockup candidates |
-| D2 | Arming feedback: dim targets until armed? | r1 F13 side effects (resting gaze keeps dim state; contrast halves; luminance step); reviewer-leaning answer: skip | **open** — all three review rounds recommend skip |
+| D2 | Arming feedback: dim targets until armed? | r1 F13 side effects (resting gaze keeps dim state; contrast halves; luminance step); reviewer-leaning answer: skip | **ruling: skip (owner, 2026-11-16)** — all four review rounds recommended skip; nothing to implement |
 | D3 | Icons inside choice buttons | Removed (r1 F1/F2) — the sweep covers them; heads/bands keep theirs | applied |
 | D4 | Prose left-aligned (SD2); button content centred (r1 F7); screen 2 fully centred (r1 F6) | Fixed scan anchor; in-target margin preserved; no gaze pull toward danger | open (owner veto) |
 | D5 | Result screens carry **only** real strings | Every on-screen word traces to `strings.*.json` | **ruling** |

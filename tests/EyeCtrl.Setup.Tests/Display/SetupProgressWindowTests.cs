@@ -424,6 +424,111 @@ public sealed class SetupProgressWindowTests
         }
     }
 
+    [Fact]
+    public void ARefusedPackage_CannotLeaveItsOwnTextOnTheResultScreen()
+    {
+        // r3 F1: the band title comes from the package's preferred table while the window is up.
+        // On a VerifyFailed result, Finish must re-resolve it from the trusted table — a tampered
+        // package cannot park its own claim above its refusal. Pattern after SetupUiTests:131-155:
+        // BOTH the package and the install root get the shipped German file + manifest (without the
+        // manifest every German surface falls back to English, StringTable.cs:568-579).
+        var root = Path.Combine(Path.GetTempPath(), "eyectrl_setup_fc7_" + Guid.NewGuid().ToString("N"));
+        var package = Path.Combine(root, "package");
+        Directory.CreateDirectory(package);
+        try
+        {
+            CopyShippedGerman(package);
+            ReplaceGerman(package, "Update wird installiert", "Paket behauptet installiert");
+
+            var paths = new SetupPaths(root, root, root);
+            CopyShippedGerman(paths.InstallRoot);   // the trusted table, in German
+
+            Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsPath)!);
+            File.WriteAllText(paths.SettingsPath, """{"general":{"uiLanguage":"german"}}""");
+
+            var ui = SetupUi.Load(paths, new PhysicalFileSystem(), preferredDirectory: package);
+            Check.WithCustomMessage("The test needs the tampered table to be the preferred one.")
+                .That(ui.Strings.T("update.progress.title")).IsEqualTo("Paket behauptet installiert");
+            Check.WithCustomMessage("TableFor must route VerifyFailed to the trusted table.")
+                .That(SetupDisplayText.ProgressTitle(ui.TableFor(
+                    new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed }),
+                    SetupVerb.Update))
+                .IsEqualTo("Update wird installiert");
+
+            SetupProgressWindow? window = null;
+            string? bandTitle = null;
+            string? resultText = null;
+            string? taskbarTitle = null;
+            RunSta(() =>
+            {
+                using var display = new WpfSetupDisplay(
+                    SetupVerb.Update, ui, Path.Combine(root, "appdata"),
+                    createWindow: () => window = new SetupProgressWindow(ui.Strings, SetupVerb.Update, close: () => { }),
+                    showWindow: w => _ = new WindowInteropHelper(w).EnsureHandle());
+
+                // The window must EXIST before Finish touches it (createWindow runs inside
+                // EnsureWindow) — the working pattern calls Stage first (:313-324).
+                display.Stage(SetupStage.Verify);
+                var shown = window!;
+
+                // Finish runs on a worker (it blocks on the result window's close timer); the test
+                // thread polls THROUGH the window's own dispatcher (r4 finding 9: a DispatcherTimer
+                // built on the test thread ticks there, and reading `shown` from it throws), then
+                // captures and closes via the same dispatcher.
+                var worker = Task.Run(() => display.Finish(new SetupResult
+                {
+                    Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed,
+                }));
+
+                var deadline = Stopwatch.StartNew();
+                while (!shown.Dispatcher.Invoke(() => shown.ShowsResultBody)
+                       && deadline.Elapsed < TimeSpan.FromSeconds(5))
+                {
+                    Thread.Sleep(50);
+                }
+
+                shown.Dispatcher.Invoke(() =>
+                {
+                    bandTitle = shown.BandTitleText;
+                    resultText = shown.ResultText;
+                    taskbarTitle = shown.TitleText;
+                    shown.Close();
+                });
+                worker.Wait(2000);
+            });
+
+            Check.WithCustomMessage("The band still carried the package's own title on the refusal screen.")
+                .That(bandTitle).IsEqualTo("Update wird installiert");
+            Check.WithCustomMessage("The refusal text must come from the trusted table.")
+                .That(resultText).IsEqualTo(
+                    SetupDisplayText.Result(ui.InstalledStrings,
+                        new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed },
+                        Path.Combine(root, "appdata")).Text);
+            Check.WithCustomMessage("FC7 covers the taskbar title too — it still named the package's claim.")
+                .That(taskbarTitle).IsEqualTo("Update wird installiert");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void CopyShippedGerman(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        File.Copy(GermanDraft.GermanPath, Path.Combine(directory, StringTable.GermanFileName), overwrite: true);
+        File.Copy(
+            Path.Combine(Path.GetDirectoryName(GermanDraft.GermanPath)!, StringTable.ManifestFileName),
+            Path.Combine(directory, StringTable.ManifestFileName),
+            overwrite: true);
+    }
+
+    private static void ReplaceGerman(string directory, string oldText, string newText)
+    {
+        var path = Path.Combine(directory, StringTable.GermanFileName);
+        File.WriteAllText(path, File.ReadAllText(path).Replace(oldText, newText));
+    }
+
     private static void RunSta(Action action)
     {
         ExceptionDispatchInfo? failure = null;

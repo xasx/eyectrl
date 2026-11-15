@@ -521,7 +521,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     // A session can outlast the toolbar's hide delay. Suspend auto-hide first, so
                     // the band cannot hide during the session and a past-edge summon cannot re-arm
                     // toolbar dwell underneath the fullscreen switcher (the 2026-08-18 hazard).
-                    // Suspend may ForceShow a hidden band, so the disarm must follow it.
+                    // Suspending a hidden band force-shows it, but that ForceShow is POSTED
+                    // (ToolbarVisibilityAdapter.ForceShow uses BeginInvoke), so the synchronous
+                    // disarm below runs first; the posted re-assert after the show lands behind it.
                     _toolbar?.SetAutoHideSuspended(TaskSwitcherAutoHideHolder, true);
                     // The fullscreen switcher covers the toolbar, but dwell has no z-order:
                     // without this, a top-row tile dwell also fires the toolbar button
@@ -529,6 +531,14 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     // any in-flight toolbar dwell.
                     Context.ToolbarVM.SetActive(false);
                     Context.OverlayManager.TaskSwitcher.ShowFullScreen();
+                    // The queued ForceShow's SetActive(true) runs after the synchronous disarm
+                    // above and would re-arm dwell under the open switcher. Re-assert once behind
+                    // it (same dispatcher priority, FIFO), only if the session is still open.
+                    Context.Dispatcher.BeginInvoke(() =>
+                    {
+                        if (Context.TaskSwitcherVM.IsVisible)
+                            Context.ToolbarVM.SetActive(false);
+                    });
                 }
                 else
                 {

@@ -140,6 +140,13 @@ public sealed class FreshEntryGuard
             // Mark every target seen, even while (A) is unlifted or the gaze is elsewhere: first
             // sight is a one-time licence, so a target that existed before the release must never
             // gain it afterwards. That is what keeps the landing tile guarded.
+            //
+            // Coordinators' decision (fixup-02 R2): the agreed rule is literal — an entry only
+            // counts AFTER (A) has lifted. So an anchor in the inter-tile gap followed by a drift
+            // of more than 50 DIP into the neighbouring tile, without ever leaving its face, leaves
+            // that tile inert until the gaze leaves and re-enters. That is the safer direction and
+            // is practically unreachable once the T2 keep-out layout moves the toolbar button off
+            // the tile area; pinned by DriftIntoATilePastTheReleaseDistance_WithoutLeavingIt.
             var firstSight = _seen.Add(target.Id);
             if (!_anchorLifted || _eligible.Contains(target.Id) || !target.HitTest(position))
                 continue;

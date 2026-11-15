@@ -279,6 +279,33 @@ public class TaskSwitcherLandingGuardTests
         Check.That(h.Selections).ContainsExactly(new IntPtr(2));
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void DriftIntoATilePastTheReleaseDistance_WithoutLeavingIt_StaysIneligible(double scale)
+    {
+        using var h = new Harness(scale);
+
+        // Fixup-02 R2 (deliberate): the anchor is 8 DIP outside tile 1's right edge. The gaze
+        // drifts into the face (30 DIP from the anchor) and then further in, past the 50 DIP
+        // release distance, without ever leaving the face. The tile was SEEN before (A) lifted,
+        // so first sight is spent and the entry that happened before the lift does not count:
+        // the tile stays inert until the gaze leaves and re-enters. This pins the literal agreed
+        // rule and kills the reviewer's "mark seen only after (A) lifts" mutant.
+        h.Sample(h.P(500, 400), 0);
+        h.Show();
+        h.Hold(h.P(500, 400), 30_000, 200_000);
+        h.Hold(h.P(470, 400), 230_000, 400_000);    // 30 DIP from the anchor, inside the face
+        h.Hold(h.P(440, 400), 430_000, 3_000_000);  // 60 DIP from the anchor, still inside it
+
+        Check.That(h.Selections).IsEmpty();
+        Check.That(h.Tile(1).DwellProgress).IsEqualTo(0);
+
+        h.Hold(h.EmptyPoint(), 3_030_000, 3_300_000);
+        h.Hold(h.P(440, 400), 3_330_000, 4_500_000);
+        Check.That(h.Selections).ContainsExactly(new IntPtr(1));
+    }
+
     private sealed class Harness : IDisposable
     {
         private readonly double _scale;

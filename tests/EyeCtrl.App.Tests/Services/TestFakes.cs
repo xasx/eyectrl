@@ -366,11 +366,12 @@ internal static class TestFakes
         IActionMenuOverlay? actionMenu = null,
         ICalibrationOverlay? calibration = null,
         ITrackStatusOverlay? trackStatus = null,
-        Action? onReassertOverlayOrder = null)
+        Action? onReassertOverlayOrder = null,
+        ITaskSwitcherOverlay? taskSwitcher = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
             cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration,
-            trackStatus, onReassertOverlayOrder);
+            trackStatus, onReassertOverlayOrder, taskSwitcher);
 
     /// <summary>No-op track-status overlay: <c>SettingsUiCoordinator.OnInitialize</c> dereferences
     /// <c>IOverlayManager.TrackStatus</c> unconditionally (UpdateTrackStatusVisibility), so any
@@ -405,6 +406,16 @@ internal static class TestFakes
             bounds = Visible ? Bounds : default;
             return Visible;
         }
+    }
+
+    /// <summary>No-op task switcher that counts its show/hide calls — the visibility-wiring tests
+    /// drive the real coordinator handler without constructing the fullscreen window.</summary>
+    internal sealed class FakeTaskSwitcherOverlay : ITaskSwitcherOverlay
+    {
+        public int ShowCalls { get; private set; }
+        public int HideCalls { get; private set; }
+        public void ShowFullScreen() => ShowCalls++;
+        public void HideOverlay() => HideCalls++;
     }
 
     /// <summary>No-op toolbar overlay: the adaptation branch's <c>SettingsUiCoordinator</c>
@@ -560,6 +571,7 @@ internal static class TestFakes
         private readonly IActionMenuOverlay? _actionMenu;
         private readonly ICalibrationOverlay? _calibration;
         private readonly ITrackStatusOverlay? _trackStatus;
+        private readonly ITaskSwitcherOverlay? _taskSwitcher;
         private readonly Action? _onReassertOverlayOrder;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
@@ -572,13 +584,14 @@ internal static class TestFakes
             IGlassBackdropOverlay? glassBackdrop = null,
             IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null,
             ICalibrationOverlay? calibration = null, ITrackStatusOverlay? trackStatus = null,
-            Action? onReassertOverlayOrder = null)
+            Action? onReassertOverlayOrder = null, ITaskSwitcherOverlay? taskSwitcher = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
             _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu; _calibration = calibration;
             _trackStatus = trackStatus; _onReassertOverlayOrder = onReassertOverlayOrder;
+            _taskSwitcher = taskSwitcher;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -611,7 +624,8 @@ internal static class TestFakes
         public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
         public ITrackStatusOverlay TrackStatus =>
             _trackStatus ?? throw new NotImplementedException("test supplied no track-status overlay");
-        public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public ITaskSwitcherOverlay TaskSwitcher =>
+            _taskSwitcher ?? throw new NotImplementedException("test supplied no task switcher");
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType) => throw new NotImplementedException();
         public void ReassertOverlayOrder() => _onReassertOverlayOrder?.Invoke();

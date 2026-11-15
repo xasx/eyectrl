@@ -2,11 +2,13 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using System.ComponentModel;
 using System.Reflection;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -668,6 +670,149 @@ public class OverlayVmBindingCoordinatorTests
         InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
 
         Check.That(ring.ShowCalls).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Fixup-01 item 3: the switcher's show/hide must suspend the toolbar auto-hide (the Settings
+    /// pattern, named holder), so the band cannot hide during a long session and the close always
+    /// finds it on screen to apply the fresh-entry guard.
+    /// </summary>
+    [Fact]
+    public void SwitcherVisibility_SuspendsToolbarAutoHide_AndReleasesOnClose()
+    {
+        var modal = new ModalInteractionState();
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var toolbar = new ToolbarLifecycleCoordinator(modal);
+        toolbar.InjectAutoHideForTesting(new ToolbarAutoHideController(
+            enabled: true, edge: "Top", screenW: 1920, screenH: 1200,
+            toolbarRect: new PhysicalRect(810, 0, 300, 50),
+            hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50));
+        var switcher = new TaskSwitcherViewModel(windowManager: null!, settings, messenger);
+
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            Messenger = messenger,
+            Settings = settings,
+            Dispatcher = Dispatcher.CurrentDispatcher,
+            TaskSwitcherVM = switcher,
+            ToolbarVM = new ToolbarViewModel(settings, messenger),
+            OverlayManager = TestFakes.MakeOverlayManager(
+                toolbar: new TestFakes.FakeToolbarOverlay(),
+                taskSwitcher: new TestFakes.FakeTaskSwitcherOverlay()),
+        };
+        var coordinator = new OverlayVmBindingCoordinator(modal, toolbar);
+        SetContext(coordinator, ctx);
+
+        switcher.IsVisible = true;
+        InvokeTaskSwitcherHandler(coordinator, nameof(TaskSwitcherViewModel.IsVisible));
+        Pump();
+        Check.WithCustomMessage("the toolbar auto-hide must be suspended while the switcher is open")
+            .That(toolbar.IsAutoHideSuspended).IsTrue();
+
+        switcher.IsVisible = false;
+        InvokeTaskSwitcherHandler(coordinator, nameof(TaskSwitcherViewModel.IsVisible));
+        Pump();
+        Check.WithCustomMessage("the suspension must be released when the switcher closes")
+            .That(toolbar.IsAutoHideSuspended).IsFalse();
+    }
+
+    /// <summary>
+    /// Fixup-02 R1: <c>ToolbarVisibilityAdapter.ForceShow</c> is POSTED, so the switcher's
+    /// synchronous disarm runs first and the queued show would re-arm toolbar dwell under the open
+    /// switcher. The coordinator must post its own disarm behind it. The fake models the real
+    /// adapter's ordering exactly: ForceShow queues <c>SetActive(true)</c>.
+    /// </summary>
+    [Fact]
+    public void APostedForceShowDuringTheSwitcherShow_LeavesToolbarDwellDisarmed()
+    {
+        var modal = new ModalInteractionState();
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var toolbarVm = new ExposedDwellToolbarViewModel(settings, messenger);
+        toolbarVm.DwellDetector.AddTarget(new DwellTarget(
+            "Close", new PhysicalPoint(100, 100), radius: 50, dwellTimeMs: 1000));
+        toolbarVm.SetActive(false);
+
+        var controller = new ToolbarAutoHideController(
+            enabled: true, edge: "Top", screenW: 1920, screenH: 1200,
+            toolbarRect: new PhysicalRect(810, 0, 300, 50),
+            hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50);
+        var visibility = new PostingForceShowVisibility(toolbarVm, Dispatcher.CurrentDispatcher);
+        controller.Attach(visibility);
+        controller.HideForTest(visibility);      // auto-hidden just before the switcher opened
+
+        var toolbarCoordinator = new ToolbarLifecycleCoordinator(modal);
+        toolbarCoordinator.InjectAutoHideForTesting(controller);
+
+        var switcher = new TaskSwitcherViewModel(windowManager: null!, settings, messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            Messenger = messenger,
+            Settings = settings,
+            Dispatcher = Dispatcher.CurrentDispatcher,
+            TaskSwitcherVM = switcher,
+            ToolbarVM = toolbarVm,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                toolbar: new TestFakes.FakeToolbarOverlay(),
+                taskSwitcher: new TestFakes.FakeTaskSwitcherOverlay()),
+        };
+        var coordinator = new OverlayVmBindingCoordinator(modal, toolbarCoordinator);
+        SetContext(coordinator, ctx);
+
+        switcher.IsVisible = true;
+        InvokeTaskSwitcherHandler(coordinator, nameof(TaskSwitcherViewModel.IsVisible));
+        Pump();   // the fake's queued SetActive(true), then the coordinator's queued re-assert
+
+        Check.WithCustomMessage("the test did not exercise the suspended-recover ForceShow")
+            .That(visibility.ForceShowCalls).IsEqualTo(1);
+        ToolbarGazeDrive.Stream(toolbarVm, 100, 100, 500_000);
+        Check.WithCustomMessage(
+                "a ForceShow posted during the switcher show re-armed toolbar dwell underneath it")
+            .That(toolbarVm.LastProgress).IsEqualTo(0);
+    }
+
+    private static void InvokeTaskSwitcherHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
+    {
+        var method = typeof(OverlayVmBindingCoordinator)
+            .GetMethod("OnTaskSwitcherVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
+    }
+
+    private static void Pump()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(
+            DispatcherPriority.Background, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+
+    /// <summary>Models <c>ToolbarVisibilityAdapter.ForceShow</c>: the show, and with it the dwell
+    /// arm, arrives on a POSTED dispatcher item, not synchronously.</summary>
+    private sealed class PostingForceShowVisibility : IToolbarVisibility
+    {
+        private readonly ToolbarViewModel _vm;
+        private readonly Dispatcher _dispatcher;
+
+        internal PostingForceShowVisibility(ToolbarViewModel vm, Dispatcher dispatcher)
+        {
+            _vm = vm;
+            _dispatcher = dispatcher;
+        }
+
+        public int ForceShowCalls { get; private set; }
+
+        public void ForceShow()
+        {
+            ForceShowCalls++;
+            _dispatcher.BeginInvoke(() => _vm.SetActive(true));
+        }
+
+        public void ShowToolbar() { }
+        public void HideToolbar(bool paused) { }
+        public void PositionIndicator(string edge) { }
+        public void SetPauseIndicator(bool visible) { }
+        public void SetActive(bool active) { }
     }
 
     /// <summary>Records ring Show/Hide so the probe gate is observable without a window.</summary>

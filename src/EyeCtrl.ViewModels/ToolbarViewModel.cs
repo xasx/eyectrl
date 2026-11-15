@@ -40,6 +40,14 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     // state is true — the toolbar starts visible and dwellable.
     private bool _dwellingActive = true;
 
+    // Landing guard for the switcher-close re-arm. Armed only by
+    // SetActive(true, freshEntry: true); every other SetActive call disarms it, which is exactly the
+    // old immediate-arm behaviour. The sample stream keeps feeding it while _dwellingActive is false
+    // (the VM stays a live recipient), so the re-arm anchor is the gaze at the close.
+    private readonly FreshEntryGuard _freshEntryGuard = new();
+    private PhysicalPoint? _lastValidSample;
+    private bool _lastSampleWasGap;
+
     // B7 fixup-03: the exercise hold is the shared DwellOverlayViewModelBase gate
     // (ExerciseScreenHeld); the toolbar's own gate is the auto-hide adapter's _dwellingActive.
     // Both must be open for the toolbar to accumulate dwell or offer a drag exit.
@@ -227,6 +235,20 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // Update below and carries no timestamp of its own, so this is "when that progress happened".
         _lastSampleTimestampUs = message.TimestampMicroseconds;
 
+        // The landing guard's sample history. Recorded before every gate and early return — while
+        // the toolbar is disarmed (the switcher is open) this stream is the only source for the
+        // re-arm anchor the close handler needs.
+        if (message.IsInGap)
+        {
+            _lastSampleWasGap = true;
+        }
+        else
+        {
+            _lastSampleWasGap = false;
+            _lastValidSample = message.Position;
+            _freshEntryGuard.ObserveValidSample(message.Position, DwellDetector.Targets);
+        }
+
         // Gap-held samples carry the frozen last valid position, so a held point must not clear the
         // re-arm latch either — that is the same reason they are skipped, not fed, below.
         if (!message.IsInGap)
@@ -271,14 +293,27 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
                 // filtered out — it must neither accumulate nor report struggle outcomes from
                 // samples taken in the preview's area of influence.
                 DwellDetector.Update(message.Position, message.TimestampMicroseconds,
-                    target => target.Id != ResetPreviewEngine.ResetId);
+                    target => target.Id != ResetPreviewEngine.ResetId && MayDwellUnderLandingGuard(target));
                 break;
 
             default:
-                DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+                if (_freshEntryGuard.IsArmed)
+                    DwellDetector.Update(message.Position, message.TimestampMicroseconds,
+                        MayDwellUnderLandingGuard);
+                else
+                    DwellDetector.Update(message.Position, message.TimestampMicroseconds);
                 break;
         }
     }
+
+    /// <summary>
+    /// The landing guard's filter for one sample: while armed, a target may accumulate only once
+    /// (A) has lifted and its own entry sample has arrived. Disarmed (every path but the
+    /// switcher-close re-arm), it allows everything — the detector's own 2-arg overload is used
+    /// there so normal operation allocates nothing new.
+    /// </summary>
+    private bool MayDwellUnderLandingGuard(DwellTarget target) =>
+        !_freshEntryGuard.IsArmed || _freshEntryGuard.AllowsDwell(target.Id);
 
     /// <summary>
     /// The engine's visibility publishes become the service messages (Task 7 owns the panel), and
@@ -400,9 +435,12 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// so a mid-flight dwell at hide/calibration-start drops out of struggle telemetry. Intentional —
     /// both numerator and denominator of ScoreAbandonment drop together; impact negligible.
     /// </summary>
-    public void SetActive(bool active)
+    public void SetActive(bool active, bool freshEntry = false)
     {
         _dwellingActive = active;
+        // Only the switcher-close re-arm keeps the landing guard; every other SetActive caller
+        // (auto-hide show, calibration, the modes-menu close) returns to the immediate arm.
+        _freshEntryGuard.Disarm();
         if (!active)
         {
             // Engine first: once Disarmed, the Reset(0) ResetAllState fires below routes as
@@ -411,6 +449,15 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             // shown panel (a hidden toolbar must not leave one floating).
             _previewEngine.Reset();
             DwellDetector.ResetAllState();
+            return;
+        }
+
+        if (freshEntry)
+        {
+            // The gaze at THIS moment is the anchor. A gap as the most recent sample carries no
+            // evidence, so it makes the anchor invalid (entry gate only) rather than reusing a
+            // stale point the eyes may have left.
+            _freshEntryGuard.Arm(_lastSampleWasGap ? null : _lastValidSample);
         }
     }
 

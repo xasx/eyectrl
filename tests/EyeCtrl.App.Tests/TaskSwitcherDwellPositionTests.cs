@@ -182,14 +182,61 @@ public class TaskSwitcherDwellPositionTests
                 "Hiding the switcher must NOT unconditionally reactivate the toolbar — "
                 + "auto-hide may have hidden it while the switcher was up, and activating a "
                 + "hidden toolbar creates gaze targets for invisible buttons. Guard the "
-                + "SetActive(true) on Toolbar.IsOnScreen.")
-            .That(body.Contains("Toolbar.IsOnScreen") && body.Contains("ToolbarVM.SetActive(true)")).IsTrue();
+                + "SetActive call on Toolbar.IsOnScreen.")
+            .That(body.Contains("Toolbar.IsOnScreen")).IsTrue();
+        Check.WithCustomMessage(
+                "The switcher-close re-arm must be the FRESH-ENTRY one AND gated by IsOnScreen. "
+                + "Two separate Contains checks can both pass with the call moved outside the "
+                + "branch (review finding 5); the fresh-entry arm must be the guarded statement "
+                + "itself, not merely present somewhere in the handler.")
+            .That(Regex.IsMatch(body,
+                @"if\s*\(\s*Context\.OverlayManager\.Toolbar\.IsOnScreen\s*\)\s*\{?\s*"
+                + @"Context\.ToolbarVM\.SetActive\(\s*true\s*,\s*freshEntry:\s*true\s*\)"))
+            .IsTrue();
         Check.WithCustomMessage(
                 "Toolbar.IsVisible is true during a slide-out, while the band is leaving and the "
                 + "window is about to hide — re-arming dwell there is the very hazard this pin "
                 + "exists to prevent. Use Toolbar.IsOnScreen, which is false then and true during "
                 + "a slide-in.")
             .That(body.Contains("Toolbar.IsVisible")).IsFalse();
+    }
+
+    /// <summary>
+    /// Source-scan pin: the landing guard's toolbar half exists ONLY on the switcher-close re-arm.
+    /// The other <c>SetActive(true)</c> callers (auto-hide show, calibration, the modes-menu
+    /// close) must keep the immediate arm — otherwise a band arriving after an auto-hide show or a
+    /// modes-menu close would refuse a deliberate look that is already in progress.
+    /// </summary>
+    [Fact]
+    public void OnlyTheSwitcherCloseReArm_UsesTheFreshEntryGuard()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "OverlayVmBindingCoordinator.cs"));
+
+        var freshCalls = Regex.Matches(source, @"SetActive\(\s*true\s*,\s*freshEntry:\s*true\s*\)");
+        Check.WithCustomMessage(
+                "exactly one SetActive(true, freshEntry: true) belongs in the coordinator: the "
+                + "task switcher's close branch. A second one silently re-arms another path with "
+                + "the landing guard.")
+            .That(freshCalls.Count).IsEqualTo(1);
+
+        var modesStart = source.IndexOf("private void OnModesMenuVMPropertyChanged", StringComparison.Ordinal);
+        Check.That(modesStart).IsStrictlyGreaterThan(-1);
+        var modesBody = SourceScanner.StripComments(
+            source[modesStart..source.IndexOf("\n    }", modesStart, StringComparison.Ordinal)]);
+        // Frozen consciously: the modes-menu close is the SAME hazard class as the switcher close
+        // (the menu closes with the gaze still on the button that opened it), but T1-fixup-01 puts
+        // it out of scope. When that path is fixed, update this assertion — do not delete it
+        // silently, or the next reader loses the record that the bare arm is known.
+        Check.WithCustomMessage(
+                "the modes-menu close is an out-of-scope re-arm path and must stay a bare "
+                + "SetActive(true).")
+            .That(modesBody.Contains("freshEntry")).IsFalse();
+
+        var switcherStart = source.IndexOf("private void OnTaskSwitcherVMPropertyChanged", StringComparison.Ordinal);
+        var switcherBody = SourceScanner.StripComments(
+            source[switcherStart..source.IndexOf("\n    }", switcherStart, StringComparison.Ordinal)]);
+        Check.That(switcherBody.Contains("freshEntry: true")).IsTrue();
     }
 
     /// <summary>

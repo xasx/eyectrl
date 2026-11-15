@@ -29,6 +29,15 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
     public ObservableCollection<TaskSwitcherTileViewModel> Tiles { get; } = new();
 
+    /// <summary>Landing guard: no tile accumulates from the gaze that opened the switcher.</summary>
+    private readonly FreshEntryGuard _landingGuard = new();
+
+    // Last valid (non-gap) sample the VM saw, and whether the most recent sample was a gap. The VM
+    // is a live IRecipient while hidden, so the sample stream is continuous across sessions; the
+    // gap flag is what makes an anchor taken during a blink invalid rather than the stale point.
+    private PhysicalPoint? _lastValidSample;
+    private bool _lastSampleWasGap;
+
     /// <summary>Reserved dwell-target id for the switcher's close button (not a window tile).</summary>
     public const string CloseTargetId = "__taskswitcher_close__";
     [ObservableProperty] private double _closeDwellProgress;
@@ -73,6 +82,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         CloseDwellProgress = 0;
         CloseDwellPaused = false;
 
+        // The landing guard: anchor the rule at the gaze that opened the switcher. The anchor is
+        // invalid when the last sample was a gap — a blink at opening says nothing about where
+        // the gaze is, and the frozen point would otherwise be trusted as a real landing spot.
+        _landingGuard.Arm(_lastSampleWasGap ? null : _lastValidSample);
+
         foreach (var window in _windowManager.EnumerateOpenWindows())
         {
             Tiles.Add(new TaskSwitcherTileViewModel(
@@ -95,10 +109,54 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         IsVisible = false;
         DwellDetector.ClearTargets();
         Tiles.Clear();
+        _landingGuard.Disarm();
         // A progress bar left over from the hidden session must not greet the next show (the
         // VM is a DI singleton — the next show reuses this instance, AppBootstrapper pattern).
         CloseDwellProgress = 0;
         CloseDwellPaused = false;
+    }
+
+    /// <summary>
+    /// Per-sample path. The base only feeds while visible, so this override adds two things and
+    /// must keep the base contract: stamp the pause flag (round-2 finding 2 — an override that
+    /// skipped <see cref="DwellOverlayViewModelBase.NoteSamplePaused"/> silently disarmed the pause
+    /// suppression), and route the feed through <see cref="DwellOverlayViewModelBase.SampleMayDwell"/>.
+    /// <para>
+    /// Every non-gap sample is recorded even while hidden: the VM stays a live recipient, so the
+    /// last sample before a show is the landing anchor and the previous valid one is what the
+    /// entry gate compares against. The guard filters TILE targets only — the close disc is the
+    /// escape and is never gated (a dead close path would make the fullscreen overlay
+    /// inescapable).
+    /// </para>
+    /// </summary>
+    public override void Receive(GazeCursorMovedMessage message)
+    {
+        NoteSamplePaused(message.IsPaused);
+
+        if (message.IsInGap)
+        {
+            _lastSampleWasGap = true;
+        }
+        else
+        {
+            _lastSampleWasGap = false;
+            _lastValidSample = message.Position;
+            _landingGuard.ObserveValidSample(message.Position, DwellDetector.Targets);
+        }
+
+        if (!IsVisible || !SampleMayDwell(message))
+            return;
+
+        if (_landingGuard.IsArmed)
+        {
+            DwellDetector.Update(message.Position, message.TimestampMicroseconds,
+                target => target.Id == CloseTargetId
+                    || _landingGuard.AllowsDwell(target.Id));
+        }
+        else
+        {
+            DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+        }
     }
 
     /// <summary>

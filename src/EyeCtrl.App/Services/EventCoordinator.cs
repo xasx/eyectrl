@@ -207,7 +207,7 @@ public class EventCoordinator : IEventCoordinator
         // driven VM→window bindings + the glass backdrop; Message owns the message-driven overlay
         // registrations and reaches back into VmBinding for the one shared HideBackdrop seam.
         // VmBinding is constructed first — Message depends on it.
-        _overlayVm = new OverlayVmBindingCoordinator(_modal);
+        _overlayVm = new OverlayVmBindingCoordinator(_modal, _toolbar);
         _overlayVm.Initialize(context);
         _overlayMessage = new OverlayMessageCoordinator(_toolbar, _overlayVm);
         _overlayMessage.Initialize(context);

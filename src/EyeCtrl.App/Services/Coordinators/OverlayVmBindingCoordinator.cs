@@ -27,17 +27,27 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         ScreenGeometry.SharedRightEdgeExitAnchor();
 
     private readonly ModalInteractionState _modal;
+    private readonly ToolbarLifecycleCoordinator? _toolbar;
     private IGlassBackdropOverlay? _glassBackdrop;
+
+    /// <summary>The auto-hide suspension holder for an open task switcher (SettingsUiCoordinator's
+    /// named-holder pattern: each modal owns and releases only its own name).</summary>
+    private const string TaskSwitcherAutoHideHolder = "task-switcher";
 
     // Field evidence for the magnifier's "closed by ... after ... ms" line: the show instant of the
     // current session, null when the view was never shown through this coordinator.
     private long? _magnifierShownAtTick;
 
-    public OverlayVmBindingCoordinator(ModalInteractionState modal)
+    public OverlayVmBindingCoordinator(ModalInteractionState modal,
+        ToolbarLifecycleCoordinator? toolbar = null)
     {
         // Dereferenced by the cursor-visibility guard (OnCursorVMPropertyChanged reads
         // _modal.SettingsOpen), so reject null at the ctor rather than on the first gaze frame.
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
+        // Optional: the task-switcher show/hide suspension needs it, and every other binding in
+        // this coordinator does not. EventCoordinator supplies it; focused unit tests that drive one
+        // handler in isolation may leave it null.
+        _toolbar = toolbar;
     }
 
     protected override void OnInitialize()
@@ -508,16 +518,34 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             {
                 if (Context.TaskSwitcherVM.IsVisible)
                 {
+                    // A session can outlast the toolbar's hide delay. Suspend auto-hide first, so
+                    // the band cannot hide during the session and a past-edge summon cannot re-arm
+                    // toolbar dwell underneath the fullscreen switcher (the 2026-08-18 hazard).
+                    // Suspending a hidden band force-shows it, but that ForceShow is POSTED
+                    // (ToolbarVisibilityAdapter.ForceShow uses BeginInvoke), so the synchronous
+                    // disarm below runs first; the posted re-assert after the show lands behind it.
+                    _toolbar?.SetAutoHideSuspended(TaskSwitcherAutoHideHolder, true);
                     // The fullscreen switcher covers the toolbar, but dwell has no z-order:
                     // without this, a top-row tile dwell also fires the toolbar button
                     // underneath it (2026-08-18 field report). SetActive(false) also resets
                     // any in-flight toolbar dwell.
                     Context.ToolbarVM.SetActive(false);
                     Context.OverlayManager.TaskSwitcher.ShowFullScreen();
+                    // The queued ForceShow's SetActive(true) runs after the synchronous disarm
+                    // above and would re-arm dwell under the open switcher. Re-assert once behind
+                    // it (same dispatcher priority, FIFO), only if the session is still open.
+                    Context.Dispatcher.BeginInvoke(() =>
+                    {
+                        if (Context.TaskSwitcherVM.IsVisible)
+                            Context.ToolbarVM.SetActive(false);
+                    });
                 }
                 else
                 {
                     Context.OverlayManager.TaskSwitcher.HideOverlay();
+                    // The session is over: let auto-hide run again. Releasing only resets its
+                    // hide countdown; it does not change the band's visibility.
+                    _toolbar?.SetAutoHideSuspended(TaskSwitcherAutoHideHolder, false);
                     // Reactivate only if the toolbar is actually on screen: auto-hide may
                     // have hidden it while the switcher was up, and activating a hidden
                     // toolbar creates gaze targets for invisible buttons — the exact hazard
@@ -528,7 +556,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     // armed by design — and re-arming here is the only repair for that case,
                     // since the slide-in's completion no longer touches dwell state.
                     if (Context.OverlayManager.Toolbar.IsOnScreen)
-                        Context.ToolbarVM.SetActive(true);
+                        Context.ToolbarVM.SetActive(true, freshEntry: true);
                 }
             });
         }

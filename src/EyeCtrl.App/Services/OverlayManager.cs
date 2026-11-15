@@ -9,6 +9,7 @@ using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
+using EyeCtrl.Platform.Icons;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;

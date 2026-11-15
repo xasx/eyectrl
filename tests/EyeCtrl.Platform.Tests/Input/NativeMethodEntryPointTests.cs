@@ -31,6 +31,8 @@ public partial class NativeMethodEntryPointTests
             .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
             .Concat(typeof(InputIntegrityNativeMethods)
                 .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            .Concat(typeof(EyeCtrl.Platform.Icons.IconNativeMethods)
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
             .Where(m => m.GetCustomAttribute<LibraryImportAttribute>() is not null)
             .ToList();
 

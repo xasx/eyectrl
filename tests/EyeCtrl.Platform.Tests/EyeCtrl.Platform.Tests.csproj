@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <!-- LibraryImport-generated LPStr marshaling (NativeMethodEntryPointTests) needs it. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- S3-B: the icon provider's public seam returns System.Windows.Media.ImageSource, so this
+         project consumes WPF types (Platform has UseWPF; a FrameworkReference does not flow
+         through a ProjectReference). -->
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>

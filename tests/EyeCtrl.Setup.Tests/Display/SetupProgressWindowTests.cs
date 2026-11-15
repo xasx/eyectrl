@@ -7,8 +7,10 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Sdk.Wpf;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Display;
+using EyeCtrl.Setup.Windows;
 using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
@@ -119,9 +121,71 @@ public sealed class SetupProgressWindowTests
                 };
                 window.ShowResult(SetupDisplayText.Result(English, result, AppData));
 
-                Check.That(window.TitleText).IsEqualTo(English.T("uninstall.done.kept"));
+                Check.That(window.ResultText).IsEqualTo(English.T("uninstall.done.kept"));
+                Check.That(window.BandTitleText).IsEqualTo(English.T("uninstall.working"));
+                Check.That(window.TitleText).IsEqualTo(English.T("uninstall.working"));
                 Check.That(window.DetailText).IsEqualTo(string.Empty);
                 Check.That(window.StageText).IsEqualTo(string.Empty);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ShowResult_TogglesToTheResultBody_AndClearsTheProgressTexts()
+    {
+        // r3 finding 2's mutant: a result body nested inside the collapsed progress stack would
+        // never be visible. The two stacks are siblings, and the progress texts are cleared so the
+        // visual tree holds no preferred-table text (FC7).
+        RunSta(() =>
+        {
+            var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
+            try
+            {
+                window.Stage(SetupStage.Verify);
+                Check.That(window.ShowsResultBody).IsFalse();
+
+                var result = new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.Ok, Version = "1.0.0" };
+                window.ShowResult(SetupDisplayText.Result(English, result, AppData));
+
+                Check.WithCustomMessage("The result body was not shown.")
+                    .That(window.ShowsResultBody).IsTrue();
+                Check.That(window.DetailText).IsEqualTo(string.Empty);
+                Check.That(window.StageText).IsEqualTo(string.Empty);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void TheStagePlan_IsDataDriven_PerVerb_AndTheTreeStaysDisplayOnly()
+    {
+        // D9/r3 F3: the plan is a display-side per-verb table. Uninstall plans exactly one stage
+        // today (Stop); repair and revert fabricate nothing (they have no window at all — the
+        // factory test pins that). FC4/r3 T4: the progress tree gains no Button and no locally-set
+        // Dwell mode (r4 finding 6: the SDK's default mode IS Invoke, so a GetMode comparison
+        // cannot find anything — probe the local value instead).
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Update).Count).IsEqualTo(4);
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Rollback).Count).IsEqualTo(4);
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Uninstall).Count).IsEqualTo(1);
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Uninstall)[0]).IsEqualTo(SetupStage.Stop);
+
+        RunSta(() =>
+        {
+            var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
+            try
+            {
+                Check.That(FitText.Descendants<System.Windows.Controls.Button>((FrameworkElement)window.Content))
+                    .IsEmpty();
+                Check.That(FitText.Descendants<FrameworkElement>((FrameworkElement)window.Content)
+                    .Where(e => e.ReadLocalValue(Dwell.ModeProperty) != DependencyProperty.UnsetValue
+                                || Dwell.GetEnabled(e))).IsEmpty();
             }
             finally
             {

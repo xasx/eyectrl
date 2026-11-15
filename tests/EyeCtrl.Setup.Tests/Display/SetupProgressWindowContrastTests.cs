@@ -2,12 +2,14 @@ namespace EyeCtrl.Setup.Tests.Display;
 
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Display;
+using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
 /// N1: the H1 layered window keeps the r01 background colour, opaque and frozen, and the result
@@ -44,41 +46,78 @@ public sealed class SetupProgressWindowContrastTests
                         var background = (SolidColorBrush)window.Background;
                         Check.WithCustomMessage($"{theme.Name}: the window background is not frozen.")
                             .That(background.IsFrozen).IsTrue();
-                        Check.WithCustomMessage($"{theme.Name}: the layered background is not opaque.")
-                            .That(background.Color.A).IsEqualTo((byte)255);
-                        Check.That(background.Color.R).IsEqualTo(theme.SurfaceDark.R);
-                        Check.That(background.Color.G).IsEqualTo(theme.SurfaceDark.G);
-                        Check.That(background.Color.B).IsEqualTo(theme.SurfaceDark.B);
+                        Check.That(background.Color.A).IsEqualTo((byte)255);
 
-                        var border = (Border)window.Content;
-                        var borderBackground = (SolidColorBrush)border.Background;
-                        Check.WithCustomMessage($"{theme.Name}: the content border uses another background.")
-                            .That(borderBackground.Color).IsEqualTo(background.Color);
+                        var band = BandOf(window);
+                        var bandBackground = (SolidColorBrush)band.Background;
+                        Check.WithCustomMessage($"{theme.Name}: the band background is not frozen.")
+                            .That(bandBackground.IsFrozen).IsTrue();
+                        Check.That(bandBackground.Color.A).IsEqualTo((byte)255);
 
-                        var panel = (StackPanel)border.Child;
-                        var title = (TextBlock)panel.Children[0];
-                        var detail = (TextBlock)panel.Children[1];
-                        Check.WithCustomMessage($"{theme.Name}: the title brush is not TextPrimary.")
-                            .That(((SolidColorBrush)title.Foreground).Color).IsEqualTo(theme.TextPrimary);
+                        var bandTitle = BandTitleOf(window);
+                        Check.WithCustomMessage($"{theme.Name}: the band title brush is not TextPrimary.")
+                            .That(((SolidColorBrush)bandTitle.Foreground).Color).IsEqualTo(theme.TextPrimary);
+
+                        var detail = DetailOf(window);
                         Check.WithCustomMessage($"{theme.Name}: the detail brush is not TextSecondary.")
                             .That(((SolidColorBrush)detail.Foreground).Color).IsEqualTo(theme.TextSecondary);
 
-                        var titleContrast = Contrast(theme.TextPrimary, background.Color);
-                        var detailContrast = Contrast(theme.TextSecondary, background.Color);
+                        var surface = background.Color;
                         Check.WithCustomMessage(
-                                $"{theme.Name}: the title contrast is {titleContrast:0.00}:1, below {MinimumTitleContrast}.")
-                            .That(titleContrast).IsGreaterOrEqualThan(MinimumTitleContrast);
+                                $"{theme.Name}: title contrast {Contrast(theme.TextPrimary, surface):0.00}:1 < 10.")
+                            .That(Contrast(theme.TextPrimary, surface)).IsGreaterOrEqualThan(MinimumTitleContrast);
                         Check.WithCustomMessage(
-                                $"{theme.Name}: the detail contrast is {detailContrast:0.00}:1, below {MinimumDetailContrast}.")
-                            .That(detailContrast).IsGreaterOrEqualThan(MinimumDetailContrast);
+                                $"{theme.Name}: detail contrast {Contrast(theme.TextSecondary, surface):0.00}:1 < 4.5.")
+                            .That(Contrast(theme.TextSecondary, surface)).IsGreaterOrEqualThan(MinimumDetailContrast);
 
-                        window.ShowResult(new SetupDisplayResult("failure", SetupDisplayState.Failure));
-                        var failureTitle = (SolidColorBrush)title.Foreground;
-                        Check.That(failureTitle.Color).IsEqualTo(theme.AccentDanger);
-                        var failureContrast = Contrast(theme.AccentDanger, background.Color);
+                        var bandSurface = SetupBrushes.OpaqueColor(Tokens.SurfaceMedium);
+                        var bandTitleContrast = Contrast(theme.TextPrimary, bandSurface);
                         Check.WithCustomMessage(
-                                $"{theme.Name}: the failure-title contrast is {failureContrast:0.00}:1, below {MinimumFailureTitleContrast}.")
-                            .That(failureContrast).IsGreaterOrEqualThan(MinimumFailureTitleContrast);
+                                $"{theme.Name}: the band title contrast on the band is "
+                                + $"{bandTitleContrast:0.00}:1 < 10.")
+                            .That(bandTitleContrast).IsGreaterOrEqualThan(MinimumTitleContrast);
+
+                        // D8/r3 F2: on results the band title is demoted (TextSecondary — Midnight
+                        // measures 5.63 on the band) and the state edge + icon carry the colour; the
+                        // confirming text stays TextPrimary (D7).
+                        window.SetBandTitle(SetupDisplayText.ProgressTitle(
+                            StringTable.EmbeddedEnglish, SetupVerb.Update));
+                        window.ShowResult(new SetupDisplayResult(
+                            SetupDisplayText.ProgressTitle(StringTable.EmbeddedEnglish, SetupVerb.Update),
+                            SetupDisplayState.Failure));
+
+                        Check.WithCustomMessage($"{theme.Name}: the band title was not demoted.")
+                            .That(((SolidColorBrush)BandTitleOf(window).Foreground).Color)
+                            .IsEqualTo(theme.TextSecondary);
+                        var demotedContrast = Contrast(theme.TextSecondary, bandSurface);
+                        Check.WithCustomMessage(
+                                $"{theme.Name}: the demoted band title contrast is {demotedContrast:0.00}:1 < 4.5.")
+                            .That(demotedContrast).IsGreaterOrEqualThan(MinimumDetailContrast);
+                        Check.WithCustomMessage($"{theme.Name}: the state edge was not failure-red.")
+                            .That(((SolidColorBrush)EdgeOf(window).Background).Color)
+                            .IsEqualTo(theme.AccentDanger);
+                        Check.WithCustomMessage($"{theme.Name}: the confirming text brush is not TextPrimary (D7).")
+                            .That(((SolidColorBrush)ResultTitleOf(window).Foreground).Color)
+                            .IsEqualTo(theme.TextPrimary);
+                        Check.WithCustomMessage(
+                                $"{theme.Name}: the failure-icon contrast is "
+                                + $"{Contrast(theme.AccentDanger, surface):0.00}:1 < {MinimumFailureTitleContrast}.")
+                            .That(Contrast(theme.AccentDanger, surface))
+                            .IsGreaterOrEqualThan(MinimumFailureTitleContrast);
+                        Check.WithCustomMessage($"{theme.Name}: the failure icon is not danger-red.")
+                            .That(((SolidColorBrush)window.ResultStateGlyph.Stroke).Color)
+                            .IsEqualTo(theme.AccentDanger);
+
+                        // r4 finding 5: the glyph's geometry is 24 units under a LayoutTransform to
+                        // the 64-DIP box — pin the transform (a missing or halved transform drew the
+                        // check at ~17 DIP).
+                        Check.That(window.ResultStateGlyph.LayoutTransform)
+                            .IsInstanceOf<ScaleTransform>();
+                        var transform = (ScaleTransform)window.ResultStateGlyph.LayoutTransform;
+                        Check.That(transform.ScaleX).IsEqualTo(SetupWindowMetrics.ResultIconSize / 24.0);
+                        Check.That(window.ResultStateGlyph.Width).IsEqualTo(24);
+                        Check.That(window.ResultStateGlyph.Data.Bounds.Width).IsStrictlyGreaterThan(14);
+                        Check.That(window.ResultStateGlyph.Data.Bounds.Height).IsStrictlyGreaterThan(14);
                     }
                     finally
                     {
@@ -92,6 +131,20 @@ public sealed class SetupProgressWindowContrastTests
             }
         });
     }
+
+    private static Border BandOf(SetupProgressWindow window) => (Border)((Grid)window.Content).Children[1];
+    private static Border EdgeOf(SetupProgressWindow window) => (Border)((Grid)window.Content).Children[0];
+
+    private static TextBlock BandTitleOf(SetupProgressWindow window) =>
+        ((Grid)BandOf(window).Child).Children.OfType<TextBlock>().First();
+
+    private static TextBlock DetailOf(SetupProgressWindow window) =>
+        FitText.Descendants<TextBlock>((FrameworkElement)window.Content)
+            .First(t => t.FontSize == SetupWindowMetrics.ProseFontSize);
+
+    private static TextBlock ResultTitleOf(SetupProgressWindow window) =>
+        FitText.Descendants<TextBlock>((FrameworkElement)window.Content)
+            .First(t => t.FontSize == SetupWindowMetrics.TitleFontSize && t != BandTitleOf(window));
 
     /// <summary>The WCAG 2.x contrast ratio of two opaque colours.</summary>
     private static double Contrast(Color a, Color b)

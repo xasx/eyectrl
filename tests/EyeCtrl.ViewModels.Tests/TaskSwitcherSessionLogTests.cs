@@ -123,7 +123,7 @@ public class TaskSwitcherSessionLogTests
     }
 
     [Fact]
-    public void APickIsLoggedOnce_EvenWhenTheDispatcherHidesTheOverlayAgain()
+    public void APickIsLoggedOnce_EvenWhenHideOverlayRunsAgain()
     {
         using var h = new Harness(windowCount: 3);
         h.Sample(h.Away, 0);
@@ -135,7 +135,9 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.CountLines("Task switcher closed:")).IsEqualTo(1);
 
-        // QuickActionDispatcher.HandleTaskSwitcherSelection hides after a pick as well.
+        // The VM's HideOverlay is public, so a second call is possible even though production
+        // hides the VM once per pick (the dispatcher's post-pick dismissal goes to the window's
+        // ITaskSwitcherOverlay.HideOverlay, a different object). The line must not double.
         h.Vm.HideOverlay();
 
         Check.That(h.CountLines("Task switcher closed:")).IsEqualTo(1);
@@ -178,11 +180,44 @@ public class TaskSwitcherSessionLogTests
         h.At(reopenedAt);
         h.Sample(h.Away, reopenedAt);
         h.Open();
+
+        // The View's layout pass lands ~300 ms after the show (icon resolution + Show + the
+        // Loaded-priority registration). The value is the previous close → the OPEN, so the
+        // latency must not leak into it: 9800 ms between close and open is a quick reopen and
+        // must stay one (T3 review finding 1 — a flush-time read logs 10100 here).
+        h.At(reopenedAt + 300);
         h.Layout(columns: 3);
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
             "Task switcher opened: tiles=6 reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
+            StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Fact]
+    public void AnOpenLineFlushedAtTheClose_StillMeasuresSinceLastCloseFromTheOpen()
+    {
+        // The other flush path: a session that hides before its layout pass writes the open line
+        // from EndSession. If the value were read at the flush it would include the whole session.
+        using var h = new Harness(windowCount: 3);
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Layout(columns: 3);
+        h.Sample(h.Away2, 200);
+        h.Sample(h.TileCentre(0, columns: 3), 300);
+        var firstClose = h.Hold(h.TileCentre(0, columns: 3), 330, 3000);
+        Check.That(firstClose).IsNotNull();
+
+        var reopenedAt = firstClose!.Value + 8400;
+        h.At(reopenedAt);
+        h.Sample(h.Away, reopenedAt);
+        h.Open();
+        h.At(reopenedAt + 2500);      // the session lasts, and no layout ever runs
+        h.Toggle();
+
+        Check.That(h.Lines.Any(line => string.Equals(
+            line,
+            "Task switcher opened: tiles=3 reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
             StringComparison.Ordinal))).IsTrue();
     }
 

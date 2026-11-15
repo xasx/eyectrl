@@ -171,9 +171,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// </summary>
     public void HideOverlay()
     {
-        // A pick hides the overlay here AND the dispatcher hides it again once it has brought
-        // the window forward. Only the hide that actually closes a visible session writes the
-        // close line (T3: one line per session, not two).
+        // One close line per session, not two. In production the VM's hide for a pick runs once
+        // (from OnTargetActivated) — QuickActionDispatcher's post-pick dismissal goes to the
+        // WINDOW's ITaskSwitcherOverlay.HideOverlay, a different object — but this method is
+        // public, so a second call must not write a second line. `closedASession` is read BEFORE
+        // IsVisible flips, and EndSession refuses to re-enter.
         var closedASession = IsVisible;
 
         IsVisible = false;
@@ -409,6 +411,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// <summary>
     /// Writes "Task switcher opened: …" once per session. Called when the View's registration
     /// pass completes (reachable is final), or from the close when the session never got there.
+    /// <c>sinceLastCloseMs</c> is the previous close → THIS session's OPEN, never this flush
+    /// (the two differ by the layout latency, which would bias the quick-reopen predicate).
     /// </summary>
     private void WriteOpenLineIfPending()
     {
@@ -418,8 +422,14 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         _openLineWritten = true;
         try
         {
+            // Measured at the OPEN, not at this flush: the flush runs after the View's
+            // Loaded-priority layout (or at the close, for a session that never laid out), and
+            // reading the clock here would bias every value upward by that latency — always in
+            // the same direction, so a 9.8 s quick reopen would cross the 10 s cutoff the whole
+            // measurement exists for. `_sessionOpenedAt` also gives `openMs` and
+            // `sinceLastCloseMs` the same reference point (T3 review finding 1).
             var sinceLastClose = _lastCloseAt is { } lastClose
-                ? ElapsedMs(lastClose, _timeProvider.GetUtcNow()).ToString(CultureInfo.InvariantCulture)
+                ? ElapsedMs(lastClose, _sessionOpenedAt).ToString(CultureInfo.InvariantCulture)
                 : "none";
 
             var line = string.Create(CultureInfo.InvariantCulture,

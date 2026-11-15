@@ -80,10 +80,11 @@ public class QwertzKeyCaptionDataTests
         {
             ["letters"] =
             [
-                // T6 variant A: Wort löschen moved to the top-left, ß to the third row's end,
-                // and the footer is Win Strg ⇥ 123 Fn #+= , ⌴ . ↵ — switchEmoji and the accents
-                // switch left the page (😀 stays on 123 and #+=, àé moved to the #+= footer).
-                "deleteWord", "toggle:capslock", "modifier:alt", "modifier:shift", "backspace",
+                // T6 variant A, F6 revision: Wort löschen moved to the top-left, ß to the third
+                // row's end, ⌫ swapped with ? to the top-right corner, and the footer is Win Strg
+                // ⇥ 123 Fn #+= , ⌴ . ↵ — switchEmoji and the accents switch left the page (😀
+                // stays on 123 and #+=, àé moved to the #+= footer).
+                "deleteWord", "backspace", "toggle:capslock", "modifier:alt", "modifier:shift",
                 "modifier:win", "modifier:ctrl", "tab", "switchSub:numbers", "switchSub:function",
                 "switchSub:symbols", "space", "enter",
             ],

@@ -439,6 +439,10 @@ public sealed class SetupProgressWindowTests
         {
             CopyShippedGerman(package);
             ReplaceGerman(package, "Update wird installiert", "Paket behauptet installiert");
+            // r6 I1/M5: the package's refusal text is tampered too, so the body assertion below
+            // can actually DISTINGUISH trusted from preferred — a mutant rendering the refusal
+            // from the package's table ("PAKET-beschädigt") must fail it (SetupUiTests pattern).
+            ReplaceGerman(package, "beschädigt", "PAKET-beschädigt");
 
             var paths = new SetupPaths(root, root, root);
             CopyShippedGerman(paths.InstallRoot);   // the trusted table, in German
@@ -504,6 +508,8 @@ public sealed class SetupProgressWindowTests
                     SetupDisplayText.Result(ui.InstalledStrings,
                         new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed },
                         Path.Combine(root, "appdata")).Text);
+            Check.WithCustomMessage("The refusal text carried the package's tampered claim (r6 I1/M5).")
+                .That(resultText).DoesNotContain("PAKET-beschädigt");
             Check.WithCustomMessage("FC7 covers the taskbar title too — it still named the package's claim.")
                 .That(taskbarTitle).IsEqualTo("Update wird installiert");
         }

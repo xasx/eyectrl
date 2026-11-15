@@ -174,12 +174,14 @@ public class TaskSwitcherTileStatesWindowTests
     [StaFact]
     public void NoWindowAtAll_DrawsTheEmptyMessage_WhereTheTilesWouldBe()
     {
-        // One window, and it is the foreground one (S2-A leaves it out): the grid is empty.
+        // The one empty state left after S3-A: the enumeration itself returned nothing. (A session
+        // whose only window is the foreground one draws the desktop tile instead — S3-A's rule.)
         using var laid = Laid.Open(
-            [Win(7, "Only")],
-            foreground: new IntPtr(7));
+            [],
+            foreground: null);
 
         Check.That(laid.ViewModel.Tiles).IsEmpty();
+        Check.That(laid.ViewModel.HasDesktopTile).IsFalse();
 
         var message = laid.Find<TextBlock>(laid.Root, "EmptyMessage")
             ?? throw new InvalidOperationException("The window has no TextBlock named EmptyMessage.");
@@ -216,6 +218,8 @@ public class TaskSwitcherTileStatesWindowTests
     [StaFact]
     public void OverflowChip_InEnglish_CountsTheWindowsWithoutATile()
     {
+        // 64 windows, a 63-cell grid: the desktop tile takes the last cell, so TWO windows go
+        // without (the one that was already overflowing plus the one the tile displaced).
         using var laid = Laid.Open(Windows(64));
         laid.RegisterFaces(Capacity);
 
@@ -224,16 +228,17 @@ public class TaskSwitcherTileStatesWindowTests
         Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
 
         var text = Descendants<TextBlock>(chip).Single();
-        Check.That(text.Text).IsEqualTo("+1 more windows");
+        Check.That(text.Text).IsEqualTo("+2 more windows");
         Check.That(BrushColor(text.Foreground)).IsEqualTo(Tokens.TextSecondary);
     }
 
     [StaFact]
     public void AtCapacity_DrawsNoChip()
     {
-        // 63 windows, 63 faces: nothing is hidden, so there is nothing to explain. This is the
-        // two-sided half of the count — an off-by-one either claims a hidden window or hides one.
-        using var laid = Laid.Open(Windows(Capacity));
+        // 62 windows + the desktop tile = the 63 cells: nothing is hidden, so there is nothing to
+        // explain. This is the two-sided half of the count — an off-by-one either claims a hidden
+        // window or hides one.
+        using var laid = Laid.Open(Windows(Capacity - 1));
         laid.RegisterFaces(Capacity);
 
         var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
@@ -242,14 +247,16 @@ public class TaskSwitcherTileStatesWindowTests
     }
 
     [StaFact]
-    public void ThreeWindowsWithoutATile_CountThree()
+    public void WindowsWithoutATile_CountAllOfThem_DesktopSlotIncluded()
     {
+        // 66 windows at a 63-cell grid with the desktop tile in the last cell: 62 keep a tile, 4 go
+        // without — the three original overflow windows plus the one the tile displaced.
         using var laid = Laid.Open(Windows(66));
         laid.RegisterFaces(Capacity);
 
-        Check.That(laid.ViewModel.OverflowCount).IsEqualTo(3);
+        Check.That(laid.ViewModel.OverflowCount).IsEqualTo(4);
         var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
-        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("+3 more windows");
+        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("+4 more windows");
     }
 
     /// <summary>
@@ -268,7 +275,7 @@ public class TaskSwitcherTileStatesWindowTests
             var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
             Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
             var text = Descendants<TextBlock>(chip).Single();
-            Check.That(text.Text).IsEqualTo("+1 weitere Fenster");
+            Check.That(text.Text).IsEqualTo("+2 weitere Fenster");
 
             // The German chip is the longest of the three texts: at 200 % it must be drawn whole.
             var natural = FitText.NaturalWidth(text, text.Text);
@@ -296,8 +303,10 @@ public class TaskSwitcherTileStatesWindowTests
         try
         {
             // At the owner's 200 %: the German message must be drawn whole, not clipped. (The badge's
-            // German text is measured by the badge theory, which runs in both cultures.)
-            using var empty = Laid.Open([Win(7, "Only")], scale: 2.0, foreground: new IntPtr(7));
+            // German text is measured by the badge theory, which runs in both cultures.) The session
+            // must have NO window at all — one foreground window now draws the desktop tile instead
+            // (S3-A), and the message would be collapsed.
+            using var empty = Laid.Open([], scale: 2.0, foreground: null);
             var message = empty.Find<TextBlock>(empty.Root, "EmptyMessage")!;
             Check.That(message.Text).IsEqualTo("Keine offenen Fenster");
             Check.That(FitText.NaturalWidth(message, message.Text)).IsLessOrEqualThan(message.ActualWidth + 0.5);
@@ -377,7 +386,7 @@ public class TaskSwitcherTileStatesWindowTests
     [InlineData(2.0)]
     public void CloseDisc_DoesNotMove_WhenTheOverflowChipAppears(double scale)
     {
-        using var englishNoChip = Laid.Open(Windows(Capacity), scale: scale);
+        using var englishNoChip = Laid.Open(Windows(Capacity - 1), scale: scale);
         englishNoChip.RegisterFaces(Capacity);
         var englishReference = DiscCentre(englishNoChip);
         _output.WriteLine($"at {scale:0.0}x English: no chip, ✕ centre {Point(englishReference)}");
@@ -395,7 +404,7 @@ public class TaskSwitcherTileStatesWindowTests
         StringTable.Activate(ShippedGerman.Load());
         try
         {
-            using var germanNoChip = Laid.Open(Windows(Capacity), scale: scale);
+            using var germanNoChip = Laid.Open(Windows(Capacity - 1), scale: scale);
             germanNoChip.RegisterFaces(Capacity);
             var germanReference = DiscCentre(germanNoChip);
             _output.WriteLine($"at {scale:0.0}x German: no chip, ✕ centre {Point(germanReference)}");
@@ -529,8 +538,13 @@ public class TaskSwitcherTileStatesWindowTests
 
             var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
             window.DataContext = viewModel;
+            // ShowFullScreen's own order, without showing the window: the grid's capacity decides
+            // whether the desktop tile costs the last window its slot, so trim first and lay out
+            // the panel that will actually be drawn (window tiles + the desktop tile).
+            viewModel.ApplyTileCapacity(TaskSwitcherLayout.Compute(
+                ScreenWidth, ScreenHeight, TopBand, "Top", tileCount: 0).Capacity);
             var layout = TaskSwitcherLayout.Compute(
-                ScreenWidth, ScreenHeight, TopBand, "Top", viewModel.Tiles.Count);
+                ScreenWidth, ScreenHeight, TopBand, "Top", viewModel.PanelItems.Count);
             window.ApplyLayout(layout, ScreenWidth);
 
             var root = (FrameworkElement)window.Content;
@@ -563,7 +577,7 @@ public class TaskSwitcherTileStatesWindowTests
         internal void RegisterFaces(int reachable)
         {
             var layout = TaskSwitcherLayout.Compute(
-                ScreenWidth, ScreenHeight, TopBand, "Top", ViewModel.Tiles.Count);
+                ScreenWidth, ScreenHeight, TopBand, "Top", ViewModel.PanelItems.Count);
             for (var i = 0; i < reachable && i < ViewModel.Tiles.Count; i++)
             {
                 var column = i % 9;

@@ -1600,6 +1600,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.taskSwitcher.desktop": {
+    "text": "Show desktop",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.taskSwitcher.empty": {
     "text": "No open windows",
     "who": "user",

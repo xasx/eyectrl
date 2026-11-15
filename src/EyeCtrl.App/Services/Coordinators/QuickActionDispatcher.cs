@@ -32,6 +32,8 @@ internal sealed class QuickActionDispatcher : CoordinatorBase
         });
         m.Register<QuickActionDispatcher, TaskSwitcherSelectionMessage>(this, (_, msg) =>
             context.Dispatcher.BeginInvoke(() => HandleTaskSwitcherSelection(msg)));
+        m.Register<QuickActionDispatcher, TaskSwitcherShowDesktopMessage>(this, (_, msg) =>
+            context.Dispatcher.BeginInvoke(() => HandleShowDesktop(msg)));
     }
 
     internal void HandleTaskSwitcherSelection(TaskSwitcherSelectionMessage msg)
@@ -41,6 +43,48 @@ internal sealed class QuickActionDispatcher : CoordinatorBase
         // HideOverlay is public on the VM so the coordinator can dismiss after a selection
         // (in addition to the toggle path inside Receive).
         Context.OverlayManager.TaskSwitcher.HideOverlay();
+    }
+
+    /// <summary>
+    /// S3-A "Show desktop": minimises exactly the windows the switcher session enumerated, one by
+    /// one through <see cref="Core.Interfaces.IWindowManager.Minimize"/>, and dismisses the overlay.
+    /// Deliberately NOT the shell's MinimizeAll/ToggleDesktop: those act on every window the shell
+    /// owns, and this owner controls the PC only by eye — an EyeCtrl surface going with them would
+    /// take their control away. The handle list is the session's snapshot (the current window
+    /// included, EyeCtrl's own process already excluded by the view model).
+    ///
+    /// <para>
+    /// Runs on the dispatcher (the registration posts here), so nothing in this method can reach
+    /// the gaze thread; each minimise is individually guarded so one bad handle cannot leave the
+    /// rest of the desktop up, and the dismiss is guarded too.
+    /// </para>
+    /// </summary>
+    internal void HandleShowDesktop(TaskSwitcherShowDesktopMessage msg)
+    {
+        if (Context is null) return;
+
+        foreach (var hwnd in msg.Hwnds)
+        {
+            try
+            {
+                Context.WindowManager.Minimize(hwnd);
+            }
+            catch (Exception ex)
+            {
+                // Minimize is fire-and-forget; a throwing implementation (or a mock in tests) must
+                // not abandon the remaining windows.
+                Log.Error(ex, "Show desktop: minimising window {Hwnd} failed", hwnd);
+            }
+        }
+
+        try
+        {
+            Context.OverlayManager.TaskSwitcher.HideOverlay();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Show desktop: dismissing the task switcher failed");
+        }
     }
 
     /// <summary>

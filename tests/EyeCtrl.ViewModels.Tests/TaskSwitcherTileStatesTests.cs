@@ -50,15 +50,16 @@ public class TaskSwitcherTileStatesTests
     [Fact]
     public void NoWindowAtAll_ReportsEmpty_AndStillDismissesThroughTheCloseDisc()
     {
-        // S2-A leaves the foreground window out, so a one-window desktop opens with no tiles.
-        // The VM's job: say the grid is empty (the View's message), create no tile target, and
-        // keep the ✕ live — a fullscreen overlay with neither a tile nor an escape traps a
-        // gaze-only user.
+        // A session whose enumeration is empty is the one S2-B message case left after S3-A: one
+        // window that IS the foreground one now draws the desktop tile instead (it can still be
+        // minimised), so "no windows" means exactly that. The VM's job: say the grid is empty (the
+        // View's message), create no tile target, and keep the ✕ live — a fullscreen overlay with
+        // neither a tile nor an escape traps a gaze-only user.
         var messenger = new WeakReferenceMessenger();
         var settings = new EyeCtrlSettings();
         var selections = new List<IntPtr>();
         using var vm = new TaskSwitcherViewModel(
-            new FakeWindowManager([new AppWindow(new IntPtr(7), "Only", 700, "only")], foreground: new IntPtr(7)),
+            new FakeWindowManager([], foreground: null),
             settings, messenger);
 
         messenger.Register<TaskSwitcherTileStatesTests, TaskSwitcherSelectionMessage>(
@@ -68,6 +69,8 @@ public class TaskSwitcherTileStatesTests
 
         Check.That(vm.IsVisible).IsTrue();
         Check.That(vm.Tiles).IsEmpty();
+        Check.That(vm.HasDesktopTile).IsFalse();
+        Check.That(vm.PanelItems).IsEmpty();
         Check.That(vm.IsEmpty).IsTrue();
         Check.That(vm.DetectorForTest.Targets).IsEmpty();
 

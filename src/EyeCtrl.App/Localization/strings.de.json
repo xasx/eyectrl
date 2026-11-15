@@ -866,6 +866,10 @@
     "text": "Augen ausruhen",
     "src": "76d1d8e0"
   },
+  "overlays.taskSwitcher.desktop": {
+    "text": "Desktop anzeigen",
+    "src": "1fbb1c24"
+  },
   "overlays.taskSwitcher.empty": {
     "text": "Keine offenen Fenster",
     "src": "641fad4b"

@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
@@ -37,6 +38,15 @@ using Microsoft.Extensions.Logging;
 /// only these lines can measure. The lines carry integers, booleans and closed-set ids only —
 /// never a window title, process name or path — so the log cannot spell out what was on screen.
 /// </para>
+/// <para>
+/// S3-A: the session's LAST tile is "Show desktop" (<see cref="DesktopTile"/>), shown whenever the
+/// session has a window to minimise (a tile, or the left-out foreground window) and hidden when it
+/// has none. It is not a window: it lives only in <see cref="PanelItems"/> (what the grid draws),
+/// never in <see cref="Tiles"/>, so the window-tile rules S2-A/S2-B built — counts, badges, the
+/// overflow chip — keep their meaning. Firing it minimises the session's enumerated windows one by
+/// one in the App (never the shell's MinimizeAll, and never an EyeCtrl surface) and closes the
+/// switcher with outcome <c>Desktop</c>.
+/// </para>
 /// </summary>
 public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     IRecipient<TaskSwitcherToggledMessage>
@@ -47,7 +57,29 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private readonly ILogger<TaskSwitcherViewModel>? _logger;
     private readonly TimeProvider _timeProvider;
 
+    /// <summary>The window tiles of this session — one per enumerated window, current one left out.</summary>
     public ObservableCollection<TaskSwitcherTileViewModel> Tiles { get; } = new();
+
+    /// <summary>
+    /// What the grid DRAWS, in display order: every <see cref="Tiles"/> entry, then
+    /// <see cref="DesktopTile"/> when the session has one. It mirrors <see cref="Tiles"/> so the
+    /// ItemsControl has one source to bind to, while the window-only collection keeps its S2-A/S2-B
+    /// meaning (counts, badges, overflow). The desktop tile is always last — the ticket's placement
+    /// rule — and a session that runs out of grid capacity loses the last WINDOW, never this tile.
+    /// </summary>
+    public ObservableCollection<TaskSwitcherTileViewModel> PanelItems { get; } = new();
+
+    /// <summary>
+    /// The "Show desktop" tile of this session, or null when the session has nothing to minimise
+    /// (no window at all). Hidden with the rest on <see cref="HideOverlay"/>: the VM is a DI
+    /// singleton, so a leftover tile would offer an action with no windows behind it.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDesktopTile))]
+    private TaskSwitcherTileViewModel? _desktopTile;
+
+    /// <summary>Whether this session draws the "Show desktop" tile.</summary>
+    public bool HasDesktopTile => DesktopTile is not null;
 
     /// <summary>Landing guard: no tile accumulates from the gaze that opened the switcher.</summary>
     private readonly FreshEntryGuard _landingGuard;
@@ -61,8 +93,9 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// <summary>
     /// How a switcher session ended. The ids written to the log are the closed set the ticket
     /// names: <c>Picked</c> (a tile switch), <c>CloseDisc</c>, <c>PausedDismiss</c> (a tile look
-    /// while paused — a dismissal, never a switch) and <c>Other</c> (any other hide path: the
-    /// toggle, a coordinator dismissal, a shutdown).
+    /// while paused — a dismissal, never a switch), <c>Desktop</c> (the "Show desktop" tile
+    /// minimised the session's windows) and <c>Other</c> (any other hide path: the toggle, a
+    /// coordinator dismissal, a shutdown).
     /// </summary>
     private enum SessionOutcome
     {
@@ -70,6 +103,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         Picked,
         CloseDisc,
         PausedDismiss,
+        Desktop,
     }
 
     /// <summary>
@@ -83,7 +117,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     // finished its post-layout registration (reachable is only known then), the close line from
     // the hide path. Logging is best-effort: every write is wrapped, because a failing sink must
     // never reach the gaze path.
-    private readonly List<(string TargetId, double Top)> _registeredTiles = new();
+    private readonly List<(string TargetId, double Top, bool IsDesktop)> _registeredTiles = new();
     private readonly Dictionary<string, DateTimeOffset> _eligibleAt = new(StringComparer.Ordinal);
     private DateTimeOffset _sessionOpenedAt;
     private DateTimeOffset? _guardLiftedAt;
@@ -98,17 +132,37 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private bool _sessionOpen;
     private bool _openLineWritten;
 
+    /// <summary>
+    /// The session's "show desktop" work: every window the enumeration returned (the current
+    /// window included — it is left out of the TILES, not out of the action), minus EyeCtrl's own
+    /// process. Captured at the open, so the action can never touch a window that appeared after
+    /// the owner saw the grid. Empty for a session with no desktop tile.
+    /// </summary>
+    private readonly List<IntPtr> _sessionMinimizeTargets = new();
+
     /// <summary>Reserved dwell-target id for the switcher's close button (not a window tile).</summary>
     public const string CloseTargetId = "__taskswitcher_close__";
+
+    /// <summary>Reserved dwell-target id for the "Show desktop" tile (not a window tile).</summary>
+    public const string DesktopTargetId = "__taskswitcher_desktop__";
+
+    /// <summary>
+    /// This process. "Show desktop" skips any window it owns — defensively, because
+    /// <see cref="IWindowManager.EnumerateOpenWindows"/> already drops the tool-window overlays,
+    /// but a minimised EyeCtrl surface would take away the owner's only way to control the PC.
+    /// </summary>
+    private static readonly uint OwnProcessId = (uint)Environment.ProcessId;
+
     [ObservableProperty] private double _closeDwellProgress;
     /// <summary>True while the close button's dwell is held (gaze stepped off mid-dwell): its bar dims.</summary>
     [ObservableProperty] private bool _closeDwellPaused;
 
     /// <summary>
-    /// True when the session has no window to offer: the View shows "Keine offenen Fenster" in the
-    /// tile area instead of an empty grid. Set at the open, from the tiles the enumeration actually
-    /// produced — a bare dark screen with a hint that names nothing is the state this replaces
-    /// (more likely since S2-A leaves the foreground window out).
+    /// True when the session has nothing to draw at all: the View shows "Keine offenen Fenster" in
+    /// the tile area instead of an empty grid. Read at the open from the panel the enumeration
+    /// produced — so a session whose only window is the foreground one is NOT empty any more (S3-A
+    /// draws the desktop tile for it), while a session with no window whatsoever is. A bare dark
+    /// screen with a hint that names nothing is the state this replaces.
     /// </summary>
     [ObservableProperty] private bool _isEmpty;
 
@@ -144,6 +198,58 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         _timeProvider = timeProvider ?? TimeProvider.System;
         // The guard's two hooks only timestamp the session log; neither can change a decision.
         _landingGuard = new FreshEntryGuard(OnGuardAnchorLifted, OnGuardTargetEligible);
+        // One source for the grid: PanelItems mirrors the window tiles and appends the desktop
+        // tile. Subscribing here (rather than rebuilding in every show/hide/trim path) means a
+        // caller that edits Tiles directly — the App layout tests do exactly that — still gets
+        // its tiles DRAWN.
+        Tiles.CollectionChanged += OnTilesChanged;
+    }
+
+    private void OnTilesChanged(object? sender, NotifyCollectionChangedEventArgs e) => RebuildPanelItems();
+
+    /// <summary>The desktop tile's own change is a grid change: append it (or drop it) at the end.</summary>
+    partial void OnDesktopTileChanged(TaskSwitcherTileViewModel? value) => RebuildPanelItems();
+
+    /// <summary>
+    /// Rebuilds <see cref="PanelItems"/>: the window tiles in enumeration order, then the desktop
+    /// tile. It is the desktop tile's placement rule (always last) in one place.
+    /// </summary>
+    private void RebuildPanelItems()
+    {
+        PanelItems.Clear();
+        foreach (var tile in Tiles)
+            PanelItems.Add(tile);
+        if (DesktopTile is { } desktop)
+            PanelItems.Add(desktop);
+    }
+
+    /// <summary>
+    /// The session's "Show desktop" tile. It is a tile like any other for layout and dwell (the
+    /// same cell, the same rectangular hit face, the same dwell time); only the View's template
+    /// makes it look different, and only <see cref="TaskSwitcherTileViewModel.IsDesktop"/> tells
+    /// them apart. No window fields: a zero handle and empty strings.
+    /// </summary>
+    private static TaskSwitcherTileViewModel CreateDesktopTile() =>
+        new(IntPtr.Zero, string.Empty, 0, string.Empty, new PhysicalPoint(0, 0), isDesktop: true);
+
+    /// <summary>
+    /// S3-A: the desktop tile takes a visible grid slot (the last one), so it can cost the last
+    /// WINDOW its tile. Called by the View after it has measured the grid's capacity, before the
+    /// final layout: window tiles beyond <paramref name="capacity"/> - 1 are dropped from the grid
+    /// and counted by the overflow chip, and the desktop tile stays drawn. Without a desktop tile
+    /// this is a no-op — the pre-S3-A viewport clipping keeps its behaviour.
+    /// </summary>
+    /// <param name="capacity">Full tile cells the grid can show (columns x rows).</param>
+    public void ApplyTileCapacity(int capacity)
+    {
+        if (!HasDesktopTile)
+            return;
+
+        // Remove from the END of the window list: the desktop tile is appended after it, so it
+        // keeps the last visible slot and the windows that lose one are the same tail the chip
+        // already described.
+        while (Tiles.Count > 0 && Tiles.Count + 1 > capacity)
+            Tiles.RemoveAt(Tiles.Count - 1);
     }
 
     /// <summary>
@@ -174,6 +280,9 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // the previous show would claim windows that are not there (the VM is a DI singleton).
         OverflowCount = 0;
         IsEmpty = false;
+        // …and so does the desktop tile: it is rebuilt from this session's enumeration below, and
+        // it must not survive into a session with nothing to minimise.
+        DesktopTile = null;
 
         // The landing guard: anchor the rule at the gaze that opened the switcher. The anchor is
         // invalid when the last sample was a gap — a blink at opening says nothing about where
@@ -197,8 +306,16 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         var currentWindow = _windowManager.TryGetEligibleForegroundWindow();
         var currentExcluded = false;
 
+        // S3-A: the "Show desktop" set is a snapshot of THIS enumeration. The current window is
+        // part of it — S2-A leaves that window out of the TILES, not out of "show desktop" — and
+        // EyeCtrl's own process is skipped defensively: the enumeration already excludes the
+        // overlays (WS_EX_TOOLWINDOW), but minimising any EyeCtrl surface would take away the
+        // owner's only control, so it must be impossible here too.
         foreach (var window in _windowManager.EnumerateOpenWindows())
         {
+            if (window.ProcessId != OwnProcessId)
+                _sessionMinimizeTargets.Add(window.Hwnd);
+
             if (currentWindow is { } current && window.Hwnd == current)
             {
                 currentExcluded = true;
@@ -210,12 +327,29 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
                 new PhysicalPoint(0, 0), window.IsMinimized));
         }
 
+        // An eligible foreground that the enumeration filtered out (a title-less window, say) is
+        // still what the owner is looking at, so "show desktop" covers it as well. In production
+        // TryGetEligibleForegroundWindow already rejects this process, the shell and every dead
+        // handle; the contains check keeps the list duplicate-free.
+        if (currentWindow is { } foreground && foreground != IntPtr.Zero
+            && !_sessionMinimizeTargets.Contains(foreground))
+        {
+            _sessionMinimizeTargets.Add(foreground);
+        }
+
         _sessionTileCount = Tiles.Count;
         _sessionCurrentExcluded = currentExcluded;
+        // S3-A: the desktop tile appears after the window tiles whenever the session has anything
+        // to minimise — a window tile, or the left-out current window (S2-A: it has no tile, but
+        // minimising it is exactly what "show desktop" is for). With neither, S2-B's "Keine
+        // offenen Fenster" stands alone: a tile that minimises nothing would be a lie.
+        if (Tiles.Count > 0 || currentExcluded)
+            DesktopTile = CreateDesktopTile();
+
         // The empty grid's message. Read here, at the open, from the list just built: a session
-        // whose only window is the foreground one (S2-A) has zero tiles and says so, rather than
-        // showing a bare screen with a hint that names nothing.
-        IsEmpty = Tiles.Count == 0;
+        // whose only window is the foreground one (S2-A) has zero window tiles but DOES have the
+        // desktop tile, so it shows that rather than a message claiming nothing is open.
+        IsEmpty = PanelItems.Count == 0;
 
         // Flip IsVisible so the EventCoordinator shows the fullscreen window. This is the
         // show trigger — the coordinator watches IsVisible. Dwell processing is harmless
@@ -239,6 +373,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         IsVisible = false;
         DwellDetector.ClearTargets();
         Tiles.Clear();
+        DesktopTile = null;
         _landingGuard.Disarm();
         // A progress bar left over from the hidden session must not greet the next show (the
         // VM is a DI singleton — the next show reuses this instance, AppBootstrapper pattern).
@@ -315,7 +450,26 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             _settings.Dwell.ToolbarButtonDwellMs));
 
         WriteOpenLineIfPending();
-        OverflowCount = Math.Max(0, _sessionTileCount - _registeredTiles.Count);
+        // Windows only: the desktop tile is not an enumerated window, so counting it as
+        // "reachable" would hide a window that genuinely lost its slot and shrink the chip by one.
+        OverflowCount = Math.Max(0, _sessionTileCount - _registeredTiles.Count(t => !t.IsDesktop));
+    }
+
+    /// <summary>
+    /// Called by the View after layout for the desktop tile's real on-screen rectangle — the same
+    /// drawn-face rule as <see cref="UpdateTilePosition"/>: what is drawn is what the detector
+    /// hit-tests, and a fully clipped tile gets no target at all. The target id is
+    /// <see cref="DesktopTargetId"/>, not a handle, because this tile is not a window.
+    /// </summary>
+    public void UpdateDesktopTilePosition(PhysicalRect screenRect)
+    {
+        if (DesktopTile is not { } desktop)
+            return;
+
+        desktop.Position = screenRect.Center;
+        RegisterFace(DesktopTargetId, screenRect, isDesktop: true);
+        DwellDetector.AddTarget(new DwellTarget(
+            DesktopTargetId, screenRect, _settings.Dwell.ToolbarButtonDwellMs));
     }
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
@@ -332,6 +486,30 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         if (targetId == CloseTargetId)
         {
             _sessionOutcome = SessionOutcome.CloseDisc;
+            HideOverlay();
+            return;
+        }
+
+        // S3-A: the desktop tile. Paused it is a dismiss like every other tile — "show desktop"
+        // is OS state change, which must not leave EyeCtrl while paused. Unpaused it sends the
+        // session's window set to the App, which minimises them off the gaze path (the message is
+        // queued on the UI dispatcher; this VM never calls IWindowManager.Minimize itself).
+        if (targetId == DesktopTargetId)
+        {
+            if (LastSampleWasPaused)
+            {
+                _sessionOutcome = SessionOutcome.PausedDismiss;
+            }
+            else
+            {
+                _sessionPickedTargetId = DesktopTargetId;
+                // The desktop tile is the LAST panel entry (RebuildPanelItems' placement rule), so
+                // its display slot is the window count — logged like any other pick's slot.
+                _sessionSlot = Tiles.Count;
+                _sessionOutcome = SessionOutcome.Desktop;
+                _messenger.Send(new TaskSwitcherShowDesktopMessage(_sessionMinimizeTargets.ToArray()));
+            }
+
             HideOverlay();
             return;
         }
@@ -365,6 +543,12 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             CloseDwellProgress = progress;
             return;
         }
+        if (targetId == DesktopTargetId)
+        {
+            if (DesktopTile is { } desktop)
+                desktop.DwellProgress = progress;
+            return;
+        }
         var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
         if (tile != null)
             tile.DwellProgress = progress;
@@ -375,6 +559,12 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         if (targetId == CloseTargetId)
         {
             CloseDwellPaused = paused;
+            return;
+        }
+        if (targetId == DesktopTargetId)
+        {
+            if (DesktopTile is { } desktop)
+                desktop.IsDwellPaused = paused;
             return;
         }
         var tile = Tiles.FirstOrDefault(t => t.Hwnd.ToString() == targetId);
@@ -401,23 +591,28 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         if (tile != null)
         {
             tile.Position = screenRect.Center;
-
-            // T3: the faces registered in this session, in registration (= display) order, with
-            // their physical top edge. `reachable` for the open line is this list's count, and
-            // the picked tile's row/col come from these tops — the geometry that was drawn, not
-            // a recomputed grid. A re-registration of the same tile replaces its entry.
-            var targetId = hwnd.ToString();
-            var existing = _registeredTiles.FindIndex(entry => entry.TargetId == targetId);
-            if (existing >= 0)
-                _registeredTiles[existing] = (targetId, screenRect.Y);
-            else
-                _registeredTiles.Add((targetId, screenRect.Y));
+            RegisterFace(hwnd.ToString(), screenRect, isDesktop: false);
         }
 
         DwellDetector.AddTarget(new DwellTarget(
             hwnd.ToString(),
             screenRect,
             _settings.Dwell.ToolbarButtonDwellMs));
+    }
+
+    /// <summary>
+    /// Records one registered face for the session record: the drawn geometry in display
+    /// (registration) order, with its physical top edge. <c>reachable</c> for the open line counts
+    /// the window faces only; the picked tile's row/col come from ALL faces — the desktop tile's
+    /// slot is logged like any other pick's. A re-registration of the same face replaces its entry.
+    /// </summary>
+    private void RegisterFace(string targetId, PhysicalRect screenRect, bool isDesktop)
+    {
+        var existing = _registeredTiles.FindIndex(entry => entry.TargetId == targetId);
+        if (existing >= 0)
+            _registeredTiles[existing] = (targetId, screenRect.Y, isDesktop);
+        else
+            _registeredTiles.Add((targetId, screenRect.Y, isDesktop));
     }
 
     // ── T3 session log ────────────────────────────────────────────────────────────────────────
@@ -443,6 +638,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         _sessionCurrentExcluded = false;
         _registeredTiles.Clear();
         _eligibleAt.Clear();
+        _sessionMinimizeTargets.Clear();
     }
 
     /// <summary>Writes the open line once, then the close line, and remembers the outcome.</summary>
@@ -498,7 +694,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
                 : "none";
 
             var line = string.Create(CultureInfo.InvariantCulture,
-                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId}");
+                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count(t => !t.IsDesktop)} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId}");
             _logger?.LogInformation("{Line}", line);
         }
         catch (Exception)
@@ -560,6 +756,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             case SessionOutcome.Picked: return "Picked";
             case SessionOutcome.CloseDisc: return "CloseDisc";
             case SessionOutcome.PausedDismiss: return "PausedDismiss";
+            case SessionOutcome.Desktop: return "Desktop";
             default: return "Other";
         }
     }
@@ -567,10 +764,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// <summary>
     /// The picked tile's grid position, read from the registered faces: rows are runs of equal
     /// top edges (within <see cref="RowTolerancePhysical"/>), columns are the ordinal inside the
-    /// run. Returns (-1, -1) when no tile was picked (or it was never registered).
+    /// run. The desktop tile is one of those faces — its slot is logged like any pick's. Returns
+    /// (-1, -1) when no tile was picked (or it was never registered).
     /// </summary>
     private static (int Row, int Col) TileGridPosition(
-        IReadOnlyList<(string TargetId, double Top)> registered, string? pickedTargetId)
+        IReadOnlyList<(string TargetId, double Top, bool IsDesktop)> registered, string? pickedTargetId)
     {
         if (pickedTargetId is null)
             return (-1, -1);
@@ -578,7 +776,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         var row = -1;
         var col = 0;
         var rowTop = double.NaN;
-        foreach (var (targetId, top) in registered)
+        foreach (var (targetId, top, _) in registered)
         {
             if (row < 0 || Math.Abs(top - rowTop) > RowTolerancePhysical)
             {

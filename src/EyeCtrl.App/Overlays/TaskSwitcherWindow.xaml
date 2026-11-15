@@ -21,7 +21,10 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <ScrollViewer Grid.Row="0" x:Name="TilesScroll" VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <ItemsControl x:Name="TilesPanel" AutomationProperties.AutomationId="TaskSwitcher_Tiles" ItemsSource="{Binding Tiles}">
+            <!-- PanelItems, not Tiles: it is the window tiles plus the session's "Show desktop"
+                 tile (always last). Tiles stays the window-only list the counts, badges and the
+                 overflow chip are built on. -->
+            <ItemsControl x:Name="TilesPanel" AutomationProperties.AutomationId="TaskSwitcher_Tiles" ItemsSource="{Binding PanelItems}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <WrapPanel ItemWidth="200" ItemHeight="120"/>
@@ -29,13 +32,43 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Margin="8" Background="{StaticResource BrushSurfaceMedium}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
+                        <!-- S3-A: the desktop tile is OUTLINED where a window tile is FILLED, and
+                             carries its own glyph + label instead of an icon + title. The style (not
+                             local attributes) owns Background/BorderThickness: a local value would
+                             win over the DataTrigger and the tile would stay a filled window tile.
+                             BorderThickness draws INSIDE the 184x104 face, so the drawn tile — and
+                             therefore the dwell target the View registers — is the same size. -->
+                        <Border x:Name="TileFace" Margin="8" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{StaticResource BrushSurfaceMedium}"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDesktop}" Value="True">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="BorderBrush" Value="{StaticResource BrushBorderSubtle}"/>
+                                            <Setter Property="BorderThickness" Value="{StaticResource StandardBorderThickness}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="*"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <StackPanel x:Name="WindowContent" Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <!-- Hidden on the desktop tile; the default lives in the style
+                                         because a local Visibility would beat the trigger. -->
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDesktop}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
                                     <Image Source="{Binding Icon}" Width="32" Height="32" Margin="0,0,0,4"/>
                                     <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"
                                                TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
@@ -68,6 +101,32 @@
                                                        FontSize="{StaticResource FontSizeBody}"/>
                                         </StackPanel>
                                     </Border>
+                                </StackPanel>
+                                <!-- S3-A: the desktop tile's own content. Drawn, not typeset: a monitor
+                                     outline on the icon grid (screen, stand, base), the same shape
+                                     language the toolbar icons use. 40 DIP keeps it the same visual
+                                     weight as a 32 DIP process icon plus its caption. -->
+                                <StackPanel x:Name="DesktopContent" Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDesktop}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <Viewbox Width="40" Height="40" Margin="0,0,0,4">
+                                        <Path Width="24" Height="24"
+                                              Data="M4.2,4.4 L19.8,4.4 A1.6,1.6 0 0 1 21.4,6 L21.4,15 A1.6,1.6 0 0 1 19.8,16.6 L4.2,16.6 A1.6,1.6 0 0 1 2.6,15 L2.6,6 A1.6,1.6 0 0 1 4.2,4.4 Z M12,16.6 L12,20.4 M8.4,20.4 L15.6,20.4"
+                                              Stroke="{StaticResource BrushTextSecondary}" StrokeThickness="1.4"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Viewbox>
+                                    <TextBlock x:Name="DesktopLabel" Text="{loc:T 'overlays.taskSwitcher.desktop'}"
+                                               Foreground="{StaticResource BrushTextPrimary}"
+                                               FontSize="{StaticResource FontSizeBody}"
+                                               TextWrapping="NoWrap" HorizontalAlignment="Center"/>
                                 </StackPanel>
                                 <!-- Dwell progress: without it a tile gives NO feedback while a
                                      700ms dwell builds, which reads as "not dwellable" (2026-08-17

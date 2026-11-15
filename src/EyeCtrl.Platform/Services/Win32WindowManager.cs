@@ -56,7 +56,12 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
                 // Process may have exited or be inaccessible
             }
 
-            windows.Add(new AppWindow(hWnd, title, processId, processName));
+            // A minimised window passes every filter above (visible, titled, unowned) but is not on
+            // screen — selecting its tile RESTORES it, which moves whatever the owner is looking at.
+            // Read here so the tile can say so; the switch path already restores iconic windows
+            // (see BringToFront). Read at enumeration, like the title and the process name: the
+            // snapshot is one-shot per switcher session.
+            windows.Add(new AppWindow(hWnd, title, processId, processName, NativeMethods.IsIconic(hWnd)));
             return true;
         }, IntPtr.Zero);
 

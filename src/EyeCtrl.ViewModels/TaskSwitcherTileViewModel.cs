@@ -25,6 +25,14 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
     public string ProcessName { get; }
 
     /// <summary>
+    /// True when the window was iconic (<see cref="Core.Models.AppWindow.IsMinimized"/>) at
+    /// enumeration: the View draws the "Minimiert" badge inside the tile face. Read-only — the
+    /// snapshot is one-shot per session, and looking at the tile still restores and switches, so
+    /// the tile's state must not be edited after it was built.
+    /// </summary>
+    public bool IsMinimized { get; }
+
+    /// <summary>
     /// Process icon as a boxed object. Set by the View (TaskSwitcherWindow) via
     /// IAppIconProvider after the tile is created. Typed as <c>object?</c> (not
     /// <c>ImageSource</c>) so this VM stays WPF-free (ViewModels targets plain net10.0).
@@ -43,12 +51,15 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
     /// </summary>
     [ObservableProperty] private bool _isDwellPaused;
 
-    public TaskSwitcherTileViewModel(IntPtr hwnd, string title, uint processId, string processName, PhysicalPoint position)
+    public TaskSwitcherTileViewModel(
+        IntPtr hwnd, string title, uint processId, string processName, PhysicalPoint position,
+        bool isMinimized = false)
     {
         Hwnd = hwnd;
         Title = title;
         ProcessId = processId;
         ProcessName = processName;
+        IsMinimized = isMinimized;
         _position = position;
     }
 }

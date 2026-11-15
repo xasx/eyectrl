@@ -374,8 +374,9 @@ public record TaskSwitcherSelectionMessage(IntPtr Hwnd);
 
 /// <summary>
 /// Sent by the Task Switcher's "Show desktop" tile when it fires: minimise every window of the
-/// session, then the switcher is already closing. Consumed off the gaze path by the App's
-/// <c>QuickActionDispatcher</c>, which calls <c>IWindowManager.Minimize</c> once per handle — never
+/// session, then the switcher is already closing. Consumed by the App's
+/// <c>QuickActionDispatcher</c> on the UI (gaze-dwell) thread, which calls
+/// <c>IWindowManager.MinimizeNonBlocking</c> once per handle, so a hung window cannot stall dwell — never
 /// the shell's MinimizeAll/ToggleDesktop, which would also minimise EyeCtrl's own surfaces and take
 /// away the owner's only control.
 /// </summary>

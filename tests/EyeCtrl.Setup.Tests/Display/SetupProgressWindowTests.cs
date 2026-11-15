@@ -7,8 +7,10 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Sdk.Wpf;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Display;
+using EyeCtrl.Setup.Windows;
 using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
@@ -119,9 +121,71 @@ public sealed class SetupProgressWindowTests
                 };
                 window.ShowResult(SetupDisplayText.Result(English, result, AppData));
 
-                Check.That(window.TitleText).IsEqualTo(English.T("uninstall.done.kept"));
+                Check.That(window.ResultText).IsEqualTo(English.T("uninstall.done.kept"));
+                Check.That(window.BandTitleText).IsEqualTo(English.T("uninstall.working"));
+                Check.That(window.TitleText).IsEqualTo(English.T("uninstall.working"));
                 Check.That(window.DetailText).IsEqualTo(string.Empty);
                 Check.That(window.StageText).IsEqualTo(string.Empty);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void ShowResult_TogglesToTheResultBody_AndClearsTheProgressTexts()
+    {
+        // r3 finding 2's mutant: a result body nested inside the collapsed progress stack would
+        // never be visible. The two stacks are siblings, and the progress texts are cleared so the
+        // visual tree holds no preferred-table text (FC7).
+        RunSta(() =>
+        {
+            var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
+            try
+            {
+                window.Stage(SetupStage.Verify);
+                Check.That(window.ShowsResultBody).IsFalse();
+
+                var result = new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.Ok, Version = "1.0.0" };
+                window.ShowResult(SetupDisplayText.Result(English, result, AppData));
+
+                Check.WithCustomMessage("The result body was not shown.")
+                    .That(window.ShowsResultBody).IsTrue();
+                Check.That(window.DetailText).IsEqualTo(string.Empty);
+                Check.That(window.StageText).IsEqualTo(string.Empty);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void TheStagePlan_IsDataDriven_PerVerb_AndTheTreeStaysDisplayOnly()
+    {
+        // D9/r3 F3: the plan is a display-side per-verb table. Uninstall plans exactly one stage
+        // today (Stop); repair and revert fabricate nothing (they have no window at all — the
+        // factory test pins that). FC4/r3 T4: the progress tree gains no Button and no locally-set
+        // Dwell mode (r4 finding 6: the SDK's default mode IS Invoke, so a GetMode comparison
+        // cannot find anything — probe the local value instead).
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Update).Count).IsEqualTo(4);
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Rollback).Count).IsEqualTo(4);
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Uninstall).Count).IsEqualTo(1);
+        Check.That(SetupProgressWindow.PlanFor(SetupVerb.Uninstall)[0]).IsEqualTo(SetupStage.Stop);
+
+        RunSta(() =>
+        {
+            var window = new SetupProgressWindow(English, SetupVerb.Update, close: () => { });
+            try
+            {
+                Check.That(FitText.Descendants<System.Windows.Controls.Button>((FrameworkElement)window.Content))
+                    .IsEmpty();
+                Check.That(FitText.Descendants<FrameworkElement>((FrameworkElement)window.Content)
+                    .Where(e => e.ReadLocalValue(Dwell.ModeProperty) != DependencyProperty.UnsetValue
+                                || Dwell.GetEnabled(e))).IsEmpty();
             }
             finally
             {
@@ -199,6 +263,20 @@ public sealed class SetupProgressWindowTests
             {
                 window.Close();
             }
+        });
+    }
+
+    [Fact]
+    public void TheAppMark_DecodesTheLargestIcoFrame_NotFrameZero()
+    {
+        // r1 F11: BitmapImage decodes frame 0 of eyectrl.ico, which is 16x16 — blurred at 52-60 DIP
+        // on the 200 % display. The band mark must decode the 256-px frame.
+        RunSta(() =>
+        {
+            var icon = SetupProgressWindow.LoadAppIcon();
+            Check.That(icon).IsNotNull();
+            Check.That(icon!.PixelWidth).IsEqualTo(256);
+            Check.That(icon.PixelHeight).IsEqualTo(256);
         });
     }
 
@@ -344,6 +422,122 @@ public sealed class SetupProgressWindowTests
             using var display = factory.Create(verb);
             Check.That(display).IsSameReferenceAs(NullSetupDisplay.Instance);
         }
+    }
+
+    [Fact]
+    public void ARefusedPackage_CannotLeaveItsOwnTextOnTheResultScreen()
+    {
+        // r3 F1: the band title comes from the package's preferred table while the window is up.
+        // On a VerifyFailed result, Finish must re-resolve it from the trusted table — a tampered
+        // package cannot park its own claim above its refusal. Pattern after SetupUiTests:131-155:
+        // BOTH the package and the install root get the shipped German file + manifest (without the
+        // manifest every German surface falls back to English, StringTable.cs:568-579).
+        var root = Path.Combine(Path.GetTempPath(), "eyectrl_setup_fc7_" + Guid.NewGuid().ToString("N"));
+        var package = Path.Combine(root, "package");
+        Directory.CreateDirectory(package);
+        try
+        {
+            CopyShippedGerman(package);
+            ReplaceGerman(package, "Update wird installiert", "Paket behauptet installiert");
+            // r6 I1/M5: the package's refusal text is tampered too, so the body assertion below
+            // can actually DISTINGUISH trusted from preferred — a mutant rendering the refusal
+            // from the package's table ("PAKET-beschädigt") must fail it (SetupUiTests pattern).
+            ReplaceGerman(package, "beschädigt", "PAKET-beschädigt");
+
+            var paths = new SetupPaths(root, root, root);
+            CopyShippedGerman(paths.InstallRoot);   // the trusted table, in German
+
+            Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsPath)!);
+            File.WriteAllText(paths.SettingsPath, """{"general":{"uiLanguage":"german"}}""");
+
+            var ui = SetupUi.Load(paths, new PhysicalFileSystem(), preferredDirectory: package);
+            Check.WithCustomMessage("The test needs the tampered table to be the preferred one.")
+                .That(ui.Strings.T("update.progress.title")).IsEqualTo("Paket behauptet installiert");
+            // PR-review nit 1: the precondition for the DoesNotContain below — if the German
+            // refusal is ever reworded without "beschädigt", the tamper silently becomes a no-op
+            // and the package-table mutant would survive again.
+            Check.WithCustomMessage("The package's refusal text must actually carry the tamper marker.")
+                .That(ui.Strings.T("update.result.verifyFailed")).Contains("PAKET-beschädigt");
+            Check.WithCustomMessage("TableFor must route VerifyFailed to the trusted table.")
+                .That(SetupDisplayText.ProgressTitle(ui.TableFor(
+                    new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed }),
+                    SetupVerb.Update))
+                .IsEqualTo("Update wird installiert");
+
+            SetupProgressWindow? window = null;
+            string? bandTitle = null;
+            string? resultText = null;
+            string? taskbarTitle = null;
+            RunSta(() =>
+            {
+                using var display = new WpfSetupDisplay(
+                    SetupVerb.Update, ui, Path.Combine(root, "appdata"),
+                    createWindow: () => window = new SetupProgressWindow(ui.Strings, SetupVerb.Update, close: () => { }),
+                    showWindow: w => _ = new WindowInteropHelper(w).EnsureHandle());
+
+                // The window must EXIST before Finish touches it (createWindow runs inside
+                // EnsureWindow) — the working pattern calls Stage first (:313-324).
+                display.Stage(SetupStage.Verify);
+                var shown = window!;
+
+                // Finish runs on a worker (it blocks on the result window's close timer); the test
+                // thread polls THROUGH the window's own dispatcher (r4 finding 9: a DispatcherTimer
+                // built on the test thread ticks there, and reading `shown` from it throws), then
+                // captures and closes via the same dispatcher.
+                var worker = Task.Run(() => display.Finish(new SetupResult
+                {
+                    Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed,
+                }));
+
+                var deadline = Stopwatch.StartNew();
+                while (!shown.Dispatcher.Invoke(() => shown.ShowsResultBody)
+                       && deadline.Elapsed < TimeSpan.FromSeconds(5))
+                {
+                    Thread.Sleep(50);
+                }
+
+                shown.Dispatcher.Invoke(() =>
+                {
+                    bandTitle = shown.BandTitleText;
+                    resultText = shown.ResultText;
+                    taskbarTitle = shown.TitleText;
+                    shown.Close();
+                });
+                worker.Wait(2000);
+            });
+
+            Check.WithCustomMessage("The band still carried the package's own title on the refusal screen.")
+                .That(bandTitle).IsEqualTo("Update wird installiert");
+            Check.WithCustomMessage("The refusal text must come from the trusted table.")
+                .That(resultText).IsEqualTo(
+                    SetupDisplayText.Result(ui.InstalledStrings,
+                        new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed },
+                        Path.Combine(root, "appdata")).Text);
+            Check.WithCustomMessage("The refusal text carried the package's tampered claim (r6 I1/M5).")
+                .That(resultText).DoesNotContain("PAKET-beschädigt");
+            Check.WithCustomMessage("FC7 covers the taskbar title too — it still named the package's claim.")
+                .That(taskbarTitle).IsEqualTo("Update wird installiert");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void CopyShippedGerman(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        File.Copy(GermanDraft.GermanPath, Path.Combine(directory, StringTable.GermanFileName), overwrite: true);
+        File.Copy(
+            Path.Combine(Path.GetDirectoryName(GermanDraft.GermanPath)!, StringTable.ManifestFileName),
+            Path.Combine(directory, StringTable.ManifestFileName),
+            overwrite: true);
+    }
+
+    private static void ReplaceGerman(string directory, string oldText, string newText)
+    {
+        var path = Path.Combine(directory, StringTable.GermanFileName);
+        File.WriteAllText(path, File.ReadAllText(path).Replace(oldText, newText));
     }
 
     private static void RunSta(Action action)

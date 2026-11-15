@@ -82,6 +82,7 @@ internal sealed class WpfSetupDisplay : ISetupDisplay
                 EnsureWindow();
                 if (_windowClosed)
                     return;
+                _window!.SetBandTitle(SetupDisplayText.ProgressTitle(_ui.TableFor(result), _verb));
                 _window!.ShowResult(mapped);
             });
 

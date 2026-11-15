@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
@@ -57,8 +58,16 @@ internal class UninstallChoiceWindow : Window
     private readonly DispatcherTimer _armTimer;
     private readonly DispatcherTimer _choiceTimer;
     private readonly TimeSpan _restingGazeGate;
-    private readonly Grid _screen1;
-    private readonly Grid _screen2;
+    private Grid _screen1 = null!;
+    private Grid _screen2 = null!;
+    private Border _band = null!;
+    private Border _body = null!;
+    private TextBlock _bandTitle = null!;
+    private Grid _bandGrid = null!;
+    private System.Windows.Controls.Image? _bandMark;
+    private System.Windows.Shapes.Path? _bandAlert;
+    private TextBlock? _prose1;
+    private TextBlock? _prose2;
     private bool _armed;
     private bool _showingConfirm;
     private bool _closingForResult;
@@ -98,19 +107,18 @@ internal class UninstallChoiceWindow : Window
         Width = bounds.Width;
         Height = bounds.Height;
 
-        _screen1 = BuildScreen(confirm: false);
-        _screen2 = BuildScreen(confirm: true);
+        _band = BuildBand();
+        _body = BuildBody();
         _screen2.Visibility = Visibility.Collapsed;
 
-        var host = new Grid();
-        host.Children.Add(_screen1);
-        host.Children.Add(_screen2);
-        Content = new Border
-        {
-            Background = Tokens.BrushSurfaceDark,
-            Padding = new Thickness(SetupWindowMetrics.WindowMargin),
-            Child = host,
-        };
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(_band, 0);
+        Grid.SetRow(_body, 1);
+        root.Children.Add(_band);
+        root.Children.Add(_body);
+        Content = root;
 
         _armTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = ArmingDelay };
         _armTimer.Tick += (_, _) =>
@@ -160,6 +168,10 @@ internal class UninstallChoiceWindow : Window
 
     /// <summary>The choice, or null while the window is still open.</summary>
     internal UninstallChoice? Result { get; private set; }
+
+    /// <summary>The screen's question (screen 1) / detail (screen 2) prose line — the alignment
+    /// tests read it.</summary>
+    internal TextBlock ProseBlock(bool confirm) => confirm ? _prose2! : _prose1!;
 
     /// <summary>What the last choice was; false until the current screen's arming delay elapsed.</summary>
     internal bool IsArmed => _armed;
@@ -228,17 +240,22 @@ internal class UninstallChoiceWindow : Window
 
     /// <summary>
     /// The production button factory. Also used by the fit class, so the measured control is the
-    /// button the window draws: 420 x 160 DIP, 28 DIP wrapping text, theme tokens, and the SDK's
-    /// Invoke-mode dwell.
+    /// button the window draws: 420 x 160 DIP, 32 DIP wrapping text, theme tokens, and the SDK's
+    /// Invoke-mode dwell. SD8 anatomy: an outlined (not filled) face — light surfaces with a
+    /// subtle border, the danger face outlined in AccentDanger — and an explicit, trigger-free
+    /// template so the Aero2 hover never replaces the fills under the gaze (r2 F2).
     /// </summary>
     internal static Button CreateChoiceButton(
         string label, ButtonKind kind, string automationId, Action action)
     {
-        var (background, foreground, weight) = kind switch
+        var (background, foreground, border, weight) = kind switch
         {
-            ButtonKind.Primary => (Tokens.BrushAccent, Tokens.BrushSurfaceDark, Tokens.FontWeightStrong),
-            ButtonKind.Danger => (Tokens.BrushAccentDanger, Tokens.BrushSurfaceDark, Tokens.FontWeightMedium),
-            _ => (Tokens.BrushSurfaceMedium, Tokens.BrushTextPrimary, Tokens.FontWeightMedium),
+            ButtonKind.Primary => (SetupBrushes.Opaque(Tokens.SurfaceLight), Tokens.BrushTextPrimary,
+                Tokens.BrushBorderSubtle, Tokens.FontWeightStrong),
+            ButtonKind.Danger => (SetupBrushes.Opaque(Tokens.SurfaceMedium), Tokens.BrushAccentDanger,
+                Tokens.BrushAccentDanger, Tokens.FontWeightMedium),
+            _ => (SetupBrushes.Opaque(Tokens.SurfaceMedium), Tokens.BrushTextPrimary,
+                Tokens.BrushBorderSubtle, FontWeights.Normal),
         };
 
         var text = new TextBlock
@@ -258,17 +275,41 @@ internal class UninstallChoiceWindow : Window
             Width = SetupWindowMetrics.ChoiceButtonWidth,
             Height = SetupWindowMetrics.ChoiceButtonHeight,
             Padding = new Thickness(16),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             Background = background,
             Foreground = foreground,
-            BorderBrush = Tokens.BrushBorderSubtle,
+            BorderBrush = border,
             BorderThickness = new Thickness(Tokens.Current.BorderThicknessStandard),
             FontFamily = Tokens.FontStandard,
             FontSize = SetupWindowMetrics.ChoiceFontSize,
-            Cursor = Cursors.Hand,
+            FocusVisualStyle = null,
             UseLayoutRounding = true,
+            Cursor = Cursors.Hand,
         };
+
+        // r2 F2: an explicit template — the Aero2 hover must never replace the fills under the gaze.
+        // r3 F9: FrameworkElementFactory keeps FC8's no-XAML rule; SetValue carries the
+        // TemplateBindingExtension (SetBinding needs a BindingBase and would not compile).
+        var borderFactory = new FrameworkElementFactory(typeof(Border)) { Name = "TemplateBorder" };
+        borderFactory.SetValue(Border.BackgroundProperty,
+            new TemplateBindingExtension(Button.BackgroundProperty));
+        borderFactory.SetValue(Border.BorderBrushProperty,
+            new TemplateBindingExtension(Button.BorderBrushProperty));
+        borderFactory.SetValue(Border.BorderThicknessProperty,
+            new TemplateBindingExtension(Button.BorderThicknessProperty));
+        borderFactory.SetValue(Border.PaddingProperty,
+            new TemplateBindingExtension(Button.PaddingProperty));
+        borderFactory.SetValue(Border.CornerRadiusProperty,
+            new CornerRadius(Tokens.Current.CornerRadiusSmall));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter)) { Name = "Presenter" };
+        presenter.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty,
+            new TemplateBindingExtension(Button.HorizontalContentAlignmentProperty));
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty,
+            new TemplateBindingExtension(Button.VerticalContentAlignmentProperty));
+        borderFactory.AppendChild(presenter);
+        button.Template = new ControlTemplate(typeof(Button)) { VisualTree = borderFactory };
 
         button.Click += (_, _) => action();
         AutomationProperties.SetAutomationId(button, automationId);
@@ -281,26 +322,122 @@ internal class UninstallChoiceWindow : Window
         return button;
     }
 
-    /// <summary>
-    /// The production prose factory: one centred, wrapping 36 DIP line in its 1280 DIP box.
-    /// The <c>setupProse</c> fit class measures exactly this control.
-    /// </summary>
-    internal static TextBlock CreateProse(string text, bool strong = false, bool secondary = false, bool dim = false)
+    /// <summary>A prose line: 40 DIP (or an explicit size), left-aligned by default, wrapping in its
+    /// body box. Both windows consume it (r3 F8: the old centre-only signature could not serve B).
+    /// The plain tier renders Normal — the weight ladder below belongs to button labels, not prose.</summary>
+    internal static TextBlock CreateProse(
+        string text,
+        bool strong = false,
+        bool secondary = false,
+        bool dim = false,
+        TextAlignment alignment = TextAlignment.Left,
+        double size = SetupWindowMetrics.ProseFontSize,
+        double maxWidth = SetupWindowMetrics.BodyWidthProgress)
     {
         return new TextBlock
         {
             Text = text,
             TextWrapping = TextWrapping.Wrap,
-            TextAlignment = TextAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            MaxWidth = SetupWindowMetrics.ProseWidth,
+            TextAlignment = alignment,
+            MaxWidth = maxWidth,
             FontFamily = Tokens.FontStandard,
-            FontSize = SetupWindowMetrics.ProseFontSize,
-            FontWeight = strong ? Tokens.FontWeightStrong : Tokens.FontWeightMedium,
-            Foreground = dim
-                ? Tokens.BrushTextDim
-                : secondary ? Tokens.BrushTextSecondary : Tokens.BrushTextPrimary,
+            FontSize = size,
+            FontWeight = strong ? Tokens.FontWeightStrong
+                : dim || secondary ? Tokens.FontWeightMedium
+                : FontWeights.Normal,
+            Foreground = dim ? Tokens.BrushTextDim
+                : secondary ? Tokens.BrushTextSecondary
+                : Tokens.BrushTextPrimary,
             Margin = new Thickness(0, 0, 0, 12),
+        };
+    }
+
+    /// <summary>The band/choice title and result-body text: 44 bold, TextPrimary, wrapping.</summary>
+    internal static TextBlock CreateTitle(string text) => new()
+    {
+        Text = text,
+        FontSize = SetupWindowMetrics.TitleFontSize,
+        FontWeight = Tokens.FontWeightStrong,
+        Foreground = Tokens.BrushTextPrimary,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    /// <summary>A stage-row label: 36 semibold, pending-dim base colour (the window paints states).</summary>
+    internal static TextBlock CreateStageLabel(string text) => new()
+    {
+        Text = text,
+        FontSize = SetupWindowMetrics.StageFontSize,
+        FontWeight = Tokens.FontWeightMedium,
+        Foreground = Tokens.BrushTextDim,
+    };
+
+    /// <summary>The full-bleed band: app mark, confirm alert and the screen title on the opaque
+    /// SurfaceMedium ground (r3 F7/D8). The mark collapses and the alert shows once the confirm
+    /// screen opens.</summary>
+    private Border BuildBand()
+    {
+        _bandMark = new System.Windows.Controls.Image
+        {
+            Width = SetupWindowMetrics.BandIconSize,
+            Height = SetupWindowMetrics.BandIconSize,
+            Source = SetupProgressWindow.LoadAppIcon(),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _bandAlert = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M12 3.5 L21.2 19.8 L2.8 19.8 Z M12 9.6 L12 14.2 M12 17.2 L12 17.3"),
+            Stroke = Tokens.BrushAccentDanger,
+            StrokeThickness = 1.7,
+            Width = 24,
+            Height = 24,
+            Stretch = Stretch.None,
+            LayoutTransform = new ScaleTransform(44 / 24.0, 44 / 24.0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed,
+        };
+        _bandTitle = UninstallChoiceWindow.CreateTitle(_strings.T("uninstall.choice.title"));
+        _bandTitle.VerticalAlignment = VerticalAlignment.Center;
+        _bandTitle.Margin = new Thickness(22, 0, 0, 0);
+
+        // r3 F14 in BOTH windows: the two-column Grid lets the title wrap (r4 finding 10 — the
+        // choice band was still a StackPanel). Confirm-screen centring centres the Grid itself.
+        _bandGrid = new Grid();
+        _bandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _bandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        // r5 finding 2: the TITLE column is Star, not Auto — an Auto column measures the title with
+        // unlimited width, so TextWrapping never applies and the setupTitle fit test would measure a
+        // layout that doesn't ship. Under the confirm screen's Center alignment the Grid is measured
+        // against the band's finite width (wrapping applies) and arranged at its content width.
+        _bandGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(_bandMark, 0);
+        Grid.SetColumn(_bandAlert, 1);
+        Grid.SetColumn(_bandTitle, 2);
+        _bandGrid.Children.Add(_bandMark);
+        _bandGrid.Children.Add(_bandAlert);
+        _bandGrid.Children.Add(_bandTitle);
+        return new Border
+        {
+            Background = SetupBrushes.Opaque(Tokens.SurfaceMedium),
+            Padding = new Thickness(88, 22, 88, 22),
+            MinHeight = 132,
+            Child = _bandGrid,
+        };
+    }
+
+    private Border BuildBody()
+    {
+        _screen1 = BuildScreen(confirm: false);
+        _screen2 = BuildScreen(confirm: true);
+        var host = new Grid();
+        host.Children.Add(_screen1);
+        host.Children.Add(_screen2);
+        return new Border
+        {
+            Background = SetupBrushes.Opaque(Tokens.SurfaceDark),
+            // r3 finding: the SIDE padding stays 32 so the 1500-DIP row fits exactly; the prose
+            // keeps its 88-DIP inset via its container below. Bottom 32 + the row's 48 = H-80.
+            Padding = new Thickness(32, 0, 32, 32),
+            Child = host,
         };
     }
 
@@ -310,25 +447,48 @@ internal class UninstallChoiceWindow : Window
         screen.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         screen.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var prose = new StackPanel
-        {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top,
-            MaxWidth = SetupWindowMetrics.ProseWidth,
-            Margin = new Thickness(0, 24, 0, 0),
-        };
+        // r3 F10: the prose container is rebuilt per screen. Screen 1 keeps the band's 88-DIP line
+        // start (32 body padding + 56) with the full BodyWidthChoice; screen 2 stays centred
+        // (SD2/SD9 — nothing anchors over the danger column).
+        var prose = confirm
+            ? new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                MaxWidth = SetupWindowMetrics.BodyWidthChoice,
+                Margin = new Thickness(0, 24, 0, 0),
+            }
+            : new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                MaxWidth = SetupWindowMetrics.BodyWidthChoice,
+                Margin = new Thickness(56, 24, 0, 0),
+            };
 
         if (confirm)
         {
-            prose.Children.Add(CreateProse(_strings.T("uninstall.confirmDelete.title"), strong: true));
-            prose.Children.Add(CreateProse(_strings.T("uninstall.confirmDelete.detail"), secondary: true));
+            // The band carries the title (D8); the screen keeps its detail prose, centred (SD2).
+            _prose2 = CreateProse(
+                _strings.T("uninstall.confirmDelete.detail"), secondary: true,
+                alignment: TextAlignment.Center, maxWidth: SetupWindowMetrics.BodyWidthChoice);
+            prose.Children.Add(_prose2);
         }
         else
         {
-            prose.Children.Add(CreateProse(_strings.T("uninstall.choice.title"), strong: true));
-            prose.Children.Add(CreateProse(_strings.T("uninstall.choice.question")));
-            prose.Children.Add(CreateProse(_strings.T("uninstall.choice.detail"), secondary: true));
-            prose.Children.Add(CreateProse(_strings.T("uninstall.choice.noChoice"), dim: true));
+            // The band carries the title (D8); the question renders primary at Normal weight
+            // (r4 finding 7) in the full BodyWidthChoice box.
+            _prose1 = CreateProse(
+                _strings.T("uninstall.choice.question"), maxWidth: SetupWindowMetrics.BodyWidthChoice);
+            prose.Children.Add(_prose1);
+            // r6 minor: every choice-window prose line wraps in the BodyWidthChoice box (spec §6) —
+            // the detail kept the progress-window default (1168) until this fix.
+            prose.Children.Add(CreateProse(
+                _strings.T("uninstall.choice.detail"), secondary: true,
+                maxWidth: SetupWindowMetrics.BodyWidthChoice));
+            prose.Children.Add(CreateProse(
+                _strings.T("uninstall.choice.noChoice"), dim: true,
+                size: SetupWindowMetrics.DimFontSize, maxWidth: SetupWindowMetrics.BodyWidthChoice));
         }
 
         Grid.SetRow(prose, 0);
@@ -483,7 +643,12 @@ internal class UninstallChoiceWindow : Window
         _showingConfirm = true;
         _screen1.Visibility = Visibility.Collapsed;
         _screen2.Visibility = Visibility.Visible;
-        Title = _strings.T("uninstall.confirmDelete.title");
+        _bandAlert!.Visibility = Visibility.Visible;
+        _bandMark!.Visibility = Visibility.Collapsed;
+        _bandTitle.Text = _strings.T("uninstall.confirmDelete.title");
+        Title = _bandTitle.Text;
+        _band.Background = SetupBrushes.DangerTint();
+        _bandGrid.HorizontalAlignment = HorizontalAlignment.Center;
         ArmDwellTargets();
     }
 

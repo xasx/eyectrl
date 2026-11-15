@@ -19,15 +19,45 @@ public static class SetupWindowMetrics
     public const double ChoiceGap = 120;
 
     /// <summary>The choice buttons' text size (the floor is 28 DIP).</summary>
-    public const double ChoiceFontSize = 28;
+    public const double ChoiceFontSize = 32;
 
     /// <summary>The prose size on every Setup screen (the floor is 36 DIP).</summary>
-    public const double ProseFontSize = 36;
+    public const double ProseFontSize = 40;
 
-    /// <summary>The prose box's width; the fit class measures every text here.</summary>
+    /// <summary>The band/choice title and result-body text (spec r4 SD3).</summary>
+    public const double TitleFontSize = 44;
+
+    /// <summary>The stage-row label (the 36 DIP floor; SD3).</summary>
+    public const double StageFontSize = 36;
+
+    /// <summary>The dim hint line — stays at the 36 DIP floor (SD3).</summary>
+    public const double DimFontSize = 36;
+
+    /// <summary>The state icon on a result body (D8 composition).</summary>
+    public const double ResultIconSize = 64;
+
+    /// <summary>The app mark inside a band.</summary>
+    public const double BandIconSize = 52;
+
+    /// <summary>The progress body's content width: window 1344 less 2 × 88 padding.</summary>
+    public const double BodyWidthProgress = 1168;
+
+    /// <summary>The choice PROSE width: window 1564 less the band's 2 × 88 inset.</summary>
+    public const double BodyWidthChoice = 1388;
+
+    /// <summary>The narrowest title box: progress band 1344 − padding 176 − mark 52 − gap 22.</summary>
+    public const double TitleFitWidth = 1094;
+
+    /// <summary>The title's fit height on a result body: 806.4 − edge 6 − band 132 − padding 64/48
+    /// − icon 64 − gap 24 (mockup paddings; derived, not guessed).</summary>
+    public const double TitleFitHeight = 468;
+
+    /// <summary>The legacy prose box's width — no fit class measures here any more; it only
+    /// floors <see cref="ProgressBounds"/>' minimum width (PR-review nit 2).</summary>
     public const double ProseWidth = 1280;
 
-    /// <summary>The prose box's height; four lines at 36 DIP fit with room.</summary>
+    /// <summary>The prose fit box's height — the fit test caps the wrapped prose height here
+    /// (40 DIP text over up to four lines).</summary>
     public const double ProseHeight = 384;
 
     /// <summary>The window's outer margin.</summary>

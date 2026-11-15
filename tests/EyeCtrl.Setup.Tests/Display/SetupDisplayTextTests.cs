@@ -136,20 +136,24 @@ public class SetupDisplayTextTests
     }
 
     [Fact]
-    public void Degraded_IsAFailure_AndRolledBackToo()
+    public void States_FollowQ12_CancelledIsNeutral()
     {
-        Check.That(SetupDisplayText.IsFailure(SetupOutcome.Degraded)).IsTrue();
-        Check.That(SetupDisplayText.IsFailure(SetupOutcome.RolledBack)).IsTrue();
-        Check.That(SetupDisplayText.IsFailure(SetupOutcome.Cancelled)).IsFalse();
-        Check.That(SetupDisplayText.IsFailure(SetupOutcome.Ok)).IsFalse();
-        Check.That(SetupDisplayText.IsFailure(SetupOutcome.Uninstalled)).IsFalse();
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.Degraded)).IsEqualTo(SetupDisplayState.Failure);
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.RolledBack)).IsEqualTo(SetupDisplayState.Failure);
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.Blocked)).IsEqualTo(SetupDisplayState.Failure);
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.VerifyFailed)).IsEqualTo(SetupDisplayState.Failure);
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.Cancelled)).IsEqualTo(SetupDisplayState.Neutral);
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.Ok)).IsEqualTo(SetupDisplayState.Success);
+        Check.That(SetupDisplayText.StateFor(SetupOutcome.Uninstalled)).IsEqualTo(SetupDisplayState.Success);
     }
 
     [Fact]
-    public void CloseDelays_AreTenSecondsForSuccess_AndSixtyForFailure()
+    public void CloseDelays_AreTenSecondsForSuccessAndNeutral_SixtyForFailure()
     {
-        Check.That(SetupDisplayText.CloseDelayFor(isFailure: false)).IsEqualTo(TimeSpan.FromSeconds(10));
-        Check.That(SetupDisplayText.CloseDelayFor(isFailure: true)).IsEqualTo(TimeSpan.FromSeconds(60));
+        Check.That(SetupDisplayText.CloseDelayFor(SetupDisplayState.Success)).IsEqualTo(TimeSpan.FromSeconds(10));
+        Check.That(SetupDisplayText.CloseDelayFor(SetupDisplayState.Neutral)).IsEqualTo(TimeSpan.FromSeconds(10));
+        Check.That(SetupDisplayText.CloseDelayFor(SetupDisplayState.Failure)).IsEqualTo(TimeSpan.FromSeconds(60));
+        // The outcome-based overload derives through StateFor — Cancelled keeps its 10 s (FC5).
         Check.That(SetupDisplayText.CloseDelay(SetupOutcome.Ok)).IsEqualTo(TimeSpan.FromSeconds(10));
         Check.That(SetupDisplayText.CloseDelay(SetupOutcome.Uninstalled)).IsEqualTo(TimeSpan.FromSeconds(10));
         Check.That(SetupDisplayText.CloseDelay(SetupOutcome.Cancelled)).IsEqualTo(TimeSpan.FromSeconds(10));
@@ -171,7 +175,7 @@ public class SetupDisplayTextTests
 
         var mapped = SetupDisplayText.Result(English, result, AppData);
 
-        Check.That(mapped.IsFailure).IsTrue();
+        Check.That(mapped.State).IsEqualTo(SetupDisplayState.Failure);
         Check.That(mapped.Text).IsEqualTo(English.T("update.result.degraded", "3.4.5"));
         Check.That(mapped.Text).Contains("3.4.5");
         Check.That(mapped.Text).Not.Contains("2.0.0");
@@ -216,6 +220,6 @@ public class SetupDisplayTextTests
 
         Check.WithCustomMessage($"{verb}/{outcome} ({detail}) mapped to '{mapped.Text}', expected '{expected}'.")
             .That(mapped.Text).IsEqualTo(expected);
-        Check.That(mapped.IsFailure).IsEqualTo(SetupDisplayText.IsFailure(outcome));
+        Check.That(mapped.State).IsEqualTo(SetupDisplayText.StateFor(outcome));
     }
 }

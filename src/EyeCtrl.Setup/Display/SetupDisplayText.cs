@@ -2,10 +2,15 @@ namespace EyeCtrl.Setup.Display;
 
 using EyeCtrl.Core.Localization;
 
-/// <summary>One result screen's text and whether it reads as a failure (60 s) or a success (10 s).</summary>
-/// <param name="Text">The resolved, formatted text.</param>
-/// <param name="IsFailure">True for every outcome that is not a completed success.</param>
-public readonly record struct SetupDisplayResult(string Text, bool IsFailure);
+/// <summary>The visual state a result screen renders (r4 SD4): Success (bare check, AccentSuccess),
+/// Failure incl. Degraded/Blocked (alert, AccentDanger — Q12), Neutral (Cancelled only — dim dash;
+/// HandedOff never reaches a display, SetupWorkflow.cs:623-627).</summary>
+public enum SetupDisplayState { Success, Failure, Neutral }
+
+/// <summary>One result screen's text and state. State is the single source of truth — the old
+/// IsFailure flag is removed (r3 T5): a defaulted flag next to State gave two answers, and a
+/// Success default would have painted a check onto a VerifyFailed screen.</summary>
+public readonly record struct SetupDisplayResult(string Text, SetupDisplayState State);
 
 /// <summary>
 /// The pure mapping from a verb and a <see cref="SetupResult"/> to the strings S6e shows. Kept out
@@ -54,7 +59,7 @@ public static class SetupDisplayText
         _ => string.Empty,
     };
 
-    /// <summary>Maps a terminal result to its text and its success/failure reading.</summary>
+    /// <summary>Maps a terminal result to its text and its display state.</summary>
     /// <param name="strings">The resolved table.</param>
     /// <param name="result">The verb's terminal result.</param>
     /// <param name="appDataRoot">The folder named by <c>uninstall.done.deleteIncomplete</c>.</param>
@@ -67,28 +72,24 @@ public static class SetupDisplayText
             _ => UpdateText(strings, result),
         };
 
-        return new SetupDisplayResult(text, IsFailure(result.Outcome));
+        return new SetupDisplayResult(text, StateFor(result.Outcome));
     }
 
-    /// <summary>
-    /// True for every outcome that is not a completed, working success. <see cref="SetupOutcome.Degraded"/>
-    /// is a failure by owner decision Q12 (the previous version runs, but without UIAccess), and
-    /// <see cref="SetupOutcome.RolledBack"/> is the update's failure path — the previous version is
-    /// healthy, but the update did not work. A cancel is not a failure: nothing changed.
-    /// </summary>
-    public static bool IsFailure(SetupOutcome outcome) => outcome switch
+    /// <summary>The state an outcome renders as: Ok/Repaired/Uninstalled succeed, Cancelled is
+    /// neutral, everything else — Degraded and Blocked included — is a failure (Q12).</summary>
+    public static SetupDisplayState StateFor(SetupOutcome outcome) => outcome switch
     {
-        SetupOutcome.Ok or SetupOutcome.Uninstalled or SetupOutcome.Repaired or SetupOutcome.Cancelled
-            or SetupOutcome.HandedOff => false,
-        _ => true,
+        SetupOutcome.Ok or SetupOutcome.Repaired or SetupOutcome.Uninstalled => SetupDisplayState.Success,
+        SetupOutcome.Cancelled => SetupDisplayState.Neutral,
+        _ => SetupDisplayState.Failure,
     };
 
-    /// <summary>The self-close delay for an outcome.</summary>
-    public static TimeSpan CloseDelay(SetupOutcome outcome) => CloseDelayFor(IsFailure(outcome));
+    /// <summary>The self-close delay for a state: Failure 60 s (Q12), else 10 s.</summary>
+    public static TimeSpan CloseDelayFor(SetupDisplayState state) =>
+        state == SetupDisplayState.Failure ? FailureCloseDelay : SuccessCloseDelay;
 
-    /// <summary>The self-close delay for a success/failure reading.</summary>
-    public static TimeSpan CloseDelayFor(bool isFailure) =>
-        isFailure ? FailureCloseDelay : SuccessCloseDelay;
+    /// <summary>The self-close delay for an outcome (kept for the outcome-based callers).</summary>
+    public static TimeSpan CloseDelay(SetupOutcome outcome) => CloseDelayFor(StateFor(outcome));
 
     private static string UninstallText(StringTable strings, SetupResult result, string appDataRoot)
     {

@@ -149,6 +149,13 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+    // The non-blocking twin: posts the request and returns WITHOUT waiting for the target's thread
+    // to process it. "Show desktop" minimises a whole set of windows on the UI (gaze-dwell) thread,
+    // where one unresponsive window must not freeze the owner's control.
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
     [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);

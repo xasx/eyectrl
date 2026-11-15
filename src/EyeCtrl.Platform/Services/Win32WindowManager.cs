@@ -256,6 +256,19 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     }
 
     /// <inheritdoc />
+    public void MinimizeNonBlocking(IntPtr hwnd)
+    {
+        // ShowWindowAsync, not ShowWindow: "show desktop" minimises every enumerated window from
+        // the UI thread, which is also the gaze-dwell thread. A synchronous ShowWindow waits for
+        // the target's thread to process the request, so one hung window ("Keine Rückmeldung")
+        // would freeze every overlay — including Pause — and take the owner's control away. The
+        // async form posts the request and returns; a hung target simply handles it late (or not
+        // at all), which is what a hung window can do anyway.
+        if (!NativeMethods.IsWindow(hwnd)) return;
+        NativeMethods.ShowWindowAsync(hwnd, NativeMethods.SW_MINIMIZE);
+    }
+
+    /// <inheritdoc />
     public void MaximizeOrRestore(IntPtr hwnd)
     {
         if (!NativeMethods.IsWindow(hwnd)) return;

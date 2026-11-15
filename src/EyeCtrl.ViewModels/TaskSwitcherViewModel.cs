@@ -207,7 +207,36 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         Tiles.CollectionChanged += OnTilesChanged;
     }
 
-    private void OnTilesChanged(object? sender, NotifyCollectionChangedEventArgs e) => RebuildPanelItems();
+    private void OnTilesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // Incremental mirror (fixup-01 F4): ShowOverlay adds one tile at a time and
+        // ApplyTileCapacity removes one at a time, so a full Clear+Add per change produced n^2/2
+        // collection events for the bound ItemsControl (about 2,000 at 64 windows) on the UI
+        // thread at every open. Window entries occupy PanelItems 0..Tiles.Count-1 in the same
+        // order, so an add inserts at its own index and a remove drops its item; anything else
+        // (a Reset from Tiles.Clear, a Move, a Replace) rebuilds.
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is { } added
+            && e.NewStartingIndex >= 0)
+        {
+            for (var i = 0; i < added.Count; i++)
+            {
+                PanelItems.Insert(e.NewStartingIndex + i,
+                    (TaskSwitcherTileViewModel)added[i]!);
+            }
+
+            return;
+        }
+
+        if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems is { } removed)
+        {
+            foreach (var item in removed)
+                PanelItems.Remove((TaskSwitcherTileViewModel)item!);
+
+            return;
+        }
+
+        RebuildPanelItems();
+    }
 
     /// <summary>The desktop tile's own change is a grid change: append it (or drop it) at the end.</summary>
     partial void OnDesktopTileChanged(TaskSwitcherTileViewModel? value) => RebuildPanelItems();
@@ -491,16 +520,19 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // queued on the UI dispatcher; this VM never calls IWindowManager.Minimize itself).
         if (targetId == DesktopTargetId)
         {
+            // Both outcomes carry the desktop tile's slot: the log must tell a paused look at THIS
+            // tile apart from a paused window-tile look and from a no-slot dismissal (F2). The
+            // desktop tile is the LAST panel entry (RebuildPanelItems' placement rule), so its
+            // display slot is the window count — the same convention as a window tile's index.
+            _sessionPickedTargetId = DesktopTargetId;
+            _sessionSlot = Tiles.Count;
+
             if (LastSampleWasPaused)
             {
                 _sessionOutcome = SessionOutcome.PausedDismiss;
             }
             else
             {
-                _sessionPickedTargetId = DesktopTargetId;
-                // The desktop tile is the LAST panel entry (RebuildPanelItems' placement rule), so
-                // its display slot is the window count — logged like any other pick's slot.
-                _sessionSlot = Tiles.Count;
                 _sessionOutcome = SessionOutcome.Desktop;
                 _messenger.Send(new TaskSwitcherShowDesktopMessage(_sessionMinimizeTargets.ToArray()));
             }

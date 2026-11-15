@@ -246,6 +246,30 @@ public class TaskSwitcherDesktopTileTests
     }
 
     [Fact]
+    public void PausedDesktopLook_LogsItsSlotRowAndColumn_LikeAPausedWindowTile()
+    {
+        // Fixup-01 F2: a paused window-tile look logs its slot; the paused desktop look must too,
+        // or the log cannot tell "paused look at the desktop tile" from a no-slot dismissal.
+        var capture = new Capture();
+        using var h = new Harness(Windows(1, 2), logger: capture);
+        h.Sample(Away, 0);
+        h.Open();
+        h.LayoutWindows(h.Vm.Tiles.Count);
+        h.LayoutDesktop();
+        h.Hold(Away, 30_000, 300_000);
+        h.Hold(h.DesktopFace().Center, 330_000, 3_000_000, paused: true);
+
+        Check.That(h.MinimiseRequests).IsEmpty();
+        Check.That(h.Vm.IsVisible).IsFalse();
+
+        var lines = capture.Lines;
+        Check.That(lines).HasSize(2);
+        Check.That(lines[1].StartsWith(
+            "Task switcher closed: outcome=PausedDismiss ", StringComparison.Ordinal)).IsTrue();
+        Check.That(lines[1].EndsWith(" slot=2 row=0 col=2", StringComparison.Ordinal)).IsTrue();
+    }
+
+    [Fact]
     public void DesktopOutcome_IsLoggedWithItsSlotRowAndColumn()
     {
         // T3: one new close outcome, nothing else. `tiles`/`reachable` keep counting WINDOWS;
@@ -387,6 +411,7 @@ public class TaskSwitcherDesktopTileTests
         public void BringToFront(IntPtr hwnd) { }
         public IntPtr? TryGetEligibleForegroundWindow() => Foreground;
         public void Minimize(IntPtr hwnd) { }
+        public void MinimizeNonBlocking(IntPtr hwnd) { }
         public void MaximizeOrRestore(IntPtr hwnd) { }
         public bool CloseWindow(IntPtr hwnd) => false;
     }

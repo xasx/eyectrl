@@ -450,6 +450,7 @@ public class TaskSwitcherSessionLogTests
         public void BringToFront(IntPtr hwnd) { }
         public IntPtr? TryGetEligibleForegroundWindow() => Foreground;
         public void Minimize(IntPtr hwnd) { }
+        public void MinimizeNonBlocking(IntPtr hwnd) { }
         public void MaximizeOrRestore(IntPtr hwnd) { }
         public bool CloseWindow(IntPtr hwnd) => false;
     }

@@ -697,6 +697,7 @@ public class TaskSwitcherTileStatesWindowTests
         public IntPtr? TryGetEligibleForegroundWindow() => _foreground;
 
         public void Minimize(IntPtr hwnd) { }
+        public void MinimizeNonBlocking(IntPtr hwnd) { }
 
         public void MaximizeOrRestore(IntPtr hwnd) { }
 

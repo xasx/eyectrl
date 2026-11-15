@@ -881,6 +881,7 @@ internal static class TestFakes
             return EligibleHwnd;
         }
         public void Minimize(IntPtr hwnd) => LastOp = WindowAction.Minimize;
+        public void MinimizeNonBlocking(IntPtr hwnd) => LastOp = WindowAction.Minimize;
         public void MaximizeOrRestore(IntPtr hwnd) => LastOp = WindowAction.MaximizeRestore;
         public bool CloseWindow(IntPtr hwnd) { LastOp = WindowAction.Close; return ClosePosted; }
     }

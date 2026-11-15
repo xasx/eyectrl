@@ -114,8 +114,15 @@ public sealed class SetupFitTests
         Check.That(SetupWindowMetrics.ChoiceButtonWidth).IsEqualTo(420);
         Check.That(SetupWindowMetrics.ChoiceButtonHeight).IsEqualTo(160);
         Check.That(SetupWindowMetrics.ChoiceGap).IsEqualTo(120);
-        Check.That(SetupWindowMetrics.ChoiceFontSize).IsGreaterOrEqualThan(28);
-        Check.That(SetupWindowMetrics.ProseFontSize).IsGreaterOrEqualThan(36);
+        Check.That(SetupWindowMetrics.ChoiceFontSize).IsEqualTo(32);
+        Check.That(SetupWindowMetrics.ProseFontSize).IsEqualTo(40);
+        Check.That(SetupWindowMetrics.TitleFontSize).IsEqualTo(44);
+        Check.That(SetupWindowMetrics.StageFontSize).IsEqualTo(36);
+        Check.That(SetupWindowMetrics.DimFontSize).IsEqualTo(36);
+        Check.That(SetupWindowMetrics.BodyWidthProgress).IsEqualTo(1168);
+        Check.That(SetupWindowMetrics.BodyWidthChoice).IsEqualTo(1388);
+        Check.That(SetupWindowMetrics.TitleFitWidth).IsEqualTo(1094);
+        Check.That(SetupWindowMetrics.TitleFitHeight).IsEqualTo(468);
     }
 
     private static FitVerdict MeasureButton(string key, string text)

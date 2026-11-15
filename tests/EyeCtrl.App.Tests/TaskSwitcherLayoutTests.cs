@@ -137,23 +137,82 @@ public class TaskSwitcherLayoutTests
     }
 
     [Fact]
-    public void TilesBeyondCapacity_AreNotDrawn_AndFewTilesCentreOnlyTheRowsTheyNeed()
+    public void TilesBeyondCapacity_AreNotDrawn_AndKeepTheFullBlock()
     {
-        // 64 windows: one more than the 9x7 capacity. Only the seven full rows are shown; the
-        // eighth row stays unreachable (T3 will log the overflow count).
+        // 64 windows: one more than the 9x7 capacity. Only the seven full rows are shown — the
+        // block stays the full capacity width and height, and the eighth row lies wholly below
+        // the viewport (the window's VisibleTileRect clamp gives those faces no target).
         var overflow = TaskSwitcherLayout.Compute(
             ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 112), "Top", tileCount: 64);
         Check.That(overflow.ShownRows).IsEqualTo(7);
         Check.That(overflow.Capacity).IsEqualTo(63);
-        Check.That(overflow.Block.Height).IsEqualTo(7 * TaskSwitcherLayout.CellHeight);
+        Check.That(overflow.Block).IsEqualTo(
+            new TaskSwitcherLayout.DipRect(60, 186, 1800, 840));
+    }
 
-        // Five windows: one row, centred vertically in the space between the band and the hint
-        // row (not pinned under the band).
-        var few = TaskSwitcherLayout.Compute(
-            ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 112), "Top", tileCount: 5);
-        Check.That(few.ShownRows).IsEqualTo(1);
-        Check.That(few.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(60, 546, 1800, 120));
+    [Theory]
+    [InlineData(1, 200, 120, 860, 546)]
+    [InlineData(5, 1000, 120, 460, 546)]
+    [InlineData(9, 1800, 120, 60, 546)]
+    [InlineData(10, 1800, 240, 60, 486)]
+    [InlineData(64, 1800, 840, 60, 186)]
+    public void TheBlockWrapsOnlyTheCellsTheTilesOccupy_AndStaysCentred(
+        int tileCount, double width, double height, double x, double y)
+    {
+        // Review finding 1: sizing the block to columns x 200 left a short row at the left screen
+        // edge (five tiles spanned 68..1052, centre 560). The block must wrap the shown cells and
+        // stay centred on the area (1920 wide: centre 960; area 136..1076: centre 606).
+        var layout = TaskSwitcherLayout.Compute(
+            ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 112), "Top", tileCount);
+
+        Check.That(layout.Block).IsEqualTo(new TaskSwitcherLayout.DipRect(x, y, width, height));
+        Check.That(layout.Block.X + (layout.Block.Width / 2)).IsCloseTo(960, 1e-9);
+        Check.That(layout.Block.Y + (layout.Block.Height / 2)).IsCloseTo(606, 1e-9);
+    }
+
+    [Fact]
+    public void FewTiles_AtALeftDock_AreCentredInTheAreaBesideTheBand()
+    {
+        // Left 112: area (136,40,1744,1036). A short row must centre on the available area's
+        // centre (1008), not on the screen's (960).
+        var layout = TaskSwitcherLayout.Compute(
+            ScreenWidth, ScreenHeight, Band(0, 0, 112, ScreenHeight), "Left", tileCount: 5);
+
+        Check.That(layout.Block).IsEqualTo(
+            new TaskSwitcherLayout.DipRect(508, 498, 1000, 120));
+        Check.That(layout.Block.X + (layout.Block.Width / 2)).IsCloseTo(1008, 1e-9);
+        Check.That(layout.Block.X).IsGreaterOrEqualThan(112 + TaskSwitcherLayout.ToolbarGap);
+    }
+
+    [Fact]
+    public void FewTiles_AtARightDock_AreCentredInTheAreaBesideTheBand()
+    {
+        // Right 112: area (40,40,1744,1036), centre 912.
+        var layout = TaskSwitcherLayout.Compute(
+            ScreenWidth, ScreenHeight, Band(ScreenWidth - 112, 0, 112, ScreenHeight), "Right",
+            tileCount: 5);
+
+        Check.That(layout.Block).IsEqualTo(
+            new TaskSwitcherLayout.DipRect(412, 498, 1000, 120));
+        Check.That(layout.Block.X + (layout.Block.Width / 2)).IsCloseTo(912, 1e-9);
+        Check.That(layout.Block.Right).IsLessOrEqualThan(
+            ScreenWidth - 112 - TaskSwitcherLayout.ToolbarGap);
+    }
+
+    [Fact]
+    public void FewTiles_At200Percent_UseTheSameDipBlock()
+    {
+        // Same 112 DIP band reached through the 200 % physical rect: a short row must wrap and
+        // centre identically (460,546,1000,120).
+        var physicalBand = new EyeCtrl.Core.Models.PhysicalRect(0, 0, 3840, 224);
+        var at200 = TaskSwitcherLayout.Compute(
+            ScreenWidth, ScreenHeight, TaskSwitcherLayout.ToDip(physicalBand, 2.0, 2.0), "Top", 5);
+        var at100 = TaskSwitcherLayout.Compute(
+            ScreenWidth, ScreenHeight, Band(0, 0, 1920, 112), "Top", 5);
+
+        Check.That(at200.Block).IsEqualTo(
+            new TaskSwitcherLayout.DipRect(460, 546, 1000, 120));
+        Check.That(at200.Block).IsEqualTo(at100.Block);
     }
 
     [Fact]

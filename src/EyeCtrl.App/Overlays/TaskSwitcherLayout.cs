@@ -57,7 +57,8 @@ internal static class TaskSwitcherLayout
     /// Computes the layout. <paramref name="toolbarBandDip"/> is the docked toolbar's real band in
     /// DIP (<c>null</c> when the band is floating or off screen) and <paramref name="dockedEdge"/>
     /// the edge it hugs ("Top"/"Bottom"/"Left"/"Right"). Only full rows whose cells fit inside the
-    /// area are shown, and the block of shown rows is centred in that area.
+    /// area are shown; the block the shown tiles occupy is centred in that area, in both
+    /// directions.
     ///
     /// <para>
     /// <b>Degradation.</b> A gaze-only user must never be left with a fullscreen switcher whose only
@@ -136,11 +137,18 @@ internal static class TaskSwitcherLayout
         var area = new DipRect(left, top, right - left, bottom - top);
         var columns = (int)Math.Floor(area.Width / CellWidth);
         var rows = (int)Math.Floor(area.Height / CellHeight);
-        var shownRows = columns == 0
-            ? 0
-            : Math.Min(rows, (int)Math.Ceiling(tileCount / (double)columns));
 
-        var blockWidth = columns * CellWidth;
+        // The block wraps the cells the shown tiles actually occupy, in BOTH directions. A session
+        // with fewer windows than columns must not size the viewport to the full grid width and let
+        // the WrapPanel fill it from the left: that put a five-tile row 400 DIP left of centre at
+        // 1920 (review finding 1). The same holds for the rows: a single partial row sits in the
+        // vertical middle of the area, not at its top.
+        var usedColumns = Math.Min(columns, Math.Max(0, tileCount));
+        var shownRows = usedColumns == 0
+            ? 0
+            : Math.Min(rows, (int)Math.Ceiling(tileCount / (double)usedColumns));
+
+        var blockWidth = usedColumns * CellWidth;
         var blockHeight = shownRows * CellHeight;
         var block = new DipRect(
             area.X + ((area.Width - blockWidth) / 2),

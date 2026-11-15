@@ -866,9 +866,21 @@
     "text": "Augen ausruhen",
     "src": "76d1d8e0"
   },
+  "overlays.taskSwitcher.empty": {
+    "text": "Keine offenen Fenster",
+    "src": "641fad4b"
+  },
   "overlays.taskSwitcher.hint": {
     "text": "Fenster auswählen – oder mit ✕ abbrechen",
     "src": "3a091918"
+  },
+  "overlays.taskSwitcher.minimized": {
+    "text": "Minimiert",
+    "src": "6beb4b20"
+  },
+  "overlays.taskSwitcher.overflow": {
+    "text": "+{0} weitere Fenster",
+    "src": "9d325d26"
   },
   "overlays.toolbar.keyboard": {
     "text": "Tastatur",

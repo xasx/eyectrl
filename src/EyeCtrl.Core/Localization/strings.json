@@ -1600,12 +1600,35 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.taskSwitcher.empty": {
+    "text": "No open windows",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.taskSwitcher.hint": {
     "text": "Select a window — or ✕ to cancel",
     "who": "user",
     "where": "overlays",
     "fit": "prose",
     "args": []
+  },
+  "overlays.taskSwitcher.minimized": {
+    "text": "Minimised",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.taskSwitcher.overflow": {
+    "text": "+{0} more windows",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": [
+      "count"
+    ]
   },
   "overlays.toolbar.keyboard": {
     "text": "Keyboard",

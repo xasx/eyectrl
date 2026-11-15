@@ -24,6 +24,13 @@ using Microsoft.Extensions.Logging;
 /// (ViewModels targets plain net10.0): the View (TaskSwitcherWindow) resolves icons via
 /// IAppIconProvider using each tile's ProcessId.
 /// <para>
+/// S2-B: the VM also carries the three states the tiles cannot show by their content alone — a
+/// minimised window (<see cref="TaskSwitcherTileViewModel.IsMinimized"/>, drawn as a badge),
+/// a session with no window at all (<see cref="IsEmpty"/>), and windows beyond the grid's
+/// capacity (<see cref="OverflowCount"/>). Each is display-only: none of the three is a dwell
+/// target, so the tile face and the ✕ stay the only things gaze can act on.
+/// </para>
+/// <para>
 /// T3: the VM also writes ONE content-free <c>Information</c> line per open and one per close
 /// (see <see cref="WriteOpenLineIfPending"/> / <see cref="BuildCloseLine"/>). The debate's
 /// look-time ladder is decided by the share of picks followed by a reopen within 10 s, which
@@ -97,6 +104,29 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// <summary>True while the close button's dwell is held (gaze stepped off mid-dwell): its bar dims.</summary>
     [ObservableProperty] private bool _closeDwellPaused;
 
+    /// <summary>
+    /// True when the session has no window to offer: the View shows "Keine offenen Fenster" in the
+    /// tile area instead of an empty grid. Set at the open, from the tiles the enumeration actually
+    /// produced — a bare dark screen with a hint that names nothing is the state this replaces
+    /// (more likely since S2-A leaves the foreground window out).
+    /// </summary>
+    [ObservableProperty] private bool _isEmpty;
+
+    /// <summary>
+    /// How many enumerated windows have NO tile on screen — the windows beyond the grid's capacity,
+    /// which are enumerated but unreachable. This is the same "reachable" the T3 open line counts
+    /// (<see cref="_registeredTiles"/>: tiles whose visible face got a dwell target), so the chip
+    /// and the log can never disagree about what was on screen. The View draws it as
+    /// "+N weitere Fenster" in the hint row. Zero until the View's post-layout registration pass
+    /// completes, because reachability is geometric.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOverflow))]
+    private int _overflowCount;
+
+    /// <summary>Whether any enumerated window has no tile (the overflow chip's visibility).</summary>
+    public bool HasOverflow => OverflowCount > 0;
+
     public TaskSwitcherViewModel(
         IWindowManager windowManager,
         EyeCtrlSettings settings,
@@ -140,6 +170,10 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         DwellDetector.ClearTargets();
         CloseDwellProgress = 0;
         CloseDwellPaused = false;
+        // The chip and the empty message describe THIS session's enumeration; a leftover count from
+        // the previous show would claim windows that are not there (the VM is a DI singleton).
+        OverflowCount = 0;
+        IsEmpty = false;
 
         // The landing guard: anchor the rule at the gaze that opened the switcher. The anchor is
         // invalid when the last sample was a gap — a blink at opening says nothing about where
@@ -173,11 +207,15 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
             Tiles.Add(new TaskSwitcherTileViewModel(
                 window.Hwnd, window.Title, window.ProcessId, window.ProcessName,
-                new PhysicalPoint(0, 0)));
+                new PhysicalPoint(0, 0), window.IsMinimized));
         }
 
         _sessionTileCount = Tiles.Count;
         _sessionCurrentExcluded = currentExcluded;
+        // The empty grid's message. Read here, at the open, from the list just built: a session
+        // whose only window is the foreground one (S2-A) has zero tiles and says so, rather than
+        // showing a bare screen with a hint that names nothing.
+        IsEmpty = Tiles.Count == 0;
 
         // Flip IsVisible so the EventCoordinator shows the fullscreen window. This is the
         // show trigger — the coordinator watches IsVisible. Dwell processing is harmless
@@ -206,6 +244,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // VM is a DI singleton — the next show reuses this instance, AppBootstrapper pattern).
         CloseDwellProgress = 0;
         CloseDwellPaused = false;
+        OverflowCount = 0;
+        IsEmpty = false;
 
         if (closedASession)
             EndSession();
@@ -263,7 +303,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// (<c>TaskSwitcherWindow.UpdateTilePositions</c> registers every visible tile face, then
     /// this), which is where the open line's <c>reachable</c> count is final — so this flushes
     /// it. A session that hides before any layout flushes the open line from the close path
-    /// instead (T3).
+    /// instead (T3). The overflow chip's count is final at the same moment, for the same reason,
+    /// and is read from the same <see cref="_registeredTiles"/> list.
     /// </para>
     /// </summary>
     public void UpdateCloseButtonPosition(PhysicalPoint screenCenter)
@@ -274,6 +315,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             _settings.Dwell.ToolbarButtonDwellMs));
 
         WriteOpenLineIfPending();
+        OverflowCount = Math.Max(0, _sessionTileCount - _registeredTiles.Count);
     }
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):

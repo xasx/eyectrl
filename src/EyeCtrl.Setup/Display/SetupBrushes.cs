@@ -5,8 +5,8 @@ using EyeCtrl.Controls.Theme;
 
 /// <summary>
 /// The opaque, frozen brushes Setup's screens draw with (r3 F11): every theme fill carries 0xFA
-/// alpha, and N1's opaque-surface rule (SetupProgressWindow.cs:186-192) applies to bands, edges
-/// and tints alike. One definition per compilation unit — Tasks 5, 6, 7 and 8 consume these.
+/// alpha, and N1's opaque-surface rule (<see cref="Opaque"/>) applies to bands, edges and tints
+/// alike. One definition per compilation unit — Tasks 5, 6, 7 and 8 consume these.
 /// </summary>
 internal static class SetupBrushes
 {

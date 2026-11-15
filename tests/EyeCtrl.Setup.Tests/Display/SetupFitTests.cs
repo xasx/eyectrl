@@ -223,6 +223,9 @@ public sealed class SetupFitTests
             var manyWords = string.Join(" ", Enumerable.Repeat("Wwww", 2000));    // wrapped-height path
 
             Check.That(MeasureButton("fit.probe", singleWord).Fits).IsFalse();
+            // r6 minor: the base suite also probed the BUTTON with the wrapped-height path —
+            // restored so a wrapping regression in the 420×160 room maths cannot slip through.
+            Check.That(MeasureButton("fit.probe", manyWords).Fits).IsFalse();
             Check.That(MeasureProse(ProbeItem("setupProse", singleWord)).Fits).IsFalse();
             Check.That(MeasureProse(ProbeItem("setupProse", manyWords)).Fits).IsFalse();
             Check.That(MeasureTitle(ProbeItem("setupTitle", singleWord)).Fits).IsFalse();

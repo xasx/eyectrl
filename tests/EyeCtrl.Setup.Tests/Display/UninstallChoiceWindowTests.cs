@@ -167,6 +167,18 @@ public sealed class UninstallChoiceWindowTests
                 presenter!.ApplyTemplate();
                 Check.WithCustomMessage("The presenter does not carry the button's content.")
                     .That(ReferenceEquals(presenter.Content, button.Content)).IsTrue();
+
+                // r6 minor: the named parts must BIND the button's face values (TemplateBinding) —
+                // a hard-coded border would freeze the anatomy against the kind switch.
+                var namedBorder = border!;
+                Check.WithCustomMessage("The template border does not carry the button's background.")
+                    .That(ReferenceEquals(namedBorder.Background, button.Background)).IsTrue();
+                Check.WithCustomMessage("The template border does not carry the button's border brush.")
+                    .That(ReferenceEquals(namedBorder.BorderBrush, button.BorderBrush)).IsTrue();
+                Check.WithCustomMessage("The template border does not carry the button's border thickness.")
+                    .That(namedBorder.BorderThickness).IsEqualTo(button.BorderThickness);
+                Check.WithCustomMessage("The template border does not carry the button's padding.")
+                    .That(namedBorder.Padding).IsEqualTo(button.Padding);
             }
         });
     }

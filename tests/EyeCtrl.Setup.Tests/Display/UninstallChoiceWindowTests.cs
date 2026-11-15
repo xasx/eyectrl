@@ -8,6 +8,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Sdk.Abstractions;
 using EyeCtrl.Sdk.Wpf;
@@ -135,6 +137,62 @@ public sealed class UninstallChoiceWindowTests
                 .IsEqualTo(English.T("uninstall.confirmDelete.no"));
             Check.That(((TextBlock)window.ConfirmDeleteButton.Content).Text)
                 .IsEqualTo(English.T("uninstall.confirmDelete.yes"));
+        });
+    }
+
+    [Fact]
+    public void ChoiceButtons_UseAnExplicitTemplate_WithNoHoverTriggers()
+    {
+        // r2 F2 (High): the Aero2 hover replaces fills under the gaze while the click-through
+        // overlay sweeps on top. The template must carry the visuals and must not react to the
+        // mouse. The named border/presenter are asserted by reference, not by re-parsing XAML
+        // (r3 F18); the presenter's content is checked after ITS template applied (r4 finding 8:
+        // ApplyTemplate on the button alone leaves the presenter's content null).
+        WithWindow(window =>
+        {
+            foreach (var button in new[] { window.KeepButton, window.CancelButton, window.DeleteButton })
+            {
+                button.ApplyTemplate();
+                Check.That(button.Template is not null).IsTrue();
+                Check.WithCustomMessage("A choice button template carries hover/pressed triggers.")
+                    .That(button.Template.Triggers.Count).IsEqualTo(0);
+
+                var border = button.Template.FindName("TemplateBorder", button) as Border;
+                Check.WithCustomMessage("The template has no named border to carry the visuals.")
+                    .That(border).IsNotNull();
+                var presenter = button.Template.FindName("Presenter", button) as ContentPresenter;
+                Check.WithCustomMessage("The template has no content presenter.")
+                    .That(presenter).IsNotNull();
+
+                presenter!.ApplyTemplate();
+                Check.WithCustomMessage("The presenter does not carry the button's content.")
+                    .That(ReferenceEquals(presenter.Content, button.Content)).IsTrue();
+            }
+        });
+    }
+
+    [Fact]
+    public void ChoiceButtonFaces_FollowSD8_OutlinedNotFilled()
+    {
+        WithWindow(window =>
+        {
+            var primary = (SolidColorBrush)window.KeepButton.Background;
+            var quiet = (SolidColorBrush)window.CancelButton.Background;
+            var danger = (SolidColorBrush)window.ConfirmDeleteButton.Background;
+            Check.That(primary.Color).IsEqualTo(SetupBrushes.OpaqueColor(Tokens.SurfaceLight));
+            Check.That(quiet.Color).IsEqualTo(SetupBrushes.OpaqueColor(Tokens.SurfaceMedium));
+            Check.That(danger.Color).IsEqualTo(SetupBrushes.OpaqueColor(Tokens.SurfaceMedium));
+            Check.WithCustomMessage("The danger button must carry a danger-coloured border.")
+                .That(((SolidColorBrush)window.ConfirmDeleteButton.BorderBrush).Color)
+                .IsEqualTo(Tokens.AccentDanger);
+
+            // r3 F10: the weights live on the inner TextBlock (the Button only forwards the font).
+            Check.That(((TextBlock)window.KeepButton.Content).FontWeight)
+                .IsEqualTo(System.Windows.FontWeights.Bold);
+            Check.That(((TextBlock)window.CancelButton.Content).FontWeight)
+                .IsEqualTo(System.Windows.FontWeights.Normal);
+            Check.That(((TextBlock)window.ConfirmDeleteButton.Content).FontWeight)
+                .IsEqualTo(Tokens.FontWeightMedium);
         });
     }
 

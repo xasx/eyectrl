@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
@@ -229,16 +230,21 @@ internal class UninstallChoiceWindow : Window
     /// <summary>
     /// The production button factory. Also used by the fit class, so the measured control is the
     /// button the window draws: 420 x 160 DIP, 28 DIP wrapping text, theme tokens, and the SDK's
-    /// Invoke-mode dwell.
+    /// Invoke-mode dwell. SD8 anatomy: an outlined (not filled) face — light surfaces with a
+    /// subtle border, the danger face outlined in AccentDanger — and an explicit, trigger-free
+    /// template so the Aero2 hover never replaces the fills under the gaze (r2 F2).
     /// </summary>
     internal static Button CreateChoiceButton(
         string label, ButtonKind kind, string automationId, Action action)
     {
-        var (background, foreground, weight) = kind switch
+        var (background, foreground, border, weight) = kind switch
         {
-            ButtonKind.Primary => (Tokens.BrushAccent, Tokens.BrushSurfaceDark, Tokens.FontWeightStrong),
-            ButtonKind.Danger => (Tokens.BrushAccentDanger, Tokens.BrushSurfaceDark, Tokens.FontWeightMedium),
-            _ => (Tokens.BrushSurfaceMedium, Tokens.BrushTextPrimary, Tokens.FontWeightMedium),
+            ButtonKind.Primary => (SetupBrushes.Opaque(Tokens.SurfaceLight), Tokens.BrushTextPrimary,
+                Tokens.BrushBorderSubtle, Tokens.FontWeightStrong),
+            ButtonKind.Danger => (SetupBrushes.Opaque(Tokens.SurfaceMedium), Tokens.BrushAccentDanger,
+                Tokens.BrushAccentDanger, Tokens.FontWeightMedium),
+            _ => (SetupBrushes.Opaque(Tokens.SurfaceMedium), Tokens.BrushTextPrimary,
+                Tokens.BrushBorderSubtle, FontWeights.Normal),
         };
 
         var text = new TextBlock
@@ -258,17 +264,41 @@ internal class UninstallChoiceWindow : Window
             Width = SetupWindowMetrics.ChoiceButtonWidth,
             Height = SetupWindowMetrics.ChoiceButtonHeight,
             Padding = new Thickness(16),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             Background = background,
             Foreground = foreground,
-            BorderBrush = Tokens.BrushBorderSubtle,
+            BorderBrush = border,
             BorderThickness = new Thickness(Tokens.Current.BorderThicknessStandard),
             FontFamily = Tokens.FontStandard,
             FontSize = SetupWindowMetrics.ChoiceFontSize,
-            Cursor = Cursors.Hand,
+            FocusVisualStyle = null,
             UseLayoutRounding = true,
+            Cursor = Cursors.Hand,
         };
+
+        // r2 F2: an explicit template — the Aero2 hover must never replace the fills under the gaze.
+        // r3 F9: FrameworkElementFactory keeps FC8's no-XAML rule; SetValue carries the
+        // TemplateBindingExtension (SetBinding needs a BindingBase and would not compile).
+        var borderFactory = new FrameworkElementFactory(typeof(Border)) { Name = "TemplateBorder" };
+        borderFactory.SetValue(Border.BackgroundProperty,
+            new TemplateBindingExtension(Button.BackgroundProperty));
+        borderFactory.SetValue(Border.BorderBrushProperty,
+            new TemplateBindingExtension(Button.BorderBrushProperty));
+        borderFactory.SetValue(Border.BorderThicknessProperty,
+            new TemplateBindingExtension(Button.BorderThicknessProperty));
+        borderFactory.SetValue(Border.PaddingProperty,
+            new TemplateBindingExtension(Button.PaddingProperty));
+        borderFactory.SetValue(Border.CornerRadiusProperty,
+            new CornerRadius(Tokens.Current.CornerRadiusSmall));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter)) { Name = "Presenter" };
+        presenter.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+        presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty,
+            new TemplateBindingExtension(Button.HorizontalContentAlignmentProperty));
+        presenter.SetValue(FrameworkElement.VerticalAlignmentProperty,
+            new TemplateBindingExtension(Button.VerticalContentAlignmentProperty));
+        borderFactory.AppendChild(presenter);
+        button.Template = new ControlTemplate(typeof(Button)) { VisualTree = borderFactory };
 
         button.Click += (_, _) => action();
         AutomationProperties.SetAutomationId(button, automationId);

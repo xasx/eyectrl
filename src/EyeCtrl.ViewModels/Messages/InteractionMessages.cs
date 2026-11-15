@@ -380,9 +380,9 @@ public record TaskSwitcherSelectionMessage(IntPtr Hwnd);
 /// away the owner's only control.
 /// </summary>
 /// <param name="Hwnds">
-/// The windows this session enumerated, the left-out foreground window included and EyeCtrl's own
-/// process excluded. A snapshot taken at the open, so the action cannot touch a window that
-/// appeared after the owner saw the grid.
+/// The windows this session enumerated — the left-out foreground window included, EyeCtrl's own
+/// process and any window the enumeration filtered out excluded. A snapshot taken at the open, so
+/// the action cannot touch a window that appeared after the owner saw the grid.
 /// </param>
 public record TaskSwitcherShowDesktopMessage(IReadOnlyList<IntPtr> Hwnds);
 

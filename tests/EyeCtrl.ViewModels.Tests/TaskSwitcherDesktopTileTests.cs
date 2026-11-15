@@ -161,6 +161,25 @@ public class TaskSwitcherDesktopTileTests
     }
 
     [Fact]
+    public void DwellingTheDesktopTile_NeverMinimisesAForegroundTheEnumerationDidNotReturn()
+    {
+        // The action only touches windows the owner was shown or knowingly left out. A foreground
+        // the enumeration filtered out (a title-less window, an owned dialog such as "Save as", an
+        // odd shell) is not in the session's list and must not be minimised — the left-out current
+        // window qualifies only when the enumeration actually returned it.
+        using var h = new Harness(Windows(2, 3), foreground: new IntPtr(99));
+
+        h.Open();
+        h.LayoutWindows(h.Vm.Tiles.Count);
+        h.LayoutDesktop();
+        h.Dwell(h.DesktopFace());
+
+        Check.That(h.MinimiseRequests).HasSize(1);
+        Check.That(h.MinimiseRequests[0]).ContainsExactly(new IntPtr(2), new IntPtr(3));
+        Check.That(h.MinimiseRequests[0].Contains(new IntPtr(99))).IsFalse();
+    }
+
+    [Fact]
     public void DwellingTheDesktopTile_NeverMinimisesAnEyeCtrlOwnedWindow()
     {
         // Defensive: the enumeration already excludes the overlays (WS_EX_TOOLWINDOW), but a

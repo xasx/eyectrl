@@ -135,8 +135,10 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// <summary>
     /// The session's "show desktop" work: every window the enumeration returned (the current
     /// window included — it is left out of the TILES, not out of the action), minus EyeCtrl's own
-    /// process. Captured at the open, so the action can never touch a window that appeared after
-    /// the owner saw the grid. Empty for a session with no desktop tile.
+    /// process. A foreground the enumeration filtered out is NOT in it: the action only touches
+    /// windows the owner was shown or knowingly left out. Captured at the open, so the action can
+    /// never touch a window that appeared after the owner saw the grid. Empty for a session with
+    /// no desktop tile.
     /// </summary>
     private readonly List<IntPtr> _sessionMinimizeTargets = new();
 
@@ -306,11 +308,14 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         var currentWindow = _windowManager.TryGetEligibleForegroundWindow();
         var currentExcluded = false;
 
-        // S3-A: the "Show desktop" set is a snapshot of THIS enumeration. The current window is
-        // part of it — S2-A leaves that window out of the TILES, not out of "show desktop" — and
-        // EyeCtrl's own process is skipped defensively: the enumeration already excludes the
-        // overlays (WS_EX_TOOLWINDOW), but minimising any EyeCtrl surface would take away the
-        // owner's only control, so it must be impossible here too.
+        // S3-A: the "Show desktop" set is a snapshot of THIS enumeration — and ONLY of it. The
+        // current window is part of it when the enumeration returned it (S2-A leaves that window
+        // out of the TILES, not out of "show desktop"); a foreground the enumeration filtered out
+        // (a title-less window, an owned dialog such as "Save as", an odd shell) is never added:
+        // the action only touches windows the owner was shown or knowingly left out. EyeCtrl's own
+        // process is skipped defensively too — the enumeration already excludes the overlays
+        // (WS_EX_TOOLWINDOW), but minimising any EyeCtrl surface would take away the owner's only
+        // control, so it must be impossible here as well.
         foreach (var window in _windowManager.EnumerateOpenWindows())
         {
             if (window.ProcessId != OwnProcessId)
@@ -325,16 +330,6 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
             Tiles.Add(new TaskSwitcherTileViewModel(
                 window.Hwnd, window.Title, window.ProcessId, window.ProcessName,
                 new PhysicalPoint(0, 0), window.IsMinimized));
-        }
-
-        // An eligible foreground that the enumeration filtered out (a title-less window, say) is
-        // still what the owner is looking at, so "show desktop" covers it as well. In production
-        // TryGetEligibleForegroundWindow already rejects this process, the shell and every dead
-        // handle; the contains check keeps the list duplicate-free.
-        if (currentWindow is { } foreground && foreground != IntPtr.Zero
-            && !_sessionMinimizeTargets.Contains(foreground))
-        {
-            _sessionMinimizeTargets.Add(foreground);
         }
 
         _sessionTileCount = Tiles.Count;

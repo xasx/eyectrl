@@ -144,10 +144,12 @@ internal sealed class SetupProgressWindow : Window
     internal void ShowResult(SetupDisplayResult result)
     {
         _title.Text = result.Text;
-        _title.Foreground = result.IsFailure ? Tokens.BrushAccentDanger : Tokens.BrushTextPrimary;
+        _title.Foreground = result.State == SetupDisplayState.Failure
+            ? Tokens.BrushAccentDanger
+            : Tokens.BrushTextPrimary;
         _detail.Text = string.Empty;
         _stage.Text = string.Empty;
-        ScheduleClose(SetupDisplayText.CloseDelayFor(result.IsFailure));
+        ScheduleClose(SetupDisplayText.CloseDelayFor(result.State));
     }
 
     /// <summary>Arms the self-close for <paramref name="delay"/>.</summary>

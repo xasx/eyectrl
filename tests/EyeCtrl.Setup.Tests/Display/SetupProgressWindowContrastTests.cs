@@ -72,7 +72,7 @@ public sealed class SetupProgressWindowContrastTests
                                 $"{theme.Name}: the detail contrast is {detailContrast:0.00}:1, below {MinimumDetailContrast}.")
                             .That(detailContrast).IsGreaterOrEqualThan(MinimumDetailContrast);
 
-                        window.ShowResult(new SetupDisplayResult("failure", IsFailure: true));
+                        window.ShowResult(new SetupDisplayResult("failure", SetupDisplayState.Failure));
                         var failureTitle = (SolidColorBrush)title.Foreground;
                         Check.That(failureTitle.Color).IsEqualTo(theme.AccentDanger);
                         var failureContrast = Contrast(theme.AccentDanger, background.Color);

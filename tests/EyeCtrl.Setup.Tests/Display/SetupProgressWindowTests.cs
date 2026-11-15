@@ -203,6 +203,20 @@ public sealed class SetupProgressWindowTests
     }
 
     [Fact]
+    public void TheAppMark_DecodesTheLargestIcoFrame_NotFrameZero()
+    {
+        // r1 F11: BitmapImage decodes frame 0 of eyectrl.ico, which is 16x16 — blurred at 52-60 DIP
+        // on the 200 % display. The band mark must decode the 256-px frame.
+        RunSta(() =>
+        {
+            var icon = SetupProgressWindow.LoadAppIcon();
+            Check.That(icon).IsNotNull();
+            Check.That(icon!.PixelWidth).IsEqualTo(256);
+            Check.That(icon.PixelHeight).IsEqualTo(256);
+        });
+    }
+
+    [Fact]
     public void AtDpiTwo_TheProgressWindowKeepsItsDipBounds_AsPhysicalPixels()
     {
         RunSta(() =>

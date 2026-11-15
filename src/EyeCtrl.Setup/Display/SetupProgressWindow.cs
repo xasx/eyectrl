@@ -193,21 +193,25 @@ internal sealed class SetupProgressWindow : Window
         return brush;
     }
 
-    /// <summary>
-    /// EyeCtrl's icon for the title text and the taskbar button. A missing icon must never stop the
-    /// result from appearing, so every failure simply leaves the default.
-    /// </summary>
-    internal static ImageSource? LoadAppIcon()
+    /// <summary>EyeCtrl's icon for the band mark and the taskbar button. The .ico's frame 0 is
+    /// 16×16 (r1 F11), so the LARGEST frame is selected explicitly; a missing icon must never stop
+    /// the screen from appearing. The pack scheme is touched first so a lone-test run (no Window
+    /// ctor yet) does not swallow a UriFormatException into null (r3 F17); the stream is disposed —
+    /// OnLoad has already copied the frames.</summary>
+    internal static BitmapSource? LoadAppIcon()
     {
         try
         {
-            var icon = new BitmapImage();
-            icon.BeginInit();
-            icon.UriSource = new Uri(IconResource, UriKind.Absolute);
-            icon.CacheOption = BitmapCacheOption.OnLoad;
-            icon.EndInit();
-            icon.Freeze();
-            return icon;
+            _ = System.IO.Packaging.PackUriHelper.UriSchemePack;
+            var stream = Application.GetResourceStream(new Uri(IconResource))?.Stream;
+            if (stream is null) return null;
+            using (stream)
+            {
+                var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var frame = decoder.Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).First();
+                frame.Freeze();
+                return frame;
+            }
         }
         catch (Exception)
         {

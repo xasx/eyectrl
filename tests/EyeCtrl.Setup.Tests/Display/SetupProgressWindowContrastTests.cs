@@ -53,6 +53,19 @@ public sealed class SetupProgressWindowContrastTests
                         Check.WithCustomMessage($"{theme.Name}: the band background is not frozen.")
                             .That(bandBackground.IsFrozen).IsTrue();
                         Check.That(bandBackground.Color.A).IsEqualTo((byte)255);
+                        Check.WithCustomMessage($"{theme.Name}: the band brush is not the theme's opaque SurfaceMedium.")
+                            .That(bandBackground.Color).IsEqualTo(SetupBrushes.OpaqueColor(theme.SurfaceMedium));
+
+                        // r6 I2/M7: the surfaces under the text are read FROM THE TREE, not from
+                        // window.Background — the body Border (row 2) is what the detail and the
+                        // confirming text actually sit on, and its colour is pinned per theme.
+                        var body = BodyOf(window);
+                        var bodyBackground = (SolidColorBrush)body.Background;
+                        Check.WithCustomMessage($"{theme.Name}: the body background is not frozen.")
+                            .That(bodyBackground.IsFrozen).IsTrue();
+                        Check.That(bodyBackground.Color.A).IsEqualTo((byte)255);
+                        Check.WithCustomMessage($"{theme.Name}: the body brush is not the theme's opaque SurfaceDark.")
+                            .That(bodyBackground.Color).IsEqualTo(SetupBrushes.OpaqueColor(theme.SurfaceDark));
 
                         var bandTitle = BandTitleOf(window);
                         Check.WithCustomMessage($"{theme.Name}: the band title brush is not TextPrimary.")
@@ -62,7 +75,7 @@ public sealed class SetupProgressWindowContrastTests
                         Check.WithCustomMessage($"{theme.Name}: the detail brush is not TextSecondary.")
                             .That(((SolidColorBrush)detail.Foreground).Color).IsEqualTo(theme.TextSecondary);
 
-                        var surface = background.Color;
+                        var surface = bodyBackground.Color;
                         Check.WithCustomMessage(
                                 $"{theme.Name}: title contrast {Contrast(theme.TextPrimary, surface):0.00}:1 < 10.")
                             .That(Contrast(theme.TextPrimary, surface)).IsGreaterOrEqualThan(MinimumTitleContrast);
@@ -70,7 +83,7 @@ public sealed class SetupProgressWindowContrastTests
                                 $"{theme.Name}: detail contrast {Contrast(theme.TextSecondary, surface):0.00}:1 < 4.5.")
                             .That(Contrast(theme.TextSecondary, surface)).IsGreaterOrEqualThan(MinimumDetailContrast);
 
-                        var bandSurface = SetupBrushes.OpaqueColor(Tokens.SurfaceMedium);
+                        var bandSurface = bandBackground.Color;
                         var bandTitleContrast = Contrast(theme.TextPrimary, bandSurface);
                         Check.WithCustomMessage(
                                 $"{theme.Name}: the band title contrast on the band is "
@@ -118,6 +131,22 @@ public sealed class SetupProgressWindowContrastTests
                         Check.That(window.ResultStateGlyph.Width).IsEqualTo(24);
                         Check.That(window.ResultStateGlyph.Data.Bounds.Width).IsStrictlyGreaterThan(14);
                         Check.That(window.ResultStateGlyph.Data.Bounds.Height).IsStrictlyGreaterThan(14);
+
+                        // r6 M6: the Success and Neutral state colours are pinned per theme too —
+                        // a mutant painting the success screen danger-red survived until this pin.
+                        window.ShowResult(new SetupDisplayResult("success", SetupDisplayState.Success));
+                        Check.WithCustomMessage($"{theme.Name}: the success edge is not success-green.")
+                            .That(((SolidColorBrush)EdgeOf(window).Background).Color)
+                            .IsEqualTo(theme.AccentSuccess);
+                        Check.WithCustomMessage($"{theme.Name}: the success icon is not success-green.")
+                            .That(((SolidColorBrush)window.ResultStateGlyph.Stroke).Color)
+                            .IsEqualTo(theme.AccentSuccess);
+                        window.ShowResult(new SetupDisplayResult("neutral", SetupDisplayState.Neutral));
+                        Check.WithCustomMessage($"{theme.Name}: the neutral edge is not dim.")
+                            .That(((SolidColorBrush)EdgeOf(window).Background).Color)
+                            .IsEqualTo(theme.TextDim);
+                        Check.WithCustomMessage($"{theme.Name}: the neutral screen did not collapse the state icon.")
+                            .That(window.ResultStateGlyph.Visibility).IsEqualTo(Visibility.Collapsed);
                     }
                     finally
                     {
@@ -134,6 +163,7 @@ public sealed class SetupProgressWindowContrastTests
 
     private static Border BandOf(SetupProgressWindow window) => (Border)((Grid)window.Content).Children[1];
     private static Border EdgeOf(SetupProgressWindow window) => (Border)((Grid)window.Content).Children[0];
+    private static Border BodyOf(SetupProgressWindow window) => (Border)((Grid)window.Content).Children[2];
 
     private static TextBlock BandTitleOf(SetupProgressWindow window) =>
         ((Grid)BandOf(window).Child).Children.OfType<TextBlock>().First();

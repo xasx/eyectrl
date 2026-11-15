@@ -453,6 +453,11 @@ public sealed class SetupProgressWindowTests
             var ui = SetupUi.Load(paths, new PhysicalFileSystem(), preferredDirectory: package);
             Check.WithCustomMessage("The test needs the tampered table to be the preferred one.")
                 .That(ui.Strings.T("update.progress.title")).IsEqualTo("Paket behauptet installiert");
+            // PR-review nit 1: the precondition for the DoesNotContain below — if the German
+            // refusal is ever reworded without "beschädigt", the tamper silently becomes a no-op
+            // and the package-table mutant would survive again.
+            Check.WithCustomMessage("The package's refusal text must actually carry the tamper marker.")
+                .That(ui.Strings.T("update.result.verifyFailed")).Contains("PAKET-beschädigt");
             Check.WithCustomMessage("TableFor must route VerifyFailed to the trusted table.")
                 .That(SetupDisplayText.ProgressTitle(ui.TableFor(
                     new SetupResult { Verb = SetupVerb.Update, Outcome = SetupOutcome.VerifyFailed }),

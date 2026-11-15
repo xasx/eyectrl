@@ -52,10 +52,12 @@ public static class SetupWindowMetrics
     /// − icon 64 − gap 24 (mockup paddings; derived, not guessed).</summary>
     public const double TitleFitHeight = 468;
 
-    /// <summary>The prose box's width; the fit class measures every text here.</summary>
+    /// <summary>The legacy prose box's width — no fit class measures here any more; it only
+    /// floors <see cref="ProgressBounds"/>' minimum width (PR-review nit 2).</summary>
     public const double ProseWidth = 1280;
 
-    /// <summary>The prose box's height; four lines at 36 DIP fit with room.</summary>
+    /// <summary>The prose fit box's height — the fit test caps the wrapped prose height here
+    /// (40 DIP text over up to four lines).</summary>
     public const double ProseHeight = 384;
 
     /// <summary>The window's outer margin.</summary>

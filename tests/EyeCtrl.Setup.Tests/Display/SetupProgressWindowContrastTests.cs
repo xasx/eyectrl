@@ -147,6 +147,8 @@ public sealed class SetupProgressWindowContrastTests
                             .IsEqualTo(theme.TextDim);
                         Check.WithCustomMessage($"{theme.Name}: the neutral screen did not collapse the state icon.")
                             .That(window.ResultStateGlyph.Visibility).IsEqualTo(Visibility.Collapsed);
+                        Check.WithCustomMessage($"{theme.Name}: the neutral screen did not show the dash.")
+                            .That(window.NeutralDashVisible).IsTrue();
                     }
                     finally
                     {

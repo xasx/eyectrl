@@ -108,7 +108,8 @@ public static class StringTableSchema
         // C9 S6e: Setup's own screens. setup420x160 is the uninstall choice's 420 x 160 DIP
         // button (32 DIP, wrapping); setupProse is a 40 DIP prose line in its 1168 × 384 DIP box;
         // setupTitle is the 44 DIP bold band/result title in its 1094 × 468 DIP box; setupStage
-        // and setupDim are 36 DIP single rows in 1168 × 96.
+        // and setupDim are 36 DIP single rows measured against the 1114-wide label slot (no
+        // height bound — PR-review nit 2).
         "setup420x160",
         "setupProse",
         "setupTitle",

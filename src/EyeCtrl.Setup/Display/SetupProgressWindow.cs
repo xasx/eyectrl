@@ -389,6 +389,10 @@ internal sealed class SetupProgressWindow : Window
     /// directly instead of searching the tree by Width — r4 finding 5).</summary>
     internal System.Windows.Shapes.Path ResultStateGlyph => _resultIcon;
 
+    /// <summary>True while the neutral dash (Cancelled's 64 × 10 marker) is the visible one —
+    /// the per-theme state test pins it beside the icon collapse (PR-review nit 3).</summary>
+    internal bool NeutralDashVisible => _neutralDash.Visibility == Visibility.Visible;
+
     /// <summary>How long the result will stay on screen.</summary>
     internal TimeSpan ScheduledCloseDelay => _closeTimer.Interval;
 

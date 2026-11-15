@@ -45,8 +45,12 @@
                                          so. INSIDE the tile face, and never a target of its own: the face is
                                          the dwell target, and a badge that widened the perceived tile would put
                                          a hit area where nothing is drawn. It must NOT dim the tile —
-                                         DwellPausedOpacityConverter owns that cue. -->
+                                         DwellPausedOpacityConverter owns that cue. HorizontalAlignment=Center
+                                         is what makes it a BADGE: without it the Border stretches to the
+                                         content column and a long, trimmed title turns it into a light band
+                                         across the tile (~167 DIP instead of ~82). -->
                                     <Border x:Name="MinimizedBadge" Margin="0,3,0,0" Padding="6,1"
+                                            HorizontalAlignment="Center"
                                             Background="{StaticResource BrushSurfaceLight}"
                                             CornerRadius="{StaticResource SmallCornerRadius}"
                                             Visibility="{Binding IsMinimized, Converter={StaticResource BoolToVisibility}}">

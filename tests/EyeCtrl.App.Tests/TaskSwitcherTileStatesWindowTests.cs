@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -55,55 +56,119 @@ public class TaskSwitcherTileStatesWindowTests
 
     private const int Capacity = 63;   // 9 columns × 7 rows at 1920 × 1200 with the 112 DIP band
 
-    [StaFact]
-    public void MinimisedWindow_DrawsTheBadge_InsideItsFace_AndDoesNotDimTheTile()
+    /// <summary>
+    /// The "Minimiert" badge, in every case that can move it: DPI 1.0 and the owner's 200 %, English
+    /// and German. What it pins:
+    /// <list type="bullet">
+    /// <item>the face is still 184 × 104 DIP (the badge must not widen the perceived tile — the face
+    /// is the dwell target);</item>
+    /// <item>the badge sits inside the face's 8 DIP padding and is centred on it;</item>
+    /// <item>it HUGS ITS CONTENT: its width is its own bar + gap + word + padding, never the content
+    /// column's width. With a long, trimmed title a Border without HorizontalAlignment stretches to
+    /// ~167 DIP and reads as a light band across the tile, not as a badge;</item>
+    /// <item>it ends above the progress bar;</item>
+    /// <item>the content column's natural height still fits the row it is given: the column has only
+    /// ~3 DIP of headroom, so a font or padding change that grew it would clip silently.</item>
+    /// </list>
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0, "English")]
+    [InlineData(2.0, "English")]
+    [InlineData(1.0, "German")]
+    [InlineData(2.0, "German")]
+    public void MinimisedWindow_DrawsTheBadge_InsideItsFace_AtEveryScaleAndCulture(double scale, string language)
     {
-        using var laid = Laid.Open(
-            [
-                Win(1, "Chat", minimized: true),
-                Win(2, "Editor"),
-            ]);
+        var expectedWord = language == "German" ? "Minimiert" : "Minimized";
+        if (language == "German") StringTable.Activate(ShippedGerman.Load());
+        try
+        {
+            // The long title is the case that exposes a stretched badge: the title is trimmed inside
+            // the content column, and a Border left at the default Stretch widens with it.
+            using var laid = Laid.Open(
+                [
+                    Win(1, "Quarterly report - a long document title that the tile trims", minimized: true),
+                    Win(2, "Editor"),
+                ], scale: scale);
 
-        var faces = laid.Faces();
-        Check.That(faces).HasSize(2);
+            var faces = laid.Faces();
+            Check.That(faces).HasSize(2);
 
-        var badge = laid.Find<Border>(faces[0].Container, "MinimizedBadge")
-            ?? throw new InvalidOperationException("The tile template has no Border named MinimizedBadge.");
-        var absent = laid.Find<Border>(faces[1].Container, "MinimizedBadge")
-            ?? throw new InvalidOperationException("The tile template has no Border named MinimizedBadge.");
+            var badge = laid.Find<Border>(faces[0].Container, "MinimizedBadge")
+                ?? throw new InvalidOperationException("The tile template has no Border named MinimizedBadge.");
+            var absent = laid.Find<Border>(faces[1].Container, "MinimizedBadge")
+                ?? throw new InvalidOperationException("The tile template has no Border named MinimizedBadge.");
 
-        Check.WithCustomMessage("A minimised window's tile must draw the badge.")
-            .That(badge.Visibility).IsEqualTo(Visibility.Visible);
-        Check.WithCustomMessage("An open window's tile must not draw the badge.")
-            .That(absent.Visibility).IsEqualTo(Visibility.Collapsed);
+            Check.WithCustomMessage("A minimised window's tile must draw the badge.")
+                .That(badge.Visibility).IsEqualTo(Visibility.Visible);
+            Check.WithCustomMessage("An open window's tile must not draw the badge.")
+                .That(absent.Visibility).IsEqualTo(Visibility.Collapsed);
 
-        // Drawn = hit: the badge must sit INSIDE the face the dwell detector hit-tests, and the
-        // face must still be the 184 × 104 DIP the template promises (200 × 120 cell less the
-        // 8 DIP margin). A badge that grew the tile would put a hit area where nothing is drawn.
-        var face = laid.Bounds(faces[0].Border);
-        var badgeBox = laid.Bounds(badge);
-        Check.WithCustomMessage("The minimised tile grew: the perceived tile must not change.")
-            .That(face.Width).IsEqualTo(TaskSwitcherLayout.CellWidth - 16);
-        Check.That(face.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 16);
-        Check.WithCustomMessage($"The badge {Box(badgeBox)} leaves its face {Box(face)}.")
-            .That(Inside(face, badgeBox, inset: 8)).IsTrue();
-        Check.WithCustomMessage("The badge is not centred in its tile face.")
-            .That(badgeBox.Left + (badgeBox.Width / 2)).IsCloseTo(face.Left + (face.Width / 2), 0.5);
-        _output.WriteLine($"minimised face {Box(face)}; badge {Box(badgeBox)}");
+            // Drawn = hit: the badge must sit INSIDE the face the dwell detector hit-tests, and the
+            // face must still be the 184 × 104 DIP the template promises (200 × 120 cell less the
+            // 8 DIP margin).
+            var face = laid.Bounds(faces[0].Border);
+            var badgeBox = laid.Bounds(badge);
+            var bar = Descendants<Border>(badge).Single(b => b.Name == "MinimizedGlyph");
+            var word = Descendants<TextBlock>(badge).Single();
+            var room = face.Width - 16;   // the template's 8 DIP padding on each side
 
-        // The badge is the word plus a drawn bar, both in the secondary text colour — and the tile
-        // is NOT dimmed: the paused-dwell cue owns dimming (DwellPausedOpacityConverter), and a
-        // restored window must not read as "held".
-        var word = Descendants<TextBlock>(badge).Single(t => t.Text == "Minimised");
-        Check.That(BrushColor(word.Foreground)).IsEqualTo(Tokens.TextSecondary);
-        Check.WithCustomMessage("The minimised cue must not dim the tile — that is the paused cue.")
-            .That(faces[0].Border.Opacity).IsEqualTo(1.0);
+            Check.WithCustomMessage("The minimised tile grew: the perceived tile must not change.")
+                .That(face.Width).IsEqualTo(TaskSwitcherLayout.CellWidth - 16);
+            Check.That(face.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 16);
+            Check.WithCustomMessage($"The badge {Box(badgeBox)} leaves its face {Box(face)}.")
+                .That(Inside(face, badgeBox, inset: 8)).IsTrue();
+            Check.WithCustomMessage("The badge is not centred in its tile face.")
+                .That(badgeBox.Left + (badgeBox.Width / 2)).IsCloseTo(face.Left + (face.Width / 2), 0.5);
 
-        var bar = Descendants<Border>(badge).Single(b => b.Name == "MinimizedGlyph");
-        Check.WithCustomMessage("The badge's drawn minimise bar has no ink.")
-            .That(bar.ActualWidth).IsStrictlyGreaterThan(0);
-        Check.That(bar.ActualHeight).IsStrictlyGreaterThan(0);
-        Check.That(BrushColor(bar.Background)).IsEqualTo(Tokens.TextSecondary);
+            // The width pin: the pill is exactly its own content — the drawn bar, the gap after it,
+            // the word and the Border's padding — and never the content column's (title-driven) width.
+            Check.That(word.Text).IsEqualTo(expectedWord);
+            var contentWidth = badge.Padding.Left + bar.Width + bar.Margin.Right
+                               + FitText.NaturalWidth(word, word.Text) + badge.Padding.Right;
+            Check.WithCustomMessage(
+                    $"{language} at {scale:0.0}x: the badge is {FitText.Dip(badgeBox.Width)} DIP wide, its own "
+                    + $"content needs {FitText.Dip(contentWidth)} DIP, and the content column is "
+                    + $"{FitText.Dip(room)} DIP — a badge at the column's width is stretched, not hugging.")
+                .That(badgeBox.Width).IsCloseTo(contentWidth, 1.0);
+
+            // It ends above the accent progress bar (it is a caption, not a second progress surface).
+            var progress = Descendants<ProgressBar>(faces[0].Border).Single();
+            var progressTop = laid.Bounds(progress).Top;
+            Check.WithCustomMessage($"The badge {Box(badgeBox)} reaches into the progress bar at y {FitText.Dip(progressTop)}.")
+                .That(badgeBox.Bottom).IsLessOrEqualThan(progressTop + 0.5);
+
+            // The headroom: the content column centres vertically in its row, and this template has
+            // ~3 DIP to spare. Measure the column without a height bound and compare with the row.
+            var content = (FrameworkElement)badge.Parent;
+            var slot = LayoutInformation.GetLayoutSlot(content);
+            content.Measure(new Size(slot.Width, double.PositiveInfinity));
+            var needed = content.DesiredSize.Height;
+            laid.Relayout();
+            Check.WithCustomMessage(
+                    $"{language} at {scale:0.0}x: the tile's content column needs {FitText.Dip(needed)} DIP "
+                    + $"but the row gives it {FitText.Dip(slot.Height)} — it would be clipped silently.")
+                .That(needed).IsLessOrEqualThan(slot.Height);
+
+            // The badge is a word plus a drawn bar, both in the secondary text colour — and the tile
+            // is NOT dimmed: the paused-dwell cue owns dimming (DwellPausedOpacityConverter), and a
+            // restored window must not read as "held".
+            _output.WriteLine(
+                $"{language} at {scale:0.0}x: face {Box(face)}; badge {Box(badgeBox)} "
+                + $"(content {FitText.Dip(contentWidth)}, column {FitText.Dip(room)}); "
+                + $"progress top {FitText.Dip(progressTop)}; column needs {FitText.Dip(needed)} of "
+                + $"{FitText.Dip(slot.Height)} DIP (headroom {FitText.Dip(slot.Height - needed)})");
+            Check.That(BrushColor(word.Foreground)).IsEqualTo(Tokens.TextSecondary);
+            Check.WithCustomMessage("The minimised cue must not dim the tile — that is the paused cue.")
+                .That(faces[0].Border.Opacity).IsEqualTo(1.0);
+            Check.WithCustomMessage("The badge's drawn minimise bar has no ink.")
+                .That(bar.ActualWidth).IsStrictlyGreaterThan(0);
+            Check.That(bar.ActualHeight).IsStrictlyGreaterThan(0);
+            Check.That(BrushColor(bar.Background)).IsEqualTo(Tokens.TextSecondary);
+        }
+        finally
+        {
+            if (language == "German") StringTable.ResetToEmbeddedEnglish();
+        }
     }
 
     [StaFact]
@@ -225,27 +290,13 @@ public class TaskSwitcherTileStatesWindowTests
     }
 
     [StaFact]
-    public void GermanBadgeEmptyMessageAndChip_AreTheShippedTexts_AndFitAt200Percent()
+    public void GermanEmptyMessage_IsTheShippedText_AndFitsAt200Percent()
     {
         StringTable.Activate(ShippedGerman.Load());
         try
         {
-            // At the owner's 200 %: the three German texts must be drawn whole, not clipped — the
-            // German is longer than the English in every one of them.
-            using var minimal = Laid.Open(
-                [
-                    Win(1, "Chat", minimized: true),
-                    Win(2, "Editor"),
-                ], scale: 2.0);
-            var badge = minimal.Find<Border>(minimal.Faces()[0].Container, "MinimizedBadge")!;
-            var word = Descendants<TextBlock>(badge).Single();
-            Check.That(word.Text).IsEqualTo("Minimiert");
-            Check.WithCustomMessage($"The German badge needs {FitText.Dip(FitText.NaturalWidth(word, word.Text))} DIP "
-                    + $"but is drawn in {FitText.Dip(word.ActualWidth)}.")
-                .That(FitText.NaturalWidth(word, word.Text)).IsLessOrEqualThan(word.ActualWidth + 0.5);
-            _output.WriteLine($"German badge \"{word.Text}\": {FitText.Dip(word.ActualWidth)} DIP drawn in "
-                + $"{Box(minimal.Bounds(badge))}");
-
+            // At the owner's 200 %: the German message must be drawn whole, not clipped. (The badge's
+            // German text is measured by the badge theory, which runs in both cultures.)
             using var empty = Laid.Open([Win(7, "Only")], scale: 2.0, foreground: new IntPtr(7));
             var message = empty.Find<TextBlock>(empty.Root, "EmptyMessage")!;
             Check.That(message.Text).IsEqualTo("Keine offenen Fenster");

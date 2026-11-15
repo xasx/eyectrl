@@ -1615,7 +1615,7 @@
     "args": []
   },
   "overlays.taskSwitcher.minimized": {
-    "text": "Minimised",
+    "text": "Minimized",
     "who": "user",
     "where": "overlays",
     "fit": "prose",

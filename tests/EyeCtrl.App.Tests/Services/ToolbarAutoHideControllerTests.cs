@@ -97,6 +97,41 @@ public class ToolbarAutoHideControllerTests
 
     // ── SUMMON transition (directional, off-screen valid coords only) ──
 
+    /// <summary>
+    /// Fixup-01 item 3: while a modal owns the screen (the task switcher suspends auto-hide), the
+    /// band must not hide and no past-edge summon may re-arm dwell. Without the suspension, a long
+    /// switcher session auto-hides the toolbar, the close finds it off screen (no fresh-entry arm),
+    /// and the next summon re-arms it under the resting gaze — the field-observed self-reopen.
+    /// </summary>
+    [Fact]
+    public void WhileSuspended_NoHideAndNoSummonCanArm()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        sut.Feed(CreateSample(960, 500, valid: true), 0);   // off-toolbar
+        sut.SetSuspended(true);                             // the switcher opened
+        sut.Feed(CreateSample(960, 500, valid: true), 6_000_000);
+        Check.WithCustomMessage("a suspended band must not auto-hide").That(vis.HideCalls).IsEqualTo(0);
+
+        // Start hidden (as an earlier hide would have left it), then suspend: the controller
+        // recovers the band so the close's IsOnScreen check can arm the guard.
+        var hidden = NewController();
+        var hiddenVis = new FakeVisibility();
+        hidden.Attach(hiddenVis);
+        hidden.HideForTest(hiddenVis);
+        hidden.SetSuspended(true);
+        Check.WithCustomMessage("suspending a hidden band must recover it, not strand it")
+            .That(hiddenVis.ForceShowCalls).IsEqualTo(1);
+
+        // Past the top edge while suspended: Feed is inert, so the summon cannot fire.
+        hidden.Feed(CreateSample(960, -100, valid: true), 0);
+        hidden.Feed(CreateSample(960, -100, valid: true), 401_000);
+        Check.WithCustomMessage("a suspended band must not summon under the switcher")
+            .That(hiddenVis.ShowCalls).IsEqualTo(0);
+    }
+
     [Fact]
     public void Summons_OnTopEdge_WhenGazePastTop()
     {

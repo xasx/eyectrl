@@ -141,7 +141,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         {
             _lastSampleWasGap = false;
             _lastValidSample = message.Position;
-            _landingGuard.ObserveValidSample(message.Position);
+            _landingGuard.ObserveValidSample(message.Position, DwellDetector.Targets);
         }
 
         if (!IsVisible || !SampleMayDwell(message))
@@ -151,7 +151,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         {
             DwellDetector.Update(message.Position, message.TimestampMicroseconds,
                 target => target.Id == CloseTargetId
-                    || _landingGuard.AllowsDwell(target.Id, target.HitTest));
+                    || _landingGuard.AllowsDwell(target.Id));
         }
         else
         {

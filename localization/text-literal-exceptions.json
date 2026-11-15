@@ -1421,6 +1421,12 @@
       "Reason": "A command-line flag name (the launch-argument spelling); matched against process arguments, never shown."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs",
+      "Literal": "\"task-switcher\"",
+      "Category": "id",
+      "Reason": "The toolbar auto-hide suspension holder name for an open task switcher - an ownership token keyed into ToolbarLifecycleCoordinator's holder set, never rendered."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
       "Literal": "\"in chrome\"",
       "Category": "log",

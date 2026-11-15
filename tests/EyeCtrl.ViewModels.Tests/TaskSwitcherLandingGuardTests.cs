@@ -220,6 +220,65 @@ public class TaskSwitcherLandingGuardTests
         Check.That(h.Tile(1).DwellProgress).IsEqualTo(0);
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void TileRegisteredAfterTheGazeLandedOnIt_StillDwells(double scale)
+    {
+        using var h = new Harness(scale);
+
+        // Fixup-01 item 2: tiles register at Loaded priority, after the show. The gaze is already
+        // on tile 2's future face when the target appears (an anticipatory look, or a slow first
+        // layout). First sight must count as an entry when the anchor is valid and outside the face.
+        h.Sample(h.Tile1, 0);
+        h.ShowWithoutTiles();
+        h.Hold(h.Tile2, 30_000, 90_000);
+        h.RegisterTile(1);
+        h.RegisterTile(2);
+        h.Hold(h.Tile2, 90_000, 3_000_000);
+
+        Check.That(h.Selections).ContainsExactly(new IntPtr(2));
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void LandingTileRegisteredLate_AfterADriftWithinIt_StaysGuarded(double scale)
+    {
+        using var h = new Harness(scale);
+
+        // The anchor is inside tile 1's face and the gaze drifts >50 DIP WITHIN it before the
+        // target is registered. First sight must consult the anchor: the landing tile contains it,
+        // so this is not an entry. (A rule that treats every first sight as entered fires here.)
+        h.Sample(h.P(320, 400), 0);
+        h.ShowWithoutTiles();
+        h.Hold(h.P(390, 400), 30_000, 90_000);
+        h.RegisterTile(1);
+        h.RegisterTile(2);
+        h.Hold(h.P(390, 400), 90_000, 3_000_000);
+
+        Check.That(h.Selections).IsEmpty();
+        Check.That(h.Tile(1).DwellProgress).IsEqualTo(0);
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void EntryDuringExerciseHold_DwellsOnceTheHoldEnds(double scale)
+    {
+        using var h = new Harness(scale);
+
+        h.Sample(h.Tile1, 0);
+        h.Show();
+        h.Hold(h.EmptyPoint(), 30_000, 300_000);   // (A) lifts
+        h.Messenger.Send(new ExerciseScreenHoldMessage(true));
+        h.Hold(h.Tile2, 300_000, 600_000);         // the entry sample; no detector feed
+        h.Messenger.Send(new ExerciseScreenHoldMessage(false));
+        h.Hold(h.Tile2, 600_000, 3_000_000);
+
+        Check.That(h.Selections).ContainsExactly(new IntPtr(2));
+    }
+
     private sealed class Harness : IDisposable
     {
         private readonly double _scale;
@@ -251,13 +310,24 @@ public class TaskSwitcherLandingGuardTests
 
         internal void Show()
         {
+            ShowWithoutTiles();
+            RegisterTile(1);
+            RegisterTile(2);
+        }
+
+        internal void ShowWithoutTiles()
+        {
             Messenger.Send(new TaskSwitcherToggledMessage());
             Check.That(Vm.IsVisible).IsTrue();
-            // The View registers each tile's drawn face after layout — the tile target exists
-            // only from here on, which is what made the opening look able to fire.
-            Vm.UpdateTilePosition(new IntPtr(1), Face(Tile1));
-            Vm.UpdateTilePosition(new IntPtr(2), Face(Tile2));
         }
+
+        /// <summary>
+        /// The View registers a tile's drawn face after layout — the target exists only from here
+        /// on, which is what made the opening look able to fire (and what a late target must not
+        /// turn into a dead tile).
+        /// </summary>
+        internal void RegisterTile(int hwnd) =>
+            Vm.UpdateTilePosition(new IntPtr(hwnd), Face(hwnd == 1 ? Tile1 : Tile2));
 
         internal void Hide() => Messenger.Send(new TaskSwitcherToggledMessage());
 

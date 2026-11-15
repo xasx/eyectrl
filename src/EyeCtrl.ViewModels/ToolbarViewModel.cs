@@ -246,7 +246,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         {
             _lastSampleWasGap = false;
             _lastValidSample = message.Position;
-            _freshEntryGuard.ObserveValidSample(message.Position);
+            _freshEntryGuard.ObserveValidSample(message.Position, DwellDetector.Targets);
         }
 
         // Gap-held samples carry the frozen last valid position, so a held point must not clear the
@@ -313,7 +313,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// there so normal operation allocates nothing new.
     /// </summary>
     private bool MayDwellUnderLandingGuard(DwellTarget target) =>
-        !_freshEntryGuard.IsArmed || _freshEntryGuard.AllowsDwell(target.Id, target.HitTest);
+        !_freshEntryGuard.IsArmed || _freshEntryGuard.AllowsDwell(target.Id);
 
     /// <summary>
     /// The engine's visibility publishes become the service messages (Task 7 owns the panel), and

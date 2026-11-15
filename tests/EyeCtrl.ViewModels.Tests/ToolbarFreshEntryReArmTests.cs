@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// T1's second surface: the toolbar's re-arm at task-switcher close. <c>SetActive(true)</c> used
@@ -87,9 +88,40 @@ public class ToolbarFreshEntryReArmTests
             .That(h.Activated).IsEmpty();
     }
 
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void EntryDuringDetectorCooldown_NextButtonStillDwells(double scale)
+    {
+        using var h = new Harness(scale);
+        var keyboard = h.AddButton("Keyboard", 900, 60);
+
+        // Fixup-01 item 1: the detector's 400 ms post-activation cooldown skips the filter, but
+        // the entry must still count. Pick Keyboard, then look at the next button inside the
+        // cooldown — the entry sample never reaches the detector.
+        h.Vm.SetActive(false);
+        h.Hold(h.Button, 0, 300_000);
+        h.Vm.SetActive(true, freshEntry: true);
+        h.Hold(h.Away, 330_000, 600_000);          // (A) lifts
+
+        long t = 630_000;
+        while (!h.Activated.Contains("Keyboard") && t < 3_000_000)
+        {
+            h.Send(keyboard, t);
+            t += 30_000;
+        }
+        Check.That(h.Activated).Contains("Keyboard");
+
+        h.Hold(h.Button, t + 120_000, t + 2_500_000);   // entry inside the cooldown
+
+        Check.WithCustomMessage("the button entered during the cooldown never fires")
+            .That(h.Activated).Contains("TaskSwitcher");
+    }
+
     private sealed class Harness : IDisposable
     {
         private readonly WeakReferenceMessenger _messenger = new();
+        private readonly double _scale;
 
         internal ToolbarViewModel Vm { get; }
         internal List<string> Activated { get; } = new();
@@ -98,6 +130,7 @@ public class ToolbarFreshEntryReArmTests
 
         internal Harness(double scale)
         {
+            _scale = scale;
             DpiHelper.Initialize(scale, scale);
             Vm = new ToolbarViewModel(new EyeCtrlSettings(), _messenger);
             Vm.ButtonActivated += id => Activated.Add(id);
@@ -106,6 +139,16 @@ public class ToolbarFreshEntryReArmTests
             Away = new PhysicalPoint(AwayDip.X * scale, AwayDip.Y * scale);
             Vm.UpdateButtonScreenPosition("TaskSwitcher", Button);
         }
+
+        internal PhysicalPoint AddButton(string id, double xDip, double yDip)
+        {
+            var point = new PhysicalPoint(xDip * _scale, yDip * _scale);
+            Vm.UpdateButtonScreenPosition(id, point);
+            return point;
+        }
+
+        internal void Send(PhysicalPoint p, long timestampUs) =>
+            _messenger.Send(new GazeCursorMovedMessage(p, timestampUs));
 
         internal void Hold(PhysicalPoint p, long fromUs, long toUs) =>
             DwellDrive.Hold(_messenger, p, fromUs, toUs);

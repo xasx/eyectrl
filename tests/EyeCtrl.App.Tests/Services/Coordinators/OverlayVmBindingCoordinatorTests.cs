@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using System.ComponentModel;
 using System.Reflection;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
@@ -668,6 +669,66 @@ public class OverlayVmBindingCoordinatorTests
         InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
 
         Check.That(ring.ShowCalls).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Fixup-01 item 3: the switcher's show/hide must suspend the toolbar auto-hide (the Settings
+    /// pattern, named holder), so the band cannot hide during a long session and the close always
+    /// finds it on screen to apply the fresh-entry guard.
+    /// </summary>
+    [Fact]
+    public void SwitcherVisibility_SuspendsToolbarAutoHide_AndReleasesOnClose()
+    {
+        var modal = new ModalInteractionState();
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var toolbar = new ToolbarLifecycleCoordinator(modal);
+        toolbar.InjectAutoHideForTesting(new ToolbarAutoHideController(
+            enabled: true, edge: "Top", screenW: 1920, screenH: 1200,
+            toolbarRect: new PhysicalRect(810, 0, 300, 50),
+            hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50));
+        var switcher = new TaskSwitcherViewModel(windowManager: null!, settings, messenger);
+
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            Messenger = messenger,
+            Settings = settings,
+            Dispatcher = Dispatcher.CurrentDispatcher,
+            TaskSwitcherVM = switcher,
+            ToolbarVM = new ToolbarViewModel(settings, messenger),
+            OverlayManager = TestFakes.MakeOverlayManager(
+                toolbar: new TestFakes.FakeToolbarOverlay(),
+                taskSwitcher: new TestFakes.FakeTaskSwitcherOverlay()),
+        };
+        var coordinator = new OverlayVmBindingCoordinator(modal, toolbar);
+        SetContext(coordinator, ctx);
+
+        switcher.IsVisible = true;
+        InvokeTaskSwitcherHandler(coordinator, nameof(TaskSwitcherViewModel.IsVisible));
+        Pump();
+        Check.WithCustomMessage("the toolbar auto-hide must be suspended while the switcher is open")
+            .That(toolbar.IsAutoHideSuspended).IsTrue();
+
+        switcher.IsVisible = false;
+        InvokeTaskSwitcherHandler(coordinator, nameof(TaskSwitcherViewModel.IsVisible));
+        Pump();
+        Check.WithCustomMessage("the suspension must be released when the switcher closes")
+            .That(toolbar.IsAutoHideSuspended).IsFalse();
+    }
+
+    private static void InvokeTaskSwitcherHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
+    {
+        var method = typeof(OverlayVmBindingCoordinator)
+            .GetMethod("OnTaskSwitcherVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
+    }
+
+    private static void Pump()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(
+            DispatcherPriority.Background, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
     }
 
     /// <summary>Records ring Show/Hide so the probe gate is observable without a window.</summary>

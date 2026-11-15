@@ -185,10 +185,14 @@ public class TaskSwitcherDwellPositionTests
                 + "SetActive call on Toolbar.IsOnScreen.")
             .That(body.Contains("Toolbar.IsOnScreen")).IsTrue();
         Check.WithCustomMessage(
-                "The switcher-close re-arm must be the FRESH-ENTRY one: the gaze that closed the "
-                + "switcher is still resting in the toolbar band, and a bare SetActive(true) is "
-                + "the field-observed self-reopen (1.3–1.9 s after a close).")
-            .That(body.Contains("ToolbarVM.SetActive(true, freshEntry: true)")).IsTrue();
+                "The switcher-close re-arm must be the FRESH-ENTRY one AND gated by IsOnScreen. "
+                + "Two separate Contains checks can both pass with the call moved outside the "
+                + "branch (review finding 5); the fresh-entry arm must be the guarded statement "
+                + "itself, not merely present somewhere in the handler.")
+            .That(Regex.IsMatch(body,
+                @"if\s*\(\s*Context\.OverlayManager\.Toolbar\.IsOnScreen\s*\)\s*\{?\s*"
+                + @"Context\.ToolbarVM\.SetActive\(\s*true\s*,\s*freshEntry:\s*true\s*\)"))
+            .IsTrue();
         Check.WithCustomMessage(
                 "Toolbar.IsVisible is true during a slide-out, while the band is leaving and the "
                 + "window is about to hide — re-arming dwell there is the very hazard this pin "
@@ -220,6 +224,10 @@ public class TaskSwitcherDwellPositionTests
         Check.That(modesStart).IsStrictlyGreaterThan(-1);
         var modesBody = SourceScanner.StripComments(
             source[modesStart..source.IndexOf("\n    }", modesStart, StringComparison.Ordinal)]);
+        // Frozen consciously: the modes-menu close is the SAME hazard class as the switcher close
+        // (the menu closes with the gaze still on the button that opened it), but T1-fixup-01 puts
+        // it out of scope. When that path is fixed, update this assertion — do not delete it
+        // silently, or the next reader loses the record that the bare arm is known.
         Check.WithCustomMessage(
                 "the modes-menu close is an out-of-scope re-arm path and must stay a bare "
                 + "SetActive(true).")

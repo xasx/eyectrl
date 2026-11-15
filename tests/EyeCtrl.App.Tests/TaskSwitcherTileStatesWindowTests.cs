@@ -295,6 +295,11 @@ public class TaskSwitcherTileStatesWindowTests
         if (chip.IntersectsWith(disc) && chip.Width > 0 && chip.Height > 0)
             messages.Add($"the chip {Box(chip)} overlaps the ✕ disc {Box(disc)}");
 
+        // Still on screen: the fixup's own rule for the widest chip (the German one is measured in
+        // its own test; this one keeps the English one inside the window's edges).
+        if (chip.Left < 0 || chip.Right > ScreenWidth)
+            messages.Add($"the chip {Box(chip)} leaves the {ScreenWidth} DIP window");
+
         // The chip's whole text must be shown, not clipped: the row gives it its natural width.
         var word = Descendants<TextBlock>(chipElement).Single();
         var natural = FitText.NaturalWidth(word, word.Text);
@@ -308,6 +313,72 @@ public class TaskSwitcherTileStatesWindowTests
             + $"hint to close {FitText.Dip(disc.Left - hint.Right)} DIP; "
             + $"chip to hit circle {FitText.Dip(clearance)} DIP; chip text {FitText.Dip(natural)} DIP");
     }
+
+    /// <summary>
+    /// S2-B fixup-01: the ✕ is the escape, and a gaze-only user finds it by where it was last time
+    /// — so the overflow chip must not move it. Measured per language (the hint's own width is what
+    /// centres the pair, so English and German legitimately sit at different x): the same session
+    /// with and without the 64th window's chip must put the disc in the same place, at 1.0 and at
+    /// the owner's 200 %. The German chip is the widest case.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void CloseDisc_DoesNotMove_WhenTheOverflowChipAppears(double scale)
+    {
+        using var englishNoChip = Laid.Open(Windows(Capacity), scale: scale);
+        englishNoChip.RegisterFaces(Capacity);
+        var englishReference = DiscCentre(englishNoChip);
+        _output.WriteLine($"at {scale:0.0}x English: no chip, ✕ centre {Point(englishReference)}");
+
+        using var englishChip = Laid.Open(Windows(Capacity + 1), scale: scale);
+        englishChip.RegisterFaces(Capacity);
+        Check.WithCustomMessage("The 64-window case drew no chip, so the pin would compare two chip-less rows.")
+            .That(englishChip.Find<Border>(englishChip.Root, "OverflowChip")!.Visibility)
+            .IsEqualTo(Visibility.Visible);
+        var englishChipBox = englishChip.Bounds(englishChip.Find<Border>(englishChip.Root, "OverflowChip")!);
+        var english = DiscCentre(englishChip);
+        _output.WriteLine($"at {scale:0.0}x English: chip {Box(englishChipBox)}, ✕ centre {Point(english)}");
+        AssertSameDiscPosition(englishReference, english, "the English chip", scale);
+
+        StringTable.Activate(ShippedGerman.Load());
+        try
+        {
+            using var germanNoChip = Laid.Open(Windows(Capacity), scale: scale);
+            germanNoChip.RegisterFaces(Capacity);
+            var germanReference = DiscCentre(germanNoChip);
+            _output.WriteLine($"at {scale:0.0}x German: no chip, ✕ centre {Point(germanReference)}");
+
+            using var germanChip = Laid.Open(Windows(Capacity + 1), scale: scale);
+            germanChip.RegisterFaces(Capacity);
+            var germanChipBox = germanChip.Bounds(germanChip.Find<Border>(germanChip.Root, "OverflowChip")!);
+            var german = DiscCentre(germanChip);
+            _output.WriteLine($"at {scale:0.0}x German: chip {Box(germanChipBox)}, ✕ centre {Point(german)}");
+            AssertSameDiscPosition(germanReference, german, "the German chip", scale);
+
+            // Both chips are on screen, and the German one (the wider) leaves the window's edges alone.
+            Check.That(germanChipBox.Left).IsGreaterOrEqualThan(0);
+            Check.That(germanChipBox.Right).IsLessOrEqualThan(ScreenWidth);
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    private static void AssertSameDiscPosition(Point reference, Point measured, string what, double scale) =>
+        Check.WithCustomMessage(
+                $"At {scale:0.0}x the ✕ moved when {what} appeared: {Point(reference)} → {Point(measured)}. "
+                + "It is the escape; it must be where it was last time.")
+            .That(measured.X).IsCloseTo(reference.X, 0.5);
+
+    private static Point DiscCentre(Laid laid)
+    {
+        var disc = laid.Bounds(laid.Find<Border>(laid.Root, "CloseButton")!);
+        return new Point(disc.Left + (disc.Width / 2), disc.Top + (disc.Height / 2));
+    }
+
+    private static string Point(Point p) => $"({FitText.Dip(p.X)}, {FitText.Dip(p.Y)})";
 
     /// <summary>Windows as the enumeration hands them over: numbered, ordinary, none minimised.</summary>
     private static IReadOnlyList<AppWindow> Windows(int count) =>

@@ -96,21 +96,35 @@
                  non-switching escape in the corner band, where tracker accuracy is weakest
                  and a mis-aimed dwell could land on the last tile column and switch a window.
                  The 48 DIP gap keeps dwell built while reading the hint's trailing words off
-                 the disc's drawn edge (B8: the hit circle IS the drawn disc). -->
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
-                <!-- S2-B overflow chip: windows enumerated beyond the grid's capacity have no tile,
-                     so the row says how many. LEFT of the hint and outside the ✕'s hit circle by
-                     construction — the chip's own right margin plus the hint's width plus the 48
-                     DIP hint→✕ gap is the distance to the disc, which is what keeps a gaze resting
-                     on the chip from filling the ✕. Not a dwell target. -->
-                <Border x:Name="OverflowChip" Margin="0,12,32,12" Padding="12,4"
-                        VerticalAlignment="Center" IsHitTestVisible="False"
-                        Background="{StaticResource BrushSurfaceLight}"
-                        CornerRadius="{StaticResource StandardCornerRadius}"
-                        Visibility="{Binding HasOverflow, Converter={StaticResource BoolToVisibility}}">
-                    <TextBlock Text="{Binding OverflowCount, StringFormat={loc:T 'overlays.taskSwitcher.overflow'}}"
-                               Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"/>
-                </Border>
+                 the disc's drawn edge (B8: the hit circle IS the drawn disc).
+
+                 S2-B fixup-01: the row is THREE columns — the chip lives in the left STAR column,
+                 the hint + ✕ in the middle Auto column — so showing the chip cannot move the pair.
+                 The ✕ is the escape and a gaze-only user finds it by where it was last time; a
+                 widened centred group would shift it 84 DIP right whenever the count appeared. The
+                 two star columns are equal, which centres the Auto column exactly as the single
+                 centred StackPanel was centred before. -->
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <!-- S2-B overflow chip: windows enumerated beyond the grid's capacity have no tile, so
+                 the row says how many. It sits in the LEFT star column, right-aligned 32 DIP from
+                 that column's end — i.e. 32 DIP left of the hint's left edge — so it is outside the
+                 ✕'s hit circle by construction (32 DIP its margin + the hint's width + the 48 DIP
+                 hint→✕ gap), which is what keeps a gaze resting on the chip from filling the ✕. It
+                 never changes a column's size: the star column absorbs it. Not a dwell target. -->
+            <Border x:Name="OverflowChip" Grid.Column="0" HorizontalAlignment="Right"
+                    Margin="0,12,32,12" Padding="12,4"
+                    VerticalAlignment="Center" IsHitTestVisible="False"
+                    Background="{StaticResource BrushSurfaceLight}"
+                    CornerRadius="{StaticResource StandardCornerRadius}"
+                    Visibility="{Binding HasOverflow, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="{Binding OverflowCount, StringFormat={loc:T 'overlays.taskSwitcher.overflow'}}"
+                           Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"/>
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
                 <TextBlock x:Name="HintText" Text="{loc:T 'overlays.taskSwitcher.hint'}"
                            Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
                            VerticalAlignment="Center" Margin="0,12"/>

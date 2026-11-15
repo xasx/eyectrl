@@ -528,7 +528,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     // armed by design — and re-arming here is the only repair for that case,
                     // since the slide-in's completion no longer touches dwell state.
                     if (Context.OverlayManager.Toolbar.IsOnScreen)
-                        Context.ToolbarVM.SetActive(true);
+                        Context.ToolbarVM.SetActive(true, freshEntry: true);
                 }
             });
         }

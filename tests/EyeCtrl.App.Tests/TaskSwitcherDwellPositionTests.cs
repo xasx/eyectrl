@@ -182,14 +182,53 @@ public class TaskSwitcherDwellPositionTests
                 "Hiding the switcher must NOT unconditionally reactivate the toolbar — "
                 + "auto-hide may have hidden it while the switcher was up, and activating a "
                 + "hidden toolbar creates gaze targets for invisible buttons. Guard the "
-                + "SetActive(true) on Toolbar.IsOnScreen.")
-            .That(body.Contains("Toolbar.IsOnScreen") && body.Contains("ToolbarVM.SetActive(true)")).IsTrue();
+                + "SetActive call on Toolbar.IsOnScreen.")
+            .That(body.Contains("Toolbar.IsOnScreen")).IsTrue();
+        Check.WithCustomMessage(
+                "The switcher-close re-arm must be the FRESH-ENTRY one: the gaze that closed the "
+                + "switcher is still resting in the toolbar band, and a bare SetActive(true) is "
+                + "the field-observed self-reopen (1.3–1.9 s after a close).")
+            .That(body.Contains("ToolbarVM.SetActive(true, freshEntry: true)")).IsTrue();
         Check.WithCustomMessage(
                 "Toolbar.IsVisible is true during a slide-out, while the band is leaving and the "
                 + "window is about to hide — re-arming dwell there is the very hazard this pin "
                 + "exists to prevent. Use Toolbar.IsOnScreen, which is false then and true during "
                 + "a slide-in.")
             .That(body.Contains("Toolbar.IsVisible")).IsFalse();
+    }
+
+    /// <summary>
+    /// Source-scan pin: the landing guard's toolbar half exists ONLY on the switcher-close re-arm.
+    /// The other <c>SetActive(true)</c> callers (auto-hide show, calibration, the modes-menu
+    /// close) must keep the immediate arm — otherwise a band arriving after an auto-hide show or a
+    /// modes-menu close would refuse a deliberate look that is already in progress.
+    /// </summary>
+    [Fact]
+    public void OnlyTheSwitcherCloseReArm_UsesTheFreshEntryGuard()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "OverlayVmBindingCoordinator.cs"));
+
+        var freshCalls = Regex.Matches(source, @"SetActive\(\s*true\s*,\s*freshEntry:\s*true\s*\)");
+        Check.WithCustomMessage(
+                "exactly one SetActive(true, freshEntry: true) belongs in the coordinator: the "
+                + "task switcher's close branch. A second one silently re-arms another path with "
+                + "the landing guard.")
+            .That(freshCalls.Count).IsEqualTo(1);
+
+        var modesStart = source.IndexOf("private void OnModesMenuVMPropertyChanged", StringComparison.Ordinal);
+        Check.That(modesStart).IsStrictlyGreaterThan(-1);
+        var modesBody = SourceScanner.StripComments(
+            source[modesStart..source.IndexOf("\n    }", modesStart, StringComparison.Ordinal)]);
+        Check.WithCustomMessage(
+                "the modes-menu close is an out-of-scope re-arm path and must stay a bare "
+                + "SetActive(true).")
+            .That(modesBody.Contains("freshEntry")).IsFalse();
+
+        var switcherStart = source.IndexOf("private void OnTaskSwitcherVMPropertyChanged", StringComparison.Ordinal);
+        var switcherBody = SourceScanner.StripComments(
+            source[switcherStart..source.IndexOf("\n    }", switcherStart, StringComparison.Ordinal)]);
+        Check.That(switcherBody.Contains("freshEntry: true")).IsTrue();
     }
 
     /// <summary>

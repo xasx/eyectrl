@@ -33,10 +33,10 @@ public class Win32WindowManagerMinimizeTests
         Check.WithCustomMessage("the stale-handle re-check must survive the switch to the async call.")
             .That(nonBlocking.Contains("IsWindow")).IsTrue();
 
-        // The existing single-target Quick Actions minimise keeps its blocking behaviour; this
-        // ticket deliberately adds a separate seam method instead of changing it.
+        // The existing single-target Quick Actions minimise keeps today's synchronous
+        // ShowWindow call; S3-C only moved it onto a background worker so the caller never waits.
         var blocking = ExtractMethod(source, "public void Minimize(IntPtr hwnd)");
-        Check.That(blocking.Contains("NativeMethods.ShowWindow(")).IsTrue();
+        Check.That(blocking.Contains("_native.ShowWindow(")).IsTrue();
         Check.That(blocking.Contains("ShowWindowAsync")).IsFalse();
     }
 

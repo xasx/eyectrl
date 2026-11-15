@@ -105,10 +105,12 @@ public class TaskSwitcherDwellPositionTests
             "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
         var body = ExtractMethod(source, "public void BringToFront(IntPtr hwnd)");
 
-        // Match the NativeMethods.-prefixed call sites, not prose: the method's comments
-        // narrate the old bracket and name both APIs, so bare substring matches hit text.
-        var sendInput = body.IndexOf("NativeMethods.SendInput", StringComparison.Ordinal);
-        var switchCall = body.IndexOf("NativeMethods.SetForegroundWindow", StringComparison.Ordinal);
+        // Match the injected-seam call sites, not prose: the method's comments narrate the old
+        // bracket and name both APIs, so bare substring matches hit text. S3-C moved these calls
+        // behind IWindowActionNative (so a test can stand in for SendInput), but their order is
+        // exactly the 2026-08-25 fix and must not change.
+        var sendInput = body.IndexOf("_native.SendInput", StringComparison.Ordinal);
+        var switchCall = body.IndexOf("_native.SetForegroundWindow", StringComparison.Ordinal);
         Check.WithCustomMessage(
                 "The ALT grant must complete (down AND up) before SetForegroundWindow runs. "
                 + "A key event left down across the focus switch orphans its keyup on the "
@@ -144,7 +146,7 @@ public class TaskSwitcherDwellPositionTests
                 "SendInput's return is the only signal that the ALT grant was refused (UIPI "
                 + "silently drops injection into an elevated foreground window). Discarding it "
                 + "makes GrantBlocked indistinguishable from SwitchRefused in the field.")
-            .That(body.Contains("= NativeMethods.SendInput")).IsTrue();
+            .That(body.Contains("= _native.SendInput")).IsTrue();
         Check.WithCustomMessage(
                 "The outcome must go through ForegroundSwitchDiagnosis.Classify — the pure "
                 + "classifier is where the three field-distinguishable causes are defined and "
@@ -245,7 +247,7 @@ public class TaskSwitcherDwellPositionTests
     /// closes mid-session leaves a tile whose dwell dispatches here on a dead hwnd; the ALT
     /// down+up pair injected anyway lands in whatever currently holds foreground — the exact
     /// key-event-misdelivery class the 2026-08-25 stuck-ALT report made load-bearing. The
-    /// IsWindow check must therefore come BEFORE NativeMethods.SendInput, alongside the
+    /// IsWindow check must therefore come BEFORE the SendInput seam call, alongside the
     /// guards Minimize/MaximizeOrRestore/CloseWindow already carry.
     /// </summary>
     [Fact]
@@ -255,12 +257,12 @@ public class TaskSwitcherDwellPositionTests
             "src", "EyeCtrl.Platform", "Services", "Win32WindowManager.cs"));
         // Comments stripped (Switcher_DeactivatesToolbarDwell pattern): the guard's own
         // comment narrates "IsWindow is authoritative at the point of use", so a raw IndexOf
-        // would still pass with the actual NativeMethods.IsWindow guard deleted.
+        // would still pass with the actual _native.IsWindow guard deleted.
         var body = SourceScanner.StripComments(
             ExtractMethod(source, "public void BringToFront(IntPtr hwnd)"));
 
-        var isWindow = body.IndexOf("NativeMethods.IsWindow", StringComparison.Ordinal);
-        var sendInput = body.IndexOf("NativeMethods.SendInput", StringComparison.Ordinal);
+        var isWindow = body.IndexOf("_native.IsWindow", StringComparison.Ordinal);
+        var sendInput = body.IndexOf("_native.SendInput", StringComparison.Ordinal);
         Check.WithCustomMessage(
                 "BringToFront must reject a dead hwnd BEFORE the ALT grant: a window that "
                 + "closes mid-session leaves a tile whose dwell would otherwise fire a stray "
@@ -268,7 +270,7 @@ public class TaskSwitcherDwellPositionTests
                 + "stuck-ALT hazard), and the switch silently never happens.")
             .That(isWindow).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
-                "The IsWindow check must precede NativeMethods.SendInput — the grant is only "
+                "The IsWindow check must precede the SendInput seam call — the grant is only "
                 + "worth spending on a target that can receive it.")
             .That(isWindow < sendInput).IsTrue();
     }

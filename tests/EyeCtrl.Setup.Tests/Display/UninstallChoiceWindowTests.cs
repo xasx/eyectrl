@@ -674,6 +674,131 @@ public sealed class UninstallChoiceWindowTests
     }
 
     [Fact]
+    public void TheChoiceBand_CarriesTheMarkAndTitle_AndTheRowFitsUnclipped()
+    {
+        WithWindow(window =>
+        {
+            var band = BandOf(window);
+            var title = BandTitleOf(band);
+            Check.That(title.Text).IsEqualTo(English.T("uninstall.choice.title"));
+            Check.That(title.FontSize).IsEqualTo(SetupWindowMetrics.TitleFontSize);
+
+            // r3 F7: the full-bleed band removes the window padding; the body compensates so the
+            // row stays at H - 32 - 48 (the :583 pin).
+            var content = (FrameworkElement)window.Content;
+            window.Content = null;
+            using var host = FitHost.Open(content, width: window.Width, height: window.Height, inheritFrom: window);
+            var keep = Box(window.KeepButton, content);
+            var delete = Box(window.DeleteButton, content);
+            Check.That(keep.Bottom).IsCloseTo(window.Height - 32 - 48, 0.5);
+
+            // r4 finding 4: RenderSize and requested Width stay 420 even when the row clips — WPF
+            // centres an oversized row with a NEGATIVE offset, so keep.Left/delete.Right look
+            // correct at padding 88 too. The layout slot is the proof: the row's parent (the
+            // screen's button Grid) must be granted its full 1500 DIP, and the row must not be
+            // layout-clipped.
+            var row = (FrameworkElement)window.DeleteButton.Parent;
+            var slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(row);
+            Check.WithCustomMessage($"The button row's layout slot is {slot.Width} — the 88-DIP body padding clipped the 1500-DIP row (M4).")
+                .That(slot.Width).IsGreaterOrEqualThan(1500);
+            Check.WithCustomMessage("The row is layout-clipped: targets would lose their right edge.")
+                .That(System.Windows.Controls.Primitives.LayoutInformation.GetLayoutClip(row)).IsNull();
+        });
+    }
+
+    [Fact]
+    public void TheConfirmScreen_TintsAndCentresTheBand_AndKeepsTheProseRules()
+    {
+        WithWindow(window =>
+        {
+            Arm(window);
+            Click(window.DeleteButton);
+
+            var band = BandOf(window);
+            var tint = (SolidColorBrush)band.Background;
+            Check.WithCustomMessage("The danger tint must be opaque and frozen (r3 F11).")
+                .That(tint.IsFrozen && tint.Color.A == 255).IsTrue();
+            var expected = SetupBrushes.OpaqueColor(SetupBrushes.Blend(
+                Tokens.SurfaceMedium, Tokens.AccentDanger, 0.18));
+            Check.That(tint.Color).IsEqualTo(expected);
+
+            // SD9: the confirm band's content is centred (the two-column Grid itself is centred);
+            // SD2: its prose stays centred while screen 1's prose is left-aligned and primary.
+            Check.That(BandGridOf(window).HorizontalAlignment)
+                .IsEqualTo(HorizontalAlignment.Center);
+            Check.That(window.ProseBlock(confirm: true).TextAlignment)
+                .IsEqualTo(TextAlignment.Center);
+            Check.That(window.ProseBlock(confirm: false).TextAlignment)
+                .IsEqualTo(TextAlignment.Left);
+            Check.That(window.ProseBlock(confirm: false).FontWeight)
+                .IsEqualTo(FontWeights.Normal);                    // primary colour, normal weight (r4 F7)
+            Check.That(((SolidColorBrush)window.ProseBlock(confirm: false).Foreground).Color)
+                .IsEqualTo(Tokens.TextPrimary);
+
+            // D8/r3 finding: the title lives in the band — the prose stacks must not repeat it.
+            Check.That(window.ProseBlock(confirm: false).Text)
+                .IsNotEqualTo(English.T("uninstall.choice.title"));
+
+            // r3 F16: the taskbar title follows the confirm screen.
+            Check.That(window.Title).IsEqualTo(English.T("uninstall.confirmDelete.title"));
+        });
+    }
+
+    [Fact]
+    public void EveryButtonKind_ClearsTheSweepGate_AndTheTintDerives_InEveryTheme()
+    {
+        // Spec §7/r3 T4: the sweep-vs-fill gate (≥ 3:1) binds EVERY kind in EVERY theme, the danger
+        // label keeps ≥ 4.5 on its own ground, and the tint derivation is checked PER THEME against
+        // inline arithmetic — not against the production helper with itself (r4 finding 11).
+        RunSta(() =>
+        {
+            try
+            {
+                foreach (var theme in ThemeRegistry.All)
+                {
+                    Tokens.Activate(theme);
+                    var grounds = new[]
+                    {
+                        (ButtonKind.Primary, SetupBrushes.OpaqueColor(Tokens.SurfaceLight)),
+                        (ButtonKind.Normal, SetupBrushes.OpaqueColor(Tokens.SurfaceMedium)),
+                        (ButtonKind.Danger, SetupBrushes.OpaqueColor(Tokens.SurfaceMedium)),
+                    };
+                    foreach (var (kind, ground) in grounds)
+                    {
+                        var ratio = Contrast(Tokens.Accent, ground);
+                        Check.WithCustomMessage($"{theme.Name}/{kind}: sweep-vs-fill {ratio:0.00}:1 < 3.")
+                            .That(ratio).IsGreaterOrEqualThan(3.0);
+                    }
+
+                    var dangerLabel = Contrast(Tokens.AccentDanger, SetupBrushes.OpaqueColor(Tokens.SurfaceMedium));
+                    Check.WithCustomMessage($"{theme.Name}: danger label {dangerLabel:0.00}:1 < 4.5.")
+                        .That(dangerLabel).IsGreaterOrEqualThan(4.5);
+
+                    // The expected tint, computed here from the theme's own colours (r4 finding 11).
+                    var expected = Color.FromRgb(
+                        (byte)(Tokens.AccentDanger.R * 0.18 + Tokens.SurfaceMedium.R * 0.82),
+                        (byte)(Tokens.AccentDanger.G * 0.18 + Tokens.SurfaceMedium.G * 0.82),
+                        (byte)(Tokens.AccentDanger.B * 0.18 + Tokens.SurfaceMedium.B * 0.82));
+                    var tint = SetupBrushes.DangerTint();
+                    Check.WithCustomMessage($"{theme.Name}: the tint drifted from the 0.18 blend.")
+                        .That(tint.Color).IsEqualTo(expected);
+                    Check.WithCustomMessage($"{theme.Name}: the tint is not frozen/opaque.")
+                        .That(tint.IsFrozen && tint.Color.A == 255).IsTrue();
+
+                    // SD7's alert-on-tint leg (r3 F20): the confirm band's alert reads on the tint.
+                    var alertOnTint = Contrast(Tokens.AccentDanger, tint.Color);
+                    Check.WithCustomMessage($"{theme.Name}: alert-on-tint {alertOnTint:0.00}:1 < 3.")
+                        .That(alertOnTint).IsGreaterOrEqualThan(3.0);
+                }
+            }
+            finally
+            {
+                Tokens.Activate(MidnightTheme.Instance);
+            }
+        });
+    }
+
+    [Fact]
     public void TheWindow_SubscribesTheVisibilityEdge_ToTheHideShowPath()
     {
         // fixup-06 L3/Q4: the WPF IsVisibleChanged event cannot be raised on a window that is
@@ -706,6 +831,29 @@ public sealed class UninstallChoiceWindowTests
 
     private static Rect Box(FrameworkElement element, FrameworkElement root) =>
         element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize));
+
+    private static Border BandOf(UninstallChoiceWindow window) =>
+        (Border)((Grid)window.Content).Children[0];
+
+    private static TextBlock BandTitleOf(Border band) =>
+        ((Grid)band.Child).Children.OfType<TextBlock>().First();
+
+    private static Grid BandGridOf(UninstallChoiceWindow window) =>
+        (Grid)BandOf(window).Child;
+
+    /// <summary>The WCAG 2.x contrast ratio of two opaque colours.</summary>
+    private static double Contrast(System.Windows.Media.Color a, System.Windows.Media.Color b)
+    {
+        static double Channel(byte value)
+        {
+            var channel = value / 255.0;
+            return channel <= 0.03928 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
+        }
+
+        var first = (0.2126 * Channel(a.R)) + (0.7152 * Channel(a.G)) + (0.0722 * Channel(a.B));
+        var second = (0.2126 * Channel(b.R)) + (0.7152 * Channel(b.G)) + (0.0722 * Channel(b.B));
+        return (Math.Max(first, second) + 0.05) / (Math.Min(first, second) + 0.05);
+    }
 
     /// <summary>The real click path: the routed event the UIA Invoke peer and a mouse both raise.</summary>
     private static void Click(Button button) =>

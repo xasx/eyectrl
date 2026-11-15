@@ -414,7 +414,12 @@ internal static class TestFakes
     {
         public int ShowCalls { get; private set; }
         public int HideCalls { get; private set; }
-        public void ShowFullScreen() => ShowCalls++;
+        public ToolbarKeepOut? LastKeepOut { get; private set; }
+        public void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut)
+        {
+            ShowCalls++;
+            LastKeepOut = toolbarKeepOut;
+        }
         public void HideOverlay() => HideCalls++;
     }
 
@@ -426,10 +431,15 @@ internal static class TestFakes
     /// uninitialized: nothing in those tests asserts toolbar behaviour.</summary>
     internal sealed class FakeToolbarOverlay : IToolbarOverlay
     {
+        /// <summary>Settable so a coordinator test can model a docked band that is actually up;
+        /// the default (false) keeps every pre-existing "no toolbar in the picture" test intact.</summary>
+        internal bool OnScreen { get; set; }
+        internal PhysicalRect Bounds { get; set; }
+
         public bool IsVisible => false;
         public bool TargetsInitialized => false;
         public bool IsSliding => false;
-        public bool IsOnScreen => false;
+        public bool IsOnScreen => OnScreen;
         public double ExtentDip => 0;
 
         public void Show() { }
@@ -443,7 +453,7 @@ internal static class TestFakes
         public void ShowAtRest() { }
         public void ShowThenSlideIn() { }
         public void SlideOutThenHide(Action onHidden) => onHidden();
-        public PhysicalRect GetPhysicalBounds() => default;
+        public PhysicalRect GetPhysicalBounds() => Bounds;
     }
 
     /// <summary>No-op calibration overlay: the calibration state handler shows, updates and

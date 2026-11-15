@@ -14,7 +14,7 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <ScrollViewer Grid.Row="0" x:Name="TilesScroll" VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center">
+        <ScrollViewer Grid.Row="0" x:Name="TilesScroll" VerticalScrollBarVisibility="Disabled" HorizontalAlignment="Center" VerticalAlignment="Center">
             <ItemsControl x:Name="TilesPanel" AutomationProperties.AutomationId="TaskSwitcher_Tiles" ItemsSource="{Binding Tiles}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -49,7 +49,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" x:Name="HintRow">
             <!-- Hint and close disc share ONE centred row (review m4): the ✕ sits directly
                  beside the text that names it, at horizontal screen centre where tracking is
                  most accurate — the previous bottom-right corner placement put the only

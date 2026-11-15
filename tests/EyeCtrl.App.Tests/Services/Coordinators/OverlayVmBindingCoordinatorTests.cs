@@ -815,7 +815,67 @@ public class OverlayVmBindingCoordinatorTests
         public void SetActive(bool active) { }
     }
 
-    /// <summary>Records ring Show/Hide so the probe gate is observable without a window.</summary>
+    /// <summary>
+    /// The switcher-show handler passes the docked toolbar's REAL physical band to the window as
+    /// the keep-out (T2), and passes nothing when the band is floating or off screen — the window
+    /// then applies the screen edge margins alone, exactly like the T1 landing-guard contract says.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void SwitcherShow_PassesTheKeepOut_OnlyForADockedOnScreenToolbar(bool docked, bool onScreen)
+    {
+        var modal = new ModalInteractionState();
+        var settings = new EyeCtrlSettings();
+        settings.Toolbar.IsDocked = docked;
+        settings.Toolbar.DockedEdge = "Bottom";
+
+        var messenger = new WeakReferenceMessenger();
+        var switcher = new TaskSwitcherViewModel(windowManager: null!, settings, messenger);
+        var toolbar = new TestFakes.FakeToolbarOverlay
+        {
+            OnScreen = onScreen,
+            Bounds = new PhysicalRect(0, 1080, 1920, 120),
+        };
+        var window = new RecordingTaskSwitcherOverlay();
+
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            Messenger = messenger,
+            Settings = settings,
+            Dispatcher = Dispatcher.CurrentDispatcher,
+            TaskSwitcherVM = switcher,
+            ToolbarVM = new ToolbarViewModel(settings, messenger),
+            OverlayManager = TestFakes.MakeOverlayManager(toolbar: toolbar, taskSwitcher: window),
+        };
+        var coordinator = new OverlayVmBindingCoordinator(modal);
+        SetContext(coordinator, ctx);
+
+        switcher.IsVisible = true;
+        InvokeTaskSwitcherHandler(coordinator, nameof(TaskSwitcherViewModel.IsVisible));
+        Pump();
+
+        Check.That(window.ShowCalls).IsEqualTo(1);
+        if (docked && onScreen)
+        {
+            Check.That(window.LastKeepOut.HasValue).IsTrue();
+            Check.That(window.LastKeepOut!.Value.Bounds)
+                .IsEqualTo(new PhysicalRect(0, 1080, 1920, 120));
+            Check.That(window.LastKeepOut.Value.DockedEdge).IsEqualTo("Bottom");
+        }
+        else
+        {
+            Check.WithCustomMessage(
+                    "a floating or off-screen band must not claim a keep-out: its stale bounds "
+                    + "would push the tiles off the space the user can actually see")
+                .That(window.LastKeepOut.HasValue).IsFalse();
+        }
+    }
+
+    /// <summary>
+    /// Records ring Show/Hide so the probe gate is observable without a window.
+    /// </summary>
     private sealed class RecordingRingVisibility : ICursorCircleOverlay
     {
         public int ShowCalls { get; private set; }
@@ -828,5 +888,20 @@ public class OverlayVmBindingCoordinatorTests
         public void UpdateAppearance(CursorSettings settings) { }
         public void SetPausedDim(bool dimmed) { }
         public void SetPinned(bool pinned) { }
+    }
+
+    /// <summary>Records the show call and its keep-out argument without a fullscreen window.</summary>
+    private sealed class RecordingTaskSwitcherOverlay : ITaskSwitcherOverlay
+    {
+        public int ShowCalls { get; private set; }
+        public ToolbarKeepOut? LastKeepOut { get; private set; }
+
+        public void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut)
+        {
+            ShowCalls++;
+            LastKeepOut = toolbarKeepOut;
+        }
+
+        public void HideOverlay() { }
     }
 }

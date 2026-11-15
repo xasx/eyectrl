@@ -99,7 +99,7 @@ internal static partial class IconNativeMethods
     }
 
     /// <summary>
-    /// propkey.h's <c>PROPERTYKEY</c> — { GUID fmtid; DWORD pid; }, 20 bytes, 4-byte aligned.
+    /// wtypes.h:892 — <c>PROPERTYKEY</c>: { GUID fmtid; DWORD pid; }, 20 bytes, 4-byte aligned.
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     internal struct PropertyKey

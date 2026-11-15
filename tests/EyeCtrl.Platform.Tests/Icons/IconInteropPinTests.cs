@@ -49,7 +49,7 @@ public class IconInteropPinTests
         var key = IconNativeMethods.AppUserModelIdKey;
         Check.That(key.FormatId.ToString("D")).IsEqualTo("9f4c2855-9f79-4b39-a8d0-e1d42de1d5f3");
         Check.That(key.PropertyId).IsEqualTo(5u);
-        Check.That(Marshal.SizeOf<IconNativeMethods.PropertyKey>()).IsEqualTo(20);
+        Check.That(Marshal.SizeOf<IconNativeMethods.PropertyKey>()).IsEqualTo(20);   // wtypes.h:892
     }
 
     [Fact]

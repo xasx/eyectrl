@@ -125,6 +125,8 @@ public class KeyboardNextWordTests
         rig.Vm.GetSuggestionsWithContext();
 
         Check.That(rig.Lm.NextWordCalls).IsEmpty();
+        // Enter ends the session: not even a completion may be asked for the text Enter sent.
+        Check.That(rig.Lm.CompletionCalls).IsEmpty();
         Check.That(rig.Vm.NextWordSlotReserved).IsFalse();
     }
 
@@ -175,5 +177,22 @@ public class KeyboardNextWordTests
         rig.Type("h");   // the boundary moved on
 
         Check.That(rig.Vm.TryTakeNextWordSuggestions()).IsNull();
+    }
+
+    [Fact]
+    public void InASensitiveField_ABoundaryRenderMakesNoQueryAtAll()
+    {
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+
+        rig.Type("Haus");
+        rig.Vm.HandleSpace();
+        var suggestions = rig.Vm.GetSuggestionsWithContext();
+
+        Check.That(suggestions).IsEmpty();
+        Check.WithCustomMessage($"next-word calls: {string.Join("|", rig.Lm.NextWordCalls)}")
+            .That(rig.Lm.NextWordCalls).IsEmpty();
+        Check.That(rig.Lm.CompletionCalls).IsEmpty();
+        Check.That(rig.Vm.NextWordSlotReserved).IsFalse();
     }
 }

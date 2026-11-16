@@ -98,7 +98,6 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _toolbarOccupied;
     private string _toolbarEdge = "none";
     private double _toolbarExtentDip;
-    private bool _predictionTargetsInitialized;
     // Which slots have a registered dwell target right now. Per-slot (not one all-or-nothing
     // latch) so a slot that was empty at render time - the reserved slot 0 - can gain its target
     // later without re-adding (and resetting) every other slot's geometry.
@@ -1119,12 +1118,12 @@ public partial class KeyboardWindow : OverlayWindow
         var cells = Math.Min(_renderedPredictions.Count, PredictionBar.Children.Count);
         if (cells == 0) return;
 
-        // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing, and
-        // latch only when EVERY cell placed. The latch used to fire on a pass that happened,
+        // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing. The
+        // per-slot registry retries an unarranged cell on the next pass; the old all-or-nothing
+        // latch fired on a pass that happened,
         // including one where every iteration bailed — the radius-0 targets from unarranged cells
         // and the five targets stacked at screen (0,0) from a source-less pass were permanent,
         // because the else-branch only rebases geometry it was given and can never repair it.
-        bool allPlaced = true;
         for (int i = 0; i < cells; i++)
         {
             if (_renderedPredictions[i] is null)
@@ -1136,16 +1135,10 @@ public partial class KeyboardWindow : OverlayWindow
 
             var predId = $"pred_{i}";
             if (PredictionBar.Children[i] is not Border btn)
-            {
-                allPlaced = false;
                 continue;
-            }
 
             if (!TryGetScreenRect(btn, out var cellRect))
-            {
-                allPlaced = false;
                 continue;
-            }
 
             if (_registeredPredictionSlots.Add(i))
                 // The cell's own rectangle. The circumscribed circle this replaces was ~4x the
@@ -1162,9 +1155,6 @@ public partial class KeyboardWindow : OverlayWindow
                 // adaptation on the routed margin rides the new rect by design.
                 _predictionDwellDetector.RebaseTarget(predId, cellRect);
         }
-
-        if (allPlaced)
-            _predictionTargetsInitialized = true;
     }
 
     // True once the bar was emptied because a password field has focus: the first sample after the
@@ -1249,7 +1239,6 @@ public partial class KeyboardWindow : OverlayWindow
         var suggestions = _viewModel?.GetSuggestionsWithContext() ?? [];
 
         _predictionDwellDetector.ClearTargets();
-        _predictionTargetsInitialized = false;
         _registeredPredictionSlots.Clear();
         _predictionOutlines.Clear();
         PredictionBar.Children.Clear();
@@ -1355,11 +1344,11 @@ public partial class KeyboardWindow : OverlayWindow
         if (!_nextWordReserved || _viewModel is null) return;
 
         // Never rewrite a filled slot: if something is already in slot 0 the reservation is over.
-        if (_renderedPredictions.Count == 0)
+        if (_renderedPredictions.Count == 0 || _renderedPredictions[0] is not null)
         {
             _nextWordReserved = false;
             return;
-        }   // MUTANT: a filled slot no longer stops the fill
+        }
 
         // A dwell in flight (any slot) postpones the fill; the answer waits for the next sample.
         for (var i = 0; i < _slotDwellStartMs.Length; i++)
@@ -1583,6 +1572,11 @@ public partial class KeyboardWindow : OverlayWindow
                 latchedRect = target.Bounds;
                 break;
             }
+            // D2 (owner's choice, 15.11): the bar re-renders IMMEDIATELY with the new words and
+            // keeps today's per-slot 120 ms latch - no whole-bar hold. Phase 1 measured the risk the
+            // owner accepted: in the one reconstructable recorded session, 1 of 5 picks was followed
+            // by a continuous 906 ms rest on ANOTHER slot, which would have fired a chain pick nobody
+            // asked for. Do not "fix" this with a bar-wide lock without the owner's say-so.
             _viewModel.HandlePredictionSelected(picked.Word);
             _predictionRearm.Latch(targetId, latchedRect);
             UpdatePredictions();

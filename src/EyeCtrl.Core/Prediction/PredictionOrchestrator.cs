@@ -140,6 +140,12 @@ public class PredictionOrchestrator : IDisposable
                     _nextWordContext = context;
                     _nextWordCommitted = CommittedKey(committedText);
                     _lmPredictor!.PredictNextWord(prompt);
+                    // The predictor's pending request is now a NEXT-WORD one, so the completion
+                    // identity below no longer describes it: its answer must never be adopted as a
+                    // completion of whatever prefix the user types next ("ist" for a boundary may
+                    // otherwise pass a completion's starts-with-the-prefix check).
+                    _lastLmPrefix = null;
+                    _lastLmContext = null;
                     NextWordSlotReserved = true;
                 }
             }

@@ -50,6 +50,7 @@ public class PredictionOrchestratorNextWordTests
     private static Dictionary<string, int> Dictionary() => new()
     {
         ["ist"] = 100, ["steht"] = 90, ["leer"] = 80, ["Haus"] = 70, ["hier"] = 60,
+        ["island"] = 5,
     };
 
     private static SentenceCompletionIndex Trie()
@@ -262,5 +263,31 @@ public class PredictionOrchestratorNextWordTests
 
         Check.That(orchestrator.NextWordSlotReserved).IsFalse();
         Check.That(lm.NextWordCalls).IsEmpty();
+    }
+
+    [Fact]
+    public void GetSuggestions_AfterABoundaryRequest_ItsAnswerIsNeverMergedAsACompletion()
+    {
+        var lm = new FakeLm();
+        using var orchestrator = Create(lm: lm, trie: Trie());
+
+        // A completion request first, so the completion identity ("Haus") is live when the
+        // boundary request replaces that request in the predictor.
+        orchestrator.GetSuggestions("i", context: "Haus", maxCount: 5, committedText: "Das ");
+        Check.That(lm.CompletionCalls).ContainsExactly(("Haus", "i"));
+
+        orchestrator.GetSuggestions("", context: "Haus", maxCount: 5, committedText: "Das Haus ");
+        lm.Complete("island");   // the next-word answer
+
+        // The user types again. "island" happens to start with "is", but it was generated for the
+        // boundary and is NOT a completion of the new prefix; with room for one word only, a leak
+        // would replace the dictionary's own "ist".
+        var results = orchestrator.GetSuggestions("is", context: "Haus", maxCount: 1,
+            committedText: "Das ");
+
+        Check.WithCustomMessage($"rendered: {string.Join("|", results.Select(r => $"{r.Word}/{r.Type}"))}")
+            .That(results.Any(r => r.Word == "island" && r.Type == PredictionType.LMSuggestion)).IsFalse();
+        Check.WithCustomMessage($"rendered: {string.Join("|", results.Select(r => $"{r.Word}/{r.Type}"))}")
+            .That(results.Any(r => r.Word == "ist" && r.Type == PredictionType.ExactPrefix)).IsTrue();
     }
 }

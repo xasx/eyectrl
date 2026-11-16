@@ -87,6 +87,11 @@ public sealed class SupervisionToggleService
     /// <summary>True while a turn-on or turn-off is running; the toggle stays put until it completes.</summary>
     public bool InFlight => _inFlight;
 
+    /// <summary>Whether the in-flight operation (if any) is an ENABLE. The crash-recovery chain
+    /// may attach only to its own enable — an Ensuring or Disabling flight is not its request
+    /// (spec §9, r1 F9/r3 F5).</summary>
+    public bool IsEnablingInFlight => _inFlight && _kind == RequestKind.Enabling;
+
     /// <summary>Whether a Supervisor is answering AND supervision is on (ticket 07). Uses the
     /// cached delivery freshness, not the on-disk flag alone.</summary>
     public bool IsSupervisorConnected => _settings.Supervision.Enabled && _isSupervisorConnected();

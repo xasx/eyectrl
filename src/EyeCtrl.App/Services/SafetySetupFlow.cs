@@ -217,6 +217,18 @@ internal sealed class SafetySetupFlow
         ]);
     }
 
+    /// <summary>Runs the question chain WITHOUT the intro card — the first-run guide shows its own
+    /// transition card and then drives the questions (spec §7 step 7). Same initialization as
+    /// <see cref="Start"/> minus the intro modal: the chain begins at question 0 and ends with the
+    /// same onEnded semantics. Accepted residual (r1 S3): a "Yes" while a Disabling flight is in
+    /// flight does not attach and leaves supervision off — the Settings row remains the remedy.</summary>
+    internal void StartQuestions()
+    {
+        _active = true;
+        _pendingFailure = null;
+        Advance(0);
+    }
+
     /// <summary>Stops listening for a pending crash-recovery result (the window closed, or the chain
     /// was restarted). Answers already given stay applied; nothing is undone.</summary>
     internal void Abandon()
@@ -354,8 +366,12 @@ internal sealed class SafetySetupFlow
     {
         if (_supervision is null) return;
 
+        // r1 F9 / r3 F5: an unrelated flight (the startup ensure, a disable) must never be
+        // mistaken for this answer's enable. Already-on is a no-op success; only an in-flight
+        // ENABLE is awaited. (RequestEnable itself no-ops on _inFlight || Enabled.)
+        if (_supervision.Enabled && !_supervision.InFlight) return;
         _supervision.RequestEnable();
-        if (_supervision.InFlight)
+        if (_supervision.IsEnablingInFlight)
         {
             _waitingForSupervision = true;
             _supervision.StateChanged += OnSupervisionStateChanged;

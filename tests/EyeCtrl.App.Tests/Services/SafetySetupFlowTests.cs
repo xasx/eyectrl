@@ -568,6 +568,75 @@ public class SafetySetupFlowTests : IDisposable
         Check.That(Top.Message).StartsWith("Question 3 of 5");
     }
 
+    // ── the guide's question-only start (no intro card) ──────────────────────
+
+    [Fact]
+    public void StartQuestions_AskesQuestion0_WithoutTheIntroCard()
+    {
+        var flow = Flow();
+        flow.StartQuestions();
+
+        Check.That(_cards).HasSize(1);
+        Check.That(Top.Choices.Any(c => c.Id == "safety_yes")).IsTrue();
+        Check.That(Top.Choices.Any(c => c.Id == "safety_start")).IsFalse();
+    }
+
+    [Fact]
+    public void StartQuestions_Completes_AndSetsTheFlag()
+    {
+        var flow = Flow();
+        flow.StartQuestions();
+        for (var i = 0; i < 4; i++)
+            Pick("safety_yes");                 // questions 0–3: Yes/No
+        Pick("safety_basic");                   // question 4: Basic/All
+
+        Check.That(_settings.General.SafetySetupDone).IsTrue();
+        Check.That(_ended[^1]).IsTrue();
+    }
+
+    [Fact]
+    public void CrashRecovery_Yes_WhileAlreadyEnabled_IsANoOpSuccess()
+    {
+        // Regression pin: passes on current code too — RequestEnable no-ops on Enabled.
+        _settings.Supervision.Enabled = true;
+        var (toggle, persisted) = WorkingSupervision(_settings);
+        var flow = Flow(supervision: toggle);
+        flow.StartQuestions();
+
+        Pick("safety_yes");
+
+        Check.That(_cards.Count).IsEqualTo(2);
+        Check.That(persisted).IsEmpty();
+    }
+
+    [Fact]
+    public void CrashRecovery_Yes_WithAnUnrelatedFlightInFlight_DoesNotWait()
+    {
+        _settings.Supervision.Enabled = true;
+        var toggle = EnsuringInFlightSupervision(_settings);
+        toggle.RequestEnsure();
+        Check.That(toggle.InFlight).IsTrue();
+
+        var flow = Flow(supervision: toggle);
+        flow.StartQuestions();
+
+        Pick("safety_yes");
+
+        Check.That(_cards.Count).IsEqualTo(2);   // question 1 up: not attached to the flight
+    }
+
+    [Fact]
+    public void StartQuestions_CanBeAbandoned_ByWindowClose()
+    {
+        var flow = Flow();
+        flow.StartQuestions();
+        Pick("safety_yes");
+        flow.Abandon();
+
+        Check.That(_ended).IsEmpty();
+        Check.That(_settings.General.SafetySetupDone).IsFalse();
+    }
+
     // ── harness ──────────────────────────────────────────────────────────────
 
     private (string Message, IReadOnlyList<ModalChoice> Choices) Top => _cards[^1];
@@ -649,6 +718,15 @@ public class SafetySetupFlowTests : IDisposable
         new(settings,
             new SupervisorBringUp(settings, () => { }, () => false, _ => { }, () => { }, () => false),
             new SupervisorStartupEnsure(settings, () => { }, () => false, () => false),
+            persistEnabled: _ => { }, supervisorInstalled: () => true, isSupervisorConnected: () => false,
+            reconcileRunKey: () => { }, runInBackground: _background.Add, postToUi: w => w());
+
+    /// <summary>Whose ENSURE actually takes flight: supervision ON (the ensure's gate) and a
+    /// supervisor NOT connected (its other gate — r1 F2).</summary>
+    private SupervisionToggleService EnsuringInFlightSupervision(EyeCtrlSettings settings) =>
+        new(settings,
+            new SupervisorBringUp(settings, () => { }, () => true, _ => { }, () => { }, () => true),
+            new SupervisorStartupEnsure(settings, () => { }, () => true, () => true),
             persistEnabled: _ => { }, supervisorInstalled: () => true, isSupervisorConnected: () => false,
             reconcileRunKey: () => { }, runInBackground: _background.Add, postToUi: w => w());
 

@@ -1,7 +1,7 @@
 # First-Run Introduction Guide — Design
 
 - **Date:** 2026-11-16
-- **Status:** Rev 1.1 — brainstormed with the owner interactively (flow relation, interactivity, settings picked); the remaining decisions were taken on best judgment while the owner was unreachable and are recorded as the vetoable ledger (§10). Rev 1.1: pre-review self-verification against the shipped code **replaced the interaction-pause mechanism** — calibration ships no pause; the guide uses the calibration overlay model instead (receiving backdrop + proactive-surface suspension, §5).
+- **Status:** Rev 1.2 — brainstormed with the owner interactively (flow relation, interactivity, settings picked); the remaining decisions were taken on best judgment while the owner was unreachable and are recorded as the vetoable ledger (§10). Rev 1.1: pre-review self-verification against the shipped code **replaced the interaction-pause mechanism** — calibration ships no pause; the guide uses the calibration overlay model instead (receiving backdrop + proactive-surface suspension, §5). Rev 1.2: the completion-flag latching point corrected — the reused `SafetySetupFlow` already latches `SafetySetupDone` at its last answer; the Done card is informational (§4, §7 step 8, §8).
 - **Supersedes:** the startup Safety Setup's *surface* — its question chain survives verbatim inside the guide (§7).
 
 ## 1. Summary
@@ -32,7 +32,7 @@ A new install of EyeCtrl hands a person a completely gaze-driven PC with no inst
 - **Gate (unchanged semantics):** `SafetySetupStartup.ShouldPrompt(safetySetupDone, isPausedLaunch, isTestMode)` keeps its three conditions: prompts only while `GeneralSettings.SafetySetupDone` is false, never on a `--paused` launch (crash-recovery retry's inert relaunch), never in `--test-mode`. A normal crash-recovery relaunch re-prompts (same as today).
 - **Raise:** `SafetySetupStartup.MaybeRequest` sends the renamed `FirstRunGuideRequestedMessage` (was `SafetySetupRequestedMessage`) from the same startup call site after `ShowOverlays`, so first-run timing relative to splash/overlays is unchanged.
 - **Re-run entry:** a **Settings → General** action row "Run the introduction guide" (same action-row pattern the Calibration page uses for "Calibrate Now"). It starts the guide regardless of the flag: a **full replay** including the safety questions — answers re-apply through the same settings-write paths (idempotent). It refuses while a guide is already open (host's one-flow rule).
-- **Completion flag:** `GeneralSettings.SafetySetupDone` stays the single latch, set only when the guide's **Finish** card is answered (§8). "Later", closing the window mid-flow, or a crash leaves it false → the guide re-prompts at the next start. A crash after the safety block but before Finish re-runs the whole guide (answers re-applied) — accepted, rare.
+- **Completion flag:** `GeneralSettings.SafetySetupDone` stays the single latch, and its **latching point is unchanged**: the reused `SafetySetupFlow` sets it at the safety block's last answer (`Answered`, index == QuestionCount−1), exactly as today — the guide does not add a second write. The **Done card is informational** (Finish merely closes the guide and lifts the suspensions). "Later" on the welcome card or closing the window mid-flow leaves the flag false → the guide re-prompts at the next start; once the safety block has completed, the flag is true and a later crash does not re-prompt (all mandatory content was consumed; only the cheat-sheet was missed — accepted).
 
 ## 5. Window & surface
 
@@ -53,7 +53,7 @@ Welcome → MeetDwell → DwellTime → Calibrate → ToolbarTask → Theme → 
 
 - **Events:** `Start`/`Next`/`Skip` (per-step policy), `TaskSucceeded` (practice target, toolbar summon), `CalibrationEnded(success, cancelled)`, `SafetyEnded(completed)`, `WindowClosed` (abandon).
 - **Surface contract:** the flow knows only `IGuideSurface` (show step content, choices, task state); the window's code-behind implements it by updating `FirstRunGuideViewModel`, which the XAML binds. The VM never talks back to the flow — input flows window → flow events only.
-- **Skip policy:** steps 2 (MeetDwell) and 5 (ToolbarTask) are skippable tasks; step 4 (Calibrate) is skippable; steps 1/3/6/7/8 are not (3 and 6 are Continue-only; 7 is answerable-through; 8 is the latch).
+- **Skip policy:** steps 2 (MeetDwell) and 5 (ToolbarTask) are skippable tasks; step 4 (Calibrate) is skippable; steps 1/3/6/7/8 are not (3 and 6 are Continue-only; 7 is answerable-through and **latches the flag** at its last answer; 8 is informational).
 - **Safety block (§7):** the flow owns a `SafetySetupFlow` instance; entering the step shows the guide's own transition card, then calls the new `SafetySetupFlow.StartQuestions()`; `onEnded(true)` → advance to Done. The chain's failure-hold/checking cards render through the same card surface.
 - **Abandon:** `WindowClosed` stops the safety chain (`Abandon()`), lifts the suspensions, keeps applied answers; flag untouched.
 - **Re-run:** `FirstRunGuideHost` (window-side, headless like `SafetySetupHost` was) enforces one flow at a time and refuses a re-run while open.
@@ -79,10 +79,10 @@ Card: the docked edge band is the way to the toolbar (the keyboard, settings, ev
 Four chips (Midnight, Daylight, Ember, Contrast) bound to the Theme settings write path, applied live — the card re-skins itself as the selection changes. Continue.
 
 ### 7) Safety questions (absorbed)
-Transition card ("5 quick questions to keep you safe") → `SafetySetupFlow.StartQuestions()` runs the five questions (crash recovery, start on boot, dwell cue, track status, Basic/All mode) as dwell-choice cards on the guide surface, with the chain's crash-recovery wait ("Checking crash recovery"), ceiling, and held-failure cards unchanged. **No skip** — each question is a Yes/No answer; the only early exit is closing the window (abandon: answers applied stay, flag stays false).
+Transition card ("5 quick questions to keep you safe") → `SafetySetupFlow.StartQuestions()` runs the five questions (crash recovery, start on boot, dwell cue, track status, Basic/All mode) as dwell-choice cards on the guide surface, with the chain's crash-recovery wait ("Checking crash recovery"), ceiling, and held-failure cards unchanged. The chain's last answer sets `SafetySetupDone = true` (its own latching, untouched — §4). **No skip** — each question is a Yes/No answer; the only early exit is closing the window (abandon: answers applied stay, flag stays false).
 
 ### 8) Done
-"You're set." + cheat-sheet pointers: the docked edge summons the toolbar (main menu); the keyboard opens from the toolbar; every setting lives in Settings. **Finish** → `SafetySetupDone = true`, close, resume interaction. A re-run from Settings ends here identically.
+"You're set." + cheat-sheet pointers: the docked edge summons the toolbar (main menu); the keyboard opens from the toolbar; every setting lives in Settings. **Finish** closes the guide and lifts the suspensions — the flag was already latched by the safety block's last answer (§4). A re-run from Settings ends here identically.
 
 ## 8. Data flow
 
@@ -91,8 +91,8 @@ Transition card ("5 quick questions to keep you safe") → `SafetySetupFlow.Star
 | 3 Dwell time | `DwellSettings.ActivationButtonDwellMs` via the live-apply + debounced-save path |
 | 4 Calibrate | none (delegates to the existing calibration flow) |
 | 6 Theme | theme selection via the Settings row's path |
-| 7 Safety | the five `SafetySetupFlow` writes, unchanged |
-| 8 Done | `GeneralSettings.SafetySetupDone = true` + apply/save |
+| 7 Safety | the five `SafetySetupFlow` writes, unchanged — its last answer also sets `GeneralSettings.SafetySetupDone = true` (existing latching) |
+| 8 Done | none (informational card) |
 
 ## 9. Edge cases
 
@@ -160,7 +160,7 @@ Choices taken while the owner was not answering interactive prompts; every entry
 
 ## 12. Testing guidance
 
-- **Flow tests (headless, fakes — NFluent):** step sequence and order; Calibrate omitted without a tracker; skip policy per step (2/4/5 skippable; 3/6 Continue-only; 7 answerable-through; 8 latches); task-success auto-advance (practice target, toolbar summon); calibration ended (success *and* cancelled) advances and re-shows the card; safety block: transition card → `StartQuestions` → completed → advance; "Later" closes with flag false; Finish sets the flag; window-closed abandon (chain abandoned, suspensions lifted, flag untouched); re-run refusal while open; proactive surfaces suspended on open and lifted on close (surface-level pins on the seam calls).
+- **Flow tests (headless, fakes — NFluent):** step sequence and order; Calibrate omitted without a tracker; skip policy per step (2/4/5 skippable; 3/6 Continue-only; 7 answerable-through; 8 latches); task-success auto-advance (practice target, toolbar summon); calibration ended (success *and* cancelled) advances and re-shows the card; safety block: transition card → `StartQuestions` → completed → advance; "Later" closes with flag false; the safety chain's last answer sets the flag (its own latching, unchanged); Finish merely closes; window-closed abandon (chain abandoned, suspensions lifted, flag untouched); re-run refusal while open; proactive surfaces suspended on open and lifted on close (surface-level pins on the seam calls).
 - **Startup gate tests:** `ShouldPrompt`/`MaybeRequest` unchanged conditions but raising `FirstRunGuideRequestedMessage` — update the existing `SafetySetupStartup` pins.
 - **Window tests (STA, Category=UI, no visible window — `InvisibleTestWindow.Prepare`):** a card renders per step VM; choices armed only after gaze leaves the card (disarm latch); dwell-time slider writes through the live-apply path; theme chips re-skin the card; practice target advance. The app-launching FlaUI gate (`EYECTRL_UI_TESTS=1`) is out of scope for new tests unless a startup-level assertion needs the real app.
 - **Regression pins:** existing `SafetySetupFlow` tests keep passing (chain logic unchanged; new `StartQuestions` variant tested separately: same chain, no intro card, same end semantics). `SettingsUiCoordinator` tests updated for the new message → guide-window raise.

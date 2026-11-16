@@ -2,24 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-- **Rev 4** — external plan-review r3 processed (verdict FIX-FIRST: 6×S1, 5×S2; all folded in). Rev 3's corrections: **the plan is self-contained again** (every task's code inline — r3 F1); **every card's buttons come from ONE unified choice list** (step buttons + chrome Close + theme chips + Theme's Continue) registered AND visualized together — rev 3's `ShowStep` registered buttons then wiped them, and `guide_close`/chips had no visuals (r3 F5); the safety chain's ctor arg order holds; `ShutdownStarted` handler has the `EventHandler` signature; German rows use the Sie form; `DwellSlider` is replaced by −/+ chrome cards + a value read-out (it is an `IDwellComposite`, not a control); `EdgeWord` is an instance method over literal keys; the unwind is complete and re-entry-safe; the ring shows for step 5; `chromeClose` covers step 7.
+- **Rev 5** — external plan-review r4 processed (verdict FIX-FIRST: 4×S1, 1×S2; all folded in). Rev 4's corrections: **every task's code is inline again** (the file is the single source — no rev-2/rev-3 references, r4 F1); **`SetChoices`/`SetDwellKnob`/`SetPractice` each own ONE slot** — the knob builds into its own `KnobRow` instead of overwriting `StepContent`, so the MeetDwell circle survives and the DwellTime practice target sits beside the knob (r4 F4); **in-place presses re-render** (`RenderChoicesForCurrentStep()` after the dwell ± and theme chips — `OnTargetActivated` clears every chrome target on any press, and ±/chips don't change the step, r4 F3); **the window has no `Close()` member** (r4 F2); the summon handler no longer re-renders (the toolbar event clears no targets, r4 F5); the theme labels moved into Task 4's sorted block; `IsStrictlyGreaterThan`; `Card.FindResource` so the preview reaches the code-built cards; census row in the census table's own shape; the dwell read-out's handler is subscribed once.
 
 **Goal:** Build the first-run introductory guide exactly as specified in `docs/superpowers/specs/2026-11-16-first-run-guide-design.md` (rev 2.4, SHIP): an eight-step gaze-driven first-run experience that absorbs the safety setup and holds seven `GuideOpen` claims.
 
-**Architecture:** A headless `FirstRunGuideFlow` state machine drives a per-run `FirstRunGuideWindow` through `IGuideSurface`. `SettingsUiCoordinator` builds the per-run trio behind the renamed `FirstRunGuideRequestedMessage`, acquires the seven claims at the actual `Show()` inside the latched `SplashThreadHandle.WhenExited` continuation, wires gaze input through ONE choice-id switch, and releases/restores on close. The safety questions run through the existing `SafetySetupFlow` via `StartQuestions()`, begun from the transition card's Continue.
+**Architecture:** A headless `FirstRunGuideFlow` state machine drives a per-run `FirstRunGuideWindow` through `IGuideSurface`. `SettingsUiCoordinator` builds the per-run trio behind the renamed `FirstRunGuideRequestedMessage`, acquires the seven claims at the actual `Show()` inside the latched `SplashThreadHandle.WhenExited` continuation, wires gaze input through ONE choice-id dispatch, and releases/restores on close. The safety questions run through the existing `SafetySetupFlow` via `StartQuestions()`, begun from the transition card's Continue.
 
 **Tech Stack:** .NET 10 WPF (net10.0-windows), CommunityToolkit.Mvvm, NFluent 3.1.0 + xUnit v3, Serilog.
 
 ## Global Constraints
 
 - **Worktree:** every command runs inside `.worktrees/first-run-guide`. Test commands use ONE project per invocation. Before committing code: `node .gitnexus/run.cjs detect-changes --scope all`.
-- **Assertions:** NFluent 3.1.0, xUnit v3, private nested fakes only. The repo has no `[Category]` attribute — UI-gated tests use `[Trait("Category", "UI")]`.
+- **Assertions:** NFluent 3.1.0, xUnit v3, private nested fakes only. No `[Category]` attribute — UI-gated tests use `[Trait("Category", "UI")]`. Strict comparisons: `IsStrictlyGreaterThan`.
 - **No visible windows in App tests:** STA tests that show the guide window call `InvisibleTestWindow.Prepare(window)`; never write/animate `Opacity` after `Show`.
 - **Style:** file-scoped namespaces, Allman, `_camelCase`, nullable enabled.
-- **Strings:** `guide.*` keys set `where:"guide"`; schema/validator `SURFACES` exact parity; **`strings.json` keys sorted** (`strings_validate.py:33`); **every key referenced as a quoted literal under `src/`** (`validate_unused_keys` :629-655); German rows `{"text", "src"}` only, **Sie form** (`strings_validate.py:43` rejects du-form), identical values into `localization/strings.identical-allowlist.json`; `--refresh-de-src` after EN changes.
-- **Privacy:** guide log lines carry step ids only.
+- **Strings:** `guide.*` keys set `where:"guide"`; schema/validator `SURFACES` exact parity; **`strings.json` keys sorted**; **every key referenced as a quoted literal under `src/`**; German rows `{"text", "src"}` only, **Sie form**; identical values into `localization/strings.identical-allowlist.json`; `--refresh-de-src` after EN changes.
+- **Privacy:** guide log lines carry step ids only. Two lines: `First-run guide: shown` / `First-run guide: closed (step=<id>, completed=<bool>)`.
 - **Spec §10 ledger:** settled — escalate, don't improvise.
-- **Dwell geometry (verified):** choice targets register AT THE ORIGIN + `Hold(id)`; centres pushed afterwards (`UpdateTargetCenter` + `latch.Positioned`, `SettingsWindowViewModel.cs:186-215`); radius 70 DIP (`SettingsWindow.ModalBtnRadius` is an App-internal — the VM declares its own const); margin 35 DIP (`LatchReleaseMarginDip`); chrome dwell = `ToolbarButtonDwellMs`; the practice target is the one `ActivationButtonDwellMs` consumer; the detector caps per-gap credit (~150 ms, `DwellDetector.cs:403-415`) — tests feed real 30 ms samples.
+- **Dwell geometry (verified):** chrome targets register AT THE ORIGIN + `Hold(id)`; centres pushed afterwards (`UpdateTargetCenter` + `latch.Positioned`, `SettingsWindowViewModel.cs:186-215`); radius 70 DIP (the VM's own const — `SettingsWindow.ModalBtnRadius` is an App-internal); margin 35 DIP (`LatchReleaseMarginDip`); chrome dwell = `ToolbarButtonDwellMs`; the practice target is the one `ActivationButtonDwellMs` consumer; the detector caps per-gap credit (~150 ms, `DwellDetector.cs:403-415`) — tests feed real 30 ms samples.
 
 ---
 
@@ -76,7 +76,69 @@ public class ModalInteractionStateTests
 
 - [ ] **Step 2: Run to verify failure** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModalInteractionStateTests"` → FAIL.
 
-- [ ] **Step 3: Implement** — `FixationSuppressor.cs` gains `Guide,` (with its doc comment); `ModalInteractionState.cs` gains the volatile `_guideOpen` + `GuideOpen` property (flip → `RaiseGuideOpenChanged`) + `GuideOpenChanged` event + the per-subscriber try/catch raise (the exact code pattern of `ProbeOpenChanged`, r2-verified); `ActivationOfferCoordinator.cs` subscribes `_modal.GuideOpenChanged += OnGuideOpenChanged;` beside :113, unsubscribes beside :367, adds `private void OnGuideOpenChanged(bool _) => RecomputeSuspension();`, and `RecomputeSuspension` adds `if (_modal.GuideOpen) reasons.Add("guide");` after the ProbeOpen check; `EventCoordinator.cs` gains beside the `IsSettingsOpen`/`SettingsOpenChanged` forwarders:
+- [ ] **Step 3: Implement** — `FixationSuppressor.cs` gains:
+
+```csharp
+    /// <summary>The first-run guide, while its fullscreen card is up.</summary>
+    Guide,
+```
+
+`ModalInteractionState.cs` — after the `ProbeOpen` region (same volatile/write-on-UI/read-on-gaze contract, same per-subscriber try/catch raise as `ProbeOpenChanged`):
+
+```csharp
+    // volatile: read on the gaze thread (ring predicates, toolbar feed checks), written on the
+    // UI thread by the guide's raise/close path.
+    private volatile bool _guideOpen;
+
+    /// <summary>
+    /// True while the first-run guide owns the screen. The guide's card is interactive but the
+    /// window is click-through outside it and every proactive surface defers behind it, so every
+    /// consumer gates on it like <see cref="SettingsOpen"/>. Assigning raises
+    /// <see cref="GuideOpenChanged"/>.
+    /// </summary>
+    public bool GuideOpen
+    {
+        get => _guideOpen;
+        set
+        {
+            if (_guideOpen == value) return;
+            _guideOpen = value;
+            RaiseGuideOpenChanged(value);
+        }
+    }
+
+    /// <summary>Raised after <see cref="GuideOpen"/> flips, on the UI thread. Per-subscriber
+    /// try/catch like <see cref="ProbeOpenChanged"/>; subscribers read <see cref="GuideOpen"/>,
+    /// not the argument (re-entrancy).</summary>
+    public event Action<bool>? GuideOpenChanged;
+
+    private void RaiseGuideOpenChanged(bool open)
+    {
+        var subscribers = GuideOpenChanged;
+        if (subscribers is null) return;
+
+        foreach (var subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)subscriber)(open);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A GuideOpenChanged subscriber threw; the remaining subscribers still run");
+            }
+        }
+    }
+```
+
+`ActivationOfferCoordinator.cs` — beside the :113 subscriptions add `_modal.GuideOpenChanged += OnGuideOpenChanged;`; beside the :367 unsubscriptions add the matching `-=`; add `private void OnGuideOpenChanged(bool _) => RecomputeSuspension();`; and `RecomputeSuspension` gains after the ProbeOpen check:
+
+```csharp
+        if (_modal.GuideOpen)
+            reasons.Add("guide");
+```
+
+`EventCoordinator.cs` — beside the `IsSettingsOpen`/`SettingsOpenChanged` forwarders:
 
 ```csharp
     /// <summary>Whether the first-run guide owns the screen (forwards
@@ -92,9 +154,13 @@ public class ModalInteractionStateTests
     }
 ```
 
-- [ ] **Step 4: Run to verify pass** — the two filters from rev 2 → PASS.
+- [ ] **Step 4: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModalInteractionStateTests"` → PASS; `--filter "FullyQualifiedName~ActivationOffer"` → PASS.
 
-- [ ] **Step 5: Commit** — `feat(guide): GuideOpen modal flag + FixationSuppressor.Guide + offers subscription and reason` (files listed above).
+- [ ] **Step 5: Commit**
+
+```bash
+git -C .worktrees/first-run-guide commit -am "feat(guide): GuideOpen modal flag + FixationSuppressor.Guide + offers subscription and reason"
+```
 
 ---
 
@@ -104,7 +170,7 @@ public class ModalInteractionStateTests
 
 **Interfaces:** Produces `StartQuestions()` (`_active = true; _pendingFailure = null; Advance(0);`) + `IsEnablingInFlight => _inFlight && _kind == RequestKind.Enabling`; `RequestCrashRecovery` gains `if (_supervision.Enabled && !_supervision.InFlight) return;` and attaches only when `IsEnablingInFlight`.
 
-- [ ] **Step 1: Write the failing tests** (the harness exposes `Top`/`Pick(id)` → `.OnChosen!.Invoke()`; `_cards` is `List<(string Message, IReadOnlyList<ModalChoice> Choices)>`; helpers `WorkingSupervision`, `WorkingAsyncSupervision`, `FailingAsyncSupervision` exist):
+- [ ] **Step 1: Write the failing tests** (harness facts: `_cards` is `List<(string Message, IReadOnlyList<ModalChoice> Choices)>`; `Top`/`Pick(id)` → `.OnChosen!.Invoke()`; helpers `WorkingSupervision` (sync), `WorkingAsyncSupervision` (queues to `_background`, `isSupervisorConnected: () => true`), `FailingAsyncSupervision`):
 
 ```csharp
     [Fact]
@@ -184,7 +250,57 @@ public class ModalInteractionStateTests
     }
 ```
 
-- [ ] **Step 2: Run → FAIL. Step 3: Implement** — `IsEnablingInFlight` beside `InFlight` (:88); `RequestCrashRecovery` per the guard above; `StartQuestions()` after `Start()` (doc comment notes the accepted residual: a Yes during an in-flight Disabling leaves supervision off). **Step 4:** the filter → PASS. **Step 5:** commit `feat(guide): SafetySetupFlow.StartQuestions + supervision flight-kind guard`.
+- [ ] **Step 2: Run → FAIL. Step 3: Implement** — `IsEnablingInFlight` beside `InFlight` (:88):
+
+```csharp
+    /// <summary>Whether the in-flight operation (if any) is an ENABLE. The crash-recovery chain
+    /// may attach only to its own enable — an Ensuring or Disabling flight is not its request
+    /// (spec §9, r1 F9/r3 F5).</summary>
+    public bool IsEnablingInFlight => _inFlight && _kind == RequestKind.Enabling;
+```
+
+`SafetySetupFlow.cs` — `RequestCrashRecovery()` becomes:
+
+```csharp
+    private void RequestCrashRecovery()
+    {
+        if (_supervision is null) return;
+
+        // r1 F9 / r3 F5: an unrelated flight (the startup ensure, a disable) must never be
+        // mistaken for this answer's enable. Already-on is a no-op success; only an in-flight
+        // ENABLE is awaited. (RequestEnable itself no-ops on _inFlight || Enabled.)
+        if (_supervision.Enabled && !_supervision.InFlight) return;
+        _supervision.RequestEnable();
+        if (_supervision.IsEnablingInFlight)
+        {
+            _waitingForSupervision = true;
+            _supervision.StateChanged += OnSupervisionStateChanged;
+            _ceiling = _schedule(CrashRecoveryCeiling, OnCrashRecoveryCeiling);
+            return;
+        }
+
+        HoldFailureIfRolledBack();
+    }
+```
+
+and after `Start()`:
+
+```csharp
+    /// <summary>Runs the question chain WITHOUT the intro card — the first-run guide shows its own
+    /// transition card and then drives the questions (spec §7 step 7). Same initialization as
+    /// <see cref="Start"/> minus the intro modal: the chain begins at question 0 and ends with the
+    /// same onEnded semantics. Accepted residual (r1 S3): a "Yes" while a Disabling flight is in
+    /// flight does not attach and leaves supervision off — the Settings row remains the remedy.</summary>
+    internal void StartQuestions()
+    {
+        _active = true;
+        _pendingFailure = null;
+        Advance(0);
+    }
+```
+
+- [ ] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~SafetySetupFlowTests"`).
+- [ ] **Step 5: Commit** `feat(guide): SafetySetupFlow.StartQuestions + supervision flight-kind guard`.
 
 ---
 
@@ -194,11 +310,140 @@ public class ModalInteractionStateTests
 - Modify: `src/EyeCtrl.App/Overlays/SplashThreadLauncher.cs`
 - Test: `tests/EyeCtrl.App.Tests/Overlays/SplashThreadHandleWhenExitedTests.cs` (new, STA, no UI trait)
 
-**Interfaces:** Produces `WhenExited(Action)` — latched; fires on the REGISTERING thread's dispatcher; the ctor subscribes `_splashDispatcher.ShutdownStarted` with the `EventHandler` signature (r3 F2) so a faulted splash thread still releases; `HasShutdownStarted` also checked at registration.
+**Interfaces:** Produces `WhenExited(Action)` — latched; fires on the REGISTERING thread's dispatcher; the ctor subscribes `_splashDispatcher.ShutdownStarted` with the `EventHandler` signature (r3 F2) so a faulted splash thread still releases; `HasShutdownStarted` also checked at registration (r1 F20).
 
-- [ ] **Step 1: Write the failing tests** — the two tests from rev 3 (the real second-dispatcher shutdown test with `ManualResetEventSlim` + thread join + pump; the attach/fire-once test with drains). Verified shapes: `ISplashWindow` fake implementing all members; `RaiseExit()` helper.
+- [ ] **Step 1: Write the failing tests**
 
-- [ ] **Step 2: Run → FAIL. Step 3: Implement** — the latch fields + `WhenExited` + `OnWindowExitFinished` from rev 3, and the constructor:
+```csharp
+// tests/EyeCtrl.App.Tests/Overlays/SplashThreadHandleWhenExitedTests.cs
+namespace EyeCtrl.App.Tests.Overlays;
+
+using System;
+using System.Threading;
+using System.Windows.Threading;
+using EyeCtrl.App.Overlays;
+using NFluent;
+using Xunit;
+
+public class SplashThreadHandleWhenExitedTests
+{
+    private sealed class FakeSplashWindow : ISplashWindow
+    {
+        public event Action? ExitFinished;
+        public void OnSplashShown() { }
+        public void BeginExit() { }
+        public void ShowNoTrackerSentence() { }
+        public void ForceClose() { }
+        public void FatalClose() { }
+        public bool TryReadDpiScale(out double scaleX, out double scaleY) { scaleX = scaleY = 0; return false; }
+        public void RaiseExit() => ExitFinished?.Invoke();
+    }
+
+    [StaFact]
+    public void WhenExited_Attaches_BeforeExit_AndFiresOnce_OnTheRegisteringDispatcher()
+    {
+        var window = new FakeSplashWindow();
+        var handle = new SplashThreadHandle(Dispatcher.CurrentDispatcher, window);
+        var fired = new List<string>();
+
+        handle.WhenExited(() => fired.Add("a"));          // attached: waits
+        Check.That(fired).IsEmpty();
+
+        window.RaiseExit();                                // fires on THIS thread (no splash thread here)
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background); // drain
+
+        Check.That(fired).HasSize(1);
+        handle.WhenExited(() => fired.Add("late"));        // already exited: fires at once
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background); // drain
+        Check.That(fired).HasSize(2);
+        Check.That(fired[0]).IsEqualTo("a");
+    }
+
+    [StaFact]
+    public void WhenExited_AfterTheSplashDispatcherShutDown_FiresImmediately()
+    {
+        // A REAL second dispatcher, shut down on its own thread and joined — then the
+        // registration on THIS thread sees HasShutdownStarted. Pump before asserting (r2 F1).
+        var window = new FakeSplashWindow();
+        Dispatcher? splashDispatcher = null;
+        var ready = new ManualResetEventSlim();
+        var thread = new Thread(() =>
+        {
+            splashDispatcher = Dispatcher.CurrentDispatcher;
+            ready.Set();
+            Dispatcher.Run();
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        try
+        {
+            Check.That(ready.Wait(5000)).IsTrue();
+            var handle = new SplashThreadHandle(splashDispatcher!, window);
+
+            splashDispatcher!.Invoke(() => splashDispatcher.BeginInvokeShutdown(DispatcherPriority.Normal));
+            thread.Join(5000);
+
+            var fired = new List<string>();
+            handle.WhenExited(() => fired.Add("x"));       // shutdown: fires on THIS thread at once
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background); // drain
+            Check.That(fired).HasSize(1);
+        }
+        finally
+        {
+            if (splashDispatcher is { HasShutdownStarted: false } d)
+                d.Invoke(() => d.BeginInvokeShutdown(DispatcherPriority.Normal));
+            thread.Join(1000);
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Run → FAIL. Step 3: Implement** — in `SplashThreadHandle`, the latch fields + methods:
+
+```csharp
+    // The exit latch: ExitFinished fires on the SPLASH thread; continuations run on the
+    // dispatcher of the thread that REGISTERED (the main thread in production). Two fallback
+    // latches cover a splash thread that never raises ExitFinished: its dispatcher's
+    // ShutdownStarted event (subscribed in the ctor — a faulted thread still shuts down via
+    // Dispose, r2 F17) and the HasShutdownStarted check at registration time (r1 F20).
+    private readonly object _exitGate = new();
+    private readonly List<(Dispatcher Dispatcher, Action Action)> _exitContinuations = new();
+    private bool _exited;
+
+    /// <summary>
+    /// Runs <paramref name="onMainThread"/> once, on the registering thread's dispatcher, after
+    /// the splash's <see cref="ISplashWindow.ExitFinished"/> — or immediately when the exit
+    /// already happened, the splash dispatcher shut down, or the handle is disposed.
+    /// </summary>
+    internal void WhenExited(Action onMainThread)
+    {
+        ArgumentNullException.ThrowIfNull(onMainThread);
+        var dispatcher = Dispatcher.CurrentDispatcher;     // the registering thread (main, in prod)
+        bool fireNow;
+        lock (_exitGate)
+        {
+            fireNow = _exited || _disposed || _splashDispatcher.HasShutdownStarted;
+            if (!fireNow) _exitContinuations.Add((dispatcher, onMainThread));
+        }
+        if (fireNow) _ = dispatcher.BeginInvoke(onMainThread);
+    }
+
+    private void OnWindowExitFinished()
+    {
+        List<(Dispatcher, Action)> toRun;
+        lock (_exitGate)
+        {
+            if (_exited) return;
+            _exited = true;
+            toRun = new List<(Dispatcher, Action)>(_exitContinuations);
+            _exitContinuations.Clear();
+        }
+        foreach (var (dispatcher, action) in toRun)
+            _ = dispatcher.BeginInvoke(action);
+    }
+```
+
+and the constructor:
 
 ```csharp
     internal SplashThreadHandle(Dispatcher splashDispatcher, ISplashWindow window)
@@ -210,7 +455,8 @@ public class ModalInteractionStateTests
     }
 ```
 
-- [ ] **Step 4: Run → PASS** (the splash filter). **Step 5:** commit `feat(guide): SplashThreadHandle.WhenExited — latched, shutdown-subscribed continuation`.
+- [ ] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~SplashThreadHandle"`).
+- [ ] **Step 5: Commit** `feat(guide): SplashThreadHandle.WhenExited — latched, shutdown-subscribed continuation`.
 
 ---
 
@@ -219,24 +465,70 @@ public class ModalInteractionStateTests
 **Files:**
 - Modify: `StringTableSchema.cs`, `tools/strings_validate.py`, `strings.json`, `src/EyeCtrl.App/Localization/strings.de.json` (+ manifest), `localization/strings.identical-allowlist.json`
 
-**Interfaces:** Produces the `guide.*` keys below. `strings.json` keys SORTED; every key referenced as a literal in Task 12's switches; German rows `{"text", "src"}`, Sie form; identical values allowlisted.
+**Interfaces:** Produces the 36 `guide.*` keys below (incl. the four theme labels — r3 F12's placement fix). `strings.json` keys SORTED; every key referenced as a literal in Task 12's switches; German rows `{"text", "src"}`, Sie form; identical values allowlisted.
 
 - [ ] **Step 1:** `guide` into both `Surfaces`/`SURFACES` lists (after `"eye-care",`).
 
-- [ ] **Step 2: English keys, SORTED** — the rev 3 sorted block stands (32 keys: `guide.calibrate.body/now/skip/title`, `guide.chrome.close`, `guide.done.body/finish/title`, `guide.dwell.body/skip/title`, `guide.dwelltime.body/continue/title`, `guide.later`, `guide.safety.begin/body/title`, `guide.theme.body/continue/title`, `guide.toolbar.body/continue/edge.bottom/edge.left/edge.right/edge.top/skip/success/title`, `guide.welcome.body/start/title`; fits: titles `modal460`, buttons `modal170`, prose `prose`; `guide.toolbar.body` uses positional `{0}` with `args: ["0"]`).
+- [ ] **Step 2: English keys, SORTED** (fit: titles `modal460`, buttons `modal170`, prose `prose`):
 
-- [ ] **Step 3: German rows, Sie form** (r3 F3 — the validator rejects du-form at :43):
+```json
+  "guide.calibrate.body": { "text": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.calibrate.now": { "text": "Calibrate now", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.calibrate.skip": { "text": "Skip", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.calibrate.title": { "text": "Calibration", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.chrome.close": { "text": "Close guide", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.done.body": { "text": "The docked edge summons the toolbar — your main menu. The gaze keyboard opens from it, and every setting lives in Settings.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.done.finish": { "text": "Finish", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.done.title": { "text": "You're set.", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.dwell.body": { "text": "Rest your gaze on the circle and hold still: the ring fills, and on completion the target activates. Try it now.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.dwell.skip": { "text": "Skip", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.dwell.title": { "text": "Dwell — your click", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.dwelltime.body": { "text": "The − and + cards set how long a desktop click takes — the cursor dwell that clicks. Try values on the circle; the guide's own buttons keep the standard UI dwell.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.dwelltime.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.dwelltime.title": { "text": "Dwell time", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.later": { "text": "Later", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.safety.begin": { "text": "Begin", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.safety.body": { "text": "Five quick questions keep crash recovery, startup and the audible cue set up for you.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.safety.title": { "text": "5 quick questions to keep you safe", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.theme.body": { "text": "Pick a look — it takes effect after a restart; the card here previews your choice.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.theme.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.theme.contrast": { "text": "Contrast", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.theme.daylight": { "text": "Daylight", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.theme.ember": { "text": "Ember", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.theme.midnight": { "text": "Midnight", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.theme.title": { "text": "Pick a look", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.toolbar.body": { "text": "Look at the {0} edge of the screen to summon the toolbar — the keyboard, settings and everything else open from there. Try it now.", "who": "user", "where": "guide", "fit": "prose", "args": ["0"] },
+  "guide.toolbar.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.edge.bottom": { "text": "bottom", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.edge.left": { "text": "left", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.edge.right": { "text": "right", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.edge.top": { "text": "top", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.skip": { "text": "Skip", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.success": { "text": "Summoned! The toolbar hides again on its own. Continue when ready.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.toolbar.title": { "text": "Your main menu", "who": "user", "where": "guide", "fit": "modal460", "args": [] },
+  "guide.welcome.body": { "text": "EyeCtrl lets you control this PC with your eyes. This short guide shows you the basics — about 2 minutes. Every practice task can be skipped.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.welcome.start": { "text": "Start", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.welcome.title": { "text": "Welcome to EyeCtrl", "who": "user", "where": "guide", "fit": "modal460", "args": [] }
+```
+
+- [ ] **Step 3: German rows, Sie form** (r3 F3; translate every key — `src` = the exact English text):
 
 ```json
   "guide.calibrate.body": { "text": "Stellen Sie sicher, dass der Cursor Ihren Augen folgt. Sie können später auch über Einstellungen oder die Symbolleiste kalibrieren.", "src": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar." },
+  "guide.dwelltime.body": { "text": "Die Karten − und + legen fest, wie lange ein Desktop-Klick dauert — der Cursor-Dwell, der klickt. Probieren Sie Werte am Kreis aus; die eigenen Schaltflächen der Anleitung behalten das übliche UI-Dwell.", "src": "The − and + cards set how long a desktop click takes — the cursor dwell that clicks. Try values on the circle; the guide's own buttons keep the standard UI dwell." },
+  "guide.theme.contrast": { "text": "Kontrast", "src": "Contrast" },
+  "guide.theme.daylight": { "text": "Tageslicht", "src": "Daylight" },
+  "guide.theme.ember": { "text": "Glut", "src": "Ember" },
+  "guide.theme.midnight": { "text": "Mitternacht", "src": "Midnight" },
   "guide.welcome.start": { "text": "Start", "src": "Start" },
   "guide.welcome.title": { "text": "Willkommen bei EyeCtrl", "src": "Welcome to EyeCtrl" }
 ```
 
-(translate every key in the Sie form; `"guide.welcome.start"`'s identical value goes into `localization/strings.identical-allowlist.json`.)
+(`"guide.welcome.start"`'s identical value goes into `localization/strings.identical-allowlist.json`.)
 
-- [ ] **Step 4: Manifest + refresh** — `"guide"` between `"eye-care"` and `"language-recovery"`; `python -I tools/strings_validate.py --refresh-de-src`.
-- [ ] **Step 5: Parity gates** → clean. **Step 6: Commit** `feat(guide): guide string surface — sorted EN keys, Sie-form DE rows, identical allowlist`.
+- [ ] **Step 4: Manifest + refresh** — `"guide"` between `"eye-care"` and `"language-recovery"` in `strings.de.manifest.json`; `python -I tools/strings_validate.py --refresh-de-src`.
+- [ ] **Step 5: Parity gates** → clean.
+- [ ] **Step 6: Commit** `feat(guide): guide string surface — 36 sorted keys, Sie-form DE rows, theme labels, identical allowlist`.
 
 ---
 
@@ -246,11 +538,45 @@ public class ModalInteractionStateTests
 - Create: `src/EyeCtrl.App/Services/FirstRunGuideFlow.cs` + `FirstRunGuideHost.cs`
 - Test: `tests/EyeCtrl.App.Tests/Services/FirstRunGuideFlowTests.cs` (new)
 
-**Interfaces:** Produces `FirstRunGuideStep`; `GuideExitReason { Finished, Abandoned }`; `IGuideSurface` (`ShowStep(FirstRunGuideStep)`, `ShowSafetyCard(string, IReadOnlyList<ModalChoice>)`, `HideCard()`, `ShowCard()`, `Close()`); `FirstRunGuideFlow` — factory `Func<Action<string, IReadOnlyList<ModalChoice>>, Action<bool>, SafetySetupFlow>` with the flow routing `showModal` to the surface; `BeginSafetyQuestions()` (the transition card's Continue — `Enter(Safety)` builds the chain but does NOT start it); `Start/Advance/Skip/Finish/Close/NotifyTaskSucceeded/NotifyCalibrationEnded/NotifySafetyEnded/ForwardSafetyChoice/WindowClosed/IsOnStep/LastStepId` + `StepEntered/ToolbarTaskEntered/ToolbarTaskExited/Closed`; `FirstRunGuideHost.TryBegin/End` + `FirstRunGuideLease`.
+**Interfaces:** Produces `FirstRunGuideStep`; `GuideExitReason { Finished, Abandoned }`; `IGuideSurface` (`ShowStep(FirstRunGuideStep)`, `ShowSafetyCard(string, IReadOnlyList<ModalChoice>)`, `HideCard()`, `ShowCard()`, `Close()`); `FirstRunGuideFlow` — factory `Func<Action<string, IReadOnlyList<ModalChoice>>, Action<bool>, SafetySetupFlow>` with the flow routing `showModal` to the surface; `BeginSafetyQuestions()`; `Start/Advance/Skip/Finish/Close/NotifyTaskSucceeded/NotifyCalibrationEnded/NotifySafetyEnded/ForwardSafetyChoice/WindowClosed/IsOnStep/LastStepId` + `StepEntered/ToolbarTaskEntered/ToolbarTaskExited/Closed`; `FirstRunGuideHost.TryBegin/End` + lease.
 
-- [ ] **Step 1: Write the failing tests** — the full rev 2 test file with rev 3's two safety deltas (`FakeSurface` implements ALL `IGuideSurface` members recording `Shown`/`SafetyMessages`/`LastSafetyChoices`/`HideCount`/`ShowCount`/`CloseCount`; `Flow(...)` helper passes `(showModal, onEnded)` through):
+- [ ] **Step 1: Write the failing tests**
 
 ```csharp
+// tests/EyeCtrl.App.Tests/Services/FirstRunGuideFlowTests.cs
+namespace EyeCtrl.App.Tests.Services;
+
+using EyeCtrl.App.Services;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
+using NFluent;
+using Xunit;
+
+public class FirstRunGuideFlowTests
+{
+    private sealed class FakeSurface : IGuideSurface
+    {
+        public List<FirstRunGuideStep> Shown { get; } = new();
+        public List<string> SafetyMessages { get; } = new();
+        public IReadOnlyList<ModalChoice>? LastSafetyChoices;
+        public int HideCount; public int ShowCount; public int CloseCount;
+        public void ShowStep(FirstRunGuideStep step) => Shown.Add(step);
+        public void ShowSafetyCard(string message, IReadOnlyList<ModalChoice> choices)
+        {
+            SafetyMessages.Add(message);
+            LastSafetyChoices = choices;
+        }
+        public void HideCard() => HideCount++;
+        public void ShowCard() => ShowCount++;
+        public void Close() => CloseCount++;
+    }
+
+    private static FirstRunGuideFlow Flow(
+        FakeSurface surface, EyeCtrlSettings settings, bool tracker = true, bool dockedToolbar = true)
+        => new(settings, trackerPresent: tracker, toolbarTaskAvailable: dockedToolbar, surface,
+               createSafetyFlow: (showModal, onEnded) => new SafetySetupFlow(settings, supervision: null,
+                   showModal, applyAndSave: () => { }, setSimpleSettingsUi: _ => { }, onEnded: onEnded));
+
     [Fact]
     public void Start_ShowsWelcome_Then_AdvancesThroughAllSteps_ToFinish()
     {
@@ -264,30 +590,78 @@ public class ModalInteractionStateTests
 
         flow.Start();
         Check.That(s.Shown[^1]).IsEqualTo(FirstRunGuideStep.Welcome);
-        flow.Advance();
+        flow.Advance();                                   // Start button
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.MeetDwell);
-        flow.NotifyTaskSucceeded();
+        flow.NotifyTaskSucceeded();                       // practice dwell
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.DwellTime);
-        flow.Advance();
+        flow.Advance();                                   // Continue
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.Calibrate);
-        flow.NotifyCalibrationEnded();
+        flow.NotifyCalibrationEnded();                    // Idle/Cancelled
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.ToolbarTask);
-        flow.NotifyTaskSucceeded();
+        flow.NotifyTaskSucceeded();                       // summon
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.Theme);
-        flow.Advance();
+        flow.Advance();                                   // Continue
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.Safety);
-        Check.That(s.SafetyMessages).IsEmpty();            // transition card, no chain yet
+        Check.That(s.SafetyMessages).IsEmpty();            // transition card, no chain yet (r2 F8)
 
-        flow.BeginSafetyQuestions();                        // the transition card's Continue
-        Check.That(s.SafetyMessages).HasSize(1);
+        flow.BeginSafetyQuestions();                       // the transition card's Begin
+        Check.That(s.SafetyMessages).HasSize(1);           // question 0 arrived on the surface
         for (var i = 0; i < 4; i++)
             s.LastSafetyChoices!.Single(c => c.Id == "safety_yes").OnChosen!.Invoke();
         s.LastSafetyChoices!.Single(c => c.Id == "safety_basic").OnChosen!.Invoke();
         Check.That(settings.General.SafetySetupDone).IsTrue();
         Check.That(steps[^1]).IsEqualTo(FirstRunGuideStep.Done);
-        flow.Advance();                                     // Finish
+        flow.Advance();                                     // Finish (r1 F4)
         Check.That(exit).IsEqualTo(GuideExitReason.Finished);
         Check.That(s.CloseCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void NoTracker_OmitsCalibrate_AndFloatingToolbar_OmitsToolbarTask()
+    {
+        var s = new FakeSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = Flow(s, settings, tracker: false, dockedToolbar: false);
+
+        flow.Start();
+        flow.Advance();
+        flow.NotifyTaskSucceeded();
+        flow.Advance();                                   // → Theme (Calibrate AND ToolbarTask omitted)
+        Check.That(s.Shown).ContainsOnlyElementsThatMatch(
+            st => st is FirstRunGuideStep.Welcome or FirstRunGuideStep.MeetDwell
+                       or FirstRunGuideStep.DwellTime or FirstRunGuideStep.Theme);
+    }
+
+    [Fact]
+    public void Skip_WorksOnTasksAndCalibrate_Only()
+    {
+        var s = new FakeSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = Flow(s, settings);
+        flow.Start();
+        flow.Advance();                                   // Welcome → MeetDwell
+        flow.Skip();
+        Check.That(s.Shown[^1]).IsEqualTo(FirstRunGuideStep.DwellTime);
+        flow.Skip();                                      // INVALID on DwellTime (Continue-only)
+        Check.That(s.Shown[^1]).IsEqualTo(FirstRunGuideStep.DwellTime);
+        flow.Advance();                                   // → Calibrate
+        flow.Skip();                                      // → ToolbarTask
+        Check.That(s.Shown[^1]).IsEqualTo(FirstRunGuideStep.ToolbarTask);
+    }
+
+    [Fact]
+    public void Later_OnWelcome_AndChromeClose_AbandonWithoutTheFlag()
+    {
+        var s = new FakeSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = Flow(s, settings);
+        GuideExitReason? exit = null;
+        flow.Closed += reason => exit = reason;
+        flow.Start();
+        flow.Close();
+        Check.That(s.CloseCount).IsEqualTo(1);
+        Check.That(exit).IsEqualTo(GuideExitReason.Abandoned);
+        Check.That(settings.General.SafetySetupDone).IsFalse();
     }
 
     [Fact]
@@ -306,11 +680,21 @@ public class ModalInteractionStateTests
         Check.That(s.SafetyMessages.Count).IsEqualTo(2);
         Check.That(s.LastSafetyChoices!.Single(c => c.Id == "safety_no")).IsNotNull();
     }
+
+    [Fact]
+    public void Host_RefusesASecondFlow_WhileOneIsOpen()
+    {
+        var host = new FirstRunGuideHost();
+        Check.That(host.TryBegin(out var lease1)).IsTrue();
+        Check.That(host.TryBegin(out _)).IsFalse();
+        lease1.Dispose();
+        Check.That(host.TryBegin(out var lease2)).IsTrue();
+        lease2.Dispose();
+    }
+}
 ```
 
-plus (verbatim from rev 2, r2-verified): `NoTracker_OmitsCalibrate_AndFloatingToolbar_OmitsToolbarTask`, `Skip_WorksOnTasksAndCalibrate_Only` (with the leading `Advance()`), `Later_OnWelcome_AndChromeClose_AbandonWithoutTheFlag`, `Host_RefusesASecondFlow_WhileOneIsOpen`.
-
-- [ ] **Step 2: Run → FAIL. Step 3: Implement `FirstRunGuideFlow.cs`** — the rev 2 body with the safety block NOT starting the chain:
+- [ ] **Step 2: Run → FAIL. Step 3: Implement `FirstRunGuideFlow.cs`** — exactly the rev 4 body, restated here in full:
 
 ```csharp
 namespace EyeCtrl.App.Services;
@@ -360,7 +744,7 @@ internal sealed class FirstRunGuideFlow
     private bool _closed;
 
     /// <summary>Raised after each step change, BEFORE the surface shows it — the wiring toggles
-    /// the toolbar hold here (§5 claim 6) and the ring lifecycle (spec §5).</summary>
+    /// the toolbar hold (§5 claim 6) and the ring lifecycle (spec §5) here.</summary>
     public event Action<FirstRunGuideStep>? StepEntered;
     public event Action? ToolbarTaskEntered;
     public event Action? ToolbarTaskExited;
@@ -453,7 +837,7 @@ internal sealed class FirstRunGuideFlow
         choice();
     }
 
-    /// <summary>The transition card's Continue: starts the absorbed question chain (spec §7 step 7).
+    /// <summary>The transition card's Begin: starts the absorbed question chain (spec §7 step 7).
     /// No-op unless the guide is on the Safety step. Starting inside Enter(Safety) would register
     /// question 0's targets and ShowStep would then wipe them (r2 F8).</summary>
     public void BeginSafetyQuestions()
@@ -495,7 +879,7 @@ internal sealed class FirstRunGuideFlow
         if (step == FirstRunGuideStep.Safety)
         {
             // The flow owns the chain's showModal route (ONE path for tests and production). The
-            // chain is created here but NOT started — the transition card's Continue calls
+            // chain is created here but NOT started — the transition card's Begin calls
             // BeginSafetyQuestions() (r2 F8).
             _safetyFlow = _createSafetyFlow(
                 (message, choices) => _surface.ShowSafetyCard(message, choices),
@@ -507,7 +891,7 @@ internal sealed class FirstRunGuideFlow
 }
 ```
 
-`FirstRunGuideHost.cs` — the rev 2 body verbatim:
+`FirstRunGuideHost.cs`:
 
 ```csharp
 namespace EyeCtrl.App.Services;
@@ -543,7 +927,8 @@ internal sealed class FirstRunGuideLease : IDisposable
 }
 ```
 
-- [ ] **Step 4: Run → PASS. Step 5: Commit** `feat(guide): headless flow + host — transition-gated safety block, Finish exit`.
+- [ ] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~FirstRunGuideFlowTests"`).
+- [ ] **Step 5: Commit** `feat(guide): headless flow + host — transition-gated safety block, Finish exit`.
 
 ---
 
@@ -551,16 +936,135 @@ internal sealed class FirstRunGuideLease : IDisposable
 
 **Files:**
 - Create: `src/EyeCtrl.ViewModels/FirstRunGuideViewModel.cs`
-- Modify: `tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs` (census row — **the file sits at the App.Tests root**, r3 F11) + `tests/EyeCtrl.ViewModels.Tests/Adaptation/OverlayTelemetryWiringTests.cs` (expected map)
+- Modify: `tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs` (census row — the file sits at the App.Tests root) + `tests/EyeCtrl.ViewModels.Tests/Adaptation/OverlayTelemetryWiringTests.cs` (expected map)
 - Test: `tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideViewModelTests.cs` (new)
 
-**Interfaces:** Produces the VM with: `IsVisible` (observable; the wiring sets true at Show, the test helper sets it too); **`DwellActiveWhilePaused => true`**; `DpiHelper` via `using EyeCtrl.Core.Services`; **`ChoiceRadiusDip = 70`** computed PER REGISTRATION (r2 F18); `ShowCard`; `ShowSafetyCard`/`SafetyChoices`; `RegisterChoice(id)` at origin + `Hold(id)` — **uniform: every chrome target (choices, guide_close, chips, dwell ±) registers this way** and fires `ChoiceActivated(id)` (or `CloseRequested` for `guide_close`) — r3 F5's unified list; `UpdateChoiceCentre` → `UpdateTargetCenter` + `latch.Positioned`; `ClearChoices`; `SetPracticeCentre`/`ReTimePracticeTarget`/`SetDwellTime` (live re-timing); `Set*Visible`; `Receive` with `_latch.Filter`; **`ChoiceProgress(id, 0..1)` + `PracticeProgress(0..1)` events** (r3 F7 — the window's progress elements bind to these); `OnChromeChoice(id)` (r3 F4 — the window's uniform activation route); `ChoiceMayDwell(id)` test probe.
+**Interfaces:** Produces the VM with: `IsVisible` (the wiring sets true at Show; the test helper sets it); `DwellActiveWhilePaused => true`; `DpiHelper` via `using EyeCtrl.Core.Services`; `ChoiceRadiusDip = 70` computed per registration; `ShowCard`; `ShowSafetyCard`/`SafetyChoices`; `RegisterChoice(id)` at origin + `Hold(id)` — uniform for every chrome target — firing `ChoiceActivated(id)` (or `CloseRequested` for `guide_close`); `UpdateChoiceCentre`; `ClearChoices`; `RemoveChromeChoice(id)`; `SetPracticeCentre`/`ReTimePracticeTarget`/`SetDwellTime` (live re-timing); `Set*Visible`; `Receive` with `_latch.Filter`; `ChoiceProgress`/`PracticeProgress` events; `OnChromeChoice(id)` (the window's uniform route); `ChoiceMayDwell(id)` probe.
 
-- [ ] **Step 1: The gate entries** — `OverlayTelemetryWiringTests`' map gains `[nameof(FirstRunGuideViewModel)] = DwellContext.Other`; `DwellSurfaceCensusTests` (App.Tests root) gains the guide's row, classified like the other chrome-detector surfaces (e.g. `chrome-detector, DwellContext.Other, ToolbarButtonDwellMs` — match the table's column shape).
-
-- [ ] **Step 2: Write the failing tests** — rev 3's tests (`Vm()` sets `IsVisible = true`; the latch test at `ToolbarButtonDwellMs = 300` with 11 real 30 ms samples onto the card after one elsewhere-sample) plus the progress events:
+- [ ] **Step 1: The gate entries** — `OverlayTelemetryWiringTests`' map gains `[nameof(FirstRunGuideViewModel)] = DwellContext.Other`; `DwellSurfaceCensusTests`' `DetectorSites` map gains (matching the existing entries' shape):
 
 ```csharp
+        ["EyeCtrl.ViewModels/FirstRunGuideViewModel.cs"] = "cue — first-run guide chrome cards + practice target",
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+```csharp
+// tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideViewModelTests.cs
+namespace EyeCtrl.App.Tests.Overlays;
+
+using System;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
+using NFluent;
+using Xunit;
+
+public class FirstRunGuideViewModelTests
+{
+    private static FirstRunGuideViewModel Vm() =>
+        new(new WeakReferenceMessenger(), dwellCooldownMs: 0,
+            settings: new EyeCtrlSettings(), sink: null, dwellRegistry: null) { IsVisible = true };
+
+    [Fact]
+    public void DwellActiveWhilePaused_IsTrue()
+    {
+        Check.That(Vm().DwellActiveWhilePausedForTest).IsTrue();
+    }
+
+    [Fact]
+    public void PracticeTarget_UsesActivationDwell_AndFeedsBothDetectors()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationButtonDwellMs = 300;
+        settings.Dwell.ToolbarButtonDwellMs = 900;
+        var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), dwellCooldownMs: 0,
+            settings: settings, sink: null, dwellRegistry: null) { IsVisible = true };
+        vm.SetPracticeCentre(new PhysicalPoint(280, 220));
+        vm.SetPracticeVisible(true);
+
+        var activated = new List<string>();
+        vm.PracticeTargetActivated += () => activated.Add("practice");
+
+        long t = 0;
+        for (var i = 0; i < 12; i++)   // 300 ms at 30 ms samples — the ACTIVATION knob, not 900
+        {
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(280, 220), t));
+            t += 30_000;
+        }
+        // The activation knob fired (the cooldown suppresses a re-fire inside the 360 ms window).
+        Check.That(activated).Not.IsEmpty();
+    }
+
+    [Fact]
+    public void Gaze_GatesOnIsInGap_NotOnIsPaused()
+    {
+        var vm = Vm();
+        vm.SetPracticeCentre(new PhysicalPoint(280, 220));
+        vm.SetPracticeVisible(true);
+        var activated = new List<string>();
+        vm.PracticeTargetActivated += () => activated.Add("p");
+
+        long t = 0;
+        for (var i = 0; i < 30; i++)
+        {
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(280, 220), t) { IsPaused = true });
+            t += 30_000;
+        }
+        Check.That(activated).Not.IsEmpty();
+    }
+
+    [Fact]
+    public void Latch_HoldsNewChoices_UntilGazeLeaves_CentrePushArms_OnePressDispatches()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ToolbarButtonDwellMs = 300;
+        var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), dwellCooldownMs: 0,
+            settings: settings, sink: null, dwellRegistry: null) { IsVisible = true };
+        var fired = new List<string>();
+        vm.ChoiceActivated += id => fired.Add(id);
+        vm.RegisterChoice("c_yes");                           // at origin, held (Settings pattern)
+        Check.That(vm.ChoiceMayDwell("c_yes")).IsFalse();
+
+        vm.UpdateChoiceCentre("c_yes", new PhysicalPoint(400, 300));
+        Check.That(vm.ChoiceMayDwell("c_yes")).IsFalse();     // gaze never left it yet
+
+        long t = 0;
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(900, 900), t)); t += 30_000;
+        for (var i = 0; i < 11; i++)                          // 300 ms at 30 ms: arm + dwell + fire
+        {
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(400, 300), t));
+            t += 30_000;
+        }
+        Check.That(fired).HasSize(1);                         // armed, dwelled, dispatched
+    }
+
+    [Fact]
+    public void SetDwellTime_ReTimesThePracticeTarget()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ActivationButtonDwellMs = 900;
+        var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), dwellCooldownMs: 0,
+            settings: settings, sink: null, dwellRegistry: null) { IsVisible = true };
+        vm.SetPracticeCentre(new PhysicalPoint(280, 220));
+        vm.SetPracticeVisible(true);
+
+        vm.SetDwellTime(200);
+        var activated = new List<string>();
+        vm.PracticeTargetActivated += () => activated.Add("p");
+
+        long t = 0;
+        for (var i = 0; i < 8; i++)   // 240 ms — under the OLD 900, over the NEW 200
+        {
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(280, 220), t));
+            t += 30_000;
+        }
+        Check.That(activated).Not.IsEmpty();
+        Check.That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(200);
+    }
+
     [Fact]
     public void PracticeProgress_Rises_WhileGazeRests()
     {
@@ -581,11 +1085,14 @@ internal sealed class FirstRunGuideLease : IDisposable
             t += 30_000;
         }
         Check.That(progress).Not.IsEmpty();
-        Check.That(progress[^1]).IsGreaterThan(0);
+        Check.That(progress[^1]).IsStrictlyGreaterThan(0);
     }
+}
 ```
 
-- [ ] **Step 3: Run → FAIL. Step 4: Implement**
+- [ ] **Step 3: Run → FAIL** (both filters from rev 4).
+
+- [ ] **Step 4: Implement** — the rev 4 VM body with r4's corrections restated in full:
 
 ```csharp
 namespace EyeCtrl.ViewModels;
@@ -607,10 +1114,11 @@ using EyeCtrl.ViewModels.Messages;
 /// chrome Close, the theme chips, the dwell ±) via the Settings-modal latch protocol: targets
 /// register AT THE ORIGIN and are HELD (Hold(id), SettingsWindowViewModel.Register :186-195); the
 /// window pushes each real centre through UpdateChoiceCentre (→ UpdateTargetCenter +
-/// latch.Positioned, :208-212); the latch's filter rides every DwellDetector.Update (:166);
-/// targets clear BEFORE a choice's action runs (:317-318). The practice target carries its OWN
-/// detector at ActivationButtonDwellMs (two-knob split) with the forgiving-dwell grace, re-timed
-/// live by SetDwellTime. Gaze routes through SampleMayDwell (gates !IsInGap, NOT IsPaused) —
+/// latch.Positioned, :208-212); the latch's filter rides every DwellDetector.Update (:166); ALL
+/// chrome targets clear before a fired id dispatches (:317-318) — the wiring re-renders the card
+/// when the press did not change the step. The practice target carries its OWN detector at
+/// ActivationButtonDwellMs (two-knob split) with the forgiving-dwell grace, re-timed live by
+/// SetDwellTime. Gaze routes through SampleMayDwell (gates !IsInGap, NOT IsPaused) —
 /// DwellActiveWhilePaused is true, so the guide stays usable under user-pause (§9).
 /// </summary>
 public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
@@ -631,7 +1139,6 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     [ObservableProperty] private bool _chromeCloseVisible;
     [ObservableProperty] private bool _practiceVisible;
     [ObservableProperty] private bool _sliderVisible;
-    [ObservableProperty] private bool _themeChipsVisible;
     [ObservableProperty] private IReadOnlyList<ModalChoice>? _safetyChoices;
 
     /// <summary>The practice target fired (its own ActivationButtonDwellMs detector).</summary>
@@ -644,7 +1151,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     public event Action<string>? ChoiceActivated;
     /// <summary>Chrome dwell progress per id, 0..1 (the window's progress bars bind to this).</summary>
     public event Action<string, double>? ChoiceProgress;
-    /// <summary>The dwell-time slider changed (clamped 200–2000 ms).</summary>
+    /// <summary>The dwell-time changed (clamped 200–2000 ms).</summary>
     public event Action<int>? DwellTimeChanged;
     /// <summary>A theme chip fired (theme name).</summary>
     public event Action<string>? ThemeChosen;
@@ -676,7 +1183,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
             releaseMarginPhysical: () => _releaseMarginPhysical);
     }
 
-    /// <summary>The two knob values the step-3 slider writes through (200–2000).</summary>
+    /// <summary>The two knob values the step-3 writes through (200–2000).</summary>
     public int DwellTimeMs => _settings.Dwell.ActivationButtonDwellMs;
 
     public void SetDwellTime(int ms)
@@ -703,13 +1210,22 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
 
     /// <summary>Registers a chrome card AT THE ORIGIN and HOLDS it (the Settings-modal pattern:
     /// a target registered under a resting gaze must not arm — r1 F7). The window pushes the
-    /// real centre through <see cref="UpdateChoiceCentre"/>; a fired target clears targets
-    /// before the id is dispatched (the Settings precedent, :317-318).</summary>
+    /// real centre through <see cref="UpdateChoiceCentre"/>; a fired id clears ALL chrome targets
+    /// before dispatching (the Settings precedent, :317-318) — the wiring re-renders the card
+    /// when the press did not change the step (r4 F3).</summary>
     public void RegisterChoice(string id)
     {
         DwellDetector.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0),
             DpiHelper.LogicalToPhysicalX(ChoiceRadiusDip), _settings.Dwell.ToolbarButtonDwellMs));
         _latch.Hold(id);
+    }
+
+    /// <summary>Removes one chrome target and its latch state (the dwell ± on a step that lost
+    /// its knob).</summary>
+    public void RemoveChromeChoice(string id)
+    {
+        DwellDetector.RemoveTarget(id);
+        _latch.Forget(id);
     }
 
     /// <summary>The view's layout/DPI push: real centre + the latch's positioned mark (the mark
@@ -752,7 +1268,6 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     }
 
     public void SetSliderVisible(bool visible) => SliderVisible = visible;
-    public void SetThemeChipsVisible(bool visible) => ThemeChipsVisible = visible;
 
     internal void CloseRequestedFire() => CloseRequested?.Invoke();
     internal void ThemeChosenFire(string name) => ThemeChosen?.Invoke(name);
@@ -791,7 +1306,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
 
 - [ ] **Step 5: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FirstRunGuideViewModelTests|FullyQualifiedName~DwellSurfaceCensus"` → PASS; `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~OverlayTelemetryWiring"` → PASS.
 
-- [ ] **Step 6: Commit** — files: the VM, the two test files at their REAL paths (`tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs` at the root, r3 F11), the new VM tests:
+- [ ] **Step 6: Commit** — the REAL census path (`tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs`, r3 F11):
 
 ```bash
 git -C .worktrees/first-run-guide add -A src/EyeCtrl.ViewModels/FirstRunGuideViewModel.cs tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideViewModelTests.cs tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs tests/EyeCtrl.ViewModels.Tests/Adaptation/OverlayTelemetryWiringTests.cs
@@ -800,7 +1315,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 
 ---
 
-### Task 7: `FirstRunGuideWindow` — code-built visuals with real centres, progress bindings
+### Task 7: `FirstRunGuideWindow` — code-built visuals, one slot per builder, real centres
 
 **Files:**
 - Create: `src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml` + `.xaml.cs`
@@ -808,9 +1323,9 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 - Modify: `src/EyeCtrl.App/Services/IOverlayWindows.cs` (`RaiseToTop()` default method on `IToolbarOverlay`, `ICursorCircleOverlay`, `IPauseIndicatorOverlay`)
 - Test: `tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideWindowTests.cs` (new, STA, `[Trait("Category", "UI")]`)
 
-**Interfaces:** Produces the window with: fullscreen geometry (read live); `ShowCardContent`; **`SetChoices(IReadOnlyList<(string Label, string Id)>)` building Border cards with the modal button brushes AND a per-card progress element, registering each through `vm.RegisterChoice(id)`, pushing real `PointToScreen` centres**; `SetPractice(bool)` building a stroked ellipse with a fill-progress element and pushing its centre; `SetDwellKnob(bool)` building the value read-out + −/+ chrome cards (r3 F4: `DwellSlider` is an `IDwellComposite` needing an `IDwellRegistrar` — not usable as a control); `SetThemeChipsVisible(bool)`; `HideGuide()/ShowGuide()`; `CardResources` (the theme preview's target); NO `Close()` override.
+**Interfaces:** Produces the window with: fullscreen geometry (read live); `ShowCardContent`; `SetChoices(IReadOnlyList<(string Label, string Id)>)` — brushed cards with per-card progress bars, each registered via `vm.RegisterChoice(id)`, centres pushed via `PointToScreen`; `SetPractice(bool)` building the stroked ring + fill element into `StepContent` and pushing its centre; **`SetDwellKnob(bool)` building the value read-out + −/+ cards into its own `KnobRow`** (r4 F4 — never `StepContent`), removing the ± targets when the knob leaves; `HideGuide()/ShowGuide()`; `CardResources`; **NO `Close()` member** (r4 F2); NO `HideCard`/`ShowCard` (unused).
 
-- [ ] **Step 1: XAML** — the choice row is a `StackPanel` (r2 F5):
+- [ ] **Step 1: XAML** — five rows; the knob owns row 3:
 
 ```xml
 <overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.FirstRunGuideWindow"
@@ -832,13 +1347,16 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock x:Name="TitleText" Grid.Row="0" FontSize="24" FontWeight="Medium"
                            Text="{Binding Title}" Foreground="{DynamicResource BrushTextPrimary}"/>
                 <TextBlock x:Name="BodyText" Grid.Row="1" Margin="0,10,0,0" TextWrapping="Wrap"
                            Text="{Binding Body}" Foreground="{DynamicResource BrushTextPrimary}"/>
                 <ContentControl x:Name="StepContent" Grid.Row="2" Margin="0,16,0,0"/>
-                <StackPanel x:Name="ChoiceRow" Grid.Row="3" Orientation="Horizontal"
+                <StackPanel x:Name="KnobRow" Grid.Row="3" Orientation="Horizontal"
+                            HorizontalAlignment="Center"/>
+                <StackPanel x:Name="ChoiceRow" Grid.Row="4" Orientation="Horizontal"
                             HorizontalAlignment="Right"/>
             </Grid>
         </Border>
@@ -846,7 +1364,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 </overlays:OverlayWindow>
 ```
 
-- [ ] **Step 2: Code-behind** — visuals with brushes, progress elements, and the centre push:
+- [ ] **Step 2: Code-behind** — one slot per builder; `Card.FindResource` so the theme preview reaches the code-built cards (r4's S3):
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
@@ -862,10 +1380,11 @@ using EyeCtrl.ViewModels;
 
 /// <summary>
 /// The first-run guide's window (spec §5): fullscreen click-through backdrop with a centered
-/// interactive card. RENDER-ONLY for text; the window BUILDS the step visuals (choice cards,
-/// practice ellipse, dwell knob, theme chips) and pushes every dwell target's real centre into
-/// the VM after layout — PointToScreen yields device (physical) pixels (r2 F9). Cards carry the
-/// modal button brushes and a per-card progress bar bound to the VM's ChoiceProgress (r3 F7).
+/// interactive card. RENDER-ONLY for text; the window BUILDS the step visuals and pushes every
+/// dwell target's real centre into the VM after layout — PointToScreen yields device (physical)
+/// pixels (r2 F9). ONE SLOT PER BUILDER (r4 F4): SetPractice builds into StepContent, the dwell
+/// knob into KnobRow — neither overwrites the other. No Close() member (r4 F2). Card-local
+/// brushes resolve through Card.FindResource so the theme preview reaches code-built cards.
 /// </summary>
 public sealed partial class FirstRunGuideWindow : OverlayWindow
 {
@@ -874,6 +1393,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     private readonly Dictionary<string, Rectangle> _progressBars = new();
     private Ellipse? _practiceFill;
     private TextBlock? _dwellValue;
+    private bool _knobBuilt;
 
     public FirstRunGuideWindow(FirstRunGuideViewModel vm)
     {
@@ -887,7 +1407,13 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
         // Progress bindings (r3 F7): the cards' bars and the practice fill follow the VM.
         vm.ChoiceProgress += (id, p) => SetProgressBar(id, p);
-        vm.PracticeProgress += p => SetPracticeFill(p);
+        vm.PracticeProgress += SetPracticeFill;
+
+        // The dwell read-out follows the knob (ONE subscription in the ctor — no pile-up, r4 S3).
+        vm.DwellTimeChanged += ms =>
+        {
+            if (_dwellValue is { } value) value.Text = $"{ms} ms";
+        };
     }
 
     /// <summary>The theme preview's card-local target (Task 12 applies the resolved theme here;
@@ -898,7 +1424,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         => _vm.ShowCard(title, body, chromeClose);
 
     /// <summary>Builds one visual card per (label, id) pair — background, border, label,
-    /// progress bar — and registers each as a chrome dwell target through the VM (Task 6); then
+    /// progress bar — registers each as a chrome dwell target through the VM (Task 6), then
     /// pushes the laid-out centres (r3 F5: EVERY card gets a visual and a centre).</summary>
     public void SetChoices(IReadOnlyList<(string Label, string Id)> choices)
     {
@@ -908,38 +1434,50 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         ChoiceRow.Children.Clear();
         foreach (var (label, id) in choices)
         {
-            var bar = new Rectangle
-            {
-                Height = 3,
-                Width = 0,
-                Fill = (Brush)FindResource("BrushAccent"),
-                HorizontalAlignment = HorizontalAlignment.Left,
-            };
-            var text = new TextBlock
-            {
-                Text = label,
-                Margin = new Thickness(12, 8, 12, 4),
-                Foreground = (Brush)FindResource("BrushTextPrimary"),
-            };
-            var card = new Border
-            {
-                Child = new StackPanel { Children = { text, bar } },
-                Margin = new Thickness(8, 0, 0, 0),
-                Background = (Brush)FindResource("BrushSurfaceMedium"),
-                BorderBrush = (Brush)FindResource("BrushAccent"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-            };
+            var card = BuildCard(label, id);
             _choiceCards[id] = card;
-            _progressBars[id] = bar;
             ChoiceRow.Children.Add(card);
             _vm.RegisterChoice(id);
         }
         PushCentres();
     }
 
-    /// <summary>The practice target: a stroked circle with a fill element whose size follows the
-    /// VM's PracticeProgress (r3 F7 — MeetDwell's lesson is "the ring fills").</summary>
+    private Border BuildCard(string label, string id)
+    {
+        var bar = new Rectangle
+        {
+            Height = 3,
+            Width = 0,
+            Fill = (Brush)Card.FindResource("BrushAccent"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        _progressBars[id] = bar;
+        return new Border
+        {
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = label,
+                        Margin = new Thickness(12, 8, 12, 4),
+                        Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
+                    },
+                    bar,
+                },
+            },
+            Margin = new Thickness(8, 0, 0, 0),
+            Background = (Brush)Card.FindResource("BrushSurfaceMedium"),
+            BorderBrush = (Brush)Card.FindResource("BrushAccent"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+        };
+    }
+
+    /// <summary>The practice target: a stroked ring with a fill element whose size follows the
+    /// VM's PracticeProgress (r3 F7 — MeetDwell's lesson is "the ring fills"). Builds into
+    /// StepContent (r4 F4's slot rule).</summary>
     public void SetPractice(bool visible)
     {
         _vm.SetPracticeVisible(visible);
@@ -949,7 +1487,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             {
                 Width = 0,
                 Height = 0,
-                Fill = (Brush)FindResource("BrushAccent"),
+                Fill = (Brush)Card.FindResource("BrushAccent"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -957,7 +1495,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             {
                 Width = 120,
                 Height = 120,
-                Stroke = (Brush)FindResource("BrushAccent"),
+                Stroke = (Brush)Card.FindResource("BrushAccent"),
                 StrokeThickness = 4,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -975,83 +1513,48 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         PushCentres();
     }
 
-    /// <summary>The dwell knob (r3 F4): DwellSlider is an IDwellComposite needing an
-    /// IDwellRegistrar — not usable as a control. A value read-out plus −/+ chrome cards, whose
-    /// ids the wiring maps to SetDwellTime(∓100).</summary>
+    /// <summary>The dwell knob (r3 F4): a value read-out plus −/+ chrome cards, built into its
+    /// OWN row (r4 F4 — SetPractice's StepContent slot is never touched). Leaving the step
+    /// removes the ± targets; arriving registers them.</summary>
     public void SetDwellKnob(bool visible)
     {
         _vm.SetSliderVisible(visible);
-        if (visible)
+        if (visible && !_knobBuilt)
         {
             _dwellValue = new TextBlock
             {
                 Text = $"{_vm.DwellTimeMs} ms",
                 FontSize = 20,
-                Foreground = (Brush)FindResource("BrushTextPrimary"),
-                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
                 VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 16, 0),
             };
-            var panel = new StackPanel
+            var plusMinus = new StackPanel { Orientation = Orientation.Horizontal };
+            foreach (var (glyph, id) in new[] { ("−", "guide_dwell_minus"), ("+", "guide_dwell_plus") })
             {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            panel.Children.Add(_dwellValue);
-            StepContent.Content = panel;
-            _vm.RegisterChoice("guide_dwell_minus");
-            _vm.RegisterChoice("guide_dwell_plus");
-            _choiceCards["guide_dwell_minus"] = BuildSmallCard("−", "guide_dwell_minus");
-            _choiceCards["guide_dwell_plus"] = BuildSmallCard("+", "guide_dwell_plus");
-            ChoiceRow.Children.Add(_choiceCards["guide_dwell_minus"]);
-            ChoiceRow.Children.Add(_choiceCards["guide_dwell_plus"]);
-            vm_DwellTimeChangedSubscription();
+                var card = BuildCard(glyph, id);
+                _choiceCards[id] = card;
+                _progressBars[id] = (Rectangle)((StackPanel)card.Child).Children[1];
+                plusMinus.Children.Add(card);
+                _vm.RegisterChoice(id);
+            }
+            KnobRow.Children.Add(_dwellValue);
+            KnobRow.Children.Add(plusMinus);
+            _knobBuilt = true;
+            PushCentres();
         }
-        else
+        else if (!visible && _knobBuilt)
         {
-            StepContent.Content = null;
+            KnobRow.Children.Clear();
+            _vm.RemoveChromeChoice("guide_dwell_minus");
+            _vm.RemoveChromeChoice("guide_dwell_plus");
+            _choiceCards.Remove("guide_dwell_minus");
+            _choiceCards.Remove("guide_dwell_plus");
+            _progressBars.Remove("guide_dwell_minus");
+            _progressBars.Remove("guide_dwell_plus");
+            _dwellValue = null;
+            _knobBuilt = false;
         }
-        PushCentres();
-    }
-
-    private void vm_DwellTimeChangedSubscription()
-    {
-        // Keep the read-out live (unsubscribe happens when the content is replaced).
-        void OnChanged(int ms)
-        {
-            if (_dwellValue is { } value) value.Text = $"{ms} ms";
-            else _vm.DwellTimeChanged -= OnChanged;
-        }
-        _vm.DwellTimeChanged += OnChanged;
-    }
-
-    private Border BuildSmallCard(string glyph, string id)
-    {
-        var bar = new Rectangle
-        {
-            Height = 3,
-            Width = 0,
-            Fill = (Brush)FindResource("BrushAccent"),
-            HorizontalAlignment = HorizontalAlignment.Left,
-        };
-        _progressBars[id] = bar;
-        return new Border
-        {
-            Child = new StackPanel
-            {
-                Children =
-                {
-                    new TextBlock { Text = glyph, FontSize = 18, Foreground = (Brush)FindResource("BrushTextPrimary"), HorizontalAlignment = HorizontalAlignment.Center },
-                    bar,
-                },
-            },
-            Margin = new Thickness(8, 0, 0, 0),
-            Background = (Brush)FindResource("BrushSurfaceMedium"),
-            BorderBrush = (Brush)FindResource("BrushAccent"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(10, 6, 10, 6),
-        };
     }
 
     private void SetProgressBar(string id, double progress)
@@ -1069,8 +1572,6 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             fill.Height = size;
         }
     }
-
-    public void SetThemeChipsVisible(bool visible) => _vm.SetThemeChipsVisible(visible);
 
     /// <summary>Step 4 hides the WHOLE window (the calibration window takes the screen) and the
     /// advance re-shows it — through the window's own Show/Hide path, never raw Visibility
@@ -1093,7 +1594,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                 var centre = card.PointToScreen(new Point(card.ActualWidth / 2, card.ActualHeight / 2));
                 _vm.UpdateChoiceCentre(id, new PhysicalPoint(centre.X, centre.Y));
             }
-            if (StepContent.Content is Grid { Children.Count: > 0 } grid
+            if (StepContent.Content is Grid { Children.Count: > 1 } grid
                 && grid.Children[0] is Ellipse ring && ring.IsVisible)
             {
                 var centre = ring.PointToScreen(new Point(ring.ActualWidth / 2, ring.ActualHeight / 2));
@@ -1101,14 +1602,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             }
         });
     }
-
-    public void HideCard() => HideGuide();
-    public void ShowCard() => ShowGuide();
-    public void Close() { }   // never overridden behaviour: the surface's Close maps to window Close via HideGuide/Close() — see GuideSurface
 }
 ```
-
-(The `DwellSlider` control is NOT used — r3 F4. The `−`/`+` ids map in `OnGuideChoice` to `vm.SetDwellTime(vm.DwellTimeMs - 100 / + 100)`. The chip visuals ride the unified `SetChoices` list on the Theme step. `FindResource` resolves the card-local dictionary after the theme preview applies — Task 12 Step 4.)
 
 - [ ] **Step 3: Overlay inventory row** (`exempt:`) + **Step 4: `IOverlayWindows.cs`** — the default method on THREE interfaces:
 
@@ -1119,73 +1614,62 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     void RaiseToTop() { }
 ```
 
-- [ ] **Step 5: STA test** — the rev 3 test with `[Trait("Category", "UI")]` and complete usings.
+- [ ] **Step 5: STA test** — the rev 4 test with `IsStrictlyGreaterThan` (r4's S3):
 
-- [ ] **Step 6: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FirstRunGuideWindowTests|FullyQualifiedName~OverlayInventoryDrift"` → PASS; `--filter "FullyQualifiedName~Toolbar"` → PASS.
+```csharp
+// tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideWindowTests.cs
+namespace EyeCtrl.App.Tests.Overlays;
 
-- [ ] **Step 7: Commit** `feat(guide): window builds brushed visuals with progress + real centres; RaiseToTop on three interfaces`.
+using System.Windows;
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;
+using EyeCtrl.App.Overlays;
+using NFluent;
+using Xunit;
+
+[Trait("Category", "UI")]
+public class FirstRunGuideWindowTests
+{
+    [StaFact]
+    public void Window_IsClickThrough_AllowsTransparency_Fullscreen_AndBindsTheVm()
+    {
+        var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), 0,
+            new EyeCtrlSettings(), sink: null, dwellRegistry: null);
+        var window = new FirstRunGuideWindow(vm);
+        InvisibleTestWindow.Prepare(window);
+        window.Show();
+        try
+        {
+            Check.That(window.IsClickThrough).IsTrue();
+            Check.That(window.AllowsTransparency).IsTrue();
+            Check.That(window.DataContext).IsSameReferenceAs(vm);
+            Check.That(window.Width).IsStrictlyGreaterThan(SystemParameters.PrimaryScreenWidth - 1);
+            Check.That(window.Height).IsStrictlyGreaterThan(SystemParameters.PrimaryScreenHeight - 1);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+}
+```
+
+- [ ] **Step 6: Run** — the two filters → PASS; `--filter "FullyQualifiedName~Toolbar"` → PASS.
+
+- [ ] **Step 7: Commit** `feat(guide): window builds brushed visuals one-slot-per-builder with real centres; RaiseToTop on three interfaces`.
 
 ---
 
 ### Task 8: `ToolbarAutoHideController` — guide-hidden hold + `ResetToHidden`
 
-**Files:** Modify `src/EyeCtrl.App/Services/ToolbarAutoHideController.cs`; Test extend `ToolbarAutoHideControllerTests.cs` (harness: `NewController` at :755, `Attach`, `FakeVisibility` with `ShowCalls/HideCalls/ForceShowCalls/SetActiveCalls`).
+**Files:** Modify `src/EyeCtrl.App/Services/ToolbarAutoHideController.cs`; Test extend `tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideControllerTests.cs` (harness: `NewController` at :755, `Attach`, `FakeVisibility` with `ShowCalls/HideCalls/ForceShowCalls/SetActiveCalls`).
 
 **Interfaces:** `SetGuideHiddenHold(bool)` (suppress `ForceShow` + `ReassertVisibility`'s `SetActive(true)` re-arm, force Hidden) + `ResetToHidden()` (mirror `ResetToVisible()` at :551). **Order rule (r1 F11): the hold arms BEFORE any `SetSuspended(true)`.**
 
-- [ ] **Step 1: Write the failing tests** — rev 3's three tests (`GuideHiddenHold_SuppressesTheAsyncForceShow_FromSuspend` reaching Hidden via the file's off-toolbar sample loop then hold→suspend→assert `ForceShowCalls == 0`; `GuideHiddenHold_NeutralizesReassertVisibility` asserting `SetActiveCalls` empty; `ResetToHidden_PutsTheControllerInHidden_ForAnImmediateSummon` asserting `StateName` + `HideCalls ≥ 1` + an immediate summon).
+- [ ] **Step 1: Write the failing tests** — rev 4's three tests verbatim (`GuideHiddenHold_SuppressesTheAsyncForceShow_FromSuspend` reaching Hidden via the file's off-toolbar sample loop, then hold → suspend → `ForceShowCalls == 0` + `StateName == "Hidden"`; `GuideHiddenHold_NeutralizesReassertVisibility` asserting `SetActiveCalls` empty; `ResetToHidden_PutsTheControllerInHidden_ForAnImmediateSummon` asserting `StateName` + `HideCalls ≥ 1` + an immediate summon; the sample-drive helper extracted from `GazeBackOnToolbar_ResetsHideCountdown` :83).
 
-- [ ] **Step 2: Implement** — the rev 2/3 code verbatim:
-
-```csharp
-    // The guide-hidden hold (spec §5 claim 6): the first-run guide hides the toolbar on steps
-    // 1–4/6–8. While held, the two shipped paths that would resurrect a hidden toolbar — the
-    // async ForceShow inside SetSuspended, and ReassertVisibility's else-branch SetActive(true)
-    // (calibration transitions) — are suppressed; release restores unconditionally (r4 F5).
-    // ORDER: arm the hold BEFORE SetSuspended(true) — SetSuspended posts its ForceShow when
-    // Hidden, and a hold armed after loses that race (r1 F11).
-    private bool _guideHiddenHold;
-
-    /// <summary>The first-run guide's hold: while true the controller stays hidden and deaf to
-    /// ForceShow/ReassertVisibility re-arms, whatever SetSuspended says.</summary>
-    public void SetGuideHiddenHold(bool held)
-    {
-        _guideHiddenHold = held;
-        if (held)
-        {
-            _state = State.Hidden;
-            _visibility?.HideToolbar(_paused);
-            Volatile.Write(ref _hideAnchorUs, Unseeded);
-            Volatile.Write(ref _summonRunUs, Unseeded);
-            _lastValidHiddenUs = null;
-        }
-    }
-
-    /// <summary>Mirrors <see cref="ResetToVisible"/>: state → Hidden, anchors cleared, hidden via
-    /// the adapter. Step-5 entry uses this so summon detection is live immediately (r4 F2).</summary>
-    public void ResetToHidden()
-    {
-        _state = State.Hidden;
-        _visibility?.HideToolbar(_paused);
-        Volatile.Write(ref _hideAnchorUs, Unseeded);
-        Volatile.Write(ref _summonRunUs, Unseeded);
-        _lastValidHiddenUs = null;
-    }
-```
-
-and the two suppression points:
-
-```csharp
-    // in SetSuspended's suspended branch, replacing the ForceShow line:
-            if (_state == State.Hidden && _enabled && !_guideHiddenHold)
-                _visibility?.ForceShow();
-
-    // in ReassertVisibility:
-        if (_state == State.Hidden && _enabled && !_suspended && !_guideHiddenHold)
-            _visibility.HideToolbar(_paused);   // re-asserts hide AND SetActive(false)
-        else if (!_guideHiddenHold)
-            _visibility.SetActive(true);
-```
+- [ ] **Step 2: Implement** — the rev 4 code verbatim (the `_guideHiddenHold` field + `SetGuideHiddenHold` + `ResetToHidden` + the two suppression points: `SetSuspended`'s ForceShow line gains `&& !_guideHiddenHold`; `ReassertVisibility`'s else-branch gains `else if (!_guideHiddenHold)`).
 
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ToolbarAutoHideController guide-hidden hold + ResetToHidden`.
 
@@ -1195,42 +1679,11 @@ and the two suppression points:
 
 **Files:** Modify `src/EyeCtrl.App/Services/Coordinators/ToolbarLifecycleCoordinator.cs`, `src/EyeCtrl.ViewModels/ToolbarViewModel.cs`; Test extend `ToolbarLifecycleCoordinatorTests.cs` (incl. the :361-376 source pins).
 
-**Interfaces:** `SetGuideHold(bool)` — **hidden hold FIRST, then `SetAutoHideSuspended("guide", …)`** (r1 F11); `ResetToolbarForGuideTask()`; `ShouldFeedKeyboardSample`/`ShouldFeedSettingsSample` + `guideOpen` (all call sites + source pins); `ToolbarViewModel.GuideOpenGate` (assigned in Task 12, checked AFTER the :537-541 progress/highlight reset lines); `ToolbarVisibilityChanged` REUSED (:52/:366). The gated press does not stop the dwell cue (the base publishes after `OnTargetActivated` returns) — accepted, r3 F19.
+**Interfaces:** `SetGuideHold(bool)` — **hidden hold FIRST, then `SetAutoHideSuspended("guide", …)`** (r1 F11); `ResetToolbarForGuideTask()`; `ShouldFeedKeyboardSample`/`ShouldFeedSettingsSample` + `guideOpen` (all call sites + source pins); `ToolbarViewModel.GuideOpenGate` (assigned in Task 12, checked AFTER the :537-541 progress/highlight reset lines). The gated press does not stop the dwell cue (the base publishes after `OnTargetActivated` returns) — accepted, documented (r3 F19). `ToolbarVisibilityChanged` REUSED (:52/:366).
 
-- [ ] **Step 1: Failing tests** — rev 3's two feed tests.
+- [ ] **Step 1: Failing tests** — rev 4's two feed tests.
 
-- [ ] **Step 2: Implement** — the rev 3 code blocks verbatim:
-
-```csharp
-    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible,
-        bool isInGap, bool probeOpen, bool exerciseActive, bool guideOpen) =>
-        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive && !guideOpen;
-
-    internal static bool ShouldFeedSettingsSample(bool exerciseActive, bool guideOpen) =>
-        !exerciseActive && !guideOpen;
-```
-
-```csharp
-    /// <summary>The guide's toolbar hold. ORDER (r1 F11): the hidden hold arms FIRST —
-    /// SetSuspended posts an async ForceShow when Hidden, and a hold armed after loses the race.
-    /// Release (guide close) is the coordinator's ForceShow() restore path, not this.</summary>
-    public void SetGuideHold(bool held)
-    {
-        _autoHide?.SetGuideHiddenHold(held);
-        SetAutoHideSuspended("guide", held);
-    }
-
-    /// <summary>Step-5 entry: release the hold and reset the controller to Hidden so the summon
-    /// detection is live immediately (r4 F2).</summary>
-    public void ResetToolbarForGuideTask()
-    {
-        _autoHide?.SetGuideHiddenHold(false);
-        SetAutoHideSuspended("guide", false);
-        _autoHide?.ResetToHidden();
-    }
-```
-
-and `ToolbarViewModel`'s `GuideOpenGate` property + the in-method gate after the :537-541 lines.
+- [ ] **Step 2: Implement** — the rev 4 code verbatim: the two static feeds with the `guideOpen` term + every call site and source pin updated; `SetGuideHold`/`ResetToolbarForGuideTask`; `ToolbarViewModel.GuideOpenGate` + the in-method gate after the :537-541 lines.
 
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ordered toolbar hold + GuideOpen feed terms + OnTargetActivated gate`.
 
@@ -1238,37 +1691,24 @@ and `ToolbarViewModel`'s `GuideOpenGate` property + the in-method gate after the
 
 ### Task 10: Ring lifecycle — the coordinators' gate + restore
 
-**Files:** Modify `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs`, `src/EyeCtrl.App/Services/Coordinators/OverlayMessageCoordinator.cs`; Test extend the coordinators' existing test files.
+**Files:** Modify `OverlayVmBindingCoordinator.cs`, `OverlayMessageCoordinator.cs`; Test extend the coordinators' existing test files.
 
-**Interfaces:** `OverlayVmBindingCoordinator.RingMayReshow => !_modal.GuideOpen` (the message coordinator has NO `_modal` — its ctor takes `(toolbar, vmBinding)`, `EventCoordinator.cs:212`); both calibration re-show sites consult it. The FULL ring lifecycle (hide on open, step-5 show, hide on exit, restore on close) lives in Task 12's wiring (r2 F15).
+**Interfaces:** `OverlayVmBindingCoordinator.RingMayReshow => !_modal.GuideOpen` (the message coordinator has NO `_modal` — its ctor takes `(toolbar, vmBinding)`, `EventCoordinator.cs:212`); both calibration re-show sites consult it. The FULL ring lifecycle lives in Task 12's wiring.
 
-- [ ] **Step 1: Failing test** — the flag test (rev 3's `RingMayReshow_IsFalse_WhileGuideOpen`).
-- [ ] **Step 2: Implement**
-
-```csharp
-    /// <summary>Whether the ring may re-show right now — false while the first-run guide owns
-    /// the screen (the guide hides the ring and re-shows it itself: step 5 only, spec §5).</summary>
-    internal bool RingMayReshow => !_modal.GuideOpen;
-```
-
-`OverlayVmBindingCoordinator`'s `IsVisible` case gains the gate:
+- [ ] **Step 1: Failing test** — `RingMayReshow_IsFalse_WhileGuideOpen`, in the coordinators' existing test file with its harness (`modal`, `vmBinding`):
 
 ```csharp
-            case nameof(CursorCircleViewModel.IsVisible):
-                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen && !_modal.GuideOpen)
-                    cursorCircle.Show();
-                else
-                    cursorCircle.Hide();
-                break;
+    [Fact]
+    public void RingMayReshow_IsFalse_WhileGuideOpen()
+    {
+        modal.GuideOpen = true;
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
 ```
 
-`OverlayMessageCoordinator`'s two calibration `cursorCircle.Show()` sites (:308/:318) consult the binding coordinator (the field name is the ctor-injected binding coordinator — match the actual field):
-
-```csharp
-                        if (Context.CursorVM.IsVisible && _vmBinding.RingMayReshow) cursorCircle.Show();
-```
-
-- [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ring re-show gated on GuideOpen via the binding coordinator's flag`.
+- [ ] **Step 2: Implement** — the flag on `OverlayVmBindingCoordinator`; its `IsVisible` case gains `&& !_modal.GuideOpen`; both calibration `cursorCircle.Show()` sites (:308/:318) become `if (Context.CursorVM.IsVisible && _vmBinding.RingMayReshow) cursorCircle.Show();`.
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ring re-show gated on GuideOpen via the binding coordinator's flag`.
 
 ---
@@ -1279,112 +1719,9 @@ and `ToolbarViewModel`'s `GuideOpenGate` property + the in-method gate after the
 
 **Interfaces:** `BannerSlot.Hold()/Release()` (front re-queue; `Preempt` deliberately bypasses — caregiver alerts take the slot mid-guide, pinned by test); optional `Func<bool>? isGuideOpen = null` on both hosts + `OnGuideOpenChanged` (defer-newest replay); `SetupNoticeWatch`: `CheckStartupWhenGuideClosed()` at the three call sites + expiry skip while GuideOpen + close-time poke.
 
-- [ ] **Step 1: Failing tests** — rev 3's three BannerSlot tests (incl. `Preempt_BypassesTheHold_CaregiverAlertsAreTheSafetyChannel`).
+- [ ] **Step 1: Failing tests** — rev 4's three BannerSlot tests (incl. `Preempt_BypassesTheHold_CaregiverAlertsAreTheSafetyChannel`).
 
-- [ ] **Step 2: Implement**
-
-`BannerSlot.cs` — the hold:
-
-```csharp
-    // The guide's hold (spec §5 claim 4): while held, the live banner hides and re-queues at the
-    // FRONT (it resumes first) and dequeue pauses — nothing is dropped, `_live` cannot wedge
-    // because the hold clears it. Preempt deliberately bypasses the hold: caregiver alerts are
-    // the safety channel and take the slot even mid-guide (pinned by test). UI thread only.
-    private bool _held;
-
-    /// <summary>Hold for a fullscreen surface (the first-run guide). Idempotent.</summary>
-    public void Hold()
-    {
-        if (_held) return;
-        _held = true;
-        if (_live is { } live)
-        {
-            _live = null;
-            live.Closed -= OnClosed;
-            try
-            {
-                live.HideFromSlot();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "A held banner failed to hide; it still re-queues.");
-            }
-            _queue.Insert(0, live);
-        }
-    }
-
-    /// <summary>Release: dequeue resumes at once with the front of the queue (nothing dropped).
-    /// A live pre-emptor is untouched.</summary>
-    public void Release()
-    {
-        if (!_held) return;
-        _held = false;
-        ShowNextIfFree();
-    }
-```
-
-and the dequeue guard in `ShowNextIfFree`:
-
-```csharp
-        while (!_held && _live is null && _queue.Count > 0)
-```
-
-`RestartNoticeHost.cs` — ctor gains an OPTIONAL `Func<bool>? isGuideOpen = null` (wired `() => _eventCoordinator.IsGuideOpen` at App.xaml.cs:519); the three show paths' guards gain `|| (_isGuideOpen?.Invoke() ?? false)`, with the blocked call stashed for replay:
-
-```csharp
-    private readonly Func<bool>? _isGuideOpen;
-    private Action? _pendingOnGuideClosed;
-
-    /// <summary>Guide opened or closed. Opening takes a notice down (it covers the card);
-    /// closing replays at most ONE stashed show — the newest wins, an older notice is stale
-    /// (defer, never drop — r3 F4).</summary>
-    public void OnGuideOpenChanged(bool open)
-    {
-        if (open) _presenter.HideNotice();
-        else
-        {
-            var pending = _pendingOnGuideClosed;
-            _pendingOnGuideClosed = null;
-            pending?.Invoke();
-        }
-    }
-```
-
-(each show path: `if (_isSettingsOpen() || _isProbeOpen()) return; if (_isGuideOpen?.Invoke() == true) { _pendingOnGuideClosed = () => ShowInProgress(); return; } ShowInProgress();` — the stash captures the path's own continuation.)
-
-`LagMarkHost.cs` — optional `Func<bool>? isGuideOpen = null` (App.xaml.cs:605), `CanShow()` gains `&& (_isGuideOpen?.Invoke() ?? false) == false`, and:
-
-```csharp
-    /// <summary>Guide opened or closed — the button hides and returns like Settings does (r3 F4).</summary>
-    public void OnGuideOpenChanged(bool open)
-    {
-        if (open || (_isGuideOpen?.Invoke() ?? false))
-            _postToUi(HideButtonAndZone);
-        else if (CanShow())
-            _postToUi(ShowButtonAndZone);
-    }
-```
-
-`SetupNoticeWatch.cs` — optional `Func<bool>? isGuideOpen = null` (App.xaml.cs:577); ONE gated helper replaces the three raw `CheckStartup()` call sites (Start :91, Poll :110, Poke :136 — each becomes `if (CheckStartupWhenGuideClosed())`, keeping its surrounding schedule/flow), and the expiry check also skips while the guide is open (the 90 s window must not run out behind the guide — r1 F24; `Finish()` would make the close-time poke a no-op):
-
-```csharp
-    /// <summary>r4 F3 + r1 F24: CheckStartup writes setup-notice-shown.json BEFORE _show (no burn
-    /// behind the guide), and the expiry window must not run out while the guide holds the
-    /// screen — both skip while GuideOpen; the close-time poke shows then.</summary>
-    private bool GuideOpen => _isGuideOpen?.Invoke() ?? false;
-
-    private bool CheckStartupWhenGuideClosed() => !GuideOpen && _service.CheckStartup();
-```
-
-plus:
-
-```csharp
-    /// <summary>Guide opened or closed: closing pokes once (r4 F3).</summary>
-    public void OnGuideOpenChanged(bool open)
-    {
-        if (!open) Poke();
-    }
-```
+- [ ] **Step 2: Implement** — the rev 4 code verbatim (`Hold`/`Release` + the dequeue guard; the hosts' optional params + `OnGuideOpenChanged`; the watch's `GuideOpen`/`CheckStartupWhenGuideClosed` + expiry skip + poke).
 
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): BannerSlot hold (preempt exempted) + defer hosts + gated SetupNoticeWatch`.
 
@@ -1396,11 +1733,11 @@ plus:
 - Modify: `InteractionMessages.cs` (rename), `SafetySetupFlow.cs` (message + retire `Launch`/`Host`), `SettingsUiCoordinator.cs`, `EventCoordinator.cs` (forwarders), `App.xaml.cs`, `SettingsWindow.xaml.cs`, `SettingsPageContext.cs`, `GeneralPageSource.cs`
 - Modify tests: `SafetySetupFlowTests.cs` (:78-170 + `RequestProbe` :656), `TestSettingsPageContext.cs:46`, `SimpleModeCurationTests.cs:103/:108`, `localization/settings-row-english.golden.json:1177`, `SafetySetupWiringTests`, `GeneralPageSourceTests`, `StatusCardPresenterTests` (:735-736 pin)
 
-**Interfaces:** Consumes Tasks 1–11. Produces the complete raise with the UNIFIED choice list (r3 F5) and the complete unwind.
+**Interfaces:** Consumes Tasks 1–11. Produces the complete raise with the unified choice list and re-render after in-place presses.
 
 - [ ] **Step 1: Rename the message** — `FirstRunGuideRequestedMessage` replaces `SafetySetupRequestedMessage` (delete the old record; `SafetySetupStartup.MaybeRequest` sends the new one).
 
-- [ ] **Step 2: The per-run factory in `SettingsUiCoordinator`** — fields:
+- [ ] **Step 2: The per-run factory in `SettingsUiCoordinator`** — fields + registration:
 
 ```csharp
     private FirstRunGuideHost? _guideHost;
@@ -1412,9 +1749,17 @@ plus:
     private Action<bool>? _onToolbarVisibility;   // a FIELD, not a local function (r3 F6)
 ```
 
-Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind, r2 F14) + `BuildAndRaiseGuide`:
+```csharp
+        // First-run guide: raised at startup (the renamed gate) and from the Settings → General row.
+        messenger.Register<SettingsUiCoordinator, FirstRunGuideRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(StartFirstRunGuide));
+```
 
 ```csharp
+    /// <summary>Hands the splash handle in for the latched show. Called once from App.xaml.cs
+    /// via EventCoordinator's forwarder (r1 F15) after Initialize.</summary>
+    public void SetSplashHandle(SplashThreadHandle? handle) => _splashHandle = handle;
+
     private void StartFirstRunGuide()
     {
         var context = Context!;
@@ -1438,9 +1783,9 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
     }
 
     /// <summary>The raise-failure unwind: undo whatever BuildAndRaiseGuide/Show did, then hand
-    /// the session back — toolbar restored, ring restored, lease released, cards started
-    /// (r3 F9's additions). No re-entry: the flow is nulled BEFORE the window closes, and the
-    /// toolbar handler is unsubscribed first.</summary>
+    /// the session back — toolbar restored, ring restored, lease released, cards started. No
+    /// re-entry: the flow is nulled BEFORE the window closes, and the toolbar handler is
+    /// unsubscribed first (r3 F9).</summary>
     private void UnwindPartialRaise(EventCoordinationContext context, FirstRunGuideLease lease)
     {
         if (_onToolbarVisibility is not null)
@@ -1466,17 +1811,17 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
     }
 
     /// <summary>App assigns this at startup; the unwind invokes it so the status-card presenter
-    /// starts even when the raise failed (r3 F6 / r2 F14).</summary>
+    /// starts even when the raise failed (r3 F6 / r2 F14). Cleared in Restore (r2 F19).</summary>
     internal Action? StatusCardsFallback { get; set; }
 
     private void BuildAndRaiseGuide(EventCoordinationContext context, FirstRunGuideLease lease)
     {
         var settings = context.Settings;
         bool tracker = App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse;
-        bool toolbarTask = tracker && settings.Toolbar.IsDocked;
+        bool toolbarTask = tracker && settings.Toolbar.IsDocked;   // spec §7 step 5
 
         _guideVm = new FirstRunGuideViewModel(context.Messenger,
-            dwellCooldownMs: settings.Dwell.DwellCooldownMs,
+            dwellCooldownMs: settings.Dwell.DwellCooldownMs,       // a COOLDOWN, not a dwell time (r1 F23)
             settings, sink: null, dwellRegistry: null);
         _guideWindow = new FirstRunGuideWindow(_guideVm);
         _guideSurface = new GuideSurface(_guideWindow, _guideVm, this);
@@ -1498,20 +1843,25 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
         _guideVm.ChoiceActivated += id => context.Dispatcher.BeginInvoke(() => OnGuideChoice(id));
         _guideVm.CloseRequested += () => context.Dispatcher.BeginInvoke(_guideFlow.Close);
         _guideVm.PracticeTargetActivated += () => context.Dispatcher.BeginInvoke(_guideFlow.NotifyTaskSucceeded);
+
+        // Theme pick: card-local preview + live-apply + save, then RE-RENDER the card (r4 F3 —
+        // OnTargetActivated cleared every chrome target, and a chip press does not change the step).
         _guideVm.ThemeChosen += name => context.Dispatcher.BeginInvoke(() =>
         {
             var theme = ThemeRegistry.Resolve(name);
-            ThemeResourceApplier.Apply(_guideWindow!.CardResources, theme);   // card-local preview (r1 F2)
+            ThemeResourceApplier.Apply(_guideWindow!.CardResources, theme);   // card-local (r1 F2)
             settings.Theme.Name = name;
             OnSettingsChanged(settings);
             context.SettingsService.SaveDebounced(settings);
+            _guideSurface?.RenderChoicesForCurrentStep();      // re-register the cleared targets
         });
 
-        // Dwell time: live-apply + save (r2 F16); the −/+ chrome cards map here:
+        // Dwell ±: live-apply + save, then RE-RENDER the card (r4 F3 — same cleared-targets rule).
         _guideVm.DwellTimeChanged += _ =>
         {
             OnSettingsChanged(settings);
             context.SettingsService.SaveDebounced(settings);
+            _guideSurface?.RenderChoicesForCurrentStep();
         };
         context.ToolbarVM.GuideOpenGate = () => _modal.GuideOpen;   // claim 7 wired (r1 F12)
 
@@ -1523,7 +1873,7 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
                 _modal.GuideOpen = true;                   // claim 2
                 _quickActions.SetSummonSuspended("guide", true);   // claim 5
                 _toolbar.SetGuideHold(true);               // claim 6 — hold arms BEFORE suspend (r1 F11)
-                context.OverlayManager.CursorCircle.Hide();            // the ring hides (spec §5) — INSIDE Show
+                context.OverlayManager.CursorCircle.Hide();            // the ring hides — INSIDE Show
                 Log.Information("First-run guide: shown");
                 _guideWindow!.ShowGuide();
                 _guideFlow!.Start();
@@ -1557,8 +1907,9 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
             }
         });
 
-        // The summon observation — a PRIVATE METHOD FIELD-SUBSCRIBED (r3 F6), gated on the task,
-        // switching the card to the success text (spec §7.5), unsubscribed in Restore (r1 F21).
+        // The summon observation — a FIELD-SUBSCRIBED private method (r3 F6), gated on the task,
+        // swapping the body to the success text (spec §7.5). NO re-render: the summon is a
+        // toolbar event, not a card activation — no targets were cleared (r4 F5).
         _onToolbarVisibility = visible =>
         {
             if (_guideFlow is null || !_modal.GuideOpen || !visible) return;
@@ -1571,9 +1922,8 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
                     context.OverlayManager.CursorCircle.Show();       // show + raise (r3 F8)
                 context.OverlayManager.CursorCircle.RaiseToTop();
                 _guideWindow?.ShowCardContent(
-                    StringTable.Current.T("guide.toolbar.success"),
-                    _guideVm?.Body ?? string.Empty, chromeClose: true);
-                _guideSurface?.RenderChoicesForCurrentStep();         // Continue (+chrome close) re-armed
+                    StringTable.Current.T("guide.toolbar.title"),
+                    StringTable.Current.T("guide.toolbar.success"), chromeClose: true);
             });
         };
         _toolbar.ToolbarVisibilityChanged += _onToolbarVisibility;
@@ -1606,15 +1956,14 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
     }
 ```
 
-(The `GuideSurface.RenderChoicesForCurrentStep()` helper re-runs `ShowStep(_step)`'s choice rendering — the success text replaced the card's choices, and Continue must come back. Its body: store `_lastStep` in `ShowStep` and call `ShowStep(_lastStep)` minus the full re-render… concretely: `public void RenderChoicesForCurrentStep() { if (_lastStep is { } step) ShowStep(step); }` with `private FirstRunGuideStep? _lastStep;` set at the end of `ShowStep`.)
-
-- [ ] **Step 3: `GuideSurface` — the UNIFIED choice list (r3 F5): every button on every card comes from `ChoicesFor`, registered AND visualized together**
+- [ ] **Step 3: `GuideSurface` — the unified choice list + `TextsFor`/`EdgeWord` DEFINED HERE (r4 F1's missing pieces)**
 
 ```csharp
     /// <summary>The flow's window surface. ONE unified choice list per card: the step's buttons,
     /// then the chrome Close where it applies, then the theme chips + Continue on Theme —
     /// registered (dwell targets) AND visualized (the window's cards) together, so every target
-    /// gets a pushed centre (r3 F5). Keys are LITERALS (r2 F12).</summary>
+    /// gets a pushed centre (r3 F5). Keys are LITERALS (r2 F12). In-place presses (dwell ±, theme
+    /// chips) re-render through RenderChoicesForCurrentStep (r4 F3).</summary>
     private sealed class GuideSurface(
         FirstRunGuideWindow window, FirstRunGuideViewModel vm,
         SettingsUiCoordinator owner) : IGuideSurface
@@ -1624,16 +1973,39 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
         public void ShowStep(FirstRunGuideStep step)
         {
             var (title, body) = TextsFor(step);
-            var chromeClose = step is not (FirstRunGuideStep.Welcome or FirstRunGuideStep.Done);
+            var chromeClose = step is not (FirstRunGuideStep.Welcome or FirstRunGuideStep.Done or FirstRunGuideStep.Safety);
             window.ShowCardContent(title, body, chromeClose);
-            window.SetChoices(ChoicesFor(step, chromeClose));   // ONE list: buttons + close + chips
+            window.SetChoices(ChoicesFor(step, chromeClose));   // ONE list, registered AND visualized
             window.SetPractice(step is FirstRunGuideStep.MeetDwell or FirstRunGuideStep.DwellTime);
             window.SetDwellKnob(step == FirstRunGuideStep.DwellTime);
-            window.SetThemeChipsVisible(step == FirstRunGuideStep.Theme);
             _lastStep = step;
         }
 
-        private (string Label, string Id)[] ChoicesFor(FirstRunGuideStep step, bool chromeClose)
+        private (string Title, string Body) TextsFor(FirstRunGuideStep step) => step switch
+        {
+            FirstRunGuideStep.Welcome => (T("guide.welcome.title"), T("guide.welcome.body")),
+            FirstRunGuideStep.MeetDwell => (T("guide.dwell.title"), T("guide.dwell.body")),
+            FirstRunGuideStep.DwellTime => (T("guide.dwelltime.title"), T("guide.dwelltime.body")),
+            FirstRunGuideStep.Calibrate => (T("guide.calibrate.title"), T("guide.calibrate.body")),
+            FirstRunGuideStep.ToolbarTask => (T("guide.toolbar.title"),
+                string.Format(T("guide.toolbar.body"), EdgeWord())),
+            FirstRunGuideStep.Theme => (T("guide.theme.title"), T("guide.theme.body")),
+            FirstRunGuideStep.Safety => (T("guide.safety.title"), T("guide.safety.body")),
+            FirstRunGuideStep.Done => (T("guide.done.title"), T("guide.done.body")),
+            _ => (string.Empty, string.Empty),
+        };
+
+        /// <summary>The docked edge's localized word — a LITERAL-key switch over the enum (r2 F12:
+        /// interpolated keys are invisible to the unused-key scan).</summary>
+        private string EdgeWord() => Context.Settings.Toolbar.DockedEdge switch
+        {
+            Core.Enums.DockedEdge.Top => T("guide.toolbar.edge.top"),
+            Core.Enums.DockedEdge.Bottom => T("guide.toolbar.edge.bottom"),
+            Core.Enums.DockedEdge.Left => T("guide.toolbar.edge.left"),
+            _ => T("guide.toolbar.edge.right"),
+        };
+
+        private static (string Label, string Id)[] ChoicesFor(FirstRunGuideStep step, bool chromeClose)
         {
             var choices = new List<(string Label, string Id)>();
             choices.AddRange(step switch
@@ -1649,7 +2021,6 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
                 FirstRunGuideStep.ToolbarTask => [
                     (T("guide.toolbar.continue"), "guide_toolbar_continue"),
                     (T("guide.toolbar.skip"), "guide_toolbar_skip")],
-                // The theme CHIPS + the Continue — all in the unified list, all with visuals (r3 F5):
                 FirstRunGuideStep.Theme => [
                     (T("guide.theme.midnight"), "guide_theme_midnight"),
                     (T("guide.theme.ember"), "guide_theme_ember"),
@@ -1677,6 +2048,13 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
             owner.RememberSafetyActions(choices);                 // id → OnChosen, for the dispatch
         }
 
+        /// <summary>Re-renders the CURRENT step's choices (r4 F3): an in-place press (dwell ±,
+        /// theme chip) cleared every chrome target, and the press did not change the step.</summary>
+        public void RenderChoicesForCurrentStep()
+        {
+            if (_lastStep is { } step) ShowStep(step);
+        }
+
         public void HideCard() => window.HideGuide();
         public void ShowCard() => window.ShowGuide();
         public void Close() => window.Close();
@@ -1685,13 +2063,15 @@ Registration + `SetSplashHandle` + `StartFirstRunGuide` (with the LOGGED unwind,
     }
 ```
 
-with the coordinator-side support:
+(The `GuideSurface` needs `Context` for `EdgeWord` — it calls through `owner`: make `EdgeWord` non-static reading `owner.Context.Settings.Toolbar.DockedEdge`; the enum is `EyeCtrl.Core.Enums.DockedEdge` — match its actual member names during implementation. `window.SetDwellKnob` is Task 7's builder; `RememberSafetyActions` is Step 4's dictionary.)
+
+- [ ] **Step 4: The dispatch + the safety actions map**
 
 ```csharp
     private readonly Dictionary<string, Action?> _safetyActions = new();
 
-    /// <summary>The safety chain's id → OnChosen map, populated by the surface when a question
-    /// card renders; the dispatch consults it before the guide's own ids (r3 F5's one route).</summary>
+    /// <summary>The safety chain's id → OnChosen map, populated when a question card renders;
+    /// the dispatch consults it first (r3 F5's one route).</summary>
     internal void RememberSafetyActions(IReadOnlyList<ModalChoice> choices)
     {
         _safetyActions.Clear();
@@ -1699,14 +2079,6 @@ with the coordinator-side support:
             _safetyActions[choice.Id] = choice.OnChosen;
     }
 
-    /// <summary>Theme chip display names — four new keys (surface "guide", fit modal170):
-    /// guide.theme.midnight/ember/daylight/contrast. ADD to Task 4's sorted block and both DE
-    /// files ("Mitternacht", "Glut", "Tageslicht", "Kontrast").</summary>
-```
-
-and `OnGuideChoice` — the ONE dispatch, safety choices first:
-
-```csharp
     private void OnGuideChoice(string id)
     {
         if (_guideFlow is null) return;
@@ -1736,76 +2108,28 @@ and `OnGuideChoice` — the ONE dispatch, safety choices first:
                 if (id.StartsWith("guide_theme_", StringComparison.Ordinal))
                 {
                     var theme = id["guide_theme_".Length..];
-                    _guideVm?.ThemeChosenFire(
-                        char.ToUpperInvariant(theme[0]) + theme[1..]);
+                    _guideVm?.ThemeChosenFire(char.ToUpperInvariant(theme[0]) + theme[1..]);
                 }
                 break;
         }
     }
 ```
 
-(The theme chip labels come from four NEW keys — `guide.theme.midnight/ember/daylight/contrast` — added to Task 4's sorted block with German values; the ids carry the canonical ThemeRegistry names lower-cased, upper-cased on dispatch. `window.SetDwellKnob` replaces `SetSlider` — Task 7's builder.)
+- [ ] **Step 5: Calibration — per-"Calibrate-now" subscription + the refusal guard (r2 F10/F27)** — rev 4's `StartCalibration` verbatim (the Idle path does NOT re-render — no flicker, r3 F12; only the refusal guard re-renders via `_guideSurface.ShowStep(FirstRunGuideStep.Calibrate)`; `Restore`/unwind unregister unconditionally with the one-type-arg overload).
 
-- [ ] **Step 4: Calibration — per-"Calibrate-now" subscription + the refusal guard (r2 F10)** — rev 3's `StartCalibration` with r3 F12's fix: the Idle path does NOT re-render (no flicker — `NotifyCalibrationEnded` advances and renders step 5); only the refusal guard re-renders via `_guideSurface.ShowStep(FirstRunGuideStep.Calibrate)`:
+- [ ] **Step 6: App.xaml.cs wiring** — rev 4's Step 5 verbatim (the forwarder; `:704` canInterrupt; the banner hold + status-card block below :518 inside `!IsTestMode` with the `StatusCardsFallback` forwarder; the notice hosts' optional args + subscriptions; the renamed raise).
 
-```csharp
-    private IDisposable? _calibrationCeiling;
+- [ ] **Step 7: Retire the machinery + swap the row** — rev 4's Step 6 verbatim (the complete consumer list, `g_guide`, `--refresh-de-src` here too).
 
-    private void StartCalibration()
-    {
-        var context = Context!;
-        if (_guideVm is null || _guideFlow is null || _guideSurface is null) return;
+- [ ] **Step 8: Wiring tests** — rev 4's Step 7 + the `StatusCardPresenterTests` pin (:735-736).
 
-        var collected = false;
-        void OnCalibrationStateChanged(CalibrationStateChangedMessage m)
-        {
-            if (m.State is CalibrationState.Collecting or CalibrationState.Training)
-            {
-                collected = true;
-                _calibrationCeiling?.Dispose();
-                _guideWindow?.HideGuide();
-            }
-            else if (m.State is CalibrationState.Idle or CalibrationState.Cancelled)
-            {
-                context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
-                _calibrationCeiling?.Dispose();
-                context.Dispatcher.BeginInvoke(() =>
-                {
-                    _guideWindow?.ShowGuide();
-                    _guideFlow?.NotifyCalibrationEnded();   // renders step 5 — no Calibrate flicker (r3 F12)
-                });
-            }
-        }
-        context.Messenger.Register<SettingsUiCoordinator, CalibrationStateChangedMessage>(this,
-            (_, m) => OnCalibrationStateChanged(m));
-        _calibrationCeiling = SafetySetupFlow.DispatcherDelay(TimeSpan.FromSeconds(2), RefusalGuard);
-
-        void RefusalGuard()
-        {
-            if (collected) return;
-            context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
-            context.Dispatcher.BeginInvoke(() => _guideSurface.ShowStep(FirstRunGuideStep.Calibrate));
-        }
-
-        context.Messenger.Send(new CalibrationRequestedMessage());
-    }
-```
-
-(`Restore`/`UnwindPartialRaise` unregister unconditionally with the same one-type-arg overload.)
-
-- [ ] **Step 5: App.xaml.cs wiring** — rev 3's Step 5 verbatim (the forwarder; `:704` canInterrupt; the banner hold AFTER :518 inside the notice-hosts region with the status-card block inside `!IsTestMode` + `StatusCardsFallback` through EventCoordinator; the notice hosts' optional args + subscriptions; the renamed raise).
-
-- [ ] **Step 6: Retire the machinery + swap the row** — rev 3's Step 6 verbatim (the complete consumer list, `g_guide`, the new `guide.theme.*` label keys added to Task 4's block + DE).
-
-- [ ] **Step 7: Wiring tests** — rev 3's Step 7 + the `StatusCardPresenterTests` pin (:735-736).
-
-- [ ] **Step 8: Run + commit**
+- [ ] **Step 9: Run + commit**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"` → PASS; `node .gitnexus/run.cjs detect-changes --scope all` → not partial.
 
 ```bash
 git -C .worktrees/first-run-guide add -A
-git -C .worktrees/first-run-guide commit -m "feat(guide): per-run raise, unified choice targets, gaze input, calibration guards, retire the safety-setup machinery"
+git -C .worktrees/first-run-guide commit -m "feat(guide): per-run raise, unified choice targets with re-render, calibration guards, retire the safety-setup machinery"
 ```
 
 ---
@@ -1821,16 +2145,16 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): per-run raise, unified
 
 ---
 
-## Self-review notes (rev 4 — the plan-review r3 fixes folded in)
+## Self-review notes (rev 5 — the plan-review r4 fixes folded in)
 
-1. **Self-contained again (r3 F1)** — every task's code is inline; no "rev 2 verbatim" references; `a21b7caf` is not needed.
-2. **One unified choice list per card (r3 F5)** — `ChoicesFor(step, chromeClose)` returns the step's buttons + chrome Close (where it applies) + the theme chips AND Theme's Continue; `SetChoices` registers AND visualizes together; the extra `ClearChoices()` after `SetChoices` is deleted; `ShowSafetyCard` appends `guide_close` (r3 F10) — chrome Close exists through step 7 per spec §6.
-3. **Compile-level** — `ShutdownStarted += (_, _) => OnWindowExitFinished();` (EventHandler, r3 F2); `OnChromeChoice` defined on the VM (r3 F4); no `DwellSlider` control (−/+ chrome cards + value read-out, r3 F4); `using System.Windows.Shapes;`; `OnToolbarVisibility` field-subscribed (r3 F6); `_guideSurface` field declared (r3 F6); `EdgeWord` → instance accessor + literal-key switch (r3 F6); `Unregister` one-type-arg (r2 F10); the App block below `bannerSlot` inside `!IsTestMode` with the `StatusCardsFallback` forwarder (r3 F13).
-4. **Visuals (r3 F7)** — cards get `BrushSurfaceMedium` background, `BrushAccent` border, `BrushTextPrimary` label, and a per-card progress rectangle bound to `ChoiceProgress`; the practice ring is stroked with a fill element bound to `PracticeProgress`; `OnTargetProgress` now dispatches.
-5. **Ring lifecycle (r3 F8)** — `Show()` hides the ring (inside `Show`, not at body level); `ToolbarTaskEntered` SHOWS the ring before the raise chain; task exit hides it; close restores it (`_modal` guards).
-6. **Unwind (r3 F9)** — `ForceShow()` + ring restore added; `_guideFlow` nulled and the handler unsubscribed BEFORE `window.Close()` (no re-entry); `StatusCardsFallback` cleared in Restore.
-7. **Calibration** — the refusal guard re-renders via `ShowStep(Calibrate)` (live targets, r2 F10); the Idle path does NOT re-render (no flicker, r3 F12); unregister is the one-type-arg overload, unconditional in Restore/unwind.
-8. **Keys** — four new `guide.theme.*` label keys (sorted into Task 4's block + DE); every key literal-referenced; edge words via a literal switch over `DockedEdge`.
-9. **Theme preview persistence** — `Card.Resources` keeps the previewed theme for later cards too; accepted and documented here (r3 F12).
-10. **Census** — `DwellSurfaceCensusTests` at the App.Tests ROOT (r3 F11); the commit adds that exact path; classification text specified as the chrome-detector row.
-11. **Spec coverage** — §4 (Tasks 4, 12), §5 (Tasks 1, 8, 9, 10, 11, 12), §6 (Tasks 5, 6, 12), §7 steps 1–8 incl. the transition card, theme preview, dwell knob (Tasks 4–7, 12), §8 (Tasks 6, 12), §9 (Tasks 8–12), §12 (per-task tests + Task 13). No known gaps.
+1. **Self-contained, verified** (r4 F1) — Tasks 1–13 all inline; the latch test uses the one-argument `RegisterChoice(id)` and subscribes `ChoiceActivated`; `TextsFor`/`EdgeWord` are defined in `GuideSurface` (Task 12); the message registration and `SetSplashHandle` are in Task 12 Step 2.
+2. **The window can close (r4 F2)** — no `Close()` member on `FirstRunGuideWindow`; the unused `HideCard`/`ShowCard` are gone (`HideGuide`/`ShowGuide` remain; the surface's `HideCard`/`ShowCard` route to them).
+3. **In-place presses re-render (r4 F3)** — the wiring calls `_guideSurface?.RenderChoicesForCurrentStep()` after `SetDwellTime` (±) and after a theme pick; the press cleared every chrome target and these presses don't change the step.
+4. **One slot per builder (r4 F4)** — the knob builds into its own `KnobRow` (XAML row 3); `SetPractice` builds into `StepContent`; on DwellTime both show (the practice circle beside the knob, spec §7.3); `SetDwellKnob(false)` only removes the ± targets when the knob was built (`_knobBuilt`).
+5. **Summon handler (r4 F5)** — swaps the body to the success text, no re-render (a toolbar event clears no targets).
+6. **Theme labels in Task 4** — the four `guide.theme.*` keys are in the sorted block + the DE files + the allowlist check (r4 S3); `OnGuideChoice` maps `guide_theme_*` → `ThemeChosenFire` with the canonical name.
+7. **Preview reach** — the builders resolve brushes through `Card.FindResource`, so the card-local previewed theme reaches the code-built cards (r4 S3).
+8. **NFluent** — `IsStrictlyGreaterThan` (r4 S3).
+9. **Census** — the entry uses the table's `(path → "cue — reason")` shape (r4 S3).
+10. **Task 10** — the duplicated Step 3/4 line is gone (r4 S3); the read-out handler is subscribed once in the ctor (r4 S3).
+11. **Spec coverage** — §4 (Tasks 4, 12), §5 (Tasks 1, 8, 9, 10, 11, 12), §6 (Tasks 5, 6, 12), §7 steps 1–8 (Tasks 4–7, 12), §8 (Tasks 6, 12), §9 (Tasks 8–12), §12 (per-task tests + Task 13). No known gaps.

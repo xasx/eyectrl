@@ -452,6 +452,7 @@ public class PredictionStackBackgroundTests : IDisposable
     {
         public bool IsAvailable => true;
         public void Predict(string context, string? prefix = null) { }
+        public void PredictNextWord(string context) { }
         public IReadOnlyList<PredictionResult>? TryGetResults() => null;
         public void Cancel() { }
         public void Dispose() { }
@@ -461,6 +462,7 @@ public class PredictionStackBackgroundTests : IDisposable
     {
         public bool IsAvailable => false;
         public void Predict(string context, string? prefix = null) { }
+        public void PredictNextWord(string context) { }
         public IReadOnlyList<PredictionResult>? TryGetResults() => null;
         public void Cancel() { }
         public void Dispose() { }

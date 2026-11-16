@@ -46,6 +46,13 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     internal Func<int, CancellationToken, StepOutput?>? StepOverride { get; init; }
 
     /// <summary>
+    /// Test seam: the prompt the worker actually built, reported before encoding. Lets the headless
+    /// gates pin the request shape (the committed text, no dangling trailing space) with no model
+    /// loaded. Production never sets it.
+    /// </summary>
+    internal Action<string>? PromptObserved { get; init; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="SmallLMPredictor"/> class.
     /// Loads the specified ONNX model and optional tokenizer.
     /// </summary>
@@ -86,13 +93,14 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     /// gates run without a model. Production never calls it.
     /// </summary>
     internal static SmallLMPredictor CreateModelFree(LMTokenizer tokenizer,
-        Func<int, CancellationToken, StepOutput?> stepOverride)
+        Func<int, CancellationToken, StepOutput?> stepOverride, Action<string>? promptObserved = null)
     {
         var predictor = new SmallLMPredictor(string.Empty, modelSize: "Off", preferGpu: false,
             logger: null, tokenizer: tokenizer, ownsTokenizer: false)
         {
             IsAvailable = true,
             StepOverride = stepOverride,
+            PromptObserved = promptObserved,
         };
         return predictor;
     }
@@ -193,7 +201,20 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     /// <summary>Starts an asynchronous inference for next-word prediction based on context and optional prefix.</summary>
     /// <param name="context">The preceding text for context.</param>
     /// <param name="prefix">Optional prefix to filter predictions to.</param>
-    public void Predict(string context, string? prefix = null)
+    public void Predict(string context, string? prefix = null) => Enqueue(context, prefix, nextWord: false);
+
+    /// <summary>
+    /// Starts an asynchronous NEXT-WORD prediction: the model is asked what word follows
+    /// <paramref name="context"/> at a word boundary. Three things differ from a completion
+    /// request, and all three are required for the answer to be a word at all:
+    /// the prompt ends at the last committed word (no dangling trailing space), the first
+    /// generated token must OPEN a word (a token that continues the context word is not a next
+    /// word), and generation stops when that word ends instead of running the whole schedule.
+    /// </summary>
+    /// <param name="context">The committed text the next word follows.</param>
+    public void PredictNextWord(string context) => Enqueue(context, prefix: null, nextWord: true);
+
+    private void Enqueue(string context, string? prefix, bool nextWord)
     {
         if (_disposed || !IsAvailable) return;
 
@@ -207,7 +228,7 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             _pendingCts?.Dispose();
             _pendingCts = new CancellationTokenSource();
             _pendingResults = new ConcurrentBag<PredictionResult>();
-            _pendingRequest = new PendingRequest(_pendingCts.Token, context, prefix, _pendingResults, session);
+            _pendingRequest = new PendingRequest(_pendingCts.Token, context, prefix, nextWord, _pendingResults, session);
 
             // One worker at a time: a predictor's session may not have two Run calls in flight
             // (the DirectML execution provider crashes), so a newer request replaces the queued
@@ -246,7 +267,7 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             {
                 if (request.Token.IsCancellationRequested) continue;
 
-                var results = RunInference(request.Session!, request.Context, request.Prefix, request.Token);
+                var results = RunInference(request.Session!, request.Context, request.Prefix, request.NextWord, request.Token);
                 foreach (var result in results)
                 {
                     if (request.Token.IsCancellationRequested) break;
@@ -261,13 +282,17 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         }
     }
 
-    private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix, CancellationToken token)
+    private List<PredictionResult> RunInference(InferenceSession session, string context, string? prefix,
+        bool nextWord, CancellationToken token)
     {
+        // Built and reported before the test seam branches, so the seam observes the real request.
+        var prompt = BuildPrompt(context, prefix);
+        PromptObserved?.Invoke(prompt);
+
         if (StepOverride is { } stepOverride)
-            return FinishGeneration(GenerateSteps(stepOverride, token), prefix);
+            return FinishGeneration(GenerateSteps(stepOverride, token, nextWord), prefix, nextWord);
 
         var plan = _ioPlan!;
-        var prompt = BuildPrompt(context, prefix);
         var inputIds = _tokenizer!.Encode(prompt).ToList();
         if (inputIds.Count == 0) return [];
 
@@ -317,16 +342,15 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
 
             var softmaxProbs = Softmax(lastTokenLogits);
 
-            var bestTokenId = 0L;
-            var bestProb = 0.0;
-            for (int j = 0; j < softmaxProbs.Length; j++)
-            {
-                if (softmaxProbs[j] > bestProb)
-                {
-                    bestProb = softmaxProbs[j];
-                    bestTokenId = j;
-                }
-            }
+            // A next word must OPEN a word: the first token may not continue the context's last
+            // word. Every later step is ordinary greedy decoding.
+            var bestTokenId = nextWord && stepIndex == 0
+                ? WordOpeningPicker.Pick(softmaxProbs, id => _tokenizer!.Decode([id]))
+                : ArgMax(softmaxProbs);
+
+            // Nothing word-opening in the scan window: no next word, rather than a continuation.
+            if (bestTokenId < 0) return null;
+            var bestProb = softmaxProbs[bestTokenId];
 
             // present.N.* becomes the next step's past_key_values.N.*. The values are copied out
             // because `outputs` owns native memory that is released at the end of this step.
@@ -340,14 +364,25 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             return new StepOutput(bestTokenId, bestProb);
         }
 
-        return FinishGeneration(GenerateSteps(RunOneStep, token), prefix);
+        return FinishGeneration(GenerateSteps(RunOneStep, token, nextWord), prefix, nextWord);
+    }
+
+    private static long ArgMax(double[] probabilities)
+    {
+        var best = 0;
+        for (int j = 1; j < probabilities.Length; j++)
+            if (probabilities[j] > probabilities[best]) best = j;
+        return best;
     }
 
     /// <summary>
     /// The generation loop. The request token is checked before every step, so a superseded
     /// request stops after the step already in flight instead of running the whole schedule.
+    /// In next-word mode a token that starts a new word ends the answer: it is dropped and the
+    /// loop stops, so the result is exactly the first word.
     /// </summary>
-    private List<StepOutput> GenerateSteps(Func<int, CancellationToken, StepOutput?> step, CancellationToken token)
+    private List<StepOutput> GenerateSteps(Func<int, CancellationToken, StepOutput?> step,
+        CancellationToken token, bool nextWord)
     {
         var generated = new List<StepOutput>();
         for (int i = 0; i < MaxNewTokens; i++)
@@ -358,19 +393,27 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
             if (output is null) break;
             if (_tokenizer!.EosTokenId >= 0 && output.Value.TokenId == _tokenizer.EosTokenId) break;
 
+            if (nextWord && generated.Count > 0)
+            {
+                var piece = _tokenizer.Decode([output.Value.TokenId]);
+                if (WordOpeningPicker.StartsWord(piece)) break;   // the first word already ended
+            }
+
             generated.Add(output.Value);
         }
 
         return generated;
     }
 
-    private List<PredictionResult> FinishGeneration(List<StepOutput> generated, string? prefix)
+    private List<PredictionResult> FinishGeneration(List<StepOutput> generated, string? prefix, bool nextWord)
     {
         if (generated.Count == 0) return [];
 
         var generatedText = _tokenizer!.Decode(generated.Select(step => step.TokenId).ToArray());
         var avgProb = generated.Average(step => step.Probability);
-        return PostProcess(generatedText, prefix, avgProb);
+        return nextWord
+            ? PostProcessNextWord(generatedText, avgProb)
+            : PostProcess(generatedText, prefix, avgProb);
     }
 
     private static List<GraphTensor> Describe(IReadOnlyDictionary<string, NodeMetadata> metadata)
@@ -472,19 +515,42 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
         var text = generatedText.TrimStart();
         var end = 0;
         while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
-        var completion = text[..end];
-
-        // Trailing punctuation is cut ("ter." -> "ter") before the shape check; what remains
-        // must be a word (Unicode letters, with internal apostrophe/hyphen allowed).
-        var wordEnd = completion.Length;
-        while (wordEnd > 0 && !char.IsLetter(completion[wordEnd - 1])) wordEnd--;
-        completion = completion[..wordEnd];
+        var completion = TrimTrailingNonLetters(text[..end]);
         if (completion.Length == 0 || !IsWordShaped(completion)) return results;
 
         var word = string.IsNullOrEmpty(prefix) ? completion : prefix + completion;
         results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
 
         return results;
+    }
+
+    /// <summary>
+    /// The next-word counterpart of <see cref="PostProcess"/>: the text is the whole word (there is
+    /// no prefix to keep), so it is returned as-is rather than concatenated onto anything, and a
+    /// leading space is expected — it is the boundary the word starts at.
+    /// </summary>
+    internal static List<PredictionResult> PostProcessNextWord(string generatedText, double avgProb)
+    {
+        var results = new List<PredictionResult>();
+        if (string.IsNullOrWhiteSpace(generatedText)) return results;
+
+        var text = generatedText.TrimStart();
+        var end = 0;
+        while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
+        var word = TrimTrailingNonLetters(text[..end]);
+        if (word.Length == 0 || !IsWordShaped(word)) return results;
+
+        results.Add(new PredictionResult(word, avgProb * 100.0, PredictionType.LMSuggestion, avgProb));
+        return results;
+    }
+
+    // Trailing punctuation is cut ("ter." -> "ter") before the shape check; what remains
+    // must be a word (Unicode letters, with internal apostrophe/hyphen allowed).
+    private static string TrimTrailingNonLetters(string candidate)
+    {
+        var wordEnd = candidate.Length;
+        while (wordEnd > 0 && !char.IsLetter(candidate[wordEnd - 1])) wordEnd--;
+        return candidate[..wordEnd];
     }
 
     private static bool IsWordShaped(string word)
@@ -504,10 +570,12 @@ public sealed class SmallLMPredictor : ILanguageModelPredictor
     internal readonly record struct StepOutput(long TokenId, double Probability);
 
     /// <summary>A queued prediction request: the newest wins and superseded ones are cancelled.</summary>
+    /// <param name="NextWord">True for a next-word request (boundary mode), false for a completion.</param>
     private sealed record PendingRequest(
         CancellationToken Token,
         string Context,
         string? Prefix,
+        bool NextWord,
         ConcurrentBag<PredictionResult> Results,
         InferenceSession? Session);
 

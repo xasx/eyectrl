@@ -63,14 +63,21 @@ public partial class KeyboardWindow : OverlayWindow
     // Each key's visible box in physical pixels, beside its centre: box-first targeting
     // (KeyTargeting.PickKey). Filled and cleared together with _keyScreenPositions.
     private readonly Dictionary<string, PhysicalRect> _keyScreenBoxes = new();
-    private readonly List<DwellOutlineOverlay> _predictionOutlines = new();
-    // The list the bar RENDERED. OnPredictionDwelled resolves its index against this, never
-    // against a fresh GetSuggestionsWithContext() call: that call re-polls the LM
+    private readonly List<DwellOutlineOverlay?> _predictionOutlines = new();
+    // The list the bar RENDERED, one entry per slot. A null entry is an empty slot: the quiet
+    // placeholder at the END of the bar, and — while a next-word answer is in flight — slot 0,
+    // which is reserved for the language model. OnPredictionDwelled resolves its index against
+    // this, never against a fresh GetSuggestionsWithContext() call: that call re-polls the LM
     // (TryGetResults consumes on read) and re-sorts on merge, so a re-fetch at activation both
     // risks inserting a word that was never on screen and consumes the LM output before the
     // render that follows can show it — the render call is what triggers the inference, so the
     // dwell window is exactly the race window. Do not "simplify" this back to a re-fetch.
-    private List<PredictionResult> _renderedPredictions = new();
+    private List<PredictionResult?> _renderedPredictions = new();
+
+    // Slot 0 is held for the LM's next word, and the answer has not landed yet. Filled only while
+    // slot 0 is still empty, no slot has dwell progress in flight, and the boundary is the same
+    // one the request was issued for (the VM answers all three). A render always re-decides it.
+    private bool _nextWordReserved;
 
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
@@ -91,7 +98,10 @@ public partial class KeyboardWindow : OverlayWindow
     private bool _toolbarOccupied;
     private string _toolbarEdge = "none";
     private double _toolbarExtentDip;
-    private bool _predictionTargetsInitialized;
+    // Which slots have a registered dwell target right now. Per-slot (not one all-or-nothing
+    // latch) so a slot that was empty at render time - the reserved slot 0 - can gain its target
+    // later without re-adding (and resetting) every other slot's geometry.
+    private readonly HashSet<int> _registeredPredictionSlots = new();
     // The prediction loading hint's two halves: a full-bar Border (sized to the cells'
     // footprint in UpdatePredictions) and its centered text. NEVER a dwell target, never in
     // _renderedPredictions, never a pred_ target — the hint is chrome, not a suggestion, so
@@ -716,6 +726,11 @@ public partial class KeyboardWindow : OverlayWindow
 
         RefreshBarOnSensitivityChange();
 
+        // The reserved slot 0 of a boundary render: a late LM answer is applied here, on the same
+        // sample that would otherwise only read the bar's geometry. It is a cheap no-op unless a
+        // reservation is open, and it never re-renders the bar (see TryApplyNextWord).
+        TryApplyNextWord();
+
         // C1's gaze-off un-yield runs BEFORE the key positions are re-read: when it moves the
         // window, this same sample's detection must see the position the keyboard is actually in.
         // The gate is the protection, not D13: this sample is outside the keep-clear area, so it
@@ -984,7 +999,7 @@ public partial class KeyboardWindow : OverlayWindow
         {
             _viewModel.HandleSpace();
             UpdatePredictions();
-            _viewModel.E1.RecordSpace(_viewModel.LastKeySeq, _renderedPredictions.Count == 0);
+            _viewModel.E1.RecordSpace(_viewModel.LastKeySeq, !HasRenderedWords);
             return;
         }
 
@@ -1100,31 +1115,32 @@ public partial class KeyboardWindow : OverlayWindow
         // Only the FILLED slots are dwellable. Placeholder cells sit after them and register
         // nothing; iterating the rendered list (not the children) also means a pass can latch
         // with an empty bar instead of being blocked by a child that is not a Border.
-        var filled = Math.Min(_renderedPredictions.Count, PredictionBar.Children.Count);
-        if (filled == 0) return;
+        var cells = Math.Min(_renderedPredictions.Count, PredictionBar.Children.Count);
+        if (cells == 0) return;
 
-        // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing, and
-        // latch only when EVERY cell placed. The latch used to fire on a pass that happened,
+        // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing. The
+        // per-slot registry retries an unarranged cell on the next pass; the old all-or-nothing
+        // latch fired on a pass that happened,
         // including one where every iteration bailed — the radius-0 targets from unarranged cells
         // and the five targets stacked at screen (0,0) from a source-less pass were permanent,
         // because the else-branch only rebases geometry it was given and can never repair it.
-        bool allPlaced = true;
-        for (int i = 0; i < filled; i++)
+        for (int i = 0; i < cells; i++)
         {
+            if (_renderedPredictions[i] is null)
+            {
+                // An empty slot (the quiet placeholder, or slot 0 awaiting the next word) has no
+                // dwell target at all - that is what makes "reserved" mean "not pickable yet".
+                continue;
+            }
+
             var predId = $"pred_{i}";
             if (PredictionBar.Children[i] is not Border btn)
-            {
-                allPlaced = false;
                 continue;
-            }
 
             if (!TryGetScreenRect(btn, out var cellRect))
-            {
-                allPlaced = false;
                 continue;
-            }
 
-            if (!_predictionTargetsInitialized)
+            if (_registeredPredictionSlots.Add(i))
                 // The cell's own rectangle. The circumscribed circle this replaces was ~4x the
                 // cell's area and its overhang reached into the margins and the key grid.
                 _predictionDwellDetector.AddTarget(new DwellTarget(predId, cellRect, _predictionDwellMs));
@@ -1139,9 +1155,6 @@ public partial class KeyboardWindow : OverlayWindow
                 // adaptation on the routed margin rides the new rect by design.
                 _predictionDwellDetector.RebaseTarget(predId, cellRect);
         }
-
-        if (allPlaced)
-            _predictionTargetsInitialized = true;
     }
 
     // True once the bar was emptied because a password field has focus: the first sample after the
@@ -1162,7 +1175,7 @@ public partial class KeyboardWindow : OverlayWindow
             // The loading hint must go with the suggestions: a hint over a password field
             // reads as if predictions were being prepared for it. The count check alone
             // leaves it standing — the hint is never IN _renderedPredictions.
-            if (_renderedPredictions.Count > 0
+            if (HasRenderedWords
                 || _predictionLoadingHint.Visibility == Visibility.Visible)
                 UpdatePredictions();          // renders nothing while sensitive
         }
@@ -1203,7 +1216,22 @@ public partial class KeyboardWindow : OverlayWindow
     /// </summary>
     internal bool ShouldRefreshBarForSwap() =>
         _predictionLoadingHint.Visibility == Visibility.Visible
-        || _renderedPredictions.Count == 0;
+        || !HasRenderedWords;
+
+    /// <summary>
+    /// Whether the bar currently shows at least one word. A reserved slot 0 is NOT a word: the bar
+    /// is empty while it waits, which is exactly what the loading hint, the sensitivity refresh and
+    /// the swap refresh must see.
+    /// </summary>
+    private bool HasRenderedWords
+    {
+        get
+        {
+            for (var i = 0; i < _renderedPredictions.Count; i++)
+                if (_renderedPredictions[i] is not null) return true;
+            return false;
+        }
+    }
 
     public void UpdatePredictions()
     {
@@ -1211,13 +1239,26 @@ public partial class KeyboardWindow : OverlayWindow
         var suggestions = _viewModel?.GetSuggestionsWithContext() ?? [];
 
         _predictionDwellDetector.ClearTargets();
-        _predictionTargetsInitialized = false;
+        _registeredPredictionSlots.Clear();
         _predictionOutlines.Clear();
         PredictionBar.Children.Clear();
 
         // Capture exactly what gets rendered: OnPredictionDwelled indexes THIS list. Slots past
         // this count are quiet placeholders with no dwell target.
-        _renderedPredictions = suggestions.Take(slotCount).ToList();
+        //
+        // A boundary render that reserved slot 0 lays the conventional words out from slot 1 on:
+        // slot 0 shows the quiet placeholder (no dwell target) until the LM's next word lands, so
+        // the bar's geometry never changes when it does.
+        _nextWordReserved = _viewModel?.NextWordSlotReserved == true;
+        if (_nextWordReserved)
+        {
+            _renderedPredictions = new List<PredictionResult?>(slotCount) { null };
+            _renderedPredictions.AddRange(suggestions.Take(slotCount - 1));
+        }
+        else
+        {
+            _renderedPredictions = suggestions.Take(slotCount).Cast<PredictionResult?>().ToList();
+        }
 
         // E1: a new render starts the render-to-dwell clock and the slots-visited count over.
         _barRenderedMs = _viewModel?.E1.NowMs ?? long.MinValue;
@@ -1259,10 +1300,79 @@ public partial class KeyboardWindow : OverlayWindow
 
         for (int i = 0; i < slotCount; i++)
         {
-            PredictionBar.Children.Add(i < _renderedPredictions.Count
-                ? CreatePredictionCell(i, _renderedPredictions[i], labelMaxWidth)
-                : CreateEmptyPredictionCell(i));
+            if (i < _renderedPredictions.Count && _renderedPredictions[i] is { } result)
+            {
+                PredictionBar.Children.Add(CreatePredictionCell(i, result, labelMaxWidth));
+            }
+            else
+            {
+                PredictionBar.Children.Add(CreateEmptyPredictionCell(i));
+                // Empty slots keep the outlines list aligned with the slot index.
+                _predictionOutlines.Add(null);
+            }
         }
+    }
+
+    /// <summary>
+    /// One slot's cell width: the bar is the key grid wide, divided into equal slots.
+    /// </summary>
+    private double PredictionLabelMaxWidth(int slotCount)
+    {
+        var slotWidth = _keyGridWidth > 0 ? _keyGridWidth / slotCount : 0;
+        return Math.Max(0, slotWidth - 38); // minus 3+3 margin and 16+16 padding
+    }
+
+    /// <summary>
+    /// Fills the reserved slot 0 when the language model's next word has landed. The three gates
+    /// are deliberate and independent:
+    /// <list type="bullet">
+    /// <item>slot 0 is still empty — a filled slot is never rewritten in place, so a word the user
+    /// may be reading cannot change under the gaze;</item>
+    /// <item>no slot has dwell progress in flight — a dwell in progress must not gain a new
+    /// candidate beside it (the answer belongs to the next look, not this one);</item>
+    /// <item>the boundary is still the one the request was issued for — the VM answers null when
+    /// it is not, and an empty list when the answer produced nothing.</item>
+    /// </list>
+    /// <para>
+    /// Only slot 0's cell is replaced. The rest of the bar is untouched: no re-render, no target
+    /// clear, no E1 render-clock reset. The new cell gets its dwell target on the next geometry
+    /// pass, like any other cell.
+    /// </para>
+    /// </summary>
+    private void TryApplyNextWord()
+    {
+        if (!_nextWordReserved || _viewModel is null) return;
+
+        // Never rewrite a filled slot: if something is already in slot 0 the reservation is over.
+        if (_renderedPredictions.Count == 0 || _renderedPredictions[0] is not null)
+        {
+            _nextWordReserved = false;
+            return;
+        }
+
+        // A dwell in flight (any slot) postpones the fill; the answer waits for the next sample.
+        for (var i = 0; i < _slotDwellStartMs.Length; i++)
+            if (_slotDwellStartMs[i] != long.MinValue) return;
+
+        var next = _viewModel.TryTakeNextWordSuggestions();
+        if (next is null) return;          // still running, or the boundary already moved on
+
+        _nextWordReserved = false;
+        if (next.Count == 0) return;       // answered with nothing usable: slot 0 stays empty
+
+        var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? 5, 1, 5);
+        var cell = CreatePredictionCell(0, next[0], PredictionLabelMaxWidth(slotCount));
+        // CreatePredictionCell appends its outline; this cell belongs to slot 0.
+        var overlay = _predictionOutlines[^1];
+        _predictionOutlines.RemoveAt(_predictionOutlines.Count - 1);
+        _predictionOutlines[0] = overlay;
+        _renderedPredictions[0] = next[0];
+        PredictionBar.Children.RemoveAt(0);
+        PredictionBar.Children.Insert(0, cell);
+        // The cell is new, so its dwell clock starts now rather than at the render.
+        _slotDwellStartMs[0] = long.MinValue;
+        _slotLastRunStartMs[0] = long.MinValue;
+        _slotsVisitedMask &= ~1;
     }
 
     private Border CreatePredictionCell(int index, PredictionResult result, double labelMaxWidth)
@@ -1427,7 +1537,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         // Same reasoning as the keys: the wash here ran at full strength too, so a suggestion's
         // label collapsed as the user read it — and predictions sit directly above the keys.
-        _predictionOutlines[index].SetProgress(progress);
+        _predictionOutlines[index]?.SetProgress(progress);
     }
 
     internal void OnPredictionDwelled(string targetId)
@@ -1446,7 +1556,8 @@ public partial class KeyboardWindow : OverlayWindow
         // Index the RENDERED list — see _renderedPredictions for why a re-fetch here is both a
         // wrong-word hazard and an LM-starvation bug.
         if (int.TryParse(targetId.AsSpan(5), out var index)
-            && index >= 0 && index < _renderedPredictions.Count)
+            && index >= 0 && index < _renderedPredictions.Count
+            && _renderedPredictions[index] is { } picked)
         {
             RecordPickE1(index);
             // Capture the slot's LIVE rect BEFORE the selection: HandlePredictionSelected can end in
@@ -1461,7 +1572,12 @@ public partial class KeyboardWindow : OverlayWindow
                 latchedRect = target.Bounds;
                 break;
             }
-            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
+            // D2 (owner's choice, 15.11): the bar re-renders IMMEDIATELY with the new words and
+            // keeps today's per-slot 120 ms latch - no whole-bar hold. Phase 1 measured the risk the
+            // owner accepted: in the one reconstructable recorded session, 1 of 5 picks was followed
+            // by a continuous 906 ms rest on ANOTHER slot, which would have fired a chain pick nobody
+            // asked for. Do not "fix" this with a bar-wide lock without the owner's say-so.
+            _viewModel.HandlePredictionSelected(picked.Word);
             _predictionRearm.Latch(targetId, latchedRect);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
@@ -1480,6 +1596,7 @@ public partial class KeyboardWindow : OverlayWindow
         {
             if (_viewModel is null || !_viewModel.E1.Enabled) return;
             var result = _renderedPredictions[index];
+            if (result is null) return;
             var dwellStart = index >= _slotDwellStartMs.Length ? long.MinValue
                 : _slotDwellStartMs[index] != long.MinValue ? _slotDwellStartMs[index] : _slotLastRunStartMs[index];
             var renderToDwellMs = dwellStart == long.MinValue || _barRenderedMs == long.MinValue

@@ -2102,13 +2102,52 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // The bar stays EMPTY in a password field and no dictionary, bigram or LM query is made with
         // what is typed there: completions of a password's prefix would be shown on screen and fed
         // to the language model's prompt.
-        if (SensitiveNow()) return new List<PredictionResult>();
+        if (SensitiveNow())
+        {
+            _orchestrator.ClearNextWord();
+            return new List<PredictionResult>();
+        }
 
         // Pass full text context for smart capitalization if enabled
         var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
 
+        // The committed mirror goes along unconditionally: at a word boundary it is what the
+        // sentence trie is keyed on and what the next-word LM request is prompted with, and that
+        // has nothing to do with the capitalisation setting.
         return _orchestrator.GetSuggestions(CurrentInput, _previousWord,
-            maxCount: _settings.Keyboard.MaxSuggestions, fullText: fullText);
+            maxCount: _settings.Keyboard.MaxSuggestions, fullText: fullText,
+            committedText: _recentText,
+            nextWordEnabled: _settings.Keyboard.NextWordPredictionEnabled);
+    }
+
+    /// <summary>
+    /// True when the last render happened at a word boundary and reserved slot 0 for the language
+    /// model's next word: the bar lays the conventional words out from slot 1 on and leaves slot 0
+    /// as the quiet empty placeholder until the answer lands.
+    /// </summary>
+    public bool NextWordSlotReserved => _orchestrator?.NextWordSlotReserved == true;
+
+    /// <summary>
+    /// The language model's next word for the boundary the last render reserved slot 0 for, or
+    /// null while there is nothing to show (not reserved, still running). An empty list means the
+    /// answer arrived and produced nothing usable, or the boundary has moved on: either way slot 0
+    /// stays empty. Never called with a typed prefix — a boundary that moved on has no next word.
+    /// </summary>
+    public List<PredictionResult>? TryTakeNextWordSuggestions()
+    {
+        if (_orchestrator == null) return null;
+
+        if (SensitiveNow())
+        {
+            // No next word may arrive for a password field, and the pending request is dropped.
+            _orchestrator.ClearNextWord();
+            return null;
+        }
+
+        if (CurrentInput.Length > 0) return null;   // the boundary moved on
+
+        return _orchestrator.TryTakeNextWord(_previousWord, _recentText,
+            _settings.Keyboard.SmartCapitalizationEnabled)?.ToList();
     }
 
     public void HandlePredictionSelected(string word)

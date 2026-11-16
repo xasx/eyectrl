@@ -373,6 +373,8 @@ public class KeyboardPredictionExclusionTests
 
         public void Predict(string context, string? prefix = null) => PredictCalls++;
 
+        public void PredictNextWord(string context) => PredictCalls++;
+
         public IReadOnlyList<PredictionResult>? TryGetResults()
         {
             PollCount++;

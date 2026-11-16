@@ -22,6 +22,7 @@ public class PredictionOrchestratorLmTests
     private sealed class FakeLm : ILanguageModelPredictor
     {
         public List<(string Context, string Prefix)> Calls { get; } = [];
+        public List<string> NextWordCalls { get; } = [];
         public string? NextWord { get; set; }
         private PredictionResult? _pending;
 
@@ -33,6 +34,13 @@ public class PredictionOrchestratorLmTests
         public void Predict(string context, string? prefix = null)
         {
             Calls.Add((context, prefix ?? ""));
+            if (NextWord is not null)
+                _pending = new PredictionResult(NextWord, 50, PredictionType.LMSuggestion, 0.5);
+        }
+
+        public void PredictNextWord(string context)
+        {
+            NextWordCalls.Add(context);
             if (NextWord is not null)
                 _pending = new PredictionResult(NextWord, 50, PredictionType.LMSuggestion, 0.5);
         }

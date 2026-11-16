@@ -157,7 +157,12 @@ public class PredictionOrchestrator : IDisposable
             // that is when results arrive), and only words that continue the CURRENT prefix
             // (and are longer): a stale completion must never surface under a new word.
             var lmResults = _lmPredictor.TryGetResults();
-            if (lmResults != null && lmResults.Count > 0 && context == _lastLmContext)
+            // A completion request must actually be in flight. After Enter, a hide or a field
+            // change the context and _lastLmContext are both null, so an unconsumed NEXT-WORD
+            // answer would otherwise pass a bare null == null check and be merged as a completion
+            // of the first word typed on the new line.
+            if (lmResults != null && lmResults.Count > 0 && _lastLmPrefix != null
+                && context == _lastLmContext)
             {
                 foreach (var lmResult in lmResults)
                 {

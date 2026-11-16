@@ -62,9 +62,9 @@ public class PredictionOrchestratorNextWordTests
     }
 
     private static PredictionOrchestrator Create(IDictionaryProvider? provider = null, FakeLm? lm = null,
-        SentenceCompletionIndex? trie = null)
+        SentenceCompletionIndex? trie = null, bool mlEnabled = true)
         => new(new WordPredictor(provider ?? new InMemoryDictProvider(Dictionary()), "QWERTY"),
-            sentenceIndex: trie, lmPredictor: lm);
+            sentenceIndex: trie, lmPredictor: lm, mlEnabled: mlEnabled);
 
     [Fact]
     public void GetSuggestions_AtABoundary_OffersTheTrieAndBigramWords_AndReservesSlotZero()
@@ -266,6 +266,18 @@ public class PredictionOrchestratorNextWordTests
     }
 
     [Fact]
+    public void GetSuggestions_WithMlDisabled_ReservesNothingEvenWhenTheModelIsAvailable()
+    {
+        var lm = new FakeLm();
+        using var orchestrator = Create(lm: lm, trie: Trie(), mlEnabled: false);
+
+        orchestrator.GetSuggestions("", context: "Haus", maxCount: 5, committedText: "Das Haus ");
+
+        Check.That(orchestrator.NextWordSlotReserved).IsFalse();
+        Check.That(lm.NextWordCalls).IsEmpty();
+    }
+
+    [Fact]
     public void GetSuggestions_AfterABoundaryRequest_ItsAnswerIsNeverMergedAsACompletion()
     {
         var lm = new FakeLm();
@@ -289,5 +301,27 @@ public class PredictionOrchestratorNextWordTests
             .That(results.Any(r => r.Word == "island" && r.Type == PredictionType.LMSuggestion)).IsFalse();
         Check.WithCustomMessage($"rendered: {string.Join("|", results.Select(r => $"{r.Word}/{r.Type}"))}")
             .That(results.Any(r => r.Word == "ist" && r.Type == PredictionType.ExactPrefix)).IsTrue();
+    }
+
+    [Fact]
+    public void GetSuggestions_AfterEnter_ALateNextWordAnswerIsNotMergedIntoTheFirstWord()
+    {
+        var lm = new FakeLm();
+        using var orchestrator = Create(lm: lm, trie: Trie());
+
+        // The boundary request for the old sentence is still in flight.
+        orchestrator.GetSuggestions("", context: "Haus", maxCount: 5, committedText: "Das Haus ");
+        Check.That(lm.NextWordCalls).ContainsExactly("Das Haus");
+        lm.Complete("island");
+
+        // Enter ends the session: no context, no committed text. The render returns early, so the
+        // answer bag is never consumed and the reservation is gone.
+        orchestrator.GetSuggestions("", context: null, maxCount: 5, committedText: "");
+
+        // The next line starts with "is". The old answer is not a completion of it.
+        var results = orchestrator.GetSuggestions("is", context: null, maxCount: 1, committedText: "");
+
+        Check.WithCustomMessage($"rendered: {string.Join("|", results.Select(r => $"{r.Word}/{r.Type}"))}")
+            .That(results.Any(r => r.Type == PredictionType.LMSuggestion)).IsFalse();
     }
 }

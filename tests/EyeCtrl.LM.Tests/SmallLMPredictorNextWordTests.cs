@@ -17,6 +17,7 @@ public class SmallLMPredictorNextWordTests
     private const int L = 5;
     private const int O = 6;
     private const int W = 7;
+    private const int HiToken = 11; // a ONE-token word, " hi"
 
     private static LMTokenizer CreateTokenizer(out string directory)
     {
@@ -61,7 +62,8 @@ public class SmallLMPredictorNextWordTests
                 {
                     ["<s>"] = 0, ["</s>"] = 1, ["<unk>"] = 2,
                     ["h"] = 3, ["e"] = 4, ["l"] = 5, ["o"] = 6,
-                    ["w"] = 7, ["r"] = 8, ["d"] = 9, [" "] = 10
+                    ["w"] = 7, ["r"] = 8, ["d"] = 9, [" "] = 10,
+                    [" hi"] = 11
                 },
                 merges = Array.Empty<string>()
             }
@@ -164,6 +166,41 @@ public class SmallLMPredictorNextWordTests
             Check.WithCustomMessage($"observed prompt: '{observed}'").That(observed).IsEqualTo("Das hi");
             Check.That(results).IsNotNull();
             Check.That(results![0].Word).IsEqualTo("hihe");
+        }
+        finally
+        {
+            predictor?.Dispose();
+            tokenizer.Dispose();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void PredictNextWord_StopsAfterAOneTokenFirstWord()
+    {
+        // The common real-BPE case R9 names: the whole first word is ONE token (" hi"). The next
+        // token opens the second word, so the stop rule must end the request after exactly two
+        // steps; with the "> 1" mutant it runs the whole 8-token schedule (about 1.2 s wasted).
+        var tokenizer = CreateTokenizer(out var directory);
+        var ids = new[] { HiToken, Space, W, O, H };
+        var steps = 0;
+        SmallLMPredictor? predictor = null;
+        try
+        {
+            predictor = SmallLMPredictor.CreateModelFree(tokenizer, (step, token) =>
+            {
+                Interlocked.Increment(ref steps);
+                var id = ids[Math.Min(step, ids.Length - 1)];
+                return new SmallLMPredictor.StepOutput(id, 0.5);
+            });
+
+            predictor.PredictNextWord("Hallo");
+            var results = WaitForResults(predictor, TimeSpan.FromSeconds(10));
+
+            Check.That(results).IsNotNull();
+            Check.That(results!).HasSize(1);
+            Check.That(results![0].Word).IsEqualTo("hi");
+            Check.WithCustomMessage($"steps asked: {steps}").That(steps).IsEqualTo(2);
         }
         finally
         {

@@ -541,7 +541,7 @@ and the constructor:
 
 **Interfaces:** Produces `FirstRunGuideStep`; `GuideExitReason { Finished, Abandoned }`; `IGuideSurface` (`ShowStep(FirstRunGuideStep)`, `ShowSafetyCard(string, IReadOnlyList<ModalChoice>)`, `HideCard()`, `ShowCard()`, `Close()`); `FirstRunGuideFlow` — factory `Func<Action<string, IReadOnlyList<ModalChoice>>, Action<bool>, SafetySetupFlow>` with the flow routing `showModal` to the surface; `BeginSafetyQuestions()`; `Start/Advance/Skip/Finish/Close/NotifyTaskSucceeded/NotifyCalibrationEnded/NotifySafetyEnded/ForwardSafetyChoice/WindowClosed/IsOnStep/LastStepId` + `StepEntered/ToolbarTaskEntered/ToolbarTaskExited/Closed`; `FirstRunGuideHost.TryBegin/End` + lease.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Services/FirstRunGuideFlowTests.cs
@@ -695,7 +695,7 @@ public class FirstRunGuideFlowTests
 }
 ```
 
-- [ ] **Step 2: Run → FAIL. Step 3: Implement `FirstRunGuideFlow.cs`** — exactly the rev 4 body, restated here in full:
+- [x] **Step 2: Run → FAIL. Step 3: Implement `FirstRunGuideFlow.cs`** — exactly the rev 4 body, restated here in full:
 
 ```csharp
 namespace EyeCtrl.App.Services;
@@ -928,8 +928,8 @@ internal sealed class FirstRunGuideLease : IDisposable
 }
 ```
 
-- [ ] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~FirstRunGuideFlowTests"`).
-- [ ] **Step 5: Commit** `feat(guide): headless flow + host — transition-gated safety block, Finish exit`.
+- [x] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~FirstRunGuideFlowTests"`).
+- [x] **Step 5: Commit** `feat(guide): headless flow + host — transition-gated safety block, Finish exit`.
 
 ---
 

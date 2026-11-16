@@ -159,7 +159,8 @@ public class ModalInteractionStateTests
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C .worktrees/first-run-guide commit -am "feat(guide): GuideOpen modal flag + FixationSuppressor.Guide + offers subscription and reason"
+git -C .worktrees/first-run-guide add src/EyeCtrl.Core/FixationSuppressor.cs src/EyeCtrl.App/Services/Coordinators/ModalInteractionState.cs src/EyeCtrl.App/Services/Coordinators/ActivationOfferCoordinator.cs src/EyeCtrl.App/Services/EventCoordinator.cs tests/EyeCtrl.App.Tests/Services/ModalInteractionStateTests.cs
+git -C .worktrees/first-run-guide commit -m "feat(guide): GuideOpen modal flag + FixationSuppressor.Guide + offers subscription and reason"
 ```
 
 ---
@@ -524,7 +525,7 @@ and the constructor:
   "guide.welcome.title": { "text": "Willkommen bei EyeCtrl", "src": "Welcome to EyeCtrl" }
 ```
 
-(`"guide.welcome.start"`'s identical value goes into `localization/strings.identical-allowlist.json`.)
+(`"guide.welcome.start"`'s identical value goes into `localization/strings.identical-allowlist.json`; the four theme labels match the existing `settings.general.theme.option.*` translations.)
 
 - [ ] **Step 4: Manifest + refresh** — `"guide"` between `"eye-care"` and `"language-recovery"` in `strings.de.manifest.json`; `python -I tools/strings_validate.py --refresh-de-src`.
 - [ ] **Step 5: Parity gates** → clean.
@@ -1212,11 +1213,13 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     /// a target registered under a resting gaze must not arm — r1 F7). The window pushes the
     /// real centre through <see cref="UpdateChoiceCentre"/>; a fired id clears ALL chrome targets
     /// before dispatching (the Settings precedent, :317-318) — the wiring re-renders the card
-    /// when the press did not change the step (r4 F3).</summary>
-    public void RegisterChoice(string id)
+    /// when the press did not change the step (r4 F3). <paramref name="radiusDip"/> defaults to
+    /// <see cref="ChoiceRadiusDip"/> (70); the Theme chips pass 40 — a 2×2 grid at this card size
+    /// would overlap 70-DIP circles (r5 F4).</summary>
+    public void RegisterChoice(string id, double? radiusDip = null)
     {
         DwellDetector.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0),
-            DpiHelper.LogicalToPhysicalX(ChoiceRadiusDip), _settings.Dwell.ToolbarButtonDwellMs));
+            DpiHelper.LogicalToPhysicalX(radiusDip ?? ChoiceRadiusDip), _settings.Dwell.ToolbarButtonDwellMs));
         _latch.Hold(id);
     }
 
@@ -1325,7 +1328,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 
 **Interfaces:** Produces the window with: fullscreen geometry (read live); `ShowCardContent`; `SetChoices(IReadOnlyList<(string Label, string Id)>)` — brushed cards with per-card progress bars, each registered via `vm.RegisterChoice(id)`, centres pushed via `PointToScreen`; `SetPractice(bool)` building the stroked ring + fill element into `StepContent` and pushing its centre; **`SetDwellKnob(bool)` building the value read-out + −/+ cards into its own `KnobRow`** (r4 F4 — never `StepContent`), removing the ± targets when the knob leaves; `HideGuide()/ShowGuide()`; `CardResources`; **NO `Close()` member** (r4 F2); NO `HideCard`/`ShowCard` (unused).
 
-- [ ] **Step 1: XAML** — five rows; the knob owns row 3:
+- [ ] **Step 1: XAML** — five content rows + the chrome Close's own host (row 0, right of the title); the card grows to 480 DIP for the DwellTime layout budget (r3 F5's geometry):
 
 ```xml
 <overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.FirstRunGuideWindow"
@@ -1337,7 +1340,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
                         ShowInTaskbar="False" ShowActivated="False"
                         Topmost="True" ResizeMode="NoResize">
     <Grid>
-        <Border x:Name="Card" Width="560" Height="440"
+        <Border x:Name="Card" Width="560" Height="480"
                 Background="{DynamicResource BrushSurfaceDark}"
                 CornerRadius="{DynamicResource LargeCornerRadius}"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -1351,6 +1354,8 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
                 </Grid.RowDefinitions>
                 <TextBlock x:Name="TitleText" Grid.Row="0" FontSize="24" FontWeight="Medium"
                            Text="{Binding Title}" Foreground="{DynamicResource BrushTextPrimary}"/>
+                <ContentControl x:Name="ChromeCloseHost" Grid.Row="0"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"/>
                 <TextBlock x:Name="BodyText" Grid.Row="1" Margin="0,10,0,0" TextWrapping="Wrap"
                            Text="{Binding Body}" Foreground="{DynamicResource BrushTextPrimary}"/>
                 <ContentControl x:Name="StepContent" Grid.Row="2" Margin="0,16,0,0"/>
@@ -1364,7 +1369,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 </overlays:OverlayWindow>
 ```
 
-- [ ] **Step 2: Code-behind** — one slot per builder; `Card.FindResource` so the theme preview reaches the code-built cards (r4's S3):
+- [ ] **Step 2: Code-behind** — one slot per builder; `Card.FindResource` so the theme preview reaches the code-built cards (r4's S3); cards sized as the modal buttons (170 × 100 DIP, r3 F7's geometry); the chrome Close lives in its OWN host away from the action row (r3 F7); the knob re-registers on re-renders (r5 F2):
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
@@ -1383,17 +1388,24 @@ using EyeCtrl.ViewModels;
 /// interactive card. RENDER-ONLY for text; the window BUILDS the step visuals and pushes every
 /// dwell target's real centre into the VM after layout — PointToScreen yields device (physical)
 /// pixels (r2 F9). ONE SLOT PER BUILDER (r4 F4): SetPractice builds into StepContent, the dwell
-/// knob into KnobRow — neither overwrites the other. No Close() member (r4 F2). Card-local
-/// brushes resolve through Card.FindResource so the theme preview reaches code-built cards.
+/// knob into KnobRow, the chrome Close into ChromeCloseHost — neither overwrites another. Every
+/// builder's already-built branch RE-REGISTERS (r5 F2: a re-render cleared the targets). No
+/// Close() member (r4 F2). Card-local brushes resolve through Card.FindResource so the theme
+/// preview reaches code-built cards.
 /// </summary>
 public sealed partial class FirstRunGuideWindow : OverlayWindow
 {
     private readonly FirstRunGuideViewModel _vm;
     private readonly Dictionary<string, FrameworkElement> _choiceCards = new();
     private readonly Dictionary<string, Rectangle> _progressBars = new();
+    private readonly Dictionary<string, Border> _knobCards = new();      // the knob's OWN references — SetChoices never clears them
+    private readonly Dictionary<string, Rectangle> _knobBars = new();
+    private readonly Dictionary<string, Border> _themeCards = new();     // the chip grid's OWN references — SetChoices never clears them
+    private Border? _chromeCloseCard;
     private Ellipse? _practiceFill;
     private TextBlock? _dwellValue;
     private bool _knobBuilt;
+    private bool _chromeCloseBuilt;
 
     public FirstRunGuideWindow(FirstRunGuideViewModel vm)
     {
@@ -1425,7 +1437,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
     /// <summary>Builds one visual card per (label, id) pair — background, border, label,
     /// progress bar — registers each as a chrome dwell target through the VM (Task 6), then
-    /// pushes the laid-out centres (r3 F5: EVERY card gets a visual and a centre).</summary>
+    /// pushes the laid-out centres (r3 F5: EVERY card gets a visual and a centre). Cards are
+    /// modal-button sized (170 × 100 DIP, r3 F7).</summary>
     public void SetChoices(IReadOnlyList<(string Label, string Id)> choices)
     {
         _vm.ClearChoices();
@@ -1454,6 +1467,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         _progressBars[id] = bar;
         return new Border
         {
+            Width = 170,
+            Height = 100,
             Child = new StackPanel
             {
                 Children =
@@ -1462,17 +1477,48 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                     {
                         Text = label,
                         Margin = new Thickness(12, 8, 12, 4),
+                        TextWrapping = TextWrapping.Wrap,
                         Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
                     },
                     bar,
                 },
             },
-            Margin = new Thickness(8, 0, 0, 0),
+            Margin = new Thickness(16, 0, 0, 0),
             Background = (Brush)Card.FindResource("BrushSurfaceMedium"),
             BorderBrush = (Brush)Card.FindResource("BrushAccent"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
         };
+    }
+
+    /// <summary>The chrome Close card in its OWN host (top-right of the card, r3 F7 — away from
+    /// the action row, so abandoning is never the neighbour of continuing). Idempotent; the
+    /// already-built branch RE-REGISTERS (r5 F2: a re-render cleared the targets).</summary>
+    public void SetChromeClose(bool visible, string label)
+    {
+        if (visible && !_chromeCloseBuilt)
+        {
+            _chromeCloseCard = BuildCard(label, "guide_close");
+            _choiceCards["guide_close"] = _chromeCloseCard;
+            ChromeCloseHost.Content = _chromeCloseCard;
+            _vm.RegisterChoice("guide_close");
+            _chromeCloseBuilt = true;
+            PushCentres();
+        }
+        else if (visible && _chromeCloseBuilt)
+        {
+            _choiceCards["guide_close"] = _chromeCloseCard;   // re-render: re-register + re-push
+            _vm.RegisterChoice("guide_close");
+            PushCentres();
+        }
+        else if (!visible && _chromeCloseBuilt)
+        {
+            _vm.RemoveChromeChoice("guide_close");
+            _choiceCards.Remove("guide_close");
+            ChromeCloseHost.Content = null;
+            _chromeCloseCard = null;
+            _chromeCloseBuilt = false;
+        }
     }
 
     /// <summary>The practice target: a stroked ring with a fill element whose size follows the
@@ -1481,7 +1527,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     public void SetPractice(bool visible)
     {
         _vm.SetPracticeVisible(visible);
-        if (visible)
+        if (visible && StepContent.Content is not Grid)
         {
             _practiceFill = new Ellipse
             {
@@ -1505,7 +1551,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             grid.Children.Add(_practiceFill);
             StepContent.Content = grid;
         }
-        else
+        else if (!visible)
         {
             StepContent.Content = null;
             _practiceFill = null;
@@ -1514,8 +1560,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     }
 
     /// <summary>The dwell knob (r3 F4): a value read-out plus −/+ chrome cards, built into its
-    /// OWN row (r4 F4 — SetPractice's StepContent slot is never touched). Leaving the step
-    /// removes the ± targets; arriving registers them.</summary>
+    /// OWN row (r4 F4 — SetPractice's StepContent slot is never touched). Arriving registers the
+    /// ± targets; an already-built knob RE-REGISTERS on a re-render (r5 F2); leaving removes
+    /// them.</summary>
     public void SetDwellKnob(bool visible)
     {
         _vm.SetSliderVisible(visible);
@@ -1535,12 +1582,26 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                 var card = BuildCard(glyph, id);
                 _choiceCards[id] = card;
                 _progressBars[id] = (Rectangle)((StackPanel)card.Child).Children[1];
+                _knobCards[id] = card;
+                _knobBars[id] = _progressBars[id];
                 plusMinus.Children.Add(card);
                 _vm.RegisterChoice(id);
             }
             KnobRow.Children.Add(_dwellValue);
             KnobRow.Children.Add(plusMinus);
             _knobBuilt = true;
+            PushCentres();
+        }
+        else if (visible && _knobBuilt)
+        {
+            // Re-render (r5 F2): SetChoices cleared every chrome target — put the ± back from
+            // the knob's OWN card references (SetChoices never touches _knobCards/_knobBars).
+            foreach (var id in new[] { "guide_dwell_minus", "guide_dwell_plus" })
+            {
+                _choiceCards[id] = _knobCards[id];
+                _progressBars[id] = _knobBars[id];
+                _vm.RegisterChoice(id);
+            }
             PushCentres();
         }
         else if (!visible && _knobBuilt)
@@ -1561,6 +1622,91 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     {
         if (_progressBars.TryGetValue(id, out var bar) && _choiceCards.TryGetValue(id, out var card))
             bar.Width = (card.ActualWidth - 2) * Math.Clamp(progress, 0, 1);
+    }
+
+    /// <summary>The Theme step's four chips as a 2×2 grid in StepContent (r5 F4's geometry —
+    /// six 170-wide cards in one right-aligned row overflow the 496-DIP inner width, and
+    /// 70-DIP circles would overlap). Each chip registers at radius 40 DIP through
+    /// <see cref="FirstRunGuideViewModel.RegisterChoice(string, double?)"/>. Idempotent; the
+    /// already-built branch RE-REGISTERS (r5 F2). Chips live in `_themeCards` — `SetChoices`
+    /// never clears them.</summary>
+    public void SetThemeGrid(bool visible, IReadOnlyList<(string Label, string Id)> chips)
+    {
+        if (visible)
+        {
+            if (_themeCards.Count == 0)
+            {
+                var grid = new Grid
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                for (var i = 0; i < chips.Count; i++)
+                {
+                    var (label, id) = chips[i];
+                    var card = BuildChipCard(label, id);
+                    _themeCards[id] = card;
+                    Grid.SetRow(card, i / 2);
+                    Grid.SetColumn(card, i % 2);
+                    grid.Children.Add(card);
+                    _vm.RegisterChoice(id, radiusDip: 40);
+                }
+                StepContent.Content = grid;
+            }
+            else
+            {
+                foreach (var (id, _) in _themeCards)          // re-render: re-register (r5 F2)
+                    _vm.RegisterChoice(id, radiusDip: 40);
+            }
+            PushCentres();
+        }
+        else if (_themeCards.Count > 0)
+        {
+            foreach (var id in _themeCards.Keys)
+                _vm.RemoveChromeChoice(id);
+            _themeCards.Clear();
+            StepContent.Content = null;
+        }
+    }
+
+    private Border BuildChipCard(string label, string id)
+    {
+        var bar = new Rectangle
+        {
+            Height = 3,
+            Width = 0,
+            Fill = (Brush)Card.FindResource("BrushAccent"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        _progressBars[id] = bar;
+        return new Border
+        {
+            Width = 170,
+            Height = 80,
+            Child = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = label,
+                        Margin = new Thickness(12, 8, 12, 4),
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
+                    },
+                    bar,
+                },
+            },
+            Margin = new Thickness(16, 20, 16, 20),
+            Background = (Brush)Card.FindResource("BrushSurfaceMedium"),
+            BorderBrush = (Brush)Card.FindResource("BrushAccent"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+        };
     }
 
     private void SetPracticeFill(double progress)
@@ -1600,10 +1746,18 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                 var centre = ring.PointToScreen(new Point(ring.ActualWidth / 2, ring.ActualHeight / 2));
                 _vm.SetPracticeCentre(new PhysicalPoint(centre.X, centre.Y));
             }
+            foreach (var (id, chip) in _themeCards)                       // the chip grid's centres
+            {
+                if (!chip.IsVisible) continue;
+                var centre = chip.PointToScreen(new Point(chip.ActualWidth / 2, chip.ActualHeight / 2));
+                _vm.UpdateChoiceCentre(id, new PhysicalPoint(centre.X, centre.Y));
+            }
         });
     }
 }
 ```
+
+(The knob's ± cards and the chrome Close card keep their OWN field references (`_knobCards`/`_knobBars`/`_chromeCloseCard`), which `SetChoices` never clears — the re-register branches read from them (r5 F2).)
 
 - [ ] **Step 3: Overlay inventory row** (`exempt:`) + **Step 4: `IOverlayWindows.cs`** — the default method on THREE interfaces:
 
@@ -1667,9 +1821,107 @@ public class FirstRunGuideWindowTests
 
 **Interfaces:** `SetGuideHiddenHold(bool)` (suppress `ForceShow` + `ReassertVisibility`'s `SetActive(true)` re-arm, force Hidden) + `ResetToHidden()` (mirror `ResetToVisible()` at :551). **Order rule (r1 F11): the hold arms BEFORE any `SetSuspended(true)`.**
 
-- [ ] **Step 1: Write the failing tests** — rev 4's three tests verbatim (`GuideHiddenHold_SuppressesTheAsyncForceShow_FromSuspend` reaching Hidden via the file's off-toolbar sample loop, then hold → suspend → `ForceShowCalls == 0` + `StateName == "Hidden"`; `GuideHiddenHold_NeutralizesReassertVisibility` asserting `SetActiveCalls` empty; `ResetToHidden_PutsTheControllerInHidden_ForAnImmediateSummon` asserting `StateName` + `HideCalls ≥ 1` + an immediate summon; the sample-drive helper extracted from `GazeBackOnToolbar_ResetsHideCountdown` :83).
+- [ ] **Step 1: Write the failing tests** (the sample-drive helper is extracted from `GazeBackOnToolbar_ResetsHideCountdown` :83 — the same `sut.Feed(CreateSample(x, y, valid: true), timestampUs)` loop advanced past `_hideDelayUs`):
 
-- [ ] **Step 2: Implement** — the rev 4 code verbatim (the `_guideHiddenHold` field + `SetGuideHiddenHold` + `ResetToHidden` + the two suppression points: `SetSuspended`'s ForceShow line gains `&& !_guideHiddenHold`; `ReassertVisibility`'s else-branch gains `else if (!_guideHiddenHold)`).
+```csharp
+    [Fact]
+    public void GuideHiddenHold_SuppressesTheAsyncForceShow_FromSuspend()
+    {
+        var sut = NewController();
+        var fake = new FakeVisibility();
+        sut.Attach(fake);
+
+        DriveToHidden(sut);                       // the extracted off-toolbar sample loop
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+
+        sut.SetGuideHiddenHold(true);             // the hold FIRST (r1 F11's order)...
+        sut.SetSuspended(true);                   // ...then the suspend
+        Check.That(fake.ForceShowCalls).IsEqualTo(0);   // the posted ForceShow is suppressed (r3 F2a)
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+    }
+
+    [Fact]
+    public void GuideHiddenHold_NeutralizesReassertVisibility()
+    {
+        var sut = NewController();
+        var fake = new FakeVisibility();
+        sut.Attach(fake);
+        sut.SetGuideHiddenHold(true);
+
+        sut.ReassertVisibility();                 // calibration transitions call this unconditionally
+
+        Check.That(fake.SetActiveCalls).IsEmpty(); // no dwell re-arm (r3 F2b)
+    }
+
+    [Fact]
+    public void ResetToHidden_PutsTheControllerInHidden_ForAnImmediateSummon()
+    {
+        var sut = NewController();
+        var fake = new FakeVisibility();
+        sut.Attach(fake);
+        sut.ResetToVisible();
+        Check.That(sut.StateName).IsEqualTo("Visible");
+
+        sut.ResetToHidden();
+
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+        Check.That(fake.HideCalls).IsGreaterOrEqualThan(1);
+        // A past-edge summon now detects immediately — Feed's Hidden case runs with no
+        // 5 s hide-delay wait (r4 F2).
+    }
+```
+
+- [ ] **Step 2: Implement** — the `_guideHiddenHold` field + the two methods:
+
+```csharp
+    // The guide-hidden hold (spec §5 claim 6): the first-run guide hides the toolbar on steps
+    // 1–4/6–8. While held, the two shipped paths that would resurrect a hidden toolbar — the
+    // async ForceShow inside SetSuspended, and ReassertVisibility's else-branch SetActive(true)
+    // (calibration transitions) — are suppressed; release restores unconditionally (r4 F5).
+    // ORDER: arm the hold BEFORE SetSuspended(true) — SetSuspended posts its ForceShow when
+    // Hidden, and a hold armed after loses that race (r1 F11).
+    private bool _guideHiddenHold;
+
+    /// <summary>The first-run guide's hold: while true the controller stays hidden and deaf to
+    /// ForceShow/ReassertVisibility re-arms, whatever SetSuspended says.</summary>
+    public void SetGuideHiddenHold(bool held)
+    {
+        _guideHiddenHold = held;
+        if (held)
+        {
+            _state = State.Hidden;
+            _visibility?.HideToolbar(_paused);
+            Volatile.Write(ref _hideAnchorUs, Unseeded);
+            Volatile.Write(ref _summonRunUs, Unseeded);
+            _lastValidHiddenUs = null;
+        }
+    }
+
+    /// <summary>Mirrors <see cref="ResetToVisible"/>: state → Hidden, anchors cleared, hidden via
+    /// the adapter. Step-5 entry uses this so summon detection is live immediately (r4 F2).</summary>
+    public void ResetToHidden()
+    {
+        _state = State.Hidden;
+        _visibility?.HideToolbar(_paused);
+        Volatile.Write(ref _hideAnchorUs, Unseeded);
+        Volatile.Write(ref _summonRunUs, Unseeded);
+        _lastValidHiddenUs = null;
+    }
+```
+
+and the two suppression points:
+
+```csharp
+    // in SetSuspended's suspended branch, replacing the ForceShow line:
+            if (_state == State.Hidden && _enabled && !_guideHiddenHold)
+                _visibility?.ForceShow();
+
+    // in ReassertVisibility:
+        if (_state == State.Hidden && _enabled && !_suspended && !_guideHiddenHold)
+            _visibility.HideToolbar(_paused);   // re-asserts hide AND SetActive(false)
+        else if (!_guideHiddenHold)
+            _visibility.SetActive(true);
+```
 
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ToolbarAutoHideController guide-hidden hold + ResetToHidden`.
 
@@ -1681,9 +1933,81 @@ public class FirstRunGuideWindowTests
 
 **Interfaces:** `SetGuideHold(bool)` — **hidden hold FIRST, then `SetAutoHideSuspended("guide", …)`** (r1 F11); `ResetToolbarForGuideTask()`; `ShouldFeedKeyboardSample`/`ShouldFeedSettingsSample` + `guideOpen` (all call sites + source pins); `ToolbarViewModel.GuideOpenGate` (assigned in Task 12, checked AFTER the :537-541 progress/highlight reset lines). The gated press does not stop the dwell cue (the base publishes after `OnTargetActivated` returns) — accepted, documented (r3 F19). `ToolbarVisibilityChanged` REUSED (:52/:366).
 
-- [ ] **Step 1: Failing tests** — rev 4's two feed tests.
+- [ ] **Step 1: Failing tests**
 
-- [ ] **Step 2: Implement** — the rev 4 code verbatim: the two static feeds with the `guideOpen` term + every call site and source pin updated; `SetGuideHold`/`ResetToolbarForGuideTask`; `ToolbarViewModel.GuideOpenGate` + the in-method gate after the :537-541 lines.
+```csharp
+    [Fact]
+    public void ShouldFeedKeyboardSample_RejectsWhileGuideOpen()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true,
+            isInGap: false, probeOpen: false, exerciseActive: false, guideOpen: true)).IsFalse();
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true,
+            isInGap: false, probeOpen: false, exerciseActive: false, guideOpen: false)).IsTrue();
+    }
+
+    [Fact]
+    public void ShouldFeedSettingsSample_RejectsWhileGuideOpen()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedSettingsSample(
+            exerciseActive: false, guideOpen: true)).IsFalse();
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedSettingsSample(
+            exerciseActive: false, guideOpen: false)).IsTrue();
+    }
+```
+
+- [ ] **Step 2: Implement** — the two static feeds gain the parameter and term (EVERY call site — 11 in the coordinator + the `ProbeGateWiring_IsPinnedAtTheSource` source pins at :361-376 — updated in this task; the gaze-thread call sites pass `_modal.GuideOpen`):
+
+```csharp
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible,
+        bool isInGap, bool probeOpen, bool exerciseActive, bool guideOpen) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive && !guideOpen;
+
+    internal static bool ShouldFeedSettingsSample(bool exerciseActive, bool guideOpen) =>
+        !exerciseActive && !guideOpen;
+```
+
+plus two methods:
+
+```csharp
+    /// <summary>The guide's toolbar hold. ORDER (r1 F11): the hidden hold arms FIRST —
+    /// SetSuspended posts an async ForceShow when Hidden, and a hold armed after loses the race.
+    /// Release (guide close) is the coordinator's ForceShow() restore path, not this.</summary>
+    public void SetGuideHold(bool held)
+    {
+        _autoHide?.SetGuideHiddenHold(held);
+        SetAutoHideSuspended("guide", held);
+    }
+
+    /// <summary>Step-5 entry: release the hold and reset the controller to Hidden so the summon
+    /// detection is live immediately (r4 F2).</summary>
+    public void ResetToolbarForGuideTask()
+    {
+        _autoHide?.SetGuideHiddenHold(false);
+        SetAutoHideSuspended("guide", false);
+        _autoHide?.ResetToHidden();
+    }
+```
+
+`ToolbarViewModel.cs` — the gate property + the gate INSIDE `OnTargetActivated` AFTER the progress/highlight reset lines (:537-541) so a gated press still cleans the button's visual state; the gated press does not stop the dwell cue (the base publishes after `OnTargetActivated` returns) — accepted, documented (r3 F19):
+
+```csharp
+    /// <summary>While the first-run guide owns the screen, every non-Pause activation is inert
+    /// (§5 claim 7): the summoned toolbar is a display, not a control surface. Pause stays live
+    /// (the deliberate emergency path). Null (tests, non-guide wiring) = not gated. Assigned by
+    /// Task 12's wiring.</summary>
+    internal Func<bool>? GuideOpenGate { get; set; }
+```
+
+```csharp
+    protected override void OnTargetActivated(string targetId)
+    {
+        // ... the existing progress-reset / highlight lines first (:537-541) ...
+        if (targetId != "Pause" && GuideOpenGate?.Invoke() == true)
+            return;
+        // ... the existing switch ...
+```
 
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ordered toolbar hold + GuideOpen feed terms + OnTargetActivated gate`.
 
@@ -1719,9 +2043,186 @@ public class FirstRunGuideWindowTests
 
 **Interfaces:** `BannerSlot.Hold()/Release()` (front re-queue; `Preempt` deliberately bypasses — caregiver alerts take the slot mid-guide, pinned by test); optional `Func<bool>? isGuideOpen = null` on both hosts + `OnGuideOpenChanged` (defer-newest replay); `SetupNoticeWatch`: `CheckStartupWhenGuideClosed()` at the three call sites + expiry skip while GuideOpen + close-time poke.
 
-- [ ] **Step 1: Failing tests** — rev 4's three BannerSlot tests (incl. `Preempt_BypassesTheHold_CaregiverAlertsAreTheSafetyChannel`).
+- [ ] **Step 1: Failing tests**
 
-- [ ] **Step 2: Implement** — the rev 4 code verbatim (`Hold`/`Release` + the dequeue guard; the hosts' optional params + `OnGuideOpenChanged`; the watch's `GuideOpen`/`CheckStartupWhenGuideClosed` + expiry skip + poke).
+```csharp
+// tests/EyeCtrl.App.Tests/Services/BannerSlotHoldTests.cs
+namespace EyeCtrl.App.Tests.Services;
+
+using EyeCtrl.App.Services;
+using NFluent;
+using Xunit;
+
+public class BannerSlotHoldTests
+{
+    private sealed class FakeBanner : IBannerSlotOccupant
+    {
+        public event EventHandler? Closed;
+        public int Shows; public int Hides;
+        public void ShowInSlot() => Shows++;
+        public void HideFromSlot() => Hides++;
+        public bool TryGetVisibleBounds(out Core.Models.PhysicalRect bounds) { bounds = default; return false; }
+        public IReadOnlyList<Core.Models.PhysicalRect> LiveBoundsOrEmpty() => Array.Empty<Core.Models.PhysicalRect>();
+        public void ReassertForOrder() { }
+        public void Close() => Closed?.Invoke(this, EventArgs.Empty);
+    }
+
+    [Fact]
+    public void Hold_HidesAndRequeuesLive_AtTheFront_ReleaseResumesWithoutDrops()
+    {
+        var slot = new BannerSlot();
+        var a = new FakeBanner(); var b = new FakeBanner();
+        slot.Enqueue(a);
+        Check.That(slot.Live).IsSameReferenceAs(a);
+
+        slot.Hold();
+        Check.That(a.Hides).IsEqualTo(1);
+        Check.That(slot.Live).IsNull();
+
+        slot.Enqueue(b);                       // queued, not shown during the hold
+        Check.That(b.Shows).IsEqualTo(0);
+
+        slot.Release();
+        Check.That(slot.Live).IsSameReferenceAs(a);   // front of the queue: resumes first
+        Check.That(b.Shows).IsEqualTo(0);             // still waiting its turn — nothing dropped
+    }
+
+    [Fact]
+    public void Preempt_BypassesTheHold_CaregiverAlertsAreTheSafetyChannel()
+    {
+        var slot = new BannerSlot();
+        var live = new FakeBanner(); var alert = new FakeBanner();
+        slot.Enqueue(live);
+        slot.Hold();
+        Check.That(slot.Live).IsNull();
+
+        slot.Preempt(alert);                   // pinned behaviour (r1 F24): the alert TAKES the slot
+
+        Check.That(slot.Live).IsSameReferenceAs(alert);
+        Check.That(alert.Shows).IsEqualTo(1);
+        Check.That(live.Shows).IsEqualTo(1);   // re-queued at the front; resumes after the alert
+        slot.Release();                        // the hold release does not disturb the live alert
+        Check.That(slot.Live).IsSameReferenceAs(alert);
+    }
+
+    [Fact]
+    public void Hold_WithAnEmptySlot_QueuesWithoutShowing()
+    {
+        var slot = new BannerSlot();
+        var a = new FakeBanner();
+        slot.Hold();
+        slot.Enqueue(a);
+        Check.That(slot.Live).IsNull();
+        slot.Release();
+        Check.That(slot.Live).IsSameReferenceAs(a);
+    }
+}
+```
+
+- [ ] **Step 2: Implement**
+
+`BannerSlot.cs` — the hold:
+
+```csharp
+    // The guide's hold (spec §5 claim 4): while held, the live banner hides and re-queues at the
+    // FRONT (it resumes first) and dequeue pauses — nothing is dropped, `_live` cannot wedge
+    // because the hold clears it. Preempt deliberately bypasses the hold: caregiver alerts are
+    // the safety channel and take the slot even mid-guide (pinned by test). UI thread only.
+    private bool _held;
+
+    /// <summary>Hold for a fullscreen surface (the first-run guide). Idempotent.</summary>
+    public void Hold()
+    {
+        if (_held) return;
+        _held = true;
+        if (_live is { } live)
+        {
+            _live = null;
+            live.Closed -= OnClosed;
+            try
+            {
+                live.HideFromSlot();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A held banner failed to hide; it still re-queues.");
+            }
+            _queue.Insert(0, live);
+        }
+    }
+
+    /// <summary>Release: dequeue resumes at once with the front of the queue (nothing dropped).
+    /// A live pre-emptor is untouched.</summary>
+    public void Release()
+    {
+        if (!_held) return;
+        _held = false;
+        ShowNextIfFree();
+    }
+```
+
+and the dequeue guard in `ShowNextIfFree`:
+
+```csharp
+        while (!_held && _live is null && _queue.Count > 0)
+```
+
+`RestartNoticeHost.cs` — ctor gains an OPTIONAL `Func<bool>? isGuideOpen = null` (wired `() => _eventCoordinator.IsGuideOpen` at App.xaml.cs:519); the three show paths' guards gain `|| (_isGuideOpen?.Invoke() ?? false)`, with the blocked call stashed for replay:
+
+```csharp
+    private readonly Func<bool>? _isGuideOpen;
+    private Action? _pendingOnGuideClosed;
+
+    /// <summary>Guide opened or closed. Opening takes a notice down (it covers the card);
+    /// closing replays at most ONE stashed show — the newest wins, an older notice is stale
+    /// (defer, never drop — r3 F4).</summary>
+    public void OnGuideOpenChanged(bool open)
+    {
+        if (open) _presenter.HideNotice();
+        else
+        {
+            var pending = _pendingOnGuideClosed;
+            _pendingOnGuideClosed = null;
+            pending?.Invoke();
+        }
+    }
+```
+
+(each show path: `if (_isSettingsOpen() || _isProbeOpen()) return; if (_isGuideOpen?.Invoke() == true) { _pendingOnGuideClosed = () => ShowInProgress(); return; } ShowInProgress();`)
+
+`LagMarkHost.cs` — optional `Func<bool>? isGuideOpen = null` (App.xaml.cs:605), `CanShow()` gains `&& (_isGuideOpen?.Invoke() ?? false) == false`, and:
+
+```csharp
+    /// <summary>Guide opened or closed — the button hides and returns like Settings does (r3 F4).</summary>
+    public void OnGuideOpenChanged(bool open)
+    {
+        if (open || (_isGuideOpen?.Invoke() ?? false))
+            _postToUi(HideButtonAndZone);
+        else if (CanShow())
+            _postToUi(ShowButtonAndZone);
+    }
+```
+
+`SetupNoticeWatch.cs` — optional `Func<bool>? isGuideOpen = null` (App.xaml.cs:577); ONE gated helper replaces the three raw `CheckStartup()` call sites (Start :91, Poll :110, Poke :136 — each becomes `if (CheckStartupWhenGuideClosed())`), and the expiry check also skips while the guide is open (the 90 s window must not run out behind the guide — r1 F24):
+
+```csharp
+    /// <summary>r4 F3 + r1 F24: CheckStartup writes setup-notice-shown.json BEFORE _show (no burn
+    /// behind the guide), and the expiry window must not run out while the guide holds the
+    /// screen — both skip while GuideOpen; the close-time poke shows then.</summary>
+    private bool GuideOpen => _isGuideOpen?.Invoke() ?? false;
+
+    private bool CheckStartupWhenGuideClosed() => !GuideOpen && _service.CheckStartup();
+```
+
+plus:
+
+```csharp
+    /// <summary>Guide opened or closed: closing pokes once (r4 F3).</summary>
+    public void OnGuideOpenChanged(bool open)
+    {
+        if (!open) Poke();
+    }
+```
 
 - [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): BannerSlot hold (preempt exempted) + defer hosts + gated SetupNoticeWatch`.
 
@@ -1956,14 +2457,16 @@ public class FirstRunGuideWindowTests
     }
 ```
 
-- [ ] **Step 3: `GuideSurface` — the unified choice list + `TextsFor`/`EdgeWord` DEFINED HERE (r4 F1's missing pieces)**
+- [ ] **Step 3: `GuideSurface` — per-builder choice lists + `TextsFor`/`EdgeWord` DEFINED HERE (r4 F1's missing pieces; r5 F5's string switch; r5 F3's chrome Close on the transition card)**
 
 ```csharp
-    /// <summary>The flow's window surface. ONE unified choice list per card: the step's buttons,
-    /// then the chrome Close where it applies, then the theme chips + Continue on Theme —
-    /// registered (dwell targets) AND visualized (the window's cards) together, so every target
-    /// gets a pushed centre (r3 F5). Keys are LITERALS (r2 F12). In-place presses (dwell ±, theme
-    /// chips) re-render through RenderChoicesForCurrentStep (r4 F3).</summary>
+    /// <summary>The flow's window surface. Per-BUILDER choice lists: the action row gets the
+    /// step's buttons via SetChoices; the chrome Close gets its own host via SetChromeClose;
+    /// the Theme chips get a 2×2 grid in StepContent via SetThemeGrid (r5 F4's geometry — six
+    /// cards in one row overflow the card and their 70-DIP circles overlap). Every builder
+    /// registers AND visualizes what it builds (r3 F5) and re-registers on a re-render (r5 F2).
+    /// Keys are LITERALS (r2 F12). In-place presses (dwell ±, theme chips) re-render through
+    /// RenderChoicesForCurrentStep (r4 F3).</summary>
     private sealed class GuideSurface(
         FirstRunGuideWindow window, FirstRunGuideViewModel vm,
         SettingsUiCoordinator owner) : IGuideSurface
@@ -1973,11 +2476,13 @@ public class FirstRunGuideWindowTests
         public void ShowStep(FirstRunGuideStep step)
         {
             var (title, body) = TextsFor(step);
-            var chromeClose = step is not (FirstRunGuideStep.Welcome or FirstRunGuideStep.Done or FirstRunGuideStep.Safety);
+            var chromeClose = step is not (FirstRunGuideStep.Welcome or FirstRunGuideStep.Done);
             window.ShowCardContent(title, body, chromeClose);
-            window.SetChoices(ChoicesFor(step, chromeClose));   // ONE list, registered AND visualized
+            window.SetChoices(RowChoicesFor(step));             // the action row, registered AND visualized
+            window.SetChromeClose(chromeClose, T("guide.chrome.close"));
             window.SetPractice(step is FirstRunGuideStep.MeetDwell or FirstRunGuideStep.DwellTime);
             window.SetDwellKnob(step == FirstRunGuideStep.DwellTime);
+            window.SetThemeGrid(step == FirstRunGuideStep.Theme, ThemeChips());
             _lastStep = step;
         }
 
@@ -1995,61 +2500,59 @@ public class FirstRunGuideWindowTests
             _ => (string.Empty, string.Empty),
         };
 
-        /// <summary>The docked edge's localized word — a LITERAL-key switch over the enum (r2 F12:
-        /// interpolated keys are invisible to the unused-key scan).</summary>
-        private string EdgeWord() => Context.Settings.Toolbar.DockedEdge switch
+        /// <summary>The docked edge's localized word. `DockedEdge` is a STRING ("Top"/"Bottom"/
+        /// "Left"/"Right", ToolbarSettings.cs:41) and `Context` is the outer coordinator's
+        /// protected property, read through `owner` (r5 F5).</summary>
+        private string EdgeWord() => owner.Context!.Settings.Toolbar.DockedEdge switch
         {
-            Core.Enums.DockedEdge.Top => T("guide.toolbar.edge.top"),
-            Core.Enums.DockedEdge.Bottom => T("guide.toolbar.edge.bottom"),
-            Core.Enums.DockedEdge.Left => T("guide.toolbar.edge.left"),
+            "Top" => T("guide.toolbar.edge.top"),
+            "Bottom" => T("guide.toolbar.edge.bottom"),
+            "Left" => T("guide.toolbar.edge.left"),
             _ => T("guide.toolbar.edge.right"),
         };
 
-        private static (string Label, string Id)[] ChoicesFor(FirstRunGuideStep step, bool chromeClose)
+        /// <summary>The action row's buttons per step — the chrome Close is NOT in this list
+        /// (it lives in its own host, r5 F4).</summary>
+        private static (string Label, string Id)[] RowChoicesFor(FirstRunGuideStep step) => step switch
         {
-            var choices = new List<(string Label, string Id)>();
-            choices.AddRange(step switch
-            {
-                FirstRunGuideStep.Welcome => [
-                    (T("guide.welcome.start"), "guide_start"),
-                    (T("guide.later"), "guide_later")],
-                FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip")],
-                FirstRunGuideStep.DwellTime => [(T("guide.dwelltime.continue"), "guide_dwelltime_continue")],
-                FirstRunGuideStep.Calibrate => [
-                    (T("guide.calibrate.now"), "guide_calibrate_now"),
-                    (T("guide.calibrate.skip"), "guide_calibrate_skip")],
-                FirstRunGuideStep.ToolbarTask => [
-                    (T("guide.toolbar.continue"), "guide_toolbar_continue"),
-                    (T("guide.toolbar.skip"), "guide_toolbar_skip")],
-                FirstRunGuideStep.Theme => [
-                    (T("guide.theme.midnight"), "guide_theme_midnight"),
-                    (T("guide.theme.ember"), "guide_theme_ember"),
-                    (T("guide.theme.daylight"), "guide_theme_daylight"),
-                    (T("guide.theme.contrast"), "guide_theme_contrast"),
-                    (T("guide.theme.continue"), "guide_theme_continue")],
-                FirstRunGuideStep.Safety => [(T("guide.safety.begin"), "guide_safety_begin")],
-                FirstRunGuideStep.Done => [(T("guide.done.finish"), "guide_done_finish")],
-                _ => [],
-            });
-            if (chromeClose)
-                choices.Add((T("guide.chrome.close"), "guide_close"));
-            return choices.ToArray();
-        }
+            FirstRunGuideStep.Welcome => [
+                (T("guide.welcome.start"), "guide_start"),
+                (T("guide.later"), "guide_later")],
+            FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip")],
+            FirstRunGuideStep.DwellTime => [(T("guide.dwelltime.continue"), "guide_dwelltime_continue")],
+            FirstRunGuideStep.Calibrate => [
+                (T("guide.calibrate.now"), "guide_calibrate_now"),
+                (T("guide.calibrate.skip"), "guide_calibrate_skip")],
+            FirstRunGuideStep.ToolbarTask => [
+                (T("guide.toolbar.continue"), "guide_toolbar_continue"),
+                (T("guide.toolbar.skip"), "guide_toolbar_skip")],
+            FirstRunGuideStep.Theme => [(T("guide.theme.continue"), "guide_theme_continue")],
+            FirstRunGuideStep.Safety => [(T("guide.safety.begin"), "guide_safety_begin")],
+            FirstRunGuideStep.Done => [(T("guide.done.finish"), "guide_done_finish")],
+            _ => [],
+        };
+
+        /// <summary>The Theme step's four chips, laid out as a 2×2 grid in StepContent
+        /// (radius 40 DIP — the 70-DIP circles of a 2×2 grid at this card size would overlap).</summary>
+        private static (string Label, string Id)[] ThemeChips() =>
+        [
+            (T("guide.theme.midnight"), "guide_theme_midnight"),
+            (T("guide.theme.ember"), "guide_theme_ember"),
+            (T("guide.theme.daylight"), "guide_theme_daylight"),
+            (T("guide.theme.contrast"), "guide_theme_contrast"),
+        ];
 
         public void ShowSafetyCard(string message, IReadOnlyList<ModalChoice> choices)
         {
             vm.ShowSafetyCard(message, choices);
             window.ShowCardContent(T("guide.safety.title"), message, chromeClose: true);
-            var list = new List<(string Label, string Id)>();
-            foreach (var choice in choices)
-                list.Add((choice.Label, choice.Id));
-            list.Add((T("guide.chrome.close"), "guide_close"));   // chrome Close through step 7 (r3 F10)
-            window.SetChoices(list.ToArray());
+            window.SetChoices(choices.Select(c => (c.Label, c.Id)).ToArray());
+            window.SetChromeClose(true, T("guide.chrome.close"));   // chrome Close through step 7 (r3 F10)
             owner.RememberSafetyActions(choices);                 // id → OnChosen, for the dispatch
         }
 
-        /// <summary>Re-renders the CURRENT step's choices (r4 F3): an in-place press (dwell ±,
-        /// theme chip) cleared every chrome target, and the press did not change the step.</summary>
+        /// <summary>Re-renders the CURRENT step (r4 F3): an in-place press (dwell ±, theme chip)
+        /// cleared every chrome target, and the press did not change the step.</summary>
         public void RenderChoicesForCurrentStep()
         {
             if (_lastStep is { } step) ShowStep(step);
@@ -2063,7 +2566,7 @@ public class FirstRunGuideWindowTests
     }
 ```
 
-(The `GuideSurface` needs `Context` for `EdgeWord` — it calls through `owner`: make `EdgeWord` non-static reading `owner.Context.Settings.Toolbar.DockedEdge`; the enum is `EyeCtrl.Core.Enums.DockedEdge` — match its actual member names during implementation. `window.SetDwellKnob` is Task 7's builder; `RememberSafetyActions` is Step 4's dictionary.)
+(The `GuideSurface` reads the outer coordinator's protected `Context` through `owner.Context!` — a nested type may do that; `DockedEdge` is a `string`, so the switch is over string literals and the note about matching an enum is gone.)
 
 - [ ] **Step 4: The dispatch + the safety actions map**
 
@@ -2115,13 +2618,119 @@ public class FirstRunGuideWindowTests
     }
 ```
 
-- [ ] **Step 5: Calibration — per-"Calibrate-now" subscription + the refusal guard (r2 F10/F27)** — rev 4's `StartCalibration` verbatim (the Idle path does NOT re-render — no flicker, r3 F12; only the refusal guard re-renders via `_guideSurface.ShowStep(FirstRunGuideStep.Calibrate)`; `Restore`/unwind unregister unconditionally with the one-type-arg overload).
+- [ ] **Step 5: Calibration — per-"Calibrate-now" subscription + the refusal guard (r2 F10/F27)**
 
-- [ ] **Step 6: App.xaml.cs wiring** — rev 4's Step 5 verbatim (the forwarder; `:704` canInterrupt; the banner hold + status-card block below :518 inside `!IsTestMode` with the `StatusCardsFallback` forwarder; the notice hosts' optional args + subscriptions; the renamed raise).
+```csharp
+    private IDisposable? _calibrationCeiling;
 
-- [ ] **Step 7: Retire the machinery + swap the row** — rev 4's Step 6 verbatim (the complete consumer list, `g_guide`, `--refresh-de-src` here too).
+    private void StartCalibration()
+    {
+        var context = Context!;
+        if (_guideVm is null || _guideFlow is null || _guideSurface is null) return;
 
-- [ ] **Step 8: Wiring tests** — rev 4's Step 7 + the `StatusCardPresenterTests` pin (:735-736).
+        var collected = false;
+        void OnCalibrationStateChanged(CalibrationStateChangedMessage m)
+        {
+            if (m.State is CalibrationState.Collecting or CalibrationState.Training)
+            {
+                collected = true;
+                _calibrationCeiling?.Dispose();
+                _guideWindow?.HideGuide();
+            }
+            else if (m.State is CalibrationState.Idle or CalibrationState.Cancelled)
+            {
+                context.Messenger.Unregister<CalibrationStateChangedMessage>(this);   // ONE type arg (r2 F10)
+                _calibrationCeiling?.Dispose();
+                context.Dispatcher.BeginInvoke(() =>
+                {
+                    _guideWindow?.ShowGuide();
+                    _guideFlow?.NotifyCalibrationEnded();   // renders step 5 — no Calibrate flicker (r3 F12)
+                });
+            }
+        }
+        context.Messenger.Register<SettingsUiCoordinator, CalibrationStateChangedMessage>(this,
+            (_, m) => OnCalibrationStateChanged(m));
+        _calibrationCeiling = SafetySetupFlow.DispatcherDelay(TimeSpan.FromSeconds(2), RefusalGuard);
+
+        void RefusalGuard()
+        {
+            if (collected) return;
+            context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
+            context.Dispatcher.BeginInvoke(() => _guideSurface.ShowStep(FirstRunGuideStep.Calibrate));
+        }
+
+        context.Messenger.Send(new CalibrationRequestedMessage());
+    }
+```
+
+(`SafetySetupFlow.DispatcherDelay` is the existing one-shot dispatcher timer seam (:404-414) — reused instead of a new timer helper. The refusal re-show runs the FULL `ShowStep(Calibrate)` — the choice targets were cleared when "Calibrate now" fired, so a bare `ShowGuide()` would strand. `Restore`/`UnwindPartialRaise` unregister unconditionally with the same one-type-arg overload.)
+
+- [ ] **Step 6: App.xaml.cs wiring**
+
+  1. after `_eventCoordinator.Initialize(...)`: `_eventCoordinator.SetSplashHandle(_splashHandle);` — with the EventCoordinator forwarder following `SetSupervisionToggle` (`EventCoordinator.cs:124`):
+  ```csharp
+      /// <summary>Hands the splash handle to the settings-UI coordinator (the guide's latched
+      /// show). The coordinator stores it (r1 F15).</summary>
+      public void SetSplashHandle(SplashThreadHandle? handle) => _settingsUi?.SetSplashHandle(handle);
+  ```
+  2. `:704` becomes `canInterrupt: im.CurrentState == InteractionState.FreeLook && !_eventCoordinator.IsGuideOpen`.
+  3. the banner hold + the status-card block REUSING the existing `bannerSlot` local (:518) and keeping the `!IsTestMode` guard — placed after the notice hosts' construction (r2 F13's CS0841 fix):
+  ```csharp
+            // The guide's banner hold (claim 4): live banner hides + re-queues; dequeue pauses.
+            // Preempt still bypasses it (caregiver alerts — Task 11's pinned behaviour).
+            _eventCoordinator.GuideOpenChanged += open =>
+            {
+                if (open) bannerSlot.Hold(); else bannerSlot.Release();
+            };
+
+            if (!IsTestMode)
+            {
+                if (SafetySetupStartup.ShouldPrompt(
+                        settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode))
+                {
+                    // The status cards start on guide close; the coordinator's raise-failure
+                    // unwind invokes the fallback (r3 F6 / r2 F14).
+                    void OnGuideClosedForStatusCards(bool open)
+                    {
+                        if (open) return;
+                        _eventCoordinator.GuideOpenChanged -= OnGuideClosedForStatusCards;
+                        _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
+                    }
+                    _eventCoordinator.GuideOpenChanged += OnGuideClosedForStatusCards;
+                    _eventCoordinator.StatusCardsFallback = () => OnGuideClosedForStatusCards(false);
+                }
+                else
+                {
+                    _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
+                }
+            }
+  ```
+  with the EventCoordinator forwarder:
+  ```csharp
+      /// <summary>The guide raise's failure fallback: starts the status-card presenter when the
+      /// coordinator's unwind runs (r2 F13 — App has no coordinator field of its own).</summary>
+      internal Action? StatusCardsFallback
+      {
+          get => _settingsUi?.StatusCardsFallback;
+          set { if (_settingsUi is not null) _settingsUi.StatusCardsFallback = value; }
+      }
+  ```
+  (the existing `TheApp_StartsTheCards_…` pin test (:735-736) updates to cover both branches — r1 F14.)
+  4. the notice hosts gain their optional args + `GuideOpenChanged` subscriptions at the existing construction sites: `RestartNoticeHost` (:519) `isGuideOpen: () => _eventCoordinator.IsGuideOpen` + `_eventCoordinator.GuideOpenChanged += _restartNoticeHost.OnGuideOpenChanged;`; `LagMarkHost` (:605) likewise; `SetupNoticeWatch` (:577) `isGuideOpen: () => _eventCoordinator.IsGuideOpen` + `_eventCoordinator.GuideOpenChanged += _setupNoticeWatch.OnGuideOpenChanged;`.
+  5. `SafetySetupStartup.MaybeRequest`'s call site (:666) unchanged except the renamed message.
+
+- [ ] **Step 7: Retire the machinery + swap the row** — delete `SafetySetupLaunch`/`SafetySetupHost` from `SafetySetupFlow.cs`; in `SettingsWindow.xaml.cs` remove the `_safetySetup` field + construction (:521-524), `StartSafetySetup` (:1227), `CreateSafetySetupFlow` (:1233); in `SettingsPageContext.cs` remove `RunSafetySetup` (:97) and the constructor argument (:667); in `GeneralPageSource.cs` replace the `g_safety` ButtonSpec with:
+
+```csharp
+                new ButtonSpec("g_guide",
+                    StringTable.Current.T("settings.general.guide.label"),
+                    () => { _ctx.Close(); _ctx.Messenger.Send(new FirstRunGuideRequestedMessage()); },
+                    ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
+```
+
+plus `"settings.general.guide.label"` ("Run the introduction guide" / DE "Einführung erneut starten", fit `B260x2` — replacing `settings.general.safety.label` in BOTH strings files; `--refresh-de-src` runs again HERE, r1 F19). **Retirement consumers updated in the same task (r1 F19):** `SafetySetupFlowTests.cs:78-170` (the `SafetySetupLaunch`/`SafetySetupHost` tests — DELETE; the flow-level tests stay) + the `RequestProbe : IRecipient<SafetySetupRequestedMessage>` recipient (:656 — retarget to `FirstRunGuideRequestedMessage`); `TestSettingsPageContext.cs:46` (`RunSafetySetup = ...` removed); `SimpleModeCurationTests.cs:103/:108` (`"Button:g_safety"` → `"Button:g_guide"`); `localization/settings-row-english.golden.json:1177` (regenerate the golden row).
+
+- [ ] **Step 8: Wiring tests** — `SafetySetupWiringTests` (new seams: `FirstRunGuideRequestedMessage` registration, per-run factory present, NO `SafetySetupLaunch.Run`/`SafetySetupHost`/`RunSafetySetup` strings anywhere in `SettingsUiCoordinator.cs`/`SettingsWindow.xaml.cs`) + `GeneralPageSourceTests` (`g_guide` replaces the `g_safety` label/parameter).
 
 - [ ] **Step 9: Run + commit**
 
@@ -2145,16 +2754,16 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): per-run raise, unified
 
 ---
 
-## Self-review notes (rev 5 — the plan-review r4 fixes folded in)
+## Self-review notes (rev 6 — the plan-review r5 fixes folded in)
 
-1. **Self-contained, verified** (r4 F1) — Tasks 1–13 all inline; the latch test uses the one-argument `RegisterChoice(id)` and subscribes `ChoiceActivated`; `TextsFor`/`EdgeWord` are defined in `GuideSurface` (Task 12); the message registration and `SetSplashHandle` are in Task 12 Step 2.
-2. **The window can close (r4 F2)** — no `Close()` member on `FirstRunGuideWindow`; the unused `HideCard`/`ShowCard` are gone (`HideGuide`/`ShowGuide` remain; the surface's `HideCard`/`ShowCard` route to them).
-3. **In-place presses re-render (r4 F3)** — the wiring calls `_guideSurface?.RenderChoicesForCurrentStep()` after `SetDwellTime` (±) and after a theme pick; the press cleared every chrome target and these presses don't change the step.
-4. **One slot per builder (r4 F4)** — the knob builds into its own `KnobRow` (XAML row 3); `SetPractice` builds into `StepContent`; on DwellTime both show (the practice circle beside the knob, spec §7.3); `SetDwellKnob(false)` only removes the ± targets when the knob was built (`_knobBuilt`).
-5. **Summon handler (r4 F5)** — swaps the body to the success text, no re-render (a toolbar event clears no targets).
-6. **Theme labels in Task 4** — the four `guide.theme.*` keys are in the sorted block + the DE files + the allowlist check (r4 S3); `OnGuideChoice` maps `guide_theme_*` → `ThemeChosenFire` with the canonical name.
-7. **Preview reach** — the builders resolve brushes through `Card.FindResource`, so the card-local previewed theme reaches the code-built cards (r4 S3).
-8. **NFluent** — `IsStrictlyGreaterThan` (r4 S3).
-9. **Census** — the entry uses the table's `(path → "cue — reason")` shape (r4 S3).
-10. **Task 10** — the duplicated Step 3/4 line is gone (r4 S3); the read-out handler is subscribed once in the ctor (r4 S3).
+1. **Self-contained, verified** (r4 F1, r5 F1) — every task's code is inline; the back-reference grep (`rev [0-9]'s … verbatim/test/code/Step`) matches only the changelog.
+2. **The window can close (r4 F2)** — no `Close()` member on `FirstRunGuideWindow`; the unused `HideCard`/`ShowCard` are gone.
+3. **In-place presses re-render (r4 F3, r5 F2)** — the wiring calls `_guideSurface?.RenderChoicesForCurrentStep()` after `SetDwellTime` (±) and after a theme pick; the press cleared every chrome target and these presses don't change the step; the knob's and chrome Close's already-built branches re-register from their own field references (`_knobCards`/`_knobBars`/`_chromeCloseCard`), which `SetChoices` never clears.
+4. **One slot per builder (r4 F4)** — the knob builds into `KnobRow`; `SetPractice` into `StepContent`; the chrome Close into `ChromeCloseHost` (row 0, right of the title — away from the action row, r5 F4); the Theme chips into a 2×2 `SetThemeGrid` in `StepContent` (r5 F4 — six 170-wide cards in one row overflow the 496-DIP inner width and 70-DIP circles would overlap; chips register at radius 40 DIP via `RegisterChoice(id, radiusDip)`).
+5. **Card geometry (r5 F4)** — choice cards are modal-button sized (170 × 100 DIP, spacing 16 → centres 186 ≥ 2×70 apart); the chip grid's vertical spacing is 40 (centres 130 ≥ 2×40 apart); a clipped card cannot fire unseen because `PushCentres` skips `!IsVisible` elements and the fixed grid leaves no overflow.
+6. **EdgeWord (r5 F5)** — `DockedEdge` is a string (`ToolbarSettings.cs:41`); the switch is over `"Top"/"Bottom"/"Left"` literals via `owner.Context!` (a nested type reads the outer coordinator's protected `Context`); the enum note is deleted.
+7. **Summon handler (r4 F5)** — swaps the body to the success text, no re-render (a toolbar event clears no targets).
+8. **Theme labels in Task 4** — the four `guide.theme.*` keys are in the sorted block + the DE files (r4 S3; the duplicate DE rows introduced mid-edit are gone).
+9. **Preview reach** — the builders resolve brushes through `Card.FindResource`, so the card-local previewed theme reaches the code-built cards (r4 S3).
+10. **NFluent/census/commits** — `IsStrictlyGreaterThan`; the census entry in `DetectorSites`' tuple shape; Task 1's commit stages the new test file explicitly (no `-am`).
 11. **Spec coverage** — §4 (Tasks 4, 12), §5 (Tasks 1, 8, 9, 10, 11, 12), §6 (Tasks 5, 6, 12), §7 steps 1–8 (Tasks 4–7, 12), §8 (Tasks 6, 12), §9 (Tasks 8–12), §12 (per-task tests + Task 13). No known gaps.

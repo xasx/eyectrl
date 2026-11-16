@@ -883,8 +883,8 @@
     "src": "3996e5ae"
   },
   "overlays.taskSwitcher.overflow": {
-    "text": "+{0} weitere Fenster",
-    "src": "9d325d26"
+    "text": "Weitere Fenster: {0}",
+    "src": "0a66b1f8"
   },
   "overlays.toolbar.keyboard": {
     "text": "Tastatur",

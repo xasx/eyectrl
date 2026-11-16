@@ -24,7 +24,7 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// S2-B on the drawn switcher: the "Minimiert" badge inside a tile face, the "Keine offenen
-/// Fenster" message on an empty grid, and the "+N weitere Fenster" overflow chip in the hint row.
+/// Fenster" message on an empty grid, and the "Weitere Fenster: N" overflow chip in the hint row.
 ///
 /// <para>
 /// The production XAML is detached from a never-shown window, laid out at 1920 × 1200 DIP and
@@ -344,7 +344,7 @@ public class TaskSwitcherTileStatesWindowTests
         Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
 
         var text = Descendants<TextBlock>(chip).Single();
-        Check.That(text.Text).IsEqualTo("+2 more windows");
+        Check.That(text.Text).IsEqualTo("More windows: 2");
         Check.That(BrushColor(text.Foreground)).IsEqualTo(Tokens.TextSecondary);
     }
 
@@ -372,7 +372,7 @@ public class TaskSwitcherTileStatesWindowTests
 
         Check.That(laid.ViewModel.OverflowCount).IsEqualTo(4);
         var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
-        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("+4 more windows");
+        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("More windows: 4");
     }
 
     /// <summary>
@@ -391,7 +391,7 @@ public class TaskSwitcherTileStatesWindowTests
             var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
             Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
             var text = Descendants<TextBlock>(chip).Single();
-            Check.That(text.Text).IsEqualTo("+2 weitere Fenster");
+            Check.That(text.Text).IsEqualTo("Weitere Fenster: 2");
 
             // The German chip is the longest of the three texts: at 200 % it must be drawn whole.
             var natural = FitText.NaturalWidth(text, text.Text);
@@ -404,7 +404,7 @@ public class TaskSwitcherTileStatesWindowTests
             // The count is an ARGUMENT: the template's own spelling is what the German table
             // holds, and the number is formatted in, not concatenated.
             Check.That(StringTable.Current.T("overlays.taskSwitcher.overflow", 1))
-                .IsEqualTo("+1 weitere Fenster");
+                .IsEqualTo("Weitere Fenster: 1");
         }
         finally
         {

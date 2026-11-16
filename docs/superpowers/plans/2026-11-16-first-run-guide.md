@@ -31,7 +31,7 @@
 
 **Interfaces:** Produces `FixationSuppressor.Guide`; `ModalInteractionState.GuideOpen` + `GuideOpenChanged` (volatile flag, per-subscriber try/catch raise); `ActivationOfferCoordinator` recomputes on the flip; `EventCoordinator.IsGuideOpen` + `GuideOpenChanged` forwarders.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Services/ModalInteractionStateTests.cs
@@ -74,9 +74,9 @@ public class ModalInteractionStateTests
 }
 ```
 
-- [ ] **Step 2: Run to verify failure** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModalInteractionStateTests"` → FAIL.
+- [x] **Step 2: Run to verify failure** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModalInteractionStateTests"` → FAIL.
 
-- [ ] **Step 3: Implement** — `FixationSuppressor.cs` gains:
+- [x] **Step 3: Implement** — `FixationSuppressor.cs` gains:
 
 ```csharp
     /// <summary>The first-run guide, while its fullscreen card is up.</summary>
@@ -154,9 +154,9 @@ public class ModalInteractionStateTests
     }
 ```
 
-- [ ] **Step 4: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModalInteractionStateTests"` → PASS; `--filter "FullyQualifiedName~ActivationOffer"` → PASS.
+- [x] **Step 4: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModalInteractionStateTests"` → PASS; `--filter "FullyQualifiedName~ActivationOffer"` → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git -C .worktrees/first-run-guide add src/EyeCtrl.Core/FixationSuppressor.cs src/EyeCtrl.App/Services/Coordinators/ModalInteractionState.cs src/EyeCtrl.App/Services/Coordinators/ActivationOfferCoordinator.cs src/EyeCtrl.App/Services/EventCoordinator.cs tests/EyeCtrl.App.Tests/Services/ModalInteractionStateTests.cs

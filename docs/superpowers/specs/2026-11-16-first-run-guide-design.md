@@ -1,12 +1,12 @@
 # First-Run Introduction Guide — Design
 
 - **Date:** 2026-11-16
-- **Status:** Rev 1 — brainstormed with the owner interactively (flow relation, interactivity, settings picked); the remaining decisions were taken on best judgment while the owner was unreachable and are recorded as the vetoable ledger (§10).
+- **Status:** Rev 1.1 — brainstormed with the owner interactively (flow relation, interactivity, settings picked); the remaining decisions were taken on best judgment while the owner was unreachable and are recorded as the vetoable ledger (§10). Rev 1.1: pre-review self-verification against the shipped code **replaced the interaction-pause mechanism** — calibration ships no pause; the guide uses the calibration overlay model instead (receiving backdrop + proactive-surface suspension, §5).
 - **Supersedes:** the startup Safety Setup's *surface* — its question chain survives verbatim inside the guide (§7).
 
 ## 1. Summary
 
-A first-run introductory guide replaces the startup safety setup as the app's first-run experience. It presents the app's use interactively (live try-it tasks), guides through the most important settings, and offers calibration — then walks the owner through the five safety questions via the existing `SafetySetupFlow` chain. The guide is a centered card over a fullscreen click-through backdrop, driven by a headless state machine in `App/Services` — the `SafetySetupFlow` pattern: WPF-free logic, callback-driven surface, headlessly testable.
+A first-run introductory guide replaces the startup safety setup as the app's first-run experience. It presents the app's use interactively (live try-it tasks), guides through the most important settings, and offers calibration — then walks the owner through the five safety questions via the existing `SafetySetupFlow` chain. The guide is a centered card over a fullscreen receiving backdrop (the shipped calibration overlay model), driven by a headless state machine in `App/Services` — the `SafetySetupFlow` pattern: WPF-free logic, callback-driven surface, headlessly testable.
 
 Owner picks (answered interactively):
 
@@ -36,8 +36,8 @@ A new install of EyeCtrl hands a person a completely gaze-driven PC with no inst
 
 ## 5. Window & surface
 
-- **`FirstRunGuideWindow`** — `OverlayWindow` family, fullscreen topmost backdrop, **click-through outside the card**; centered content card ≈ 560 × 440 DIP (content-sized per step, bounded), `Tokens.BrushSurfaceDark` + `Tokens.LargeCornerRadius`, styled after the splash card / calibration completion card.
-- **Pause:** while the guide window is open, background interaction is paused the same way calibration capture pauses it (via the coordinator / `InteractionManager`); on close → resume. Dwell controls *inside* the card work under pause — proven by calibration's dwell Retry/Accept buttons, because pause gates the OS-interaction path, not gaze-driven WPF controls.
+- **`FirstRunGuideWindow`** — `OverlayWindow` family, fullscreen topmost **receiving backdrop** (not click-through: background dwell-clicks land harmlessly on it — the shipped calibration model; the splash is click-through only because it has nothing interactive and the gaze engine is already running behind it); centered content card ≈ 560 × 440 DIP (content-sized per step, bounded), `Tokens.BrushSurfaceDark` + `Tokens.LargeCornerRadius`, styled after the splash card / calibration completion card.
+- **Interaction:** the gaze pipeline stays live — the guide *teaches* dwell, so the cursor keeps moving and the in-card dwell controls work (shipped calibration proves dwell controls run with no pause: its Retry/Accept buttons). No `InteractionManager` pause: `TogglePause()` is the **user** pause (pause-indicator strip, heartbeat stamping) and is not the right tool. Instead, **proactive surfaces are suspended** while the guide is open — sticky notes, eye-care exercises, quick-actions summon, drift notices — reusing the shipped suspension seams (`NoteManager`'s calibration flag consumed from `CalibrationStateChangedMessage`; `QuickActionsSummonController.SetSummonSuspended`); on close the suspensions lift. During the calibration step the guide window hides entirely and yields the screen to `CalibrationWindow`.
 - **Disarm latch:** every newly shown card holds its dwell choices disarmed until the gaze has left the card — the Settings window's `LeaveBeforeArmLatch` pattern reproduced in the guide window. This is the load-bearing anti-mis-dwell property: the flow's cards follow one another at the same place, and a gaze resting on the last answer sits on the next card's buttons.
 - **String surface:** all guide text through `StringTable.Current.T(...)`, new `guide.*` keys with German translations (per `docs/release-notes/german-localization.md` conventions).
 
@@ -55,7 +55,7 @@ Welcome → MeetDwell → DwellTime → Calibrate → ToolbarTask → Theme → 
 - **Surface contract:** the flow knows only `IGuideSurface` (show step content, choices, task state); the window's code-behind implements it by updating `FirstRunGuideViewModel`, which the XAML binds. The VM never talks back to the flow — input flows window → flow events only.
 - **Skip policy:** steps 2 (MeetDwell) and 5 (ToolbarTask) are skippable tasks; step 4 (Calibrate) is skippable; steps 1/3/6/7/8 are not (3 and 6 are Continue-only; 7 is answerable-through; 8 is the latch).
 - **Safety block (§7):** the flow owns a `SafetySetupFlow` instance; entering the step shows the guide's own transition card, then calls the new `SafetySetupFlow.StartQuestions()`; `onEnded(true)` → advance to Done. The chain's failure-hold/checking cards render through the same card surface.
-- **Abandon:** `WindowClosed` stops the safety chain (`Abandon()`), clears the pause, keeps applied answers; flag untouched.
+- **Abandon:** `WindowClosed` stops the safety chain (`Abandon()`), lifts the suspensions, keeps applied answers; flag untouched.
 - **Re-run:** `FirstRunGuideHost` (window-side, headless like `SafetySetupHost` was) enforces one flow at a time and refuses a re-run while open.
 
 ## 7. The eight steps
@@ -70,10 +70,10 @@ Card: what the dwell ring means (progress arc, activation on completion). Conten
 Slider over the 200–2000 ms range, bound to `DwellSettings.ActivationButtonDwellMs` (the activation-button dwell — the guide's practice target and the app's dwell buttons follow it live), written through the same live-apply path Settings rows use. The practice target sits beside the slider so each change is felt immediately. Continue when ready.
 
 ### 4) Calibrate (omitted without a tracker)
-Card: "Make sure the cursor follows your eyes." **Calibrate now** hides the guide card, sends `CalibrationRequestedMessage`, and re-shows on `CalibrationCompletedMessage`/`CalibrationCancelledMessage`, then advances. **Skip** → advance. Without a tracker (`GazeProviderType` fallback to mouse — the splash's no-tracker signal) the step is omitted from the list entirely.
+Card: "Make sure the cursor follows your eyes." **Calibrate now** hides the guide window, sends `CalibrationRequestedMessage`, and re-shows on `CalibrationCompletedMessage`/`CalibrationCancelledMessage`, then advances. **Skip** → advance. Without a tracker (`GazeProviderType` fallback to mouse — the splash's no-tracker signal) the step is omitted from the list entirely.
 
 ### 5) Toolbar summon — live practice
-Card: the docked edge band is the way to the toolbar (the keyboard, settings, everything opens from there). Task: summon the toolbar by dwelling the docked edge; success = the toolbar-shown signal, then the card updates and **Continue** advances. **Skip** available. The card stays centered and interactive; relies on the deliberate pause-doesn't-gate-toolbar-dwell behavior (L6) so the band summons under the guide's pause — with the §9 fallback if that ever changes.
+Card: the docked edge band is the way to the toolbar (the keyboard, settings, everything opens from there). Task: summon the toolbar by dwelling the docked edge; success = a toolbar-shown observation on the `IToolbarVisibility.ShowToolbar` path, then the card updates and **Continue** advances. **Skip** available. The card stays centered and interactive; the band summon is coordinate-driven (`ToolbarAutoHideController`) and runs under the receiving backdrop — no interaction gating involved (L6).
 
 ### 6) Theme
 Four chips (Midnight, Daylight, Ember, Contrast) bound to the Theme settings write path, applied live — the card re-skins itself as the selection changes. Continue.
@@ -106,7 +106,8 @@ Transition card ("5 quick questions to keep you safe") → `SafetySetupFlow.Star
 | Window closed mid-flow | Abandon: applied answers stay, flag false, re-prompt next start |
 | Re-run requested while guide open | Refused (one flow at a time) |
 | Gaze rests on the next card's buttons | Disarm latch: choices armed only after gaze has left the card |
-| Pause + toolbar task | Band summon relies on pause-doesn't-gate-toolbar; **fallback if it ever gates:** during the task the guide lifts the pause locally (task window only), restoring it on success/skip — decided at plan level after a probe of `InteractionManager`/toolbar wiring |
+| Gaze rests on the backdrop during the guide | Dwell-clicks land on the receiving backdrop — no-ops (calibration model) |
+| Proactive surfaces pop mid-guide (notes, eye-care exercises, quick actions, drift notices) | Suspended while the guide is open via the shipped seams (§5); lifted on close |
 
 ## 10. Decision ledger (owner-vetoable)
 
@@ -117,7 +118,7 @@ Choices taken while the owner was not answering interactive prompts; every entry
 - **L3 — Step order.** Welcome → MeetDwell → DwellTime → Calibrate → ToolbarTask → Theme → Safety → Done. *Alternative considered:* calibration first (accuracy before practice) — rejected: the practice target is deliberately big/tolerant, and the interaction model is the first thing a new user needs; calibration before the toolbar task keeps that task accurate.
 - **L4 — Reuse `SafetySetupFlow` for the safety block** (driven by the guide's card surface) instead of rewriting the five questions as native guide steps. *Rejected alternative:* rewrite — would re-implement the crash-recovery wait/ceiling/failure-hold machinery and its test coverage.
 - **L5 — Single completion flag.** `GeneralSettings.SafetySetupDone` remains the latch (name now understates its meaning — "first-run setup completed"). *Rejected:* a new `FirstRunGuideDone` flag — always set together, so it would be a redundant migration.
-- **L6 — Toolbar task under pause.** Relies on the deliberate pause-doesn't-gate-toolbar-dwell behavior (owner-exploited for paused-launch testing). Fallback specified in §9. Verified during implementation; the owner can also strike the task outright.
+- **L6 — Toolbar task without pause exceptions.** The band summon is coordinate-driven (`ToolbarAutoHideController`) and runs under the receiving backdrop; the deliberate pause-doesn't-gate-toolbar precedent (owner-exploited for paused-launch testing) corroborates that gaze-driven summons coexist with gated surfaces. Rev 1.1 removed the original premise (a guide-wide pause) entirely. The owner can also strike the task outright.
 - **L7 — Re-run = full replay** including the safety questions. *Rejected alternative:* replay minus questions — needs per-block flags; YAGNI.
 - **L8 — No mockups during brainstorm.** The owner was not answering; layout is specified textually (§5). Visual acceptance happens at implementation review; the design-at-physical-size rule applies to any mockups then.
 - **L9 — No keyboard-typing practice task in v1.** Real-keyboard interplay (window summon, its dwell keys, pause scoping) is too heavy for v1; parked as a candidate follow-up step.
@@ -130,7 +131,7 @@ Choices taken while the owner was not answering interactive prompts; every entry
 |------|-------|------|
 | `EyeCtrl.App/Services/FirstRunGuideFlow.cs` | App | Headless step state machine (steps, skip policy, task signals, owns the `SafetySetupFlow` instance) |
 | `EyeCtrl.App/Services/FirstRunGuideHost.cs` | App | Window-side host: one flow at a time, re-run refusal, abandon on close |
-| `EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml(.cs)` | App | Fullscreen click-through backdrop + centered step card; disarm latch; dwell choices, practice target, slider, theme chips |
+| `EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml(.cs)` | App | Fullscreen receiving backdrop + centered step card; disarm latch; dwell choices, practice target, slider, theme chips |
 | `EyeCtrl.ViewModels/FirstRunGuideViewModel.cs` | ViewModels | Binding surface for the current step (title, body, choices, progress, task state) |
 | `tests/EyeCtrl.App.Tests/Services/FirstRunGuideFlowTests.cs` | Tests | Headless flow tests |
 | `tests/EyeCtrl.App.Tests/Services/FirstRunGuideHostTests.cs` | Tests | Host tests (one-flow, refusal, abandon) |
@@ -154,11 +155,12 @@ Choices taken while the owner was not answering interactive prompts; every entry
 |-------|----------------|
 | `SafetySetupFlow` question chain | Absorbed verbatim (L4) — crash-recovery wait/ceiling/failure machinery and its tests survive |
 | `CalibrationRequestedMessage`/`CalibrationCompletedMessage`/`CalibrationCancelledMessage` | The guide's calibration step rides them |
-| Pause-doesn't-gate-toolbar behavior | The toolbar task's foundation (L6) |
+| Receiving-backdrop overlay model (shipped calibration) | Background dwell-clicks land harmlessly on the guide; in-card dwell controls stay live |
+| `NoteManager` calibration flag / `QuickActionsSummonController.SetSummonSuspended` | The seams the guide's proactive-surface suspension reuses |
 
 ## 12. Testing guidance
 
-- **Flow tests (headless, fakes — NFluent):** step sequence and order; Calibrate omitted without a tracker; skip policy per step (2/4/5 skippable; 3/6 Continue-only; 7 answerable-through; 8 latches); task-success auto-advance (practice target, toolbar summon); calibration ended (success *and* cancelled) advances and re-shows the card; safety block: transition card → `StartQuestions` → completed → advance; "Later" closes with flag false; Finish sets the flag; window-closed abandon (chain abandoned, pause cleared, flag untouched); re-run refusal while open.
+- **Flow tests (headless, fakes — NFluent):** step sequence and order; Calibrate omitted without a tracker; skip policy per step (2/4/5 skippable; 3/6 Continue-only; 7 answerable-through; 8 latches); task-success auto-advance (practice target, toolbar summon); calibration ended (success *and* cancelled) advances and re-shows the card; safety block: transition card → `StartQuestions` → completed → advance; "Later" closes with flag false; Finish sets the flag; window-closed abandon (chain abandoned, suspensions lifted, flag untouched); re-run refusal while open; proactive surfaces suspended on open and lifted on close (surface-level pins on the seam calls).
 - **Startup gate tests:** `ShouldPrompt`/`MaybeRequest` unchanged conditions but raising `FirstRunGuideRequestedMessage` — update the existing `SafetySetupStartup` pins.
 - **Window tests (STA, Category=UI, no visible window — `InvisibleTestWindow.Prepare`):** a card renders per step VM; choices armed only after gaze leaves the card (disarm latch); dwell-time slider writes through the live-apply path; theme chips re-skin the card; practice target advance. The app-launching FlaUI gate (`EYECTRL_UI_TESTS=1`) is out of scope for new tests unless a startup-level assertion needs the real app.
 - **Regression pins:** existing `SafetySetupFlow` tests keep passing (chain logic unchanged; new `StartQuestions` variant tested separately: same chain, no intro card, same end semantics). `SettingsUiCoordinator` tests updated for the new message → guide-window raise.

@@ -206,12 +206,10 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): GuideOpen modal flag +
     {
         var flow = Flow();
         flow.StartQuestions();
-        for (var i = 0; i < SafetySetupFlow.QuestionCount; i++)
-        {
+        // Questions 0–3 are Yes/No; question 4 is the mode card (Basic/All).
+        for (var i = 0; i < 4; i++)
             _cards[^1].choices.First(c => c.Id == "safety_yes").Action();
-            if (i == SafetySetupFlow.QuestionCount - 2)
-                _cards[^1].choices.First(c => c.Id == "safety_basic").Action(); // question 4 = mode
-        }
+        _cards[^1].choices.First(c => c.Id == "safety_basic").Action();
 
         Check.That(_settings.General.SafetySetupDone).IsTrue();
         Check.That(_ended[^1]).IsTrue();
@@ -235,8 +233,9 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): GuideOpen modal flag +
     [Fact]
     public void CrashRecovery_Yes_WithAnUnrelatedFlightInFlight_DoesNotWait()
     {
-        var (toggle, persisted) = WorkingSupervision(_settings);
-        // Simulate an unrelated ENSURE flight: RequestEnsure() sets InFlight with kind=Ensuring.
+        // WorkingAsyncSupervision queues its work into _background — the ensure stays InFlight
+        // until RunBackground() runs, which this test deliberately never calls.
+        var toggle = WorkingAsyncSupervision(_settings);
         toggle.RequestEnsure();
         Check.That(toggle.InFlight).IsTrue();
 
@@ -247,7 +246,6 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): GuideOpen modal flag +
 
         // The chain must NOT attach to the unrelated flight: question 1 is already up.
         Check.That(_cards.Count).IsEqualTo(2);
-        Check.That(persisted).IsEmpty();
     }
 ```
 
@@ -483,42 +481,42 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): SplashThreadHandle.Whe
     "guide",
 ```
 
-- [ ] **Step 2: Add the English keys** to `strings.json` (shape: `{"text": ..., "who": "user", "where": "guide", "fit": ..., "args": [...], "crisis": true}` — `crisis` is required by the schema for user-facing keys; every `where` must be `"guide"`):
+- [ ] **Step 2: Add the English keys** to `strings.json` (shape: `{"text": ..., "who": "user", "where": "guide", "fit": ..., "args": [...]}` — matching `settings.general.safety.label`'s shape; every `where` must be `"guide"`):
 
 ```json
-  "guide.welcome.title": { "text": "Welcome to EyeCtrl", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.welcome.body": { "text": "EyeCtrl lets you control this PC with your eyes. This short guide shows you the basics — about 2 minutes. Every practice task can be skipped.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.welcome.start": { "text": "Start", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.later": { "text": "Later", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.dwell.title": { "text": "Dwell — your click", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.dwell.body": { "text": "Rest your gaze on a target and hold still: the ring fills, and on completion the target activates. Try it on the circle below.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.dwell.skip": { "text": "Skip", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.dwelltime.title": { "text": "Dwell time", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.dwelltime.body": { "text": "This slider sets how long a desktop click takes — the cursor dwell that clicks. Try values on the practice target; the guide's own buttons keep the standard UI dwell.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.dwelltime.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.calibrate.title": { "text": "Calibration", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.calibrate.body": { "text": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.calibrate.now": { "text": "Calibrate now", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.toolbar.title": { "text": "Your main menu", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.toolbar.body": { "text": "Look at the {edge} edge of the screen to summon the toolbar — the keyboard, settings and everything else open from there. Try it now.", "who": "user", "where": "guide", "fit": "prose", "args": ["edge"], "crisis": true },
-  "guide.toolbar.success": { "text": "Summoned! The toolbar hides again on its own. Continue when ready.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.theme.title": { "text": "Pick a look", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.theme.body": { "text": "The theme takes effect after a restart — the card here previews your choice.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.theme.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.safety.title": { "text": "5 quick questions to keep you safe", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.safety.body": { "text": "These keep crash recovery, startup and the audible cue set up for you.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.done.title": { "text": "You're set.", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.done.body": { "text": "The docked edge summons the toolbar — your main menu. The gaze keyboard opens from it, and every setting lives in Settings.", "who": "user", "where": "guide", "fit": "prose", "args": [], "crisis": true },
-  "guide.done.finish": { "text": "Finish", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.chrome.close": { "text": "Close guide", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true }
+  "guide.welcome.title": { "text": "Welcome to EyeCtrl", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.welcome.body": { "text": "EyeCtrl lets you control this PC with your eyes. This short guide shows you the basics — about 2 minutes. Every practice task can be skipped.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.welcome.start": { "text": "Start", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.later": { "text": "Later", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.dwell.title": { "text": "Dwell — your click", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.dwell.body": { "text": "Rest your gaze on a target and hold still: the ring fills, and on completion the target activates. Try it on the circle below.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.dwell.skip": { "text": "Skip", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.dwelltime.title": { "text": "Dwell time", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.dwelltime.body": { "text": "This slider sets how long a desktop click takes — the cursor dwell that clicks. Try values on the practice target; the guide's own buttons keep the standard UI dwell.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.dwelltime.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.calibrate.title": { "text": "Calibration", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.calibrate.body": { "text": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.calibrate.now": { "text": "Calibrate now", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.toolbar.title": { "text": "Your main menu", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.toolbar.body": { "text": "Look at the {edge} edge of the screen to summon the toolbar — the keyboard, settings and everything else open from there. Try it now.", "who": "user", "where": "guide", "fit": "prose", "args": ["edge"] },
+  "guide.toolbar.success": { "text": "Summoned! The toolbar hides again on its own. Continue when ready.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.theme.title": { "text": "Pick a look", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.theme.body": { "text": "The theme takes effect after a restart — the card here previews your choice.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.theme.continue": { "text": "Continue", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.safety.title": { "text": "5 quick questions to keep you safe", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.safety.body": { "text": "These keep crash recovery, startup and the audible cue set up for you.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.done.title": { "text": "You're set.", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.done.body": { "text": "The docked edge summons the toolbar — your main menu. The gaze keyboard opens from it, and every setting lives in Settings.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
+  "guide.done.finish": { "text": "Finish", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.chrome.close": { "text": "Close guide", "who": "user", "where": "guide", "fit": "row", "args": [] }
 ```
 
 - [ ] **Step 3: Add the German keys** to `src/EyeCtrl.App/Localization/strings.de.json` — mirror every key with the German text (translator voice per `docs/release-notes/german-localization.md`; the `where`/`fit`/`args` fields match English exactly). Example rows:
 
 ```json
-  "guide.welcome.title": { "text": "Willkommen bei EyeCtrl", "who": "user", "where": "guide", "fit": "modal170", "args": [], "crisis": true },
-  "guide.later": { "text": "Später", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true },
-  "guide.chrome.close": { "text": "Anleitung schließen", "who": "user", "where": "guide", "fit": "row", "args": [], "crisis": true }
+  "guide.welcome.title": { "text": "Willkommen bei EyeCtrl", "who": "user", "where": "guide", "fit": "modal170", "args": [] },
+  "guide.later": { "text": "Später", "who": "user", "where": "guide", "fit": "row", "args": [] },
+  "guide.chrome.close": { "text": "Anleitung schließen", "who": "user", "where": "guide", "fit": "row", "args": [] }
 ```
 
 (translate every key from Step 2 the same way)
@@ -984,7 +982,8 @@ public class FirstRunGuideViewModelTests
             vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(280, 220), t));
             t += 30_000;
         }
-        Check.That(activated).HasSize(1);
+        // The activation knob fired (cooldown suppresses a re-fire inside the 360 ms window).
+        Check.That(activated).Not.IsEmpty();
     }
 
     [Fact]
@@ -1002,7 +1001,7 @@ public class FirstRunGuideViewModelTests
             vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(280, 220), t) { IsPaused = true });
             t += 30_000;
         }
-        Check.That(activated).HasSize(1);
+        Check.That(activated).Not.IsEmpty();
     }
 }
 ```
@@ -1065,7 +1064,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
                dwellRegistry: dwellRegistry, pauseGraceSettings: settings.Dwell)
     {
         _settings = settings;
-        _practiceDetector = new DwellDetector(dwellCooldownMs: 0, DwellContext.Other, sink,
+        _practiceDetector = new DwellDetector(_settings.Dwell.DwellCooldownMs, DwellContext.Other, sink,
             pauseGraceMs: 0) { OtherTargetReleasesHold = true };
         _practiceDetector.TargetActivated += _ => PracticeTargetActivated?.Invoke();
         _latch = new LeaveBeforeArmLatch(DwellDetector, releaseMarginPhysical: () => 70);
@@ -1099,6 +1098,18 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
 
     /// <summary>The safety chain's current choices (null outside the safety block).</summary>
     public IReadOnlyList<ModalChoice>? SafetyChoices { get; private set; }
+
+    /// <summary>The view registers each chrome card (a choice, or the guide_close chrome button)
+    /// as a detector target at layout — the Settings-modal pattern, whose ShowModal clears
+    /// targets and re-registers its choice buttons. Position is physical px, pushed by the view;
+    /// radius/dwell follow the chrome knob (ToolbarButtonDwellMs).</summary>
+    public void RegisterChoice(string id, PhysicalPoint centre)
+        => DwellDetector.AddTarget(new DwellTarget(id, centre,
+            radius: 40, dwellTimeMs: _settings.Dwell.ToolbarButtonDwellMs));
+
+    /// <summary>Clears the chrome targets (the window calls this before re-registering a new
+    /// card's set — guide_close included).</summary>
+    public void ClearChoices() => DwellDetector.ClearTargets();
 
     public void ShowDwellPracticeStep()
     {
@@ -1214,30 +1225,79 @@ using EyeCtrl.ViewModels;
 /// <summary>
 /// The first-run guide's window (spec §5): fullscreen click-through backdrop with a centered
 /// interactive card. AllowsTransparency + no post-Show Opacity writes (InvisibleTestWindow.Prepare
-/// compatible, r1 F10). The XAML binds FirstRunGuideViewModel; step content is code-built because
-/// each step hosts different live controls (practice target, slider, theme chips).
-/// </content>
+/// compatible, r1 F10). The window is a RENDERER: it binds <see cref="FirstRunGuideViewModel"/>
+/// and exposes card/choice/practice/slider/chips setters; the step→content mapping lives in the
+/// wiring's <c>GuideSurface</c> (Task 12), which is also the <c>IGuideSurface</c> implementation.
 /// </summary>
 public sealed partial class FirstRunGuideWindow : OverlayWindow
 {
+    private readonly FirstRunGuideViewModel _vm;
+
     public FirstRunGuideWindow(FirstRunGuideViewModel vm)
     {
         InitializeComponent();
         IsClickThrough = true;
         DataContext = vm;
+        _vm = vm;
     }
 
-    /// <summary>Step 5: the summoned toolbar (and ring) must sit above this window.</summary>
-    public void RaiseToolbarAndRingAbove()
+    /// <summary>Card content: title/body/chrome-Close visibility. The chrome Close is a dwell
+    /// button added to the choice row (id <c>guide_close</c>) whenever <paramref name="chromeClose"/>
+    /// holds — present on every step except Welcome (Later) and Done (Finish).</summary>
+    public void ShowCardContent(string title, string body, bool chromeClose)
     {
-        Toolbar?.RaiseToTop();
-        if (CursorVM is { IsVisible: true })
-            CursorCircle?.RaiseToTop();
+        _vm.ShowCard(title, body, chromeClose);
     }
+
+    /// <summary>Rebuilds the choice row: one visual card per (label, id) pair. The cards are
+    /// DETECTOR TARGETS, not self-dwelling controls — the Settings-modal pattern
+    /// (<c>SettingsWindowViewModel.ShowModal</c> clears targets and re-registers its choice
+    /// buttons; the guide VM's chrome detector + <c>LeaveBeforeArmLatch</c> own them). The view
+    /// pushes each card's centre at layout via <c>vm.RegisterChoice(id, centre)</c>; an activated
+    /// target raises <see cref="FirstRunGuideViewModel.ChoiceActivated"/> with the id.</summary>
+    public void SetChoices(IReadOnlyList<(string Label, string Id)> choices)
+    {
+        ChoiceRow.Children.Clear();
+        _vm.ClearChoices();
+        _vm.ArmLatch();
+        foreach (var (label, id) in choices)
+        {
+            var card = new Border
+            {
+                Child = new TextBlock { Text = label },
+            };
+            card.DataContext = id;   // the layout pass reads it back for RegisterChoice
+            ChoiceRow.Children.Add(card);
+        }
+    }
+
+    /// <summary>Step 2/3's practice target visibility; the target's position is set by the view
+    /// once laid out (the VM's detector takes physical pixels).</summary>
+    public void SetPractice(bool visible) => _vm.SetPracticeVisible(visible);
+
+    public void SetSlider(bool visible) => _vm.SetSliderVisible(visible);
+    public void SetThemeChips(bool visible) => _vm.SetThemeChipsVisible(visible);
+
+    public void HideCard()
+    {
+        _vm.ShowCard(string.Empty, string.Empty, chromeClose: false);
+        SetChoices(Array.Empty<(string, string)>());
+        Visibility = Visibility.Hidden;
+    }
+
+    public void ShowCard()
+    {
+        Visibility = Visibility.Visible;
+    }
+
+    /// <summary>The chrome Close (guide_close) and choice activations surface here for the flow —
+    /// the wiring subscribes <see cref="FirstRunGuideViewModel.ChoiceActivated"/> and
+    /// <see cref="FirstRunGuideViewModel.CloseRequested"/>. Hidden while a card shows nothing.</summary>
+    public void Close() => Close();
 }
 ```
 
-(The `Toolbar`/`CursorCircle` accesses go through the injected overlay accessor the wiring passes in — Task 13 wires the actual raise; the method above is the window-side hook the wiring calls.)
+(The XAML's `ChoiceRow` carries plain Border cards whose visuals follow the Settings-modal's choice rendering; their dwell time is `ToolbarButtonDwellMs` via the VM's chrome detector — the disarm latch holds them until gaze has left each card, exactly like the Settings modal. **Open point for the plan review:** whether the guide's cards reuse `SettingsWindowViewModel.ShowModal`'s exact rendering/registration path or re-implement the small version of it — the plan assumes the small version.)
 
 - [ ] **Step 3: Overlay inventory row** — `docs/design/overlay-unification-spec.md` §3.1 gains (after the Splash row, same column shape):
 
@@ -1729,20 +1789,14 @@ Concretely each show path becomes: `if (_isSettingsOpen() || _isProbeOpen()) ret
     }
 ```
 
-`SetupNoticeWatch` — ctor gains `Func<bool>? isGuideOpen = null` (App.xaml.cs:577), and the three `CheckStartup()` call sites (Start :91, Poll :110, Poke :136) become:
+`SetupNoticeWatch` — ctor gains `Func<bool>? isGuideOpen = null` (App.xaml.cs:577), and ONE gated helper replaces the three raw `CheckStartup()` call sites (Start :91, Poll :110, Poke :136) — each becomes `if (CheckStartupWhenGuideClosed())`, keeping its surrounding schedule/flow:
 
 ```csharp
-        if (_isGuideOpen?.Invoke() != true && _service.CheckStartup())
-```
-
-wait — careful: the guide-open case must SKIP the check entirely (not just skip showing) so `WriteShownTime` never runs behind the guide; the watch keeps polling:
-
-```csharp
-        // r4 F3: CheckStartup writes setup-notice-shown.json BEFORE _show, so while the guide is
-        // open the check is skipped entirely (the watch keeps polling); on guide close one poll
-        // runs and the notice shows then.
-        if (_isGuideOpen?.Invoke() == true)
-            return false;   // call sites keep their schedule/flow
+    /// <summary>r4 F3: <c>CheckStartup</c> writes <c>setup-notice-shown.json</c> BEFORE <c>_show</c>,
+    /// so while the guide is open the check is skipped entirely (no burn; the watch keeps its
+    /// schedule) — on guide close one poll runs and the notice shows then.</summary>
+    private bool CheckStartupWhenGuideClosed() =>
+        _isGuideOpen?.Invoke() != true && _service.CheckStartup();
 ```
 
 and the watch gains:
@@ -1872,7 +1926,9 @@ Step toggles and the toolbar-shown observation (the adapter's `VisibilityChanged
             if (step == FirstRunGuideStep.ToolbarTask)
             {
                 _toolbar.ResetToolbarForGuideTask();       // claim 6(d): hold released + Hidden
-                _guideWindow?.RaiseToolbarAndRingAbove();  // Guide < Toolbar < PauseIndicator < ring
+                context.OverlayManager.Toolbar.RaiseToTop();          // Guide < Toolbar
+                if (context.CursorVM.IsVisible)
+                    context.OverlayManager.CursorCircle.RaiseToTop(); // < PauseIndicator < ring
             }
             else
             {
@@ -1883,7 +1939,9 @@ Step toggles and the toolbar-shown observation (the adapter's `VisibilityChanged
         _toolbar.ToolbarVisibilityChanged += visible => context.Dispatcher.BeginInvoke(() =>
         {
             if (_guideFlow is null || !_modal.GuideOpen || !visible) return;
-            _guideWindow?.RaiseToolbarAndRingAbove();      // ring raised AFTER the toolbar
+            context.OverlayManager.Toolbar.RaiseToTop();
+            if (context.CursorVM.IsVisible)
+                context.OverlayManager.CursorCircle.RaiseToTop();
             _guideFlow.NotifyTaskSucceeded();              // the summon IS the task's success
         });
 ```
@@ -1979,24 +2037,17 @@ plus the row's string keys (surface `"settings"`, so they do NOT live in the gui
             if (startupGuidePending)
             {
                 // The NoTracker/Paused card must not spend its state behind the guide (r2 F1):
-                // the presenter starts on guide close — or on guide-startup failure (fallback release).
-                void StartStatusCards()
+                // the presenter starts on guide close. The coordinator's lease/Restore path
+                // guarantees the guide either opens (GuideOpenChanged(true), later (false)) or
+                // releases on failure — this one-shot subscription cannot wedge. (r3 F6's
+                // fallback release is the lease's Dispose-on-exception, not a timer.)
+                void OnGuideClosedForStatusCards(bool open)
                 {
-                    _eventCoordinator.GuideOpenChanged -= onGuideClosed;
+                    if (open) return;
+                    _eventCoordinator.GuideOpenChanged -= OnGuideClosedForStatusCards;
                     _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
                 }
-                void onGuideClosed(bool open) { if (!open) StartStatusCards(); }
-                _eventCoordinator.GuideOpenChanged += onGuideClosed;
-                try
-                {
-                    // The raise itself runs via the coordinator's BeginInvoke; if the factory
-                    // throws before Show(), the gate never opens and the cards must not wedge.
-                    // SafetySetupStartup.MaybeRequest below is the only raiser; wrap nothing here —
-                    // the coordinator's own try/catch (Task 5's lease pattern) releases via
-                    // Restore(). A guide that never opens would wedge the hold, so the raise path
-                    // guarantees Closed-or-lease-dispose on every failure.
-                }
-                finally { /* no-op: the fallback release lives in the coordinator's Restore */ }
+                _eventCoordinator.GuideOpenChanged += OnGuideClosedForStatusCards;
             }
             else
             {

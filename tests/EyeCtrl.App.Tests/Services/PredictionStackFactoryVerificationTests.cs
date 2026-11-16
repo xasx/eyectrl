@@ -54,6 +54,7 @@ public class PredictionStackFactoryVerificationTests : IDisposable
     {
         public bool IsAvailable => true;
         public void Predict(string context, string? prefix = null) { }
+        public void PredictNextWord(string context) { }
         public IReadOnlyList<PredictionResult>? TryGetResults() => null;
         public void Cancel() { }
         public void Dispose() { }

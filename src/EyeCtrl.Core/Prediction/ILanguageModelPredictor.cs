@@ -22,6 +22,16 @@ public interface ILanguageModelPredictor : IDisposable
     void Predict(string context, string? prefix = null);
 
     /// <summary>
+    /// Begins an asynchronous NEXT-WORD prediction: what word follows <paramref name="context"/>
+    /// at a word boundary. The context is the whole committed text, not just the previous word.
+    /// This is a different request shape from <see cref="Predict"/> (a boundary is where the
+    /// completion mode has nothing to complete), and its result is read the same way, through
+    /// <see cref="TryGetResults"/>.
+    /// </summary>
+    /// <param name="context">The committed text the next word follows (trailing space optional).</param>
+    void PredictNextWord(string context);
+
+    /// <summary>
     /// Returns completed predictions from the most recent <see cref="Predict"/> call,
     /// or null if the inference is still in progress.
     /// </summary>

@@ -364,6 +364,7 @@ public class KeyboardPasswordNeverLearnedTests
         public List<(string Context, string? Prefix)> Queries { get; } = new();
         public bool IsAvailable => true;
         public void Predict(string context, string? prefix = null) => Queries.Add((context, prefix));
+        public void PredictNextWord(string context) => Queries.Add((context, null));
         public IReadOnlyList<PredictionResult>? TryGetResults() => null;
         public void Cancel() { }
         public void Dispose() { }

@@ -3,22 +3,24 @@ namespace EyeCtrl.Platform.Tests.Services;
 using System.IO;
 
 /// <summary>
-/// Fixup-01 F1, pinned at the source level: the window manager's set-minimise path must use the
-/// non-blocking <c>ShowWindowAsync</c>. "Show desktop" runs on the UI thread, which is also the
-/// gaze-dwell thread, so a synchronous <c>ShowWindow</c> on one hung window would freeze every
-/// overlay (Pause included) and leave a gaze-only owner without control. The blocking
-/// <c>Minimize</c> stays exactly as it is for the single-target Quick Actions path.
+/// S3-A fixup-01 F1 and S3-C fixup-01 (coordinator decision 1), pinned at the source level: both
+/// the set-minimise path and the single-target Quick Actions minimise/maximise must post
+/// <c>ShowWindowAsync</c>. They run on the UI thread, which is also the gaze-dwell thread, so a
+/// synchronous <c>ShowWindow</c> on one hung window would freeze every overlay (Pause included) and
+/// leave a gaze-only owner without control.
 ///
 /// <para>
-/// The P/Invoke layer is static, so this cannot be exercised by a fake at runtime; the call choice
-/// is the whole fix, and a source pin is the honest seam. A runtime test that actually minimised a
-/// window is forbidden here (no test may touch a real window).
+/// The production P/Invoke layer is static; the runtime behaviour is covered by
+/// <see cref="Win32WindowManagerActionTests"/> through the <c>IWindowActionNative</c> fake, and the
+/// static choice itself is pinned here: the production shim must forward the async call to
+/// <c>NativeMethods.ShowWindowAsync</c>, never to the blocking twin. A runtime test that actually
+/// minimised a window is forbidden here (no test may touch a real window).
 /// </para>
 /// </summary>
 public class Win32WindowManagerMinimizeTests
 {
     [Fact]
-    public void MinimizeNonBlocking_UsesShowWindowAsync_AndTheBlockingMinimizeStaysUnchanged()
+    public void MinimizePaths_UseShowWindowAsync_NeverTheBlockingCall()
     {
         var source = Source();
 
@@ -33,11 +35,48 @@ public class Win32WindowManagerMinimizeTests
         Check.WithCustomMessage("the stale-handle re-check must survive the switch to the async call.")
             .That(nonBlocking.Contains("IsWindow")).IsTrue();
 
-        // The existing single-target Quick Actions minimise keeps its blocking behaviour; this
-        // ticket deliberately adds a separate seam method instead of changing it.
-        var blocking = ExtractMethod(source, "public void Minimize(IntPtr hwnd)");
-        Check.That(blocking.Contains("NativeMethods.ShowWindow(")).IsTrue();
-        Check.That(blocking.Contains("ShowWindowAsync")).IsFalse();
+        // Fixup-01 (F2/F4): the single-target Quick Actions minimise posts asynchronously too.
+        var minimize = ExtractMethod(source, "public void Minimize(IntPtr hwnd)");
+        Check.WithCustomMessage(
+                "Quick Actions Minimize calls the blocking ShowWindow again: the caller is the "
+                + "gaze thread, so one hung window freezes the owner's control.")
+            .That(minimize.Contains("_native.ShowWindowAsync")).IsTrue();
+        Check.WithCustomMessage("the single-target minimise still calls the blocking ShowWindow.")
+            .That(minimize.Contains("_native.ShowWindow(")).IsFalse();
+        Check.That(minimize.Contains("SW_MINIMIZE")).IsTrue();
+        Check.That(minimize.Contains("IsWindow")).IsTrue();
+
+        var maximize = ExtractMethod(source, "public void MaximizeOrRestore(IntPtr hwnd)");
+        Check.WithCustomMessage(
+                "MaximizeOrRestore calls the blocking ShowWindow again: the caller is the gaze "
+                + "thread, so one hung window freezes the owner's control.")
+            .That(maximize.Contains("_native.ShowWindowAsync")).IsTrue();
+        Check.WithCustomMessage("the maximise/restore path still calls the blocking ShowWindow.")
+            .That(maximize.Contains("_native.ShowWindow(")).IsFalse();
+        Check.That(maximize.Contains("DecideWindowOp")).IsTrue();
+    }
+
+    /// <summary>
+    /// The seam is only honest if its production implementation reaches the real P/Invoke: the
+    /// async forwarding must call <c>NativeMethods.ShowWindowAsync</c>, never <c>ShowWindow</c>.
+    /// </summary>
+    [Fact]
+    public void Win32WindowActionNative_ForwardsTheAsyncShowToThePInvoke()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.Platform", "Services", "Win32WindowActionNative.cs"));
+        const string signature = "public bool ShowWindowAsync(IntPtr hwnd, int command)";
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Check.WithCustomMessage($"The repository source no longer contains '{signature}'.")
+            .That(start).IsStrictlyGreaterThan(-1);
+        // Expression-bodied member: read to its terminating semicolon.
+        var method = source[start..source.IndexOf(';', start)];
+
+        Check.That(method.Contains("NativeMethods.ShowWindowAsync")).IsTrue();
+        Check.WithCustomMessage(
+                "the async seam is wired to the blocking ShowWindow: every action that uses it "
+                + "would wait on a hung target again.")
+            .That(method.Contains("NativeMethods.ShowWindow(")).IsFalse();
     }
 
     private static string Source() => File.ReadAllText(Path.Combine(

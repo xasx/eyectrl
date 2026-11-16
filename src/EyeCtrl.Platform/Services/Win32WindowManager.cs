@@ -18,15 +18,32 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
 {
     private readonly ILogger<Win32WindowManager> _logger;
     private readonly IInputIntegrityProbe _integrity;
+    private readonly IWindowActionNative _native;
+    private readonly WindowActionScheduler _actions;
 
     /// <summary>Creates the window manager.</summary>
     /// <param name="logger">Records why a switch failed — see <see cref="BringToFront"/>.</param>
     /// <param name="integrity">Reads token facts, so the escape path never targets a window
     /// above EyeCtrl's own reach.</param>
     public Win32WindowManager(ILogger<Win32WindowManager> logger, IInputIntegrityProbe integrity)
+        : this(logger, integrity, new Win32WindowActionNative(), new WindowActionScheduler(logger))
+    {
+    }
+
+    /// <summary>
+    /// Test seam: substitutes the Win32 calls and shortens the scheduler's bounds so a fake "hung"
+    /// target can prove the caller never waits on it.
+    /// </summary>
+    internal Win32WindowManager(
+        ILogger<Win32WindowManager> logger,
+        IInputIntegrityProbe integrity,
+        IWindowActionNative native,
+        WindowActionScheduler actions)
     {
         _logger = logger;
         _integrity = integrity;
+        _native = native;
+        _actions = actions;
     }
 
     /// <summary>
@@ -112,108 +129,147 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     /// overlay process.
     /// </summary>
     /// <param name="hwnd">Win32 window handle of the window to activate.</param>
+    /// <remarks>
+    /// Returns at once: the whole sequence runs on <see cref="WindowActionScheduler"/>'s worker,
+    /// because the caller is the UI dispatcher, which is also the gaze-dwell thread, and every call
+    /// below is a synchronous cross-process wait on the target. A target that stops answering is
+    /// abandoned after the hand-off bound; a request that cannot start within the start deadline is
+    /// dropped — an ALT grant must never be injected long after the dwell that asked for it.
+    /// </remarks>
     public void BringToFront(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero) return;
-
-        // The tile snapshot is one-shot (AppWindow per ShowOverlay), so a window that closes
-        // mid-session leaves a tile whose dwell dispatches here on a dead hwnd. Today that
-        // path injects the ALT pair unconditionally — a stray ALT tap into whatever currently
-        // holds foreground (the 2026-08-25 stuck-ALT hazard) — and only the later
-        // SetForegroundWindow fails and logs. IsWindow is authoritative at the point of use;
-        // skip the grant for a target that cannot receive it (the same guard Minimize,
-        // MaximizeOrRestore and CloseWindow already carry).
-        if (!NativeMethods.IsWindow(hwnd))
+        _actions.Enqueue("bring a window to the foreground", hwnd, action =>
         {
-            _logger.LogWarning(
-                "Task switcher will not foreground window {Hwnd}: the window is gone (dead hwnd) — "
-                + "skipping the ALT foreground grant.",
-                hwnd);
-            return;
-        }
+            if (action.IsCancelled) return;
 
-        // Minimized first (2026-08-18 field follow-up: Edge/Word/Task-Manager switched fine but
-        // WhatsApp/ZCode/Claude — all iconic — did not): SetForegroundWindow "succeeds" on a
-        // minimized window without un-minimizing it, so the window never visibly appears and
-        // the success return skips any fallback. Restoring before foregrounding is the textbook
-        // sequence.
-        if (NativeMethods.IsIconic(hwnd))
-            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+            if (hwnd == IntPtr.Zero) return;
 
-        // The overlays are WS_EX_NOACTIVATE, so this process never holds foreground, and the
-        // Windows foreground lock silently rejects a bare SetForegroundWindow: switcher dwell
-        // selections fired, the overlay closed, and no window came forward (2026-08-18 field
-        // diagnosis — the "tasks are not dwellable" report was really "switching never
-        // happens"). The previous AllowSetForegroundWindow(ASFW_ANY) call was a no-op: it
-        // delegates a right the caller must already hold. The ALT-press simulation is the
-        // standard grant — a process seen delivering keyboard input earns the right to set the
-        // foreground window.
-        //
-        // The tap must be one atomic SendInput pair issued BEFORE the switch. The old
-        // keybd_event bracket straddled SetForegroundWindow, so the window holding focus when
-        // ALT went down got the WM_SYSKEYDOWN while the matching WM_SYSKEYUP was redirected to
-        // the new foreground window — leaving the old app with ALT latched (menu mode,
-        // Alt-shortcut misfires), intermittently, depending on which app held focus. A gaze-only
-        // user has no physical ALT press to clear that state, so it survived until reboot
-        // (2026-08-25 field report: "alt key seems stuck"). Atomic delivery keeps both events in
-        // one thread queue, and the grant still counts the completed tap.
-        var altTap = new[]
-        {
-            new NativeMethods.INPUT
+            // The tile snapshot is one-shot (AppWindow per ShowOverlay), so a window that closes
+            // mid-session leaves a tile whose dwell dispatches here on a dead hwnd. Today that
+            // path injects the ALT pair unconditionally — a stray ALT tap into whatever currently
+            // holds foreground (the 2026-08-25 stuck-ALT hazard) — and only the later
+            // SetForegroundWindow fails and logs. IsWindow is authoritative at the point of use;
+            // skip the grant for a target that cannot receive it (the same guard Minimize,
+            // MaximizeOrRestore and CloseWindow already carry).
+            if (!_native.IsWindow(hwnd))
             {
-                Type = NativeMethods.INPUT_KEYBOARD,
-                Union = new NativeMethods.INPUTUNION
-                {
-                    Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = NativeMethods.VK_MENU }
-                }
-            },
-            new NativeMethods.INPUT
+                _logger.LogWarning(
+                    "Task switcher will not foreground window {Hwnd}: the window is gone (dead hwnd) — "
+                    + "skipping the ALT foreground grant.",
+                    hwnd);
+                return;
+            }
+
+            // Minimized first (2026-08-18 field follow-up: Edge/Word/Task-Manager switched fine but
+            // WhatsApp/ZCode/Claude — all iconic — did not): SetForegroundWindow "succeeds" on a
+            // minimized window without un-minimizing it, so the window never visibly appears and
+            // the success return skips any fallback. Restoring before foregrounding is the textbook
+            // sequence.
+            if (_native.IsIconic(hwnd))
+                _native.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+
+            // The restore above is the call that hangs on a window that has stopped answering. If a
+            // later pick gave up on us while we were inside it, the ALT grant below must NOT be
+            // injected now: by the time the target answers, the foreground belongs to whatever the
+            // owner moved on to, and a stale tap lands there (the 2026-08-25 key-misdelivery class,
+            // with the additional twist that the tap would arrive seconds late).
+            if (action.IsCancelled) return;
+
+            // Same rule when nothing later cancelled us, with the coordinator's 3 s budget: a
+            // target that answered the restore very late has recovered too late for the switch,
+            // and the ALT grant would land seconds after the dwell. Drop it and say so, rather than
+            // perform the switch into whatever holds the foreground by now.
+            if (action.IsStale)
             {
-                Type = NativeMethods.INPUT_KEYBOARD,
-                Union = new NativeMethods.INPUTUNION
+                _logger.LogWarning(
+                    "Task switcher will not foreground window {Hwnd}: {ElapsedMs:0} ms after the "
+                    + "request the target still has not taken the foreground, so the ALT grant would "
+                    + "arrive too late — dropping the switch.",
+                    hwnd, action.Elapsed.TotalMilliseconds);
+                return;
+            }
+
+            // The overlays are WS_EX_NOACTIVATE, so this process never holds foreground, and the
+            // Windows foreground lock silently rejects a bare SetForegroundWindow: switcher dwell
+            // selections fired, the overlay closed, and no window came forward (2026-08-18 field
+            // diagnosis — the "tasks are not dwellable" report was really "switching never
+            // happens"). The previous AllowSetForegroundWindow(ASFW_ANY) call was a no-op: it
+            // delegates a right the caller must already hold. The ALT-press simulation is the
+            // standard grant — a process seen delivering keyboard input earns the right to set the
+            // foreground window.
+            //
+            // The tap must be one atomic SendInput pair issued BEFORE the switch. The old
+            // keybd_event bracket straddled SetForegroundWindow, so the window holding focus when
+            // ALT went down got the WM_SYSKEYDOWN while the matching WM_SYSKEYUP was redirected to
+            // the new foreground window — leaving the old app with ALT latched (menu mode,
+            // Alt-shortcut misfires), intermittently, depending on which app held focus. A gaze-only
+            // user has no physical ALT press to clear that state, so it survived until reboot
+            // (2026-08-25 field report: "alt key seems stuck"). Atomic delivery keeps both events in
+            // one thread queue, and the grant still counts the completed tap.
+            var altTap = new[]
+            {
+                new NativeMethods.INPUT
                 {
-                    Keyboard = new NativeMethods.KEYBDINPUT
+                    Type = NativeMethods.INPUT_KEYBOARD,
+                    Union = new NativeMethods.INPUTUNION
                     {
-                        VirtualKey = NativeMethods.VK_MENU,
-                        Flags = NativeMethods.KEYEVENTF_KEYUP
+                        Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = NativeMethods.VK_MENU }
+                    }
+                },
+                new NativeMethods.INPUT
+                {
+                    Type = NativeMethods.INPUT_KEYBOARD,
+                    Union = new NativeMethods.INPUTUNION
+                    {
+                        Keyboard = new NativeMethods.KEYBDINPUT
+                        {
+                            VirtualKey = NativeMethods.VK_MENU,
+                            Flags = NativeMethods.KEYEVENTF_KEYUP
+                        }
                     }
                 }
+            };
+            var injected = _native.SendInput(
+                (uint)altTap.Length, altTap, Marshal.SizeOf<NativeMethods.INPUT>());
+            // Read only when the grant came up short: GetLastPInvokeError is undefined after a call
+            // that succeeded, and a meaningless code in a diagnostic log is worse than no code.
+            var grantError = injected < (uint)altTap.Length ? Marshal.GetLastPInvokeError() : 0;
+            var ok = _native.SetForegroundWindow(hwnd);
+
+            // Both previous failures of this path were reported as bare symptoms — "tasks are not
+            // dwellable" (2026-08-18) and "the alt key seems stuck" (2026-08-25) — and each cost a
+            // diagnosis round, because the two calls that can fail here threw away everything they
+            // knew. The log line is the whole point: a gaze-only user cannot bisect this by hand.
+            // Named arguments: both counts are uint, so a swap would invert the diagnosis silently.
+            var outcome = ForegroundSwitchDiagnosis.Classify(new ForegroundSwitchAttempt(
+                InjectedInputs: injected,
+                ExpectedInputs: (uint)altTap.Length,
+                SetForegroundSucceeded: ok));
+            if (outcome == ForegroundSwitchOutcome.Switched)
+            {
+                _logger.LogInformation("Task switcher brought window {Hwnd} to the foreground.", hwnd);
+                return;
             }
-        };
-        var injected = NativeMethods.SendInput(
-            (uint)altTap.Length, altTap, Marshal.SizeOf<NativeMethods.INPUT>());
-        // Read only when the grant came up short: GetLastPInvokeError is undefined after a call
-        // that succeeded, and a meaningless code in a diagnostic log is worse than no code.
-        var grantError = injected < (uint)altTap.Length ? Marshal.GetLastPInvokeError() : 0;
-        var ok = NativeMethods.SetForegroundWindow(hwnd);
 
-        // Both previous failures of this path were reported as bare symptoms — "tasks are not
-        // dwellable" (2026-08-18) and "the alt key seems stuck" (2026-08-25) — and each cost a
-        // diagnosis round, because the two calls that can fail here threw away everything they
-        // knew. The log line is the whole point: a gaze-only user cannot bisect this by hand.
-        // Named arguments: both counts are uint, so a swap would invert the diagnosis silently.
-        var outcome = ForegroundSwitchDiagnosis.Classify(new ForegroundSwitchAttempt(
-            InjectedInputs: injected,
-            ExpectedInputs: (uint)altTap.Length,
-            SetForegroundSucceeded: ok));
-        if (outcome == ForegroundSwitchOutcome.Switched)
-        {
-            _logger.LogInformation("Task switcher brought window {Hwnd} to the foreground.", hwnd);
-            return;
-        }
+            // The title is the diagnostic payload on this path: last time, which apps failed
+            // (WhatsApp, Claude — all minimized) against which worked (Edge, Word) was the finding.
+            _logger.LogWarning(
+                "Task switcher could not foreground window {Hwnd} ({Title}): {Outcome}. "
+                + "SendInput accepted {Injected}/{Expected} events (error {GrantError}); "
+                + "falling back to a minimize/restore toggle.",
+                hwnd, DescribeWindow(hwnd), outcome, injected, altTap.Length, grantError);
 
-        // The title is the diagnostic payload on this path: last time, which apps failed
-        // (WhatsApp, Claude — all minimized) against which worked (Edge, Word) was the finding.
-        _logger.LogWarning(
-            "Task switcher could not foreground window {Hwnd} ({Title}): {Outcome}. "
-            + "SendInput accepted {Injected}/{Expected} events (error {GrantError}); "
-            + "falling back to a minimize/restore toggle.",
-            hwnd, DescribeWindow(hwnd), outcome, injected, altTap.Length, grantError);
-
-        // Rare fallback when even the grant is denied: a minimize/restore toggle moves the
-        // window through a shell-honored state change that also brings it forward.
-        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
-        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+            // Rare fallback when even the grant is denied: a minimize/restore toggle moves the
+            // window through a shell-honored state change that also brings it forward. It must not
+            // run once the pick has been abandoned or has run past its budget: SW_RESTORE activates
+            // the window, and a late toggle would take activation away from the pick the owner made
+            // next. The failure warning above is written before these guards because it records the
+            // failure itself, which is the diagnosis even when the fallback is skipped.
+            if (action.IsCancelled || action.IsStale) return;
+            _native.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
+            if (action.IsCancelled || action.IsStale) return;
+            _native.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+        });
     }
 
     /// <summary>
@@ -251,8 +307,12 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     /// <inheritdoc />
     public void Minimize(IntPtr hwnd)
     {
-        if (!NativeMethods.IsWindow(hwnd)) return;
-        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
+        // ShowWindowAsync, not ShowWindow: the caller is the gaze-dwell thread, and the synchronous
+        // form waits for the target's thread, so one hung window would freeze every overlay —
+        // Pause included. Minimise needs no ordering and no foreground grant, so it needs neither
+        // a worker nor the scheduler: the async form posts the request and returns.
+        if (!_native.IsWindow(hwnd)) return;
+        _native.ShowWindowAsync(hwnd, NativeMethods.SW_MINIMIZE);
     }
 
     /// <inheritdoc />
@@ -271,11 +331,13 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     /// <inheritdoc />
     public void MaximizeOrRestore(IntPtr hwnd)
     {
-        if (!NativeMethods.IsWindow(hwnd)) return;
+        // The same reasoning as Minimize: local state reads only, then the non-blocking show.
+        // WindowStateOps keeps the decision identical to the synchronous path this replaced.
+        if (!_native.IsWindow(hwnd)) return;
         var op = WindowStateOps.DecideWindowOp(
-            isZoomed: NativeMethods.IsZoomed(hwnd),
-            isIconic: NativeMethods.IsIconic(hwnd));
-        NativeMethods.ShowWindow(hwnd, op == WindowStateOp.Maximize
+            isZoomed: _native.IsZoomed(hwnd),
+            isIconic: _native.IsIconic(hwnd));
+        _native.ShowWindowAsync(hwnd, op == WindowStateOp.Maximize
             ? NativeMethods.SW_MAXIMIZE
             : NativeMethods.SW_RESTORE);
     }

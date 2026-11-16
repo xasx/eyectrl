@@ -22,6 +22,14 @@ public interface IWindowManager
     /// Brings the specified window to the foreground.
     /// </summary>
     /// <param name="hwnd">Win32 window handle of the window to activate.</param>
+    /// <remarks>
+    /// Returns at once. The implementation runs the restore/ALT-grant/foreground sequence on a
+    /// background worker, because the caller is the UI thread, which is also the gaze-dwell thread,
+    /// and every step is a synchronous cross-process call that waits on the target. The sequence is
+    /// serialised so two picks never interleave their ALT grants; a target that stops answering is
+    /// abandoned after a bounded hand-off, and a request that cannot start within about a second is
+    /// dropped rather than fired late.
+    /// </remarks>
     void BringToFront(IntPtr hwnd);
 
     /// <summary>
@@ -31,12 +39,12 @@ public interface IWindowManager
     /// </summary>
     IntPtr? TryGetEligibleForegroundWindow();
 
-    /// <summary>Minimizes the window. Fire-and-forget after the eligibility guard.</summary>
+    /// <summary>Minimizes the window. Fire-and-forget: the caller never waits on the target.</summary>
     /// <remarks>
-    /// BLOCKING: <c>ShowWindow</c> waits for the target's thread to process the request, so a hung
-    /// window can stall the caller. Use it for a single target the owner deliberately picked (the
-    /// Quick Actions window action). For a SET of windows — "show desktop" — use
-    /// <see cref="MinimizeNonBlocking"/> instead.
+    /// The implementation posts <c>ShowWindowAsync</c>, which returns without waiting for the
+    /// target's thread — a hung window cannot stall the UI/gaze thread. Minimise has no ordering
+    /// requirement and no foreground grant, so it needs no worker. For a SET of windows — "show
+    /// desktop" — use <see cref="MinimizeNonBlocking"/>; it is the same mechanism.
     /// </remarks>
     void Minimize(IntPtr hwnd);
 
@@ -50,7 +58,11 @@ public interface IWindowManager
     /// <remarks>Fire-and-forget: no result is reported, exactly like <see cref="Minimize"/>.</remarks>
     void MinimizeNonBlocking(IntPtr hwnd);
 
-    /// <summary>Maximizes a normal window or restores a maximized/minimized one.</summary>
+    /// <summary>
+    /// Maximizes a normal window or restores a maximized/minimized one. Fire-and-forget: the
+    /// implementation reads the state and posts <c>ShowWindowAsync</c>, so the caller never waits
+    /// on the target and a hung window cannot stall the UI/gaze thread.
+    /// </summary>
     void MaximizeOrRestore(IntPtr hwnd);
 
     /// <summary>Closes the window gracefully via WM_CLOSE (the app's save-changes prompt fires).</summary>

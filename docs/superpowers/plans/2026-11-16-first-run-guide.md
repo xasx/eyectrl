@@ -468,9 +468,9 @@ and the constructor:
 
 **Interfaces:** Produces the 36 `guide.*` keys below (incl. the four theme labels — r3 F12's placement fix). `strings.json` keys SORTED; every key referenced as a literal in Task 12's switches; German rows `{"text", "src"}`, Sie form; identical values allowlisted.
 
-- [ ] **Step 1:** `guide` into both `Surfaces`/`SURFACES` lists (after `"eye-care",`).
+- [x] **Step 1:** `guide` into both `Surfaces`/`SURFACES` lists (after `"eye-care",`).
 
-- [ ] **Step 2: English keys, SORTED** (fit: titles `modal460`, buttons `modal170`, prose `prose`):
+- [x] **Step 2: English keys, SORTED** (fit: titles `modal460`, buttons `modal170`, prose `prose`):
 
 ```json
   "guide.calibrate.body": { "text": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar.", "who": "user", "where": "guide", "fit": "prose", "args": [] },
@@ -512,7 +512,7 @@ and the constructor:
   "guide.welcome.title": { "text": "Welcome to EyeCtrl", "who": "user", "where": "guide", "fit": "modal460", "args": [] }
 ```
 
-- [ ] **Step 3: German rows, Sie form** (r3 F3; translate every key — `src` = the exact English text):
+- [x] **Step 3: German rows, Sie form** (r3 F3; translate every key — `src` = the exact English text):
 
 ```json
   "guide.calibrate.body": { "text": "Stellen Sie sicher, dass der Cursor Ihren Augen folgt. Sie können später auch über Einstellungen oder die Symbolleiste kalibrieren.", "src": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar." },
@@ -527,9 +527,9 @@ and the constructor:
 
 (`"guide.welcome.start"`'s identical value goes into `localization/strings.identical-allowlist.json`; the four theme labels match the existing `settings.general.theme.option.*` translations.)
 
-- [ ] **Step 4: Manifest + refresh** — `"guide"` between `"eye-care"` and `"language-recovery"` in `strings.de.manifest.json`; `python -I tools/strings_validate.py --refresh-de-src`.
-- [ ] **Step 5: Parity gates** → clean.
-- [ ] **Step 6: Commit** `feat(guide): guide string surface — 36 sorted keys, Sie-form DE rows, theme labels, identical allowlist`.
+- [x] **Step 4: Manifest + refresh** — `"guide"` between `"eye-care"` and `"language-recovery"` in `strings.de.manifest.json`; `python -I tools/strings_validate.py --refresh-de-src`.
+- [x] **Step 5: Parity gates** → clean.
+- [x] **Step 6: Commit** `feat(guide): guide string surface — 36 sorted keys, Sie-form DE rows, theme labels, identical allowlist`.
 
 ---
 

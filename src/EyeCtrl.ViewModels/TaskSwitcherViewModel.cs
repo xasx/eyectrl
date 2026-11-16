@@ -173,7 +173,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// which are enumerated but unreachable. This is the same "reachable" the T3 open line counts
     /// (<see cref="_registeredTiles"/>: tiles whose visible face got a dwell target), so the chip
     /// and the log can never disagree about what was on screen. The View draws it as
-    /// "+N weitere Fenster" in the hint row. Zero until the View's post-layout registration pass
+    /// "Weitere Fenster: N" in the hint row. Zero until the View's post-layout registration pass
     /// completes, because reachability is geometric.
     /// </summary>
     [ObservableProperty]

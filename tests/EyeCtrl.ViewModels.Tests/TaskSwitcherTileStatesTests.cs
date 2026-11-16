@@ -10,7 +10,7 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// S2-B: the three states the switcher used to hide — a minimised window (its tile now says
 /// "Minimiert"), a session with no window at all (the empty message) and windows beyond the
-/// grid's capacity (the "+N weitere Fenster" chip).
+/// grid's capacity (the "Weitere Fenster: N" chip).
 ///
 /// <para>
 /// Everything here drives the real show path (the toggle the toolbar sends), so the flags are

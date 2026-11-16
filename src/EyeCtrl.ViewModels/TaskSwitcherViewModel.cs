@@ -126,6 +126,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private SessionOutcome _sessionOutcome = SessionOutcome.Other;
     private string? _sessionPickedTargetId;
     private int _sessionTileCount;
+    private int _sessionTileDwellMs;
     private bool _sessionCurrentExcluded;
     private int _sessionSlot = -1;
     private bool _anchorValid;
@@ -147,6 +148,16 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
 
     /// <summary>Reserved dwell-target id for the "Show desktop" tile (not a window tile).</summary>
     public const string DesktopTargetId = "__taskswitcher_desktop__";
+
+    /// <summary>
+    /// The tile dwell in effect: <c>max(TaskSwitcherTileDwellMs, ToolbarButtonDwellMs)</c>
+    /// (S4-A) — a tile is never quicker than the toolbar, so a slower toolbar setting slows the
+    /// tiles with it. The window tiles and the desktop tile alike; the close disc is NOT here
+    /// (it keeps <see cref="DwellSettings.ToolbarButtonDwellMs"/> so the escape stays quick).
+    /// </summary>
+    private int EffectiveTileDwellMs => Math.Max(
+        _settings.Dwell.TaskSwitcherTileDwellMs,
+        _settings.Dwell.ToolbarButtonDwellMs);
 
     /// <summary>
     /// This process. "Show desktop" skips any window it owns — defensively, because
@@ -493,7 +504,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         desktop.Position = screenRect.Center;
         RegisterFace(DesktopTargetId, screenRect, isDesktop: true);
         DwellDetector.AddTarget(new DwellTarget(
-            DesktopTargetId, screenRect, _settings.Dwell.ToolbarButtonDwellMs));
+            DesktopTargetId, screenRect, EffectiveTileDwellMs));
     }
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
@@ -608,9 +619,10 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// covered only ~41% of every visible face, leaving ~59% dead — gaze accumulated nothing
     /// there, with no cue explaining why (the same drawn-vs-hit mismatch QuickActions fixed as
     /// a field finding, and the class behind the 2026-08-17 'tiles gave no feedback' report).
-    /// Reuses <c>ToolbarButtonDwellMs</c> (700 ms default): tiles are large so it feels easy to
-    /// hit, which is intentional for a fullscreen picker. If user testing finds it too
-    /// sensitive, add a dedicated TaskSwitcherTileDwellMs field to DwellSettings.
+    /// Registers <see cref="EffectiveTileDwellMs"/> (S4-A, default 800 ms): a tile with a
+    /// picture invites a longer look than a toolbar button, and it is never quicker than the
+    /// toolbar. The ✕ close disc stays on <c>ToolbarButtonDwellMs</c> so the escape keeps its
+    /// old, shorter look time.
     /// </summary>
     public void UpdateTilePosition(IntPtr hwnd, PhysicalRect screenRect)
     {
@@ -624,7 +636,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         DwellDetector.AddTarget(new DwellTarget(
             hwnd.ToString(),
             screenRect,
-            _settings.Dwell.ToolbarButtonDwellMs));
+            EffectiveTileDwellMs));
     }
 
     /// <summary>
@@ -662,6 +674,10 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         _sessionPickedTargetId = null;
         _sessionSlot = -1;
         _sessionTileCount = 0;
+        // S4-A: the tile dwell this session logs is the one captured at the OPEN — the settings
+        // cannot change while the fullscreen switcher is up, and the ladder analysis wants the
+        // value the tiles were registered with, not one read at the flush.
+        _sessionTileDwellMs = EffectiveTileDwellMs;
         _sessionCurrentExcluded = false;
         _registeredTiles.Clear();
         _eligibleAt.Clear();
@@ -721,7 +737,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
                 : "none";
 
             var line = string.Create(CultureInfo.InvariantCulture,
-                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count(t => !t.IsDesktop)} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId}");
+                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count(t => !t.IsDesktop)} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId} tileDwellMs={_sessionTileDwellMs}");
             _logger?.LogInformation("{Line}", line);
         }
         catch (Exception)

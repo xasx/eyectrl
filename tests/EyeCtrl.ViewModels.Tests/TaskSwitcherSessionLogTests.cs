@@ -38,12 +38,32 @@ public class TaskSwitcherSessionLogTests
         h.Layout(reachable: 3);
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=5 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=none lastOutcome=none");
+            "Task switcher opened: tiles=5 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
         Check.That(h.Entries[0].Level).IsEqualTo(LogLevel.Information);
 
         // A second layout pass (a re-registration) must not write the open line twice.
         h.Vm.UpdateCloseButtonPosition(h.Close);
         Check.That(h.CountLines("Task switcher opened:")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void OpenLine_CarriesTheTileDwell_TheEffectiveMaxOfTileAndToolbar()
+    {
+        // S4-A: the line ends with the tile dwell in effect, captured at the open. With the
+        // toolbar slower than the tile knob (900 > 800) the tiles follow the toolbar, so the
+        // value logged is 900 — the default-settings 800 is pinned by every other open-line
+        // case above, and the registered targets themselves by TaskSwitcherTileDwellTests.
+        using var h = new Harness(windowCount: 2, settings: new EyeCtrlSettings
+        {
+            Dwell = { ToolbarButtonDwellMs = 900 }
+        });
+
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Layout(reachable: 2);
+
+        Check.That(h.Lines).ContainsExactly(
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=900");
     }
 
     [Fact]
@@ -58,7 +78,7 @@ public class TaskSwitcherSessionLogTests
         h.Layout(columns: 3);
 
         Check.That(h.Lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=2 currentExcluded=true reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none");
+            "Task switcher opened: tiles=2 currentExcluded=true reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
 
         h.At(500);
         h.Toggle();                              // close (Other) at 500 ms
@@ -69,7 +89,7 @@ public class TaskSwitcherSessionLogTests
         h.Layout(columns: 3);
 
         Check.That(h.Lines.Last()).IsEqualTo(
-            "Task switcher opened: tiles=3 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=5000 lastOutcome=Other");
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=5000 lastOutcome=Other tileDwellMs=800");
     }
 
     [Fact]
@@ -90,7 +110,7 @@ public class TaskSwitcherSessionLogTests
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).ContainsExactly(new IntPtr(picked + 1));
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=9 currentExcluded=false reachable=9 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
+            "Task switcher opened: tiles=9 currentExcluded=false reachable=9 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800",
             $"Task switcher closed: outcome=Picked openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=200 liftToEntryMs=100 slot=4 row=1 col=1");
     }
 
@@ -109,7 +129,7 @@ public class TaskSwitcherSessionLogTests
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).IsEmpty();
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800",
             $"Task switcher closed: outcome=CloseDisc openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
     }
 
@@ -144,7 +164,7 @@ public class TaskSwitcherSessionLogTests
         h.Toggle();
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=none lastOutcome=none",
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800",
             "Task switcher closed: outcome=Other openMs=500 guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
     }
 
@@ -185,7 +205,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(closedAt).IsNotNull();
         Check.That(h.Lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=4 currentExcluded=false reachable=4 anchorValid=false sinceLastCloseMs=none lastOutcome=none");
+            "Task switcher opened: tiles=4 currentExcluded=false reachable=4 anchorValid=false sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
         Check.That(h.Lines[1]).IsEqualTo(
             $"Task switcher closed: outcome=Picked openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=n/a liftToEntryMs=n/a slot=2 row=1 col=0");
     }
@@ -216,7 +236,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
-            "Task switcher opened: tiles=6 currentExcluded=false reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
+            "Task switcher opened: tiles=6 currentExcluded=false reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked tileDwellMs=800",
             StringComparison.Ordinal))).IsTrue();
     }
 
@@ -243,7 +263,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
-            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked",
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked tileDwellMs=800",
             StringComparison.Ordinal))).IsTrue();
     }
 
@@ -318,7 +338,8 @@ public class TaskSwitcherSessionLogTests
             int windowCount = 3,
             IReadOnlyList<AppWindow>? windows = null,
             ILogger<TaskSwitcherViewModel>? logger = null,
-            IntPtr? foreground = null)
+            IntPtr? foreground = null,
+            EyeCtrlSettings? settings = null)
         {
             DpiHelper.Initialize(1.0, 1.0);
             _startMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
@@ -328,7 +349,7 @@ public class TaskSwitcherSessionLogTests
                 foreground);
             Vm = new TaskSwitcherViewModel(
                 _windowManager,
-                new EyeCtrlSettings(),
+                settings ?? new EyeCtrlSettings(),
                 _messenger,
                 logger: logger ?? _capture,
                 timeProvider: _clock);

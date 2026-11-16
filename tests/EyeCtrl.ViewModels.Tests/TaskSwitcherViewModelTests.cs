@@ -82,9 +82,11 @@ public class TaskSwitcherViewModelTests
         var center = new PhysicalPoint(500, 400);
         vm.UpdateTilePosition(hwnd, PhysicalRect.FromCenter(center, 184, 104));
 
-        // Dwell: gaze enters the tile and remains past the dwell time (700 ms default → µs),
-        // sampled continuously — a single step past 150 ms restarts the dwell.
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1000L;
+        // Dwell: gaze enters the tile and remains past the dwell time (S4-A: the tile's effective
+        // dwell is max(tile, toolbar) — 800 ms at the defaults, not the toolbar's 700), sampled
+        // continuously — a single step past 150 ms restarts the dwell.
+        var dwellUs = Math.Max(
+            settings.Dwell.TaskSwitcherTileDwellMs, settings.Dwell.ToolbarButtonDwellMs) * 1000L;
         DwellDrive.Hold(messenger, center, 0, dwellUs + 1);
 
         Check.That(selected).IsEqualTo(hwnd);

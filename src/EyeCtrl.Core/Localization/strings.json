@@ -3570,6 +3570,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.task_switcher_tile.description": {
+    "text": "How long to look at a tile in the window switcher. A tile is never quicker than the toolbar dwell.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.task_switcher_tile.label": {
+    "text": "Switcher Tiles (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.toolbar.description": {
     "text": "How long to rest on EyeCtrl's own buttons.",
     "who": "user",

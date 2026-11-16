@@ -171,7 +171,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): GuideOpen modal flag +
 
 **Interfaces:** Produces `StartQuestions()` (`_active = true; _pendingFailure = null; Advance(0);`) + `IsEnablingInFlight => _inFlight && _kind == RequestKind.Enabling`; `RequestCrashRecovery` gains `if (_supervision.Enabled && !_supervision.InFlight) return;` and attaches only when `IsEnablingInFlight`.
 
-- [ ] **Step 1: Write the failing tests** (harness facts: `_cards` is `List<(string Message, IReadOnlyList<ModalChoice> Choices)>`; `Top`/`Pick(id)` → `.OnChosen!.Invoke()`; helpers `WorkingSupervision` (sync), `WorkingAsyncSupervision` (queues to `_background`, `isSupervisorConnected: () => true`), `FailingAsyncSupervision`):
+- [x] **Step 1: Write the failing tests** (harness facts: `_cards` is `List<(string Message, IReadOnlyList<ModalChoice> Choices)>`; `Top`/`Pick(id)` → `.OnChosen!.Invoke()`; helpers `WorkingSupervision` (sync), `WorkingAsyncSupervision` (queues to `_background`, `isSupervisorConnected: () => true`), `FailingAsyncSupervision`):
 
 ```csharp
     [Fact]
@@ -251,7 +251,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): GuideOpen modal flag +
     }
 ```
 
-- [ ] **Step 2: Run → FAIL. Step 3: Implement** — `IsEnablingInFlight` beside `InFlight` (:88):
+- [x] **Step 2: Run → FAIL. Step 3: Implement** — `IsEnablingInFlight` beside `InFlight` (:88):
 
 ```csharp
     /// <summary>Whether the in-flight operation (if any) is an ENABLE. The crash-recovery chain
@@ -300,8 +300,8 @@ and after `Start()`:
     }
 ```
 
-- [ ] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~SafetySetupFlowTests"`).
-- [ ] **Step 5: Commit** `feat(guide): SafetySetupFlow.StartQuestions + supervision flight-kind guard`.
+- [x] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~SafetySetupFlowTests"`).
+- [x] **Step 5: Commit** `feat(guide): SafetySetupFlow.StartQuestions + supervision flight-kind guard`.
 
 ---
 

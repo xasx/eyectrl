@@ -161,31 +161,50 @@ public class Win32WindowManagerActionTests
 
     /// <summary>
     /// The stale-input property when no later action fires the cancellation: the target recovers
-    /// on its own, long after the dwell, and the pick must still not inject its ALT grant.
+    /// on its own, past the 3 s completion budget, and the pick must still not inject its ALT grant.
     /// </summary>
     [Fact]
-    public void AStuckPickThatRecoversWithoutASuccessor_StillDropsItsAlt_WhenItIsTooLate()
+    public void AStuckPickThatRecoversWithoutASuccessor_StillDropsItsAlt_AfterTheBudget()
     {
         var native = new FakeWindowActionNative { HangInShowWindow = Window };
         native.Minimised.Add(Window);
-        var (manager, _, logger) = Create(
-            native,
-            handoffTimeout: TimeSpan.FromSeconds(5),
-            startDeadline: TimeSpan.FromMilliseconds(150));
+        var (manager, _, logger) = Create(native);
 
         manager.BringToFront(Window);
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
 
-        // No second action: the target simply answers after the allowance has run out.
-        Thread.Sleep(300);
+        // No second action: the target simply answers after the 3 s budget has run out.
+        Thread.Sleep(3500);
         native.ReleaseHang.Set();
         Check.That(native.HangExited.Wait(TimeSpan.FromSeconds(5))).IsTrue();
         WaitUntil(
-            () => logger.Entries.Any(e => e.Message.Contains("would arrive too late", StringComparison.Ordinal)),
+            () => logger.Entries.Any(e => e.Message.Contains("after the request", StringComparison.Ordinal)),
             "the too-late drop line");
 
         Check.That(native.SendInputBatches).IsEmpty();
         Check.That(native.Foregrounded).IsEmpty();
+    }
+
+    /// <summary>
+    /// The coordinator's 3 s budget: a restore that answers after 1.5 s is a slow but alive target —
+    /// today it still switched, so it must still get the ALT pair and the foreground call.
+    /// </summary>
+    [Fact]
+    public void APickWhoseRestoreAnswersWithinTheBudget_StillGetsItsAltAndSwitch()
+    {
+        var native = new FakeWindowActionNative { HangInShowWindow = Window };
+        native.Minimised.Add(Window);
+        var (manager, _, logger) = Create(native);
+
+        manager.BringToFront(Window);
+        Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Thread.Sleep(1500);
+        native.ReleaseHang.Set();
+
+        WaitUntil(() => native.Foregrounded.Contains(Window), "the switch after a slow restore");
+        Check.That(native.SendInputBatches).HasSize(1);
+        Check.That(logger.Entries.Any(e =>
+                e.Message.Contains("after the request", StringComparison.Ordinal))).IsFalse();
     }
 
     /// <summary>
@@ -200,8 +219,8 @@ public class Win32WindowManagerActionTests
         native.Minimised.Add(Window);
         var (manager, _, logger) = Create(
             native,
-            handoffTimeout: TimeSpan.FromMilliseconds(400),
-            startDeadline: TimeSpan.FromMilliseconds(100));
+            handoffTimeout: TimeSpan.FromMilliseconds(1500),
+            startDeadline: TimeSpan.FromSeconds(1));
 
         manager.BringToFront(Window);
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
@@ -210,20 +229,24 @@ public class Win32WindowManagerActionTests
 
         WaitUntil(() => logger.Entries.Any(e =>
             e.Message.Contains("was dropped", StringComparison.Ordinal)), "the drop line");
+        // Behavioural teeth (F1): the dropped pick must make NO native call at all, not merely
+        // skip its ALT. Removing the drop's return would run IsWindow(Other) and the switch.
+        Check.That(native.Calls.Where(c => c.Hwnd == Other)).IsEmpty();
         Check.That(native.Foregrounded).IsEmpty();
         Check.That(native.SendInputBatches).IsEmpty();
 
         native.ReleaseHang.Set();
         Thread.Sleep(200);
+        Check.That(native.Calls.Where(c => c.Hwnd == Other)).IsEmpty();
         Check.That(native.SendInputBatches).IsEmpty();
     }
 
     /// <summary>
-    /// Quick Actions minimise: exactly today's <c>ShowWindow(SW_MINIMIZE)</c>, but on the worker,
-    /// so a hung window cannot stall the caller either.
+    /// Quick Actions minimise: exactly today's <c>SW_MINIMIZE</c>, now posted with
+    /// <c>ShowWindowAsync</c> so a hung window can never stall the caller.
     /// </summary>
     [Fact]
-    public void Minimize_DoesTodayOp_WithoutBlockingTheCaller()
+    public void Minimize_PostsTodaysOpAsynchronously_WithoutBlockingTheCaller()
     {
         var native = new FakeWindowActionNative { HangInShowWindow = Window };
         var (manager, _, _) = Create(native);
@@ -233,14 +256,36 @@ public class Win32WindowManagerActionTests
         elapsed.Stop();
 
         Check.That(elapsed.ElapsedMilliseconds).IsStrictlyLessThan(500);
-        Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
-        Check.That(native.Calls.Select(c => c.Name)).ContainsExactly("IsWindow", "ShowWindow");
-        Check.That(native.ShowWindowCommands).ContainsExactly(NativeMethods.SW_MINIMIZE);
-
-        native.ReleaseHang.Set();
+        // The blocking seam must never be reached: a fake that would hang there proves it.
+        Check.That(native.ShowWindowCommands).IsEmpty();
+        Check.That(native.HangEntered.IsSet).IsFalse();
+        Check.That(native.Calls.Select(c => c.Name)).ContainsExactly("IsWindow", "ShowWindowAsync");
+        Check.That(native.ShowWindowAsyncCommands).ContainsExactly(NativeMethods.SW_MINIMIZE);
     }
 
-    /// <summary>Quick Actions maximise/restore: the same decision as today, on the worker.</summary>
+    /// <summary>
+    /// F2: MaximizeOrRestore's non-blocking half is pinned too. A fake that would hang inside the
+    /// blocking <c>ShowWindow</c> is never reached; the async twin is.
+    /// </summary>
+    [Fact]
+    public void MaximizeOrRestore_DoesTodayOp_WithoutBlockingTheCaller()
+    {
+        var native = new FakeWindowActionNative { HangInShowWindow = Window };
+        var (manager, _, _) = Create(native);
+
+        var elapsed = Stopwatch.StartNew();
+        manager.MaximizeOrRestore(Window);
+        elapsed.Stop();
+
+        Check.That(elapsed.ElapsedMilliseconds).IsStrictlyLessThan(500);
+        Check.That(native.ShowWindowCommands).IsEmpty();
+        Check.That(native.HangEntered.IsSet).IsFalse();
+        Check.That(native.Calls.Select(c => c.Name)).ContainsExactly(
+            "IsWindow", "IsZoomed", "IsIconic", "ShowWindowAsync");
+        Check.That(native.ShowWindowAsyncCommands).ContainsExactly(NativeMethods.SW_MAXIMIZE);
+    }
+
+    /// <summary>Quick Actions maximise/restore: the same decision as today, posted asynchronously.</summary>
     [Theory]
     [InlineData(false, false, NativeMethods.SW_MAXIMIZE)]
     [InlineData(true, false, NativeMethods.SW_RESTORE)]
@@ -254,10 +299,50 @@ public class Win32WindowManagerActionTests
 
         manager.MaximizeOrRestore(Window);
 
-        WaitUntil(() => native.ShowWindowCommands.Count == 1, "the op");
-        Check.That(native.ShowWindowCommands[0]).IsEqualTo(expectedCommand);
+        Check.That(native.ShowWindowAsyncCommands).ContainsExactly(expectedCommand);
+        Check.That(native.ShowWindowCommands).IsEmpty();
         Check.That(native.Calls.Select(c => c.Name)).ContainsExactly(
-            "IsWindow", "IsZoomed", "IsIconic", "ShowWindow");
+            "IsWindow", "IsZoomed", "IsIconic", "ShowWindowAsync");
+    }
+
+    /// <summary>
+    /// F5: after a failed <c>SetForegroundWindow</c> the fallback's activating <c>SW_RESTORE</c>
+    /// must not run once a later pick has abandoned this one — it would take activation away from
+    /// the window the owner picked next. The hang is in the fallback's <c>SW_MINIMIZE</c>, after
+    /// the ALT grant, so the pick is alive but abandoned at exactly that point.
+    /// </summary>
+    [Fact]
+    public void AFailedPick_DoesNotRunItsFallbackRestore_AfterItWasAbandoned()
+    {
+        var native = new FakeWindowActionNative
+        {
+            HangInShowWindow = Window,
+            HangInShowWindowCommand = NativeMethods.SW_MINIMIZE,
+        };
+        native.RefusedForegrounds.Add(Window);
+        native.Minimised.Add(Window); // the pre-foreground restore must not hang
+        var (manager, _, logger) = Create(
+            native,
+            handoffTimeout: TimeSpan.FromMilliseconds(150),
+            startDeadline: TimeSpan.FromSeconds(10));
+
+        manager.BringToFront(Window);
+        Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Check.That(logger.Entries).HasElementThatMatches(e =>
+            e.Message.Contains("falling back to a minimize/restore toggle", StringComparison.Ordinal));
+
+        // A later pick abandons the stuck one and switches instead.
+        manager.BringToFront(Other);
+        WaitUntil(() => native.Foregrounded.Contains(Other), "the second switch");
+
+        native.ReleaseHang.Set();
+        Check.That(native.HangExited.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Thread.Sleep(200);
+
+        // Only the pre-foreground restore and the fallback's minimise ran; the guarded restore did
+        // not. Without the guard the abandoned pick adds a third command (SW_RESTORE).
+        Check.That(native.ShowWindowCommands)
+            .ContainsExactly(NativeMethods.SW_RESTORE, NativeMethods.SW_MINIMIZE);
     }
 
     /// <summary>
@@ -303,10 +388,11 @@ public class Win32WindowManagerActionTests
     private static (Win32WindowManager Manager, FakeWindowActionNative Native, RecordingLogger Logger) Create(
         FakeWindowActionNative native,
         TimeSpan? handoffTimeout = null,
-        TimeSpan? startDeadline = null)
+        TimeSpan? startDeadline = null,
+        TimeSpan? completionBudget = null)
     {
         var logger = new RecordingLogger();
-        var scheduler = new WindowActionScheduler(logger, handoffTimeout, startDeadline);
+        var scheduler = new WindowActionScheduler(logger, handoffTimeout, startDeadline, completionBudget);
         return (new Win32WindowManager(logger, new NullIntegrityProbe(), native, scheduler), native, logger);
     }
 
@@ -345,6 +431,7 @@ public class Win32WindowManagerActionTests
         private readonly List<NativeMethods.INPUT[]> _batches = new();
         private readonly List<IntPtr> _foregrounded = new();
         private readonly List<int> _showWindowCommands = new();
+        private readonly List<int> _showWindowAsyncCommands = new();
 
         internal HashSet<IntPtr> GoneWindows { get; } = new();
         internal HashSet<IntPtr> Minimised { get; } = new();
@@ -352,6 +439,12 @@ public class Win32WindowManagerActionTests
 
         /// <summary>The window whose ShowWindow call blocks (the fake "hung" target).</summary>
         internal IntPtr? HangInShowWindow { get; init; }
+
+        /// <summary>When set, only this ShowWindow command blocks; other commands return at once.</summary>
+        internal int? HangInShowWindowCommand { get; init; }
+
+        /// <summary>Models the foreground lock refusing the switch for these windows.</summary>
+        internal HashSet<IntPtr> RefusedForegrounds { get; } = new();
 
         internal ManualResetEventSlim HangEntered { get; } = new(false);
         internal ManualResetEventSlim HangExited { get; } = new(false);
@@ -377,6 +470,11 @@ public class Win32WindowManagerActionTests
             get { lock (_gate) return _showWindowCommands.ToArray(); }
         }
 
+        internal IReadOnlyList<int> ShowWindowAsyncCommands
+        {
+            get { lock (_gate) return _showWindowAsyncCommands.ToArray(); }
+        }
+
         public bool IsWindow(IntPtr hwnd)
         {
             Record("IsWindow", hwnd, 0);
@@ -400,7 +498,8 @@ public class Win32WindowManagerActionTests
             Record("ShowWindow", hwnd, command);
             lock (_gate) _showWindowCommands.Add(command);
 
-            if (hwnd == HangInShowWindow)
+            if (hwnd == HangInShowWindow
+                && (HangInShowWindowCommand is not { } hangCommand || command == hangCommand))
             {
                 HangEntered.Set();
                 // Bounded: a mutant that calls this on the test thread fails an elapsed-time
@@ -410,6 +509,13 @@ public class Win32WindowManagerActionTests
                 HangExited.Set();
             }
 
+            return true;
+        }
+
+        public bool ShowWindowAsync(IntPtr hwnd, int command)
+        {
+            Record("ShowWindowAsync", hwnd, command);
+            lock (_gate) _showWindowAsyncCommands.Add(command);
             return true;
         }
 
@@ -424,7 +530,7 @@ public class Win32WindowManagerActionTests
         {
             Record("SetForegroundWindow", hwnd, 0);
             lock (_gate) _foregrounded.Add(hwnd);
-            return true;
+            return !RefusedForegrounds.Contains(hwnd);
         }
 
         private void Record(string name, IntPtr hwnd, int arg)

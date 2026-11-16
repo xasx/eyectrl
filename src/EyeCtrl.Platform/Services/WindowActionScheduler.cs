@@ -21,10 +21,12 @@ using Microsoft.Extensions.Logging;
 /// on a target that is not answering, cancels it (so a late completion cannot inject a stale ALT
 /// grant) and runs itself instead. A request that still has not started
 /// <see cref="DefaultStartDeadline"/> after it was made is dropped and logged rather than executed
-/// late, and an action already running when its target finally answers after that allowance stops
-/// before injecting input (see <see cref="WindowActionContext"/>), because an ALT tap must land in
-/// the moment the owner asked for it, not seconds afterwards into whatever happens to be in front
-/// then. Exceptions are contained and logged: the action thread must never take the process down.
+/// late. A running action that passes <see cref="DefaultCompletionBudget"/> drops its remaining
+/// steps before injecting input (see <see cref="WindowActionContext"/>): once the target has
+/// answered the restore, the ALT pair and the foreground call may still complete within 3 s of the
+/// request — a long-minimised app can take over a second to restore and must still switch — but no
+/// input may be injected after that. Exceptions are contained and logged: the action thread must
+/// never take the process down.
 /// </para>
 /// </summary>
 internal sealed class WindowActionScheduler
@@ -37,15 +39,22 @@ internal sealed class WindowActionScheduler
     internal static readonly TimeSpan DefaultHandoffTimeout = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
-    /// The longest an action may take to start, and the age after which a running action counts as
-    /// stale for its remaining steps. Past it the action is dropped and logged: a pick must never
-    /// fire its ALT grant seconds after the dwell that asked for it.
+    /// The longest a queued action may take to start. Past it the action is dropped and logged: a
+    /// pick must never start seconds after the dwell that asked for it.
     /// </summary>
     internal static readonly TimeSpan DefaultStartDeadline = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How long a started action may keep working before its remaining steps count as stale. The
+    /// allowance starts at the request, so it includes any hand-off wait and the restore itself; a
+    /// target that answers within it still gets its ALT grant and switch.
+    /// </summary>
+    internal static readonly TimeSpan DefaultCompletionBudget = TimeSpan.FromSeconds(3);
 
     private readonly ILogger _logger;
     private readonly TimeSpan _handoffTimeout;
     private readonly TimeSpan _startDeadline;
+    private readonly TimeSpan _completionBudget;
     private readonly TimeProvider _time;
     private readonly object _gate = new();
     private ChainLink? _tail;
@@ -54,17 +63,20 @@ internal sealed class WindowActionScheduler
     /// <param name="logger">Records drops, abandonments and failures.</param>
     /// <param name="handoffTimeout">Overrides <see cref="DefaultHandoffTimeout"/>.</param>
     /// <param name="startDeadline">Overrides <see cref="DefaultStartDeadline"/>.</param>
+    /// <param name="completionBudget">Overrides <see cref="DefaultCompletionBudget"/>.</param>
     /// <param name="time">The clock; <see cref="TimeProvider.System"/> when omitted.</param>
     internal WindowActionScheduler(
         ILogger logger,
         TimeSpan? handoffTimeout = null,
         TimeSpan? startDeadline = null,
+        TimeSpan? completionBudget = null,
         TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         _logger = logger;
         _handoffTimeout = handoffTimeout ?? DefaultHandoffTimeout;
         _startDeadline = startDeadline ?? DefaultStartDeadline;
+        _completionBudget = completionBudget ?? DefaultCompletionBudget;
         _time = time ?? TimeProvider.System;
     }
 
@@ -106,9 +118,9 @@ internal sealed class WindowActionScheduler
             if (previous is not null && !previous.Finished.Wait(_handoffTimeout))
             {
                 // The predecessor is still inside a cross-process call after the hand-off bound:
-                // its target is not answering. Abandon it so it cannot inject its ALT grant (or
-                // finish its fallback) when the target finally answers, and run now instead of
-                // queueing behind a hung window forever.
+                // its target is not answering. Abandon it so it cannot inject its ALT grant when
+                // the target finally answers, and run now instead of queueing behind a hung window
+                // forever.
                 previous.Abandon(_logger, _time);
             }
 
@@ -123,7 +135,7 @@ internal sealed class WindowActionScheduler
                 return;
             }
 
-            body(new WindowActionContext(link.Token, _time, link.RequestedAt, _startDeadline));
+            body(new WindowActionContext(link.Token, _time, link.RequestedAt, _completionBudget));
         }
         catch (Exception ex)
         {
@@ -174,16 +186,7 @@ internal sealed class WindowActionScheduler
             if (Finished.IsSet || Interlocked.Exchange(ref _abandoned, 1) != 0)
                 return;
 
-            try
-            {
-                _cancellation.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // The action finished between the check and the cancel; there is nothing to
-                // abandon and it is not an error.
-                return;
-            }
+            _cancellation.Cancel();
 
             logger.LogWarning(
                 "Window action {Action} for window {Hwnd} was abandoned after {ElapsedMs:0} ms: the "
@@ -194,8 +197,10 @@ internal sealed class WindowActionScheduler
 
         internal void Finish()
         {
+            // Deliberately no CancellationTokenSource.Dispose: a successor may still be inside
+            // Abandon → Cancel (the CTS docs require Dispose only when every other operation has
+            // completed), and there is nothing to release — no registrations and no WaitHandle.
             Finished.Set();
-            _cancellation.Dispose();
         }
     }
 }

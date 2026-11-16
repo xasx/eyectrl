@@ -175,16 +175,16 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
             // with the additional twist that the tap would arrive seconds late).
             if (action.IsCancelled) return;
 
-            // Same rule when nothing later cancelled us: a target that took longer than the start
-            // allowance to answer has recovered too late, and the ALT grant (and the switch it
-            // earns) would land seconds after the dwell. Drop it and say so, rather than perform
-            // the switch into whatever holds the foreground by now.
-            if (action.IsExpired)
+            // Same rule when nothing later cancelled us, with the coordinator's 3 s budget: a
+            // target that answered the restore very late has recovered too late for the switch,
+            // and the ALT grant would land seconds after the dwell. Drop it and say so, rather than
+            // perform the switch into whatever holds the foreground by now.
+            if (action.IsStale)
             {
                 _logger.LogWarning(
-                    "Task switcher will not foreground window {Hwnd}: the target took {ElapsedMs:0} ms "
-                    + "to answer the restore, so the ALT foreground grant would arrive too late — "
-                    + "dropping the switch.",
+                    "Task switcher will not foreground window {Hwnd}: {ElapsedMs:0} ms after the "
+                    + "request the target still has not taken the foreground, so the ALT grant would "
+                    + "arrive too late — dropping the switch.",
                     hwnd, action.Elapsed.TotalMilliseconds);
                 return;
             }
@@ -260,11 +260,14 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
                 hwnd, DescribeWindow(hwnd), outcome, injected, altTap.Length, grantError);
 
             // Rare fallback when even the grant is denied: a minimize/restore toggle moves the
-            // window through a shell-honored state change that also brings it forward. It is
-            // deliberately NOT guarded by the cancellation token: it injects no input, and a late
-            // toggle of the same window the owner picked cannot land in the wrong place — while
-            // skipping it would make the warning above ("falling back…") untrue.
+            // window through a shell-honored state change that also brings it forward. It must not
+            // run once the pick has been abandoned or has run past its budget: SW_RESTORE activates
+            // the window, and a late toggle would take activation away from the pick the owner made
+            // next. The failure warning above is written before these guards because it records the
+            // failure itself, which is the diagnosis even when the fallback is skipped.
+            if (action.IsCancelled || action.IsStale) return;
             _native.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
+            if (action.IsCancelled || action.IsStale) return;
             _native.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
         });
     }
@@ -304,15 +307,12 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     /// <inheritdoc />
     public void Minimize(IntPtr hwnd)
     {
-        // Runs on the scheduler's worker for the same reason the task-switcher pick does: the
-        // caller is the gaze-dwell thread, and ShowWindow waits for the target's thread. The
-        // asynchronous twin (MinimizeNonBlocking) stays the right call for a whole SET of windows.
-        _actions.Enqueue("minimise a window", hwnd, action =>
-        {
-            if (action.IsCancelled) return;
-            if (!_native.IsWindow(hwnd)) return;
-            _native.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
-        });
+        // ShowWindowAsync, not ShowWindow: the caller is the gaze-dwell thread, and the synchronous
+        // form waits for the target's thread, so one hung window would freeze every overlay —
+        // Pause included. Minimise needs no ordering and no foreground grant, so it needs neither
+        // a worker nor the scheduler: the async form posts the request and returns.
+        if (!_native.IsWindow(hwnd)) return;
+        _native.ShowWindowAsync(hwnd, NativeMethods.SW_MINIMIZE);
     }
 
     /// <inheritdoc />
@@ -331,17 +331,15 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     /// <inheritdoc />
     public void MaximizeOrRestore(IntPtr hwnd)
     {
-        _actions.Enqueue("maximise or restore a window", hwnd, action =>
-        {
-            if (action.IsCancelled) return;
-            if (!_native.IsWindow(hwnd)) return;
-            var op = WindowStateOps.DecideWindowOp(
-                isZoomed: _native.IsZoomed(hwnd),
-                isIconic: _native.IsIconic(hwnd));
-            _native.ShowWindow(hwnd, op == WindowStateOp.Maximize
-                ? NativeMethods.SW_MAXIMIZE
-                : NativeMethods.SW_RESTORE);
-        });
+        // The same reasoning as Minimize: local state reads only, then the non-blocking show.
+        // WindowStateOps keeps the decision identical to the synchronous path this replaced.
+        if (!_native.IsWindow(hwnd)) return;
+        var op = WindowStateOps.DecideWindowOp(
+            isZoomed: _native.IsZoomed(hwnd),
+            isIconic: _native.IsIconic(hwnd));
+        _native.ShowWindowAsync(hwnd, op == WindowStateOp.Maximize
+            ? NativeMethods.SW_MAXIMIZE
+            : NativeMethods.SW_RESTORE);
     }
 
     /// <inheritdoc />

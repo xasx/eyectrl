@@ -41,11 +41,10 @@ public interface IWindowManager
 
     /// <summary>Minimizes the window. Fire-and-forget: the caller never waits on the target.</summary>
     /// <remarks>
-    /// The implementation keeps the synchronous <c>ShowWindow</c> call but runs it on a background
-    /// worker, so a hung window can stall only that one action — never the UI/gaze thread. It is
-    /// serialised with the other window actions. For a SET of windows — "show desktop" — use
-    /// <see cref="MinimizeNonBlocking"/> instead: it posts <c>ShowWindowAsync</c> directly, without
-    /// one worker per window.
+    /// The implementation posts <c>ShowWindowAsync</c>, which returns without waiting for the
+    /// target's thread — a hung window cannot stall the UI/gaze thread. Minimise has no ordering
+    /// requirement and no foreground grant, so it needs no worker. For a SET of windows — "show
+    /// desktop" — use <see cref="MinimizeNonBlocking"/>; it is the same mechanism.
     /// </remarks>
     void Minimize(IntPtr hwnd);
 
@@ -61,7 +60,8 @@ public interface IWindowManager
 
     /// <summary>
     /// Maximizes a normal window or restores a maximized/minimized one. Fire-and-forget: the
-    /// caller never waits on the target, so a hung window cannot stall the UI/gaze thread.
+    /// implementation reads the state and posts <c>ShowWindowAsync</c>, so the caller never waits
+    /// on the target and a hung window cannot stall the UI/gaze thread.
     /// </summary>
     void MaximizeOrRestore(IntPtr hwnd);
 

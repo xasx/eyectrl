@@ -21,6 +21,10 @@ internal sealed class Win32WindowActionNative : IWindowActionNative
     public bool ShowWindow(IntPtr hwnd, int command) => NativeMethods.ShowWindow(hwnd, command);
 
     /// <inheritdoc />
+    public bool ShowWindowAsync(IntPtr hwnd, int command)
+        => NativeMethods.ShowWindowAsync(hwnd, command);
+
+    /// <inheritdoc />
     public uint SendInput(uint inputCount, NativeMethods.INPUT[] inputs, int size)
         => NativeMethods.SendInput(inputCount, inputs, size);
 

@@ -27,6 +27,13 @@ internal interface IWindowActionNative
     /// <summary><c>ShowWindow</c>: synchronous on the calling (worker) thread.</summary>
     bool ShowWindow(IntPtr hwnd, int command);
 
+    /// <summary>
+    /// <c>ShowWindowAsync</c>: posts the request without waiting for the target's thread. The
+    /// Quick Actions minimise/maximise use this directly; they need no ordering or foreground
+    /// grant, so they need no worker either.
+    /// </summary>
+    bool ShowWindowAsync(IntPtr hwnd, int command);
+
     /// <summary><c>SendInput</c>: the ALT foreground grant, one atomic down+up pair.</summary>
     uint SendInput(uint inputCount, NativeMethods.INPUT[] inputs, int size);
 

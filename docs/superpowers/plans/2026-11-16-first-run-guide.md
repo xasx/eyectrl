@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-- **Rev 5** — external plan-review r4 processed (verdict FIX-FIRST: 4×S1, 1×S2; all folded in). Rev 4's corrections: **every task's code is inline again** (the file is the single source — no rev-2/rev-3 references, r4 F1); **`SetChoices`/`SetDwellKnob`/`SetPractice` each own ONE slot** — the knob builds into its own `KnobRow` instead of overwriting `StepContent`, so the MeetDwell circle survives and the DwellTime practice target sits beside the knob (r4 F4); **in-place presses re-render** (`RenderChoicesForCurrentStep()` after the dwell ± and theme chips — `OnTargetActivated` clears every chrome target on any press, and ±/chips don't change the step, r4 F3); **the window has no `Close()` member** (r4 F2); the summon handler no longer re-renders (the toolbar event clears no targets, r4 F5); the theme labels moved into Task 4's sorted block; `IsStrictlyGreaterThan`; `Card.FindResource` so the preview reaches the code-built cards; census row in the census table's own shape; the dwell read-out's handler is subscribed once.
+- **Rev 7** — external plan-review r6 processed (verdict FIX-FIRST: 2×S1, 2×S2; all folded in). Rev 6's corrections: the census entry is a **tuple** (`DetectorSites` is `(string Path, string Classification, string Reason)[]`); **`SetSuspended`'s state write is gated too** (`if (!_guideHiddenHold) _state = State.Visible;` — the hold keeps the controller Hidden whatever SetSuspended says, r6 F2); **the card grows to 560 × 620** (the fixed rows left ~58 DIP for StepContent on DwellTime — the practice circle and the theme grid were clipped, r6 F3) and the title wraps with a 186 DIP right margin (it stops at the Close card); **chips and the chrome Close join `_choiceCards`/`_progressBars`** with their bars restored from their own fields on a re-render, and `SetThemeGrid` re-attaches `_themeGrid` when `SetPractice(false)` emptied `StepContent` (r6 F4). Prior rounds' headline corrections are in the rev-5/6 notes in the changelog below and the per-task comments. Rev 4's corrections: **every task's code is inline again** (the file is the single source — no rev-2/rev-3 references, r4 F1); **`SetChoices`/`SetDwellKnob`/`SetPractice` each own ONE slot** — the knob builds into its own `KnobRow` instead of overwriting `StepContent`, so the MeetDwell circle survives and the DwellTime practice target sits beside the knob (r4 F4); **in-place presses re-render** (`RenderChoicesForCurrentStep()` after the dwell ± and theme chips — `OnTargetActivated` clears every chrome target on any press, and ±/chips don't change the step, r4 F3); **the window has no `Close()` member** (r4 F2); the summon handler no longer re-renders (the toolbar event clears no targets, r4 F5); the theme labels moved into Task 4's sorted block; `IsStrictlyGreaterThan`; `Card.FindResource` so the preview reaches the code-built cards; census row in the census table's own shape; the dwell read-out's handler is subscribed once.
 
 **Goal:** Build the first-run introductory guide exactly as specified in `docs/superpowers/specs/2026-11-16-first-run-guide-design.md` (rev 2.4, SHIP): an eight-step gaze-driven first-run experience that absorbs the safety setup and holds seven `GuideOpen` claims.
 
@@ -942,10 +942,10 @@ internal sealed class FirstRunGuideLease : IDisposable
 
 **Interfaces:** Produces the VM with: `IsVisible` (the wiring sets true at Show; the test helper sets it); `DwellActiveWhilePaused => true`; `DpiHelper` via `using EyeCtrl.Core.Services`; `ChoiceRadiusDip = 70` computed per registration; `ShowCard`; `ShowSafetyCard`/`SafetyChoices`; `RegisterChoice(id)` at origin + `Hold(id)` — uniform for every chrome target — firing `ChoiceActivated(id)` (or `CloseRequested` for `guide_close`); `UpdateChoiceCentre`; `ClearChoices`; `RemoveChromeChoice(id)`; `SetPracticeCentre`/`ReTimePracticeTarget`/`SetDwellTime` (live re-timing); `Set*Visible`; `Receive` with `_latch.Filter`; `ChoiceProgress`/`PracticeProgress` events; `OnChromeChoice(id)` (the window's uniform route); `ChoiceMayDwell(id)` probe.
 
-- [ ] **Step 1: The gate entries** — `OverlayTelemetryWiringTests`' map gains `[nameof(FirstRunGuideViewModel)] = DwellContext.Other`; `DwellSurfaceCensusTests`' `DetectorSites` map gains (matching the existing entries' shape):
+- [ ] **Step 1: The gate entries** — `OverlayTelemetryWiringTests`' map gains `[nameof(FirstRunGuideViewModel)] = DwellContext.Other`; `DwellSurfaceCensusTests`' `DetectorSites` array gains a tuple (the array is `(string Path, string Classification, string Reason)[]`, `DwellSurfaceCensusTests.cs:17-33` — NOT dictionary-indexer form, r6 F1):
 
 ```csharp
-        ["EyeCtrl.ViewModels/FirstRunGuideViewModel.cs"] = "cue — first-run guide chrome cards + practice target",
+        ("EyeCtrl.ViewModels/FirstRunGuideViewModel.cs", "cue", "first-run guide chrome cards + practice target"),
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -1340,7 +1340,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
                         ShowInTaskbar="False" ShowActivated="False"
                         Topmost="True" ResizeMode="NoResize">
     <Grid>
-        <Border x:Name="Card" Width="560" Height="480"
+        <Border x:Name="Card" Width="560" Height="620"
                 Background="{DynamicResource BrushSurfaceDark}"
                 CornerRadius="{DynamicResource LargeCornerRadius}"
                 HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -1353,7 +1353,9 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <TextBlock x:Name="TitleText" Grid.Row="0" FontSize="24" FontWeight="Medium"
-                           Text="{Binding Title}" Foreground="{DynamicResource BrushTextPrimary}"/>
+                           Text="{Binding Title}" TextWrapping="Wrap"
+                           Margin="0,0,186,0"
+                           Foreground="{DynamicResource BrushTextPrimary}"/>
                 <ContentControl x:Name="ChromeCloseHost" Grid.Row="0"
                                 HorizontalAlignment="Right" VerticalAlignment="Top"/>
                 <TextBlock x:Name="BodyText" Grid.Row="1" Margin="0,10,0,0" TextWrapping="Wrap"
@@ -1401,7 +1403,10 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     private readonly Dictionary<string, Border> _knobCards = new();      // the knob's OWN references — SetChoices never clears them
     private readonly Dictionary<string, Rectangle> _knobBars = new();
     private readonly Dictionary<string, Border> _themeCards = new();     // the chip grid's OWN references — SetChoices never clears them
+    private readonly Dictionary<string, Rectangle> _themeBars = new();
     private Border? _chromeCloseCard;
+    private Rectangle? _chromeCloseBar;
+    private Grid? _themeGrid;                                            // re-attached on a Theme re-render (r6 F4)
     private Ellipse? _practiceFill;
     private TextBlock? _dwellValue;
     private bool _knobBuilt;
@@ -1499,7 +1504,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         if (visible && !_chromeCloseBuilt)
         {
             _chromeCloseCard = BuildCard(label, "guide_close");
+            _chromeCloseBar = (Rectangle)((StackPanel)_chromeCloseCard.Child).Children[1];
             _choiceCards["guide_close"] = _chromeCloseCard;
+            _progressBars["guide_close"] = _chromeCloseBar;
             ChromeCloseHost.Content = _chromeCloseCard;
             _vm.RegisterChoice("guide_close");
             _chromeCloseBuilt = true;
@@ -1507,7 +1514,10 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         }
         else if (visible && _chromeCloseBuilt)
         {
-            _choiceCards["guide_close"] = _chromeCloseCard;   // re-render: re-register + re-push
+            // Re-render (r6 F4): SetChoices cleared the card and bar entries — restore BOTH from
+            // the Close's own fields, so an accidental dwell on Close fills its bar visibly.
+            _choiceCards["guide_close"] = _chromeCloseCard;
+            _progressBars["guide_close"] = _chromeCloseBar;
             _vm.RegisterChoice("guide_close");
             PushCentres();
         }
@@ -1515,6 +1525,13 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         {
             _vm.RemoveChromeChoice("guide_close");
             _choiceCards.Remove("guide_close");
+            _progressBars.Remove("guide_close");
+            ChromeCloseHost.Content = null;
+            _chromeCloseCard = null;
+            _chromeCloseBar = null;
+            _chromeCloseBuilt = false;
+        }
+    }
             ChromeCloseHost.Content = null;
             _chromeCloseCard = null;
             _chromeCloseBuilt = false;
@@ -1650,17 +1667,30 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                     var (label, id) = chips[i];
                     var card = BuildChipCard(label, id);
                     _themeCards[id] = card;
+                    _themeBars[id] = (Rectangle)((StackPanel)card.Child).Children[1];
                     Grid.SetRow(card, i / 2);
                     Grid.SetColumn(card, i % 2);
                     grid.Children.Add(card);
+                    _choiceCards[id] = card;                       // r6 F4: progress + centres via _choiceCards
+                    _progressBars[id] = _themeBars[id];
                     _vm.RegisterChoice(id, radiusDip: 40);
                 }
+                _themeGrid = grid;
                 StepContent.Content = grid;
             }
             else
             {
-                foreach (var (id, _) in _themeCards)          // re-render: re-register (r5 F2)
+                // Re-render (r6 F4): SetPractice(false) emptied StepContent — re-attach the grid
+                // AND restore the chips' card/bar entries (SetChoices cleared them), so a theme
+                // can be picked on every visit and the Continue/clear bookkeeping stays live.
+                if (StepContent.Content is not Grid g || !ReferenceEquals(g, _themeGrid))
+                    StepContent.Content = _themeGrid;
+                foreach (var (id, _) in _themeCards)
+                {
+                    _choiceCards[id] = _themeCards[id];
+                    _progressBars[id] = _themeBars[id];
                     _vm.RegisterChoice(id, radiusDip: 40);
+                }
             }
             PushCentres();
         }
@@ -1669,6 +1699,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             foreach (var id in _themeCards.Keys)
                 _vm.RemoveChromeChoice(id);
             _themeCards.Clear();
+            _themeBars.Clear();
+            _themeGrid = null;
             StepContent.Content = null;
         }
     }
@@ -1909,12 +1941,14 @@ public class FirstRunGuideWindowTests
     }
 ```
 
-and the two suppression points:
+and the two suppression points (the state write is gated TOO — `SetSuspended`'s suspended branch unconditionally sets `_state = State.Visible` (:208), which would break the hold's own promise, r6 F2):
 
 ```csharp
-    // in SetSuspended's suspended branch, replacing the ForceShow line:
+    // in SetSuspended's suspended branch, replacing the ForceShow line AND the state write:
             if (_state == State.Hidden && _enabled && !_guideHiddenHold)
                 _visibility?.ForceShow();
+            if (!_guideHiddenHold)
+                _state = State.Visible;
 
     // in ReassertVisibility:
         if (_state == State.Hidden && _enabled && !_suspended && !_guideHiddenHold)
@@ -2754,7 +2788,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): per-run raise, unified
 
 ---
 
-## Self-review notes (rev 6 — the plan-review r5 fixes folded in)
+## Self-review notes (rev 7 — the plan-review r5 + r6 fixes folded in)
 
 1. **Self-contained, verified** (r4 F1, r5 F1) — every task's code is inline; the back-reference grep (`rev [0-9]'s … verbatim/test/code/Step`) matches only the changelog.
 2. **The window can close (r4 F2)** — no `Close()` member on `FirstRunGuideWindow`; the unused `HideCard`/`ShowCard` are gone.
@@ -2767,3 +2801,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): per-run raise, unified
 9. **Preview reach** — the builders resolve brushes through `Card.FindResource`, so the card-local previewed theme reaches the code-built cards (r4 S3).
 10. **NFluent/census/commits** — `IsStrictlyGreaterThan`; the census entry in `DetectorSites`' tuple shape; Task 1's commit stages the new test file explicitly (no `-am`).
 11. **Spec coverage** — §4 (Tasks 4, 12), §5 (Tasks 1, 8, 9, 10, 11, 12), §6 (Tasks 5, 6, 12), §7 steps 1–8 (Tasks 4–7, 12), §8 (Tasks 6, 12), §9 (Tasks 8–12), §12 (per-task tests + Task 13). No known gaps.
+12. **Census tuple (r6 F1)** — `DetectorSites` is `(string Path, string Classification, string Reason)[]`; the guide's entry is the three-element tuple, not an indexer.
+13. **The hold keeps the controller Hidden (r6 F2)** — `SetSuspended`'s state write is gated on `!_guideHiddenHold` alongside the `ForceShow` gate; the test's `StateName == "Hidden"` assertion now matches the code.
+14. **Layout budget (r6 F3)** — the card is 560 × 620; the title wraps with a 186 DIP right margin so it stops at the Close card; DwellTime's practice circle and Theme's chip grid both fit.
+15. **Progress visibility (r6 F4)** — chips and the chrome Close join `_choiceCards`/`_progressBars` (bars restored from `_themeBars`/`_chromeCloseBar` on a re-render), and `SetThemeGrid` re-attaches `_themeGrid` when `SetPractice(false)` emptied `StepContent`.

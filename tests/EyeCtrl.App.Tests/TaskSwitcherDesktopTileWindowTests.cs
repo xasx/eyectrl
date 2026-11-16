@@ -228,7 +228,7 @@ public class TaskSwitcherDesktopTileWindowTests
                 new FakeWindowManager(windows), new EyeCtrlSettings(), messenger);
             messenger.Send(new TaskSwitcherToggledMessage());
 
-            var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
+            var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
             window.DataContext = viewModel;
 
             // ShowFullScreen's own order: capacity first (a region property), then the final

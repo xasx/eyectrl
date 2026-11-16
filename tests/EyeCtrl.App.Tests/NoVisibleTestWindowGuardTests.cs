@@ -96,6 +96,10 @@ public class NoVisibleTestWindowGuardTests
             "a helper reached only from tests that begin with LiveCheck.Require() (EYECTRL_LIVE_CHECK opt-in)",
         ["Diagnostics/SubPixel/ProbeRingOnScreenHarness.cs#RunWhenEnabled"] =
             "reached only after Run's EYECTRL_UI_TESTS gate returns; ProbeRingOnScreenGateTests pins that gate headless",
+        ["InvisibleTestWindowTests.cs#ThePreparedTaskSwitcher_StaysCloaked_AcrossTheProductShowPath"] =
+            "S4-B's invisibility proof: PrepareCloaked DWM-cloaks the switcher, the cloak is read back as TRUE before " +
+            "ShowFullScreen runs (null/false skips instead of showing), and StayCloakedForTests suppresses the product's " +
+            "uncloak — DWM never composes the window, so nothing is painted",
     };
 
     private const string MeasureOnly =
@@ -140,6 +144,18 @@ public class NoVisibleTestWindowGuardTests
     private static Dictionary<string, string> Group(string reason, params string[] files) => files.ToDictionary(f => f, _ => reason);
 
     /// <summary>
+    /// Window types whose XAML sets <c>AllowsTransparency="False"</c>. <c>Opacity = 0</c> paints
+    /// nothing only on a layered window, so <c>InvisibleTestWindow.Prepare</c> is forbidden for
+    /// these: rule A must reject the shape BEFORE a test can run, and the helper throws at runtime
+    /// as the backstop. Use <c>PrepareCloaked</c> (or <c>PrepareOffScreen</c> for the backdrop).
+    /// </summary>
+    internal static readonly Dictionary<string, string> NonLayeredWindows = new()
+    {
+        ["TaskSwitcherWindow"] = "AllowsTransparency=False (S4-B: DWM thumbnails need a non-layered window)",
+        ["GlassBackdropWindow"] = "AllowsTransparency=False (the glass backdrop; its tests use PrepareOffScreen)",
+    };
+
+    /// <summary>
     /// Rule A waivers: <c>file</c> → why the test may CONSTRUCT real windows without preparing them. Rule B (a show, a hand-off to
     /// an overlay container) and the runtime check still apply to these files. A stale entry (the file no longer constructs
     /// an unprepared window) fails <see cref="EveryHeadlessEntry_StillConstructsAnUnpreparedWindow_AndNamesAReason"/>.
@@ -149,7 +165,7 @@ public class NoVisibleTestWindowGuardTests
         Group(MeasureOnly,
             "CalibrationWindowVisualPinsTests.cs", "CornerRadiusClampTests.cs", "CursorRingRenderTests.cs", "Diagnostics/ProbeRingParityTests.cs",
             "Overlays/CursorRingBlockedLookTests.cs",
-            "GlyphSizeCouplingTests.cs", "InvisibleTestWindowTests.cs", "OverlayFontTests.cs", "TaskSwitcherDwellPositionTests.cs",
+            "GlyphSizeCouplingTests.cs", "InvisibleTestWindowTests.cs", "OverlayFontTests.cs",
             "ToolbarButtonVisualTests.cs",
             "ToolbarPausedTargetAlignmentTests.cs", "TestSupport/ArcLabelFit.cs",
             "Localization/Fit/AppFitMeasurers.cs", "Localization/Fit/CaregiverAlertGrowthTests.cs", "Localization/Fit/GeometryInvarianceTests.cs",
@@ -370,8 +386,38 @@ public class NoVisibleTestWindowGuardTests
         var found = Scan(ctor);
         Check.That(found).HasSize(1);
         Check.That(found[0]).Contains("TaskSwitcherWindow '_switcherWindow'");
+        // Rule A's fix for a NON-layered window is the cloak, not Opacity = 0 (Prepare would paint it).
         Check.That(Scan(ctor.Replace("_switcherWindow = new TaskSwitcherWindow();",
-            "_switcherWindow = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());"))).IsEmpty();
+            "_switcherWindow = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());"))).IsEmpty();
+    }
+
+    [Fact]
+    public void ANonLayeredWindow_PreparedByOpacity_IsAViolation_AndTheCloakIsAccepted()
+    {
+        // S4-B: the task switcher is AllowsTransparency=False. Prepare sets Opacity = 0, which only
+        // hides a layered window — a full-screen non-layered switcher would paint the owner's screen.
+        const string file = "TaskSwitcherDesktopTileWindowTests.cs";
+        const string prepare = "    public void Shows()\n    {\n        var w = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());\n        w.ShowFullScreen(null);\n    }";
+
+        var violation = FindViolations(file, HeadlessFile(prepare));
+        Check.WithCustomMessage("Prepare on a non-layered switcher got past the guard")
+            .That(violation).HasSize(1);
+        Check.That(violation[0]).Contains("not layered").And.Contains("PrepareCloaked");
+
+        // ... also when Prepare is applied by name AFTER the construction
+        var later = FindViolations(file, HeadlessFile(
+            "    public void Shows()\n    {\n        var w = new TaskSwitcherWindow();\n        InvisibleTestWindow.Prepare(w);\n        w.ShowFullScreen(null);\n    }"));
+        Check.WithCustomMessage("a later Prepare(w) on a non-layered switcher got past the guard")
+            .That(later).HasSize(1);
+        Check.That(later[0]).Contains("not layered");
+
+        // the cloak is the accepted recipe, wrapped or applied later
+        foreach (var cloaked in new[]
+                 {
+                     "    public void Shows()\n    {\n        var w = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());\n        w.ShowFullScreen(null);\n    }",
+                     "    public void Shows()\n    {\n        var w = new TaskSwitcherWindow();\n        InvisibleTestWindow.PrepareCloaked(w);\n        w.ShowFullScreen(null);\n    }",
+                 })
+            Check.WithCustomMessage(cloaked).That(FindViolations(file, HeadlessFile(cloaked))).IsEmpty();
     }
 
     [Fact]
@@ -915,7 +961,9 @@ public class NoVisibleTestWindowGuardTests
         return violations;
     }
 
-    private sealed record WindowUse(string Type, string? Name, bool Prepared, bool OffScreen, bool InlineShown, bool PresentSeam);
+    private sealed record WindowUse(
+        string Type, string? Name, bool Prepared, bool PreparedByOpacity, bool OffScreen,
+        bool InlineShown, bool PresentSeam);
 
     // The coarse rule bans any `.Show` / `.ShowDialog` / … (a call or a method group) on whatever expression: `ws[0]`, `(Window)w`, `w?`, `Open(x)`, `Get().`
 
@@ -1104,6 +1152,19 @@ public class NoVisibleTestWindowGuardTests
                 || (use.Name is not null && Regex.IsMatch(body,
                     @"InvisibleTestWindow\s*\.\s*PrepareOffScreen\s*\(\s*" + Regex.Escape(use.Name) + @"\b"));
 
+            // A non-layered window cannot be hidden by Opacity = 0. Rule A must reject the shape
+            // before a test can run: the switcher is full-screen, so a leaked show paints the
+            // owner's whole screen. The helper throws too, as the runtime backstop.
+            var preparedByOpacity = use.PreparedByOpacity
+                || (use.Name is not null && Regex.IsMatch(body,
+                    @"InvisibleTestWindow\s*\.\s*Prepare\s*\(\s*" + Regex.Escape(use.Name) + @"\b"));
+            if (preparedByOpacity && NonLayeredWindows.ContainsKey(use.Type))
+            {
+                yield return $"{use.Type} is not layered (AllowsTransparency = False), so InvisibleTestWindow.Prepare " +
+                             "cannot hide it (Opacity = 0 paints nothing only on a layered window): use PrepareCloaked";
+                continue;
+            }
+
             if (use.InlineShown && !prepared)
             {
                 yield return $"{use.Type} is constructed and shown inline without InvisibleTestWindow.Prepare";
@@ -1165,6 +1226,7 @@ public class NoVisibleTestWindowGuardTests
                 var before = statement[..m.Index];
                 var wrapped = Regex.Match(before, @"InvisibleTestWindow\s*\.\s*(?<helper>Prepare\w*)\s*\(\s*$");
                 var prepared = wrapped.Success;
+                var preparedByOpacity = wrapped.Success && wrapped.Groups["helper"].Value == "Prepare";
                 var offScreen = wrapped.Success && wrapped.Groups["helper"].Value == "PrepareOffScreen";
 
                 // `name =` (or `Type name =` / `var name =`) directly before the construction or its wrapper
@@ -1174,7 +1236,7 @@ public class NoVisibleTestWindowGuardTests
                 // `new Window(...).Show()` inline
                 var inlineShown = Regex.IsMatch(statement[m.Index..],
                     $@"^new\s+\w+\s*(?:\([^()]*\))?\s*(?:\{{[^{{}}]*\}})?\s*(?:\))?\s*\.\s*(?:{ApisFor(m.Groups["type"].Value, presentSeam)})\b");
-                yield return new WindowUse(m.Groups["type"].Value, name, prepared, offScreen, inlineShown, presentSeam);
+                yield return new WindowUse(m.Groups["type"].Value, name, prepared, preparedByOpacity, offScreen, inlineShown, presentSeam);
             }
         }
     }

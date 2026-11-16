@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using EyeCtrl.App.Services;
@@ -17,9 +19,23 @@ using EyeCtrl.ViewModels;
 /// VM stores only the handle and process id to stay WPF-free). NOT click-through — it must receive
 /// dwell. Positions are computed after layout and pushed back into the VM's DwellDetector
 /// so gaze hit-testing uses real screen coordinates (H3 fix).
+///
+/// <para>
+/// The window is deliberately NON-layered (<c>AllowsTransparency="False"</c>): DWM thumbnails do
+/// not render into a layered window. Because a non-layered window can expose an unpainted first
+/// frame, the show path cloaks the window through DWM until WPF has rendered it (the same shape
+/// <see cref="GlassBackdropWindow"/> uses) and the XAML paints the opaque form of the theme's
+/// SurfaceDark (a non-layered window composites partial alpha against black).
+/// </para>
 /// </summary>
 public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 {
+    /// <summary>DWMWA_TRANSITIONS_FORCEDISABLED: stops DWM's open/close animation for the window.</summary>
+    private const int DwmwaTransitionsForceDisabled = 3;
+
+    /// <summary>DWMWA_CLOAK: DWM skips composing the window entirely while true.</summary>
+    private const int DwmwaCloak = 13;
+
     /// <summary>
     /// The close disc's diameter: <b>2 × the shared hit radius</b>, declared in XAML as
     /// Width/Height 100. B8: the disc must be drawn to exactly the size the dwell detector
@@ -32,6 +48,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
     private TaskSwitcherViewModel? _viewModel;
     private IAppIconProvider? _iconProvider;
+    private bool _cloaked;
+    private DispatcherTimer? _cloakFallback;
+    private EventHandler? _uncloakOnRendering;
 
     public TaskSwitcherWindow()
     {
@@ -46,6 +65,11 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // row capacity is computed against this constant — a font or template change that grew the
         // row would otherwise silently clip the bottom full row the geometry promised.
         HintRow.Height = TaskSwitcherLayout.HintRowHeight;
+
+        // DWM's open transition would animate a non-layered window in; the switcher must appear
+        // in ONE finished frame (no flash on opening), so the transition is off for this HWND's
+        // lifetime — the GlassBackdropWindow precedent.
+        SourceInitialized += DisableTransitionsAtHandleCreation;
     }
 
     public void Configure(TaskSwitcherViewModel viewModel, IAppIconProvider iconProvider)
@@ -98,10 +122,171 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         Height = screenHeight;
         Left = 0;
         Top = 0;
+
+        // A non-layered window can present an unpainted first frame (black or white). DWM's cloak
+        // hides that frame, so it must go up BEFORE the first visible frame — and after the HWND
+        // exists, because a DWM write on a zero handle does nothing. A re-show of an already
+        // visible window is NOT cloaked: it would blank a window that is on screen until the next
+        // frame, and its content is already prepared.
+        var alreadyVisible = IsVisible;
+        if (!alreadyVisible)
+        {
+            _ = new WindowInteropHelper(this).EnsureHandle();
+            Cloak();
+        }
+
         Show();
 
+        if (!alreadyVisible)
+            UncloakAfterFirstRender();
+
         // After layout, push real tile positions into the VM (which creates the dwell targets).
+        // Loaded priority runs before the Background callback that lifts the cloak, so the
+        // targets exist by the time the first visible frame is composed.
         Dispatcher.BeginInvoke(UpdateTilePositions, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Cloaks the window through DWM (DWMWA_CLOAK) before it is shown. DWM keeps updating a cloaked
+    /// window's surface, so the finished frame is composed while nothing is on screen; the cloak is
+    /// lifted only after WPF has rendered (see <see cref="UncloakAfterFirstRender"/>).
+    /// </summary>
+    private void Cloak()
+    {
+        _cloaked = true;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaCloak, true);
+    }
+
+    /// <summary>
+    /// Releases the cloak once WPF has rendered at least one frame: the static
+    /// <c>CompositionTarget.Rendering</c> event fires before the UI-thread render commit, so the
+    /// uncloak runs from a <see cref="DispatcherPriority.Background"/> callback (after the commit),
+    /// and one <c>DwmFlush</c> presents the finished frame before the cloak lifts. A 250 ms
+    /// fallback uncloaks anyway, so a window that never renders cannot stay cloaked.
+    /// </summary>
+    private void UncloakAfterFirstRender()
+    {
+        if (StayCloakedForTests)
+            return;   // a prepared test window stays cloaked for its whole life
+
+        // Normal priority (NOT Send): the dispatcher does not dispatch Send-priority timer ticks, so
+        // a Send fallback would never fire and a window that never rendered would stay cloaked.
+        _cloakFallback?.Stop();
+        _cloakFallback = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(250) };
+        _cloakFallback.Tick += (_, _) => UncloakAndFlush();
+        _cloakFallback.Start();
+
+        RemoveUncloakHandler();
+        _uncloakOnRendering = (_, _) =>
+        {
+            RemoveUncloakHandler();
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(UncloakAndFlush));
+        };
+        CompositionTarget.Rendering += _uncloakOnRendering;
+    }
+
+    /// <summary>
+    /// Presents the finished frame and then lifts the cloak — in that order: the render thread
+    /// presents asynchronously, so uncloaking first can compose the PRE-render surface (the
+    /// unpainted first frame the cloak exists to hide). DWM keeps updating a cloaked window's
+    /// surface, so the flush presents the finished frame while the window is still cloaked, and
+    /// only then does the uncloak make it visible.
+    /// </summary>
+    private void UncloakAndFlush()
+    {
+        FlushDwm();
+        Uncloak();
+    }
+
+    private void RemoveUncloakHandler()
+    {
+        if (_uncloakOnRendering is { } handler)
+        {
+            CompositionTarget.Rendering -= handler;
+            _uncloakOnRendering = null;
+        }
+    }
+
+    /// <summary>
+    /// Cancels a pending uncloak (the Rendering subscription and the fallback timer) without
+    /// touching the cloak bit — for <see cref="OnClosed"/>, where the handle is already gone so
+    /// there is nothing left to uncloak, but a stray callback must not fire later.
+    /// </summary>
+    private void CancelPendingUncloak()
+    {
+        RemoveUncloakHandler();
+        _cloakFallback?.Stop();
+        _cloakFallback = null;
+    }
+
+    /// <summary>
+    /// Releases the cloak, if it is still up, cancelling the pending uncloak first. Safe to call
+    /// repeatedly; <see cref="HideOverlay"/> calls it so a hidden window can never stay cloaked.
+    /// A window prepared by the test fixture's <c>InvisibleTestWindow.PrepareCloaked</c> sets
+    /// <see cref="StayCloakedForTests"/>, and for it this method does NOTHING: the fixture's cloak
+    /// is the only thing keeping a full-screen non-layered window off the owner's screen, so the
+    /// product must never lift it.
+    /// </summary>
+    private void Uncloak()
+    {
+        CancelPendingUncloak();
+        if (StayCloakedForTests)
+            return;
+        if (!_cloaked)
+            return;
+        _cloaked = false;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaCloak, false);
+    }
+
+    /// <summary>
+    /// Test seam: when true, every product uncloak (the show's rendered-frame callback, its
+    /// fallback, and <see cref="HideOverlay"/>) is a no-op for this window's whole life, so a
+    /// window cloaked by the test fixture stays DWM-cloaked across the real show path. Set by
+    /// <c>InvisibleTestWindow.PrepareCloaked</c>; never set in production.
+    /// </summary>
+    internal bool StayCloakedForTests { get; set; }
+
+    private void DisableTransitionsAtHandleCreation(object? sender, EventArgs e)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaTransitionsForceDisabled, true);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        CancelPendingUncloak();   // no stray uncloak may fire on a closed window
+        base.OnClosed(e);
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmFlush();
+
+    /// <summary>
+    /// The DWM attribute writes (transitions disabled, cloak), injectable so the gates can record
+    /// them. The default is the real dwmapi call.
+    /// </summary>
+    internal Func<IntPtr, int, bool, int> SetDwmAttribute { get; set; } = NativeSetDwmAttribute;
+
+    /// <summary>
+    /// <c>DwmFlush</c>, injectable so a gate can prove the ordering of the flush against the
+    /// uncloak in ONE sequence. The default is the real dwmapi call.
+    /// </summary>
+    internal Action FlushDwm { get; set; } = NativeDwmFlush;
+
+    private static void NativeDwmFlush() => _ = DwmFlush();
+
+    private static int NativeSetDwmAttribute(IntPtr hwnd, int attribute, bool value)
+    {
+        var intValue = value ? 1 : 0;
+        return DwmSetWindowAttribute(hwnd, attribute, ref intValue, sizeof(int));
     }
 
     /// <summary>
@@ -269,6 +454,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// <summary>Called by the coordinator when the VM hides (selection or second toggle).</summary>
     public void HideOverlay()
     {
+        // A hidden window must never stay cloaked; for a test-prepared window Uncloak is a no-op
+        // because StayCloakedForTests keeps the fixture's cloak up for its whole life.
+        Uncloak();
         Hide();
     }
 }

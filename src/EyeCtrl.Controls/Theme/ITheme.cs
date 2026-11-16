@@ -74,6 +74,15 @@ public interface ITheme
     // ── Brushes ─────────────────────────────────────────────────────────────
     /// <summary>Frozen brush over <see cref="SurfaceDark"/>.</summary>
     SolidColorBrush BrushSurfaceDark { get; }
+    /// <summary>
+    /// <see cref="SurfaceDark"/>'s RGB at FULL alpha (255). A LAYERED window composites
+    /// <see cref="BrushSurfaceDark"/>'s partial alpha against the desktop; a NON-layered window
+    /// composites it against black, which darkens the surface. The task switcher
+    /// (<c>TaskSwitcherWindow</c>, <c>AllowsTransparency=False</c> for DWM thumbnails) must
+    /// paint this brush to keep the theme's rendered colour. Derived in <c>ThemeBase</c>, not a
+    /// palette colour: there is no second literal to keep in step.
+    /// </summary>
+    SolidColorBrush BrushSurfaceDarkOpaque { get; }
     /// <summary>Frozen brush over <see cref="SurfaceMedium"/>.</summary>
     SolidColorBrush BrushSurfaceMedium { get; }
     /// <summary>Frozen brush over <see cref="SurfaceLight"/>.</summary>

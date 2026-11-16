@@ -296,17 +296,23 @@ public class TaskSwitcherDwellPositionTests
     public void TilesScroll_ScrollbarIsDisabled_GazeCannotOperateScrolling()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = new TaskSwitcherWindow();
-
-        var scroll = (ScrollViewer)window.FindName("TilesScroll")!;
-        Check.That(scroll.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
-        Check.WithCustomMessage(
-                "TilesScroll's horizontal visibility must stay Disabled (the WPF platform "
-                + "default, pinned because UpdateTilePositions relies on it): Hidden or Auto "
-                + "would let the content exceed the viewport width — one infinite row of "
-                + "tiles, no wrapping — and the viewport-rect math would register targets "
-                + "against a geometry that is not the drawn one.")
-            .That(scroll.HorizontalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
+        try
+        {
+            var scroll = (ScrollViewer)window.FindName("TilesScroll")!;
+            Check.That(scroll.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
+            Check.WithCustomMessage(
+                    "TilesScroll's horizontal visibility must stay Disabled (the WPF platform "
+                    + "default, pinned because UpdateTilePositions relies on it): Hidden or Auto "
+                    + "would let the content exceed the viewport width — one infinite row of "
+                    + "tiles, no wrapping — and the viewport-rect math would register targets "
+                    + "against a geometry that is not the drawn one.")
+                .That(scroll.HorizontalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Disabled);
+        }
+        finally
+        {
+            window.Close();   // PrepareCloaked created the HWND; release it
+        }
     }
 
     /// <summary>

@@ -134,7 +134,11 @@ public class RuntimeOffScreenTagTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         // handles only: nothing is shown
-        var opacity = InvisibleTestWindow.Prepare(new Window());
+        var opacity = InvisibleTestWindow.Prepare(new Window
+        {
+            AllowsTransparency = true,          // Prepare's Opacity = 0 recipe is a layered-window recipe
+            WindowStyle = WindowStyle.None,     // required by WPF whenever AllowsTransparency is true
+        });
         var cloaked = InvisibleTestWindow.PrepareCloaked(new Window());
         var backdrop = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());
         try

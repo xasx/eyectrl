@@ -22,16 +22,21 @@ using EyeCtrl.App.Overlays;
 /// them from taking the foreground. It is only safe while production never writes the window's
 /// <c>Opacity</c> (or animates it) after the show — a fade-in would raise it again.
 /// <c>InvisibleTestWindowTests</c> pins that for each of those window types by scanning the product
-/// source.
+/// source. The helper now REFUSES a non-layered window (a thrown exception before it can ever be
+/// shown): <c>Opacity = 0</c> paints nothing only on a layered window, so on an ordinary one it
+/// would leave a full window on the owner's screen.
 /// </para>
 ///
 /// <para>
 /// <see cref="PrepareCloaked{T}"/> is for a window whose product code DOES write its own Opacity
 /// (<c>ActivationButtonWindow</c> fades in on <c>ShowAt</c>; no test needs this today: its window tests never call
-/// <c>Show()</c> and must NOT create the handle early, see below): it is cloaked through DWM
+/// <c>Show()</c> and must NOT create the handle early, see below), and for every non-layered
+/// window (<c>TaskSwitcherWindow</c>): it is cloaked through DWM
 /// (<c>DWMWA_CLOAK</c>), which hides a window from composition whatever its Opacity does and keeps
 /// its position, size and visuals — the same mechanism the product's <c>GlassBackdropWindow</c> uses
-/// to hide a first frame. It creates the window handle early (<c>EnsureHandle</c>), so use it only
+/// to hide a first frame. For the switcher it also sets the product's <c>StayCloakedForTests</c>
+/// seam, so the product's own uncloak-after-first-frame cannot undo the cloak. It creates the
+/// window handle early (<c>EnsureHandle</c>), so use it only
 /// where no test step depends on the handle not existing yet. THAT HAS BITTEN: a window that already has an HWND
 /// stores <c>Left</c>/<c>Top</c> through the real monitor's DPI (whole device pixels), so a test that fakes the scale
 /// with <c>DpiHelper.Initialize</c> and reads <c>Left</c>/<c>Top</c> back (ActivationButtonWindowTests'
@@ -49,9 +54,18 @@ internal static class InvisibleTestWindow
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 
-    /// <summary>Opacity 0 and no activation, applied before the first show. Returns the window.</summary>
+    /// <summary>
+    /// Opacity 0 and no activation, applied before the first show. Returns the window.
+    /// Throws for a non-layered window (<c>AllowsTransparency=False</c>): Opacity = 0 paints
+    /// nothing only on a layered window, so this recipe would leave the window fully visible.
+    /// </summary>
     internal static T Prepare<T>(T window) where T : Window
     {
+        if (!window.AllowsTransparency)
+            throw new InvalidOperationException(
+                $"{window.GetType().Name} is not layered (AllowsTransparency=False): Opacity = 0 " +
+                "paints nothing only on a layered window. Use PrepareCloaked (and its stay-cloaked seam).");
+
         window.Opacity = 0;
         window.ShowActivated = false;
         RuntimeWindowMonitor.MarkPrepared(window);
@@ -60,11 +74,15 @@ internal static class InvisibleTestWindow
 
     /// <summary>
     /// No activation, and the window is cloaked by DWM before its first show (its Opacity is left
-    /// alone, because the window's own code writes it). Returns the window.
+    /// alone, because the window's own code writes it). A <c>TaskSwitcherWindow</c> additionally
+    /// gets the product's <c>StayCloakedForTests</c> seam, so the product's uncloak-after-render
+    /// cannot lift this cloak while the test runs. Returns the window.
     /// </summary>
     internal static T PrepareCloaked<T>(T window) where T : Window
     {
         window.ShowActivated = false;
+        if (window is TaskSwitcherWindow switcher)
+            switcher.StayCloakedForTests = true;
         var handle = new WindowInteropHelper(window).EnsureHandle();
         var on = 1;
         _ = DwmSetWindowAttribute(handle, DwmaCloak, ref on, sizeof(int));

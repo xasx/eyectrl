@@ -942,13 +942,13 @@ internal sealed class FirstRunGuideLease : IDisposable
 
 **Interfaces:** Produces the VM with: `IsVisible` (the wiring sets true at Show; the test helper sets it); `DwellActiveWhilePaused => true`; `DpiHelper` via `using EyeCtrl.Core.Services`; `ChoiceRadiusDip = 70` computed per registration; `ShowCard`; `ShowSafetyCard`/`SafetyChoices`; `RegisterChoice(id)` at origin + `Hold(id)` — uniform for every chrome target — firing `ChoiceActivated(id)` (or `CloseRequested` for `guide_close`); `UpdateChoiceCentre`; `ClearChoices`; `RemoveChromeChoice(id)`; `SetPracticeCentre`/`ReTimePracticeTarget`/`SetDwellTime` (live re-timing); `Set*Visible`; `Receive` with `_latch.Filter`; `ChoiceProgress`/`PracticeProgress` events; `OnChromeChoice(id)` (the window's uniform route); `ChoiceMayDwell(id)` probe.
 
-- [ ] **Step 1: The gate entries** — `OverlayTelemetryWiringTests`' map gains `[nameof(FirstRunGuideViewModel)] = DwellContext.Other`; `DwellSurfaceCensusTests`' `DetectorSites` array gains a tuple (the array is `(string Path, string Classification, string Reason)[]`, `DwellSurfaceCensusTests.cs:17-33` — NOT dictionary-indexer form, r6 F1):
+- [x] **Step 1: The gate entries** — `OverlayTelemetryWiringTests`' map gains `[nameof(FirstRunGuideViewModel)] = DwellContext.Other`; `DwellSurfaceCensusTests`' `DetectorSites` array gains a tuple (the array is `(string Path, string Classification, string Reason)[]`, `DwellSurfaceCensusTests.cs:17-33` — NOT dictionary-indexer form, r6 F1):
 
 ```csharp
         ("EyeCtrl.ViewModels/FirstRunGuideViewModel.cs", "cue", "first-run guide chrome cards + practice target"),
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideViewModelTests.cs
@@ -1091,9 +1091,9 @@ public class FirstRunGuideViewModelTests
 }
 ```
 
-- [ ] **Step 3: Run → FAIL** (both filters from rev 4).
+- [x] **Step 3: Run → FAIL** (both filters from rev 4).
 
-- [ ] **Step 4: Implement** — the rev 4 VM body with r4's corrections restated in full:
+- [x] **Step 4: Implement** — the rev 4 VM body with r4's corrections restated in full:
 
 ```csharp
 namespace EyeCtrl.ViewModels;
@@ -1307,9 +1307,9 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
 }
 ```
 
-- [ ] **Step 5: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FirstRunGuideViewModelTests|FullyQualifiedName~DwellSurfaceCensus"` → PASS; `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~OverlayTelemetryWiring"` → PASS.
+- [x] **Step 5: Run** — `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FirstRunGuideViewModelTests|FullyQualifiedName~DwellSurfaceCensus"` → PASS; `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~OverlayTelemetryWiring"` → PASS.
 
-- [ ] **Step 6: Commit** — the REAL census path (`tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs`, r3 F11):
+- [x] **Step 6: Commit** — the REAL census path (`tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs`, r3 F11):
 
 ```bash
 git -C .worktrees/first-run-guide add -A src/EyeCtrl.ViewModels/FirstRunGuideViewModel.cs tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideViewModelTests.cs tests/EyeCtrl.App.Tests/DwellSurfaceCensusTests.cs tests/EyeCtrl.ViewModels.Tests/Adaptation/OverlayTelemetryWiringTests.cs

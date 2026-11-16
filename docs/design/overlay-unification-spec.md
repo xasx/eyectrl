@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 37 overlay windows and 7 dwell controls — 31 with XAML (30 under
+EyeCtrl has 38 overlay windows and 7 dwell controls — 32 with XAML (31 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 6 without XAML (the
 code-only `NoteWindow`, `NoteMovePreviewWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and
@@ -16,7 +16,8 @@ b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
 (`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
 (`SubPixelProbeWindow`), the T0(a) lag-mark button (`LagMarkWindow`, main's 27th XAML window
 under `Overlays/` — the 28th here, where the adaptation preview panel adds its own row) and
-the adaptation preview panel itself; enforced by
+the adaptation preview panel itself, plus the first-run guide
+(`FirstRunGuideWindow`); enforced by
 `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
@@ -84,6 +85,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |
 | **NoteNotice** | `NoteNoticeWindow` | `Transparent` + token-bordered card | code-only, no XAML | exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder) |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |
+| **FirstRunGuide** | `FirstRunGuideWindow` | Transparent backdrop + centered `BrushSurfaceDark` card (DynamicResource; the card's own resource dictionary feeds the code-built visuals) | XAML | exempt:modal — while the guide is open it owns the screen (toolbar held hidden, activation offers suspend, splash yields); its dwell targets are its own card visuals |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete

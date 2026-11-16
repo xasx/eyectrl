@@ -1,0 +1,38 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.FirstRunGuideWindow"
+                        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+                        IsClickThrough="True"
+                        WindowStyle="None" AllowsTransparency="True"
+                        ShowInTaskbar="False" ShowActivated="False"
+                        Topmost="True" ResizeMode="NoResize">
+    <Grid>
+        <Border x:Name="Card" Width="560" Height="620"
+                Background="{DynamicResource BrushSurfaceDark}"
+                CornerRadius="{DynamicResource LargeCornerRadius}"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid Margin="32">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="TitleText" Grid.Row="0" FontSize="24" FontWeight="Medium"
+                           Text="{Binding Title}" TextWrapping="Wrap"
+                           Margin="0,0,186,0"
+                           Foreground="{DynamicResource BrushTextPrimary}"/>
+                <ContentControl x:Name="ChromeCloseHost" Grid.Row="0"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"/>
+                <TextBlock x:Name="BodyText" Grid.Row="1" Margin="0,10,0,0" TextWrapping="Wrap"
+                           Text="{Binding Body}" Foreground="{DynamicResource BrushTextPrimary}"/>
+                <ContentControl x:Name="StepContent" Grid.Row="2" Margin="0,16,0,0"/>
+                <StackPanel x:Name="KnobRow" Grid.Row="3" Orientation="Horizontal"
+                            HorizontalAlignment="Center"/>
+                <StackPanel x:Name="ChoiceRow" Grid.Row="4" Orientation="Horizontal"
+                            HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+    </Grid>
+</overlays:OverlayWindow>

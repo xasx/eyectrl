@@ -111,6 +111,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         // The modal surfaces that suspend offers entirely.
         _modal.SettingsOpenChanged += OnSettingsOpenChanged;
         _modal.ProbeOpenChanged += OnProbeOpenChanged;
+        _modal.GuideOpenChanged += OnGuideOpenChanged;
         context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
         context.QuickActionsGridVM.PropertyChanged += OnQuickActionsGridVMPropertyChanged;
 
@@ -205,6 +206,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
 
     private void OnProbeOpenChanged(bool _) => RecomputeSuspension();
 
+    private void OnGuideOpenChanged(bool _) => RecomputeSuspension();
+
     private void OnTaskSwitcherVMPropertyChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TaskSwitcherViewModel.IsVisible))
@@ -232,6 +235,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("Settings");
         if (_modal.ProbeOpen)
             reasons.Add("probe");
+        if (_modal.GuideOpen)
+            reasons.Add("guide");
         if (Context.TaskSwitcherVM.IsVisible)
             reasons.Add("task switcher");
         if (Context.QuickActionsGridVM.IsVisible)
@@ -365,6 +370,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         Context.Settings.Toolbar.PropertyChanged -= OnToolbarSettingsChanged;
         _modal.SettingsOpenChanged -= OnSettingsOpenChanged;
         _modal.ProbeOpenChanged -= OnProbeOpenChanged;
+        _modal.GuideOpenChanged -= OnGuideOpenChanged;
         Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
         Context.QuickActionsGridVM.PropertyChanged -= OnQuickActionsGridVMPropertyChanged;
     }

@@ -21,4 +21,7 @@ public enum FixationSuppressor
 
     /// <summary>The sub-pixel visibility probe, while its full-screen window is up.</summary>
     SubPixelProbe,
+
+    /// <summary>The first-run guide, while its fullscreen card is up.</summary>
+    Guide,
 }

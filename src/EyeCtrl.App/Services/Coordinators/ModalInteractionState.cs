@@ -75,4 +75,48 @@ internal sealed class ModalInteractionState
             }
         }
     }
+
+    // volatile: read on the gaze thread (ring predicates, toolbar feed checks), written on the
+    // UI thread by the guide's raise/close path.
+    private volatile bool _guideOpen;
+
+    /// <summary>
+    /// True while the first-run guide owns the screen. The guide's card is interactive but the
+    /// window is click-through outside it and every proactive surface defers behind it, so every
+    /// consumer gates on it like <see cref="SettingsOpen"/>. Assigning raises
+    /// <see cref="GuideOpenChanged"/>.
+    /// </summary>
+    public bool GuideOpen
+    {
+        get => _guideOpen;
+        set
+        {
+            if (_guideOpen == value) return;
+            _guideOpen = value;
+            RaiseGuideOpenChanged(value);
+        }
+    }
+
+    /// <summary>Raised after <see cref="GuideOpen"/> flips, on the UI thread. Per-subscriber
+    /// try/catch like <see cref="ProbeOpenChanged"/>; subscribers read <see cref="GuideOpen"/>,
+    /// not the argument (re-entrancy).</summary>
+    public event Action<bool>? GuideOpenChanged;
+
+    private void RaiseGuideOpenChanged(bool open)
+    {
+        var subscribers = GuideOpenChanged;
+        if (subscribers is null) return;
+
+        foreach (var subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)subscriber)(open);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A GuideOpenChanged subscriber threw; the remaining subscribers still run");
+            }
+        }
+    }
 }

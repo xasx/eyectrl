@@ -81,6 +81,18 @@ public class EventCoordinator : IEventCoordinator
         remove => _modal.SettingsOpenChanged -= value;
     }
 
+    /// <summary>Whether the first-run guide owns the screen (forwards
+    /// <see cref="ModalInteractionState.GuideOpen"/>).</summary>
+    internal bool IsGuideOpen => _modal.GuideOpen;
+
+    /// <summary>Raised after <see cref="IsGuideOpen"/> flips; subscribers read
+    /// <see cref="IsGuideOpen"/>, not the argument.</summary>
+    internal event Action<bool>? GuideOpenChanged
+    {
+        add => _modal.GuideOpenChanged += value;
+        remove => _modal.GuideOpenChanged -= value;
+    }
+
     /// <summary>Whether the sub-pixel probe window is up (SP-8 fixup 01 F1: the restart notice
     /// host treats it exactly like Settings).</summary>
     internal bool IsProbeOpen => _modal.ProbeOpen;

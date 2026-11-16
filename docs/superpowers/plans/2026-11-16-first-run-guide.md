@@ -313,7 +313,7 @@ and after `Start()`:
 
 **Interfaces:** Produces `WhenExited(Action)` — latched; fires on the REGISTERING thread's dispatcher; the ctor subscribes `_splashDispatcher.ShutdownStarted` with the `EventHandler` signature (r3 F2) so a faulted splash thread still releases; `HasShutdownStarted` also checked at registration (r1 F20).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Overlays/SplashThreadHandleWhenExitedTests.cs
@@ -399,7 +399,7 @@ public class SplashThreadHandleWhenExitedTests
 }
 ```
 
-- [ ] **Step 2: Run → FAIL. Step 3: Implement** — in `SplashThreadHandle`, the latch fields + methods:
+- [x] **Step 2: Run → FAIL. Step 3: Implement** — in `SplashThreadHandle`, the latch fields + methods:
 
 ```csharp
     // The exit latch: ExitFinished fires on the SPLASH thread; continuations run on the
@@ -456,8 +456,8 @@ and the constructor:
     }
 ```
 
-- [ ] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~SplashThreadHandle"`).
-- [ ] **Step 5: Commit** `feat(guide): SplashThreadHandle.WhenExited — latched, shutdown-subscribed continuation`.
+- [x] **Step 4: Run → PASS** (`--filter "FullyQualifiedName~SplashThreadHandle"`).
+- [x] **Step 5: Commit** `feat(guide): SplashThreadHandle.WhenExited — latched, shutdown-subscribed continuation`.
 
 ---
 

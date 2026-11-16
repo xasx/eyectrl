@@ -30,6 +30,7 @@ public class DwellSurfaceCensusTests
         ("EyeCtrl.ViewModels/SettingsWindowViewModel.cs", "cue", "tabs/controls/pagination/modal"),
         ("EyeCtrl.ViewModels/DwellOverlayViewModelBase.cs", "cue", "base wrapper — 9 effectful VMs + 2 opt-outs"),
         ("EyeCtrl.ViewModels/SubPixelProbeViewModel.cs", "cue", "sub-pixel probe — SP-4c D1: the probe's buttons are cue surfaces (outline + DwellActivationMessage); the census row was 'excluded' before the live check"),
+        ("EyeCtrl.ViewModels/FirstRunGuideViewModel.cs", "cue", "first-run guide chrome cards + practice target"),
     ];
 
     // DwellContext members that are not a user-facing surface of their own.

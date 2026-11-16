@@ -481,6 +481,267 @@
     "fit": "card",
     "args": []
   },
+  "guide.calibrate.body": {
+    "text": "Make sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.calibrate.now": {
+    "text": "Calibrate now",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.calibrate.skip": {
+    "text": "Skip",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.calibrate.title": {
+    "text": "Calibration",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.chrome.close": {
+    "text": "Close guide",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.done.body": {
+    "text": "The docked edge summons the toolbar — your main menu. The gaze keyboard opens from it, and every setting lives in Settings.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.done.finish": {
+    "text": "Finish",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.done.title": {
+    "text": "You're set.",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.dwell.body": {
+    "text": "Rest your gaze on the circle and hold still: the ring fills, and on completion the target activates. Try it now.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.dwell.skip": {
+    "text": "Skip",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.dwell.title": {
+    "text": "Dwell — your click",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.dwelltime.body": {
+    "text": "The − and + cards set how long a desktop click takes — the cursor dwell that clicks. Try values on the circle; the guide's own buttons keep the standard UI dwell.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.dwelltime.continue": {
+    "text": "Continue",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.dwelltime.title": {
+    "text": "Dwell time",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.later": {
+    "text": "Later",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.safety.begin": {
+    "text": "Begin",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.safety.body": {
+    "text": "Five quick questions keep crash recovery, startup and the audible cue set up for you.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.safety.title": {
+    "text": "5 quick questions to keep you safe",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.theme.body": {
+    "text": "Pick a look — it takes effect after a restart; the card here previews your choice.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.theme.continue": {
+    "text": "Continue",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.theme.contrast": {
+    "text": "Contrast",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.theme.daylight": {
+    "text": "Daylight",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.theme.ember": {
+    "text": "Ember",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.theme.midnight": {
+    "text": "Midnight",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.theme.title": {
+    "text": "Pick a look",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.toolbar.body": {
+    "text": "Look at the {0} edge of the screen to summon the toolbar — the keyboard, settings and everything else open from there. Try it now.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": [
+      "0"
+    ]
+  },
+  "guide.toolbar.continue": {
+    "text": "Continue",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.toolbar.edge.bottom": {
+    "text": "bottom",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.toolbar.edge.left": {
+    "text": "left",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.toolbar.edge.right": {
+    "text": "right",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.toolbar.edge.top": {
+    "text": "top",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.toolbar.skip": {
+    "text": "Skip",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.toolbar.success": {
+    "text": "Summoned! The toolbar hides again on its own. Continue when ready.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.toolbar.title": {
+    "text": "Your main menu",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
+  "guide.welcome.body": {
+    "text": "EyeCtrl lets you control this PC with your eyes. This short guide shows you the basics — about 2 minutes. Every practice task can be skipped.",
+    "who": "user",
+    "where": "guide",
+    "fit": "prose",
+    "args": []
+  },
+  "guide.welcome.start": {
+    "text": "Start",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal170",
+    "args": []
+  },
+  "guide.welcome.title": {
+    "text": "Welcome to EyeCtrl",
+    "who": "user",
+    "where": "guide",
+    "fit": "modal460",
+    "args": []
+  },
   "language-recovery.note.pending": {
     "text": "Wird nach Neustart wirksam / Takes effect after restart",
     "who": "user",

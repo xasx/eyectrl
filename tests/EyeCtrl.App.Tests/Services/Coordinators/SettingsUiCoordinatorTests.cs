@@ -376,4 +376,90 @@ public class SettingsUiCoordinatorTests
         public void SetPausedDim(bool dimmed) { }
         public void SetPinned(bool pinned) { }
     }
+
+    // ── S2-3: the safety chain's id → OnChosen map is consumed ONCE per card ─────────────────────
+
+    /// <summary>IGuideSurface stand-in (the flow's one route — the shape FirstRunGuideFlowTests
+    /// drives, here for the coordinator's dispatch half).</summary>
+    private sealed class FakeGuideSurface : IGuideSurface
+    {
+        public List<string> SafetyMessages { get; } = new();
+        public IReadOnlyList<ModalChoice>? LastSafetyChoices;
+        public void ShowStep(FirstRunGuideStep step) { }
+        public void ShowSafetyCard(string message, IReadOnlyList<ModalChoice> choices)
+        {
+            SafetyMessages.Add(message);
+            LastSafetyChoices = choices;
+        }
+        public void HideCard() { }
+        public void ShowCard() { }
+        public void Close() { }
+    }
+
+    /// <summary>Drives the coordinator's private dispatch (reflection invoke — the established
+    /// pattern here and in SupervisorTrayIconTests).</summary>
+    private static void InvokeGuideChoice(SettingsUiCoordinator coordinator, string id)
+    {
+        typeof(SettingsUiCoordinator)
+            .GetMethod("OnGuideChoice", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(coordinator, [id]);
+    }
+
+    /// <summary>A headless coordinator + flow driven to the Safety step with its chain started,
+    /// mirroring GuideSurface.ShowSafetyCard's RememberSafetyActions call.</summary>
+    private static (SettingsUiCoordinator Coordinator, FakeGuideSurface Surface, FirstRunGuideFlow Flow)
+        SafetyCoordinator()
+    {
+        var coordinator = NewCoordinator();
+        var surface = new FakeGuideSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = new FirstRunGuideFlow(settings, trackerPresent: true, toolbarTaskAvailable: true,
+            surface,
+            (showModal, onEnded) => new SafetySetupFlow(settings, supervision: null, showModal,
+                applyAndSave: () => { }, setSimpleSettingsUi: _ => { }, onEnded: onEnded));
+        typeof(SettingsUiCoordinator)
+            .GetField("_guideFlow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, flow);
+
+        flow.Start();
+        flow.Advance();          // → MeetDwell
+        flow.Skip();             // → DwellTime
+        flow.Advance();          // → Calibrate
+        flow.Skip();             // → ToolbarTask
+        flow.Skip();             // → Theme
+        flow.Advance();          // → Safety
+        flow.BeginSafetyQuestions();
+        coordinator.RememberSafetyActions(surface.LastSafetyChoices!);
+        return (coordinator, surface, flow);
+    }
+
+    [Fact]
+    public void SafetyActionMap_IsConsumedOnce_AndRepopulatedByTheNextCard()
+    {
+        var (coordinator, surface, _) = SafetyCoordinator();
+        try
+        {
+            Check.That(surface.SafetyMessages).HasSize(1);   // question 0 on the surface
+
+            // The fired id forwards once: the chain advances to question 1...
+            InvokeGuideChoice(coordinator, "safety_yes");
+            Check.That(surface.SafetyMessages.Count).IsEqualTo(2);
+
+            // ...and is CONSUMED — the same id again must not fire twice: the map is cleared by
+            // the dispatch and only the NEXT card's render repopulates it. A delegate that
+            // survived the consumption would answer an old question twice (the session-lifetime
+            // singleton hazard the map's clear exists for).
+            InvokeGuideChoice(coordinator, "safety_yes");
+            Check.That(surface.SafetyMessages.Count).IsEqualTo(2);
+
+            // The next card's render repopulates the map; the same id fires again.
+            coordinator.RememberSafetyActions(surface.LastSafetyChoices!);
+            InvokeGuideChoice(coordinator, "safety_yes");
+            Check.That(surface.SafetyMessages.Count).IsEqualTo(3);
+        }
+        finally
+        {
+            coordinator.Dispose();
+        }
+    }
 }

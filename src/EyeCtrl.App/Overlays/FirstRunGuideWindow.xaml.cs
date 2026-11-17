@@ -62,7 +62,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     public ResourceDictionary CardResources => Card.Resources;
 
     public void ShowCardContent(string title, string body, bool chromeClose)
-        => _vm.ShowCard(title, body, chromeClose);
+        => _vm.ShowGuideCard(title, body, chromeClose);
 
     /// <summary>Builds one visual card per (label, id) pair — background, border, label,
     /// progress bar — registers each as a chrome dwell target through the VM (Task 6), then

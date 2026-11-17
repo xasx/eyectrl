@@ -100,7 +100,10 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
         DwellTimeChanged?.Invoke(_settings.Dwell.ActivationButtonDwellMs);
     }
 
-    public void ShowCard(string title, string body, bool chromeClose)
+    /// <summary>Titles the guide card. Named ShowGuideCard (not ShowCard) so the status-card
+    /// slot gate's pin (StatusCardPresenterTests, <c>\.ShowCard\s*\(</c> over src/) keeps
+    /// matching exactly one shower — the slot presenter itself.</summary>
+    public void ShowGuideCard(string title, string body, bool chromeClose)
     {
         Title = title;
         Body = body;

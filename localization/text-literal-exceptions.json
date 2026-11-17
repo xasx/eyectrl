@@ -233,6 +233,18 @@
       "Reason": "The erase-arrow label-frame id a keyboard JSON names; not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs",
+      "Literal": "$\"{_vm.DwellTimeMs} ms\"",
+      "Category": "data",
+      "Reason": "The dwell knob's live value read-out (plan Task 7's builder): the practice dwell time in ms, set when the knob is built; numeric data plus its unit, not prose."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs",
+      "Literal": "$\"{ms} ms\"",
+      "Category": "data",
+      "Reason": "The same read-out updated live by DwellTimeChanged when the −/+ cards re-time the practice target; numeric data plus its unit, not prose."
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs",
       "Literal": "\"lag_mark\"",
       "Category": "id",

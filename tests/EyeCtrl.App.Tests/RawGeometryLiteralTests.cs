@@ -103,6 +103,17 @@ public class RawGeometryLiteralTests
             "the Place-here label font binds the guarded TextSizeDip setting (T6 fixup-06 G1) - a value no token can express",
         ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] =
             "the tile radius is the mark's own pinned geometry (spec §4.1, half the 75 DIP centre) via SplashLayout.TileCornerRadius through x:Static - theme-independent, no Tokens member can express it, and the CornerRadius pool admits only Tokens forms",
+        // First-run guide (spec §5, plan Task 7): the card geometry is the plan's brief-verbatim
+        // XAML/code, not token-migratable style. The card radius resolves through
+        // {DynamicResource LargeCornerRadius} so the theme preview (Task 12) reaches the card-local
+        // resources — a DynamicResource key is a form the {StaticResource}-only pool cannot vouch
+        // for — and the title's 24 pt is the plan's pinned card scale (spec §5).
+        ["src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml"] =
+            "the guide card's plan-verbatim geometry (spec §5, Task 7) - the card radius is {DynamicResource LargeCornerRadius} so the theme preview reaches the card and no {StaticResource}/Tokens form can express a DynamicResource key; the 24 pt title is the plan's pinned card scale",
+        // The code-built dwell cards' radius (new CornerRadius(8)) and the dwell-knob read-out's
+        // 20 pt are the same plan-pinned card scale, written inside the brief's verbatim builders.
+        ["src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs"] =
+            "the code-built guide cards' plan-verbatim geometry (Task 7's brief-verbatim builders) - the 8 px card radius on the 170x100 dwell cards and the 20 pt dwell-knob read-out are the plan's pinned modal-card scale",
         // Task 12 migrated the last nine files onto ContainerRatio, so every scanned file's
         // geometry and typography values come from the token surface. A new entry for a MIGRATION
         // leftover is a regression, not a step: it means a literal was written and waved through.

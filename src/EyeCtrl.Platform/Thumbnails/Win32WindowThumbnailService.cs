@@ -13,30 +13,45 @@ using EyeCtrl.Core.Models;
 /// <c>dwmapi.h</c> (the repo lesson: a struct or flag typo once looked like "Windows refuses").
 /// Every failure is turned into the seam's failure value — never an exception — because the
 /// switcher calls this from its post-layout registration pass and a preview is decoration only.
+/// The failing HRESULT is reported through the matching <c>out</c> parameter; it carries no title,
+/// process or window content, so the open line can log it.
 /// </para>
 /// </summary>
 public sealed class Win32WindowThumbnailService : IWindowThumbnailService
 {
+    /// <summary><c>E_INVALIDARG</c> (winerror.h): a zero handle never reaches DWM.</summary>
+    internal const int EInvalidArg = unchecked((int)0x80070057);
+
     /// <inheritdoc />
-    public IntPtr Register(IntPtr destinationHwnd, IntPtr sourceHwnd)
+    public IntPtr Register(IntPtr destinationHwnd, IntPtr sourceHwnd, out int hresult)
     {
         if (destinationHwnd == IntPtr.Zero || sourceHwnd == IntPtr.Zero)
+        {
+            hresult = EInvalidArg;
+            return IntPtr.Zero;
+        }
+
+        hresult = DwmThumbnailNative.DwmRegisterThumbnail(
+            destinationHwnd, sourceHwnd, out var thumbnail);
+        if (hresult != 0 || thumbnail == IntPtr.Zero)
             return IntPtr.Zero;
 
-        var hr = DwmThumbnailNative.DwmRegisterThumbnail(destinationHwnd, sourceHwnd, out var thumbnail);
-        return hr == 0 && thumbnail != IntPtr.Zero ? thumbnail : IntPtr.Zero;
+        return thumbnail;
     }
 
     /// <inheritdoc />
-    public bool TryGetSourceSize(IntPtr thumbnail, out int width, out int height)
+    public bool TryGetSourceSize(IntPtr thumbnail, out int width, out int height, out int hresult)
     {
         width = 0;
         height = 0;
         if (thumbnail == IntPtr.Zero)
+        {
+            hresult = EInvalidArg;
             return false;
+        }
 
-        var hr = DwmThumbnailNative.DwmQueryThumbnailSourceSize(thumbnail, out var size);
-        if (hr != 0 || size.cx <= 0 || size.cy <= 0)
+        hresult = DwmThumbnailNative.DwmQueryThumbnailSourceSize(thumbnail, out var size);
+        if (hresult != 0 || size.cx <= 0 || size.cy <= 0)
             return false;
 
         width = size.cx;
@@ -45,17 +60,21 @@ public sealed class Win32WindowThumbnailService : IWindowThumbnailService
     }
 
     /// <inheritdoc />
-    public bool Update(IntPtr thumbnail, PhysicalRect destination)
+    public bool Update(IntPtr thumbnail, PhysicalRect destination, out int hresult)
     {
         if (thumbnail == IntPtr.Zero)
+        {
+            hresult = EInvalidArg;
             return false;
+        }
 
         var properties = new DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES
         {
             dwFlags = DwmThumbnailNative.SwitcherPropertyFlags,
             rcDestination = new DwmThumbnailNative.RECT
             {
-                // The helper already rounded every edge to whole physical pixels; the cast is exact.
+                // The geometry helper already rounded every edge to whole physical pixels; the cast
+                // is exact.
                 Left = (int)destination.X,
                 Top = (int)destination.Y,
                 Right = (int)(destination.X + destination.Width),
@@ -68,7 +87,8 @@ public sealed class Win32WindowThumbnailService : IWindowThumbnailService
             fSourceClientAreaOnly = false,
         };
 
-        return DwmThumbnailNative.DwmUpdateThumbnailProperties(thumbnail, ref properties) == 0;
+        hresult = DwmThumbnailNative.DwmUpdateThumbnailProperties(thumbnail, ref properties);
+        return hresult == 0;
     }
 
     /// <inheritdoc />

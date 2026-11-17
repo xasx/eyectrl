@@ -287,7 +287,7 @@ public class TaskSwitcherDesktopTileTests
         var lines = capture.Lines;
         Check.That(lines).HasSize(2);
         Check.That(lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0");
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none");
         Check.That(lines[1].StartsWith("Task switcher closed: outcome=Desktop ", StringComparison.Ordinal)).IsTrue();
         Check.That(lines[1].EndsWith(" slot=2 row=0 col=2", StringComparison.Ordinal)).IsTrue();
     }

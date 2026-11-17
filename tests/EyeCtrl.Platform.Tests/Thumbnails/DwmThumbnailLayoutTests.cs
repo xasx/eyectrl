@@ -12,18 +12,23 @@ using EyeCtrl.Platform.Thumbnails;
 ///
 /// <para>
 /// Header: <c>C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um\dwmapi.h</c> —
-/// <c>DWM_THUMBNAIL_PROPERTIES</c> = <c>DWORD dwFlags; RECT rcDestination; RECT rcSource; BYTE
-/// opacity; BOOL fVisible; BOOL fSourceClientAreaOnly;</c> (48 bytes: 3 bytes of padding after
-/// <c>opacity</c>), <c>HTHUMBNAIL</c> = <c>HANDLE</c>, and the <c>DWM_TNP_*</c> flags 0x1, 0x2,
-/// 0x4, 0x8, 0x10.
+/// <c>DWM_THUMBNAIL_PROPERTIES</c> (line 146) = <c>DWORD dwFlags; RECT rcDestination; RECT
+/// rcSource; BYTE opacity; BOOL fVisible; BOOL fSourceClientAreaOnly;</c>. The header includes
+/// <c>pshpack1.h</c> at line 24 and its <c>poppack.h</c> only at line 696, so the struct is
+/// <b>Pack = 1</b>: <b>45 bytes</b>, <c>opacity</c> at 36, <c>fVisible</c> at <b>37</b> and
+/// <c>fSourceClientAreaOnly</c> at <b>41</b> — no padding after the BYTE. (The review of
+/// <c>f0568249</c> caught the default-packed 48-byte declaration; it worked only because the
+/// padding zeros made DWM read TRUE/FALSE by accident.) <c>HTHUMBNAIL</c> = <c>HANDLE</c>; the
+/// <c>DWM_TNP_*</c> flags are 0x1, 0x2, 0x4, 0x8, 0x10.
 /// </para>
 /// </summary>
 public class DwmThumbnailLayoutTests
 {
     [Fact]
-    public void ThumbnailProperties_MatchTheDwmapiHeaderLayout()
+    public void ThumbnailProperties_MatchThePackedDwmapiHeaderLayout()
     {
-        Check.That(Marshal.SizeOf<DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES>()).IsEqualTo(48);
+        // pshpack1.h: the native struct is 45 bytes, not the default-packed 48.
+        Check.That(Marshal.SizeOf<DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES>()).IsEqualTo(45);
 
         Check.That(Offset<DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES>(
             nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.dwFlags))).IsEqualTo(0);
@@ -33,12 +38,13 @@ public class DwmThumbnailLayoutTests
             nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.rcSource))).IsEqualTo(20);
         Check.That(Offset<DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES>(
             nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.opacity))).IsEqualTo(36);
-        // The 3 bytes of padding after the BYTE put the first BOOL at 40, not 37.
+        // Pack = 1: the first BOOL follows the BYTE immediately, with no padding.
         Check.That(Offset<DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES>(
-            nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.fVisible))).IsEqualTo(40);
+            nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.fVisible))).IsEqualTo(37);
         Check.That(Offset<DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES>(
-            nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.fSourceClientAreaOnly))).IsEqualTo(44);
+            nameof(DwmThumbnailNative.DWM_THUMBNAIL_PROPERTIES.fSourceClientAreaOnly))).IsEqualTo(41);
 
+        // Every other struct declared here is all-4-byte fields, so packing cannot move it.
         Check.That(Marshal.SizeOf<DwmThumbnailNative.RECT>()).IsEqualTo(16);
         Check.That(Marshal.SizeOf<DwmThumbnailNative.SIZE>()).IsEqualTo(8);
     }

@@ -433,10 +433,19 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// window handle. It is always in a shown row (the VM trimmed the window list to make room),
     /// so it can never be the tile the viewport clips.
     /// </para>
+    /// <para>
+    /// S4-C runs the preview registration in this same pass. <c>internal</c> rather than private so
+    /// the stale-pass gate can drive the real pass on a hidden window without a show.
+    /// </para>
     /// </summary>
-    private void UpdateTilePositions()
+    internal void UpdateTilePositions()
     {
         if (_viewModel == null) return;
+
+        // A Loaded-priority pass queued before HideOverlay must not register anything on a hidden
+        // window: no dwell target there is reachable, and a preview would live until the next show
+        // (or close). Production queues this pass from ShowFullScreen, where IsVisible is true.
+        if (!IsVisible) return;
 
         // With the scrollbar Disabled/Hidden there is no scrollbar chrome, so the
         // ScrollViewer's whole area IS its viewport. Its physical rect is the reachability
@@ -512,7 +521,7 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // the first visible frame (`ShowFullScreen` lifts the cloak after this dispatcher callback)
         // and the log's previews=/previewFailures= describe that frame.
         var previews = RegisterTileThumbnails(this, fullyVisibleWindows);
-        _viewModel.ReportPreviews(previews.Registered, previews.Failed);
+        _viewModel.ReportPreviews(previews.Registered, previews.Failed, previews.FirstFailureHresult);
 
         // Register the close disc as a dwell target too (same physical-pixel convention).
         var closeCenter = CloseButton.PointToScreen(
@@ -586,16 +595,17 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// headless harness has already trimmed the panel to capacity, so every tile it holds is on
     /// screen.
     /// </param>
-    internal (int Registered, int Failed) RegisterTileThumbnails(
+    internal (int Registered, int Failed, int FirstFailureHresult) RegisterTileThumbnails(
         UIElement windowRoot, IReadOnlySet<IntPtr>? visibleWindows = null)
     {
         if (_thumbnailService is null || _viewModel is null)
-            return (0, 0);
+            return (0, 0, 0);
 
         UnregisterThumbnails();
 
         var registered = 0;
         var failed = 0;
+        var firstFailureHresult = 0;
         foreach (var item in TilesPanel.Items)
         {
             if (item is not TaskSwitcherTileViewModel tile || tile.IsDesktop || tile.IsMinimized)
@@ -607,30 +617,41 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
             try
             {
-                if (TryRegisterTileThumbnail(tile, container, windowRoot))
+                if (TryRegisterTileThumbnail(tile, container, windowRoot, out var hresult))
+                {
                     registered++;
+                }
                 else
+                {
                     failed++;
+                    if (firstFailureHresult == 0)
+                        firstFailureHresult = hresult;
+                }
             }
             catch (Exception)
             {
                 // A preview is decoration: it must never take the switcher — the owner's only
-                // surface for switching a window — down with it.
+                // surface for switching a window — down with it. (The handle is released inside
+                // TryRegisterTileThumbnail's finally.)
                 failed++;
             }
         }
 
-        return (registered, failed);
+        return (registered, failed, firstFailureHresult);
     }
 
     /// <summary>
     /// One tile's registration: allocate the DWM thumbnail, read the source size (a zero size is a
-    /// failure — the window is gone or not composited), fit the destination rect inside the
-    /// tile's preview box, and show it. Every failure releases the handle it may have allocated.
+    /// failure — the window is gone or not composited), fit the destination rect inside the tile's
+    /// preview box, and show it. Every failure — and every exception after the handle exists —
+    /// releases the handle in the <c>finally</c>, so HideOverlay can never be the only release.
+    /// <paramref name="hresult"/> is the failing dwmapi result (0 for a failure that has none).
     /// </summary>
     private bool TryRegisterTileThumbnail(
-        TaskSwitcherTileViewModel tile, FrameworkElement container, UIElement windowRoot)
+        TaskSwitcherTileViewModel tile, FrameworkElement container, UIElement windowRoot,
+        out int hresult)
     {
+        hresult = 0;
         if (_thumbnailService is null)
             return false;
 
@@ -639,33 +660,70 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             return false;
 
         var handle = _thumbnailService.Register(
-            new WindowInteropHelper(this).Handle, tile.Hwnd);
+            new WindowInteropHelper(this).Handle, tile.Hwnd, out hresult);
         if (handle == IntPtr.Zero)
             return false;
 
-        if (!_thumbnailService.TryGetSourceSize(handle, out var sourceWidth, out var sourceHeight))
+        var registered = false;
+        try
         {
-            _thumbnailService.Unregister(handle);
-            return false;
+            if (!_thumbnailService.TryGetSourceSize(
+                    handle, out var sourceWidth, out var sourceHeight, out hresult))
+            {
+                return false;
+            }
+
+            // The box's PHYSICAL rect relative to the destination window's client area (PointToScreen,
+            // the dwell path's convention); rcDestination is in that space, and the switcher covers
+            // (0,0) only by coincidence — never depend on it.
+            var box = PreviewBoxPhysicalRect(preview, windowRoot);
+            var destination = ThumbnailGeometry.FitDestination(
+                box.X, box.Y, box.Width, box.Height, sourceWidth, sourceHeight);
+
+            if (!_thumbnailService.Update(handle, destination, out hresult))
+                return false;
+
+            _tileThumbnails.Add((tile, handle));
+            tile.HasPreview = true;
+            registered = true;
+            return true;
+        }
+        finally
+        {
+            if (!registered)
+                _thumbnailService.Unregister(handle);
+        }
+    }
+
+    /// <summary>
+    /// The preview box's rectangle in the destination window's CLIENT coordinates, in PHYSICAL
+    /// pixels — <c>PointToScreen</c> corners minus the window's client origin, exactly like the
+    /// dwell targets in <see cref="UpdateTilePositions"/>. This is what makes the DPI scale and
+    /// Windows' DPI virtualization come out right without a hand-multiplied <c>DIP × scale</c>
+    /// (the 2026-08-17 class).
+    ///
+    /// <para>
+    /// A detached headless tree has no <see cref="PresentationSource"/>, so there is no physical
+    /// space to read; the DIP layout position is then the only geometry and is returned as-is.
+    /// Production registers only on a shown window, so it never takes that fallback — the 200 %
+    /// wiring test goes through a real off-screen render chain and does.
+    /// </para>
+    /// </summary>
+    private static PhysicalRect PreviewBoxPhysicalRect(FrameworkElement preview, UIElement windowRoot)
+    {
+        if (PresentationSource.FromVisual(preview) is not null)
+        {
+            var windowOrigin = windowRoot.PointToScreen(new Point(0, 0));
+            var topLeft = preview.PointToScreen(new Point(0, 0));
+            var bottomRight = preview.PointToScreen(
+                new Point(preview.ActualWidth, preview.ActualHeight));
+            return new PhysicalRect(
+                topLeft.X - windowOrigin.X, topLeft.Y - windowOrigin.Y,
+                bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
         }
 
-        // The box's DIP position RELATIVE TO THE WINDOW (never the screen): rcDestination is in the
-        // destination window's client coordinates, and the switcher covers the primary screen only
-        // by coincidence — never depend on (0,0).
-        var origin = preview.TranslatePoint(new Point(0, 0), windowRoot);
-        var destination = ThumbnailGeometry.FitDestination(
-            origin.X, origin.Y, preview.ActualWidth, preview.ActualHeight,
-            DpiHelper.ScaleX, DpiHelper.ScaleY, sourceWidth, sourceHeight);
-
-        if (!_thumbnailService.Update(handle, destination))
-        {
-            _thumbnailService.Unregister(handle);
-            return false;
-        }
-
-        _tileThumbnails.Add((tile, handle));
-        tile.HasPreview = true;
-        return true;
+        var dipOrigin = preview.TranslatePoint(new Point(0, 0), windowRoot);
+        return new PhysicalRect(dipOrigin.X, dipOrigin.Y, preview.ActualWidth, preview.ActualHeight);
     }
 
     /// <summary>

@@ -131,10 +131,12 @@
                                         </Grid>
                                     </Border>
                                     <!-- S4-C: the identity row — the app icon at 20 DIP (the preview above
-                                         carries the 40 DIP fallback) and the title, left-aligned beside it
-                                         and trimmed to the 168 DIP content width. -->
+                                         carries the 40 DIP fallback) and the title, LEFT-aligned beside it
+                                         and trimmed to the 168 DIP content width (the Option C board: a
+                                         trimmed title reads from its start, so short titles do not jump to
+                                         the middle under the picture). -->
                                     <StackPanel x:Name="TileRow" Orientation="Horizontal" Margin="0,6,0,0"
-                                                HorizontalAlignment="Center">
+                                                HorizontalAlignment="Stretch">
                                         <Image x:Name="TileIcon" Source="{Binding Icon}" Width="20" Height="20"
                                                Margin="0,0,6,0" VerticalAlignment="Center"
                                                RenderOptions.BitmapScalingMode="HighQuality"/>

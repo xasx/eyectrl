@@ -7,19 +7,28 @@ using System.Runtime.InteropServices;
 /// <c>C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um\dwmapi.h</c>:
 ///
 /// <list type="bullet">
-/// <item><c>DwmRegisterThumbnail(HWND hwndDestination, HWND hwndSource, PHTHUMBNAIL phThumbnailId)</c></item>
-/// <item><c>DwmUpdateThumbnailProperties(HTHUMBNAIL hThumbnailId, const DWM_THUMBNAIL_PROPERTIES* ptnProperties)</c></item>
-/// <item><c>DwmQueryThumbnailSourceSize(HTHUMBNAIL hThumbnailId, PSIZE pSize)</c></item>
-/// <item><c>DwmUnregisterThumbnail(HTHUMBNAIL hThumbnailId)</c></item>
+/// <item><c>DwmRegisterThumbnail(HWND hwndDestination, HWND hwndSource, PHTHUMBNAIL phThumbnailId)</c> (line 453)</item>
+/// <item><c>DwmUpdateThumbnailProperties(HTHUMBNAIL hThumbnailId, const DWM_THUMBNAIL_PROPERTIES* ptnProperties)</c> (line 486)</item>
+/// <item><c>DwmQueryThumbnailSourceSize(HTHUMBNAIL hThumbnailId, PSIZE pSize)</c> (line 473)</item>
+/// <item><c>DwmUnregisterThumbnail(HTHUMBNAIL hThumbnailId)</c> (line 495)</item>
 /// </list>
 ///
 /// <para>
 /// <c>typedef HANDLE HTHUMBNAIL</c>, so a thumbnail id is an <see cref="IntPtr"/>. The properties
 /// struct in the header is, in order, <c>DWORD dwFlags; RECT rcDestination; RECT rcSource; BYTE
-/// opacity; BOOL fVisible; BOOL fSourceClientAreaOnly;</c> — 48 bytes with the 3 bytes of padding
-/// after <c>opacity</c> that the native layout requires (pinned by
-/// <c>DwmThumbnailLayoutTests</c>). <c>fVisible</c>/<c>fSourceClientAreaOnly</c> are 4-byte BOOLs,
-/// never C# <c>bool</c> without <c>UnmanagedType.Bool</c>.
+/// opacity; BOOL fVisible; BOOL fSourceClientAreaOnly;</c> — and the whole header is wrapped in
+/// <c>#include &lt;pshpack1.h&gt;</c> at line 24, closed by <c>#include &lt;poppack.h&gt;</c> at
+/// line 696. The struct at line 146 therefore has <b>Pack = 1</b>: 45 bytes, with <c>opacity</c>
+/// at 36, <c>fVisible</c> at 37 and <c>fSourceClientAreaOnly</c> at 41, and NO padding after the
+/// BYTE. The managed struct must say <c>Pack = 1</c> explicitly; the default pack inserts three
+/// bytes, which DWM would read as the low bytes of <c>fVisible</c> — the trap this repo's struct
+/// lesson is about (pinned by <c>DwmThumbnailLayoutTests</c>, 45 / 37 / 41).
+/// </para>
+///
+/// <para>
+/// <c>fVisible</c>/<c>fSourceClientAreaOnly</c> are 4-byte BOOLs, never C# <c>bool</c> without
+/// <c>UnmanagedType.Bool</c>. <c>RECT</c> and <c>SIZE</c> are declared with four / two 4-byte
+/// fields, so the pack setting cannot change their layout (16 and 8 bytes).
 /// </para>
 /// </summary>
 internal static class DwmThumbnailNative
@@ -64,8 +73,10 @@ internal static class DwmThumbnailNative
         public int cy;
     }
 
-    /// <summary><c>DWM_THUMBNAIL_PROPERTIES</c> from dwmapi.h (sequential, no packing override).</summary>
-    [StructLayout(LayoutKind.Sequential)]
+    /// <summary><c>DWM_THUMBNAIL_PROPERTIES</c> from dwmapi.h (line 146), inside the header's
+    /// <c>pshpack1.h</c> region: <c>Pack = 1</c>, 45 bytes, <c>fVisible</c> at 37 and
+    /// <c>fSourceClientAreaOnly</c> at 41.</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     internal struct DWM_THUMBNAIL_PROPERTIES
     {
         public int dwFlags;

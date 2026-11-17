@@ -59,7 +59,7 @@ public class TaskSwitcherPreviewTests
         using var board = Board.Open(
             [Win(1, "Editor"), Win(2, "Browser"), Win(3, "Notes"), Win(4, "Chat", minimized: true)]);
 
-        var (registered, failed) = board.Register();
+        var (registered, failed, _) = board.Register();
 
         Check.That((registered, failed)).IsEqualTo((3, 0));
         Check.That(board.Thumbnails.LiveCount).IsEqualTo(3);
@@ -78,7 +78,7 @@ public class TaskSwitcherPreviewTests
         // preview pass must never see (or register) a window without a tile.
         using var board = Board.Open(NumberedWindows(50));
 
-        var (registered, failed) = board.Register();
+        var (registered, failed, _) = board.Register();
 
         Check.That(board.ViewModel.Tiles).HasSize(44);
         Check.That((registered, failed)).IsEqualTo((44, 0));
@@ -96,7 +96,7 @@ public class TaskSwitcherPreviewTests
 
         for (var cycle = 0; cycle < 3; cycle++)
         {
-            var (registered, failed) = board.Register();
+            var (registered, failed, _) = board.Register();
             Check.That((registered, failed)).IsEqualTo((3, 0));
             Check.That(board.Thumbnails.LiveCount).IsEqualTo(3);
             Check.That(board.ViewModel.Tiles).ContainsOnlyElementsThatMatch(t => t.HasPreview);
@@ -117,7 +117,7 @@ public class TaskSwitcherPreviewTests
         using var board = Board.Open([Win(1, "Editor"), Win(2, "Browser"), Win(3, "Notes")]);
         board.Thumbnails.FailRegistrationFor.Add(new IntPtr(2));
 
-        var (registered, failed) = board.Register();
+        var (registered, failed, _) = board.Register();
 
         Check.That((registered, failed)).IsEqualTo((2, 1));
         Check.That(board.Thumbnails.LiveCount).IsEqualTo(2);
@@ -134,7 +134,7 @@ public class TaskSwitcherPreviewTests
         using var board = Board.Open([Win(1, "Editor"), Win(2, "Browser")]);
         board.Thumbnails.ZeroSourceSizeFor.Add(new IntPtr(2));
 
-        var (registered, failed) = board.Register();
+        var (registered, failed, _) = board.Register();
 
         Check.That((registered, failed)).IsEqualTo((1, 1));
         Check.That(board.Thumbnails.LiveCount).IsEqualTo(1);
@@ -148,7 +148,7 @@ public class TaskSwitcherPreviewTests
         using var board = Board.Open([Win(1, "Editor"), Win(2, "Browser")]);
         board.Thumbnails.FailUpdateFor.Add(new IntPtr(2));
 
-        var (registered, failed) = board.Register();
+        var (registered, failed, _) = board.Register();
 
         Check.That((registered, failed)).IsEqualTo((1, 1));
         Check.That(board.Thumbnails.LiveCount).IsEqualTo(1);
@@ -161,7 +161,7 @@ public class TaskSwitcherPreviewTests
     {
         using var board = Board.Open([Win(1, "Editor")]);
 
-        var (registered, _) = board.Register();
+        var (registered, _, _) = board.Register();
         Check.That(registered).IsEqualTo(1);
 
         var registration = board.Thumbnails.Registrations.Single();
@@ -181,7 +181,143 @@ public class TaskSwitcherPreviewTests
         Check.That(update.Destination.Width).IsEqualTo(167);
         Check.That(update.Destination.Height).IsEqualTo(94);
         Check.That(update.Destination).IsEqualTo(ThumbnailGeometry.FitDestination(
-            box.Left, box.Top, box.Width, box.Height, 1.0, 1.0, 1920, 1080));
+            box.Left, box.Top, box.Width, box.Height, 1920, 1080));
+    }
+
+    [StaFact]
+    public void ARegisteredPreview_At200Percent_IsPlacedInPhysicalPixels()
+    {
+        // The real registration pass through an off-screen render chain at 2.0: the box is
+        // PointToScreen'd, so the destination is twice its DIP geometry — 334 x 188, not 167 x 94.
+        // (The review's mutant: handing the fit a 1.0 scale / DIP rect survives every 1.0 test.)
+        using var board = Board.Open([Win(1, "Editor")], scale: 2.0);
+
+        var (registered, _, _) = board.Register();
+        Check.That(registered).IsEqualTo(1);
+
+        var update = board.Thumbnails.Updates.Single();
+        var box = board.Bounds(board.Find<Border>(board.Faces()[0].Container, "PreviewBox")!);
+
+        Check.WithCustomMessage($"box {Box(box)} at 2.0; destination {update.Destination}")
+            .That(update.Destination.Width).IsEqualTo(334);
+        Check.That(update.Destination.Height).IsEqualTo(188);
+        Check.That(Math.Abs(update.Destination.X - (box.Left * 2))).IsLessOrEqualThan(2.0);
+        Check.That(Math.Abs(update.Destination.Y - (box.Top * 2))).IsLessOrEqualThan(2.0);
+    }
+
+    [StaFact]
+    public void APassQueuedBeforeAHide_RegistersNothingOnTheHiddenWindow()
+    {
+        // The Loaded callback can run after HideOverlay. Production would register on a hidden
+        // window and keep the handles until the next show; the pass must refuse instead.
+        using var board = Board.Open([Win(1, "Editor")]);
+
+        board.Hide();
+        board.UpdatePositions();
+
+        Check.That(board.Thumbnails.Registrations).IsEmpty();
+        Check.That(board.Thumbnails.LiveCount).IsEqualTo(0);
+    }
+
+    [StaFact]
+    public void AnExceptionAfterRegister_ReleasesTheHandle()
+    {
+        // L2: a throw between Register and the handle list must not leak a DWM thumbnail that
+        // HideOverlay can never see.
+        using var board = Board.Open([Win(1, "Editor"), Win(2, "Browser")]);
+        board.Thumbnails.ThrowAfterRegisterFor.Add(new IntPtr(2));
+
+        var (registered, failed, _) = board.Register();
+
+        Check.That((registered, failed)).IsEqualTo((1, 1));
+        Check.That(board.Thumbnails.LiveCount).IsEqualTo(1);
+        Check.That(board.Thumbnails.LiveSources).ContainsExactly(new IntPtr(1));
+        Check.That(board.Thumbnails.UnregisterCalls).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void TheFirstFailingHresult_IsCarriedWithTheCounts()
+    {
+        // previewHr= exists for the installed build: E_ACCESSDENIED / E_INVALIDARG / E_FAIL must
+        // reach the log without a title or a process.
+        using var board = Board.Open([Win(1, "Editor"), Win(2, "Browser"), Win(3, "Notes")]);
+        board.Thumbnails.FailRegistrationFor.Add(new IntPtr(2));   // E_ACCESSDENIED, first
+        board.Thumbnails.FailUpdateFor.Add(new IntPtr(3));         // E_FAIL, later
+
+        var (registered, failed, hresult) = board.Register();
+
+        Check.That((registered, failed)).IsEqualTo((1, 2));
+        Check.That(hresult).IsEqualTo(unchecked((int)0x80070005));
+    }
+
+    /// <summary>
+    /// M2: the production show pass, driven for real on a cloaked switcher with the FAKE service.
+    /// The review's surviving mutant made the fully-visible filter never true: production would
+    /// register zero previews with every lifecycle test green. This gate pins the filter, the
+    /// destination HWND and the ordering (every registration before the uncloak request).
+    /// </summary>
+    [StaFact]
+    public void ShowFullScreen_RegistersEveryVisibleWindowTile_BeforeTheUncloakRequest()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var windows = new[]
+        {
+            Win(1, "Editor"), Win(2, "Browser"), Win(3, "Chat", minimized: true),
+        };
+        var messenger = new WeakReferenceMessenger();
+        using var viewModel = new TaskSwitcherViewModel(
+            new FakeWindowManager(windows), new EyeCtrlSettings(), messenger);
+        var window = new TaskSwitcherWindow();
+        try
+        {
+            InvisibleTestWindow.PrepareCloaked(window);   // anchors the one-way seam
+
+            // SAFETY GATE, before any show: only a window DWM reports as cloaked may be shown.
+            var prepared = InvisibleTestWindow.IsCloaked(window);
+            Assert.SkipWhen(prepared is null, "DWM did not report the cloak state (no composition): refusing to show the switcher.");
+            Assert.SkipUnless(prepared == true, "DWM did not cloak the prepared switcher: refusing to paint a full-screen non-layered window.");
+
+            var fake = new FakeThumbnailService();
+            var sequence = new List<string>();
+            fake.OnRegister = source => sequence.Add($"register:{source.ToInt64()}");
+            window.Configure(viewModel, new FakeIconProvider(), fake);
+            window.UncloakSuppressedForTests += () => sequence.Add("uncloak-request");
+
+            messenger.Send(new TaskSwitcherToggledMessage());
+            window.ShowFullScreen(toolbarKeepOut: null);
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+
+            Check.WithCustomMessage($"registrations: {string.Join(" | ", sequence)}")
+                .That(fake.Registrations).HasSize(2);
+            Check.That(fake.Registrations.Select(r => r.Source))
+                .ContainsExactly(new IntPtr(1), new IntPtr(2));
+            var destination = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            Check.That(destination).IsNotEqualTo(IntPtr.Zero);
+            Check.That(fake.Registrations)
+                .ContainsOnlyElementsThatMatch(r => r.Destination == destination);
+
+            var uncloak = sequence.IndexOf("uncloak-request");
+            Check.WithCustomMessage($"unexpected sequence: {string.Join(" | ", sequence)}")
+                .That(uncloak).IsStrictlyGreaterThan(-1);
+            var registeredAt = sequence
+                .Select((step, index) => (step, index))
+                .Where(x => x.step.StartsWith("register:", StringComparison.Ordinal))
+                .Select(x => x.index)
+                .ToList();
+            Check.That(registeredAt).HasSize(2);
+            Check.WithCustomMessage(
+                    $"a registration came after the uncloak request: {string.Join(" | ", sequence)}")
+                .That(registeredAt.Max()).IsStrictlyLessThan(uncloak);
+
+            // The live pictures are released by the product hide path.
+            window.HideOverlay();
+            Check.That(fake.LiveCount).IsEqualTo(0);
+        }
+        finally
+        {
+            try { window.HideOverlay(); } catch { /* an assertion may have failed mid-show */ }
+            window.Close();
+        }
     }
 
     // ── template geometry ─────────────────────────────────────────────────────────────────────
@@ -234,6 +370,13 @@ public class TaskSwitcherPreviewTests
                     .That(rowIcon.IntersectsWith(box)).IsFalse();
                 Check.That(Inside(face, bar, inset: 8)).IsTrue();
                 Check.That(Inside(face, row, inset: 8)).IsTrue();
+
+                // L1: the icon + title row is LEFT-aligned (the Option C board), so a short title
+                // starts at the tile's content edge instead of drifting to the middle.
+                Check.WithCustomMessage($"{language} at {scale:0.0}x: the row {Box(row)} is not left-aligned in {Box(face)}.")
+                    .That(row.Left).IsCloseTo(face.Left + 8, 1.0);
+                Check.WithCustomMessage($"{language} at {scale:0.0}x: the row icon {Box(rowIcon)} does not start at the row's left edge.")
+                    .That(rowIcon.Left - row.Left).IsLessOrEqualThan(1.0);
 
                 // The fallback: 40 DIP, inside the box on every tile (the normal tile has no
                 // registration here, so its box shows the icon too — never empty, never black).
@@ -305,7 +448,7 @@ public class TaskSwitcherPreviewTests
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs"));
-        var body = SourceScanner.StripComments(ExtractMethod(source, "private void UpdateTilePositions()"));
+        var body = SourceScanner.StripComments(ExtractMethod(source, "internal void UpdateTilePositions()"));
 
         var register = body.IndexOf("RegisterTileThumbnails(", StringComparison.Ordinal);
         var report = body.IndexOf("ReportPreviews(", StringComparison.Ordinal);
@@ -449,7 +592,14 @@ public class TaskSwitcherPreviewTests
         }
 
         /// <summary>The production post-layout preview pass, over every realised panel tile.</summary>
-        internal (int Registered, int Failed) Register() => _window.RegisterTileThumbnails(Root);
+        internal (int Registered, int Failed, int FirstFailureHresult) Register() =>
+            _window.RegisterTileThumbnails(Root);
+
+        /// <summary>
+        /// The production pass itself (dwell targets + previews). Drivable after the tree was laid
+        /// out detached — the stale-pass gate only needs it to take the hidden-window early return.
+        /// </summary>
+        internal void UpdatePositions() => _window.UpdateTilePositions();
 
         /// <summary>The product hide path: releases the handles, then hides (and requests the uncloak).</summary>
         internal void Hide() => _window.HideOverlay();
@@ -535,7 +685,7 @@ public class TaskSwitcherPreviewTests
     /// The thumbnail seam as a counting double. It never talks to DWM: it hands out ids and records
     /// every register/update/unregister, so the lifecycle assertions are about the switcher's calls,
     /// not about Windows. A test can make one window fail at registration, report a zero source
-    /// size, or fail its update.
+    /// size, fail its update, or throw after the handle exists (the L2 leak case).
     /// </summary>
     private sealed class FakeThumbnailService : IWindowThumbnailService
     {
@@ -548,7 +698,16 @@ public class TaskSwitcherPreviewTests
         internal HashSet<IntPtr> FailRegistrationFor { get; } = [];
         internal HashSet<IntPtr> ZeroSourceSizeFor { get; } = [];
         internal HashSet<IntPtr> FailUpdateFor { get; } = [];
+        internal HashSet<IntPtr> ThrowAfterRegisterFor { get; } = [];
         internal int UnregisterCalls { get; private set; }
+
+        /// <summary>A failure HRESULT the seam can report; overridable per test for the log token.</summary>
+        internal int RegisterFailureHresult { get; set; } = unchecked((int)0x80070005);   // E_ACCESSDENIED
+        internal int QueryFailureHresult { get; set; } = unchecked((int)0x80070057);      // E_INVALIDARG
+        internal int UpdateFailureHresult { get; set; } = unchecked((int)0x80004005);     // E_FAIL
+
+        /// <summary>Called inside Register, so a gate can place the registration in a sequence.</summary>
+        internal Action<IntPtr>? OnRegister { get; set; }
 
         internal int LiveCount => _live.Count;
 
@@ -556,38 +715,66 @@ public class TaskSwitcherPreviewTests
         internal IReadOnlyList<IntPtr> LiveSources =>
             _sourceByHandle.Where(p => _live.Contains(p.Key)).Select(p => p.Value).ToList();
 
-        public IntPtr Register(IntPtr destinationHwnd, IntPtr sourceHwnd)
+        public IntPtr Register(IntPtr destinationHwnd, IntPtr sourceHwnd, out int hresult)
         {
             Registrations.Add((destinationHwnd, sourceHwnd));
+            OnRegister?.Invoke(sourceHwnd);
             if (FailRegistrationFor.Contains(sourceHwnd))
+            {
+                hresult = RegisterFailureHresult;
                 return IntPtr.Zero;
+            }
 
+            hresult = 0;
             var handle = new IntPtr(_next++);
             _sourceByHandle[handle] = sourceHwnd;
             _live.Add(handle);
             return handle;
         }
 
-        public bool TryGetSourceSize(IntPtr thumbnail, out int width, out int height)
+        public bool TryGetSourceSize(IntPtr thumbnail, out int width, out int height, out int hresult)
         {
             width = 0;
             height = 0;
             if (thumbnail == IntPtr.Zero || !_sourceByHandle.TryGetValue(thumbnail, out var source))
+            {
+                hresult = QueryFailureHresult;
                 return false;
-            if (ZeroSourceSizeFor.Contains(source))
-                return false;
+            }
 
+            if (ThrowAfterRegisterFor.Contains(source))
+                throw new InvalidOperationException("fake: a throw between Register and the handle list");
+
+            if (ZeroSourceSizeFor.Contains(source))
+            {
+                hresult = 0;   // the query SUCCEEDED and reported nothing; no HRESULT to log
+                return false;
+            }
+
+            hresult = 0;
             width = 1920;
             height = 1080;
             return true;
         }
 
-        public bool Update(IntPtr thumbnail, PhysicalRect destination)
+        public bool Update(IntPtr thumbnail, PhysicalRect destination, out int hresult)
         {
             Updates.Add((thumbnail, destination));
-            return thumbnail != IntPtr.Zero
-                && _sourceByHandle.TryGetValue(thumbnail, out var source)
-                && !FailUpdateFor.Contains(source);
+            if (thumbnail == IntPtr.Zero
+                || !_sourceByHandle.TryGetValue(thumbnail, out var source))
+            {
+                hresult = QueryFailureHresult;
+                return false;
+            }
+
+            if (FailUpdateFor.Contains(source))
+            {
+                hresult = UpdateFailureHresult;
+                return false;
+            }
+
+            hresult = 0;
+            return true;
         }
 
         public void Unregister(IntPtr thumbnail)

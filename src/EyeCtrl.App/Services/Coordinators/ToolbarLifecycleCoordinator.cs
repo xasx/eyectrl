@@ -168,14 +168,14 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // geometry-only
                 // (target placement) and are fed regardless. Paused samples are skipped for the same
                 // reason: input must not leave EyeCtrl while the user believes pause released it.
-                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen, _exerciseActive))
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen, _exerciseActive, _modal.GuideOpen))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
                 // inside UpdateSettingsGazeIfVisible, which is a no-op when no window is constructed).
                 // B7 fixup-03: an exercise owns the screen, so the Settings window's own detectors
                 // (tabs/controls/pages/modals — not DwellOverlayViewModelBase) get no samples.
-                if (ShouldFeedSettingsSample(_exerciseActive))
+                if (ShouldFeedSettingsSample(_exerciseActive, _modal.GuideOpen))
                     _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
             });
         };
@@ -187,21 +187,24 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
     /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
     /// AND the window is visible AND the sample is a real measurement (not gap-held) AND neither the
-    /// probe nor an eye-care exercise owns the screen (build plan C9; B7 fixup-01 F1).
+    /// probe, an eye-care exercise, nor the first-run guide owns the screen (build plan C9; B7
+    /// fixup-01 F1).
     /// Review found the inline version had zero test coverage — neutralizing it broke no test.
     /// </summary>
-    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen, bool exerciseActive) =>
-        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive;
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible,
+        bool isInGap, bool probeOpen, bool exerciseActive, bool guideOpen) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive && !guideOpen;
 
     /// <summary>
     /// The Settings window's per-sample feed gate (B7 fixup-03). The Settings VM keeps its own four
     /// detectors (tabs, controls, pagination, modals), so the shared DwellOverlayViewModelBase hold
-    /// cannot reach them; while an eye-care exercise owns the opaque full-screen window, no sample
-    /// may be forwarded. Pure, so the gate is pinned headlessly; the call site passes
-    /// <c>_exerciseActive</c> and is pinned at source in
+    /// cannot reach them; while an eye-care exercise or the first-run guide owns the screen, no
+    /// sample may be forwarded. Pure, so the gate is pinned headlessly; the call site passes
+    /// <c>_exerciseActive</c> and <c>_modal.GuideOpen</c> and is pinned at source in
     /// <c>ToolbarLifecycleCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource</c>.
     /// </summary>
-    internal static bool ShouldFeedSettingsSample(bool exerciseActive) => !exerciseActive;
+    internal static bool ShouldFeedSettingsSample(bool exerciseActive, bool guideOpen) =>
+        !exerciseActive && !guideOpen;
 
     /// <summary>
     /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or
@@ -235,6 +238,24 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         else
             _autoHideSuspensionHolders.Remove(holder);
         _autoHide?.SetSuspended(_autoHideSuspensionHolders.Count > 0);
+    }
+
+    /// <summary>The guide's toolbar hold. ORDER (r1 F11): the hidden hold arms FIRST —
+    /// SetSuspended posts an async ForceShow when Hidden, and a hold armed after loses the race.
+    /// Release (guide close) is the coordinator's ForceShow() restore path, not this.</summary>
+    public void SetGuideHold(bool held)
+    {
+        _autoHide?.SetGuideHiddenHold(held);
+        SetAutoHideSuspended("guide", held);
+    }
+
+    /// <summary>Step-5 entry: release the hold and reset the controller to Hidden so the summon
+    /// detection is live immediately (r4 F2).</summary>
+    public void ResetToolbarForGuideTask()
+    {
+        _autoHide?.SetGuideHiddenHold(false);
+        SetAutoHideSuspended("guide", false);
+        _autoHide?.ResetToHidden();
     }
 
     /// <summary>Activates/deactivates the toolbar visibility adapter (calibration suppress path).

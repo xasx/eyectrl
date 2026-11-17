@@ -102,6 +102,42 @@ public sealed class BannerSlot : IBannerSlot
         ShowNextIfFree();
     }
 
+    // The guide's hold (spec §5 claim 4): while held, the live banner hides and re-queues at the
+    // FRONT (it resumes first) and dequeue pauses — nothing is dropped, `_live` cannot wedge
+    // because the hold clears it. Preempt deliberately bypasses the hold: caregiver alerts are
+    // the safety channel and take the slot even mid-guide (pinned by test). UI thread only.
+    private bool _held;
+
+    /// <summary>Hold for a fullscreen surface (the first-run guide). Idempotent.</summary>
+    public void Hold()
+    {
+        if (_held) return;
+        _held = true;
+        if (_live is { } live)
+        {
+            _live = null;
+            live.Closed -= OnClosed;
+            try
+            {
+                live.HideFromSlot();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A held banner failed to hide; it still re-queues.");
+            }
+            _queue.Insert(0, live);
+        }
+    }
+
+    /// <summary>Release: dequeue resumes at once with the front of the queue (nothing dropped).
+    /// A live pre-emptor is untouched.</summary>
+    public void Release()
+    {
+        if (!_held) return;
+        _held = false;
+        ShowNextIfFree();
+    }
+
     /// <inheritdoc />
     public bool IsLive(IBannerSlotOccupant banner) => ReferenceEquals(banner, _live);
 
@@ -123,7 +159,7 @@ public sealed class BannerSlot : IBannerSlot
     {
         // A loop, because an occupant may close synchronously inside ShowInSlot (nothing to show):
         // the next queued banner then takes the slot in the same turn instead of waiting forever.
-        while (_live is null && _queue.Count > 0)
+        while (!_held && _live is null && _queue.Count > 0)
         {
             var next = _queue[0];
             _queue.RemoveAt(0);

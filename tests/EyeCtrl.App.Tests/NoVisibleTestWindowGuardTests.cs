@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Windows;
 using NFluent;
 using Xunit;
 
@@ -98,8 +99,8 @@ public class NoVisibleTestWindowGuardTests
             "reached only after Run's EYECTRL_UI_TESTS gate returns; ProbeRingOnScreenGateTests pins that gate headless",
         ["InvisibleTestWindowTests.cs#ThePreparedTaskSwitcher_StaysCloaked_AcrossTheProductShowPath"] =
             "S4-B's invisibility proof: PrepareCloaked DWM-cloaks the switcher, the cloak is read back as TRUE before " +
-            "ShowFullScreen runs (null/false skips instead of showing), and StayCloakedForTests suppresses the product's " +
-            "uncloak — DWM never composes the window, so nothing is painted",
+            "ShowFullScreen runs (null/false skips instead of showing), and the product's one-way KeepCloakedForTests " +
+            "seam records (never sends) the uncloak request — DWM never composes the window, so nothing is painted",
     };
 
     private const string MeasureOnly =
@@ -153,6 +154,7 @@ public class NoVisibleTestWindowGuardTests
     {
         ["TaskSwitcherWindow"] = "AllowsTransparency=False (S4-B: DWM thumbnails need a non-layered window)",
         ["GlassBackdropWindow"] = "AllowsTransparency=False (the glass backdrop; its tests use PrepareOffScreen)",
+        ["SubPixelProbeWindow"] = "AllowsTransparency=false in its constructor (the opaque diagnostics probe)",
     };
 
     /// <summary>
@@ -343,6 +345,67 @@ public class NoVisibleTestWindowGuardTests
             Check.That(Scan($"    public void B()\n    {{\n        var w = new ToolbarWindow();\n        {helper}(w);\n        w.Show();\n    }}")).IsEmpty();
             Check.That(Scan($"    public void C()\n    {{\n        var w = {helper}(new ToolbarWindow {{ DataContext = vm }});\n        w.ShowAtRest();\n    }}")).IsEmpty();
         }
+    }
+
+    [Fact]
+    public void TheOneWayStayCloakedSeam_CannotBeTurnedOffFromATest()
+    {
+        // Review fixup-01 (finding 1): the seam may only be turned ON. The old clearable property
+        // and a value-carrying call are both rejected, so no test can disable test invisibility.
+        Check.WithCustomMessage("the old clearable property")
+            .That(Scan("    public void M()\n    {\n        window.StayCloakedForTests = false;\n    }")).HasSize(1);
+        Check.WithCustomMessage("a value-carrying seam call")
+            .That(Scan("    public void M()\n    {\n        window.KeepCloakedForTests(false);\n    }")).HasSize(1);
+        Check.WithCustomMessage("the one-way call is the accepted shape")
+            .That(Scan("    public void M()\n    {\n        window.KeepCloakedForTests();\n    }")).IsEmpty();
+    }
+
+    /// <summary>
+    /// Review fixup-01 (finding 7): the hand-maintained <see cref="NonLayeredWindows"/> list must
+    /// agree with the App's own declarations. A future window that sets
+    /// <c>AllowsTransparency="False"</c> in XAML (or <c>= false</c> in its constructor) is found
+    /// here, so it cannot be missing from the guard's rejection rule.
+    /// </summary>
+    [Fact]
+    public void NonLayeredWindows_CoversEveryAppWindowThatDeclaresItselfNonLayered()
+    {
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (relative, text) in SourceScanner.ScannedFiles())
+        {
+            if (!relative.StartsWith("src/EyeCtrl.App/", StringComparison.Ordinal)) continue;
+            var stem = Path.GetFileNameWithoutExtension(relative);
+
+            if (relative.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+            {
+                // The WINDOW's own root element, not an inner element's attribute.
+                var root = Regex.Match(text, @"<(?![?!/])[^>]*>", RegexOptions.Singleline).Value;
+                if (Regex.IsMatch(root, @"\bAllowsTransparency\s*=\s*[""']False[""']", RegexOptions.IgnoreCase))
+                    declared.Add(stem);
+            }
+            else if (Regex.IsMatch(text, @"(?<![\w.])AllowsTransparency\s*=\s*false\b", RegexOptions.IgnoreCase))
+            {
+                // A code-built window (SubPixelProbeWindow) declares it in its own file.
+                declared.Add(stem);
+            }
+        }
+
+        var windowTypes = typeof(EyeCtrl.App.Overlays.TaskSwitcherWindow).Assembly.GetTypes()
+            .Where(t => typeof(Window).IsAssignableFrom(t) && t.IsClass && !t.IsAbstract)
+            .Select(t => t.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        declared.IntersectWith(windowTypes);   // ignore non-window files that happen to match
+
+        Check.WithCustomMessage(
+                "A window that declares AllowsTransparency=False is missing from NonLayeredWindows (or the list " +
+                "has a stale entry). InvisibleTestWindow.Prepare must be rejected for it; add it with the reason. " +
+                "Declared non-layered windows found in src/EyeCtrl.App: " + string.Join(", ", declared.OrderBy(n => n, StringComparer.Ordinal)))
+            .That(NonLayeredWindows.Keys.OrderBy(n => n, StringComparer.Ordinal).ToList())
+            .IsEqualTo(declared.OrderBy(n => n, StringComparer.Ordinal).ToList());
+
+        foreach (var type in NonLayeredWindows.Keys)
+            Check.WithCustomMessage($"NonLayeredWindows names '{type}', but no Window type of that name exists")
+                .That(windowTypes.Contains(type)).IsTrue();
     }
 
     [Fact]
@@ -940,12 +1003,29 @@ public class NoVisibleTestWindowGuardTests
 
     private static readonly Regex BareShowWindow = new(@"(?<![\w.])ShowWindow\s*\(", RegexOptions.Compiled);
 
+    /// <summary>
+    /// The switcher's stay-cloaked seam is one-way and lives at the product's single cloak write.
+    /// Any reference to the old clearable property, or a parameterised <c>KeepCloakedForTests</c>
+    /// call, is a test trying to switch invisibility off — exactly the regression fixup-01 closed.
+    /// </summary>
+    internal static readonly Regex SeamClearing = new(
+        @"\bStayCloakedForTests\b" +
+        @"|\bKeepCloakedForTests\s*\(\s*[^)\s][^)]*\)",
+        RegexOptions.Compiled);
+
     internal static List<string> FindViolations(string relative, string text)
     {
         var violations = new List<string>();
+        var stripped = StripCommentsAndStrings(text);
+
+        // File-level, before the allow-list: no exemption may hide a test that disables the seam.
+        var seam = SeamClearing.Match(stripped);
+        if (seam.Success)
+            violations.Add($"{relative}:{LineOf(stripped, seam.Index)}: clears or parameterises the switcher's " +
+                           "one-way KeepCloakedForTests seam; test invisibility can never be turned off from a test");
+
         if (AllowList.Keys.Any(key => !key.Contains('#') && relative.EndsWith(key, StringComparison.Ordinal)))
             return violations;
-        var stripped = StripCommentsAndStrings(text);
         var ruleAWaived = HeadlessConstruction.Keys.Any(key => relative.EndsWith(key, StringComparison.Ordinal));
         var presentSeams = ruleAWaived ? FindPresentSeams(stripped) : NoPresentSeams;
         var wsVisibleConstants = FindWsVisibleConstants(stripped);

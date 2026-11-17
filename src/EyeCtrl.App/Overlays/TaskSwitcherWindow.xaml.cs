@@ -52,6 +52,36 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     private DispatcherTimer? _cloakFallback;
     private EventHandler? _uncloakOnRendering;
 
+    /// <summary>
+    /// One-way test seam. While set, <see cref="WriteCloak"/> records every DWM uncloak REQUEST
+    /// and does not send it (a cloak request is always sent). Set once by the test fixture's
+    /// <c>InvisibleTestWindow.PrepareCloaked</c>; there is deliberately no way to clear it, so a
+    /// test can never turn test invisibility off. Never set in production.
+    /// </summary>
+    private bool _stayCloakedForTests;
+
+    /// <summary>How many uncloak requests the one-way seam suppressed (asserted by the cloak gates).</summary>
+    internal int SuppressedUncloakRequestsForTests { get; private set; }
+
+    /// <summary>
+    /// Fires when the one-way seam suppresses an uncloak request, so a gate can place that request
+    /// in a recorded sequence (cloak → first frame → flush → request) without ever writing to DWM.
+    /// </summary>
+    internal event Action? UncloakSuppressedForTests;
+
+    /// <summary>
+    /// Fires at the end of every <see cref="UpdateTilePositions"/> pass (after the dwell targets
+    /// were pushed into the VM), so the show-path gate can prove target registration precedes the
+    /// uncloak request. A test hook; inert in production.
+    /// </summary>
+    internal event Action? TilePositionsUpdatedForTests;
+
+    /// <summary>
+    /// The one-way test seam: callers can only turn it ON. No setter and no clear path exist, so a
+    /// test cannot switch test invisibility off.
+    /// </summary>
+    internal void KeepCloakedForTests() => _stayCloakedForTests = true;
+
     public TaskSwitcherWindow()
     {
         InitializeComponent();
@@ -154,10 +184,41 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     private void Cloak()
     {
         _cloaked = true;
+        WriteCloak(true);
+    }
+
+    /// <summary>
+    /// The ONE place this window writes DWMWA_CLOAK. Everything else — the show's cloak, the
+    /// rendered-frame uncloak, the fallback and <see cref="HideOverlay"/> — goes through here, so
+    /// the one-way test seam cannot be bypassed by a caller that forgot to check it.
+    ///
+    /// <para>
+    /// While <see cref="_stayCloakedForTests"/> is set, an uncloak request is RECORDED (a counter
+    /// plus <see cref="UncloakSuppressedForTests"/>) and never sent to DWM: the test-prepared
+    /// full-screen non-layered switcher must stay hidden for its whole life, and a product refactor
+    /// that adds another uncloak call still lands here. A cloak request is always sent.
+    /// </para>
+    /// </summary>
+    private void WriteCloak(bool cloaked)
+    {
+        if (!cloaked && _stayCloakedForTests)
+        {
+            SuppressedUncloakRequestsForTests++;
+            UncloakSuppressedForTests?.Invoke();
+            return;
+        }
+
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero)
-            _ = SetDwmAttribute(hwnd, DwmwaCloak, true);
+            _ = SetDwmAttribute(hwnd, DwmwaCloak, cloaked);
     }
+
+    /// <summary>
+    /// Test seam: when true, the rendered-frame trigger is not armed, so the 250 ms fallback is the
+    /// only uncloak path. Set only on a window anchored by <see cref="KeepCloakedForTests"/> (it can
+    /// only delay a test cloaked window's uncloak, never make one visible); inert in production.
+    /// </summary>
+    internal bool SkipRenderedFrameTriggerForTests { get; set; }
 
     /// <summary>
     /// Releases the cloak once WPF has rendered at least one frame: the static
@@ -168,15 +229,15 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// </summary>
     private void UncloakAfterFirstRender()
     {
-        if (StayCloakedForTests)
-            return;   // a prepared test window stays cloaked for its whole life
-
         // Normal priority (NOT Send): the dispatcher does not dispatch Send-priority timer ticks, so
         // a Send fallback would never fire and a window that never rendered would stay cloaked.
         _cloakFallback?.Stop();
         _cloakFallback = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(250) };
         _cloakFallback.Tick += (_, _) => UncloakAndFlush();
         _cloakFallback.Start();
+
+        if (SkipRenderedFrameTriggerForTests)
+            return;
 
         RemoveUncloakHandler();
         _uncloakOnRendering = (_, _) =>
@@ -224,31 +285,18 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// <summary>
     /// Releases the cloak, if it is still up, cancelling the pending uncloak first. Safe to call
     /// repeatedly; <see cref="HideOverlay"/> calls it so a hidden window can never stay cloaked.
-    /// A window prepared by the test fixture's <c>InvisibleTestWindow.PrepareCloaked</c> sets
-    /// <see cref="StayCloakedForTests"/>, and for it this method does NOTHING: the fixture's cloak
-    /// is the only thing keeping a full-screen non-layered window off the owner's screen, so the
-    /// product must never lift it.
+    /// Every write goes through <see cref="WriteCloak"/>, so on a window prepared by the test
+    /// fixture's <c>InvisibleTestWindow.PrepareCloaked</c> the request is recorded and suppressed
+    /// and the fixture's cloak stays up.
     /// </summary>
     private void Uncloak()
     {
         CancelPendingUncloak();
-        if (StayCloakedForTests)
-            return;
         if (!_cloaked)
             return;
         _cloaked = false;
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd != IntPtr.Zero)
-            _ = SetDwmAttribute(hwnd, DwmwaCloak, false);
+        WriteCloak(false);
     }
-
-    /// <summary>
-    /// Test seam: when true, every product uncloak (the show's rendered-frame callback, its
-    /// fallback, and <see cref="HideOverlay"/>) is a no-op for this window's whole life, so a
-    /// window cloaked by the test fixture stays DWM-cloaked across the real show path. Set by
-    /// <c>InvisibleTestWindow.PrepareCloaked</c>; never set in production.
-    /// </summary>
-    internal bool StayCloakedForTests { get; set; }
 
     private void DisableTransitionsAtHandleCreation(object? sender, EventArgs e)
     {
@@ -415,6 +463,10 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         var closeCenter = CloseButton.PointToScreen(
             new Point(CloseButton.ActualWidth / 2, CloseButton.ActualHeight / 2));
         _viewModel.UpdateCloseButtonPosition(new PhysicalPoint(closeCenter.X, closeCenter.Y));
+
+        // Test hook: after every target above has been registered (the show-path gate asserts
+        // this runs before the uncloak request). Inert in production.
+        TilePositionsUpdatedForTests?.Invoke();
     }
 
     /// <summary>
@@ -454,8 +506,8 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// <summary>Called by the coordinator when the VM hides (selection or second toggle).</summary>
     public void HideOverlay()
     {
-        // A hidden window must never stay cloaked; for a test-prepared window Uncloak is a no-op
-        // because StayCloakedForTests keeps the fixture's cloak up for its whole life.
+        // A hidden window must never stay cloaked. On a test-prepared window the request is
+        // recorded and suppressed at WriteCloak, so the fixture's cloak stays up for its whole life.
         Uncloak();
         Hide();
     }

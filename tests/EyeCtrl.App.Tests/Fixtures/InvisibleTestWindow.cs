@@ -34,8 +34,9 @@ using EyeCtrl.App.Overlays;
 /// window (<c>TaskSwitcherWindow</c>): it is cloaked through DWM
 /// (<c>DWMWA_CLOAK</c>), which hides a window from composition whatever its Opacity does and keeps
 /// its position, size and visuals — the same mechanism the product's <c>GlassBackdropWindow</c> uses
-/// to hide a first frame. For the switcher it also sets the product's <c>StayCloakedForTests</c>
-/// seam, so the product's own uncloak-after-first-frame cannot undo the cloak. It creates the
+/// to hide a first frame. For the switcher it also anchors the product's one-way
+/// <c>KeepCloakedForTests</c> seam at its single <c>WriteCloak</c> site, so the product's own
+/// uncloak-after-first-frame records a request but cannot undo the cloak. It creates the
 /// window handle early (<c>EnsureHandle</c>), so use it only
 /// where no test step depends on the handle not existing yet. THAT HAS BITTEN: a window that already has an HWND
 /// stores <c>Left</c>/<c>Top</c> through the real monitor's DPI (whole device pixels), so a test that fakes the scale
@@ -75,18 +76,20 @@ internal static class InvisibleTestWindow
     /// <summary>
     /// No activation, and the window is cloaked by DWM before its first show (its Opacity is left
     /// alone, because the window's own code writes it). A <c>TaskSwitcherWindow</c> additionally
-    /// gets the product's <c>StayCloakedForTests</c> seam, so the product's uncloak-after-render
-    /// cannot lift this cloak while the test runs. Returns the window.
+    /// anchors the product's one-way <c>KeepCloakedForTests</c> seam, so the product's
+    /// uncloak-after-render records a request but can never lift this cloak while the test runs.
+    /// Returns the window.
     /// </summary>
     internal static T PrepareCloaked<T>(T window) where T : Window
     {
         window.ShowActivated = false;
         if (window is TaskSwitcherWindow switcher)
-            switcher.StayCloakedForTests = true;
+            switcher.KeepCloakedForTests();
         var handle = new WindowInteropHelper(window).EnsureHandle();
         var on = 1;
         _ = DwmSetWindowAttribute(handle, DwmaCloak, ref on, sizeof(int));
-        RuntimeWindowMonitor.MarkPrepared(window);
+        // The cloak-judged tag: never trusted by tag, judged by DWMWA_CLOAKED at test end.
+        RuntimeWindowMonitor.MarkPrepared(window, cloaked: true);
         return window;
     }
 

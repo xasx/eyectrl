@@ -128,8 +128,8 @@
         },
         {
           "Id": "d_ts_tile",
-          "Label": "Switcher Tiles (ms)",
-          "Description": "How long to look at a tile in the window switcher. A tile is never quicker than the toolbar dwell.",
+          "Label": "Task Switcher Tiles (ms)",
+          "Description": "How long to rest on a tile in the task switcher. It is never shorter than the toolbar dwell.",
           "Modal": null
         },
         {

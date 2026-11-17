@@ -1963,12 +1963,12 @@
     "src": "b04cca54"
   },
   "settings.dwell.task_switcher_tile.description": {
-    "text": "Wie lange der Blick auf einer Kachel im Fensterwechsler ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste.",
-    "src": "23ee60e4"
+    "text": "Wie lange der Blick bei „Fenster wechseln“ auf einer Kachel ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste.",
+    "src": "5d7c490d"
   },
   "settings.dwell.task_switcher_tile.label": {
-    "text": "Wechsler-Kacheln (ms)",
-    "src": "b3b62875"
+    "text": "Kacheln bei „Fenster wechseln“ (ms)",
+    "src": "be1937f9"
   },
   "settings.dwell.toolbar.description": {
     "text": "Wie lange der Blick auf den Schaltflächen von EyeCtrl selbst ruhen muss.",

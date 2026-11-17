@@ -67,6 +67,26 @@ public class TaskSwitcherSessionLogTests
     }
 
     [Fact]
+    public void OpenLine_CarriesARaisedTileKnob_AboveTheToolbar()
+    {
+        // S4-A fixup-01 (review finding 1): the knob's OWN value above its default — tile 1200,
+        // toolbar 600 — is what the line must log (the 800 → 1000 ladder step works exactly
+        // through this). Reviewer mutant (e), max(800, toolbar), ignores the setting and logs
+        // 800 here — red. The targets themselves are pinned by TaskSwitcherTileDwellTests.
+        using var h = new Harness(windowCount: 2, settings: new EyeCtrlSettings
+        {
+            Dwell = { ToolbarButtonDwellMs = 600, TaskSwitcherTileDwellMs = 1200 }
+        });
+
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Layout(reachable: 2);
+
+        Check.That(h.Lines).ContainsExactly(
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=1200");
+    }
+
+    [Fact]
     public void OpenLine_SaysWhetherTheForegroundWindowWasLeftOut()
     {
         // S2-A's field tells the day log whether the grid the owner saw was the full enumeration

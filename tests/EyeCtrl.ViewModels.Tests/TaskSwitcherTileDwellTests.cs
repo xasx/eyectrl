@@ -80,6 +80,27 @@ public class TaskSwitcherTileDwellTests
         Check.That(byId[TaskSwitcherViewModel.CloseTargetId]).IsEqualTo(900L);
     }
 
+    [Fact]
+    public void ARaisedTileKnob_AboveTheToolbar_ReachesBothTiles_AndLeavesTheDiscAtTheToolbar()
+    {
+        // S4-A fixup-01 (review finding 1): the knob's OWN value above its default — tile 1200,
+        // toolbar 600 — must reach the window tile and the desktop tile alike (the planned
+        // 800 → 1000 ladder step works exactly through this), while the ✕ stays at the toolbar.
+        // Reviewer mutant (e), max(800, toolbar), ignores the setting and reads 800 here — red.
+        using var h = new Harness(toolbarDwellMs: 600, tileDwellMs: 1200);
+
+        h.Open();
+        h.RegisterTile(0);
+        h.RegisterDesktopTile();
+        h.RegisterCloseDisc();
+
+        // Order-insensitive on purpose: the detector's Targets collection is not insertion-ordered.
+        var byId = h.Vm.DetectorForTest.Targets.ToDictionary(t => t.Id, t => t.DwellTimeMicroseconds / 1000);
+        Check.That(byId[h.TileHwnd(0).ToString()]).IsEqualTo(1200L);
+        Check.That(byId[TaskSwitcherViewModel.DesktopTargetId]).IsEqualTo(1200L);
+        Check.That(byId[TaskSwitcherViewModel.CloseTargetId]).IsEqualTo(600L);
+    }
+
     /// <summary>
     /// One open switcher session over one window (so the desktop tile exists too), with the
     /// toolbar's dwell set per test and the tile knob optionally overridden.

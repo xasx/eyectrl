@@ -38,7 +38,7 @@ public class TaskSwitcherSessionLogTests
         h.Layout(reachable: 3);
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=5 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
+            "Task switcher opened: tiles=5 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none");
         Check.That(h.Entries[0].Level).IsEqualTo(LogLevel.Information);
 
         // A second layout pass (a re-registration) must not write the open line twice.
@@ -63,7 +63,60 @@ public class TaskSwitcherSessionLogTests
         h.Layout(reachable: 2);
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=900");
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=900 previews=0 previewFailures=0 previewHr=none");
+    }
+
+    [Fact]
+    public void OpenLine_CarriesThePreviewCounts_AfterTheTileDwell()
+    {
+        // S4-C: the View reports the registration result before the close-disc call flushes the
+        // open line, so the two counts describe the frames the owner is about to see.
+        using var h = new Harness(windowCount: 4);
+
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Vm.ReportPreviews(registered: 3, failed: 1);
+        h.Layout(reachable: 4);
+
+        Check.That(h.Lines).ContainsExactly(
+            "Task switcher opened: tiles=4 currentExcluded=false reachable=4 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=3 previewFailures=1 previewHr=none");
+    }
+
+    [Fact]
+    public void OpenLine_CarriesTheFirstFailingPreviewHresult_AsAHexToken()
+    {
+        // S4-C fixup-01: the installed UIAccess / High-integrity build is the untested case, so the
+        // line must say WHY previews failed — a hex HRESULT, never a title or a process.
+        using var h = new Harness(windowCount: 2);
+
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Vm.ReportPreviews(registered: 0, failed: 2, firstFailureHresult: unchecked((int)0x80070005));
+        h.Layout(columns: 2);
+
+        Check.That(h.Lines).ContainsExactly(
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=2 previewHr=0x80070005");
+    }
+
+    [Fact]
+    public void PreviewCounts_ArePerSession_AndNeverCarriedIntoTheNextOpen()
+    {
+        // The VM is a DI singleton: a count left over from a session whose previews all worked
+        // would claim previews for a session that registered none.
+        using var h = new Harness(windowCount: 2);
+
+        h.Sample(h.Away, 0);
+        h.Open();
+        h.Vm.ReportPreviews(2, 0);
+        h.Layout(columns: 2);
+        h.Toggle();   // close this session
+
+        h.At(20_000);
+        h.Open();
+        h.Layout(columns: 2);
+
+        Check.That(h.Lines.Last())
+            .Contains("tileDwellMs=800 previews=0 previewFailures=0 previewHr=none");
     }
 
     [Fact]
@@ -83,7 +136,7 @@ public class TaskSwitcherSessionLogTests
         h.Layout(reachable: 2);
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=1200");
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=1200 previews=0 previewFailures=0 previewHr=none");
     }
 
     [Fact]
@@ -98,7 +151,7 @@ public class TaskSwitcherSessionLogTests
         h.Layout(columns: 3);
 
         Check.That(h.Lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=2 currentExcluded=true reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
+            "Task switcher opened: tiles=2 currentExcluded=true reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none");
 
         h.At(500);
         h.Toggle();                              // close (Other) at 500 ms
@@ -109,7 +162,7 @@ public class TaskSwitcherSessionLogTests
         h.Layout(columns: 3);
 
         Check.That(h.Lines.Last()).IsEqualTo(
-            "Task switcher opened: tiles=3 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=5000 lastOutcome=Other tileDwellMs=800");
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=3 anchorValid=true sinceLastCloseMs=5000 lastOutcome=Other tileDwellMs=800 previews=0 previewFailures=0 previewHr=none");
     }
 
     [Fact]
@@ -130,7 +183,7 @@ public class TaskSwitcherSessionLogTests
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).ContainsExactly(new IntPtr(picked + 1));
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=9 currentExcluded=false reachable=9 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800",
+            "Task switcher opened: tiles=9 currentExcluded=false reachable=9 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none",
             $"Task switcher closed: outcome=Picked openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=200 liftToEntryMs=100 slot=4 row=1 col=1");
     }
 
@@ -149,7 +202,7 @@ public class TaskSwitcherSessionLogTests
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).IsEmpty();
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800",
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none",
             $"Task switcher closed: outcome=CloseDisc openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
     }
 
@@ -184,7 +237,7 @@ public class TaskSwitcherSessionLogTests
         h.Toggle();
 
         Check.That(h.Lines).ContainsExactly(
-            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800",
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none",
             "Task switcher closed: outcome=Other openMs=500 guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
     }
 
@@ -225,7 +278,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(closedAt).IsNotNull();
         Check.That(h.Lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=4 currentExcluded=false reachable=4 anchorValid=false sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
+            "Task switcher opened: tiles=4 currentExcluded=false reachable=4 anchorValid=false sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none");
         Check.That(h.Lines[1]).IsEqualTo(
             $"Task switcher closed: outcome=Picked openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=n/a liftToEntryMs=n/a slot=2 row=1 col=0");
     }
@@ -256,7 +309,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
-            "Task switcher opened: tiles=6 currentExcluded=false reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked tileDwellMs=800",
+            "Task switcher opened: tiles=6 currentExcluded=false reachable=6 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked tileDwellMs=800 previews=0 previewFailures=0 previewHr=none",
             StringComparison.Ordinal))).IsTrue();
     }
 
@@ -283,7 +336,7 @@ public class TaskSwitcherSessionLogTests
 
         Check.That(h.Lines.Any(line => string.Equals(
             line,
-            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked tileDwellMs=800",
+            "Task switcher opened: tiles=3 currentExcluded=false reachable=0 anchorValid=true sinceLastCloseMs=8400 lastOutcome=Picked tileDwellMs=800 previews=0 previewFailures=0 previewHr=none",
             StringComparison.Ordinal))).IsTrue();
     }
 
@@ -417,8 +470,8 @@ public class TaskSwitcherSessionLogTests
         private static PhysicalRect Face(int index, int columns)
         {
             var x = index % columns * 200.0;
-            var y = index / columns * 120.0;
-            return new PhysicalRect(x, y, 184, 104);
+            var y = index / columns * 166.0;
+            return new PhysicalRect(x, y, 184, 150);
         }
 
         internal void Sample(PhysicalPoint p, long atMs, bool paused = false)

@@ -30,7 +30,7 @@ public class TaskSwitcherDwellPositionTests
         // old negative check keyed on the pre-A3 local name "center", which the rect rewrite
         // renamed away — the check could never fail again, and a simulated revert to the
         // TransformToAncestor + DpiHelper path passed the pin.
-        var body = SourceScanner.StripComments(ExtractMethod(source, "private void UpdateTilePositions()"));
+        var body = SourceScanner.StripComments(ExtractMethod(source, "internal void UpdateTilePositions()"));
 
         Check.WithCustomMessage(
                 "UpdateTilePositions no longer uses PointToScreen — the one overlay that "
@@ -372,7 +372,7 @@ public class TaskSwitcherDwellPositionTests
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs"));
-        var body = SourceScanner.StripComments(ExtractMethod(source, "private void UpdateTilePositions()"));
+        var body = SourceScanner.StripComments(ExtractMethod(source, "internal void UpdateTilePositions()"));
 
         Check.WithCustomMessage(
                 "UpdateTilePositions must skip tiles whose visible area is empty, with the "

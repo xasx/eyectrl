@@ -32,14 +32,14 @@ public class TaskSwitcherWindowLayoutTests
             var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
             var hintRow = (Grid)window.FindName("HintRow")!;
 
-            // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1800x840.
+            // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1800x830.
             var top = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
             window.ApplyLayout(top, screenWidthDip: 1920);
 
             Check.That(tiles.Margin).IsEqualTo(new Thickness(40, 136, 40, 0));
             Check.That(tiles.Width).IsEqualTo(1800);
-            Check.That(tiles.Height).IsEqualTo(840);
+            Check.That(tiles.Height).IsEqualTo(830);
             Check.That(hintRow.Height).IsEqualTo(TaskSwitcherLayout.HintRowHeight);
             Check.That(hintRow.Margin.Bottom).IsEqualTo(0);
 
@@ -56,7 +56,7 @@ public class TaskSwitcherWindowLayoutTests
 
             Check.That(hintRow.Margin.Bottom).IsEqualTo(136);
             Check.That(tiles.Margin.Top).IsEqualTo(40);
-            Check.That(tiles.Height).IsEqualTo(7 * TaskSwitcherLayout.CellHeight);
+            Check.That(tiles.Height).IsEqualTo(5 * TaskSwitcherLayout.CellHeight);
         }
         finally
         {
@@ -114,7 +114,7 @@ public class TaskSwitcherWindowLayoutTests
         Check.That(at200.Area).IsEqualTo(at100.Area);
         Check.That(at200.Block).IsEqualTo(at100.Block);
         Check.That(at200.Columns).IsEqualTo(9);
-        Check.That(at200.Rows).IsEqualTo(7);
+        Check.That(at200.Rows).IsEqualTo(5);
     }
 
     /// <summary>
@@ -130,7 +130,7 @@ public class TaskSwitcherWindowLayoutTests
 
         Check.That(layout.Area.Y).IsEqualTo(136);
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(460, 546, 1000, 120));
+            new TaskSwitcherLayout.DipRect(460, 523, 1000, 166));
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ public class TaskSwitcherWindowLayoutTests
         using var arranged = Arrange(5, layout);
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
-        Check.That(viewport).IsEqualTo(new Rect(460, 546, 1000, 120));
+        Check.That(viewport).IsEqualTo(new Rect(460, 523, 1000, 166));
 
         var faces = Faces(arranged);
         Check.That(faces.Count).IsEqualTo(5);
@@ -167,8 +167,8 @@ public class TaskSwitcherWindowLayoutTests
     }
 
     /// <summary>
-    /// 64 windows against a 9×7 capacity: exactly 63 faces lie fully inside the viewport, none is
-    /// partially visible, and the 64th starts below the viewport's bottom edge — the geometry the
+    /// 64 windows against a 9×5 capacity: exactly 45 faces lie fully inside the viewport, none is
+    /// partially visible, and the 46th starts below the viewport's bottom edge — the geometry the
     /// window's <c>VisibleTileRect</c> clamp turns into "no dwell target".
     /// </summary>
     [StaFact]
@@ -179,7 +179,7 @@ public class TaskSwitcherWindowLayoutTests
         using var arranged = Arrange(64, layout);
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
-        Check.That(viewport).IsEqualTo(new Rect(60, 186, 1800, 840));
+        Check.That(viewport).IsEqualTo(new Rect(60, 191, 1800, 830));
 
         var faces = Faces(arranged);
         Check.That(faces.Count).IsEqualTo(64);
@@ -189,10 +189,10 @@ public class TaskSwitcherWindowLayoutTests
             && face.Top >= vp.Top && face.Bottom <= vp.Bottom;
 
         var fullyVisible = faces.Count(f => FullyInside(f, viewport));
-        Check.That(fullyVisible).IsEqualTo(63);
+        Check.That(fullyVisible).IsEqualTo(45);
         var partiallyVisible = faces.Count(f => f.IntersectsWith(viewport) && !FullyInside(f, viewport));
         Check.That(partiallyVisible).IsEqualTo(0);
-        Check.That(faces[63].Top).IsGreaterOrEqualThan(viewport.Bottom);
+        Check.That(faces[45].Top).IsGreaterOrEqualThan(viewport.Bottom);
         Check.That(faces.Min(f => f.Top)).IsGreaterOrEqualThan(
             112 + TaskSwitcherLayout.ToolbarGap);
     }

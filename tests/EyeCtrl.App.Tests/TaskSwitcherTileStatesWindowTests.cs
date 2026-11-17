@@ -52,24 +52,25 @@ public class TaskSwitcherTileStatesWindowTests
 
     public TaskSwitcherTileStatesWindowTests(ITestOutputHelper output) => _output = output;
 
-    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 9 × 7 tiles.</summary>
+    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 9 × 5 tiles.</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
-    private const int Capacity = 63;   // 9 columns × 7 rows at 1920 × 1200 with the 112 DIP band
+    private const int Capacity = 45;   // 9 columns × 5 rows at 1920 × 1200 with the 112 DIP band
 
     /// <summary>
     /// The "Minimiert" badge, in every case that can move it: DPI 1.0 and the owner's 200 %, English
     /// and German. What it pins:
     /// <list type="bullet">
-    /// <item>the face is still 184 × 104 DIP (the badge must not widen the perceived tile — the face
-    /// is the dwell target);</item>
-    /// <item>the badge sits inside the face's 8 DIP padding and is centred on it;</item>
+    /// <item>the face is still 184 × 150 DIP (S4-C: the badge must not widen the perceived tile — the
+    /// face is the dwell target);</item>
+    /// <item>the badge sits INSIDE the preview box, inside the face's 8 DIP padding and centred on
+    /// it (a minimised tile is the one state whose box has no live picture);</item>
     /// <item>it HUGS ITS CONTENT: its width is its own bar + gap + word + padding, never the content
     /// column's width. With a long, trimmed title a Border without HorizontalAlignment stretches to
     /// ~167 DIP and reads as a light band across the tile, not as a badge;</item>
     /// <item>it ends above the progress bar;</item>
-    /// <item>the content column's natural height still fits the row it is given: the column has only
-    /// ~3 DIP of headroom, so a font or padding change that grew it would clip silently.</item>
+    /// <item>the fallback column's natural height (icon + badge) still fits the 94 DIP box: a font
+    /// or padding change that grew it would clip silently.</item>
     /// </list>
     /// </summary>
     [StaTheory]
@@ -105,8 +106,8 @@ public class TaskSwitcherTileStatesWindowTests
                 .That(absent.Visibility).IsEqualTo(Visibility.Collapsed);
 
             // Drawn = hit: the badge must sit INSIDE the face the dwell detector hit-tests, and the
-            // face must still be the 184 × 104 DIP the template promises (200 × 120 cell less the
-            // 8 DIP margin).
+            // face must still be the 184 × 150 DIP the template promises (200 × 166 cell less the
+            // 8 DIP margin, S4-C).
             var face = laid.Bounds(faces[0].Border);
             var badgeBox = laid.Bounds(badge);
             var bar = Descendants<Border>(badge).Single(b => b.Name == "MinimizedGlyph");
@@ -138,8 +139,8 @@ public class TaskSwitcherTileStatesWindowTests
             Check.WithCustomMessage($"The badge {Box(badgeBox)} reaches into the progress bar at y {FitText.Dip(progressTop)}.")
                 .That(badgeBox.Bottom).IsLessOrEqualThan(progressTop + 0.5);
 
-            // The headroom: the content column centres vertically in its row, and this template has
-            // ~3 DIP to spare. Measure the column without a height bound and compare with the row.
+            // The headroom: the icon + badge column centres vertically in the preview box. Measure
+            // the column without a height bound and compare with the box it is given.
             var content = (FrameworkElement)badge.Parent;
             var slot = LayoutInformation.GetLayoutSlot(content);
             content.Measure(new Size(slot.Width, double.PositiveInfinity));
@@ -173,19 +174,21 @@ public class TaskSwitcherTileStatesWindowTests
     }
 
     /// <summary>
-    /// S3-B: every window tile draws its app icon at <b>40 DIP</b> (was 32) with high-quality
-    /// scaling, and each tile shows ITS OWN window's icon — the grid asks the per-window seam once
-    /// per tile, so two Store apps in one frame-host process can never share an icon. At 1.0 and at
-    /// the owner's 200 %, English and German, the enlarged icon, the title and the S2-B badge must
-    /// all stay inside the unchanged 184 × 104 DIP face, and the content column must still fit its
-    /// row (the badge theory measures the same column without a height bound).
+    /// S3-B, reshaped by S4-C: every window tile draws its app icon TWICE from the same per-window
+    /// seam — at <b>20 DIP</b> in the identity row and at <b>40 DIP</b> as the preview box's
+    /// fallback — both with high-quality scaling, and each tile shows ITS OWN window's icon (the
+    /// grid asks the per-window seam once per tile, so two Store apps in one frame-host process can
+    /// never share an icon). At 1.0 and at the owner's 200 %, English and German, the icons, the
+    /// title, the badge and the progress bar must all stay inside the 184 × 150 DIP face, the title
+    /// must stay OUT of the preview box (a DWM thumbnail draws above everything inside it), and the
+    /// fallback column must still fit the box (the badge theory measures the same column).
     /// </summary>
     [StaTheory]
     [InlineData(1.0, "English")]
     [InlineData(2.0, "English")]
     [InlineData(1.0, "German")]
     [InlineData(2.0, "German")]
-    public void WindowTile_DrawsItsOwnAppIconAt40Dip_AndEverythingStaysInsideTheFace(
+    public void WindowTile_DrawsItsOwnAppIcon_At20InTheRowAnd40InThePreviewFallback(
         double scale, string language)
     {
         if (language == "German") StringTable.Activate(ShippedGerman.Load());
@@ -208,54 +211,72 @@ public class TaskSwitcherTileStatesWindowTests
                 var face = laid.Bounds(faces[index].Border);
                 var tile = laid.ViewModel.Tiles[index];
 
-                var image = laid.Find<Image>(container, "TileIcon")
+                var previewBox = laid.Find<Border>(container, "PreviewBox")
+                    ?? throw new InvalidOperationException("The tile template has no Border named PreviewBox.");
+                var rowIcon = laid.Find<Image>(container, "TileIcon")
                     ?? throw new InvalidOperationException("The tile template has no Image named TileIcon.");
-                var iconBox = laid.Bounds(image);
+                var fallback = laid.Find<Image>(container, "PreviewIcon")
+                    ?? throw new InvalidOperationException("The tile template has no Image named PreviewIcon.");
+
+                var rowBox = laid.Bounds(rowIcon);
+                var fallbackBox = laid.Bounds(fallback);
 
                 Check.WithCustomMessage(
-                        $"{language} at {scale:0.0}x: the tile icon is {FitText.Dip(iconBox.Width)} x "
-                        + $"{FitText.Dip(iconBox.Height)} DIP, not the design's 40 x 40.")
-                    .That(iconBox.Width).IsCloseTo(40, 0.5);
-                Check.That(iconBox.Height).IsCloseTo(40, 0.5);
-                Check.WithCustomMessage("A 40 DIP icon must be drawn with high-quality scaling.")
-                    .That(RenderOptions.GetBitmapScalingMode(image)).IsEqualTo(BitmapScalingMode.HighQuality);
+                        $"{language} at {scale:0.0}x: the row icon is {FitText.Dip(rowBox.Width)} x "
+                        + $"{FitText.Dip(rowBox.Height)} DIP, not the design's 20 x 20.")
+                    .That(rowBox.Width).IsCloseTo(20, 0.5);
+                Check.That(rowBox.Height).IsCloseTo(20, 0.5);
+                Check.WithCustomMessage(
+                        $"{language} at {scale:0.0}x: the preview fallback is {FitText.Dip(fallbackBox.Width)} x "
+                        + $"{FitText.Dip(fallbackBox.Height)} DIP, not the design's 40 x 40.")
+                    .That(fallbackBox.Width).IsCloseTo(40, 0.5);
+                Check.That(fallbackBox.Height).IsCloseTo(40, 0.5);
+                Check.WithCustomMessage("A 20 DIP row icon must be drawn with high-quality scaling.")
+                    .That(RenderOptions.GetBitmapScalingMode(rowIcon)).IsEqualTo(BitmapScalingMode.HighQuality);
+                Check.WithCustomMessage("A 40 DIP fallback icon must be drawn with high-quality scaling.")
+                    .That(RenderOptions.GetBitmapScalingMode(fallback)).IsEqualTo(BitmapScalingMode.HighQuality);
 
-                // Per WINDOW, not per process: the tile carries the image its own handle resolved.
-                Check.That(image.Source).IsSameReferenceAs(icons.IconFor(tile.Hwnd));
-                Check.WithCustomMessage($"The icon {Box(iconBox)} leaves the tile face {Box(face)}.")
-                    .That(Inside(face, iconBox, inset: 8)).IsTrue();
+                // Per WINDOW, not per process: both draws carry the image its own handle resolved.
+                Check.That(rowIcon.Source).IsSameReferenceAs(icons.IconFor(tile.Hwnd));
+                Check.That(fallback.Source).IsSameReferenceAs(icons.IconFor(tile.Hwnd));
+                Check.WithCustomMessage($"The row icon {Box(rowBox)} leaves the tile face {Box(face)}.")
+                    .That(Inside(face, rowBox, inset: 8)).IsTrue();
+                Check.WithCustomMessage($"The fallback icon {Box(fallbackBox)} leaves the preview box.")
+                    .That(Inside(laid.Bounds(previewBox), fallbackBox)).IsTrue();
 
-                // The title kept its size and still fits the face.
+                // The title kept its size, fits the face, and stays clear of the preview box.
                 var title = Descendants<TextBlock>(faces[index].Border)
                     .First(t => t.Text == tile.Title);
-                Check.WithCustomMessage($"{language} at {scale:0.0}x: the title {Box(laid.Bounds(title))} "
+                var titleBox = laid.Bounds(title);
+                Check.WithCustomMessage($"{language} at {scale:0.0}x: the title {Box(titleBox)} "
                         + $"leaves the face {Box(face)}.")
-                    .That(Inside(face, laid.Bounds(title), inset: 8)).IsTrue();
+                    .That(Inside(face, titleBox, inset: 8)).IsTrue();
+                Check.WithCustomMessage(
+                        $"{language} at {scale:0.0}x: the title {Box(titleBox)} reaches into the preview box "
+                        + $"{Box(laid.Bounds(previewBox))} — a DWM thumbnail draws over any WPF content there.")
+                    .That(titleBox.IntersectsWith(laid.Bounds(previewBox))).IsFalse();
 
-                // The content column (icon + title + badge) still fits the row it is given.
-                var content = (FrameworkElement)image.Parent;
+                // The fallback column (icon + the badge on a minimised tile) still fits the box.
+                var content = (FrameworkElement)fallback.Parent;
                 var slot = LayoutInformation.GetLayoutSlot(content);
                 content.Measure(new Size(slot.Width, double.PositiveInfinity));
                 var needed = content.DesiredSize.Height;
                 laid.Relayout();
                 Check.WithCustomMessage(
-                        $"{language} at {scale:0.0}x: the 40 DIP icon grew the content column to "
-                        + $"{FitText.Dip(needed)} DIP but the row gives it {FitText.Dip(slot.Height)} — the "
-                        + "badge would overlap the progress bar.")
+                        $"{language} at {scale:0.0}x: the fallback column needs {FitText.Dip(needed)} DIP "
+                        + $"but the preview box gives it {FitText.Dip(slot.Height)} — it would be clipped silently.")
                     .That(needed).IsLessOrEqualThan(slot.Height);
-                Check.WithCustomMessage(
-                        $"{language} at {scale:0.0}x: only {FitText.Dip(slot.Height - needed)} DIP of headroom "
-                        + "is left; the tile was squeezed, not re-fitted.")
-                    .That(slot.Height - needed).IsGreaterOrEqualThan(0.5);
                 _output.WriteLine(
-                    $"{language} at {scale:0.0}x: icon {Box(iconBox)}; face {Box(face)}; "
-                    + $"title {Box(laid.Bounds(title))}; column needs {FitText.Dip(needed)} of "
+                    $"{language} at {scale:0.0}x: row icon {Box(rowBox)}; fallback {Box(fallbackBox)}; "
+                    + $"face {Box(face)}; title {Box(titleBox)}; column needs {FitText.Dip(needed)} of "
                     + $"{FitText.Dip(slot.Height)} DIP (headroom {FitText.Dip(slot.Height - needed)})");
             }
 
-            // The badge is still inside the face with the taller icon above it.
+            // The badge is inside the preview box, with the 40 DIP fallback above it.
             var badge = laid.Find<Border>(faces[0].Container, "MinimizedBadge")!;
             Check.That(Inside(laid.Bounds(faces[0].Border), laid.Bounds(badge), inset: 8)).IsTrue();
+            Check.That(Inside(laid.Bounds(laid.Find<Border>(faces[0].Container, "PreviewBox")!),
+                laid.Bounds(badge))).IsTrue();
         }
         finally
         {
@@ -334,8 +355,8 @@ public class TaskSwitcherTileStatesWindowTests
     [StaFact]
     public void OverflowChip_InEnglish_CountsTheWindowsWithoutATile()
     {
-        // 64 windows, a 63-cell grid: the desktop tile takes the last cell, so TWO windows go
-        // without (the one that was already overflowing plus the one the tile displaced).
+        // 64 windows, a 45-cell grid: the desktop tile takes the last cell, so TWENTY windows go
+        // without (the nineteen that were already overflowing plus the one the tile displaced).
         using var laid = Laid.Open(Windows(64));
         laid.RegisterFaces(Capacity);
 
@@ -344,14 +365,14 @@ public class TaskSwitcherTileStatesWindowTests
         Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
 
         var text = Descendants<TextBlock>(chip).Single();
-        Check.That(text.Text).IsEqualTo("More windows: 2");
+        Check.That(text.Text).IsEqualTo("More windows: 20");
         Check.That(BrushColor(text.Foreground)).IsEqualTo(Tokens.TextSecondary);
     }
 
     [StaFact]
     public void AtCapacity_DrawsNoChip()
     {
-        // 62 windows + the desktop tile = the 63 cells: nothing is hidden, so there is nothing to
+        // 44 windows + the desktop tile = the 45 cells: nothing is hidden, so there is nothing to
         // explain. This is the two-sided half of the count — an off-by-one either claims a hidden
         // window or hides one.
         using var laid = Laid.Open(Windows(Capacity - 1));
@@ -365,14 +386,14 @@ public class TaskSwitcherTileStatesWindowTests
     [StaFact]
     public void WindowsWithoutATile_CountAllOfThem_DesktopSlotIncluded()
     {
-        // 66 windows at a 63-cell grid with the desktop tile in the last cell: 62 keep a tile, 4 go
-        // without — the three original overflow windows plus the one the tile displaced.
+        // 66 windows at a 45-cell grid with the desktop tile in the last cell: 44 keep a tile, 22 go
+        // without — the 21 that were already overflowing plus the one the tile displaced.
         using var laid = Laid.Open(Windows(66));
         laid.RegisterFaces(Capacity);
 
-        Check.That(laid.ViewModel.OverflowCount).IsEqualTo(4);
+        Check.That(laid.ViewModel.OverflowCount).IsEqualTo(22);
         var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
-        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("More windows: 4");
+        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("More windows: 22");
     }
 
     /// <summary>
@@ -391,7 +412,7 @@ public class TaskSwitcherTileStatesWindowTests
             var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
             Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
             var text = Descendants<TextBlock>(chip).Single();
-            Check.That(text.Text).IsEqualTo("Weitere Fenster: 2");
+            Check.That(text.Text).IsEqualTo("Weitere Fenster: 20");
 
             // The German chip is the longest of the three texts: at 200 % it must be drawn whole.
             var natural = FitText.NaturalWidth(text, text.Text);

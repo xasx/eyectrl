@@ -10,6 +10,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.Platform.Icons;
+using EyeCtrl.Platform.Thumbnails;
 using EyeCtrl.ViewModels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,6 +24,7 @@ public class OverlayManager : IOverlayManager
     private readonly ILogger<OverlayManager> _logger;
     private readonly Dispatcher _dispatcher;
     private readonly IAppIconProvider _iconProvider;
+    private readonly IWindowThumbnailService? _thumbnailService;
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
     private readonly Func<IBannerSlot>? _bannerSlot;
@@ -95,11 +97,13 @@ public class OverlayManager : IOverlayManager
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null,
-        Func<IBannerSlot>? bannerSlot = null, Func<BlockedInputBannerWindow>? blockedInputBanner = null)
+        Func<IBannerSlot>? bannerSlot = null, Func<BlockedInputBannerWindow>? blockedInputBanner = null,
+        IWindowThumbnailService? thumbnailService = null)
     {
         _dispatcher = dispatcher;
         _logger = logger;
         _iconProvider = iconProvider;
+        _thumbnailService = thumbnailService;
         _sink = sink;
         _dwellRegistry = dwellRegistry;
         _bannerSlot = bannerSlot;
@@ -294,9 +298,10 @@ public class OverlayManager : IOverlayManager
         _trackStatus.PositionTopRight();
         _trackStatus.Configure(viewModels.TrackStatus);
 
-        // Task Switcher overlay (fullscreen, not click-through). Icons resolved by the View.
+        // Task Switcher overlay (fullscreen, not click-through). Icons resolved by the View; the
+        // S4-C live previews are DWM thumbnails registered by the View through Platform's seam.
         _taskSwitcher = new TaskSwitcherWindow();
-        _taskSwitcher.Configure(viewModels.TaskSwitcher, _iconProvider);
+        _taskSwitcher.Configure(viewModels.TaskSwitcher, _iconProvider, _thumbnailService);
 
         // Quick Actions grid overlay (fullscreen). Takes only the VM, no icon provider.
         _quickActionsGrid = new QuickActionsGridWindow();

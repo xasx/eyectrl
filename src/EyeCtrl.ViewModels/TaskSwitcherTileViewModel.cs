@@ -50,6 +50,16 @@ public partial class TaskSwitcherTileViewModel : ObservableObject
     /// </summary>
     [ObservableProperty] private object? _icon;
 
+    /// <summary>
+    /// True when the View registered a live DWM thumbnail in this tile's preview box (S4-C).
+    /// Display-only: while it is false the box draws the 40 DIP icon fallback; while it is true the
+    /// fallback is collapsed, because a thumbnail draws ABOVE all WPF content of the switcher — an
+    /// icon left visible would sit under the picture (and would flash on a failed re-register).
+    /// Set by the View from its post-layout registration pass, never by the VM: the VM does not
+    /// know a DWM handle from a hole.
+    /// </summary>
+    [ObservableProperty] private bool _hasPreview;
+
     /// <summary>Screen center in physical pixels, set by the View after layout for dwell hit-testing.</summary>
     [ObservableProperty] private PhysicalPoint _position;
 

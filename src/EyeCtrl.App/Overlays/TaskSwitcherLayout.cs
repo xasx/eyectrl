@@ -16,9 +16,15 @@ using EyeCtrl.Core.Models;
 /// </summary>
 internal static class TaskSwitcherLayout
 {
-    /// <summary>The WrapPanel cell (the drawn face is inset by the template's 8 DIP margin).</summary>
+    /// <summary>
+    /// The WrapPanel cell. S4-C grew the cell's height from 120 to 166: the drawn face is inset by
+    /// the template's 8 DIP margin, so it is 184 × 150 (was 184 × 104) — the preview box (168 × 94),
+    /// the 20 DIP icon-and-title row and the progress bar now fit inside the same face. The width is
+    /// unchanged, so the column count and the ✕'s position are unchanged; the rows drop from 7 to 5
+    /// on the owner's screen (9 × 5 = 45 tiles, the ticket's "about 45").
+    /// </summary>
     internal const double CellWidth = 200;
-    internal const double CellHeight = 120;
+    internal const double CellHeight = 166;
 
     /// <summary>Minimum distance of the tile block from the left, top and right screen edges.</summary>
     internal const double EdgeMargin = 40;

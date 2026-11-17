@@ -35,7 +35,7 @@ using EyeCtrl.ViewModels.Messages;
 /// <para>
 /// Placement is asserted against the real layout helper with the owner's docked top band: the
 /// desktop tile occupies the cell right after the last window, never a clipped row, and its drawn
-/// face is the same 184 × 104 DIP the dwell target uses.
+/// face is the same 184 × 150 DIP (S4-C) the dwell target uses.
 /// </para>
 /// </summary>
 [Collection("StringTable Tests (App)")]
@@ -44,7 +44,7 @@ public class TaskSwitcherDesktopTileWindowTests
     private const double ScreenWidth = 1920;
     private const double ScreenHeight = 1200;
 
-    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 9 × 7 tiles.</summary>
+    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 9 × 5 tiles.</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
     private readonly ITestOutputHelper _output;
@@ -110,16 +110,16 @@ public class TaskSwitcherDesktopTileWindowTests
     public void DesktopTile_OccupiesTheCellRightAfterTheLastWindow_InTheCentredBlock()
     {
         // Five windows at the owner's 1920 × 1200 with the 112 DIP top band: six panel cells, one
-        // row, block (360, 546, 1200, 120) — so the desktop tile's face is at x 1368..1552,
-        // y 554..658. A tile drawn anywhere else is not "always the last tile".
+        // row, block (360, 523, 1200, 166) — so the desktop tile's face is at x 1368..1552,
+        // y 531..681. A tile drawn anywhere else is not "always the last tile".
         using var board = Board.Open(Windows(1, 2, 3, 4, 5));
 
         var layout = board.Layout;
-        Check.That(layout.Block).IsEqualTo(new TaskSwitcherLayout.DipRect(360, 546, 1200, 120));
+        Check.That(layout.Block).IsEqualTo(new TaskSwitcherLayout.DipRect(360, 523, 1200, 166));
 
         var faces = board.Faces();
         var desktop = board.Bounds(faces[5].Border);
-        var expected = new Rect(1368, 554, 184, 104);
+        var expected = new Rect(1368, 531, 184, 150);
         Check.WithCustomMessage($"The desktop tile is at {Box(desktop)}, not {Box(expected)}.")
             .That(Math.Abs(desktop.Left - expected.Left)).IsLessOrEqualThan(0.5);
         Check.That(Math.Abs(desktop.Top - expected.Top)).IsLessOrEqualThan(0.5);

@@ -181,6 +181,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
         context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);
         _modal.GuideOpen = false;
+        _modal.GuideRingWanted = false;                    // the step-5 exception dies with the guide
+        _safetyActions.Clear();                            // no fired choice survives a failed raise
         _quickActions.SetSummonSuspended("guide", false);
         _toolbar.SetGuideHold(false);
         _toolbar.ForceShow();                          // r3 F9: floating/mouse users get the toolbar back
@@ -266,6 +268,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 _quickActions.SetSummonSuspended("guide", true);   // claim 5
                 _toolbar.SetGuideHold(true);               // claim 6 — hold arms BEFORE suspend (r1 F11)
                 context.OverlayManager.CursorCircle.Hide();            // the ring hides — INSIDE Show
+                context.OverlayManager.PauseIndicator.RaiseToTop();    // spec §5: the guide clears the pause strip
                 Log.Information("First-run guide: shown");
                 _guideWindow!.ShowGuide();
                 _guideFlow!.Start();
@@ -279,12 +282,20 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (_splashHandle is { } splash) splash.WhenExited(Show);
         else Show();
 
+        // Sync-show unwind guard: Show() unwinds internally on a failure — UnwindPartialRaise
+        // nulls _guideFlow — so continuing into the subscriptions below would NRE on the nulled
+        // flow and surface as a second unwind + a second raise-failed log through
+        // StartFirstRunGuide's catch. The unwind already did everything (lease, fallback), so a
+        // return is the whole job.
+        if (_guideFlow is null) return;
+
         // Step toggles (claim 6(d)) + the ring's step-5 lifecycle (r3 F8: SHOW then raise).
         _guideFlow.StepEntered += step => context.Dispatcher.BeginInvoke(() =>
         {
             if (_guideFlow is null || !_modal.GuideOpen) return;
             if (step == FirstRunGuideStep.ToolbarTask)
             {
+                _modal.GuideRingWanted = true;             // the ring is wanted on this step (S3-4)
                 _toolbar.ResetToolbarForGuideTask();       // hold released + controller Hidden
                 if (context.CursorVM.IsVisible)
                     context.OverlayManager.CursorCircle.Show();       // SHOW (RaiseToTop alone can't)
@@ -294,6 +305,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             }
             else
             {
+                _modal.GuideRingWanted = false;            // no other step wants the ring (S3-4)
                 _toolbar.SetGuideHold(true);               // non-task steps hold again
                 context.OverlayManager.CursorCircle.Hide();           // step 5 ended: ring hidden again
             }
@@ -327,6 +339,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             context.Messenger.Unregister<CalibrationStateChangedMessage>(this);  // always (r1 F17)
             context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);  // claim 1
             _modal.GuideOpen = false;
+            _modal.GuideRingWanted = false;                // the step-5 exception dies with the guide
+            _safetyActions.Clear();                        // no fired choice outlives the guide (singleton)
             _quickActions.SetSummonSuspended("guide", false);
             _toolbar.SetGuideHold(false);
             _toolbar.ForceShow();                          // ForceShow + ResetToVisible — every mode (r4 F5)
@@ -417,6 +431,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 context.Dispatcher.BeginInvoke(() =>
                 {
                     _guideWindow?.ShowGuide();
+                    context.OverlayManager.PauseIndicator.RaiseToTop();   // spec §5, like every show
                     _guideFlow?.NotifyCalibrationEnded();   // renders step 5 — no Calibrate flicker (r3 F12)
                 });
             }

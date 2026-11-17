@@ -119,4 +119,17 @@ internal sealed class ModalInteractionState
             }
         }
     }
+
+    // volatile: read on the gaze thread (the ring's re-show predicates — RingMayReshow and the
+    // cursor-visibility binding), written on the UI thread by the guide wiring. Task 1's pattern:
+    // a plain volatile field, no event, no property — the wiring sets it directly.
+    /// <summary>
+    /// True while the first-run guide WANTS the cursor ring up despite owning the screen: step 5
+    /// (ToolbarTask) shows the ring so the owner can summon the toolbar, and a pause/resume round
+    /// trip during that step must not strand it hidden — the resume's visibility flip consults
+    /// <c>RingMayReshow</c>, which would otherwise refuse while <see cref="GuideOpen"/> is still
+    /// true. Set by the guide's StepEntered handler (step 5 only), cleared on every other step and
+    /// in the guide's restore/unwind paths.
+    /// </summary>
+    public volatile bool GuideRingWanted;
 }

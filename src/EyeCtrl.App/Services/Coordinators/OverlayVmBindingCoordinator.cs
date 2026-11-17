@@ -52,12 +52,16 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 
     /// <summary>
     /// Whether a hidden cursor ring may be re-shown right now: false while the first-run guide owns
-    /// the screen, so no reactive path paints the ring over the guide's window. Consulted by this
-    /// coordinator's own cursor-visibility binding and by the calibration completion sites in
-    /// <see cref="OverlayMessageCoordinator"/> (via this instance — the message side holds no modal
-    /// state of its own). The show/hide lifecycle around the guide itself lives in the guide wiring.
+    /// the screen, so no reactive path paints the ring over the guide's window — EXCEPT step 5
+    /// (ToolbarTask), where the guide's wiring wants the ring up and sets
+    /// <see cref="ModalInteractionState.GuideRingWanted"/>: without the exception a pause/resume
+    /// round trip during the toolbar task strands the ring hidden (the resume's visibility flip
+    /// lands here and stays a hide). Consulted by this coordinator's own cursor-visibility binding
+    /// and by the calibration completion sites in <see cref="OverlayMessageCoordinator"/> (via this
+    /// instance — the message side holds no modal state of its own). The show/hide lifecycle around
+    /// the guide itself lives in the guide wiring.
     /// </summary>
-    internal bool RingMayReshow => !_modal.GuideOpen;
+    internal bool RingMayReshow => !_modal.GuideOpen || _modal.GuideRingWanted;
 
     protected override void OnInitialize()
     {
@@ -171,9 +175,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(CursorCircleViewModel.IsVisible):
                 // The probe owns the screen while it is up (build plan C9): a ring visibility flip
                 // (the probe hides it at start; anything else must not re-show it over the window)
-                // stays a hide. The first-run guide gets the same deference via RingMayReshow.
-                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen && !_modal.GuideOpen) cursorCircle.Show();
-                else cursorCircle.Hide();
+                // stays a hide. The first-run guide gets the same deference via RingMayReshow —
+                // with the step-5 exception: while the guide wants the ring up (ToolbarTask) a
+                // resume's flip re-shows it instead of stranding it hidden.
+                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen && RingMayReshow)
+                    cursorCircle.Show();
+                else
+                    cursorCircle.Hide();
                 break;
             case nameof(CursorCircleViewModel.IsPinned):
                 // The pin is the "you're holding" signal: the ring goes bold and stops moving.

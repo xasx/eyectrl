@@ -119,6 +119,29 @@ public class FirstRunGuideFlowTests
     }
 
     [Fact]
+    public void WindowClosed_AbandonsWithoutTouchingTheSurfaceClose()
+    {
+        // The window's own Closed event must NOT route through Close(): that would call the
+        // surface's Close() — a Window.Close() re-entered from inside that window's Closed event.
+        var s = new FakeSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = Flow(s, settings);
+        GuideExitReason? exit = null;
+        flow.Closed += reason => exit = reason;
+        flow.Start();
+
+        flow.WindowClosed();
+
+        Check.That(s.CloseCount).IsEqualTo(0);
+        Check.That(exit).IsEqualTo(GuideExitReason.Abandoned);
+
+        // Idempotent: a later chrome Close finds the latch closed and does nothing.
+        flow.Close();
+        Check.That(s.CloseCount).IsEqualTo(0);
+        Check.That(exit).IsEqualTo(GuideExitReason.Abandoned);
+    }
+
+    [Fact]
     public void SafetyCard_RoutesThroughTheSurface_AndForwardingRunsTheChoice()
     {
         var s = new FakeSurface();

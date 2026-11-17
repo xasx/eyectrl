@@ -690,6 +690,63 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(vmBinding.RingMayReshow).IsTrue();
     }
 
+    [Fact]
+    public void RingMayReshow_IsTrue_WhileTheGuidesStepWantsTheRing_EvenGuideOpen()
+    {
+        // S3-4: step 5 (ToolbarTask) shows the ring so the owner can summon the toolbar; a
+        // pause/resume round trip during the task used to strand it hidden — the resume's
+        // visibility flip consulted RingMayReshow, which refused while GuideOpen was still true.
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.GuideOpen = true;
+        modal.GuideRingWanted = true;                    // the wiring sets it on the ToolbarTask step
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+        modal.GuideRingWanted = false;                   // every other step / restore / unwind clears it
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
+
+    [Fact]
+    public void AResumeVisibilityFlip_DuringTheGuidesRingWantedStep_ShowsTheRing()
+    {
+        // The handler-level mirror of the flip above: the pause hides (any state, ungated — the
+        // pause strip is the feedback), and the RESUME's flip re-shows while the guide is open and
+        // step 5 wants the ring — exactly the strand this fix exists for.
+        var modal = new ModalInteractionState { GuideOpen = true, GuideRingWanted = true };
+        var ring = new RecordingRingVisibility();
+        var messenger = new WeakReferenceMessenger();
+        var cursorVm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger) { IsVisible = false };
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: ring),
+        };
+        var coordinator = new OverlayVmBindingCoordinator(modal);
+        SetContext(coordinator, ctx);
+
+        // The pause: the VM flips invisible, the ring hides.
+        cursorVm.IsVisible = false;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(ring.HideCalls).IsEqualTo(1);
+        Check.That(ring.ShowCalls).IsEqualTo(0);
+
+        // The resume: the VM flips visible again — GuideOpen still true, but the step wants the ring.
+        cursorVm.IsVisible = true;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(ring.ShowCalls).IsEqualTo(1);
+
+        // Without the step-5 exception the same flip is a hide (the S1-era strand).
+        cursorVm.IsVisible = false;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        cursorVm.IsVisible = true;
+        modal.GuideRingWanted = false;                   // e.g. the step just ended (or Restore ran)
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(ring.ShowCalls).IsEqualTo(1);         // no second show
+    }
+
     /// <summary>
     /// Fixup-01 item 3: the switcher's show/hide must suspend the toolbar auto-hide (the Settings
     /// pattern, named holder), so the band cannot hide during a long session and the close always

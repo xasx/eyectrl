@@ -68,4 +68,39 @@ public class BannerSlotHoldTests
         slot.Release();
         Check.That(slot.Live).IsSameReferenceAs(a);
     }
+
+    [Fact]
+    public void Hold_AfterAPreempt_LeavesTheAlertLive_ItsCloseWaits_ReleaseShows()
+    {
+        // S3: Hold() used to demote a LIVE pre-emptor into the queue, contradicting the documented
+        // bypass — the caregiver alert is the safety channel and stays up through the guide's hold.
+        var slot = new BannerSlot();
+        var alert = new FakeBanner(); var waiting = new FakeBanner();
+
+        slot.Preempt(alert);                       // the alert takes the slot while free
+        Check.That(slot.Live).IsSameReferenceAs(alert);
+
+        slot.Hold();                               // the hold must NOT demote the live alert
+        Check.That(slot.Live).IsSameReferenceAs(alert);
+        Check.That(alert.Hides).IsEqualTo(0);      // never hidden, never re-queued
+
+        slot.Enqueue(waiting);                     // queued behind the hold; nothing shows
+        Check.That(waiting.Shows).IsEqualTo(0);
+
+        alert.Close();                             // the alert closes naturally during the hold
+        Check.That(slot.Live).IsNull();            // marker cleared, dequeue still paused
+        Check.That(waiting.Shows).IsEqualTo(0);    // the held banner waits
+
+        slot.Release();                            // the hold lifts: the front of the queue shows
+        Check.That(slot.Live).IsSameReferenceAs(waiting);
+        Check.That(waiting.Shows).IsEqualTo(1);
+
+        // And a pre-emptor arriving AFTER a hold still bypasses it (the existing pinned behaviour,
+        // now also under the marker: the slot took it down → a later Hold would demote it).
+        var second = new FakeBanner();
+        slot.Preempt(second);
+        Check.That(slot.Live).IsSameReferenceAs(second);
+        slot.Withdraw(second);                     // slot-driven withdrawal also clears the marker
+        Check.That(slot.Live).IsSameReferenceAs(waiting);
+    }
 }

@@ -151,7 +151,17 @@ internal sealed class FirstRunGuideFlow
         _safetyFlow?.StartQuestions();
     }
 
-    public void WindowClosed() => Close();
+    /// <summary>The window's own Closed event (external close = abandon). Its OWN path, not
+    /// Close(): the window is already closing, and routing through Close() would call the
+    /// surface's Close() — a Window.Close() re-entered from inside that window's own Closed
+    /// event. Same latch + abandon + Abandoned reason, minus the surface call.</summary>
+    public void WindowClosed()
+    {
+        if (_closed) return;
+        _closed = true;
+        _safetyFlow?.Abandon();
+        Closed?.Invoke(GuideExitReason.Abandoned);
+    }
 
     /// <summary>Step id for the close log line (ids only — privacy constraint).</summary>
     public string LastStepId => _step.ToString();

@@ -2265,9 +2265,9 @@ plus:
 
 **Interfaces:** Consumes Tasks 1–11. Produces the complete raise with the unified choice list and re-render after in-place presses.
 
-- [ ] **Step 1: Rename the message** — `FirstRunGuideRequestedMessage` replaces `SafetySetupRequestedMessage` (delete the old record; `SafetySetupStartup.MaybeRequest` sends the new one).
+- [x] **Step 1: Rename the message** — `FirstRunGuideRequestedMessage` replaces `SafetySetupRequestedMessage` (delete the old record; `SafetySetupStartup.MaybeRequest` sends the new one).
 
-- [ ] **Step 2: The per-run factory in `SettingsUiCoordinator`** — fields + registration:
+- [x] **Step 2: The per-run factory in `SettingsUiCoordinator`** — fields + registration:
 
 ```csharp
     private FirstRunGuideHost? _guideHost;
@@ -2486,7 +2486,7 @@ plus:
     }
 ```
 
-- [ ] **Step 3: `GuideSurface` — per-builder choice lists + `TextsFor`/`EdgeWord` DEFINED HERE (r4 F1's missing pieces; r5 F5's string switch; r5 F3's chrome Close on the transition card)**
+- [x] **Step 3: `GuideSurface` — per-builder choice lists + `TextsFor`/`EdgeWord` DEFINED HERE (r4 F1's missing pieces; r5 F5's string switch; r5 F3's chrome Close on the transition card)**
 
 ```csharp
     /// <summary>The flow's window surface. Per-BUILDER choice lists: the action row gets the
@@ -2597,7 +2597,7 @@ plus:
 
 (The `GuideSurface` reads the outer coordinator's protected `Context` through `owner.Context!` — a nested type may do that; `DockedEdge` is a `string`, so the switch is over string literals and the note about matching an enum is gone.)
 
-- [ ] **Step 4: The dispatch + the safety actions map**
+- [x] **Step 4: The dispatch + the safety actions map**
 
 ```csharp
     private readonly Dictionary<string, Action?> _safetyActions = new();
@@ -2647,7 +2647,7 @@ plus:
     }
 ```
 
-- [ ] **Step 5: Calibration — per-"Calibrate-now" subscription + the refusal guard (r2 F10/F27)**
+- [x] **Step 5: Calibration — per-"Calibrate-now" subscription + the refusal guard (r2 F10/F27)**
 
 ```csharp
     private IDisposable? _calibrationCeiling;
@@ -2694,7 +2694,7 @@ plus:
 
 (`SafetySetupFlow.DispatcherDelay` is the existing one-shot dispatcher timer seam (:404-414) — reused instead of a new timer helper. The refusal re-show runs the FULL `ShowStep(Calibrate)` — the choice targets were cleared when "Calibrate now" fired, so a bare `ShowGuide()` would strand. `Restore`/`UnwindPartialRaise` unregister unconditionally with the same one-type-arg overload.)
 
-- [ ] **Step 6: App.xaml.cs wiring**
+- [x] **Step 6: App.xaml.cs wiring**
 
   1. after `_eventCoordinator.Initialize(...)`: `_eventCoordinator.SetSplashHandle(_splashHandle);` — with the EventCoordinator forwarder following `SetSupervisionToggle` (`EventCoordinator.cs:124`):
   ```csharp
@@ -2748,7 +2748,7 @@ plus:
   4. the notice hosts gain their optional args + `GuideOpenChanged` subscriptions at the existing construction sites: `RestartNoticeHost` (:519) `isGuideOpen: () => _eventCoordinator.IsGuideOpen` + `_eventCoordinator.GuideOpenChanged += _restartNoticeHost.OnGuideOpenChanged;`; `LagMarkHost` (:605) likewise; `SetupNoticeWatch` (:577) `isGuideOpen: () => _eventCoordinator.IsGuideOpen` + `_eventCoordinator.GuideOpenChanged += _setupNoticeWatch.OnGuideOpenChanged;`.
   5. `SafetySetupStartup.MaybeRequest`'s call site (:666) unchanged except the renamed message.
 
-- [ ] **Step 7: Retire the machinery + swap the row** — delete `SafetySetupLaunch`/`SafetySetupHost` from `SafetySetupFlow.cs`; in `SettingsWindow.xaml.cs` remove the `_safetySetup` field + construction (:521-524), `StartSafetySetup` (:1227), `CreateSafetySetupFlow` (:1233); in `SettingsPageContext.cs` remove `RunSafetySetup` (:97) and the constructor argument (:667); in `GeneralPageSource.cs` replace the `g_safety` ButtonSpec with:
+- [x] **Step 7: Retire the machinery + swap the row** — delete `SafetySetupLaunch`/`SafetySetupHost` from `SafetySetupFlow.cs`; in `SettingsWindow.xaml.cs` remove the `_safetySetup` field + construction (:521-524), `StartSafetySetup` (:1227), `CreateSafetySetupFlow` (:1233); in `SettingsPageContext.cs` remove `RunSafetySetup` (:97) and the constructor argument (:667); in `GeneralPageSource.cs` replace the `g_safety` ButtonSpec with:
 
 ```csharp
                 new ButtonSpec("g_guide",
@@ -2759,9 +2759,9 @@ plus:
 
 plus `"settings.general.guide.label"` ("Run the introduction guide" / DE "Einführung erneut starten", fit `B260x2` — replacing `settings.general.safety.label` in BOTH strings files; `--refresh-de-src` runs again HERE, r1 F19). **Retirement consumers updated in the same task (r1 F19):** `SafetySetupFlowTests.cs:78-170` (the `SafetySetupLaunch`/`SafetySetupHost` tests — DELETE; the flow-level tests stay) + the `RequestProbe : IRecipient<SafetySetupRequestedMessage>` recipient (:656 — retarget to `FirstRunGuideRequestedMessage`); `TestSettingsPageContext.cs:46` (`RunSafetySetup = ...` removed); `SimpleModeCurationTests.cs:103/:108` (`"Button:g_safety"` → `"Button:g_guide"`); `localization/settings-row-english.golden.json:1177` (regenerate the golden row).
 
-- [ ] **Step 8: Wiring tests** — `SafetySetupWiringTests` (new seams: `FirstRunGuideRequestedMessage` registration, per-run factory present, NO `SafetySetupLaunch.Run`/`SafetySetupHost`/`RunSafetySetup` strings anywhere in `SettingsUiCoordinator.cs`/`SettingsWindow.xaml.cs`) + `GeneralPageSourceTests` (`g_guide` replaces the `g_safety` label/parameter).
+- [x] **Step 8: Wiring tests** — `SafetySetupWiringTests` (new seams: `FirstRunGuideRequestedMessage` registration, per-run factory present, NO `SafetySetupLaunch.Run`/`SafetySetupHost`/`RunSafetySetup` strings anywhere in `SettingsUiCoordinator.cs`/`SettingsWindow.xaml.cs`) + `GeneralPageSourceTests` (`g_guide` replaces the `g_safety` label/parameter).
 
-- [ ] **Step 9: Run + commit**
+- [x] **Step 9: Run + commit**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"` → PASS; `node .gitnexus/run.cjs detect-changes --scope all` → not partial.
 

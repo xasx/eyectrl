@@ -164,11 +164,11 @@ internal static class SplashThreadLauncher
     internal static readonly TimeSpan DefaultHandleWait = TimeSpan.FromMilliseconds(500);
 
     /// <summary>Test seam for the handle wait (F-FLAKE, CI #351 attempt 1): tests that NEED a
-    /// handle set it generously and restore it. A cold XAML/JIT window build under coverage on a
-    /// loaded runner can pass the 500 ms wall; Start() then correctly degrades to splash-less and
-    /// the test is left without the handle it needs. The timeout-pinning tests never touch this
-    /// seam, so the shipped 500 ms degrade stays exactly as it is.</summary>
-    internal static TimeSpan HandleWaitForTests { get; set; } = DefaultHandleWait;
+    /// handle set it generously and reset it to null. Null means production: Start() waits
+    /// DefaultHandleWait — the only place the shipped 500 ms lives, exercised by the
+    /// timeout-pinning tests on every run, in any order (fixup-01: a reset that wrote a copied
+    /// value left the shipped default pinned only when the timeout test ran first).</summary>
+    internal static TimeSpan? HandleWaitForTests { get; set; }
 
     internal static SplashThreadHandle? Start()
     {
@@ -185,11 +185,13 @@ internal static class SplashThreadLauncher
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        if (!ready.Task.Wait(HandleWaitForTests))
+        // One read (review Finding 2): the wait and its timeout log line report the same bound.
+        var wait = HandleWaitForTests ?? DefaultHandleWait;
+        if (!ready.Task.Wait(wait))
         {
             cancel.Cancel();                           // the thread must not show the window now (r4 #8)
             Log.Warning("Splash: thread did not produce a handle within {WaitMs} ms; starting without a splash",
-                (int)HandleWaitForTests.TotalMilliseconds);
+                (int)wait.TotalMilliseconds);
             return null;
         }
         return ready.Task.Result;

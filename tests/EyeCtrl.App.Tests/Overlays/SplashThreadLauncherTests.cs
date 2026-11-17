@@ -35,7 +35,7 @@ public class SplashThreadLauncherTests : IDisposable
     {
         _handle?.Dispose();
         SplashThreadLauncher.WindowFactoryForTests = null;
-        SplashThreadLauncher.HandleWaitForTests = SplashThreadLauncher.DefaultHandleWait;
+        SplashThreadLauncher.HandleWaitForTests = null;   // null = production
     }
 
     /// <summary>The factory the constructor installed; a test that swaps in a throwing or
@@ -47,14 +47,15 @@ public class SplashThreadLauncherTests : IDisposable
     {
         // F-FLAKE: a test that needs the handle waits generously — a cold XAML/JIT build under
         // coverage on a loaded CI runner passed the 500 ms wall, Start() correctly returned null
-        // and the handle assertion failed. Restored right after the start AND in Dispose; the
-        // timeout-pinning tests below call Start() directly and keep the shipped 500 ms.
+        // and the handle assertion failed. Reset to null (= production) right after the start AND
+        // in Dispose, so the shipped DefaultHandleWait is what every other test sees, in any
+        // order; the timeout-pinning tests below call Start() directly and always get it.
         SplashThreadLauncher.HandleWaitForTests = TimeSpan.FromSeconds(10);
         try
         {
             _handle = SplashThreadLauncher.Start();
         }
-        finally { SplashThreadLauncher.HandleWaitForTests = SplashThreadLauncher.DefaultHandleWait; }
+        finally { SplashThreadLauncher.HandleWaitForTests = null; }
         Check.That(_handle).IsNotNull();
         return _handle!;
     }

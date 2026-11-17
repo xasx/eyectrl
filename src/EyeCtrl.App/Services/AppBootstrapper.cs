@@ -25,6 +25,7 @@ using System.Windows.Forms;
 using EyeCtrl.Platform.Input;
 using EyeCtrl.Platform.Interop;
 using EyeCtrl.Platform.Services;
+using EyeCtrl.Platform.Thumbnails;
 using EyeCtrl.ViewModels;
 using EyeCtrl.EyeCare;
 using EyeCtrl.EyeCare.Exercises;
@@ -151,6 +152,9 @@ public class AppBootstrapper
         services.AddSingleton<IWindowManager>(sp => sp.GetRequiredService<Win32WindowManager>());
         services.AddSingleton<IEscapeWindowService>(sp => sp.GetRequiredService<Win32WindowManager>());
         services.AddSingleton<IAppIconProvider, Win32AppIconProvider>();
+        // S4-C: live window previews in the switcher's tiles. The implementation is the only caller
+        // of the dwmapi thumbnail calls (the window itself stays free of non-attribute DWM writes).
+        services.AddSingleton<IWindowThumbnailService, Win32WindowThumbnailService>();
 
         // Quick Actions
         services.AddSingleton<IQuickActionsStore>(sp =>
@@ -605,7 +609,10 @@ public class AppBootstrapper
             // Lazy: the banner slot and the safety banner are resolved only if a band fallback
             // actually asks for the order repair, so this adds no construction-order coupling.
             bannerSlot: () => sp.GetRequiredService<IBannerSlot>(),
-            blockedInputBanner: () => sp.GetRequiredService<BlockedInputBannerWindow>()));
+            blockedInputBanner: () => sp.GetRequiredService<BlockedInputBannerWindow>(),
+            // S4-C: the switcher's live previews. Passed explicitly (not resolved lazily inside
+            // Initialize) so a missing registration fails at container build, not at the first open.
+            thumbnailService: sp.GetRequiredService<IWindowThumbnailService>()));
 
         // Eye-care
         // B7: both surfaces carry A1's pause grace and read the live DwellSettings at session

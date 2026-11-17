@@ -27,7 +27,7 @@
             <ItemsControl x:Name="TilesPanel" AutomationProperties.AutomationId="TaskSwitcher_Tiles" ItemsSource="{Binding PanelItems}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <WrapPanel ItemWidth="200" ItemHeight="120"/>
+                        <WrapPanel ItemWidth="200" ItemHeight="166"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -36,8 +36,9 @@
                              carries its own glyph + label instead of an icon + title. The style (not
                              local attributes) owns Background/BorderThickness: a local value would
                              win over the DataTrigger and the tile would stay a filled window tile.
-                             BorderThickness draws INSIDE the 184x104 face, so the drawn tile — and
-                             therefore the dwell target the View registers — is the same size. -->
+                             BorderThickness draws INSIDE the 184x150 face (S4-C: 200 x 166 cell less
+                             the template's 8 DIP margin), so the drawn tile — and therefore the dwell
+                             target the View registers — is the same size. -->
                         <Border x:Name="TileFace" Margin="8" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
                             <Border.Style>
                                 <Style TargetType="Border">
@@ -69,52 +70,79 @@
                                             </Style.Triggers>
                                         </Style>
                                     </StackPanel.Style>
-                                    <!-- S3-B: 40 DIP (was 32). The icon SOURCE is the fix's other half:
-                                         a 40 DIP draw at the owner's 200 % is 80 physical px, so the
-                                         provider resolves a 64-96 px shell image (and the neutral
-                                         default glyph for a window with no icon). HighQuality scaling
-                                         is what makes a larger source actually look sharper than the
-                                         old 32 px upscale. The tile face is unchanged (184 x 104 DIP:
-                                         the 200 x 120 cell less the template's 8 DIP margin), and the
-                                         column's remaining headroom is re-checked by the S2-B theory. -->
-                                    <Image x:Name="TileIcon" Source="{Binding Icon}" Width="40" Height="40"
-                                           Margin="0,0,0,2" RenderOptions.BitmapScalingMode="HighQuality"/>
-                                    <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"
-                                               TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                                               MaxWidth="180"/>
-                                    <!-- S2-B: a minimised window looks like any other tile, but selecting it
-                                         RESTORES it — the screen the owner is looking at moves. The badge says
-                                         so. INSIDE the tile face, and never a target of its own: the face is
-                                         the dwell target, and a badge that widened the perceived tile would put
-                                         a hit area where nothing is drawn. It must NOT dim the tile —
-                                         DwellPausedOpacityConverter owns that cue. HorizontalAlignment=Center
-                                         is what makes it a BADGE: without it the Border stretches to the
-                                         content column and a long, trimmed title turns it into a light band
-                                         across the tile (~167 DIP instead of ~82). -->
-                                    <!-- S3-B: the 8 DIP the 40 DIP icon adds is paid for by the badge's own
-                                         slack (3 -> 2 DIP above it, 1 -> 0 DIP inside its pill, which
-                                         still hugs a 12 DIP line), 2 DIP of the icon-to-title gap, and
-                                         2 DIP from the accent bar's top gap. The title keeps its size
-                                         and its row. -->
-                                    <Border x:Name="MinimizedBadge" Margin="0,2,0,0" Padding="6,0"
-                                            HorizontalAlignment="Center"
+                                    <!-- S4-C: the LIVE PREVIEW BOX, 168 x 94 DIP (the ticket's Option C
+                                         board). DWM draws the tile's thumbnail ABOVE every WPF pixel of
+                                         this window, into exactly this rectangle — so this box must stay
+                                         EMPTY of anything that has to be read while a preview is up:
+                                         the title, icon row, badge and progress bar all live outside
+                                         it. The box's own background is SurfaceLight, which is what the
+                                         picture's letterbox bars show; ClipToBounds is for the fallback,
+                                         not for DWM (a thumbnail is composed above WPF and is kept inside
+                                         this rect by ThumbnailGeometry, never by a WPF clip).
+                                         PreviewFallback is collapsed as soon as the View registered a
+                                         thumbnail (HasPreview): a DWM thumbnail covers WPF content, and a
+                                         fallback left underneath would flash on a failed re-register. -->
+                                    <Border x:Name="PreviewBox" Width="168" Height="94"
                                             Background="{StaticResource BrushSurfaceLight}"
                                             CornerRadius="{StaticResource SmallCornerRadius}"
-                                            Visibility="{Binding IsMinimized, Converter={StaticResource BoolToVisibility}}">
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                            <!-- The mark is DRAWN, not typeset: a low bar is the minimise
-                                                 shape, no font in the standard face provides one (U+2581
-                                                 falls back to a hairline), and the emoji-presentation
-                                                 U+1F5D5 is what Emoji.Wpf substitutes — the drawn arrow in
-                                                 the emoji grid's back key is the same deliberate choice. -->
-                                            <Border x:Name="MinimizedGlyph" Width="10" Height="2"
-                                                    Background="{StaticResource BrushTextSecondary}"
-                                                    VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                            <TextBlock Text="{loc:T 'overlays.taskSwitcher.minimized'}"
-                                                       Foreground="{StaticResource BrushTextSecondary}"
-                                                       FontSize="{StaticResource FontSizeBody}"/>
-                                        </StackPanel>
+                                            ClipToBounds="True">
+                                        <Grid x:Name="PreviewFallback">
+                                            <Grid.Style>
+                                                <Style TargetType="Grid">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasPreview}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Grid.Style>
+                                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <!-- The fallback: a minimised window (never a thumbnail —
+                                                     DWM has no live picture of an iconic window), or a window
+                                                     whose registration failed. 40 DIP with HighQuality
+                                                     scaling, the S3-B source size rule. -->
+                                                <Image x:Name="PreviewIcon" Source="{Binding Icon}" Width="40" Height="40"
+                                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <!-- S2-B/S4-C: the "Minimiert" badge lives INSIDE the preview
+                                                     box on a minimised tile, below its icon — the only state
+                                                     that has no live picture, so the box is where the badge is
+                                                     read. It keeps HorizontalAlignment=Center so it hugs its
+                                                     own content instead of stretching into a light band. -->
+                                                <Border x:Name="MinimizedBadge" Margin="0,4,0,0" Padding="6,0"
+                                                        HorizontalAlignment="Center"
+                                                        Background="{StaticResource BrushSurfaceMedium}"
+                                                        CornerRadius="{StaticResource SmallCornerRadius}"
+                                                        Visibility="{Binding IsMinimized, Converter={StaticResource BoolToVisibility}}">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <!-- The mark is DRAWN, not typeset: a low bar is the minimise
+                                                             shape, no font in the standard face provides one (U+2581
+                                                             falls back to a hairline), and the emoji-presentation
+                                                             U+1F5D5 is what Emoji.Wpf substitutes — the drawn arrow in
+                                                             the emoji grid's back key is the same deliberate choice. -->
+                                                        <Border x:Name="MinimizedGlyph" Width="10" Height="2"
+                                                                Background="{StaticResource BrushTextSecondary}"
+                                                                VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                                        <TextBlock Text="{loc:T 'overlays.taskSwitcher.minimized'}"
+                                                                   Foreground="{StaticResource BrushTextSecondary}"
+                                                                   FontSize="{StaticResource FontSizeBody}"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
                                     </Border>
+                                    <!-- S4-C: the identity row — the app icon at 20 DIP (the preview above
+                                         carries the 40 DIP fallback) and the title, left-aligned beside it
+                                         and trimmed to the 168 DIP content width. -->
+                                    <StackPanel x:Name="TileRow" Orientation="Horizontal" Margin="0,6,0,0"
+                                                HorizontalAlignment="Center">
+                                        <Image x:Name="TileIcon" Source="{Binding Icon}" Width="20" Height="20"
+                                               Margin="0,0,6,0" VerticalAlignment="Center"
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource BrushTextPrimary}"
+                                                   FontSize="{StaticResource FontSizeBody}"
+                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                                   MaxWidth="142" VerticalAlignment="Center"/>
+                                    </StackPanel>
                                 </StackPanel>
                                 <!-- S3-A: the desktop tile's own content. Drawn, not typeset: a monitor
                                      outline on the icon grid (screen, stand, base), the same shape
@@ -145,7 +173,7 @@
                                 <!-- Dwell progress: without it a tile gives NO feedback while a
                                      700ms dwell builds, which reads as "not dwellable" (2026-08-17
                                      field report) — every other dwell surface in the app shows this. -->
-                                <ProgressBar Grid.Row="1" Value="{Binding DwellProgress}" Maximum="1" Minimum="0"
+                                <ProgressBar x:Name="WindowProgress" Grid.Row="1" Value="{Binding DwellProgress}" Maximum="1" Minimum="0"
                                              Height="6" Margin="0,4,0,0"
                                              Foreground="{StaticResource BrushAccent}" Background="Transparent"
                                              BorderThickness="0" Focusable="False" IsHitTestVisible="False"

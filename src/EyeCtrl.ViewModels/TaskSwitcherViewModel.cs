@@ -127,6 +127,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     private string? _sessionPickedTargetId;
     private int _sessionTileCount;
     private int _sessionTileDwellMs;
+    private int _sessionPreviewCount;
+    private int _sessionPreviewFailures;
     private bool _sessionCurrentExcluded;
     private int _sessionSlot = -1;
     private bool _anchorValid;
@@ -465,16 +467,31 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>
+    /// Records the View's thumbnail registration result for THIS session's open line (S4-C):
+    /// <paramref name="registered"/> live previews and <paramref name="failed"/> tiles that fell
+    /// back to their icon box. Called from the same post-layout pass as
+    /// <see cref="UpdateCloseButtonPosition"/> — which flushes the open line — so the counts
+    /// describe the frames the owner is about to see. The installed build is the case the numbers
+    /// exist for: UIAccess at High integrity in the z-band the trial never covered, so the first
+    /// day log shows whether previews work there (<c>previewFailures=0</c> is the success shape).
+    /// </summary>
+    public void ReportPreviews(int registered, int failed)
+    {
+        _sessionPreviewCount = Math.Max(0, registered);
+        _sessionPreviewFailures = Math.Max(0, failed);
+    }
+
+    /// <summary>
     /// Called by the View after layout to register the close disc as a dwell target.
     /// Mirrors <see cref="QuickActionsGridViewModel.UpdateCloseButtonPosition"/> — same
     /// physical-pixel convention and the same <see cref="DwellSettings.ToolbarButtonDwellMs"/>.
     /// <para>
     /// It is also the LAST step of the View's post-layout registration pass
-    /// (<c>TaskSwitcherWindow.UpdateTilePositions</c> registers every visible tile face, then
-    /// this), which is where the open line's <c>reachable</c> count is final — so this flushes
-    /// it. A session that hides before any layout flushes the open line from the close path
-    /// instead (T3). The overflow chip's count is final at the same moment, for the same reason,
-    /// and is read from the same <see cref="_registeredTiles"/> list.
+    /// (<c>TaskSwitcherWindow.UpdateTilePositions</c> registers every visible tile face and its
+    /// thumbnail, then this), which is where the open line's <c>reachable</c> count is final — so
+    /// this flushes it. A session that hides before any layout flushes the open line from the
+    /// close path instead (T3). The overflow chip's count is final at the same moment, for the
+    /// same reason, and is read from the same <see cref="_registeredTiles"/> list.
     /// </para>
     /// </summary>
     public void UpdateCloseButtonPosition(PhysicalPoint screenCenter)
@@ -678,6 +695,11 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         // cannot change while the fullscreen switcher is up, and the ladder analysis wants the
         // value the tiles were registered with, not one read at the flush.
         _sessionTileDwellMs = EffectiveTileDwellMs;
+        // S4-C: a session's preview counts describe the registration pass of THIS show. They are
+        // set by the View just before the open line is flushed; a session that never lays out
+        // reports zero of each rather than a previous session's numbers.
+        _sessionPreviewCount = 0;
+        _sessionPreviewFailures = 0;
         _sessionCurrentExcluded = false;
         _registeredTiles.Clear();
         _eligibleAt.Clear();
@@ -737,7 +759,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
                 : "none";
 
             var line = string.Create(CultureInfo.InvariantCulture,
-                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count(t => !t.IsDesktop)} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId} tileDwellMs={_sessionTileDwellMs}");
+                $"Task switcher opened: tiles={_sessionTileCount} currentExcluded={(_sessionCurrentExcluded ? "true" : "false")} reachable={_registeredTiles.Count(t => !t.IsDesktop)} anchorValid={(_anchorValid ? "true" : "false")} sinceLastCloseMs={sinceLastClose} lastOutcome={_lastOutcomeId} tileDwellMs={_sessionTileDwellMs} previews={_sessionPreviewCount} previewFailures={_sessionPreviewFailures}");
             _logger?.LogInformation("{Line}", line);
         }
         catch (Exception)

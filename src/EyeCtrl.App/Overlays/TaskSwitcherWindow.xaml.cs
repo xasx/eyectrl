@@ -11,6 +11,7 @@ using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Platform.Icons;
+using EyeCtrl.Platform.Thumbnails;
 using EyeCtrl.ViewModels;
 
 /// <summary>
@@ -48,6 +49,16 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
     private TaskSwitcherViewModel? _viewModel;
     private IAppIconProvider? _iconProvider;
+    private IWindowThumbnailService? _thumbnailService;
+
+    /// <summary>
+    /// The live DWM thumbnails of THIS show, one entry per window tile that got a picture (S4-C).
+    /// Every handle is unregistered in <see cref="UnregisterThumbnails"/>, which runs at the start
+    /// of a show, in <see cref="HideOverlay"/> and on close — a handle may never survive a hide, or
+    /// a session that re-opens fifty times grows DWM's thumbnail set fifty times.
+    /// </summary>
+    private readonly List<(TaskSwitcherTileViewModel Tile, IntPtr Handle)> _tileThumbnails = [];
+
     private bool _cloaked;
     private DispatcherTimer? _cloakFallback;
     private EventHandler? _uncloakOnRendering;
@@ -102,10 +113,20 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         SourceInitialized += DisableTransitionsAtHandleCreation;
     }
 
-    public void Configure(TaskSwitcherViewModel viewModel, IAppIconProvider iconProvider)
+    /// <summary>
+    /// Wires the session's view model, the icon seam, and — S4-C — the live-preview seam. The
+    /// thumbnail service is optional so a gate can build the window without registering anything
+    /// real; production (<see cref="OverlayManager"/>) passes Platform's
+    /// <see cref="Win32WindowThumbnailService"/>.
+    /// </summary>
+    public void Configure(
+        TaskSwitcherViewModel viewModel,
+        IAppIconProvider iconProvider,
+        IWindowThumbnailService? thumbnailService = null)
     {
         _viewModel = viewModel;
         _iconProvider = iconProvider;
+        _thumbnailService = thumbnailService;
         DataContext = viewModel;
     }
 
@@ -119,6 +140,11 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// </summary>
     public void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut)
     {
+        // Defensive: no handle may survive into a new show. HideOverlay already released them; a
+        // path that reached here without a hide (a re-show of a still-visible window) must not
+        // stack a second thumbnail per tile.
+        UnregisterThumbnails();
+
         var screenWidth = SystemParameters.PrimaryScreenWidth;
         var screenHeight = SystemParameters.PrimaryScreenHeight;
 
@@ -313,6 +339,7 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
     protected override void OnClosed(EventArgs e)
     {
+        UnregisterThumbnails();   // no DWM handle may outlive the window that owns it
         CancelPendingUncloak();   // no stray uncloak may fire on a closed window
         base.OnClosed(e);
     }
@@ -421,6 +448,12 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             vpTopLeft.X, vpTopLeft.Y,
             vpBottomRight.X - vpTopLeft.X, vpBottomRight.Y - vpTopLeft.Y);
 
+        // Windows whose whole drawn face is inside the viewport, for the preview pass below. A
+        // partially clipped tile keeps its clipped DWELL rect, but gets NO thumbnail: a DWM
+        // thumbnail is composed above WPF and is not clipped by the ScrollViewer, so a picture on
+        // a clipped face would paint over the hint row / close disc.
+        var fullyVisibleWindows = new HashSet<IntPtr>();
+
         foreach (var item in TilesPanel.Items)
         {
             if (item is not TaskSwitcherTileViewModel tile)
@@ -463,7 +496,23 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
                 _viewModel.UpdateDesktopTilePosition(visibleRect);
             else
                 _viewModel.UpdateTilePosition(tile.Hwnd, visibleRect);
+
+            // S4-C: only a fully visible WINDOW tile can carry a picture, and a minimised window
+            // never does (DWM has no live surface for it — its box keeps the icon + badge).
+            if (!tile.IsDesktop && !tile.IsMinimized
+                && visibleRect.Width >= faceRect.Width - 0.5
+                && visibleRect.Height >= faceRect.Height - 0.5)
+            {
+                fullyVisibleWindows.Add(tile.Hwnd);
+            }
         }
+
+        // S4-C: live previews, registered in the SAME post-layout pass as the dwell targets and
+        // BEFORE the close disc's call, which flushes the open line — so the pictures appear with
+        // the first visible frame (`ShowFullScreen` lifts the cloak after this dispatcher callback)
+        // and the log's previews=/previewFailures= describe that frame.
+        var previews = RegisterTileThumbnails(this, fullyVisibleWindows);
+        _viewModel.ReportPreviews(previews.Registered, previews.Failed);
 
         // Register the close disc as a dwell target too (same physical-pixel convention).
         var closeCenter = CloseButton.PointToScreen(
@@ -509,9 +558,164 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         return null;
     }
 
+    /// <summary>
+    /// S4-C: registers one live DWM thumbnail for every panel tile that may carry one, and returns
+    /// the counts the session log records. Called from <see cref="UpdateTilePositions"/> — the same
+    /// post-layout pass that registers the dwell targets — and callable headlessly with a detached
+    /// content root, which is how the lifecycle tests drive it without an HWND or a real DWM call.
+    ///
+    /// <para>
+    /// Only window tiles that are not minimised, carry a realised container and (in production) are
+    /// wholly inside the viewport are attempted; the desktop tile, overflow-trimmed windows and
+    /// minimised windows are skipped and are NOT failures. A registration that fails — a non-zero
+    /// HRESULT, a zero source size, a window gone between enumeration and this pass — leaves that
+    /// tile in its icon box and never throws.
+    /// </para>
+    ///
+    /// <para>
+    /// The pass starts by releasing every handle from the previous one, so a second pass (a re-show
+    /// without a hide) replaces the pictures instead of stacking a second set.
+    /// </para>
+    /// </summary>
+    /// <param name="windowRoot">
+    /// The visual whose origin is the destination window's client-area origin. Production passes
+    /// the window; a headless test passes the detached content root it measured.
+    /// </param>
+    /// <param name="visibleWindows">
+    /// The hwnds whose whole drawn face is visible. <c>null</c> means "no viewport clamp" — the
+    /// headless harness has already trimmed the panel to capacity, so every tile it holds is on
+    /// screen.
+    /// </param>
+    internal (int Registered, int Failed) RegisterTileThumbnails(
+        UIElement windowRoot, IReadOnlySet<IntPtr>? visibleWindows = null)
+    {
+        if (_thumbnailService is null || _viewModel is null)
+            return (0, 0);
+
+        UnregisterThumbnails();
+
+        var registered = 0;
+        var failed = 0;
+        foreach (var item in TilesPanel.Items)
+        {
+            if (item is not TaskSwitcherTileViewModel tile || tile.IsDesktop || tile.IsMinimized)
+                continue;
+            if (visibleWindows is not null && !visibleWindows.Contains(tile.Hwnd))
+                continue;
+            if (TilesPanel.ItemContainerGenerator.ContainerFromItem(item) is not FrameworkElement container)
+                continue;
+
+            try
+            {
+                if (TryRegisterTileThumbnail(tile, container, windowRoot))
+                    registered++;
+                else
+                    failed++;
+            }
+            catch (Exception)
+            {
+                // A preview is decoration: it must never take the switcher — the owner's only
+                // surface for switching a window — down with it.
+                failed++;
+            }
+        }
+
+        return (registered, failed);
+    }
+
+    /// <summary>
+    /// One tile's registration: allocate the DWM thumbnail, read the source size (a zero size is a
+    /// failure — the window is gone or not composited), fit the destination rect inside the
+    /// tile's preview box, and show it. Every failure releases the handle it may have allocated.
+    /// </summary>
+    private bool TryRegisterTileThumbnail(
+        TaskSwitcherTileViewModel tile, FrameworkElement container, UIElement windowRoot)
+    {
+        if (_thumbnailService is null)
+            return false;
+
+        var preview = FindDescendant<FrameworkElement>(container, "PreviewBox");
+        if (preview is null || preview.ActualWidth <= 0 || preview.ActualHeight <= 0)
+            return false;
+
+        var handle = _thumbnailService.Register(
+            new WindowInteropHelper(this).Handle, tile.Hwnd);
+        if (handle == IntPtr.Zero)
+            return false;
+
+        if (!_thumbnailService.TryGetSourceSize(handle, out var sourceWidth, out var sourceHeight))
+        {
+            _thumbnailService.Unregister(handle);
+            return false;
+        }
+
+        // The box's DIP position RELATIVE TO THE WINDOW (never the screen): rcDestination is in the
+        // destination window's client coordinates, and the switcher covers the primary screen only
+        // by coincidence — never depend on (0,0).
+        var origin = preview.TranslatePoint(new Point(0, 0), windowRoot);
+        var destination = ThumbnailGeometry.FitDestination(
+            origin.X, origin.Y, preview.ActualWidth, preview.ActualHeight,
+            DpiHelper.ScaleX, DpiHelper.ScaleY, sourceWidth, sourceHeight);
+
+        if (!_thumbnailService.Update(handle, destination))
+        {
+            _thumbnailService.Unregister(handle);
+            return false;
+        }
+
+        _tileThumbnails.Add((tile, handle));
+        tile.HasPreview = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Releases every live thumbnail of this show and puts the affected tiles back into icon mode.
+    /// <see cref="HideOverlay"/> calls it before hiding, <see cref="OnClosed"/> on close, and
+    /// <see cref="ShowFullScreen"/> / the registration pass at the start of a show — no handle may
+    /// survive a hide, or a session re-opened fifty times grows DWM's set fifty times.
+    /// </summary>
+    private void UnregisterThumbnails()
+    {
+        foreach (var (tile, handle) in _tileThumbnails)
+        {
+            try
+            {
+                _thumbnailService?.Unregister(handle);
+            }
+            catch (Exception)
+            {
+                // A failing release must not keep the overlay on screen: HideOverlay calls this.
+            }
+
+            tile.HasPreview = false;
+        }
+
+        _tileThumbnails.Clear();
+    }
+
+    /// <summary>The first descendant of <paramref name="root"/> named <paramref name="name"/>.</summary>
+    private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
+    {
+        if (root is T match && match.Name == name)
+            return match;
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            if (FindDescendant<T>(VisualTreeHelper.GetChild(root, i), name) is { } found)
+                return found;
+        }
+
+        return null;
+    }
+
     /// <summary>Called by the coordinator when the VM hides (selection or second toggle).</summary>
     public void HideOverlay()
     {
+        // No live preview may survive a hide: the handles belong to THIS session's tiles, and the
+        // next show registers its own set (after a new enumeration).
+        UnregisterThumbnails();
+
         // A hidden window must never stay cloaked. On a test-prepared window the request is
         // recorded and suppressed at WriteCloak, so the fixture's cloak stays up for its whole life.
         Uncloak();

@@ -27,7 +27,7 @@ public class TaskSwitcherLayoutTests
     }
 
     [Fact]
-    public void DockedTopAt112_OnTheOwners1920x1200Screen_HoldsSevenRowsOfNine_63Tiles()
+    public void DockedTopAt112_OnTheOwners1920x1200Screen_HoldsFiveRowsOfNine_45Tiles()
     {
         var layout = TaskSwitcherLayout.Compute(
             ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 112), "Top", tileCount: 63);
@@ -35,19 +35,19 @@ public class TaskSwitcherLayoutTests
         Check.That(layout.Area).IsEqualTo(
             new TaskSwitcherLayout.DipRect(40, 136, 1840, 940));
         Check.That(layout.Columns).IsEqualTo(9);
-        Check.That(layout.Rows).IsEqualTo(7);
-        Check.That(layout.Capacity).IsEqualTo(63);
-        Check.That(layout.ShownRows).IsEqualTo(7);
+        Check.That(layout.Rows).IsEqualTo(5);
+        Check.That(layout.Capacity).IsEqualTo(45);
+        Check.That(layout.ShownRows).IsEqualTo(5);
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(60, 186, 1800, 840));
+            new TaskSwitcherLayout.DipRect(60, 191, 1800, 830));
         Check.That(layout.HintBottomMargin).IsEqualTo(0);
         AssertFacesClearOfScreenEdges(layout);
     }
 
     [Theory]
-    [InlineData(40.0, 8)]
-    [InlineData(112.0, 7)]
-    [InlineData(200.0, 7)]
+    [InlineData(40.0, 6)]
+    [InlineData(112.0, 5)]
+    [InlineData(200.0, 5)]
     public void DockedTop_AtEverySize_LeavesTheBandAndItsGapClear(double toolbarSize, int expectedRows)
     {
         var layout = TaskSwitcherLayout.Compute(
@@ -62,9 +62,9 @@ public class TaskSwitcherLayoutTests
     }
 
     [Theory]
-    [InlineData(40.0, 8)]
-    [InlineData(112.0, 7)]
-    [InlineData(200.0, 6)]
+    [InlineData(40.0, 5)]
+    [InlineData(112.0, 5)]
+    [InlineData(200.0, 4)]
     public void DockedBottom_KeepsTheHintRowFullyAboveTheBand(double toolbarSize, int expectedRows)
     {
         var bandTop = ScreenHeight - toolbarSize;
@@ -128,34 +128,34 @@ public class TaskSwitcherLayoutTests
         Check.That(layout.Area).IsEqualTo(
             new TaskSwitcherLayout.DipRect(40, 40, 1840, 1036));
         Check.That(layout.Columns).IsEqualTo(9);
-        Check.That(layout.Rows).IsEqualTo(8);
-        Check.That(layout.Capacity).IsEqualTo(72);
+        Check.That(layout.Rows).IsEqualTo(6);
+        Check.That(layout.Capacity).IsEqualTo(54);
         Check.That(layout.HintBottomMargin).IsEqualTo(0);
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(60, 138, 1800, 840));
+            new TaskSwitcherLayout.DipRect(60, 60, 1800, 996));
         AssertFacesClearOfScreenEdges(layout);
     }
 
     [Fact]
     public void TilesBeyondCapacity_AreNotDrawn_AndKeepTheFullBlock()
     {
-        // 64 windows: one more than the 9x7 capacity. Only the seven full rows are shown — the
-        // block stays the full capacity width and height, and the eighth row lies wholly below
+        // 64 windows: one more than the 9x5 capacity. Only the five full rows are shown — the
+        // block stays the full capacity width and height, and the sixth row lies wholly below
         // the viewport (the window's VisibleTileRect clamp gives those faces no target).
         var overflow = TaskSwitcherLayout.Compute(
             ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 112), "Top", tileCount: 64);
-        Check.That(overflow.ShownRows).IsEqualTo(7);
-        Check.That(overflow.Capacity).IsEqualTo(63);
+        Check.That(overflow.ShownRows).IsEqualTo(5);
+        Check.That(overflow.Capacity).IsEqualTo(45);
         Check.That(overflow.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(60, 186, 1800, 840));
+            new TaskSwitcherLayout.DipRect(60, 191, 1800, 830));
     }
 
     [Theory]
-    [InlineData(1, 200, 120, 860, 546)]
-    [InlineData(5, 1000, 120, 460, 546)]
-    [InlineData(9, 1800, 120, 60, 546)]
-    [InlineData(10, 1800, 240, 60, 486)]
-    [InlineData(64, 1800, 840, 60, 186)]
+    [InlineData(1, 200, 166, 860, 523)]
+    [InlineData(5, 1000, 166, 460, 523)]
+    [InlineData(9, 1800, 166, 60, 523)]
+    [InlineData(10, 1800, 332, 60, 440)]
+    [InlineData(64, 1800, 830, 60, 191)]
     public void TheBlockWrapsOnlyTheCellsTheTilesOccupy_AndStaysCentred(
         int tileCount, double width, double height, double x, double y)
     {
@@ -179,7 +179,7 @@ public class TaskSwitcherLayoutTests
             ScreenWidth, ScreenHeight, Band(0, 0, 112, ScreenHeight), "Left", tileCount: 5);
 
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(508, 498, 1000, 120));
+            new TaskSwitcherLayout.DipRect(508, 475, 1000, 166));
         Check.That(layout.Block.X + (layout.Block.Width / 2)).IsCloseTo(1008, 1e-9);
         Check.That(layout.Block.X).IsGreaterOrEqualThan(112 + TaskSwitcherLayout.ToolbarGap);
     }
@@ -193,7 +193,7 @@ public class TaskSwitcherLayoutTests
             tileCount: 5);
 
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(412, 498, 1000, 120));
+            new TaskSwitcherLayout.DipRect(412, 475, 1000, 166));
         Check.That(layout.Block.X + (layout.Block.Width / 2)).IsCloseTo(912, 1e-9);
         Check.That(layout.Block.Right).IsLessOrEqualThan(
             ScreenWidth - 112 - TaskSwitcherLayout.ToolbarGap);
@@ -211,7 +211,7 @@ public class TaskSwitcherLayoutTests
             ScreenWidth, ScreenHeight, Band(0, 0, 1920, 112), "Top", 5);
 
         Check.That(at200.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(460, 546, 1000, 120));
+            new TaskSwitcherLayout.DipRect(460, 523, 1000, 166));
         Check.That(at200.Block).IsEqualTo(at100.Block);
     }
 
@@ -232,23 +232,23 @@ public class TaskSwitcherLayoutTests
         Check.That(at200.Area).IsEqualTo(at100.Area);
         Check.That(at200.Block).IsEqualTo(at100.Block);
         Check.That(at200.Columns).IsEqualTo(9);
-        Check.That(at200.Rows).IsEqualTo(7);
+        Check.That(at200.Rows).IsEqualTo(5);
     }
 
     [Fact]
     public void WhenTheKeepOutLeavesNoRow_TheClearanceGapIsDroppedFirst()
     {
-        // A 950 DIP top band leaves 102 DIP before the hint row: not one full row with the 24 DIP
-        // clearance, but one row (120 DIP) once the gap is dropped. The edge margins stay.
+        // A 900 DIP top band leaves 152 DIP before the hint row: not one full row with the 24 DIP
+        // clearance, but one 166 DIP row once the gap is dropped. The edge margins stay.
         var layout = TaskSwitcherLayout.Compute(
-            ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 950), "Top", tileCount: 63);
+            ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 900), "Top", tileCount: 63);
 
         Check.That(layout.Rows).IsEqualTo(1);
         Check.That(layout.Columns).IsEqualTo(9);
-        Check.That(layout.Area.Y).IsEqualTo(950);
+        Check.That(layout.Area.Y).IsEqualTo(900);
         Check.That(layout.Area.X).IsEqualTo(TaskSwitcherLayout.EdgeMargin);
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(60, 953, 1800, 120));
+            new TaskSwitcherLayout.DipRect(60, 905, 1800, 166));
     }
 
     [Fact]
@@ -260,11 +260,11 @@ public class TaskSwitcherLayoutTests
             230, ScreenHeight, toolbarBandDip: null, dockedEdge: null, tileCount: 1);
 
         Check.That(layout.Columns).IsEqualTo(1);
-        Check.That(layout.Rows).IsEqualTo(8);
+        Check.That(layout.Rows).IsEqualTo(6);
         Check.That(layout.Area).IsEqualTo(
             new TaskSwitcherLayout.DipRect(0, 0, 230, 1076));
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(15, 478, 200, 120));
+            new TaskSwitcherLayout.DipRect(15, 455, 200, 166));
     }
 
     [Fact]
@@ -275,12 +275,12 @@ public class TaskSwitcherLayoutTests
         var layout = TaskSwitcherLayout.Compute(
             ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 1000), "Top", tileCount: 63);
 
-        Check.That(layout.Rows).IsEqualTo(8);
+        Check.That(layout.Rows).IsEqualTo(6);
         Check.That(layout.Columns).IsEqualTo(9);
         Check.That(layout.Area).IsEqualTo(
             new TaskSwitcherLayout.DipRect(0, 0, ScreenWidth, 1076));
         Check.That(layout.HintBottomMargin).IsEqualTo(0);
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(60, 118, 1800, 840));
+            new TaskSwitcherLayout.DipRect(60, 40, 1800, 996));
     }
 }

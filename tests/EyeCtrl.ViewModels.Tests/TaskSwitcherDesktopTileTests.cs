@@ -88,31 +88,31 @@ public class TaskSwitcherDesktopTileTests
     }
 
     [Fact]
-    public void DesktopTile_HoldsTheLastVisibleSlot_AndTheChipCountsTheWindowItDisplaced()
+    public void DesktopTile_HoldsTheLastVisibleSlot_AndTheChipCountsTheWindowsItDisplaced()
     {
-        // 64 windows and a 63-cell grid (the owner's 9x7 at 1920x1200 with the top band). The
-        // desktop tile takes the last slot, so 62 windows keep a tile and TWO go without: the one
-        // that was already overflowing plus the one the tile displaced. The chip must say 2, and
-        // the desktop tile must be the LAST panel entry — never the entry the viewport clips.
+        // 64 windows and a 45-cell grid (the owner's 9x5 at 1920x1200 with the top band, S4-C). The
+        // desktop tile takes the last slot, so 44 windows keep a tile and TWENTY go without: the
+        // nineteen that were already overflowing plus the one the tile displaced. The chip must say
+        // 20, and the desktop tile must be the LAST panel entry — never the entry the viewport clips.
         using var h = new Harness(NumberedWindows(64));
 
         h.Open();
-        h.Vm.ApplyTileCapacity(63);
+        h.Vm.ApplyTileCapacity(45);
         h.LayoutWindows(h.Vm.Tiles.Count);
         h.LayoutDesktop();
 
-        Check.That(h.Vm.Tiles).HasSize(62);
-        Check.That(h.Vm.PanelItems).HasSize(63);
+        Check.That(h.Vm.Tiles).HasSize(44);
+        Check.That(h.Vm.PanelItems).HasSize(45);
         Check.That(h.Vm.PanelItems[h.Vm.PanelItems.Count - 1].IsDesktop).IsTrue();
-        Check.That(h.Vm.OverflowCount).IsEqualTo(2);
+        Check.That(h.Vm.OverflowCount).IsEqualTo(20);
 
-        // Exactly fit: 62 windows + the desktop tile = 63 cells, nothing is hidden.
-        using var fits = new Harness(NumberedWindows(62));
+        // Exactly fit: 44 windows + the desktop tile = 45 cells, nothing is hidden.
+        using var fits = new Harness(NumberedWindows(44));
         fits.Open();
-        fits.Vm.ApplyTileCapacity(63);
+        fits.Vm.ApplyTileCapacity(45);
         fits.LayoutWindows(fits.Vm.Tiles.Count);
         fits.LayoutDesktop();
-        Check.That(fits.Vm.Tiles).HasSize(62);
+        Check.That(fits.Vm.Tiles).HasSize(44);
         Check.That(fits.Vm.OverflowCount).IsEqualTo(0);
 
         // A single-cell grid still keeps the desktop tile (and drops every window): the tile that
@@ -287,7 +287,7 @@ public class TaskSwitcherDesktopTileTests
         var lines = capture.Lines;
         Check.That(lines).HasSize(2);
         Check.That(lines[0]).IsEqualTo(
-            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800");
+            "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0");
         Check.That(lines[1].StartsWith("Task switcher closed: outcome=Desktop ", StringComparison.Ordinal)).IsTrue();
         Check.That(lines[1].EndsWith(" slot=2 row=0 col=2", StringComparison.Ordinal)).IsTrue();
     }

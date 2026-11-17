@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
@@ -16,8 +15,9 @@ using EyeCtrl.ViewModels;
 /// pixels (r2 F9). ONE SLOT PER BUILDER (r4 F4): SetPractice builds into StepContent, the dwell
 /// knob into KnobRow, the chrome Close into ChromeCloseHost — neither overwrites another. Every
 /// builder's already-built branch RE-REGISTERS (r5 F2: a re-render cleared the targets). No
-/// Close() member (r4 F2). Card-local brushes resolve through Card.FindResource so the theme
-/// preview reaches code-built cards.
+/// Close() member (r4 F2). Code-built brushes ride SetResourceReference (S2-2), so they resolve
+/// and RE-RESOLVE through Card.Resources like DynamicResource — a theme preview swap updates
+/// the card, the chips, the Close and the practice ring together, not just the XAML half.
 /// </summary>
 public sealed partial class FirstRunGuideWindow : OverlayWindow
 {
@@ -90,34 +90,29 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         {
             Height = 3,
             Width = 0,
-            Fill = (Brush)Card.FindResource("BrushAccent"),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        bar.SetResourceReference(Shape.FillProperty, "BrushAccent");     // S2-2: re-resolves on a theme swap
         _progressBars[id] = bar;
-        return new Border
+        var labelText = new TextBlock
+        {
+            Text = label,
+            Margin = new Thickness(12, 8, 12, 4),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        labelText.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
+        var card = new Border
         {
             Width = 170,
             Height = 100,
-            Child = new StackPanel
-            {
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = label,
-                        Margin = new Thickness(12, 8, 12, 4),
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
-                    },
-                    bar,
-                },
-            },
+            Child = new StackPanel { Children = { labelText, bar } },
             Margin = new Thickness(16, 0, 0, 0),
-            Background = (Brush)Card.FindResource("BrushSurfaceMedium"),
-            BorderBrush = (Brush)Card.FindResource("BrushAccent"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
         };
+        card.SetResourceReference(Border.BackgroundProperty, "BrushSurfaceMedium");
+        card.SetResourceReference(Border.BorderBrushProperty, "BrushAccent");
+        return card;
     }
 
     /// <summary>The chrome Close card in its OWN host (top-right of the card, r3 F7 — away from
@@ -169,19 +164,19 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             {
                 Width = 0,
                 Height = 0,
-                Fill = (Brush)Card.FindResource("BrushAccent"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            _practiceFill.SetResourceReference(Shape.FillProperty, "BrushAccent");
             var ring = new Ellipse
             {
                 Width = 120,
                 Height = 120,
-                Stroke = (Brush)Card.FindResource("BrushAccent"),
                 StrokeThickness = 4,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            ring.SetResourceReference(Shape.StrokeProperty, "BrushAccent");
             var grid = new Grid();
             grid.Children.Add(ring);
             grid.Children.Add(_practiceFill);
@@ -208,10 +203,10 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             {
                 Text = $"{_vm.DwellTimeMs} ms",
                 FontSize = 20,
-                Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 16, 0),
             };
+            _dwellValue.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
             var plusMinus = new StackPanel { Orientation = Orientation.Horizontal };
             foreach (var (glyph, id) in new[] { ("−", "guide_dwell_minus"), ("+", "guide_dwell_plus") })
             {
@@ -330,34 +325,29 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         {
             Height = 3,
             Width = 0,
-            Fill = (Brush)Card.FindResource("BrushAccent"),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        bar.SetResourceReference(Shape.FillProperty, "BrushAccent");     // S2-2: re-resolves on a theme swap
         _progressBars[id] = bar;
-        return new Border
+        var labelText = new TextBlock
+        {
+            Text = label,
+            Margin = new Thickness(12, 8, 12, 4),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        labelText.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
+        var chip = new Border
         {
             Width = 170,
             Height = 80,
-            Child = new StackPanel
-            {
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = label,
-                        Margin = new Thickness(12, 8, 12, 4),
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = (Brush)Card.FindResource("BrushTextPrimary"),
-                    },
-                    bar,
-                },
-            },
+            Child = new StackPanel { Children = { labelText, bar } },
             Margin = new Thickness(16, 20, 16, 20),
-            Background = (Brush)Card.FindResource("BrushSurfaceMedium"),
-            BorderBrush = (Brush)Card.FindResource("BrushAccent"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
         };
+        chip.SetResourceReference(Border.BackgroundProperty, "BrushSurfaceMedium");
+        chip.SetResourceReference(Border.BorderBrushProperty, "BrushAccent");
+        return chip;
     }
 
     private void SetPracticeFill(double progress)

@@ -75,25 +75,34 @@ public class TaskSwitcherCloakTests
     }
 
     /// <summary>
-    /// Review fixup-02 (R1): the cloak seam and the single write path are STRUCTURAL. Every DWM
-    /// attribute write goes through <c>WriteDwmAttribute</c>, which applies the stay-cloaked
-    /// suppression by attribute VALUE (13) whatever constant or literal the caller used; the
-    /// injectable delegate and the dwmapi P/Invoke may be called only there. The scan covers every
-    /// <c>partial class TaskSwitcherWindow</c> source file so an S4-C partial cannot add a second
-    /// write path.
+    /// Review fixup-03 (final re-review): the cloak seam and the single write path are STRUCTURAL.
+    /// Every DWM attribute write goes through <c>WriteDwmAttribute</c>, which applies the
+    /// stay-cloaked suppression by attribute VALUE (13) whatever constant or literal the caller
+    /// used; the injectable delegate and the dwmapi P/Invoke may be referenced only there.
+    ///
+    /// <para>
+    /// The files are selected by CONTENT (<c>partial class TaskSwitcherWindow</c>), not by name, so
+    /// an S4-C partial file with any name is covered. <c>SetDwmAttribute</c> is counted as a
+    /// REFERENCE, not as a call shape: <c>.Invoke(...)</c>, a method group and an alias all add a
+    /// reference, and any reference outside the writer could send an uncloak around it.
+    /// </para>
     /// </summary>
     [Fact]
     public void EveryDwmAttributeWrite_GoesThroughOneWriter_AcrossEveryPartialFile()
     {
         var appRoot = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App");
         var partialFiles = Directory
-            .EnumerateFiles(appRoot, "TaskSwitcherWindow*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(appRoot, "*.cs", SearchOption.AllDirectories)
             .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
                      && !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .Select(p => (Path: p, Source: SourceScanner.StripComments(File.ReadAllText(p))))
+            .Where(f => Regex.IsMatch(f.Source, @"\bpartial\s+class\s+TaskSwitcherWindow\b"))
             .ToList();
-        Check.WithCustomMessage("no TaskSwitcherWindow partial-class source files found")
+        Check.WithCustomMessage(
+                "no source file under src/EyeCtrl.App declares 'partial class TaskSwitcherWindow' — the " +
+                "one-writer scan has nothing to read")
             .That(partialFiles).Not.IsEmpty();
-        var source = string.Join("\n", partialFiles.Select(p => SourceScanner.StripComments(File.ReadAllText(p))));
+        var source = string.Join("\n", partialFiles.Select(f => f.Source));
 
         const string signature = "private void WriteDwmAttribute(int attribute, bool value)";
         var writerStart = source.IndexOf(signature, StringComparison.Ordinal);
@@ -110,15 +119,17 @@ public class TaskSwitcherCloakTests
                 @"attribute\s*==\s*DwmwaCloak\s*&&\s*!value\s*&&\s*_stayCloakedForTests"))
             .IsTrue();
 
-        // The injectable delegate is invoked exactly once, in WriteDwmAttribute, with the
-        // caller's attribute and value (no hardcoded cloak uncloak).
-        var delegateCalls = Regex.Matches(source, @"\bSetDwmAttribute\s*\(").Count;
+        // REFERENCES, not call shapes: the property declaration plus its one invocation. A second
+        // reference — a call, .Invoke(...), a method group or an alias — can send an uncloak around
+        // WriteDwmAttribute, so it fails this pin.
+        var delegateReferences = Regex.Matches(source, @"\bSetDwmAttribute\b").Count;
         Check.WithCustomMessage(
-                $"SetDwmAttribute(...) is invoked {delegateCalls} times; it must be exactly once, inside " +
-                "WriteDwmAttribute — any other call bypasses the write-point seam")
-            .That(delegateCalls).IsEqualTo(1);
-        Check.WithCustomMessage("the single SetDwmAttribute call must be inside WriteDwmAttribute")
-            .That(Regex.Matches(writerBody, @"\bSetDwmAttribute\s*\(").Count).IsEqualTo(1);
+                $"SetDwmAttribute is referenced {delegateReferences} times; exactly 2 are allowed (the " +
+                "delegate property's declaration and its single invocation inside WriteDwmAttribute). " +
+                "A reference outside the writer bypasses the write-point seam.")
+            .That(delegateReferences).IsEqualTo(2);
+        Check.WithCustomMessage("the single SetDwmAttribute invocation must be inside WriteDwmAttribute")
+            .That(Regex.Matches(writerBody, @"\bSetDwmAttribute\b").Count).IsEqualTo(1);
         Check.WithCustomMessage("WriteDwmAttribute must pass the caller's attribute and value through")
             .That(Regex.IsMatch(writerBody, @"SetDwmAttribute\s*\(\s*hwnd\s*,\s*attribute\s*,\s*value\s*\)")).IsTrue();
 

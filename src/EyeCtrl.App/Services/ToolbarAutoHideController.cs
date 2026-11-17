@@ -84,6 +84,14 @@ public sealed class ToolbarAutoHideController
     private volatile bool _suspended;
     private volatile bool _paused;
 
+    // The guide-hidden hold (spec §5 claim 6): the first-run guide hides the toolbar on steps
+    // 1–4/6–8. While held, the two shipped paths that would resurrect a hidden toolbar — the
+    // async ForceShow inside SetSuspended, and ReassertVisibility's else-branch SetActive(true)
+    // (calibration transitions) — are suppressed; release restores unconditionally (r4 F5).
+    // ORDER: arm the hold BEFORE SetSuspended(true) — SetSuspended posts its ForceShow when
+    // Hidden, and a hold armed after loses that race (r1 F11).
+    private bool _guideHiddenHold;
+
     // Diagnostic-transition trackers (gaze thread only, Feed is their only writer). See _diagnostics.
     private bool _lastSampleOnToolbar;
     private bool _lastSampleValid = true;
@@ -203,9 +211,10 @@ public sealed class ToolbarAutoHideController
             // Recover from hidden so the user isn't stranded while the Settings window is up (the
             // keyboard no longer suspends auto-hide — its escape is the edge-bar Close; see the
             // 2026-09-10 keyboard spec).
-            if (_state == State.Hidden && _enabled)
+            if (_state == State.Hidden && _enabled && !_guideHiddenHold)
                 _visibility?.ForceShow();
-            _state = State.Visible;
+            if (!_guideHiddenHold)
+                _state = State.Visible;
             Volatile.Write(ref _hideAnchorUs, Unseeded);  // unsuspend starts a fresh hide countdown
             Volatile.Write(ref _summonRunUs, Unseeded);
         }
@@ -213,6 +222,21 @@ public sealed class ToolbarAutoHideController
         {
             // Just unsuspended: reset the hide countdown so it doesn't instantly hide.
             Volatile.Write(ref _hideAnchorUs, Unseeded);
+        }
+    }
+
+    /// <summary>The first-run guide's hold: while true the controller stays hidden and deaf to
+    /// ForceShow/ReassertVisibility re-arms, whatever SetSuspended says.</summary>
+    public void SetGuideHiddenHold(bool held)
+    {
+        _guideHiddenHold = held;
+        if (held)
+        {
+            _state = State.Hidden;
+            _visibility?.HideToolbar(_paused);
+            Volatile.Write(ref _hideAnchorUs, Unseeded);
+            Volatile.Write(ref _summonRunUs, Unseeded);
+            _lastValidHiddenUs = null;
         }
     }
 
@@ -233,9 +257,9 @@ public sealed class ToolbarAutoHideController
     public void ReassertVisibility()
     {
         if (_visibility == null) return;
-        if (_state == State.Hidden && _enabled && !_suspended)
+        if (_state == State.Hidden && _enabled && !_suspended && !_guideHiddenHold)
             _visibility.HideToolbar(_paused);   // re-asserts hide AND SetActive(false)
-        else
+        else if (!_guideHiddenHold)
             _visibility.SetActive(true);
     }
 
@@ -553,6 +577,17 @@ public sealed class ToolbarAutoHideController
         _state = State.Visible;
         Volatile.Write(ref _hideAnchorUs, Unseeded);
         Volatile.Write(ref _summonRunUs, Unseeded);
+    }
+
+    /// <summary>Mirrors <see cref="ResetToVisible"/>: state → Hidden, anchors cleared, hidden via
+    /// the adapter. Step-5 entry uses this so summon detection is live immediately (r4 F2).</summary>
+    public void ResetToHidden()
+    {
+        _state = State.Hidden;
+        _visibility?.HideToolbar(_paused);
+        Volatile.Write(ref _hideAnchorUs, Unseeded);
+        Volatile.Write(ref _summonRunUs, Unseeded);
+        _lastValidHiddenUs = null;
     }
 
     // Expose state name for any future assertion diagnostics.

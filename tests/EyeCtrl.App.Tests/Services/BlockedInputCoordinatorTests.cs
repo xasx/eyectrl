@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System.IO;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
@@ -81,8 +82,129 @@ public class BlockedInputCoordinatorTests
         h.Banner.RaiseEscape();
 
         Check.That(h.Escape.TargetLookups).IsEqualTo(1);
-        Check.That(h.Escape.BroughtToFront).ContainsExactly(h.Escape.Target);
-        Check.That(h.Escape.Results[0].UsedShowWindowFallback).IsTrue();
+        Check.That(h.Escape.Begun).ContainsExactly(h.Escape.Target);
+        // The completion is asynchronous: it arrives later, from the scheduler's worker.
+        Check.That(h.Escape.HasPending).IsTrue();
+        Check.That(h.Escape.CompleteFromWorker(new EscapeWindowResult(true, false, true))).IsNull();
+        Check.That(h.Banner.HideCount).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// F-ESC: the escape is the owner's emergency exit. Raising it must return to the dispatcher
+    /// at once — the attempt is still running on the scheduler's worker when the call returns.
+    /// </summary>
+    [Fact]
+    public void TheEscapeButton_ReturnsToTheDispatcherAtOnce_WhileTheAttemptIsStillRunning()
+    {
+        var h = new Harness();
+        h.Coordinator.Apply(Blocked);
+
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        h.Banner.RaiseEscape();
+        elapsed.Stop();
+
+        Check.WithCustomMessage(
+                "the escape button blocked the dispatcher; a hung target would freeze gaze control.")
+            .That(elapsed.ElapsedMilliseconds).IsStrictlyLessThan(50);
+        Check.That(h.Escape.HasPending).IsTrue();
+        Check.That(h.Banner.HideCount).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// The completion arrives on the scheduler's worker and must not touch a WPF object there. The
+    /// banner records the thread of every call, so a completion that hides or re-shows it off the
+    /// dispatcher fails this test.
+    /// </summary>
+    [Fact]
+    public void TheEscapeCompletion_RunsOffTheWorkerButTouchesNoBanner()
+    {
+        var h = new Harness();
+        h.Coordinator.Apply(Blocked);
+        var dispatcherThread = Environment.CurrentManagedThreadId;
+        h.Banner.RaiseEscape();
+
+        Check.That(h.Escape.CompleteFromWorker(new EscapeWindowResult(true, true, false))).IsNull();
+
+        Check.WithCustomMessage("the escape completion touched the banner off the dispatcher.")
+            .That(h.Banner.CallThreads.Where(id => id != dispatcherThread)).IsEmpty();
+        Check.That(h.Banner.HideCount).IsEqualTo(0);
+        Check.That(h.Ring.BlockedStates).ContainsExactly(true);
+    }
+
+    /// <summary>
+    /// A null result is the scheduler's "dropped or abandoned" answer: the banner must stay up and
+    /// nothing may throw.
+    /// </summary>
+    [Fact]
+    public void TheEscapeCompletion_WithNoResult_LeavesTheBannerUp()
+    {
+        var h = new Harness();
+        h.Coordinator.Apply(Blocked);
+        h.Banner.RaiseEscape();
+
+        Check.That(h.Escape.CompleteFromWorker(null)).IsNull();
+
+        Check.That(h.Banner.HideCount).IsEqualTo(0);
+        Check.That(h.Ring.BlockedStates).ContainsExactly(true);
+    }
+
+    /// <summary>
+    /// N-F-ESC: disposing EyeCtrl while an attempt is in flight must not throw, and the late
+    /// completion must not call back into the disposed coordinator's surfaces.
+    /// </summary>
+    [Fact]
+    public void DisposeWhileAnEscapeIsPending_IgnoresTheLateCompletion()
+    {
+        var h = new Harness();
+        h.Coordinator.Apply(Blocked);
+        h.Banner.RaiseEscape();
+
+        h.Coordinator.Dispose();
+        var bannerCallsAfterDispose = h.Banner.CallCount;
+        var ringStatesAfterDispose = h.Ring.BlockedStates.Count();
+
+        Check.That(h.Escape.CompleteFromWorker(new EscapeWindowResult(true, true, false))).IsNull();
+
+        Check.That(h.Banner.CallCount).IsEqualTo(bannerCallsAfterDispose);
+        Check.That(h.Ring.BlockedStates.Count()).IsEqualTo(ringStatesAfterDispose);
+    }
+
+    /// <summary>
+    /// Two quick escape requests are queued (the scheduler serialises them); the coordinator does
+    /// not coalesce them away, so a second press after nothing happened really does try again.
+    /// </summary>
+    [Fact]
+    public void TwoQuickEscapeRequests_AreBothHandedToTheScheduler()
+    {
+        var h = new Harness();
+        h.Coordinator.Apply(Blocked);
+
+        h.Banner.RaiseEscape();
+        h.Banner.RaiseEscape();
+
+        Check.That(h.Escape.Begun).ContainsExactly(h.Escape.Target, h.Escape.Target);
+    }
+
+    /// <summary>
+    /// The completion callback runs on a worker thread: a source pin keeps every WPF surface out
+    /// of it, independently of what the fakes happen to observe.
+    /// </summary>
+    [Fact]
+    public void TheEscapeCompletionMethod_TouchesNoUiSurface()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepoRoot(), "src", "EyeCtrl.App", "Services", "BlockedInputCoordinator.cs"));
+        var body = ExtractMethod(source, "private void OnEscapeCompleted(IntPtr hwnd, EscapeWindowResult? result)");
+
+        foreach (var surface in new[]
+                 {
+                     "_banner", "_cursorCircle", "_dispatcher", "_gate", "_eyeCare", "_detector",
+                 })
+        {
+            Check.WithCustomMessage(
+                    $"the worker-thread escape completion touches {surface}; it must only log.")
+                .That(body.Contains(surface, StringComparison.Ordinal)).IsFalse();
+        }
     }
 
     [Fact]
@@ -203,29 +325,55 @@ public class BlockedInputCoordinatorTests
     {
         public List<BlockedInputState> Shown { get; } = new();
         public int HideCount { get; private set; }
+        public int CallCount { get; private set; }
+        public List<int> CallThreads { get; } = new();
 
         public event EventHandler? EscapeRequested;
         public event EventHandler? DismissRequested;
         public event EventHandler? Hidden;
 
-        public void ShowBlocked(BlockedInputState state) => Shown.Add(state);
+        public void ShowBlocked(BlockedInputState state)
+        {
+            RecordCall();
+            Shown.Add(state);
+        }
+
         public void HideBlocked()
         {
+            RecordCall();
             HideCount++;
             Hidden?.Invoke(this, EventArgs.Empty);
         }
-        public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds) => GazeCount++;
+
+        public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds)
+        {
+            RecordCall();
+            GazeCount++;
+        }
+
         public int GazeCount { get; private set; }
         public void RaiseEscape() => EscapeRequested?.Invoke(this, EventArgs.Empty);
         public void RaiseDismiss() => DismissRequested?.Invoke(this, EventArgs.Empty);
+
+        private void RecordCall()
+        {
+            CallCount++;
+            CallThreads.Add(Environment.CurrentManagedThreadId);
+        }
     }
 
+    /// <summary>
+    /// The asynchronous escape seam: records the hand-off and holds the completion so a test can
+    /// invoke it from a real background thread (exactly where the scheduler calls it).
+    /// </summary>
     private sealed class FakeEscape : IEscapeWindowService
     {
+        private Action<EscapeWindowResult?>? _pending;
+
         public IntPtr Target { get; } = new(42);
         public int TargetLookups { get; private set; }
-        public List<IntPtr> BroughtToFront { get; } = new();
-        public List<EscapeWindowResult> Results { get; } = new();
+        public List<IntPtr> Begun { get; } = new();
+        public bool HasPending => _pending is not null;
 
         public IntPtr? TryGetEscapeTarget()
         {
@@ -233,12 +381,42 @@ public class BlockedInputCoordinatorTests
             return Target;
         }
 
-        public EscapeWindowResult TryBringToFront(IntPtr hwnd)
+        public void BeginBringToFront(IntPtr hwnd, Action<EscapeWindowResult?> onCompleted)
         {
-            BroughtToFront.Add(hwnd);
-            var result = new EscapeWindowResult(true, false, UsedShowWindowFallback: true);
-            Results.Add(result);
-            return result;
+            Begun.Add(hwnd);
+            _pending = onCompleted;
+        }
+
+        /// <summary>
+        /// Invokes the pending completion on a real worker thread and returns whatever it threw, so
+        /// a coordinator fault surfaces as a failed assertion rather than an unhandled exception.
+        /// </summary>
+        public Exception? CompleteFromWorker(EscapeWindowResult? result)
+        {
+            var completion = _pending
+                ?? throw new InvalidOperationException("no escape attempt is pending");
+
+            Exception? thrown = null;
+            var worker = new Thread(() =>
+            {
+                try
+                {
+                    completion(result);
+                }
+                catch (Exception ex)
+                {
+                    thrown = ex;
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "EyeCtrl test escape completion",
+            };
+            worker.Start();
+            if (!worker.Join(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("the escape completion did not return");
+
+            return thrown;
         }
     }
 
@@ -266,5 +444,37 @@ public class BlockedInputCoordinatorTests
         public ProcessTokenFacts InspectForeground() => ProcessTokenFacts.Unknown;
         public ProcessTokenFacts InspectPoint(PhysicalPoint point) => ProcessTokenFacts.Unknown;
         public ProcessTokenFacts InspectWindow(IntPtr hwnd) => ProcessTokenFacts.Unknown;
+    }
+
+    private static string RepoRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
+                return dir.FullName;
+        }
+
+        throw new InvalidOperationException("Could not find the repository root (EyeCtrl.slnx).");
+    }
+
+    /// <summary>Returns one method's source text by brace matching from its signature.</summary>
+    private static string ExtractMethod(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Check.WithCustomMessage($"The repository source no longer contains '{signature}'.")
+            .That(start).IsStrictlyGreaterThan(-1);
+
+        var open = source.IndexOf('{', start);
+        Check.That(open).IsStrictlyGreaterThan(-1);
+
+        var depth = 0;
+        for (var i = open; i < source.Length; i++)
+        {
+            if (source[i] == '{') depth++;
+            else if (source[i] == '}' && --depth == 0)
+                return source[open..(i + 1)];
+        }
+
+        throw new InvalidOperationException($"Unbalanced braces after '{signature}'.");
     }
 }

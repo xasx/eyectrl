@@ -91,7 +91,17 @@ internal sealed class WindowActionScheduler
     /// token is cancelled) or has run past its start allowance; a body that injects input must stop
     /// at either point.
     /// </param>
-    internal void Enqueue(string action, IntPtr hwnd, Action<WindowActionContext> body)
+    /// <param name="onCompleted">
+    /// Optional: told at most once, on the action's worker thread — exactly once unless the body
+    /// never returns from a native call — whether the body ran or the request was dropped at the
+    /// start deadline. It runs after the chain is released, so a successor never waits on it, and
+    /// it must not throw or touch UI objects. A fault is contained and logged.
+    /// </param>
+    internal void Enqueue(
+        string action,
+        IntPtr hwnd,
+        Action<WindowActionContext> body,
+        Action<WindowActionCompletion>? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(body);
 
@@ -103,7 +113,7 @@ internal sealed class WindowActionScheduler
             _tail = link;
         }
 
-        var worker = new Thread(() => Run(previous, link, body))
+        var worker = new Thread(() => Run(previous, link, body, onCompleted))
         {
             IsBackground = true,
             Name = $"EyeCtrl window action ({action})",
@@ -111,8 +121,13 @@ internal sealed class WindowActionScheduler
         worker.Start();
     }
 
-    private void Run(ChainLink? previous, ChainLink link, Action<WindowActionContext> body)
+    private void Run(
+        ChainLink? previous,
+        ChainLink link,
+        Action<WindowActionContext> body,
+        Action<WindowActionCompletion>? onCompleted)
     {
+        var completion = WindowActionCompletion.Dropped;
         try
         {
             if (previous is not null && !previous.Finished.Wait(_handoffTimeout))
@@ -135,6 +150,7 @@ internal sealed class WindowActionScheduler
                 return;
             }
 
+            completion = WindowActionCompletion.Ran;
             body(new WindowActionContext(link.Token, _time, link.RequestedAt, _completionBudget));
         }
         catch (Exception ex)
@@ -150,6 +166,22 @@ internal sealed class WindowActionScheduler
             {
                 if (ReferenceEquals(_tail, link))
                     _tail = null;
+            }
+
+            // After Finish, so a successor may start while the caller reads its result: the
+            // completion is bookkeeping (a log line, a result), never part of the action itself.
+            if (onCompleted is not null)
+            {
+                try
+                {
+                    onCompleted(completion);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(
+                        ex, "Window action {Action} for window {Hwnd} completion failed",
+                        link.Action, link.Hwnd);
+                }
             }
         }
     }
@@ -203,4 +235,23 @@ internal sealed class WindowActionScheduler
             Finished.Set();
         }
     }
+}
+
+/// <summary>
+/// How one queued window action ended, for the optional completion callback
+/// (<see cref="WindowActionScheduler.Enqueue"/>).
+/// </summary>
+internal enum WindowActionCompletion
+{
+    /// <summary>
+    /// The body never ran: the request could not start within the start deadline, so it was
+    /// dropped rather than executed late. The scheduler logged the drop.
+    /// </summary>
+    Dropped,
+
+    /// <summary>
+    /// The body ran. It may have stopped early because a later action abandoned it or because its
+    /// completion budget ran out; the body's own result tells the caller whether it finished.
+    /// </summary>
+    Ran,
 }

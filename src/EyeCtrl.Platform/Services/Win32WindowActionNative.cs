@@ -30,4 +30,10 @@ internal sealed class Win32WindowActionNative : IWindowActionNative
 
     /// <inheritdoc />
     public bool SetForegroundWindow(IntPtr hwnd) => NativeMethods.SetForegroundWindow(hwnd);
+
+    /// <inheritdoc />
+    public IntPtr GetForegroundWindow() => NativeMethods.GetForegroundWindow();
+
+    /// <inheritdoc />
+    public IntPtr GetShellWindow() => NativeMethods.GetShellWindow();
 }

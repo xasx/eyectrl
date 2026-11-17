@@ -432,6 +432,8 @@ public class Win32WindowManagerActionTests
         private readonly List<IntPtr> _foregrounded = new();
         private readonly List<int> _showWindowCommands = new();
         private readonly List<int> _showWindowAsyncCommands = new();
+        private IntPtr _foreground;
+        private IntPtr _shell;
 
         internal HashSet<IntPtr> GoneWindows { get; } = new();
         internal HashSet<IntPtr> Minimised { get; } = new();
@@ -530,7 +532,38 @@ public class Win32WindowManagerActionTests
         {
             Record("SetForegroundWindow", hwnd, 0);
             lock (_gate) _foregrounded.Add(hwnd);
-            return !RefusedForegrounds.Contains(hwnd);
+            if (!RefusedForegrounds.Contains(hwnd))
+            {
+                lock (_gate) _foreground = hwnd;
+                return true;
+            }
+
+            return false;
+        }
+
+        public IntPtr GetForegroundWindow()
+        {
+            Record("GetForegroundWindow", IntPtr.Zero, 0);
+            lock (_gate) return _foreground;
+        }
+
+        public IntPtr GetShellWindow()
+        {
+            Record("GetShellWindow", IntPtr.Zero, 0);
+            lock (_gate) return _shell;
+        }
+
+        /// <summary>Models the shell window; zero (none) unless a test sets it.</summary>
+        internal IntPtr ShellWindow
+        {
+            get { lock (_gate) return _shell; }
+            set { lock (_gate) _shell = value; }
+        }
+
+        /// <summary>Moves the foreground without the action's own calls (the shell's doing).</summary>
+        internal void SetForegroundExternally(IntPtr hwnd)
+        {
+            lock (_gate) _foreground = hwnd;
         }
 
         private void Record(string name, IntPtr hwnd, int arg)

@@ -41,7 +41,7 @@ public class SettingsDwellRangeEqualityTests
 
     public static TheoryData<string> Cases() => new()
     {
-        "d_fix", "d_act", "d_act_show", "d_menu", "d_ManualSelection", "d_tool", "d_key", "d_pred", "d_rad",
+        "d_fix", "d_act", "d_act_show", "d_menu", "d_ManualSelection", "d_tool", "d_ts_tile", "d_key", "d_pred", "d_rad",
         "d_cooldown", "d_resume", "d_manual_side", "av_drag_release", "av_drag_right_edge",
         "av_scroll_stop", "av_backdrop_hide", "av_repeat_stop", "ec_banner_dwell",
         "g_restart_notice",
@@ -61,6 +61,8 @@ public class SettingsDwellRangeEqualityTests
             (s, v) => s.Dwell.ManualSelectionActionMenuDwellMs = (int)v),
         "d_tool" => new("Dwell", id, 200, 2000,
             s => s.Dwell.ToolbarButtonDwellMs, (s, v) => s.Dwell.ToolbarButtonDwellMs = (int)v),
+        "d_ts_tile" => new("Dwell", id, 500, 2500,
+            s => s.Dwell.TaskSwitcherTileDwellMs, (s, v) => s.Dwell.TaskSwitcherTileDwellMs = (int)v),
         "d_key" => new("Dwell", id, 300, 1500,
             s => s.Dwell.KeyboardKeyDwellMs, (s, v) => s.Dwell.KeyboardKeyDwellMs = (int)v),
         "d_pred" => new("Dwell", id, 300, 1500,

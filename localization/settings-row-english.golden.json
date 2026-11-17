@@ -127,6 +127,12 @@
           "Modal": null
         },
         {
+          "Id": "d_ts_tile",
+          "Label": "Task Switcher Tiles (ms)",
+          "Description": "How long to rest on a tile in the task switcher. It is never shorter than the toolbar dwell.",
+          "Modal": null
+        },
+        {
           "Id": "d_key",
           "Label": "Keyboard Key (ms)",
           "Description": "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms.",

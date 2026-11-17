@@ -47,6 +47,15 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.dwell.toolbar.label"), 200, 2000, 50, 0,
                     () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.dwell.toolbar.description"), Simple = true },
+                // S4-A: the Task Switcher's tiles (window tiles + "Show desktop") look-time, right
+                // after the toolbar row it is bounded by — the effective dwell the switcher uses
+                // is max with ToolbarButtonDwellMs (TaskSwitcherViewModel.EffectiveTileDwellMs),
+                // so a slower toolbar slows the tiles; the ✕ disc stays on the toolbar value.
+                // Live like its neighbours.
+                new SliderSpec("d_ts_tile",
+                    StringTable.Current.T("settings.dwell.task_switcher_tile.label"), 500, 2500, 100, 0,
+                    () => d.TaskSwitcherTileDwellMs, v => { d.TaskSwitcherTileDwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.dwell.task_switcher_tile.description") },
                 // 300 is the keyboard family's blink-credit floor, shared with the Core guard and the
                 // adaptive clamp (Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs; the bound
                 // and its derivation live beside KeyboardSpecialActions.AppEscapingPolicyFloorMs).
@@ -106,6 +115,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         d.ManualSelectionActionMenuDwellMs = def.ManualSelectionActionMenuDwellMs;
                         d.ManualSelectionSideButtonDwellMs = def.ManualSelectionSideButtonDwellMs;
                         d.ToolbarButtonDwellMs = def.ToolbarButtonDwellMs;
+                        d.TaskSwitcherTileDwellMs = def.TaskSwitcherTileDwellMs;
                         d.KeyboardKeyDwellMs = def.KeyboardKeyDwellMs;
                         d.KeyboardPredictionDwellMs = def.KeyboardPredictionDwellMs;
                         d.FixationRadiusPixels = def.FixationRadiusPixels;

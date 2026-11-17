@@ -1962,6 +1962,14 @@
     "text": "Ton bei Verbindungsverlust",
     "src": "b04cca54"
   },
+  "settings.dwell.task_switcher_tile.description": {
+    "text": "Wie lange der Blick bei „Fenster wechseln“ auf einer Kachel ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste.",
+    "src": "5d7c490d"
+  },
+  "settings.dwell.task_switcher_tile.label": {
+    "text": "Kacheln bei „Fenster wechseln“ (ms)",
+    "src": "be1937f9"
+  },
   "settings.dwell.toolbar.description": {
     "text": "Wie lange der Blick auf den Schaltflächen von EyeCtrl selbst ruhen muss.",
     "src": "f19eae37"

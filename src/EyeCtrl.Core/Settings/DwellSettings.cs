@@ -96,11 +96,28 @@ public partial class DwellSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private int _offerShowAfterMs = 1000;
 
+    /// <summary>
+    /// Dwell time in milliseconds for the Task Switcher's tiles — the window tiles and the
+    /// "Show desktop" tile alike (S4-A). The dwell actually used is
+    /// <c>max(TaskSwitcherTileDwellMs, ToolbarButtonDwellMs)</c>, so a tile is never quicker
+    /// than the toolbar; the switcher's ✕ close disc keeps <see cref="ToolbarButtonDwellMs"/>
+    /// so the escape stays quick. Valid range: 500–2500. A new property, so an existing file
+    /// picks up the default from the initializer.
+    /// </summary>
+    [ObservableProperty] private int _taskSwitcherTileDwellMs = 800;
+
     partial void OnOfferShowAfterMsChanging(int value)
     {
         if (value < 500 || value > 2500)
             throw new ArgumentOutOfRangeException(
                 nameof(value), value, $"{nameof(OfferShowAfterMs)} must be between 500 and 2500");
+    }
+
+    partial void OnTaskSwitcherTileDwellMsChanging(int value)
+    {
+        if (value < 500 || value > 2500)
+            throw new ArgumentOutOfRangeException(
+                nameof(value), value, $"{nameof(TaskSwitcherTileDwellMs)} must be between 500 and 2500");
     }
 
     partial void OnResumeDwellMsChanging(int value)
@@ -327,6 +344,7 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(DwellPauseGraceMs, 0, 1000, nameof(DwellPauseGraceMs)),
             ValidationHelper.ValidateRange(ResumeDwellMs, 500, 3000, nameof(ResumeDwellMs)),
             ValidationHelper.ValidateRange(OfferShowAfterMs, 500, 2500, nameof(OfferShowAfterMs)),
+            ValidationHelper.ValidateRange(TaskSwitcherTileDwellMs, 500, 2500, nameof(TaskSwitcherTileDwellMs)),
             RestartNoticeDwellMs == 0 || RestartNoticeDwellMs is >= 200 and <= 3000
                 ? null
                 : $"{nameof(RestartNoticeDwellMs)} must be 0 or between 200 and 3000, but was {RestartNoticeDwellMs}",

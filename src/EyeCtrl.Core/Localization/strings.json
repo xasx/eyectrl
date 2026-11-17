@@ -3570,6 +3570,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.task_switcher_tile.description": {
+    "text": "How long to rest on a tile in the task switcher. It is never shorter than the toolbar dwell.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.task_switcher_tile.label": {
+    "text": "Task Switcher Tiles (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.dwell.toolbar.description": {
     "text": "How long to rest on EyeCtrl's own buttons.",
     "who": "user",

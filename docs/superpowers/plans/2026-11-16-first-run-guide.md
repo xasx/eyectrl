@@ -1962,7 +1962,7 @@ and the two suppression points (the state write is gated TOO — `SetSuspended`'
 
 **Interfaces:** `SetGuideHold(bool)` — **hidden hold FIRST, then `SetAutoHideSuspended("guide", …)`** (r1 F11); `ResetToolbarForGuideTask()`; `ShouldFeedKeyboardSample`/`ShouldFeedSettingsSample` + `guideOpen` (all call sites + source pins); `ToolbarViewModel.GuideOpenGate` (assigned in Task 12, checked AFTER the :537-541 progress/highlight reset lines). The gated press does not stop the dwell cue (the base publishes after `OnTargetActivated` returns) — accepted, documented (r3 F19). `ToolbarVisibilityChanged` REUSED (:52/:366).
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```csharp
     [Fact]
@@ -1986,7 +1986,7 @@ and the two suppression points (the state write is gated TOO — `SetSuspended`'
     }
 ```
 
-- [ ] **Step 2: Implement** — the two static feeds gain the parameter and term (EVERY call site — 11 in the coordinator + the `ProbeGateWiring_IsPinnedAtTheSource` source pins at :361-376 — updated in this task; the gaze-thread call sites pass `_modal.GuideOpen`):
+- [x] **Step 2: Implement** — the two static feeds gain the parameter and term (EVERY call site — 11 in the coordinator + the `ProbeGateWiring_IsPinnedAtTheSource` source pins at :361-376 — updated in this task; the gaze-thread call sites pass `_modal.GuideOpen`):
 
 ```csharp
     internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible,
@@ -2038,7 +2038,7 @@ plus two methods:
         // ... the existing switch ...
 ```
 
-- [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ordered toolbar hold + GuideOpen feed terms + OnTargetActivated gate`.
+- [x] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ordered toolbar hold + GuideOpen feed terms + OnTargetActivated gate`.
 
 ---
 

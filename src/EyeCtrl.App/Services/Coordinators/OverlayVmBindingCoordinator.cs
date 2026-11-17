@@ -50,6 +50,15 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         _toolbar = toolbar;
     }
 
+    /// <summary>
+    /// Whether a hidden cursor ring may be re-shown right now: false while the first-run guide owns
+    /// the screen, so no reactive path paints the ring over the guide's window. Consulted by this
+    /// coordinator's own cursor-visibility binding and by the calibration completion sites in
+    /// <see cref="OverlayMessageCoordinator"/> (via this instance — the message side holds no modal
+    /// state of its own). The show/hide lifecycle around the guide itself lives in the guide wiring.
+    /// </summary>
+    internal bool RingMayReshow => !_modal.GuideOpen;
+
     protected override void OnInitialize()
     {
         SetupPropertyChangedHandlers();
@@ -162,8 +171,8 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(CursorCircleViewModel.IsVisible):
                 // The probe owns the screen while it is up (build plan C9): a ring visibility flip
                 // (the probe hides it at start; anything else must not re-show it over the window)
-                // stays a hide.
-                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen) cursorCircle.Show();
+                // stays a hide. The first-run guide gets the same deference via RingMayReshow.
+                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen && !_modal.GuideOpen) cursorCircle.Show();
                 else cursorCircle.Hide();
                 break;
             case nameof(CursorCircleViewModel.IsPinned):

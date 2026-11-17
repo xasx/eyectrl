@@ -672,6 +672,24 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(ring.ShowCalls).IsEqualTo(1);
     }
 
+    // ── the first-run guide owns the screen: the ring must not re-show over it ──
+    //
+    // Same gate family as the probe above, but driven by the guide's modal flag. The flag is the
+    // re-show seam the calibration sites in OverlayMessageCoordinator consult through _vmBinding;
+    // the full ring lifecycle lives in the guide's own wiring (Task 12).
+
+    [Fact]
+    public void RingMayReshow_IsFalse_WhileGuideOpen()
+    {
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.GuideOpen = true;
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
+
     /// <summary>
     /// Fixup-01 item 3: the switcher's show/hide must suspend the toolbar auto-hide (the Settings
     /// pattern, named holder), so the band cannot hide during a long session and the close always

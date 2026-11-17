@@ -6,7 +6,7 @@
         xmlns:ctl="clr-namespace:EyeCtrl.Controls;assembly=EyeCtrl.Controls"
         AutomationProperties.AutomationId="TaskSwitcher_Window"
         Title="{loc:T 'overlays.toolbar.taskSwitcher'}"
-        WindowStyle="None" AllowsTransparency="True" Background="{StaticResource BrushSurfaceDark}"
+        WindowStyle="None" AllowsTransparency="False" Background="{StaticResource BrushSurfaceDarkOpaque}"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         IsClickThrough="False">
     <overlays:OverlayWindow.Resources>

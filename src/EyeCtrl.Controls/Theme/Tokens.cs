@@ -90,6 +90,8 @@ public static class Tokens
     // ── Brushes ─────────────────────────────────────────────────────────────
     /// <inheritdoc cref="ITheme.BrushSurfaceDark"/>
     public static SolidColorBrush BrushSurfaceDark => Current.BrushSurfaceDark;
+    /// <inheritdoc cref="ITheme.BrushSurfaceDarkOpaque"/>
+    public static SolidColorBrush BrushSurfaceDarkOpaque => Current.BrushSurfaceDarkOpaque;
     /// <inheritdoc cref="ITheme.BrushSurfaceMedium"/>
     public static SolidColorBrush BrushSurfaceMedium => Current.BrushSurfaceMedium;
     /// <inheritdoc cref="ITheme.BrushSurfaceLight"/>

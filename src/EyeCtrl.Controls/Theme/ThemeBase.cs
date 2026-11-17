@@ -137,6 +137,7 @@ public abstract class ThemeBase : ITheme
     public abstract double FontSizeDisplay { get; }
 
     private SolidColorBrush? _surfaceDark;
+    private SolidColorBrush? _surfaceDarkOpaque;
     private SolidColorBrush? _surfaceMedium;
     private SolidColorBrush? _surfaceLight;
     private SolidColorBrush? _surfaceKey;
@@ -163,6 +164,28 @@ public abstract class ThemeBase : ITheme
 
     /// <inheritdoc />
     public SolidColorBrush BrushSurfaceDark => CachedBrush(ref _surfaceDark, SurfaceDark);
+
+    /// <summary>
+    /// The opaque form of <see cref="BrushSurfaceDark"/>. A non-layered window cannot rely on the
+    /// theme's 0xFA alpha: there is no layered composition against the desktop, so the partial
+    /// alpha is blended with black and the surface renders darker than the palette says. The task
+    /// switcher is the one such surface (AllowsTransparency=False is what lets DWM thumbnails
+    /// render into it), so it paints this brush and keeps the theme's RGB exactly.
+    /// </summary>
+    public SolidColorBrush BrushSurfaceDarkOpaque =>
+        CachedBrush(ref _surfaceDarkOpaque, ToOpaque(SurfaceDark));
+
+    /// <summary>
+    /// The alpha byte a non-layered surface must carry. A named value rather than a literal in
+    /// the <see cref="Color.FromArgb(byte, byte, byte, byte)"/> call, because that call shape is
+    /// a raw-colour literal to <c>RawColourLiteralTests</c> — this is a structural alpha, and the
+    /// RGB still comes from the palette's <see cref="SurfaceDark"/>.
+    /// </summary>
+    private const byte OpaqueAlpha = byte.MaxValue;
+
+    private static Color ToOpaque(Color colour) =>
+        Color.FromArgb(OpaqueAlpha, colour.R, colour.G, colour.B);
+
     /// <inheritdoc />
     public SolidColorBrush BrushSurfaceMedium => CachedBrush(ref _surfaceMedium, SurfaceMedium);
     /// <inheritdoc />

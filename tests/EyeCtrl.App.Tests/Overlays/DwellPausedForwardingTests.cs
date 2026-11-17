@@ -217,23 +217,30 @@ public class DwellPausedForwardingTests
     public void TaskSwitcherTile_BindsThePausedFlag_ToItsBarsOpacity()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
-        var tile = new TaskSwitcherTileViewModel(new IntPtr(4242), "target", 1234, "target", new PhysicalPoint(0, 0));
-        window.TilesPanel.ItemsSource = new[] { tile };
-
-        // The close disc (QuickActions-pattern close target) carries a second ProgressBar in
-        // the window's bottom row, so "the" bar must be disambiguated to the TILE's: its
-        // DataContext is the tile VM, the close bar's is the window DataContext.
-        var bar = RealisedBar(window, r => FitText.Descendants<ProgressBar>(r)
-            .Single(p => ReferenceEquals(p.DataContext, tile)), out var host);
-        using (host)
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
+        try
         {
-            Check.That(bar.Opacity).IsEqualTo(1.0);
-            tile.IsDwellPaused = true;
-            Check.WithCustomMessage("the tile bar's Opacity binding did not follow IsDwellPaused")
-                .That(bar.Opacity).IsEqualTo(Held);
-            tile.IsDwellPaused = false;
-            Check.That(bar.Opacity).IsEqualTo(1.0);
+            var tile = new TaskSwitcherTileViewModel(new IntPtr(4242), "target", 1234, "target", new PhysicalPoint(0, 0));
+            window.TilesPanel.ItemsSource = new[] { tile };
+
+            // The close disc (QuickActions-pattern close target) carries a second ProgressBar in
+            // the window's bottom row, so "the" bar must be disambiguated to the TILE's: its
+            // DataContext is the tile VM, the close bar's is the window DataContext.
+            var bar = RealisedBar(window, r => FitText.Descendants<ProgressBar>(r)
+                .Single(p => ReferenceEquals(p.DataContext, tile)), out var host);
+            using (host)
+            {
+                Check.That(bar.Opacity).IsEqualTo(1.0);
+                tile.IsDwellPaused = true;
+                Check.WithCustomMessage("the tile bar's Opacity binding did not follow IsDwellPaused")
+                    .That(bar.Opacity).IsEqualTo(Held);
+                tile.IsDwellPaused = false;
+                Check.That(bar.Opacity).IsEqualTo(1.0);
+            }
+        }
+        finally
+        {
+            window.Close();   // PrepareCloaked created the HWND; release it (the content is detached)
         }
     }
 
@@ -342,22 +349,29 @@ public class DwellPausedForwardingTests
     public void TaskSwitcherClose_BindsCloseDwellProgressAndPaused_ToItsBar()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
-        using var vm = new TaskSwitcherViewModel(
-            new EmptyWindowManager(), new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        var closeButton = window.CloseButton;
-
-        var bar = RealisedBar(window, _ => FitText.Descendants<ProgressBar>(closeButton).Single(), out var host);
-        using (host)
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
+        try
         {
-            vm.CloseDwellProgress = 0.5;
-            Check.WithCustomMessage("the close bar's fill must track CloseDwellProgress — without it the escape affordance gives no dwell feedback and reads as dead (the 2026-08-17 'not dwellable' perception, on the one control that must never feel dead)")
-                .That(bar.Value).IsEqualTo(0.5);
-            vm.CloseDwellPaused = true;
-            Check.That(bar.Opacity).IsEqualTo(Held);
-            vm.CloseDwellPaused = false;
-            Check.That(bar.Opacity).IsEqualTo(1.0);
+            using var vm = new TaskSwitcherViewModel(
+                new EmptyWindowManager(), new EyeCtrlSettings(), new WeakReferenceMessenger());
+            window.DataContext = vm;
+            var closeButton = window.CloseButton;
+
+            var bar = RealisedBar(window, _ => FitText.Descendants<ProgressBar>(closeButton).Single(), out var host);
+            using (host)
+            {
+                vm.CloseDwellProgress = 0.5;
+                Check.WithCustomMessage("the close bar's fill must track CloseDwellProgress — without it the escape affordance gives no dwell feedback and reads as dead (the 2026-08-17 'not dwellable' perception, on the one control that must never feel dead)")
+                    .That(bar.Value).IsEqualTo(0.5);
+                vm.CloseDwellPaused = true;
+                Check.That(bar.Opacity).IsEqualTo(Held);
+                vm.CloseDwellPaused = false;
+                Check.That(bar.Opacity).IsEqualTo(1.0);
+            }
+        }
+        finally
+        {
+            window.Close();   // PrepareCloaked created the HWND; release it (the content is detached)
         }
     }
 

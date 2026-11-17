@@ -113,11 +113,13 @@ public class RuntimeWindowGuardTests
 
     // ---- the predicate -------------------------------------------------------------------------------------------
 
-    private static WindowFacts Facts(bool visible = true, bool cloaked = false, bool onMonitor = true, byte? alpha = null, bool prepared = false) =>
-        new(IntPtr.Zero, visible, cloaked, onMonitor, alpha, prepared, "synthetic");
+    private static WindowFacts Facts(
+        bool visible = true, bool cloaked = false, bool onMonitor = true, byte? alpha = null,
+        bool prepared = false, bool cloakedPrepared = false) =>
+        new(IntPtr.Zero, visible, cloaked, onMonitor, alpha, prepared, cloakedPrepared, "synthetic");
 
     [Fact]
-    public void AWindowIsReallyVisible_OnlyWhenVisible_NotCloaked_OnAMonitor_NotTransparent_AndNotPrepared()
+    public void AWindowIsReallyVisible_OnlyWhenVisible_NotCloaked_OnAMonitor_NotTransparent_AndNotTrusted()
     {
         Check.That(RuntimeWindowMonitor.IsReallyVisible(Facts())).IsTrue();
         Check.That(RuntimeWindowMonitor.IsReallyVisible(Facts(alpha: 255))).IsTrue();
@@ -127,7 +129,13 @@ public class RuntimeWindowGuardTests
         Check.WithCustomMessage("cloaked").That(RuntimeWindowMonitor.IsReallyVisible(Facts(cloaked: true))).IsFalse();
         Check.WithCustomMessage("off every monitor").That(RuntimeWindowMonitor.IsReallyVisible(Facts(onMonitor: false))).IsFalse();
         Check.WithCustomMessage("alpha 0").That(RuntimeWindowMonitor.IsReallyVisible(Facts(alpha: 0))).IsFalse();
-        Check.WithCustomMessage("prepared by the helper").That(RuntimeWindowMonitor.IsReallyVisible(Facts(prepared: true))).IsFalse();
+        Check.WithCustomMessage("trusted by the Opacity helper").That(RuntimeWindowMonitor.IsReallyVisible(Facts(prepared: true))).IsFalse();
+
+        // A PrepareCloaked window is NOT trusted by tag: only its cloak keeps it out, so an
+        // uncloaked one IS an offence (the review's finding 2).
+        Check.WithCustomMessage("a cloaked-prepared window is exempt only while cloaked")
+            .That(RuntimeWindowMonitor.IsReallyVisible(Facts(cloakedPrepared: true))).IsTrue();
+        Check.That(RuntimeWindowMonitor.IsReallyVisible(Facts(cloaked: true, cloakedPrepared: true))).IsFalse();
     }
 
     // ---- the OS path: what the hook sees (all off-screen, nothing is painted) ----------------------------------

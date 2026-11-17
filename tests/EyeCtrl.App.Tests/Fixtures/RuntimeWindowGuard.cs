@@ -24,11 +24,14 @@ using Xunit.v3;
 /// <param name="Alpha">The constant layered alpha when the window has one (an Opacity written through
 /// <c>SetLayeredWindowAttributes</c>), else null. A WPF window with <c>AllowsTransparency=True</c> composes its
 /// Opacity per pixel and reports null.</param>
-/// <param name="Prepared">The window was prepared by <see cref="InvisibleTestWindow"/> (a tag on the HWND).</param>
+/// <param name="Prepared">The window carries the Opacity recipe's TRUSTED tag.</param>
+/// <param name="CloakedPrepared">The window carries <see cref="InvisibleTestWindow.PrepareCloaked"/>'s tag.
+/// It is NOT trusted: it is judged by <paramref name="Cloaked"/>, so lifting the cloak is an offence.</param>
 /// <param name="Description">Empty when read from the OS: the class name, title and rectangle are built only for a window that OFFENDS
 /// (<c>RuntimeWindowMonitor.Describe</c>), for the failure message.</param>
 internal readonly record struct WindowFacts(
-    IntPtr Handle, bool Visible, bool Cloaked, bool OnMonitor, byte? Alpha, bool Prepared, string Description);
+    IntPtr Handle, bool Visible, bool Cloaked, bool OnMonitor, byte? Alpha, bool Prepared, bool CloakedPrepared,
+    string Description);
 
 /// <summary>One window that became really visible during the run.</summary>
 internal sealed record VisibleWindowOffence(IntPtr Handle, string Description, string How, DateTime WhenUtc);
@@ -54,9 +57,12 @@ internal sealed record VisibleWindowOffence(IntPtr Handle, string Description, s
 /// </para>
 ///
 /// <para>
-/// <b>Residual, stated.</b> A window tagged by <see cref="InvisibleTestWindow"/> is trusted: a product change that
-/// raised its Opacity after the show would not be seen here (the static pins in <c>InvisibleTestWindowTests</c>
-/// carry that). A window shown while its rectangle is off every monitor and moved on screen later is only seen if
+/// <b>Residual, stated.</b> A window tagged by the Opacity recipe (<see cref="InvisibleTestWindow.Prepare{T}"/>)
+/// is trusted: a product change that raised its Opacity after the show would not be seen here (the static pins
+/// in <c>InvisibleTestWindowTests</c> carry that). A <see cref="InvisibleTestWindow.PrepareCloaked{T}"/> window
+/// carries a DISTINCT tag and is judged by the live <c>DWMWA_CLOAKED</c> state, so a product change that lifts
+/// its cloak IS reported (the cloak gate's write-point seam and its source-scan pin are the other half).
+/// A window shown while its rectangle is off every monitor and moved on screen later is only seen if
 /// it is still open when the test ends. Tests that run in parallel can blame the wrong test (the message says so).
 /// A machine without an interactive desktop cannot install the hook; <see cref="IsActive"/> says so and
 /// <c>RuntimeWindowGuardTests</c> skips loudly instead of passing silently.
@@ -69,6 +75,13 @@ internal sealed class RuntimeWindowMonitor
 
     private static readonly IntPtr TrustedTag = (IntPtr)1;
     private static readonly IntPtr OffScreenTag = (IntPtr)2;
+
+    /// <summary>
+    /// <see cref="InvisibleTestWindow.PrepareCloaked"/>'s tag. It is NOT trusted: the window is
+    /// judged by the live <c>DWMWA_CLOAKED</c> state, so a product change that lifts the cloak is
+    /// reported as an offence. Only the Opacity recipe's <see cref="TrustedTag"/> is exempt by tag.
+    /// </summary>
+    private static readonly IntPtr CloakedTag = (IntPtr)3;
 
     private const uint EventObjectShow = 0x8002;
     private const uint WinEventOutOfContext = 0;
@@ -279,7 +292,7 @@ internal sealed class RuntimeWindowMonitor
         lock (_gate) return _offences.ToList();
     }
 
-    /// <summary>"Really visible": visible, not cloaked, on a monitor, not fully transparent, not prepared by the helper.</summary>
+    /// <summary>"Really visible": visible, not cloaked, on a monitor, not fully transparent, not trusted by the Opacity helper.</summary>
     internal static bool IsReallyVisible(WindowFacts f) =>
         f.Visible && !f.Cloaked && f.OnMonitor && f.Alpha != 0 && !f.Prepared;
 
@@ -291,9 +304,13 @@ internal sealed class RuntimeWindowMonitor
         var sized = haveRect && rect.Right > rect.Left && rect.Bottom > rect.Top;
         var onMonitor = sized && (!requireOnMonitor || MonitorFromRect(ref rect, MonitorDefaultToNull) != IntPtr.Zero);
         byte? alpha = GetLayeredWindowAttributes(hwnd, out _, out var a, out var flags) && (flags & LwaAlpha) != 0 ? a : null;
-        // Only the TRUSTED tag excuses a window. A PrepareOffScreen window carries a different value: it is judged by its rectangle (off every monitor).
-        var prepared = GetProp(hwnd, PreparedProperty) == TrustedTag;
-        return new WindowFacts(hwnd, visible, cloaked, onMonitor, alpha, prepared, "");
+        // Only the TRUSTED (Opacity) tag excuses a window by tag. A PrepareCloaked window is tagged
+        // separately and judged by the cloak state above; a PrepareOffScreen window is judged by its
+        // rectangle (off every monitor).
+        var tag = GetProp(hwnd, PreparedProperty);
+        var prepared = tag == TrustedTag;
+        var cloakedPrepared = tag == CloakedTag;
+        return new WindowFacts(hwnd, visible, cloaked, onMonitor, alpha, prepared, cloakedPrepared, "");
     }
 
     /// <summary>How many windows have been described (only offenders are; a prepared, cloaked or off-screen window never costs a string).</summary>
@@ -321,13 +338,19 @@ internal sealed class RuntimeWindowMonitor
                (haveRect ? $" rect=({rect.Left},{rect.Top},{rect.Right},{rect.Bottom})" : "");
     }
 
-    /// <summary>Tags a window as deliberately invisible; the tag goes on as soon as the window has a handle and is removed when it closes.</summary>
-    internal static void MarkPrepared(Window window, bool offScreen = false)
+    /// <summary>
+    /// Tags a window as deliberately invisible; the tag goes on as soon as the window has a handle
+    /// and is removed when it closes. <paramref name="offScreen"/> marks a window judged by its
+    /// rectangle; <paramref name="cloaked"/> marks a window judged by <c>DWMWA_CLOAKED</c> (never
+    /// trusted by tag); the default is the Opacity recipe's trusted tag.
+    /// </summary>
+    internal static void MarkPrepared(Window window, bool offScreen = false, bool cloaked = false)
     {
         void Tag()
         {
             var handle = new WindowInteropHelper(window).Handle;
-            if (handle != IntPtr.Zero) SetProp(handle, PreparedProperty, offScreen ? OffScreenTag : TrustedTag);
+            if (handle != IntPtr.Zero)
+                SetProp(handle, PreparedProperty, offScreen ? OffScreenTag : cloaked ? CloakedTag : TrustedTag);
         }
         Tag();
         window.SourceInitialized += (_, _) => Tag();

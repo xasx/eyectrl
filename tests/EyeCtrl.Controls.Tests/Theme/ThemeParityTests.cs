@@ -113,10 +113,11 @@ public class ThemeParityTests
     {
         // Reflected rather than listed. The hand-written predecessor covered one token;
         // adding twelve more by hand is exactly the omission this suite exists to prevent.
-        // Two ITheme members have no validator entry to hold: FontStandard (derived from
-        // FontFamilyStandard) and BrushAccentDim10 (derived from Accent — the one brush with
-        // no Color counterpart). The other 22 brushes are swept up by the same SolidColorBrush
-        // clause; each mirrors a colour EveryColour_MatchesTheValidator already gates.
+        // Three ITheme members have no validator entry to hold: FontStandard (derived from
+        // FontFamilyStandard), and BrushAccentDim10 / BrushSurfaceDarkOpaque (derived brushes with
+        // no Color counterpart — overlay-style values XAML cannot express). Every other brush is
+        // swept up by the same SolidColorBrush clause; each mirrors a colour
+        // EveryColour_MatchesTheValidator already gates.
         // FontStandard is excluded by NAME, not by type, so a future FontFamily-typed
         // *primitive* would still be gated. The four derived CornerRadius structs live on
         // Tokens rather than ITheme (spec §6.6).

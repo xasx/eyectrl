@@ -39,6 +39,7 @@ public class SplashWindowExitSequenceTests
     {
         var keeper = InvisibleTestWindow.Prepare(new Window
         {
+            AllowsTransparency = true,   // Prepare's Opacity = 0 recipe is a layered-window recipe
             Width = 10,
             Height = 10,
             Left = -32000,

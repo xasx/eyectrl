@@ -26,35 +26,42 @@ public class TaskSwitcherWindowLayoutTests
     public void ApplyLayout_MovesTheTileViewportAndRaisesTheHintRowAboveABottomBand()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
-        var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
-        var hintRow = (Grid)window.FindName("HintRow")!;
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
+        try
+        {
+            var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
+            var hintRow = (Grid)window.FindName("HintRow")!;
 
-        // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1800x840.
-        var top = TaskSwitcherLayout.Compute(
-            1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
-        window.ApplyLayout(top, screenWidthDip: 1920);
+            // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1800x840.
+            var top = TaskSwitcherLayout.Compute(
+                1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
+            window.ApplyLayout(top, screenWidthDip: 1920);
 
-        Check.That(tiles.Margin).IsEqualTo(new Thickness(40, 136, 40, 0));
-        Check.That(tiles.Width).IsEqualTo(1800);
-        Check.That(tiles.Height).IsEqualTo(840);
-        Check.That(hintRow.Height).IsEqualTo(TaskSwitcherLayout.HintRowHeight);
-        Check.That(hintRow.Margin.Bottom).IsEqualTo(0);
+            Check.That(tiles.Margin).IsEqualTo(new Thickness(40, 136, 40, 0));
+            Check.That(tiles.Width).IsEqualTo(1800);
+            Check.That(tiles.Height).IsEqualTo(840);
+            Check.That(hintRow.Height).IsEqualTo(TaskSwitcherLayout.HintRowHeight);
+            Check.That(hintRow.Margin.Bottom).IsEqualTo(0);
 
-        // The reserved hint-row height is the close disc plus its 12 DIP top/bottom margins. Pin
-        // the coupling: growing the disc without growing the reserved row would clip the bottom
-        // full tile row the geometry promised.
-        Check.WithCustomMessage("HintRowHeight must stay the close disc plus its 24 DIP of margins")
-            .That(TaskSwitcherLayout.HintRowHeight).IsEqualTo(TaskSwitcherWindow.CloseButtonSize + 24);
+            // The reserved hint-row height is the close disc plus its 12 DIP top/bottom margins. Pin
+            // the coupling: growing the disc without growing the reserved row would clip the bottom
+            // full tile row the geometry promised.
+            Check.WithCustomMessage("HintRowHeight must stay the close disc plus its 24 DIP of margins")
+                .That(TaskSwitcherLayout.HintRowHeight).IsEqualTo(TaskSwitcherWindow.CloseButtonSize + 24);
 
-        // Docked bottom at 112 DIP: the hint row must sit fully above the band (112 + 24 = 136).
-        var bottom = TaskSwitcherLayout.Compute(
-            1920, 1200, new TaskSwitcherLayout.DipRect(0, 1088, 1920, 112), "Bottom", tileCount: 63);
-        window.ApplyLayout(bottom, screenWidthDip: 1920);
+            // Docked bottom at 112 DIP: the hint row must sit fully above the band (112 + 24 = 136).
+            var bottom = TaskSwitcherLayout.Compute(
+                1920, 1200, new TaskSwitcherLayout.DipRect(0, 1088, 1920, 112), "Bottom", tileCount: 63);
+            window.ApplyLayout(bottom, screenWidthDip: 1920);
 
-        Check.That(hintRow.Margin.Bottom).IsEqualTo(136);
-        Check.That(tiles.Margin.Top).IsEqualTo(40);
-        Check.That(tiles.Height).IsEqualTo(7 * TaskSwitcherLayout.CellHeight);
+            Check.That(hintRow.Margin.Bottom).IsEqualTo(136);
+            Check.That(tiles.Margin.Top).IsEqualTo(40);
+            Check.That(tiles.Height).IsEqualTo(7 * TaskSwitcherLayout.CellHeight);
+        }
+        finally
+        {
+            window.Close();   // PrepareCloaked created the HWND; release it
+        }
     }
 
     /// <summary>
@@ -206,7 +213,7 @@ public class TaskSwitcherWindowLayoutTests
                 new IntPtr(i + 1), $"Window {i + 1}", 0, "test", new PhysicalPoint(0, 0)));
         }
 
-        var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
         window.DataContext = viewModel;
         window.ApplyLayout(layout, screenWidthDip: 1920);
 
@@ -215,6 +222,7 @@ public class TaskSwitcherWindowLayoutTests
         var panel = (ItemsControl)window.FindName("TilesPanel")!;
 
         window.Content = null;   // detach: the window is never shown, the content only measured
+        window.Close();          // PrepareCloaked created the HWND; release it (the content is detached)
         root.DataContext = viewModel;
         root.Measure(new Size(1920, 1200));
         root.Arrange(new Rect(0, 0, 1920, 1200));

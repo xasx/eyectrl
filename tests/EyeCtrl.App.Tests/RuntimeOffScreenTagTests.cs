@@ -130,17 +130,29 @@ public class RuntimeOffScreenTagTests
     }
 
     [StaFact]
-    public void TheHelpers_TagTheirWindows_PrepareAndPrepareCloakedTrusted_PrepareOffScreenDistinct()
+    public void TheHelpers_TagTheirWindows_PrepareTrusted_PrepareCloakedJudgedByCloak_OffScreenDistinct()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         // handles only: nothing is shown
-        var opacity = InvisibleTestWindow.Prepare(new Window());
+        var opacity = InvisibleTestWindow.Prepare(new Window
+        {
+            AllowsTransparency = true,          // Prepare's Opacity = 0 recipe is a layered-window recipe
+            WindowStyle = WindowStyle.None,     // required by WPF whenever AllowsTransparency is true
+        });
         var cloaked = InvisibleTestWindow.PrepareCloaked(new Window());
         var backdrop = InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow());
         try
         {
-            Check.WithCustomMessage("Prepare").That(RuntimeWindowMonitor.Read(new WindowInteropHelper(opacity).EnsureHandle(), false).Prepared).IsTrue();
-            Check.WithCustomMessage("PrepareCloaked").That(RuntimeWindowMonitor.Read(new WindowInteropHelper(cloaked).EnsureHandle(), false).Prepared).IsTrue();
+            Check.WithCustomMessage("Prepare")
+                .That(RuntimeWindowMonitor.Read(new WindowInteropHelper(opacity).EnsureHandle(), false).Prepared).IsTrue();
+
+            // PrepareCloaked is NOT trusted by tag: its tag exists so the check judges its cloak.
+            var cloakedFacts = RuntimeWindowMonitor.Read(new WindowInteropHelper(cloaked).EnsureHandle(), false);
+            Check.WithCustomMessage("PrepareCloaked must not carry the trusted tag").That(cloakedFacts.Prepared).IsFalse();
+            Check.WithCustomMessage("PrepareCloaked carries the cloak-judged tag").That(cloakedFacts.CloakedPrepared).IsTrue();
+            Assert.SkipUnless(cloakedFacts.Cloaked, "DWM did not cloak the probe window here; the cloak state cannot be judged.");
+            Check.WithCustomMessage("PrepareCloaked windows are cloaked before they are shown").That(cloakedFacts.Cloaked).IsTrue();
+
             Check.WithCustomMessage("PrepareOffScreen must NOT be trusted: it is judged by its rectangle")
                 .That(RuntimeWindowMonitor.Read(new WindowInteropHelper(backdrop).EnsureHandle(), false).Prepared).IsFalse();
         }
@@ -149,6 +161,36 @@ public class RuntimeOffScreenTagTests
             opacity.Close();
             cloaked.Close();
             backdrop.Close();
+        }
+    }
+
+    /// <summary>
+    /// Review finding 2: the PrepareCloaked tag must be judged by the live cloak, not trusted. The
+    /// probe only ever gets an HWND (never shown); the offence is judged on the FACTS, the way the
+    /// strict-judge probe above does it, so nothing can appear on a monitor.
+    /// </summary>
+    [StaFact]
+    public void ACloakedPreparedWindow_IsAnOffenceTheMomentItsCloakIsLifted()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.PrepareCloaked(new Window());
+        try
+        {
+            var handle = new WindowInteropHelper(window).EnsureHandle();
+            var facts = RuntimeWindowMonitor.Read(handle, requireOnMonitor: false);
+
+            Check.That(facts.CloakedPrepared).IsTrue();
+            Check.That(facts.Prepared).IsFalse();
+            Assert.SkipUnless(facts.Cloaked, "DWM did not cloak the probe window here; the cloak cannot be judged.");
+
+            Check.WithCustomMessage("a cloaked prepared window must not be an offence")
+                .That(RuntimeWindowMonitor.IsReallyVisible(facts with { Visible = true })).IsFalse();
+            Check.WithCustomMessage("lifting the cloak must turn the tagged window into an offence")
+                .That(RuntimeWindowMonitor.IsReallyVisible(facts with { Visible = true, Cloaked = false, OnMonitor = true })).IsTrue();
+        }
+        finally
+        {
+            window.Close();
         }
     }
 }

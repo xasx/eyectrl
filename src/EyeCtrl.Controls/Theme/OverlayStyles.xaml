@@ -10,6 +10,10 @@
                     xmlns:theme="clr-namespace:EyeCtrl.Controls.Theme">
 
     <SolidColorBrush x:Key="BrushSurfaceDark"        Color="{x:Static theme:Tokens.SurfaceDark}"/>
+    <!-- SurfaceDark's RGB at full alpha: the task switcher is NOT layered (AllowsTransparency=False
+         so DWM thumbnails can render into it), and a non-layered window composites partial alpha
+         against black — this is the same surface colour, painted opaque. Derived in ThemeBase. -->
+    <x:Static x:Key="BrushSurfaceDarkOpaque" Member="theme:Tokens.BrushSurfaceDarkOpaque"/>
     <SolidColorBrush x:Key="BrushSurfaceMedium"      Color="{x:Static theme:Tokens.SurfaceMedium}"/>
     <SolidColorBrush x:Key="BrushSurfaceLight"       Color="{x:Static theme:Tokens.SurfaceLight}"/>
     <SolidColorBrush x:Key="BrushSurfaceKey"         Color="{x:Static theme:Tokens.SurfaceKey}"/>

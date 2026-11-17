@@ -66,6 +66,27 @@ public class ThemeShapeTests
         Check.That(theme.BrushAccentDim10.IsFrozen).IsTrue();
     }
 
+    /// <summary>
+    /// The non-layered window brush (S4-B's task switcher): the theme's SurfaceDark RGB with its
+    /// alpha forced to 255. A window with <c>AllowsTransparency=False</c> composites partial alpha
+    /// against black, so painting <see cref="ITheme.BrushSurfaceDark"/> there would render darker
+    /// than the palette; this brush is the same colour the layered overlays show.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllThemes))]
+    public void DerivedSurfaceDarkOpaque_IsSurfaceDarkRgbAtFullAlpha(ITheme theme)
+    {
+        var brush = theme.BrushSurfaceDarkOpaque;
+
+        Check.WithCustomMessage($"{theme.Name}.BrushSurfaceDarkOpaque must be fully opaque")
+            .That(brush.Color.A).IsEqualTo(byte.MaxValue);
+        Check.WithCustomMessage($"{theme.Name}.BrushSurfaceDarkOpaque must keep SurfaceDark's RGB")
+            .That((brush.Color.R, brush.Color.G, brush.Color.B))
+            .IsEqualTo((theme.SurfaceDark.R, theme.SurfaceDark.G, theme.SurfaceDark.B));
+        Check.WithCustomMessage($"{theme.Name}.BrushSurfaceDarkOpaque must be frozen")
+            .That(brush.IsFrozen).IsTrue();
+    }
+
     [Theory]
     [MemberData(nameof(AllThemes))]
     public void BorderThickness_IsAtLeastOnePixel(ITheme theme)

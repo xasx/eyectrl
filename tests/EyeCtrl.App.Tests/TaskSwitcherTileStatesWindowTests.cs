@@ -653,7 +653,7 @@ public class TaskSwitcherTileStatesWindowTests
                 new FakeWindowManager(windows, foreground), new EyeCtrlSettings(), messenger);
             messenger.Send(new TaskSwitcherToggledMessage());
 
-            var window = InvisibleTestWindow.Prepare(new TaskSwitcherWindow());
+            var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
             window.DataContext = viewModel;
             // ShowFullScreen's own order, without showing the window: the grid's capacity decides
             // whether the desktop tile costs the last window its slot, so trim first and lay out

@@ -51,12 +51,101 @@ public class InvisibleTestWindowTests
                  {
                      new ToolbarWindow(), new EdgeButtonBarWindow(), new EyeCareBannerWindow(),
                      new EyeCareExerciseWindow(), new ActionMenuWindow(), new KeyboardWindow(),
-                     new PauseIndicatorWindow(), new ManualSelectionGazeIndicatorWindow(), new TaskSwitcherWindow(),
+                     new PauseIndicatorWindow(), new ManualSelectionGazeIndicatorWindow(),
                  })
         {
             try { AssertPrepared(window); }
             finally { window.Close(); }
         }
+    }
+
+    /// <summary>
+    /// S4-B: the task switcher is NON-layered (DWM thumbnails do not render into a layered window),
+    /// so <c>Prepare</c>'s Opacity = 0 recipe cannot hide it. <c>PrepareCloaked</c> must cloak it
+    /// through DWM instead.
+    /// </summary>
+    [StaFact]
+    public void TheTaskSwitcher_IsNonLayered_AndPrepareCloakedCloaksIt()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new TaskSwitcherWindow();
+        try
+        {
+            Check.WithCustomMessage(
+                    "TaskSwitcherWindow must be NON-layered (AllowsTransparency=False): DWM thumbnails " +
+                    "do not render into a layered window, and Prepare (Opacity = 0) is not its recipe.")
+                .That(window.AllowsTransparency).IsFalse();
+
+            InvisibleTestWindow.PrepareCloaked(window);
+
+            Check.That(window.ShowActivated).IsFalse();
+            Check.That(window.IsVisible).IsFalse();
+            var cloaked = InvisibleTestWindow.IsCloaked(window);
+            Assert.SkipWhen(cloaked is null, "DWM did not report the cloak state (no composition): the cloak cannot be read back here.");
+            Check.WithCustomMessage("the switcher is not cloaked by DWM after PrepareCloaked").That(cloaked == true).IsTrue();
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The runtime backstop behind <c>NoVisibleTestWindowGuardTests</c>'s source scan: if a test
+    /// ever hands the non-layered switcher to <c>Prepare</c>, it fails loudly BEFORE any show can
+    /// paint a full-screen window — and the failed call must not have applied the layered recipe.
+    /// </summary>
+    [StaFact]
+    public void Prepare_RefusesTheNonLayeredTaskSwitcher_SoOpacityZeroCanNeverPaintIt()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new TaskSwitcherWindow();
+        try
+        {
+            InvalidOperationException? ex = null;
+            try { InvisibleTestWindow.Prepare(window); }
+            catch (InvalidOperationException e) { ex = e; }
+
+            Check.That(ex).IsNotNull();
+            Check.That(ex!.Message).Contains("not layered").And.Contains("PrepareCloaked");
+            Check.WithCustomMessage("the refused Prepare must not have set Opacity = 0 (the layered recipe)")
+                .That(window.Opacity).IsEqualTo(1.0);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// S4-B's invisibility proof for the switcher: the window is prepared cloaked, the PRODUCT's
+    /// show path runs for real (that is where an unpainted first frame would appear), and the
+    /// product's own uncloak must not lift the fixture's cloak. The show is allowed ONLY after DWM
+    /// reads the cloak back as true; where DWM cannot cloak (no composition) the test skips rather
+    /// than painting a full-screen non-layered window on the owner's screen.
+    /// </summary>
+    [StaFact]
+    public void ThePreparedTaskSwitcher_StaysCloaked_AcrossTheProductShowPath()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new TaskSwitcherWindow();
+        try
+        {
+            InvisibleTestWindow.PrepareCloaked(window);
+
+            // SAFETY GATE, before any show: the window may be shown only while DWM reports it
+            // cloaked. A null/false answer means DWM cannot hide it here — skip, do not show.
+            var before = InvisibleTestWindow.IsCloaked(window);
+            Assert.SkipWhen(before is null, "DWM did not report the cloak state (no composition): refusing to show the switcher.");
+            Assert.SkipWhen(before != true, "DWM did not cloak the prepared switcher: refusing to paint a full-screen non-layered window.");
+
+            window.ShowFullScreen(toolbarKeepOut: null);
+
+            Check.That(window.IsVisible).IsTrue();
+            Check.WithCustomMessage(
+                    "the prepared switcher uncloaked during the product show — a full-screen non-layered window would paint")
+                .That(InvisibleTestWindow.IsCloaked(window) == true).IsTrue();
+
+            window.HideOverlay();
+            Check.That(window.IsVisible).IsFalse();
+            Check.WithCustomMessage("the prepared switcher uncloaked when the show path hid it")
+                .That(InvisibleTestWindow.IsCloaked(window) == true).IsTrue();
+        }
+        finally { window.Close(); }
     }
 
     [StaFact]
@@ -116,7 +205,6 @@ public class InvisibleTestWindowTests
         ("KeyboardWindow", "Overlays/KeyboardWindow"),
         ("PauseIndicatorWindow", "Overlays/PauseIndicatorWindow"),
         ("ManualSelectionGazeIndicatorWindow", "Overlays/ManualSelectionGazeIndicatorWindow"),
-        ("TaskSwitcherWindow", "Overlays/TaskSwitcherWindow"),
         ("SettingsWindow", "Views/SettingsWindow"),
     ];
 

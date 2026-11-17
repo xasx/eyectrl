@@ -177,6 +177,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     {
         if (_onToolbarVisibility is not null)
             _toolbar.ToolbarVisibilityChanged -= _onToolbarVisibility;
+        _calibrationCeiling?.Dispose();                    // a pending refusal tail must not fire after unwind
         context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
         context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);
         _modal.GuideOpen = false;
@@ -322,6 +323,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         void Restore(GuideExitReason reason)
         {
             _toolbar.ToolbarVisibilityChanged -= _onToolbarVisibility;   // no handler pile-up
+            _calibrationCeiling?.Dispose();                // a pending refusal tail must not fire after close
             context.Messenger.Unregister<CalibrationStateChangedMessage>(this);  // always (r1 F17)
             context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);  // claim 1
             _modal.GuideOpen = false;
@@ -427,7 +429,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         {
             if (collected) return;
             context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
-            context.Dispatcher.BeginInvoke(() => _guideSurface.ShowStep(FirstRunGuideStep.Calibrate));
+            context.Dispatcher.BeginInvoke(() => _guideSurface?.ShowStep(FirstRunGuideStep.Calibrate));
         }
 
         context.Messenger.Send(new CalibrationRequestedMessage());

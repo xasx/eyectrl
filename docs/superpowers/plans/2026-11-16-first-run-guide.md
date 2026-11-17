@@ -1848,7 +1848,7 @@ public class FirstRunGuideWindowTests
 
 **Interfaces:** `SetGuideHiddenHold(bool)` (suppress `ForceShow` + `ReassertVisibility`'s `SetActive(true)` re-arm, force Hidden) + `ResetToHidden()` (mirror `ResetToVisible()` at :551). **Order rule (r1 F11): the hold arms BEFORE any `SetSuspended(true)`.**
 
-- [ ] **Step 1: Write the failing tests** (the sample-drive helper is extracted from `GazeBackOnToolbar_ResetsHideCountdown` :83 — the same `sut.Feed(CreateSample(x, y, valid: true), timestampUs)` loop advanced past `_hideDelayUs`):
+- [x] **Step 1: Write the failing tests** (the sample-drive helper is extracted from `GazeBackOnToolbar_ResetsHideCountdown` :83 — the same `sut.Feed(CreateSample(x, y, valid: true), timestampUs)` loop advanced past `_hideDelayUs`):
 
 ```csharp
     [Fact]
@@ -1898,7 +1898,7 @@ public class FirstRunGuideWindowTests
     }
 ```
 
-- [ ] **Step 2: Implement** — the `_guideHiddenHold` field + the two methods:
+- [x] **Step 2: Implement** — the `_guideHiddenHold` field + the two methods:
 
 ```csharp
     // The guide-hidden hold (spec §5 claim 6): the first-run guide hides the toolbar on steps
@@ -1952,7 +1952,7 @@ and the two suppression points (the state write is gated TOO — `SetSuspended`'
             _visibility.SetActive(true);
 ```
 
-- [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ToolbarAutoHideController guide-hidden hold + ResetToHidden`.
+- [x] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ToolbarAutoHideController guide-hidden hold + ResetToHidden`.
 
 ---
 

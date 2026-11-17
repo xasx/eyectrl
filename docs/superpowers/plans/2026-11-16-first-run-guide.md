@@ -1328,7 +1328,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 
 **Interfaces:** Produces the window with: fullscreen geometry (read live); `ShowCardContent`; `SetChoices(IReadOnlyList<(string Label, string Id)>)` — brushed cards with per-card progress bars, each registered via `vm.RegisterChoice(id)`, centres pushed via `PointToScreen`; `SetPractice(bool)` building the stroked ring + fill element into `StepContent` and pushing its centre; **`SetDwellKnob(bool)` building the value read-out + −/+ cards into its own `KnobRow`** (r4 F4 — never `StepContent`), removing the ± targets when the knob leaves; `HideGuide()/ShowGuide()`; `CardResources`; **NO `Close()` member** (r4 F2); NO `HideCard`/`ShowCard` (unused).
 
-- [ ] **Step 1: XAML** — five content rows + the chrome Close's own host (row 0, right of the title); the card grows to 480 DIP for the DwellTime layout budget (r3 F5's geometry):
+- [x] **Step 1: XAML** — five content rows + the chrome Close's own host (row 0, right of the title); the card grows to 480 DIP for the DwellTime layout budget (r3 F5's geometry):
 
 ```xml
 <overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.FirstRunGuideWindow"
@@ -1371,7 +1371,7 @@ git -C .worktrees/first-run-guide commit -m "feat(guide): FirstRunGuideViewModel
 </overlays:OverlayWindow>
 ```
 
-- [ ] **Step 2: Code-behind** — one slot per builder; `Card.FindResource` so the theme preview reaches the code-built cards (r4's S3); cards sized as the modal buttons (170 × 100 DIP, r3 F7's geometry); the chrome Close lives in its OWN host away from the action row (r3 F7); the knob re-registers on re-renders (r5 F2):
+- [x] **Step 2: Code-behind** — one slot per builder; `Card.FindResource` so the theme preview reaches the code-built cards (r4's S3); cards sized as the modal buttons (170 × 100 DIP, r3 F7's geometry); the chrome Close lives in its OWN host away from the action row (r3 F7); the knob re-registers on re-renders (r5 F2):
 
 ```csharp
 namespace EyeCtrl.App.Overlays;
@@ -1786,7 +1786,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
 (The knob's ± cards and the chrome Close card keep their OWN field references (`_knobCards`/`_knobBars`/`_chromeCloseCard`), which `SetChoices` never clears — the re-register branches read from them (r5 F2).)
 
-- [ ] **Step 3: Overlay inventory row** (`exempt:`) + **Step 4: `IOverlayWindows.cs`** — the default method on THREE interfaces:
+- [x] **Step 3: Overlay inventory row** (`exempt:`) + **Step 4: `IOverlayWindows.cs`** — the default method on THREE interfaces:
 
 ```csharp
     /// <summary>Raises this window above any later-created fullscreen topmost overlay (the
@@ -1795,7 +1795,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     void RaiseToTop() { }
 ```
 
-- [ ] **Step 5: STA test** — the rev 4 test with `IsStrictlyGreaterThan` (r4's S3):
+- [x] **Step 5: STA test** — the rev 4 test with `IsStrictlyGreaterThan` (r4's S3):
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Overlays/FirstRunGuideWindowTests.cs
@@ -1836,9 +1836,9 @@ public class FirstRunGuideWindowTests
 }
 ```
 
-- [ ] **Step 6: Run** — the two filters → PASS; `--filter "FullyQualifiedName~Toolbar"` → PASS.
+- [x] **Step 6: Run** — the two filters → PASS; `--filter "FullyQualifiedName~Toolbar"` → PASS.
 
-- [ ] **Step 7: Commit** `feat(guide): window builds brushed visuals one-slot-per-builder with real centres; RaiseToTop on three interfaces`.
+- [x] **Step 7: Commit** `feat(guide): window builds brushed visuals one-slot-per-builder with real centres; RaiseToTop on three interfaces`.
 
 ---
 

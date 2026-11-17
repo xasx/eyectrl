@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Shapes;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -41,6 +42,12 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         InitializeComponent();
         DataContext = vm;
         _vm = vm;
+
+        // D2 (live-check follow-up): the body sat at the 12-DIP ramp floor and the owner read it
+        // as too small. It rides the token ramp at 18 DIP — set in CODE because {x:Static}
+        // would freeze the value at compile time instead of reading the resolved theme ramp.
+        BodyText.FontSize = Tokens.FontSizeSubtitle;
+
         Left = 0;
         Top = 0;
         Width = SystemParameters.PrimaryScreenWidth;
@@ -99,6 +106,19 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             Text = label,
             Margin = new Thickness(12, 8, 12, 4),
             TextWrapping = TextWrapping.Wrap,
+            // D2 (live-check follow-up): 18 DIP on the token ramp (was the 12-DIP ramp floor).
+            //
+            // DIVERGENCE from the fit gates, documented once here per the live-check protocol:
+            // the catalog gates these labels as modal170 — a ONE-LINE label at the Settings
+            // modal button's face inside a 170-wide button — while THIS card renders the same
+            // strings at 18 DIP, wrapping, in the plan's fixed 170×100 box. The gates stay
+            // UNCHANGED (modal170's measurer is the shared Settings modal geometry, not this
+            // card), so the guide simply renders larger than the class it borrows. The geometry
+            // carries it: the wrap width is 170 − 24 (side margins) = 146 DIP; an 18 DIP Segoe
+            // UI line box is ≈24 DIP, so the worst shipped labels ("Fertigstellen",
+            // "Überspringen", "Mitternacht") take ≤2 lines ≈ 48 DIP, +12 DIP margins + the
+            // 3-DIP bar ≈ 63 DIP — well inside the 100-DIP card.
+            FontSize = Tokens.FontSizeSubtitle,
         };
         labelText.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
         var card = new Border
@@ -202,7 +222,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             _dwellValue = new TextBlock
             {
                 Text = $"{_vm.DwellTimeMs} ms",
-                FontSize = 20,
+                // D2 (live-check follow-up): the 20 pt literal rode the token ramp.
+                FontSize = Tokens.FontSizeSubtitle,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 16, 0),
             };
@@ -334,6 +355,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             Text = label,
             Margin = new Thickness(12, 8, 12, 4),
             TextWrapping = TextWrapping.Wrap,
+            // D2 (live-check follow-up): token ramp, same divergence note as BuildCard's label
+            // — the 80-DIP chip carries it too (8 + 2×24 lines + 4 + the 3-DIP bar = 63 < 80).
+            FontSize = Tokens.FontSizeSubtitle,
         };
         labelText.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
         var chip = new Border

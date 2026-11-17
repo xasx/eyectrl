@@ -7,6 +7,12 @@
                         ShowInTaskbar="False" ShowActivated="False"
                         Topmost="True" ResizeMode="NoResize">
     <Grid>
+        <!-- D1 (live-check follow-up): the transparent fullscreen backdrop let the owner's light
+             desktop show through and read as "white background". A SurfaceDark@70% scrim behind
+             the card grounds the guide. Interaction is untouched: the window stays
+             click-through, the scrim joins no dwell target (the dwell targets are the
+             VM-registered card visuals), and it sits FIRST so the card keeps its elevation. -->
+        <Border x:Name="Scrim" Background="{DynamicResource BrushSurfaceDark}" Opacity="0.7"/>
         <Border x:Name="Card" Width="560" Height="620"
                 Background="{DynamicResource BrushSurfaceDark}"
                 CornerRadius="{DynamicResource LargeCornerRadius}"

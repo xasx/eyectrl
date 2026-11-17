@@ -17,6 +17,7 @@ using EyeCtrl.App.Tests.Fixtures;
 using NFluent;
 using Xunit;
 
+[Collection("WpfApplication")]
 [Trait("Category", "UI")]
 public class FirstRunGuideWindowTests
 {
@@ -79,6 +80,75 @@ public class FirstRunGuideWindowTests
                 .ContainsOnlyElementsThatMatch(b => ReferenceEquals(b, window.CardResources["BrushSurfaceMedium"]));
             Check.WithCustomMessage("the chip card's BorderBrush must follow the card-local theme swap too")
                 .That(chips[0].BorderBrush).IsSameReferenceAs(window.CardResources["BrushAccent"]);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void Scrim_SitsBehindTheCard_AndGuideTextRidesTheTokenRamp()
+    {
+        // Live-check follow-up pins (D1/D2). D1: the guide's fullscreen backdrop is transparent,
+        // which read as a "white background" over the owner's light desktop — a SurfaceDark@70%
+        // scrim sits FIRST in the root grid (a Grid's z-order IS child order, so first = behind
+        // the Card) and must resolve its brush through DynamicResource like the card's. It joins
+        // no dwell target. D2: every guide text face rides the token ramp at FontSizeSubtitle
+        // (18); the title keeps its plan-pinned 24 (= FontSizeTitle, the XAML literal).
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), 0,
+            new EyeCtrlSettings(), sink: null, dwellRegistry: null);
+        var window = new FirstRunGuideWindow(vm);
+        InvisibleTestWindow.Prepare(window);
+        window.Show();
+        try
+        {
+            var root = (Grid)window.Content;
+            Check.WithCustomMessage(
+                    "the scrim must be the FIRST child of the root grid (behind the Card), which must be second")
+                .That(ReferenceEquals(root.Children[0], window.Scrim)
+                      && ReferenceEquals(root.Children[1], window.Card)).IsTrue();
+            Check.That(window.Scrim.Opacity).IsEqualTo(0.7);
+
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);   // flush deferred resource resolution
+            var scrimBrush = window.Scrim.Background;
+            Check.WithCustomMessage("the scrim's SurfaceDark background must resolve through DynamicResource")
+                .That(scrimBrush).IsNotNull();
+            Check.That(scrimBrush).IsSameReferenceAs(window.Scrim.TryFindResource("BrushSurfaceDark"));
+
+            Check.That(window.BodyText.FontSize).IsEqualTo(Tokens.FontSizeSubtitle);
+            Check.That(window.TitleText.FontSize).IsEqualTo(Tokens.FontSizeTitle);
+
+            window.SetChoices([("Start", "guide_start"), ("Later", "guide_later")]);
+            window.SetChromeClose(true, "✕");
+            window.SetThemeGrid(true,
+            [
+                ("Midnight", "guide_theme_midnight"),
+                ("Ember", "guide_theme_ember"),
+                ("Daylight", "guide_theme_daylight"),
+                ("Contrast", "guide_theme_contrast"),
+            ]);
+            window.SetDwellKnob(true);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+            var cardLabel = (TextBlock)((StackPanel)((Border)window.ChoiceRow.Children[0]).Child).Children[0];
+            var closeLabel = (TextBlock)((StackPanel)((Border)window.ChromeCloseHost.Content).Child).Children[0];
+            var chipLabel = (TextBlock)((StackPanel)((Border)((Grid)window.StepContent.Content).Children[0]).Child).Children[0];
+            var dwellReadOut = window.KnobRow.Children.OfType<TextBlock>().Single();
+
+            var faces = new (string What, TextBlock Label)[]
+            {
+                ("choice card", cardLabel),
+                ("chrome Close", closeLabel),
+                ("theme chip", chipLabel),
+                ("dwell read-out", dwellReadOut),
+            };
+            foreach (var (what, label) in faces)
+            {
+                Check.WithCustomMessage($"the {what} label must ride the token ramp at FontSizeSubtitle")
+                    .That(label.FontSize).IsEqualTo(Tokens.FontSizeSubtitle);
+            }
         }
         finally
         {

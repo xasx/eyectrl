@@ -85,7 +85,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |
 | **NoteNotice** | `NoteNoticeWindow` | `Transparent` + token-bordered card | code-only, no XAML | exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder) |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |
-| **FirstRunGuide** | `FirstRunGuideWindow` | Transparent backdrop + centered `BrushSurfaceDark` card (DynamicResource; the card's own resource dictionary feeds the code-built visuals) | XAML | exempt:modal — while the guide is open it owns the screen (toolbar held hidden, activation offers suspend, splash yields); its dwell targets are its own card visuals |
+| **FirstRunGuide** | `FirstRunGuideWindow` | `BrushSurfaceDark`@70% scrim backdrop + centered `BrushSurfaceDark` card (DynamicResource; the card's own resource dictionary feeds the code-built visuals) | XAML | exempt:modal — while the guide is open it owns the screen (toolbar held hidden, activation offers suspend, splash yields); its dwell targets are its own card visuals |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete

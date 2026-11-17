@@ -177,6 +177,60 @@ public class NoticeHostGuideGateTests
         Check.That(watch.NoticeShown).IsTrue();
     }
 
+    [Fact]
+    public void TheGuideClosePoke_BeforeStart_IsANoOp_AndTheDeferredStartThenShowsTheOldRecord()
+    {
+        // The App subscribes GuideOpenChanged at construction but defers the watch's Start into
+        // the guide-closed handler (S2-1) — so on the startup-guide close the close poke lands
+        // on a NOT-YET-STARTED watch. There it must read nothing, show nothing and not finish
+        // (an unstarted _startedAt would misread the old record as this session's and end the
+        // watch before it began); Start's own immediate check then handles the record. The
+        // record here is a PREVIOUS session's (its time is before this session's start), which
+        // the immediate check shows without ending the watch (review 02 R5).
+        var start = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var store = new CountingStore { Record = Record(start.AddMinutes(-5)) };
+        var now = start;
+        var scheduled = new List<Action>();
+        var shown = new List<string>();
+
+        var watch = new SetupNoticeWatch(
+            new SetupLastNoticeService(
+                store,
+                (key, args) => args.Length == 0 ? key : key + "|" + string.Join(",", args),
+                () => "✓ OK",
+                (text, _) => shown.Add(text)),
+            TimeSpan.FromSeconds(90),
+            TimeSpan.FromSeconds(2),
+            schedule: (_, tick) => scheduled.Add(tick),
+            now: () => now,
+            fileChange: _ => null,
+            isGuideOpen: () => GuideOpen);
+
+        // Production order on the startup-guide close: the open edge first, then the close
+        // poke — both before the deferred Start, so both must leave the watch untouched.
+        watch.OnGuideOpenChanged(true);
+        watch.OnGuideOpenChanged(false);
+        Check.That(store.Reads).IsEqualTo(0);
+        Check.That(shown).IsEmpty();
+        Check.That(watch.NoticeShown).IsFalse();
+        Check.That(watch.IsDone).IsFalse();
+
+        // The deferred Start: the immediate check shows the old record, and the watch stays
+        // alive — not done, with its poll chain armed.
+        watch.Start();
+        Check.That(store.Reads).IsEqualTo(1);
+        Check.That(shown).HasSize(1);
+        Check.That(watch.NoticeShown).IsTrue();
+        Check.That(watch.IsDone).IsFalse();
+        Check.That(scheduled).HasSize(1);
+
+        // The watch is live past all of it: a later file-change poke still reaches it (a read),
+        // and it still runs.
+        watch.Poke();
+        Check.That(store.Reads).IsEqualTo(2);
+        Check.That(watch.IsDone).IsFalse();
+    }
+
     // ── LagMarkHost: the button hides on open and returns on close only when allowed ──
 
     private sealed class FakeLagPresenter : ILagMarkPresenter

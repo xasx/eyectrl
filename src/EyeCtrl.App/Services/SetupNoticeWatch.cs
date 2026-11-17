@@ -141,10 +141,13 @@ public sealed class SetupNoticeWatch : IDisposable
     }
 
     /// <summary>The file-change path: check right away, never re-arm the poll chain (it runs on its
-    /// own, so change storms cannot multiply timers).</summary>
+    /// own, so change storms cannot multiply timers). A poke before <see cref="Start" /> is a
+    /// no-op: the App subscribes the guide-close poke at construction (S2-1 defers the Start into
+    /// the guide-closed handler), so the startup guide's close lands on a not-yet-started watch —
+    /// and must not read, show, or finish it; Start's own immediate check then handles the record.</summary>
     internal void Poke()
     {
-        if (_done)
+        if (!_started || _done)
             return;
 
         if (!CheckStartupWhenGuideClosed())

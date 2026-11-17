@@ -242,18 +242,27 @@ public class GazeEngineAdapterOfferTests
             provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
         }
 
-        var deadline = DateTime.UtcNow.AddSeconds(3);
-        while (finder.Queries.Count == 0 && DateTime.UtcNow < deadline)
+        // Pump until the observable outcome (F-FLAKE, CI #351 attempt 2), bounded. The decline
+        // runs in the await continuation posted to the dispatcher after the pool thread returns
+        // from FindTarget, and it is a REQUEST that a later sample applies (InteractionManager
+        // .DeclineOffer → RequestActivationOfferDecline) — so "wait for the query, then pump
+        // once" raced both hops: on a descheduled pool thread the pump ran before the decline
+        // existed, the sample applied nothing, and the offer stayed live. A fired offer cannot
+        // expire (ActivationOfferEngine skips expiry once fired), so null here IS the decline.
+        var declineDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (engine.InteractionManager.ActivationOffers!.CurrentOffer is not null
+               && DateTime.UtcNow < declineDeadline)
         {
-            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);   // run the posted continuation
+            us += 33_000;
+            provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));          // apply the requested decline
             Thread.Sleep(5);
         }
-        // The resolve's continuation (the decline) posts after the finder returns; give it a pass.
-        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
-        // The decline is a request; the next sample applies it.
-        us += 33_000;
-        provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
+        Check.WithCustomMessage(
+                "the decline never landed within 5 s — " +
+                $"state={engine.InteractionManager.CurrentState}, queries={finder.Queries.Count}, menus={menus.Count}")
+            .That(engine.InteractionManager.ActivationOffers!.CurrentOffer).IsNull();
 
         Check.WithCustomMessage("the no-control completion must decline, not act").That(menus).IsEmpty();
         Check.That(engine.InteractionManager.ActivationOffers!.CurrentOffer).IsNull();

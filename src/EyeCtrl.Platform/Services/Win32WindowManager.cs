@@ -16,10 +16,21 @@ using Microsoft.Extensions.Logging;
 /// </summary>
 public class Win32WindowManager : IWindowManager, IEscapeWindowService
 {
+    /// <summary>
+    /// How long the escape fallback waits for the target to take the foreground after the
+    /// minimize/restore toggle. Short: a responsive target honours the toggle in milliseconds and
+    /// the owner is waiting on the result; the worker is the only thing that ever waits.
+    /// </summary>
+    internal static readonly TimeSpan DefaultEscapeFallbackWait = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>The poll interval while a worker waits for the target to answer a state change.</summary>
+    private static readonly TimeSpan EscapePollInterval = TimeSpan.FromMilliseconds(10);
+
     private readonly ILogger<Win32WindowManager> _logger;
     private readonly IInputIntegrityProbe _integrity;
     private readonly IWindowActionNative _native;
     private readonly WindowActionScheduler _actions;
+    private readonly TimeSpan _escapeFallbackWait;
 
     /// <summary>Creates the window manager.</summary>
     /// <param name="logger">Records why a switch failed — see <see cref="BringToFront"/>.</param>
@@ -38,12 +49,14 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
         ILogger<Win32WindowManager> logger,
         IInputIntegrityProbe integrity,
         IWindowActionNative native,
-        WindowActionScheduler actions)
+        WindowActionScheduler actions,
+        TimeSpan? escapeFallbackWait = null)
     {
         _logger = logger;
         _integrity = integrity;
         _native = native;
         _actions = actions;
+        _escapeFallbackWait = escapeFallbackWait ?? DefaultEscapeFallbackWait;
     }
 
     /// <summary>
@@ -387,33 +400,81 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     }
 
     /// <inheritdoc />
-    public EscapeWindowResult TryBringToFront(IntPtr hwnd)
+    public void BeginBringToFront(IntPtr hwnd, Action<EscapeWindowResult?> onCompleted)
     {
+        ArgumentNullException.ThrowIfNull(onCompleted);
+
+        // The caller is the UI dispatcher, which is also the gaze-dwell thread. Nothing below may
+        // run there: the scheduler's worker keeps every cross-process call off it, and the entry
+        // point returns before the target is touched. Escape and pick share the scheduler, so the
+        // two actions never run at once — a hung pick cannot run alongside a hung escape.
+        EscapeWindowResult? result = null;
+        _actions.Enqueue(
+            "bring the escape window to the foreground",
+            hwnd,
+            action => result = RunEscapeAttempt(hwnd, action),
+            completion => onCompleted(
+                completion == WindowActionCompletion.Ran ? result : null));
+    }
+
+    /// <summary>
+    /// One escape attempt on the scheduler's worker. Returns null when the attempt stopped without
+    /// a result (abandoned by a later action, or past its completion budget); the one Warning for
+    /// either case is written here or by the scheduler.
+    /// </summary>
+    private EscapeWindowResult? RunEscapeAttempt(IntPtr hwnd, WindowActionContext action)
+    {
+        if (action.IsCancelled)
+            return null;
+
         if (hwnd == IntPtr.Zero)
             return new EscapeWindowResult(false, false, false);
 
-        var isShell = hwnd == NativeMethods.GetShellWindow();
+        var isShell = hwnd == _native.GetShellWindow();
 
         // A minimized target is restored first, for the reason the task switcher documents: a bare
         // SetForegroundWindow "succeeds" on an iconic window without un-minimizing it. Never on the
         // shell: minimizing and restoring the desktop's Progman window is untried, so the shell path
         // is SetForegroundWindow ONLY.
-        if (!isShell && NativeMethods.IsIconic(hwnd))
-            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+        //
+        // ShowWindowAsync, not ShowWindow: the synchronous form waits for the target's thread, and
+        // a hung window would pin this worker (it used to pin the UI thread right here). The wait
+        // below is what keeps the order's meaning: SetForegroundWindow must not run until the
+        // target has actually left the iconic state, or it "succeeds" without showing the window.
+        if (!isShell && _native.IsIconic(hwnd))
+        {
+            // SW_RESTORE activates the target, so it must not be posted once the attempt is
+            // abandoned or past its budget either.
+            if (!StillFresh(hwnd, action))
+                return null;
+
+            _native.ShowWindowAsync(hwnd, NativeMethods.SW_RESTORE);
+            if (!WaitForRestore(hwnd, action))
+                return null;
+        }
 
         // DELIBERATELY no ALT tap: that grant is injected input, and the state this path exists to
         // escape is one where injected input is silently dropped. SetForegroundWindow alone may be
         // refused by the foreground lock; the ShowWindow toggle below is the non-injecting
         // fallback the ticket asks for. Whether either works under an elevated foreground is the
         // sitting question (unverified here).
-        var setForeground = NativeMethods.SetForegroundWindow(hwnd);
-        if (NativeMethods.GetForegroundWindow() == hwnd)
+        var setForeground = _native.SetForegroundWindow(hwnd);
+        if (_native.GetForegroundWindow() == hwnd)
         {
+            // A switch that only completed after the budget is as stale as a pick would be: do not
+            // report it as a finished attempt (the owner may have moved on). Nothing is undone —
+            // minimising the target now would take the screen away a second time.
+            if (!StillFresh(hwnd, action))
+                return null;
+
             _logger.LogInformation(
                 "Blocked-input escape: brought window {Hwnd} ({Process}) to the foreground without injecting input.",
                 hwnd, DescribeProcess(hwnd));
             return new EscapeWindowResult(true, setForeground, false);
         }
+
+        if (!StillFresh(hwnd, action))
+            return null;
 
         if (isShell)
         {
@@ -424,10 +485,23 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
             return new EscapeWindowResult(false, setForeground, false);
         }
 
-        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MINIMIZE);
-        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
-        var changed = NativeMethods.GetForegroundWindow() == hwnd;
+        // The fallback's minimize -> restore ORDER is the point: SW_RESTORE activates the window, so
+        // issuing minimize then restore moves it forward. Both are posted, never synchronous, and
+        // the foreground check below runs here on the worker after a short bounded poll. A late
+        // activating restore must not run once the attempt was abandoned or has run past its
+        // budget: it would take activation away from whatever the owner moved on to.
+        _native.ShowWindowAsync(hwnd, NativeMethods.SW_MINIMIZE);
+        if (!StillFresh(hwnd, action))
+            return null;
+        _native.ShowWindowAsync(hwnd, NativeMethods.SW_RESTORE);
+        if (!StillFresh(hwnd, action))
+            return null;
 
+        var waited = WaitForFallbackForeground(hwnd, action);
+        if (waited == EscapeFallbackWait.Stopped)
+            return null;
+
+        var changed = waited == EscapeFallbackWait.ForegroundChanged;
         if (changed)
         {
             _logger.LogInformation(
@@ -444,6 +518,81 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
         }
 
         return new EscapeWindowResult(changed, setForeground, true);
+    }
+
+    /// <summary>
+    /// True while the attempt may take its remaining steps. An abandonment is silent here — the
+    /// scheduler already wrote its one Warning — while running past the completion budget writes
+    /// the scheduler's one timeout Warning and stops the remaining steps.
+    /// </summary>
+    private bool StillFresh(IntPtr hwnd, WindowActionContext action)
+    {
+        if (action.IsCancelled)
+            return false;
+
+        if (action.IsStale)
+        {
+            _logger.LogWarning(
+                "Window action {Action} for window {Hwnd} was abandoned after {ElapsedMs:0} ms: the "
+                + "blocked-input escape ran past its completion budget, so its remaining steps were "
+                + "dropped.",
+                "bring the escape window to the foreground", hwnd, action.Elapsed.TotalMilliseconds);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Waits on the worker, bounded by the attempt's completion budget, until the restored target
+    /// has actually left the iconic state. False stops the attempt (abandoned or timed out).
+    /// </summary>
+    private bool WaitForRestore(IntPtr hwnd, WindowActionContext action)
+    {
+        while (_native.IsIconic(hwnd))
+        {
+            if (!StillFresh(hwnd, action))
+                return false;
+
+            Thread.Sleep(EscapePollInterval);
+        }
+
+        return StillFresh(hwnd, action);
+    }
+
+    /// <summary>
+    /// Polls for the fallback's foreground change on the worker. Bounded by the shorter of the
+    /// fallback window and the attempt's completion budget, so a dead target ends in today's
+    /// failure line instead of a stuck worker.
+    /// </summary>
+    private EscapeFallbackWait WaitForFallbackForeground(IntPtr hwnd, WindowActionContext action)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (_native.GetForegroundWindow() != hwnd)
+        {
+            if (!StillFresh(hwnd, action))
+                return EscapeFallbackWait.Stopped;
+
+            if (elapsed.Elapsed >= _escapeFallbackWait)
+                return EscapeFallbackWait.StillRefused;
+
+            Thread.Sleep(EscapePollInterval);
+        }
+
+        return EscapeFallbackWait.ForegroundChanged;
+    }
+
+    /// <summary>The fallback's poll outcome.</summary>
+    private enum EscapeFallbackWait
+    {
+        /// <summary>The target ended up in the foreground.</summary>
+        ForegroundChanged,
+
+        /// <summary>The short fallback wait ran out while the target still refused the foreground.</summary>
+        StillRefused,
+
+        /// <summary>The attempt was abandoned or timed out while the poll was running.</summary>
+        Stopped,
     }
 
     /// <summary>

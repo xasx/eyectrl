@@ -31,7 +31,7 @@ internal sealed class BlockedInputCoordinator : IDisposable
     private readonly BlockedInputGate _gate;
     private readonly IEyeCareHooks _eyeCare;
     private bool _dismissed;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     /// <summary>Wires the detector to the banner, the ring, the escape path and eye-care.</summary>
     /// <param name="detector">R2's state machine.</param>
@@ -128,18 +128,34 @@ internal sealed class BlockedInputCoordinator : IDisposable
                 return;
             }
 
-            var result = _escape.TryBringToFront(hwnd);
-            Log.Information(
-                "Blocked-input escape: window {Hwnd} foregroundChanged={ForegroundChanged} "
-                + "SetForegroundWindow={SetForegroundSucceeded} usedMinimizeRestore={UsedFallback}.",
-                hwnd, result.ForegroundChanged, result.SetForegroundWindowSucceeded,
-                result.UsedShowWindowFallback);
+            // Returns at once: every cross-process window call runs on the window scheduler's
+            // worker, so a hung target cannot freeze this dispatcher — and with it the owner's
+            // gaze control — inside the path that exists to get them out of trouble.
+            _escape.BeginBringToFront(hwnd, result => OnEscapeCompleted(hwnd, result));
         }
         catch (Exception ex)
         {
             // The way out is the owner's emergency exit: a fault here must not take the app down.
             Log.Error(ex, "Blocked-input escape failed; the banner stays up and the block remains detectable.");
         }
+    }
+
+    /// <summary>
+    /// The attempt's completion. It runs on the window scheduler's worker, so no WPF object may be
+    /// touched here and nothing hides the banner: a null result means the attempt was abandoned or
+    /// timed out (the scheduler logged why). A completion that arrives after <see cref="Dispose"/>
+    /// is ignored.
+    /// </summary>
+    private void OnEscapeCompleted(IntPtr hwnd, EscapeWindowResult? result)
+    {
+        if (_disposed || result is not { } escapeResult)
+            return;
+
+        Log.Information(
+            "Blocked-input escape: window {Hwnd} foregroundChanged={ForegroundChanged} "
+            + "SetForegroundWindow={SetForegroundSucceeded} usedMinimizeRestore={UsedFallback}.",
+            hwnd, escapeResult.ForegroundChanged, escapeResult.SetForegroundWindowSucceeded,
+            escapeResult.UsedShowWindowFallback);
     }
 
     /// <inheritdoc />

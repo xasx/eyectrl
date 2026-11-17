@@ -32,11 +32,24 @@ public interface IEscapeWindowService
     IntPtr? TryGetEscapeTarget();
 
     /// <summary>
-    /// Brings <paramref name="hwnd"/> to the foreground without injecting input:
-    /// <c>SetForegroundWindow</c>, then a <c>ShowWindow</c> minimize/restore toggle when the
+    /// Starts bringing <paramref name="hwnd"/> to the foreground without injecting input:
+    /// <c>SetForegroundWindow</c>, then a <c>ShowWindowAsync</c> minimize/restore toggle when the
     /// foreground did not change. Never calls <c>SendInput</c>.
+    ///
+    /// <para>
+    /// Returns at once. The cross-process work runs on a background worker, because the caller is
+    /// the UI dispatcher — which is also the gaze-dwell thread — and a synchronous <c>ShowWindow</c>
+    /// (or a foreground request that waits on the target) would freeze every EyeCtrl surface,
+    /// Pause included, on exactly the path that exists to get the owner out of trouble.
+    /// </para>
     /// </summary>
     /// <param name="hwnd">The target window handle from <see cref="TryGetEscapeTarget"/>.</param>
-    /// <returns>Whether the target actually ended up in the foreground, and which path was used.</returns>
-    EscapeWindowResult TryBringToFront(IntPtr hwnd);
+    /// <param name="onCompleted">
+    /// Called exactly once, on a background thread, with whether the target actually ended up in
+    /// the foreground and which path was used. The argument is null when the attempt was abandoned
+    /// or timed out before it could produce a result, or when the request was dropped before it
+    /// could start (the scheduler logged why). Nothing hides the banner on a null result. The
+    /// callback must not touch UI objects: it does not run on the dispatcher.
+    /// </param>
+    void BeginBringToFront(IntPtr hwnd, Action<EscapeWindowResult?> onCompleted);
 }

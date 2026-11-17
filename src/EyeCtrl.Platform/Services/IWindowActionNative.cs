@@ -39,4 +39,11 @@ internal interface IWindowActionNative
 
     /// <summary><c>SetForegroundWindow</c>: the switch itself.</summary>
     bool SetForegroundWindow(IntPtr hwnd);
+
+    /// <summary><c>GetForegroundWindow</c>: the re-check after a switch (and the fallback's poll).</summary>
+    IntPtr GetForegroundWindow();
+
+    /// <summary><c>GetShellWindow</c>: identifies the desktop shell, which the escape path never
+    /// minimises or restores.</summary>
+    IntPtr GetShellWindow();
 }

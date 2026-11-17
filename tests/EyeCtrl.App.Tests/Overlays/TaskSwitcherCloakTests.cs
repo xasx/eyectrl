@@ -75,47 +75,67 @@ public class TaskSwitcherCloakTests
     }
 
     /// <summary>
-    /// Review fixup-01 (finding 1): the cloak write site is STRUCTURAL. <c>DwmwaCloak</c> may be
-    /// named only in its declaration and inside <c>WriteCloak</c>; the dwmapi P/Invoke may be called
-    /// only from the seam's <c>NativeSetDwmAttribute</c>; and <c>WriteCloak</c> must go through the
-    /// injectable seam, which the write-point test seam sits on.
+    /// Review fixup-02 (R1): the cloak seam and the single write path are STRUCTURAL. Every DWM
+    /// attribute write goes through <c>WriteDwmAttribute</c>, which applies the stay-cloaked
+    /// suppression by attribute VALUE (13) whatever constant or literal the caller used; the
+    /// injectable delegate and the dwmapi P/Invoke may be called only there. The scan covers every
+    /// <c>partial class TaskSwitcherWindow</c> source file so an S4-C partial cannot add a second
+    /// write path.
     /// </summary>
     [Fact]
-    public void TheCloakAttribute_HasExactlyOneWriteSite()
+    public void EveryDwmAttributeWrite_GoesThroughOneWriter_AcrossEveryPartialFile()
     {
-        var path = Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs");
-        var source = SourceScanner.StripComments(File.ReadAllText(path));
+        var appRoot = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App");
+        var partialFiles = Directory
+            .EnumerateFiles(appRoot, "TaskSwitcherWindow*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                     && !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .ToList();
+        Check.WithCustomMessage("no TaskSwitcherWindow partial-class source files found")
+            .That(partialFiles).Not.IsEmpty();
+        var source = string.Join("\n", partialFiles.Select(p => SourceScanner.StripComments(File.ReadAllText(p))));
 
-        const string signature = "private void WriteCloak(bool cloaked)";
-        var start = source.IndexOf(signature, StringComparison.Ordinal);
-        Check.WithCustomMessage("TaskSwitcherWindow has no WriteCloak(bool cloaked): the cloak write site moved")
-            .That(start).IsStrictlyGreaterThan(-1);
-        var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
-        Check.That(end).IsStrictlyGreaterThan(start);
-        var body = source[start..end];
-        var outside = source.Remove(start, end - start);
-
+        const string signature = "private void WriteDwmAttribute(int attribute, bool value)";
+        var writerStart = source.IndexOf(signature, StringComparison.Ordinal);
         Check.WithCustomMessage(
-                "DwmwaCloak is named outside its declaration and WriteCloak — a second cloak write site " +
-                "would bypass the one-way test seam. Route it through WriteCloak.")
-            .That(Regex.Matches(outside, @"\bDwmwaCloak\b").Count).IsEqualTo(1);   // the const declaration
-        Check.WithCustomMessage("WriteCloak must name the cloak attribute exactly once")
-            .That(Regex.Matches(body, @"\bDwmwaCloak\b").Count).IsEqualTo(1);
-        Check.WithCustomMessage("WriteCloak must write through the injectable SetDwmAttribute seam")
-            .That(Regex.IsMatch(body, @"SetDwmAttribute\s*\(\s*hwnd\s*,\s*DwmwaCloak\s*,\s*cloaked\s*\)")).IsTrue();
+                "WriteDwmAttribute(int attribute, bool value) is gone: every DWM attribute write must go " +
+                "through it, so the stay-cloaked suppression cannot be bypassed")
+            .That(writerStart).IsStrictlyGreaterThan(-1);
+        var writerEnd = source.IndexOf("\n    }", writerStart, StringComparison.Ordinal);
+        Check.That(writerEnd).IsStrictlyGreaterThan(writerStart);
+        var writerBody = source[writerStart..writerEnd];
 
-        // The dwmapi P/Invoke is the seam's default only: its extern declaration plus ONE call in
-        // NativeSetDwmAttribute. A direct call anywhere else is a second write path.
+        Check.WithCustomMessage("WriteDwmAttribute must suppress an uncloak whenever the attribute is the cloak attribute")
+            .That(Regex.IsMatch(writerBody,
+                @"attribute\s*==\s*DwmwaCloak\s*&&\s*!value\s*&&\s*_stayCloakedForTests"))
+            .IsTrue();
+
+        // The injectable delegate is invoked exactly once, in WriteDwmAttribute, with the
+        // caller's attribute and value (no hardcoded cloak uncloak).
+        var delegateCalls = Regex.Matches(source, @"\bSetDwmAttribute\s*\(").Count;
         Check.WithCustomMessage(
-                "DwmSetWindowAttribute is called somewhere other than NativeSetDwmAttribute — a second " +
-                "DWM write path bypasses the write-point seam")
+                $"SetDwmAttribute(...) is invoked {delegateCalls} times; it must be exactly once, inside " +
+                "WriteDwmAttribute — any other call bypasses the write-point seam")
+            .That(delegateCalls).IsEqualTo(1);
+        Check.WithCustomMessage("the single SetDwmAttribute call must be inside WriteDwmAttribute")
+            .That(Regex.Matches(writerBody, @"\bSetDwmAttribute\s*\(").Count).IsEqualTo(1);
+        Check.WithCustomMessage("WriteDwmAttribute must pass the caller's attribute and value through")
+            .That(Regex.IsMatch(writerBody, @"SetDwmAttribute\s*\(\s*hwnd\s*,\s*attribute\s*,\s*value\s*\)")).IsTrue();
+
+        // The dwmapi P/Invoke is the delegate's default only: extern + one call in
+        // NativeSetDwmAttribute. A direct call anywhere else is a second DWM write path.
+        Check.WithCustomMessage(
+                "DwmSetWindowAttribute is called somewhere other than NativeSetDwmAttribute — a direct " +
+                "P/Invoke bypasses the write-point seam")
             .That(Regex.Matches(source, @"\bDwmSetWindowAttribute\s*\(").Count).IsEqualTo(2);
         var nativeStart = source.IndexOf("private static int NativeSetDwmAttribute", StringComparison.Ordinal);
         Check.That(nativeStart).IsStrictlyGreaterThan(-1);
         var nativeBody = source[nativeStart..source.IndexOf("\n    }", nativeStart, StringComparison.Ordinal)];
         Check.WithCustomMessage("the single dwmapi call must be in NativeSetDwmAttribute")
             .That(Regex.Matches(nativeBody, @"\bDwmSetWindowAttribute\s*\(").Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+                "NativeSetDwmAttribute is called directly somewhere — only the delegate initializer may name it")
+            .That(Regex.Matches(source, @"\bNativeSetDwmAttribute\s*\(").Count).IsEqualTo(1);   // the declaration
     }
 
     [StaFact]
@@ -146,7 +166,10 @@ public class TaskSwitcherCloakTests
             {
                 if (attribute == DwmaCloak)
                     sequence.Add(value ? "cloak:true" : "cloak:false");
-                return realSetDwm(hwnd, attribute, value);
+                // Defense in depth (fixup-02 R2): forward every cloak write to DWM as TRUE while
+                // recording the requested value, so a regression in the write-point seam could not
+                // paint the switcher before the assertions below run.
+                return realSetDwm(hwnd, attribute, attribute == DwmaCloak ? true : value);
             };
             var realFlush = window.FlushDwm;
             window.FlushDwm = () =>
@@ -245,7 +268,9 @@ public class TaskSwitcherCloakTests
             {
                 if (attribute == DwmaCloak)
                     sequence.Add(value ? "cloak:true" : "cloak:false");
-                return realSetDwm(hwnd, attribute, value);
+                // Defense in depth (fixup-02 R2): forward every cloak write to DWM as TRUE while
+                // recording the requested value (a seam regression cannot paint the window).
+                return realSetDwm(hwnd, attribute, attribute == DwmaCloak ? true : value);
             };
             var realFlush = window.FlushDwm;
             window.FlushDwm = () =>

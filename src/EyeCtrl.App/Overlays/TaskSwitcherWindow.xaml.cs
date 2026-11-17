@@ -188,20 +188,21 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     }
 
     /// <summary>
-    /// The ONE place this window writes DWMWA_CLOAK. Everything else — the show's cloak, the
-    /// rendered-frame uncloak, the fallback and <see cref="HideOverlay"/> — goes through here, so
-    /// the one-way test seam cannot be bypassed by a caller that forgot to check it.
+    /// The ONE method through which every DWM attribute write goes. It applies the one-way
+    /// stay-cloaked suppression by ATTRIBUTE VALUE (13), not by the caller's constant name: any
+    /// uncloak request — a literal <c>13</c>, a renamed constant, or <see cref="WriteCloak"/> —
+    /// is recorded and never sent while the seam is set. A cloak request is always sent.
     ///
     /// <para>
-    /// While <see cref="_stayCloakedForTests"/> is set, an uncloak request is RECORDED (a counter
-    /// plus <see cref="UncloakSuppressedForTests"/>) and never sent to DWM: the test-prepared
-    /// full-screen non-layered switcher must stay hidden for its whole life, and a product refactor
-    /// that adds another uncloak call still lands here. A cloak request is always sent.
+    /// Keeping the suppression here (rather than in the callers) means a future product or test
+    /// path that writes the cloak attribute cannot bypass it by using another spelling. The source
+    /// pin in <c>TaskSwitcherCloakTests</c> additionally proves the injectable delegate and the
+    /// dwmapi P/Invoke are called only from this method, across every partial-class file.
     /// </para>
     /// </summary>
-    private void WriteCloak(bool cloaked)
+    private void WriteDwmAttribute(int attribute, bool value)
     {
-        if (!cloaked && _stayCloakedForTests)
+        if (attribute == DwmwaCloak && !value && _stayCloakedForTests)
         {
             SuppressedUncloakRequestsForTests++;
             UncloakSuppressedForTests?.Invoke();
@@ -210,8 +211,15 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero)
-            _ = SetDwmAttribute(hwnd, DwmwaCloak, cloaked);
+            _ = SetDwmAttribute(hwnd, attribute, value);
     }
+
+    /// <summary>
+    /// Cloaks or uncloaks through <see cref="WriteDwmAttribute"/>. Everything else — the show's
+    /// cloak, the rendered-frame uncloak, the fallback and <see cref="HideOverlay"/> — goes through
+    /// here, so the one-way test seam cannot be bypassed by a caller that forgot to check it.
+    /// </summary>
+    private void WriteCloak(bool cloaked) => WriteDwmAttribute(DwmwaCloak, cloaked);
 
     /// <summary>
     /// Test seam: when true, the rendered-frame trigger is not armed, so the 250 ms fallback is the
@@ -300,9 +308,7 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
     private void DisableTransitionsAtHandleCreation(object? sender, EventArgs e)
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd != IntPtr.Zero)
-            _ = SetDwmAttribute(hwnd, DwmwaTransitionsForceDisabled, true);
+        WriteDwmAttribute(DwmwaTransitionsForceDisabled, true);
     }
 
     protected override void OnClosed(EventArgs e)

@@ -2048,7 +2048,7 @@ plus two methods:
 
 **Interfaces:** `OverlayVmBindingCoordinator.RingMayReshow => !_modal.GuideOpen` (the message coordinator has NO `_modal` — its ctor takes `(toolbar, vmBinding)`, `EventCoordinator.cs:212`); both calibration re-show sites consult it. The FULL ring lifecycle lives in Task 12's wiring.
 
-- [ ] **Step 1: Failing test** — `RingMayReshow_IsFalse_WhileGuideOpen`, in the coordinators' existing test file with its harness (`modal`, `vmBinding`):
+- [x] **Step 1: Failing test** — `RingMayReshow_IsFalse_WhileGuideOpen`, in the coordinators' existing test file with its harness (`modal`, `vmBinding`):
 
 ```csharp
     [Fact]
@@ -2061,8 +2061,8 @@ plus two methods:
     }
 ```
 
-- [ ] **Step 2: Implement** — the flag on `OverlayVmBindingCoordinator`; its `IsVisible` case gains `&& !_modal.GuideOpen`; both calibration `cursorCircle.Show()` sites (:308/:318) become `if (Context.CursorVM.IsVisible && _vmBinding.RingMayReshow) cursorCircle.Show();`.
-- [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ring re-show gated on GuideOpen via the binding coordinator's flag`.
+- [x] **Step 2: Implement** — the flag on `OverlayVmBindingCoordinator`; its `IsVisible` case gains `&& !_modal.GuideOpen`; both calibration `cursorCircle.Show()` sites (:308/:318) become `if (Context.CursorVM.IsVisible && _vmBinding.RingMayReshow) cursorCircle.Show();`.
+- [x] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): ring re-show gated on GuideOpen via the binding coordinator's flag`.
 
 ---
 

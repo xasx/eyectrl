@@ -266,9 +266,9 @@ public interface IPauseIndicatorOverlay
     void SetEdge(string edge);
 
     /// <summary>Raises this window above any later-created fullscreen topmost overlay (the
-    /// guide). Default no-op so the test fakes need no member; the real OverlayWindow's
-    /// implementation (:377) overrides it.</summary>
-    void RaiseToTop() { }
+    /// guide). The real implementation lives on OverlayWindow (:377); the adapter calls it on
+    /// every band raise, so fakes implement it explicitly rather than inheriting a no-op.</summary>
+    void RaiseToTop();
 
     /// <summary>The toolbar band became visible or hidden: the Resume target hides while the band
     /// (which has its own Play) is up.</summary>

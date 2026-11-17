@@ -255,8 +255,8 @@
     "src": "8a888f50"
   },
   "guide.calibrate.body": {
-    "text": "Stellen Sie sicher, dass der Cursor Ihren Augen folgt. Sie können später auch über Einstellungen oder die Symbolleiste kalibrieren.",
-    "src": "6aa04b73"
+    "text": "Die Kalibrierung zeigt dem Eyetracker, wohin Ihre Augen gerichtet sind. Sie können später auch über Einstellungen oder die Symbolleiste kalibrieren.",
+    "src": "015eb125"
   },
   "guide.calibrate.now": {
     "text": "Kalibrieren",

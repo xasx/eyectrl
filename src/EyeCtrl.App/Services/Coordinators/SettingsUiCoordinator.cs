@@ -2,11 +2,17 @@ namespace EyeCtrl.App.Services.Coordinators;
 
 using System;
 using System.ComponentModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -29,6 +35,13 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private readonly QuickActionsCoordinator _quickActions;
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly KeyboardCoordinator _keyboard;
+    private FirstRunGuideHost? _guideHost;
+    private SplashThreadHandle? _splashHandle;
+    private FirstRunGuideWindow? _guideWindow;
+    private FirstRunGuideViewModel? _guideVm;
+    private FirstRunGuideFlow? _guideFlow;
+    private GuideSurface? _guideSurface;
+    private Action<bool>? _onToolbarVisibility;   // a FIELD, not a local function (r3 F6)
     private SettingsWindow? _settingsWindow;
     private ModelRegistryService? _modelRegistry;
     private ModelManagementService? _modelManagementService;
@@ -73,9 +86,9 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         messenger.Register<SettingsUiCoordinator, SettingsRequestedMessage>(this, (_, m) =>
             context.Dispatcher.BeginInvoke(() => ShowSettingsWindow(m.Target)));
 
-        // Startup safety setup: open the window if it is not open, then start the chain on it.
-        messenger.Register<SettingsUiCoordinator, SafetySetupRequestedMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(ShowSafetySetup));
+        // First-run guide: raised at startup (the renamed gate) and from the Settings → General row.
+        messenger.Register<SettingsUiCoordinator, FirstRunGuideRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(StartFirstRunGuide));
 
         // CloseSettings -> close settings window
         messenger.Register<SettingsUiCoordinator, CloseSettingsMessage>(this, (_, _) =>
@@ -129,6 +142,401 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     /// <summary>Hands the supervision toggle (ticket 04) to the settings window at construction.
     /// Called once at startup, like <see cref="SetRestartCoordinator"/>.</summary>
     public void SetSupervisionToggle(SupervisionToggleService service) => _supervisionToggle = service;
+
+    /// <summary>Hands the splash handle in for the latched show. Called once from App.xaml.cs
+    /// via EventCoordinator's forwarder (r1 F15) after Initialize.</summary>
+    public void SetSplashHandle(SplashThreadHandle? handle) => _splashHandle = handle;
+
+    private void StartFirstRunGuide()
+    {
+        var context = Context!;
+        if (_guideHost is not null) return;
+
+        var host = new FirstRunGuideHost();
+        if (!host.TryBegin(out var lease)) return;
+        _guideHost = host;
+
+        try
+        {
+            BuildAndRaiseGuide(context, lease);
+        }
+        catch (Exception ex)
+        {
+            // r2 F14: log instead of rethrowing — inside a BeginInvoke'd callback a rethrow
+            // lands in DispatcherUnhandledException during a first-run startup.
+            Log.Error(ex, "First-run guide: raise failed; unwinding");
+            UnwindPartialRaise(context, lease);
+        }
+    }
+
+    /// <summary>The raise-failure unwind: undo whatever BuildAndRaiseGuide/Show did, then hand
+    /// the session back — toolbar restored, ring restored, lease released, cards started. No
+    /// re-entry: the flow is nulled BEFORE the window closes, and the toolbar handler is
+    /// unsubscribed first (r3 F9).</summary>
+    private void UnwindPartialRaise(EventCoordinationContext context, FirstRunGuideLease lease)
+    {
+        if (_onToolbarVisibility is not null)
+            _toolbar.ToolbarVisibilityChanged -= _onToolbarVisibility;
+        context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
+        context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);
+        _modal.GuideOpen = false;
+        _quickActions.SetSummonSuspended("guide", false);
+        _toolbar.SetGuideHold(false);
+        _toolbar.ForceShow();                          // r3 F9: floating/mouse users get the toolbar back
+        if (context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen)
+            context.OverlayManager.CursorCircle.Show();           // r3 F9: the ring comes back
+        Log.Information("First-run guide: closed (step=raise-failed, completed=false)");
+        _guideFlow = null;                             // BEFORE window.Close: no re-entry (r3 F9)
+        (_guideVm as IDisposable)?.Dispose();
+        _guideVm = null;
+        if (_guideWindow is not null) { _guideWindow.Close(); _guideWindow = null; }
+        _guideSurface = null;
+        _guideHost = null;
+        lease.Dispose();
+        StatusCardsFallback?.Invoke();
+        StatusCardsFallback = null;
+    }
+
+    /// <summary>App assigns this at startup; the unwind invokes it so the status-card presenter
+    /// starts even when the raise failed (r3 F6 / r2 F14). Cleared in Restore (r2 F19).</summary>
+    internal Action? StatusCardsFallback { get; set; }
+
+    private void BuildAndRaiseGuide(EventCoordinationContext context, FirstRunGuideLease lease)
+    {
+        var settings = context.Settings;
+        bool tracker = App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse;
+        bool toolbarTask = tracker && settings.Toolbar.IsDocked;   // spec §7 step 5
+
+        _guideVm = new FirstRunGuideViewModel(context.Messenger,
+            dwellCooldownMs: settings.Dwell.DwellCooldownMs,       // a COOLDOWN, not a dwell time (r1 F23)
+            settings, sink: null, dwellRegistry: null);
+        _guideWindow = new FirstRunGuideWindow(_guideVm);
+        _guideSurface = new GuideSurface(_guideWindow, _guideVm, this);
+
+        _guideFlow = new FirstRunGuideFlow(settings, trackerPresent: tracker,
+            toolbarTaskAvailable: toolbarTask,
+            surface: _guideSurface,
+            createSafetyFlow: (showModal, onEnded) => new SafetySetupFlow(settings, _supervisionToggle,
+                showModal,
+                applyAndSave: () =>
+                {
+                    OnSettingsChanged(settings);                     // the live-apply path (r2 F6/Q2)
+                    context.SettingsService.SaveDebounced(settings); // the DEBOUNCED save
+                },
+                setSimpleSettingsUi: v => settings.General.SimpleSettingsUi = v,
+                onEnded));
+
+        _guideVm.IsVisible = true;                                  // gaze input lives with IsVisible
+        _guideVm.ChoiceActivated += id => context.Dispatcher.BeginInvoke(() => OnGuideChoice(id));
+        _guideVm.CloseRequested += () => context.Dispatcher.BeginInvoke(_guideFlow.Close);
+        // Split across lines on purpose: DwellSurfaceCensusTests scans for the raw detector
+        // subscription marker and cannot tell this ROUTED VM event (published by the classified
+        // FirstRunGuideViewModel) from one.
+        _guideVm.PracticeTargetActivated
+            += () => context.Dispatcher.BeginInvoke(_guideFlow.NotifyTaskSucceeded);
+
+        // Theme pick: card-local preview + live-apply + save, then RE-RENDER the card (r4 F3 —
+        // OnTargetActivated cleared every chrome target, and a chip press does not change the step).
+        _guideVm.ThemeChosen += name => context.Dispatcher.BeginInvoke(() =>
+        {
+            var theme = ThemeRegistry.Resolve(name);
+            ThemeResourceApplier.Apply(_guideWindow!.CardResources, theme);   // card-local (r1 F2)
+            settings.Theme.Name = name;
+            OnSettingsChanged(settings);
+            context.SettingsService.SaveDebounced(settings);
+            _guideSurface?.RenderChoicesForCurrentStep();      // re-register the cleared targets
+        });
+
+        // Dwell ±: live-apply + save, then RE-RENDER the card (r4 F3 — same cleared-targets rule).
+        _guideVm.DwellTimeChanged += _ =>
+        {
+            OnSettingsChanged(settings);
+            context.SettingsService.SaveDebounced(settings);
+            _guideSurface?.RenderChoicesForCurrentStep();
+        };
+        context.ToolbarVM.GuideOpenGate = () => _modal.GuideOpen;   // claim 7 wired (r1 F12)
+
+        void Show()
+        {
+            try
+            {
+                context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Guide);   // claim 1
+                _modal.GuideOpen = true;                   // claim 2
+                _quickActions.SetSummonSuspended("guide", true);   // claim 5
+                _toolbar.SetGuideHold(true);               // claim 6 — hold arms BEFORE suspend (r1 F11)
+                context.OverlayManager.CursorCircle.Hide();            // the ring hides — INSIDE Show
+                Log.Information("First-run guide: shown");
+                _guideWindow!.ShowGuide();
+                _guideFlow!.Start();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "First-run guide: show failed; unwinding");
+                UnwindPartialRaise(context, lease);
+            }
+        }
+        if (_splashHandle is { } splash) splash.WhenExited(Show);
+        else Show();
+
+        // Step toggles (claim 6(d)) + the ring's step-5 lifecycle (r3 F8: SHOW then raise).
+        _guideFlow.StepEntered += step => context.Dispatcher.BeginInvoke(() =>
+        {
+            if (_guideFlow is null || !_modal.GuideOpen) return;
+            if (step == FirstRunGuideStep.ToolbarTask)
+            {
+                _toolbar.ResetToolbarForGuideTask();       // hold released + controller Hidden
+                if (context.CursorVM.IsVisible)
+                    context.OverlayManager.CursorCircle.Show();       // SHOW (RaiseToTop alone can't)
+                context.OverlayManager.Toolbar.RaiseToTop();          // Guide < Toolbar
+                context.OverlayManager.PauseIndicator.RaiseToTop();   // < PauseIndicator
+                context.OverlayManager.CursorCircle.RaiseToTop();     // < ring
+            }
+            else
+            {
+                _toolbar.SetGuideHold(true);               // non-task steps hold again
+                context.OverlayManager.CursorCircle.Hide();           // step 5 ended: ring hidden again
+            }
+        });
+
+        // The summon observation — a FIELD-SUBSCRIBED private method (r3 F6), gated on the task,
+        // swapping the body to the success text (spec §7.5). NO re-render: the summon is a
+        // toolbar event, not a card activation — no targets were cleared (r4 F5).
+        _onToolbarVisibility = visible =>
+        {
+            if (_guideFlow is null || !_modal.GuideOpen || !visible) return;
+            context.Dispatcher.BeginInvoke(() =>
+            {
+                if (_guideFlow is null || !_guideFlow.IsOnStep(FirstRunGuideStep.ToolbarTask)) return;
+                context.OverlayManager.Toolbar.RaiseToTop();
+                context.OverlayManager.PauseIndicator.RaiseToTop();
+                if (context.CursorVM.IsVisible)
+                    context.OverlayManager.CursorCircle.Show();       // show + raise (r3 F8)
+                context.OverlayManager.CursorCircle.RaiseToTop();
+                _guideWindow?.ShowCardContent(
+                    StringTable.Current.T("guide.toolbar.title"),
+                    StringTable.Current.T("guide.toolbar.success"), chromeClose: true);
+            });
+        };
+        _toolbar.ToolbarVisibilityChanged += _onToolbarVisibility;
+
+        void Restore(GuideExitReason reason)
+        {
+            _toolbar.ToolbarVisibilityChanged -= _onToolbarVisibility;   // no handler pile-up
+            context.Messenger.Unregister<CalibrationStateChangedMessage>(this);  // always (r1 F17)
+            context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);  // claim 1
+            _modal.GuideOpen = false;
+            _quickActions.SetSummonSuspended("guide", false);
+            _toolbar.SetGuideHold(false);
+            _toolbar.ForceShow();                          // ForceShow + ResetToVisible — every mode (r4 F5)
+            if (context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen)
+                context.OverlayManager.CursorCircle.Show();           // ring restore (spec §5)
+            Log.Information("First-run guide: closed (step={Step}, completed={Completed})",
+                _guideFlow?.LastStepId ?? "done", reason == GuideExitReason.Finished);
+            (_guideVm as IDisposable)?.Dispose();
+            _guideFlow = null;                             // BEFORE window.Close: no re-entry
+            _guideVm = null;
+            _guideWindow?.Close();
+            _guideWindow = null;
+            _guideSurface = null;
+            _guideHost = null;
+            StatusCardsFallback = null;                    // no double-start on a later failed re-run (r2 F19)
+            lease.Dispose();
+        }
+        _guideFlow.Closed += reason => context.Dispatcher.BeginInvoke(() => Restore(reason));
+        _guideWindow.Closed += (_, _) => _guideFlow?.WindowClosed();   // external close = abandon
+    }
+
+    private readonly Dictionary<string, Action?> _safetyActions = new();
+
+    /// <summary>The safety chain's id → OnChosen map, populated when a question card renders;
+    /// the dispatch consults it first (r3 F5's one route).</summary>
+    internal void RememberSafetyActions(IReadOnlyList<ModalChoice> choices)
+    {
+        _safetyActions.Clear();
+        foreach (var choice in choices)
+            _safetyActions[choice.Id] = choice.OnChosen;
+    }
+
+    private void OnGuideChoice(string id)
+    {
+        if (_guideFlow is null) return;
+        if (_safetyActions.TryGetValue(id, out var onChosen))
+        {
+            _safetyActions.Clear();                        // consumed: the chain advances to the next card
+            _guideFlow.ForwardSafetyChoice(onChosen ?? (() => { }));
+            return;
+        }
+        switch (id)
+        {
+            case "guide_start": _guideFlow.Advance(); break;
+            case "guide_later": _guideFlow.Close(); break;
+            case "guide_dwell_skip": _guideFlow.Skip(); break;
+            case "guide_dwell_minus": _guideVm?.SetDwellTime(_guideVm.DwellTimeMs - 100); break;
+            case "guide_dwell_plus": _guideVm?.SetDwellTime(_guideVm.DwellTimeMs + 100); break;
+            case "guide_dwelltime_continue": _guideFlow.Advance(); break;
+            case "guide_calibrate_now": StartCalibration(); break;
+            case "guide_calibrate_skip": _guideFlow.Skip(); break;
+            case "guide_toolbar_skip": _guideFlow.Skip(); break;
+            case "guide_toolbar_continue": _guideFlow.Advance(); break;
+            case "guide_theme_continue": _guideFlow.Advance(); break;
+            case "guide_done_finish": _guideFlow.Finish(); break;
+            case "guide_safety_begin": _guideFlow.BeginSafetyQuestions(); break;   // transition card
+            case "guide_close": _guideFlow.Close(); break;
+            default:
+                if (id.StartsWith("guide_theme_", StringComparison.Ordinal))
+                {
+                    var theme = id["guide_theme_".Length..];
+                    _guideVm?.ThemeChosenFire(char.ToUpperInvariant(theme[0]) + theme[1..]);
+                }
+                break;
+        }
+    }
+
+    private IDisposable? _calibrationCeiling;
+
+    private void StartCalibration()
+    {
+        var context = Context!;
+        if (_guideVm is null || _guideFlow is null || _guideSurface is null) return;
+
+        var collected = false;
+        void OnCalibrationStateChanged(CalibrationStateChangedMessage m)
+        {
+            if (m.State is CalibrationState.Collecting or CalibrationState.Training)
+            {
+                collected = true;
+                _calibrationCeiling?.Dispose();
+                _guideWindow?.HideGuide();
+            }
+            else if (m.State is CalibrationState.Idle or CalibrationState.Cancelled)
+            {
+                context.Messenger.Unregister<CalibrationStateChangedMessage>(this);   // ONE type arg (r2 F10)
+                _calibrationCeiling?.Dispose();
+                context.Dispatcher.BeginInvoke(() =>
+                {
+                    _guideWindow?.ShowGuide();
+                    _guideFlow?.NotifyCalibrationEnded();   // renders step 5 — no Calibrate flicker (r3 F12)
+                });
+            }
+        }
+        context.Messenger.Register<SettingsUiCoordinator, CalibrationStateChangedMessage>(this,
+            (_, m) => OnCalibrationStateChanged(m));
+        _calibrationCeiling = SafetySetupFlow.DispatcherDelay(TimeSpan.FromSeconds(2), RefusalGuard);
+
+        void RefusalGuard()
+        {
+            if (collected) return;
+            context.Messenger.Unregister<CalibrationStateChangedMessage>(this);
+            context.Dispatcher.BeginInvoke(() => _guideSurface.ShowStep(FirstRunGuideStep.Calibrate));
+        }
+
+        context.Messenger.Send(new CalibrationRequestedMessage());
+    }
+
+    /// <summary>The flow's window surface. Per-BUILDER choice lists: the action row gets the
+    /// step's buttons via SetChoices; the chrome Close gets its own host via SetChromeClose;
+    /// the Theme chips get a 2×2 grid in StepContent via SetThemeGrid (r5 F4's geometry — six
+    /// cards in one row overflow the card and their 70-DIP circles overlap). Every builder
+    /// registers AND visualizes what it builds (r3 F5) and re-registers on a re-render (r5 F2).
+    /// Keys are LITERALS (r2 F12). In-place presses (dwell ±, theme chips) re-render through
+    /// RenderChoicesForCurrentStep (r4 F3).</summary>
+    private sealed class GuideSurface(
+        FirstRunGuideWindow window, FirstRunGuideViewModel vm,
+        SettingsUiCoordinator owner) : IGuideSurface
+    {
+        private FirstRunGuideStep? _lastStep;
+
+        public void ShowStep(FirstRunGuideStep step)
+        {
+            var (title, body) = TextsFor(step);
+            var chromeClose = step is not (FirstRunGuideStep.Welcome or FirstRunGuideStep.Done);
+            window.ShowCardContent(title, body, chromeClose);
+            window.SetChoices(RowChoicesFor(step));             // the action row, registered AND visualized
+            window.SetChromeClose(chromeClose, T("guide.chrome.close"));
+            window.SetPractice(step is FirstRunGuideStep.MeetDwell or FirstRunGuideStep.DwellTime);
+            window.SetDwellKnob(step == FirstRunGuideStep.DwellTime);
+            window.SetThemeGrid(step == FirstRunGuideStep.Theme, ThemeChips());
+            _lastStep = step;
+        }
+
+        private (string Title, string Body) TextsFor(FirstRunGuideStep step) => step switch
+        {
+            FirstRunGuideStep.Welcome => (T("guide.welcome.title"), T("guide.welcome.body")),
+            FirstRunGuideStep.MeetDwell => (T("guide.dwell.title"), T("guide.dwell.body")),
+            FirstRunGuideStep.DwellTime => (T("guide.dwelltime.title"), T("guide.dwelltime.body")),
+            FirstRunGuideStep.Calibrate => (T("guide.calibrate.title"), T("guide.calibrate.body")),
+            FirstRunGuideStep.ToolbarTask => (T("guide.toolbar.title"),
+                string.Format(CultureInfo.InvariantCulture, T("guide.toolbar.body"), EdgeWord())),
+            FirstRunGuideStep.Theme => (T("guide.theme.title"), T("guide.theme.body")),
+            FirstRunGuideStep.Safety => (T("guide.safety.title"), T("guide.safety.body")),
+            FirstRunGuideStep.Done => (T("guide.done.title"), T("guide.done.body")),
+            _ => (string.Empty, string.Empty),
+        };
+
+        /// <summary>The docked edge's localized word. `DockedEdge` is a STRING ("Top"/"Bottom"/
+        /// "Left"/"Right", ToolbarSettings.cs:41) and `Context` is the outer coordinator's
+        /// protected property, read through `owner` (r5 F5).</summary>
+        private string EdgeWord() => owner.Context!.Settings.Toolbar.DockedEdge switch
+        {
+            "Top" => T("guide.toolbar.edge.top"),
+            "Bottom" => T("guide.toolbar.edge.bottom"),
+            "Left" => T("guide.toolbar.edge.left"),
+            _ => T("guide.toolbar.edge.right"),
+        };
+
+        /// <summary>The action row's buttons per step — the chrome Close is NOT in this list
+        /// (it lives in its own host, r5 F4).</summary>
+        private static (string Label, string Id)[] RowChoicesFor(FirstRunGuideStep step) => step switch
+        {
+            FirstRunGuideStep.Welcome => [
+                (T("guide.welcome.start"), "guide_start"),
+                (T("guide.later"), "guide_later")],
+            FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip")],
+            FirstRunGuideStep.DwellTime => [(T("guide.dwelltime.continue"), "guide_dwelltime_continue")],
+            FirstRunGuideStep.Calibrate => [
+                (T("guide.calibrate.now"), "guide_calibrate_now"),
+                (T("guide.calibrate.skip"), "guide_calibrate_skip")],
+            FirstRunGuideStep.ToolbarTask => [
+                (T("guide.toolbar.continue"), "guide_toolbar_continue"),
+                (T("guide.toolbar.skip"), "guide_toolbar_skip")],
+            FirstRunGuideStep.Theme => [(T("guide.theme.continue"), "guide_theme_continue")],
+            FirstRunGuideStep.Safety => [(T("guide.safety.begin"), "guide_safety_begin")],
+            FirstRunGuideStep.Done => [(T("guide.done.finish"), "guide_done_finish")],
+            _ => [],
+        };
+
+        /// <summary>The Theme step's four chips, laid out as a 2×2 grid in StepContent
+        /// (radius 40 DIP — the 70-DIP circles of a 2×2 grid at this card size would overlap).</summary>
+        private static (string Label, string Id)[] ThemeChips() =>
+        [
+            (T("guide.theme.midnight"), "guide_theme_midnight"),
+            (T("guide.theme.ember"), "guide_theme_ember"),
+            (T("guide.theme.daylight"), "guide_theme_daylight"),
+            (T("guide.theme.contrast"), "guide_theme_contrast"),
+        ];
+
+        public void ShowSafetyCard(string message, IReadOnlyList<ModalChoice> choices)
+        {
+            vm.ShowSafetyCard(message, choices);
+            window.ShowCardContent(T("guide.safety.title"), message, chromeClose: true);
+            window.SetChoices(choices.Select(c => (c.Label, c.Id)).ToArray());
+            window.SetChromeClose(true, T("guide.chrome.close"));   // chrome Close through step 7 (r3 F10)
+            owner.RememberSafetyActions(choices);                 // id → OnChosen, for the dispatch
+        }
+
+        /// <summary>Re-renders the CURRENT step (r4 F3): an in-place press (dwell ±, theme chip)
+        /// cleared every chrome target, and the press did not change the step.</summary>
+        public void RenderChoicesForCurrentStep()
+        {
+            if (_lastStep is { } step) ShowStep(step);
+        }
+
+        public void HideCard() => window.HideGuide();
+        public void ShowCard() => window.ShowGuide();
+        public void Close() => window.Close();
+
+        private static string T(string key) => StringTable.Current.T(key);
+    }
 
     /// <summary>Hands the S6f setup-gateways FACTORY (the „Erweitert" update/rollback/uninstall
     /// rows) to the settings window construction. Called once at startup, like
@@ -208,18 +616,6 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             target: target,
             openWindow: OpenSettingsWindow,
             navigate: () => _settingsWindow?.NavigateToLanguageRow());
-    }
-
-    /// <summary>Opens settings when it is not open, then starts the safety chain on the window; a
-    /// window this opened closes again when the chain ends. The decision is SafetySetupLaunch's.</summary>
-    private void ShowSafetySetup()
-    {
-        if (Context is null) return;
-
-        SafetySetupLaunch.Run(
-            windowOpen: _settingsWindow is not null,
-            openWindow: OpenSettingsWindow,
-            start: closeWhenDone => _settingsWindow?.StartSafetySetup(closeWhenDone));
     }
 
     /// <summary>Constructs and shows a fresh settings window. Never navigates; the caller does.</summary>

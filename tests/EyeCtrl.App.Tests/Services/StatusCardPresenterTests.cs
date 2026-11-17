@@ -732,8 +732,19 @@ public class StatusCardPresenterTests
             .That(status).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage("App.OnStartup no longer starts the status cards").That(cards).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage("the cards must start after the control status").That(cards).IsStrictlyGreaterThan(status);
+        // r1 F14: the first-run guide defers the cards, so there are TWO starting sites behind the
+        // !IsTestMode guard — the guide-close handler (and the raise-failure fallback it doubles
+        // as) and the no-guide branch. One site means one branch was dropped.
+        Check.WithCustomMessage(
+                "the status cards must start in exactly two places behind the !IsTestMode guard: " +
+                "the guide-close handler and the no-guide branch")
+            .That(Regex.Matches(app,
+                @"_serviceProvider\s*\.\s*GetRequiredService<StatusCardPresenter>\(\)\s*\.\s*Start\(\)"))
+            .HasSize(2);
         Check.That(Regex.IsMatch(app,
-            @"if\s*\(\s*!IsTestMode\s*\)\s*_serviceProvider\s*\.\s*GetRequiredService<StatusCardPresenter>\(\)\s*\.\s*Start\(\)")).IsTrue();
+            @"if\s*\(\s*!IsTestMode\s*\)\s*\{\s*if\s*\(\s*SafetySetupStartup\.ShouldPrompt\(")).IsTrue();
+        Check.That(Regex.IsMatch(app,
+            @"_eventCoordinator\s*\.\s*StatusCardsFallback\s*=\s*\(\)\s*=>\s*OnGuideClosedForStatusCards\(false\)")).IsTrue();
     }
 
     private static string Source(string relative) =>

@@ -461,6 +461,7 @@
       "Count": 1
     },
     {
+<<<<<<< HEAD
       "Path": "src/EyeCtrl.App/Services/ExitSequencePlan.cs",
       "Literal": "\"release single-instance mutex\"",
       "Count": 1
@@ -468,6 +469,20 @@
     {
       "Path": "src/EyeCtrl.App/Services/ExitSequencePlan.cs",
       "Literal": "\"start exit watchdog\"",
+=======
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Bottom\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Left\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Top\"",
+>>>>>>> 3c07fc8 (feat(guide): per-run raise, unified choice targets with re-render, calibration guards, retire the safety-setup machinery)
       "Count": 1
     },
     {

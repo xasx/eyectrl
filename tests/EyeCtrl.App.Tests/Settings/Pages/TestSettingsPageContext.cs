@@ -28,7 +28,6 @@ internal static class TestSettingsPageContext
         Func<string>? readClipboard = null,
         SupervisionToggleService? supervision = null,
         UserDictionaryService? dictionary = null,
-        Action? runSafetySetup = null,
         ISetupGateways? setupGateways = null,
         IUninstallHandoffPresenter? uninstallHandoff = null) => new(
         settings ?? new EyeCtrlSettings(),
@@ -43,7 +42,6 @@ internal static class TestSettingsPageContext
         applyAndSave: () => { }, rebuildContent: () => { }, invoke: _ => { },
         close: () => { }, readClipboard: readClipboard ?? (() => ""))
     {
-        RunSafetySetup = runSafetySetup ?? (() => { }),
         SetupGateways = setupGateways,
         UninstallHandoff = uninstallHandoff,
     };

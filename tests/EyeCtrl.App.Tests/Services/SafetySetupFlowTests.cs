@@ -68,116 +68,6 @@ public class SafetySetupFlowTests : IDisposable
         Check.That(sent).IsEqualTo(expectedSends == 1);
     }
 
-    // ── coordinator launch ───────────────────────────────────────────────────
-
-    [Fact]
-    public void Launch_WithNoWindow_OpensOne_ThenStartsAChainThatClosesIt()
-    {
-        var steps = new List<string>();
-
-        SafetySetupLaunch.Run(windowOpen: false,
-            openWindow: () => steps.Add("open"),
-            start: closeWhenDone => steps.Add($"start close={closeWhenDone}"));
-
-        Check.That(steps).ContainsExactly("open", "start close=True");
-    }
-
-    [Fact]
-    public void Launch_WithAWindowOpen_StartsOnIt_AndLeavesItOpen()
-    {
-        var steps = new List<string>();
-
-        SafetySetupLaunch.Run(windowOpen: true,
-            openWindow: () => steps.Add("open"),
-            start: closeWhenDone => steps.Add($"start close={closeWhenDone}"));
-
-        Check.That(steps).ContainsExactly("start close=False");
-    }
-
-    // ── the window's host ────────────────────────────────────────────────────
-
-    [Fact]
-    public void Host_NeverStartsOverAModalThatIsUp()
-    {
-        var created = 0;
-        var host = new SafetySetupHost(() => true, onEnded => { created++; return Flow(onEnded: onEnded); }, () => { });
-
-        Check.That(host.Start(closeWhenDone: true)).IsFalse();
-        Check.That(created).IsEqualTo(0);
-        Check.That(_cards).IsEmpty();
-    }
-
-    [Fact]
-    public void Host_StartedByTheStartupRequest_ClosesTheWindow_AfterTheLastAnswer()
-    {
-        var closes = 0;
-        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
-
-        host.Start(closeWhenDone: true);
-        AnswerAll("safety_no", "safety_basic");
-
-        Check.That(closes).IsEqualTo(1);
-    }
-
-    [Fact]
-    public void Host_StartedByTheStartupRequest_ClosesTheWindow_OnLater()
-    {
-        var closes = 0;
-        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
-
-        host.Start(closeWhenDone: true);
-        Pick("safety_later");
-
-        Check.That(closes).IsEqualTo(1);
-        Check.That(_settings.General.SafetySetupDone).IsFalse();
-    }
-
-    [Fact]
-    public void Host_StartedFromTheRow_LeavesTheWindowOpen()
-    {
-        var closes = 0;
-        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
-
-        host.Start(closeWhenDone: false);
-        AnswerAll("safety_no", "safety_basic");
-
-        Check.That(closes).IsEqualTo(0);
-        Check.That(_settings.General.SafetySetupDone).IsTrue();
-    }
-
-    [Fact]
-    public void Host_WindowClosed_AbandonsTheChain_SoAStaleCardCannotCloseOrEndIt()
-    {
-        var closes = 0;
-        var host = new SafetySetupHost(() => false, onEnded => Flow(onEnded: onEnded), () => closes++);
-        host.Start(closeWhenDone: true);
-        var intro = Top;
-
-        host.OnWindowClosed();
-        intro.Choices.Single(c => c.Id == "safety_later").OnChosen!.Invoke();
-
-        Check.That(closes).IsEqualTo(0);
-        Check.That(_ended).IsEmpty();
-    }
-
-    [Fact]
-    public void Host_WindowClosed_DropsALateCrashRecoveryResult()
-    {
-        var supervision = FailingAsyncSupervision(_settings);
-        var host = new SafetySetupHost(() => false,
-            onEnded => Flow(supervision: supervision, onEnded: onEnded), () => { });
-        host.Start(closeWhenDone: true);
-        Pick("safety_start"); Pick("safety_yes");         // bring-up in flight
-        var shown = _cards.Count;
-
-        host.OnWindowClosed();
-        RunBackground();                                   // … fails after the window closed
-        Pick("safety_no");                                 // a stale Q2 card, never a failure card
-
-        Check.That(_cards.Skip(shown).Select(c => c.Message))
-            .Not.Contains("The Supervisor could not be started, so supervision is off.");
-    }
-
     // ── the chain ────────────────────────────────────────────────────────────
 
     [Fact]
@@ -653,14 +543,6 @@ public class SafetySetupFlowTests : IDisposable
         Pick(id);
     }
 
-    /// <summary>The card on screen is the intro: start, answer q1–q4 with <paramref name="yesNo"/>, q5 with <paramref name="mode"/>.</summary>
-    private void AnswerAll(string yesNo, string mode)
-    {
-        Pick("safety_start");
-        for (var i = 0; i < 4; i++) Pick(yesNo);
-        Pick(mode);
-    }
-
     private void RunBackground()
     {
         var work = _background.ToList();
@@ -731,9 +613,9 @@ public class SafetySetupFlowTests : IDisposable
             reconcileRunKey: () => { }, runInBackground: _background.Add, postToUi: w => w());
 
     // internal: implements IRecipient<T> (the MVVM generator needs at least internal visibility).
-    internal sealed class RequestProbe : IRecipient<SafetySetupRequestedMessage>
+    internal sealed class RequestProbe : IRecipient<FirstRunGuideRequestedMessage>
     {
         public int Count { get; private set; }
-        public void Receive(SafetySetupRequestedMessage message) => Count++;
+        public void Receive(FirstRunGuideRequestedMessage message) => Count++;
     }
 }

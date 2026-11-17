@@ -4,12 +4,13 @@ using System.IO;
 using System.Text.RegularExpressions;
 
 /// <summary>
-/// Source pins for the safety setup's composition seams. The behaviour lives in headlessly tested
-/// seams (<c>SafetySetupStartup.MaybeRequest</c>, <c>SafetySetupLaunch.Run</c>, <c>SafetySetupHost</c>,
-/// see SafetySetupFlowTests); what is left at the three call sites that only a real window and a
-/// real startup exercise is the ARGUMENTS they pass, so these pins match each argument exactly —
-/// a negated, swapped or dropped argument fails, not only a deleted call (A2 review M2: substring
-/// scans let a negated hook and a flipped null check survive).
+/// Source pins for the first-run guide's composition seams (Task 12, after the safety-setup
+/// machinery retired). The raise behaviour lives in headlessly testable seams
+/// (<c>FirstRunGuideFlow</c>, <c>SafetySetupFlow</c>, see SafetySetupFlowTests); what is left at
+/// the call sites that only a real window and a real startup exercise is the ARGUMENTS they pass,
+/// so these pins match each argument exactly — a negated, swapped or dropped argument fails, not
+/// only a deleted call (A2 review M2: substring scans let a negated hook and a flipped null check
+/// survive).
 /// </summary>
 public class SafetySetupWiringTests
 {
@@ -41,44 +42,59 @@ public class SafetySetupWiringTests
     }
 
     [Fact]
-    public void TheCoordinator_DispatchesThroughTheLaunchSeam_WithTheRealWindowState()
+    public void TheCoordinator_RegistersTheRenamedMessage_AndCarriesThePerRunFactory()
     {
         var source = Read("src", "EyeCtrl.App", "Services", "Coordinators", "SettingsUiCoordinator.cs");
-        var start = source.IndexOf("private void ShowSafetySetup()", StringComparison.Ordinal);
-        Check.That(start).IsStrictlyGreaterThan(-1);
-        var body = Squash(source[start..source.IndexOf("\n    }", start, StringComparison.Ordinal)]);
 
-        Check.That(source).Contains("Register<SettingsUiCoordinator, SafetySetupRequestedMessage>");
-        Check.That(body).Contains(
-            "SafetySetupLaunch.Run( windowOpen: _settingsWindow is not null, openWindow: OpenSettingsWindow, "
-            + "start: closeWhenDone => _settingsWindow?.StartSafetySetup(closeWhenDone));");
+        Check.WithCustomMessage("The guide request (startup and the Settings → General row) must "
+                                + "register under its renamed type — the old record is deleted.")
+            .That(source).Contains("Register<SettingsUiCoordinator, FirstRunGuideRequestedMessage>");
+
+        // The per-run factory: the one-flow gate and its lease, the raise, its unwind, and the
+        // status-card fallback the unwind invokes. Each named explicitly so a deletion or a
+        // rename shows up as a missing literal, not a silent behavioural change.
+        Check.That(source).Contains("private FirstRunGuideHost? _guideHost;");
+        Check.That(source).Contains("private SplashThreadHandle? _splashHandle;");
+        Check.That(source).Contains("private FirstRunGuideWindow? _guideWindow;");
+        Check.That(source).Contains("private FirstRunGuideViewModel? _guideVm;");
+        Check.That(source).Contains("private FirstRunGuideFlow? _guideFlow;");
+        Check.That(source).Contains("private GuideSurface? _guideSurface;");
+        Check.That(source).Contains("private Action<bool>? _onToolbarVisibility;");
+        Check.That(source).Contains("private void StartFirstRunGuide()");
+        Check.WithCustomMessage("The raise-failure unwind must take the same context+lease shape the "
+                                + "raise hands it, so it can undo Show and release the gate.")
+            .That(source).Contains(
+                "private void UnwindPartialRaise(EventCoordinationContext context, FirstRunGuideLease lease)");
+        Check.That(source).Contains(
+            "private void BuildAndRaiseGuide(EventCoordinationContext context, FirstRunGuideLease lease)");
+        Check.WithCustomMessage("App assigns the status-card fallback through the EventCoordinator "
+                                + "forwarder; the unwind invokes it when the raise failed.")
+            .That(source).Contains("internal Action? StatusCardsFallback { get; set; }");
+        Check.WithCustomMessage("The splash handle must be handed in for the latched show (r1 F15).")
+            .That(source).Contains("public void SetSplashHandle(SplashThreadHandle? handle)");
     }
 
     [Fact]
-    public void TheWindow_WiresTheHost_TheFlow_TheRowAndTheClose()
+    public void TheRetiredSafetySetupMachinery_IsGone()
     {
-        var flat = Squash(Read("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var coordinator = Read("src", "EyeCtrl.App", "Services", "Coordinators", "SettingsUiCoordinator.cs");
+        var window = Read("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs");
 
-        Check.WithCustomMessage("The row re-runs the chain and keeps the window open.")
-            .That(flat).Contains("RunSafetySetup = () => StartSafetySetup(closeWhenDone: false),");
-        Check.WithCustomMessage("The host must ask the modal's live visibility and close the window deferred.")
-            .That(flat).Contains(
-                "new SafetySetupHost( () => _viewModel.IsModalVisible, CreateSafetySetupFlow, "
-                + "() => Dispatcher.BeginInvoke(new Action(Close)));");
-        Check.WithCustomMessage("The chain saves through the window's ApplyAndSave, switches the view through "
-                                + "SwitchSettingsUiMode and reports its end to the host.")
-            .That(flat).Contains("ApplyAndSave, SwitchSettingsUiMode, onEnded);");
-        Check.That(flat).Contains("internal void StartSafetySetup(bool closeWhenDone) { if (_safetySetup.Start(closeWhenDone))");
+        foreach (var retired in new[] { "SafetySetupLaunch.Run", "SafetySetupHost", "RunSafetySetup" })
+        {
+            Check.WithCustomMessage($"{retired} must be gone from SettingsUiCoordinator — the guide "
+                                    + "raise replaced the safety-setup launch.")
+                .That(coordinator).Not.Contains(retired);
+            Check.WithCustomMessage($"{retired} must be gone from SettingsWindow — the window no "
+                                    + "longer hosts the chain.")
+                .That(window).Not.Contains(retired);
+        }
+
+        // The window's close path must still reset the latch release margin (a DPI correctness pin
+        // that outlived the retired host) — the guard keeps the targets' release margin physical.
         Check.WithCustomMessage("The latch's release margin must be set in the targets' physical pixels "
                                 + "(review 02 N1); without it the latch runs on the DPI-1.0 default.")
-            .That(flat).Contains(
+            .That(Squash(window)).Contains(
                 "_viewModel.LatchReleaseMarginPhysical = DpiHelper.LogicalToPhysicalX(SettingsWindowViewModel.LatchReleaseMarginDip);");
-
-        var closed = flat.IndexOf("Closed += (_, _) =>", StringComparison.Ordinal);
-        var closedEnd = flat.IndexOf("_viewModel.Dispose(); };", closed, StringComparison.Ordinal);
-        Check.That(closed).IsStrictlyGreaterThan(-1);
-        Check.WithCustomMessage("The window's close path must abandon the chain (a late crash-recovery "
-                                + "result must not reach the disposed view model).")
-            .That(flat[closed..closedEnd]).Contains("_safetySetup.OnWindowClosed();");
     }
 }

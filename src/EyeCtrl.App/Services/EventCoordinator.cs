@@ -139,6 +139,18 @@ public class EventCoordinator : IEventCoordinator
         _settingsUi!.SetSupervisionToggle(service);
     }
 
+    /// <summary>Hands the splash handle to the settings-UI coordinator (the guide's latched
+    /// show). The coordinator stores it (r1 F15). Internal: the handle type is App-internal.</summary>
+    internal void SetSplashHandle(SplashThreadHandle? handle) => _settingsUi?.SetSplashHandle(handle);
+
+    /// <summary>The guide raise's failure fallback: starts the status-card presenter when the
+    /// coordinator's unwind runs (r2 F13 — App has no coordinator field of its own).</summary>
+    internal Action? StatusCardsFallback
+    {
+        get => _settingsUi?.StatusCardsFallback;
+        set { if (_settingsUi is not null) _settingsUi.StatusCardsFallback = value; }
+    }
+
     /// <summary>Hands the C9 S6f setup-gateways factory (the „Erweitert" update/rollback/uninstall
     /// rows) to the settings window construction. Called once at startup; the factory yields a
     /// FRESH instance per window (review 01 M1).</summary>

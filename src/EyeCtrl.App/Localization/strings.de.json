@@ -2218,6 +2218,10 @@
     "text": "Mit Windows starten",
     "src": "a9f19885"
   },
+  "settings.general.guide.label": {
+    "text": "Einführung erneut starten",
+    "src": "dab8cbd0"
+  },
   "settings.general.pause.description": {
     "text": "Startet pausiert; die Blicksteuerung beginnt erst mit „Fortsetzen“.",
     "src": "289182b1"
@@ -2273,10 +2277,6 @@
   "settings.general.restart_notice.label": {
     "text": "Neustart-Hinweis (ms)",
     "src": "410a6cb1"
-  },
-  "settings.general.safety.label": {
-    "text": "Sicherheitseinrichtung wiederholen",
-    "src": "1dda5f16"
   },
   "settings.general.supervision.description": {
     "text": "Reagiert EyeCtrl nicht mehr oder stürzt ab, startet es automatisch neu; fällt es immer wieder aus, öffnet sich stattdessen TD Control.",

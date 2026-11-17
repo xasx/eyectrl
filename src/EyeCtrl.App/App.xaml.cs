@@ -336,6 +336,7 @@ public partial class App : Application
                 CursorPositionProbe: _serviceProvider.GetRequiredService<ICursorPositionProbe>(),
                 InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>());
             _eventCoordinator.Initialize(coordinationContext);
+            _eventCoordinator.SetSplashHandle(_splashHandle);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in
             // NoteOccluderWiring.Wire, so the real wiring is executable from a container test
@@ -415,13 +416,6 @@ public partial class App : Application
             // Its changes are posted to this dispatcher and published as
             // ControlStatusChangedMessage; the strip (B2b) and the chime (B3) are separate tickets.
             _serviceProvider.GetRequiredService<ControlStatusService>().Start();
-
-            // ── Status cards (Wave B B5) ──
-            // After the status starts, so the first card explains the state the session really
-            // began in (paused launch, no tracker). Not in test mode: its provider is always the
-            // mouse, and a NoTracker card on every UI-test launch would only be noise.
-            if (!IsTestMode)
-                _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
 
             // ── Display / resolution / DPI change ──
             // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the
@@ -529,6 +523,7 @@ public partial class App : Application
                     dwellSettings: settings.Dwell),
                 isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                 isProbeOpen: () => _eventCoordinator.IsProbeOpen,
+                isGuideOpen: () => _eventCoordinator.IsGuideOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
                 postToUi: work => Dispatcher.Invoke(work));
             // D17 (T15 merge): the card is a gaze consumer (its own close-button dwell target), so
@@ -551,6 +546,9 @@ public partial class App : Application
             // hit area overlaps the card's button, so one dwell would close the card AND start the
             // trials. The probe opening takes a card that is up down too.
             _eventCoordinator.ProbeOpenChanged += _restartNoticeHost.OnProbeOpenChanged;
+            // The first-run guide is the third: a show during the guide is deferred and replayed
+            // once when it closes (the newest wins — Task 11).
+            _eventCoordinator.GuideOpenChanged += _restartNoticeHost.OnGuideOpenChanged;
 
             // N2 (fixup-01): a resumed sub-pixel start that fails AFTER the resume — the
             // resume-landing timeout, or a gate that refuses once the queued start runs — used to
@@ -592,8 +590,12 @@ public partial class App : Application
                     timer.Start();
                 },
                 now: () => DateTimeOffset.Now,
-                fileChange: onChange => WatchSetupLastRecord(noticeFiles.RecordPath, onChange));
+                fileChange: onChange => WatchSetupLastRecord(noticeFiles.RecordPath, onChange),
+                isGuideOpen: () => _eventCoordinator.IsGuideOpen);
             _setupNoticeWatch.Start();
+            // While the guide holds the screen the watch neither checks nor expires; its close
+            // pokes once (Task 11).
+            _eventCoordinator.GuideOpenChanged += _setupNoticeWatch.OnGuideOpenChanged;
 
             // T0(a) lag mark (spec plans/t0a-lag-mark-button): the temporary dwellable "Lag" button
             // and its LAG MARK line, constructed ONLY when the dispatch probe exists — an ordinary
@@ -610,6 +612,7 @@ public partial class App : Application
                     isInstrumentOn: () => settings.Diagnostics.MeasureUiInstruments,
                     isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                     isProbeOpen: () => _eventCoordinator.IsProbeOpen,
+                    isGuideOpen: () => _eventCoordinator.IsGuideOpen,
                     now: () => DateTime.Now,
                     postToUi: work => Dispatcher.Invoke(work),
                     log: line => Log.Information("{LagMark}", line));
@@ -629,7 +632,38 @@ public partial class App : Application
                 _eventCoordinator.SettingsOpenChanged += _lagMarkHost.OnSettingsOpenChanged;
                 // The probe owns the screen while it is up (Task 6, the restart card's seam).
                 _eventCoordinator.ProbeOpenChanged += _lagMarkHost.OnProbeOpenChanged;
+                // The guide hides the button and brings it back on close (Task 11).
+                _eventCoordinator.GuideOpenChanged += _lagMarkHost.OnGuideOpenChanged;
                 _lagMarkHost.Start();
+            }
+
+            // The guide's banner hold (claim 4): live banner hides + re-queues; dequeue pauses.
+            // Preempt still bypasses it (caregiver alerts — Task 11's pinned behaviour).
+            _eventCoordinator.GuideOpenChanged += open =>
+            {
+                if (open) bannerSlot.Hold(); else bannerSlot.Release();
+            };
+
+            if (!IsTestMode)
+            {
+                if (SafetySetupStartup.ShouldPrompt(
+                        settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode))
+                {
+                    // The status cards start on guide close; the coordinator's raise-failure
+                    // unwind invokes the fallback (r3 F6 / r2 F14).
+                    void OnGuideClosedForStatusCards(bool open)
+                    {
+                        if (open) return;
+                        _eventCoordinator.GuideOpenChanged -= OnGuideClosedForStatusCards;
+                        _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
+                    }
+                    _eventCoordinator.GuideOpenChanged += OnGuideClosedForStatusCards;
+                    _eventCoordinator.StatusCardsFallback = () => OnGuideClosedForStatusCards(false);
+                }
+                else
+                {
+                    _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
+                }
             }
 
             // Hand the coordinator to the settings window's owner so the restart button
@@ -701,7 +735,7 @@ public partial class App : Application
                 eyeCare.OnGazeSample(
                     sample,
                     isPaused: im.CurrentState == InteractionState.Paused,
-                    canInterrupt: im.CurrentState == InteractionState.FreeLook);
+                    canInterrupt: im.CurrentState == InteractionState.FreeLook && !_eventCoordinator.IsGuideOpen);
             };
 
             // The password-field detector (system-wide UIA focus hook) runs for the whole session, NOT with

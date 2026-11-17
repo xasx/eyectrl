@@ -4020,6 +4020,13 @@
     "fit": "row",
     "args": []
   },
+  "settings.general.guide.label": {
+    "text": "Run the introduction guide",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
   "settings.general.pause.description": {
     "text": "Starts with tracking paused until you switch it on.",
     "who": "user",
@@ -4116,13 +4123,6 @@
     "who": "user",
     "where": "settings",
     "fit": "row",
-    "args": []
-  },
-  "settings.general.safety.label": {
-    "text": "Run Safety Setup Again",
-    "who": "user",
-    "where": "settings",
-    "fit": "B260x2",
     "args": []
   },
   "settings.general.supervision.description": {

@@ -1487,6 +1487,24 @@
       "Reason": "The toolbar auto-hide suspension holder name for an open task switcher - an ownership token keyed into ToolbarLifecycleCoordinator's holder set, never rendered."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Bottom\"",
+      "Category": "id",
+      "Reason": "A saved settings code (Toolbar.DockedEdge), compared and written, never displayed."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Left\"",
+      "Category": "id",
+      "Reason": "A saved settings code (Toolbar.DockedEdge), compared and written, never displayed."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Top\"",
+      "Category": "id",
+      "Reason": "A saved settings code (Toolbar.DockedEdge), compared and written, never displayed."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
       "Literal": "\"in chrome\"",
       "Category": "log",

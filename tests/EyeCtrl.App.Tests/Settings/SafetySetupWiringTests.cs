@@ -97,4 +97,32 @@ public class SafetySetupWiringTests
             .That(Squash(window)).Contains(
                 "_viewModel.LatchReleaseMarginPhysical = DpiHelper.LogicalToPhysicalX(SettingsWindowViewModel.LatchReleaseMarginDip);");
     }
+
+    [Fact]
+    public void TheSetupNoticeWatch_DoesNotStartAtConstruction_WhileTheGuideIsPending()
+    {
+        // S2-1: the watch used to Start() unconditionally at construction — its immediate check
+        // ran with GuideOpen=false (the guide opens only after the splash exits), so an unseen
+        // failed-update record burned its shown-marker and the notice was then taken down behind
+        // the guide's window without ever being seen. The construction-time start must sit behind
+        // the guide-pending negation and the deferred start must live in the guide-closed handler
+        // the raise-failure fallback doubles as. Comment-stripped (B9 M2): a comment that merely
+        // mentions the calls must not satisfy the pin.
+        var app = Squash(SourceScanner.StripComments(Read("src", "EyeCtrl.App", "App.xaml.cs")));
+
+        Check.WithCustomMessage("The construction-time Start must be gated on !ShouldPrompt — a "
+                                + "pending guide defers the watch into the guide-closed path.")
+            .That(app).Contains(
+                "if (!SafetySetupStartup.ShouldPrompt( settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode)) _setupNoticeWatch.Start();");
+
+        Check.WithCustomMessage("The guide-closed handler must start the deferred watch (it also "
+                                + "runs via the raise-failure fallback).")
+            .That(app).Contains(
+                "void OnGuideClosedForStatusCards(bool open) { if (open) return; _eventCoordinator.GuideOpenChanged -= OnGuideClosedForStatusCards; _setupNoticeWatch?.Start(); _serviceProvider.GetRequiredService<StatusCardPresenter>().Start(); }");
+
+        Check.WithCustomMessage("The watch must start in exactly two places: gated at construction "
+                                + "and deferred in the guide-closed handler — a third site would "
+                                + "re-burn the marker behind the guide.")
+            .That(Regex.Matches(app, @"_setupNoticeWatch\s*\??\.Start\s*\(\s*\)")).HasSize(2);
+    }
 }

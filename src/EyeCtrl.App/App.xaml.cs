@@ -592,7 +592,18 @@ public partial class App : Application
                 now: () => DateTimeOffset.Now,
                 fileChange: onChange => WatchSetupLastRecord(noticeFiles.RecordPath, onChange),
                 isGuideOpen: () => _eventCoordinator.IsGuideOpen);
-            _setupNoticeWatch.Start();
+            // S2-1: when the startup guide is pending, the watch must NOT run its immediate check
+            // here. GuideOpen is still false at construction (the guide opens only after the splash
+            // exits), so an unseen failed-update record would burn its setup-notice-shown.json
+            // marker NOW, and the guide opening seconds later would take the notice down behind
+            // its window — shown-then-lost, deterministically on every first run. The start is
+            // deferred into the guide-closed handler (OnGuideClosedForStatusCards below, which the
+            // raise-failure fallback StatusCardsFallback also runs); the watch's close-time poke
+            // then shows the notice. ShouldPrompt embeds the IsTestMode/paused checks, so test-mode
+            // and no-guide sessions start here exactly as before.
+            if (!SafetySetupStartup.ShouldPrompt(
+                    settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode))
+                _setupNoticeWatch.Start();
             // While the guide holds the screen the watch neither checks nor expires; its close
             // pokes once (Task 11).
             _eventCoordinator.GuideOpenChanged += _setupNoticeWatch.OnGuideOpenChanged;
@@ -655,6 +666,10 @@ public partial class App : Application
                     {
                         if (open) return;
                         _eventCoordinator.GuideOpenChanged -= OnGuideClosedForStatusCards;
+                        // The deferred setup-notice watch (S2-1) starts on this same guide-closed
+                        // edge — and the raise-failure fallback arrives through this very handler,
+                        // so a failed guide raise still starts the watch.
+                        _setupNoticeWatch?.Start();
                         _serviceProvider.GetRequiredService<StatusCardPresenter>().Start();
                     }
                     _eventCoordinator.GuideOpenChanged += OnGuideClosedForStatusCards;

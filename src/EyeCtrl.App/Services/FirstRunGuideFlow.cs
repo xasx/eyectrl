@@ -71,6 +71,10 @@ internal sealed class FirstRunGuideFlow
         {
             case FirstRunGuideStep.Welcome: Enter(Next(FirstRunGuideStep.MeetDwell)); break;
             case FirstRunGuideStep.DwellTime: Enter(Next(FirstRunGuideStep.Calibrate)); break;
+            // The toolbar task's Continue (S1): without this the press cleared every chrome
+            // target (the VM clears before dispatching) and re-entered nothing — the card sat
+            // target-less under all the guide's claims, with no gaze way out.
+            case FirstRunGuideStep.ToolbarTask: Enter(Next(FirstRunGuideStep.Theme)); break;
             case FirstRunGuideStep.Theme: Enter(Next(FirstRunGuideStep.Safety)); break;
             case FirstRunGuideStep.Done: Finish(); break;   // the Done card's exit (r1 F4)
         }

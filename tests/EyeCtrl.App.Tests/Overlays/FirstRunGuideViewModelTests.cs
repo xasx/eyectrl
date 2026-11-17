@@ -88,6 +88,8 @@ public class FirstRunGuideViewModelTests
             t += 30_000;
         }
         Check.That(fired).HasSize(1);                         // armed, dwelled, dispatched
+        Check.That(vm.DetectorForTest.Targets).IsEmpty();     // T6 ledger pin: clear BEFORE dispatch —
+                                                              // a re-render (or a step change) must re-register
     }
 
     [Fact]

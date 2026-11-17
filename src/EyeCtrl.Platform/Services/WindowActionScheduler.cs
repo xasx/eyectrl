@@ -92,9 +92,10 @@ internal sealed class WindowActionScheduler
     /// at either point.
     /// </param>
     /// <param name="onCompleted">
-    /// Optional: told once, on the action's worker thread, whether the body ran or the request was
-    /// dropped at the start deadline. It runs after the chain is released, so a successor never
-    /// waits on it, and it must not throw or touch UI objects. A fault is contained and logged.
+    /// Optional: told at most once, on the action's worker thread — exactly once unless the body
+    /// never returns from a native call — whether the body ran or the request was dropped at the
+    /// start deadline. It runs after the chain is released, so a successor never waits on it, and
+    /// it must not throw or touch UI objects. A fault is contained and logged.
     /// </param>
     internal void Enqueue(
         string action,

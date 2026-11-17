@@ -79,6 +79,89 @@ public class Win32WindowManagerEscapeTests
     }
 
     /// <summary>
+    /// R1/P1: the realistic hung-window model — <c>ShowWindowAsync</c> returns at once and the
+    /// target's thread never processes the restore, so <c>IsIconic</c> stays true for good. The
+    /// attempt must end at the budget (one completion, one Warning, one foreground try) and leave
+    /// the worker free; a restore poll that ignores the budget would spin here forever (mutant X1).
+    /// </summary>
+    [Fact]
+    public void AHungIconicTarget_WhoseRestoreIsNeverProcessed_GivesUpAtTheBudget()
+    {
+        var native = new FakeEscapeNative { IgnoreShowWindowAsync = true };
+        native.Minimised.Add(Window);
+        native.RefuseForeground(Window);
+        var (manager, logger) = Create(native, completionBudget: TimeSpan.FromMilliseconds(200));
+
+        EscapeWindowResult? result = null;
+        var completions = 0;
+        var completed = new ManualResetEventSlim();
+        var elapsed = Stopwatch.StartNew();
+        manager.BeginBringToFront(Window, r =>
+        {
+            result = r;
+            Interlocked.Increment(ref completions);
+            completed.Set();
+        });
+
+        Check.WithCustomMessage(
+                "a hung minimised target kept the worker polling past its budget (X1).")
+            .That(completed.Wait(TimeSpan.FromSeconds(2))).IsTrue();
+        elapsed.Stop();
+
+        Check.That(elapsed.ElapsedMilliseconds).IsStrictlyLessThan(2000);
+        Check.That(completions).IsEqualTo(1);
+        Check.That(result.HasValue).IsFalse();
+        Check.That(logger.Entries.Count(e =>
+                e.Level == LogLevel.Warning
+                && e.Message.Contains("was abandoned after", StringComparison.Ordinal))).IsEqualTo(1);
+        // F2: the restore timed out while iconic, so exactly one non-injecting foreground try.
+        Check.That(native.Calls.Count(c => c.Name == "SetForegroundWindow" && c.Hwnd == Window))
+            .IsEqualTo(1);
+        Check.That(native.ShowWindowAsyncCommands).ContainsExactly(NativeMethods.SW_RESTORE);
+        Check.That(native.SendInputCalls).IsEqualTo(0u);
+
+        // The worker is free afterwards: nothing keeps polling once the attempt completed.
+        var callsAtCompletion = native.Calls.Count;
+        Thread.Sleep(100);
+        Check.WithCustomMessage("the worker was still polling after the attempt completed.")
+            .That(native.Calls.Count).IsEqualTo(callsAtCompletion);
+    }
+
+    /// <summary>
+    /// F2: when the restore poll times out while the target is still iconic, exactly one
+    /// non-blocking <c>SetForegroundWindow</c> is still issued, after the budget. If Windows accepts
+    /// it, the existing success line and result fields report the foreground change; no fallback
+    /// runs and nothing is injected.
+    /// </summary>
+    [Fact]
+    public void AHungIconicTarget_AfterTheRestoreBudget_StillGetsOneSetForegroundWindow()
+    {
+        var native = new FakeEscapeNative { IgnoreShowWindowAsync = true };
+        native.Minimised.Add(Window);
+        var (manager, logger) = Create(native, completionBudget: TimeSpan.FromMilliseconds(200));
+
+        var (result, completions) = RunToCompletion(manager, Window);
+
+        Check.That(completions).IsEqualTo(1);
+        Check.That(result.HasValue).IsTrue();
+        Check.That(result!.Value).IsEqualTo(new EscapeWindowResult(true, true, false));
+        Check.That(native.Calls.Count(c => c.Name == "SetForegroundWindow" && c.Hwnd == Window))
+            .IsEqualTo(1);
+        Check.WithCustomMessage("the foreground try was not issued after the restore budget.")
+            .That(native.ElapsedAt("SetForegroundWindow", Window)).IsGreaterOrEqualThan(150L);
+        Check.That(native.Calls.Count(c => c.Name == "IsIconic" && c.Hwnd == Window))
+            .IsStrictlyGreaterThan(5);
+        Check.That(native.ShowWindowAsyncCommands).ContainsExactly(NativeMethods.SW_RESTORE);
+        Check.That(native.SendInputCalls).IsEqualTo(0u);
+        Check.That(logger.Entries).HasElementThatMatches(e =>
+            e.Level == LogLevel.Information
+            && e.Message.StartsWith("Blocked-input escape: brought window ", StringComparison.Ordinal)
+            && e.Message.EndsWith(" to the foreground without injecting input.", StringComparison.Ordinal));
+        Check.That(logger.Entries.Any(e =>
+                e.Message.Contains("was abandoned after", StringComparison.Ordinal))).IsFalse();
+    }
+
+    /// <summary>
     /// The happy path, through the async completion: the same result fields and the same
     /// Information line the synchronous path wrote, with the restore posted before the switch.
     /// </summary>
@@ -229,6 +312,140 @@ public class Win32WindowManagerEscapeTests
     }
 
     /// <summary>
+    /// R1/P6: a request that cannot start within the start deadline is still reported back — the
+    /// completion fires exactly once with no result — and never touches its target. Without the
+    /// scheduler's drop completion this test waits forever (mutant X4).
+    /// </summary>
+    [Fact]
+    public void AnEscapeDroppedAtTheStartDeadline_CompletesOnceWithNoResult()
+    {
+        var native = new FakeEscapeNative { HangInShowWindowAsync = Window };
+        native.Minimised.Add(Window);
+        var (manager, logger) = Create(
+            native,
+            handoffTimeout: TimeSpan.FromMilliseconds(300),
+            startDeadline: TimeSpan.FromMilliseconds(100),
+            completionBudget: TimeSpan.FromSeconds(10));
+
+        manager.BeginBringToFront(Window, _ => { });
+        Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+
+        EscapeWindowResult? droppedResult = new EscapeWindowResult(true, true, true);
+        var completions = 0;
+        var completed = new ManualResetEventSlim();
+        manager.BeginBringToFront(Other, r =>
+        {
+            droppedResult = r;
+            Interlocked.Increment(ref completions);
+            completed.Set();
+        });
+
+        Check.WithCustomMessage("a request dropped at the start deadline never completed (X4).")
+            .That(completed.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Thread.Sleep(200);
+        native.ReleaseHang.Set();
+
+        Check.That(completions).IsEqualTo(1);
+        Check.That(droppedResult.HasValue).IsFalse();
+        Check.That(logger.Entries.Count(e =>
+                e.Level == LogLevel.Warning
+                && e.Message.Contains("was dropped", StringComparison.Ordinal))).IsEqualTo(1);
+        Check.That(native.Calls.Where(c => c.Hwnd == Other)).IsEmpty();
+        Check.That(native.SendInputCalls).IsEqualTo(0u);
+    }
+
+    /// <summary>
+    /// F3: the fallback poll (300 ms) is shorter than the scheduler's hand-off bound (500 ms), so a
+    /// responsive target that refuses the foreground finishes its normal failure path before an
+    /// action queued behind it can abandon it as "target stopped answering". Without the shorter
+    /// bound the two lines contradict each other roughly half the time.
+    /// </summary>
+    [Fact]
+    public void APickQueuedDuringTheFallbackPoll_LandsWithoutASpuriousAbandonment()
+    {
+        var native = new FakeEscapeNative();
+        native.RefuseForeground(Window);
+        var (manager, logger) = Create(native); // production bounds
+
+        EscapeWindowResult? escapeResult = null;
+        var escapeDone = new ManualResetEventSlim();
+        manager.BeginBringToFront(Window, r =>
+        {
+            escapeResult = r;
+            escapeDone.Set();
+        });
+
+        // Both fallback posts are out: the escape is now inside its foreground poll.
+        var pollStarted = Stopwatch.StartNew();
+        while (native.ShowWindowAsyncCommands.Count < 2
+               && pollStarted.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            Thread.Sleep(5);
+        }
+
+        Check.That(native.ShowWindowAsyncCommands.Count).IsEqualTo(2);
+
+        var pickRequested = Stopwatch.StartNew();
+        manager.BringToFront(Other);
+        Check.That(escapeDone.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        WaitUntil(
+            () => native.Calls.Any(c => c.Name == "SetForegroundWindow" && c.Hwnd == Other),
+            "the pick's switch");
+        pickRequested.Stop();
+
+        Check.That(escapeResult.HasValue).IsTrue();
+        Check.That(escapeResult!.Value).IsEqualTo(new EscapeWindowResult(false, false, true));
+        Check.WithCustomMessage("the pick was held up behind the escape's fallback poll.")
+            .That(pickRequested.ElapsedMilliseconds).IsStrictlyLessThan(1000);
+        Check.WithCustomMessage(
+                "the escape was reported as 'target stopped answering' while it was answering.")
+            .That(logger.Entries.Any(e =>
+                e.Message.Contains("was abandoned", StringComparison.Ordinal))).IsFalse();
+        Check.That(logger.Entries.Count(e =>
+                e.Level == LogLevel.Warning
+                && e.Message.Contains("neither SetForegroundWindow", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// F4: once the minimise has been posted, the restore is always posted too. Here the fake
+    /// stalls the minimise past the budget, so the attempt goes stale exactly inside the pair; the
+    /// owner's window must still end up restored rather than left minimised.
+    /// </summary>
+    [Fact]
+    public void AFallbackThatGoesStaleBetweenTheTwoPosts_StillRestoresTheWindow()
+    {
+        var native = new FakeEscapeNative
+        {
+            HangInShowWindowAsync = Window,
+            HangInShowWindowCommand = NativeMethods.SW_MINIMIZE,
+        };
+        native.RefuseForeground(Window);
+        var (manager, logger) = Create(native, completionBudget: TimeSpan.FromMilliseconds(150));
+
+        EscapeWindowResult? result = null;
+        var completed = new ManualResetEventSlim();
+        manager.BeginBringToFront(Window, r =>
+        {
+            result = r;
+            completed.Set();
+        });
+
+        Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Thread.Sleep(250); // past the budget, inside the pair
+        native.ReleaseHang.Set();
+
+        Check.That(completed.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Check.That(native.ShowWindowAsyncCommands)
+            .ContainsExactly(NativeMethods.SW_MINIMIZE, NativeMethods.SW_RESTORE);
+        Check.That(native.Minimised.Contains(Window)).IsFalse();
+        Check.That(result.HasValue).IsFalse();
+        Check.That(logger.Entries.Count(e =>
+                e.Level == LogLevel.Warning
+                && e.Message.Contains("was abandoned after", StringComparison.Ordinal))).IsEqualTo(1);
+        Check.That(native.SendInputCalls).IsEqualTo(0u);
+    }
+
+    /// <summary>
     /// The source pins the behaviour cannot reach: every foreign-window show is the async form,
     /// nothing in the escape path injects input, and the shell short-circuits before any fallback.
     /// </summary>
@@ -357,6 +574,19 @@ public class Win32WindowManagerEscapeTests
         return (result, completions);
     }
 
+    private static void WaitUntil(Func<bool> condition, string what)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (elapsed.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            if (condition())
+                return;
+            Thread.Sleep(10);
+        }
+
+        throw new TimeoutException($"Timed out waiting for {what}.");
+    }
+
     private static (Win32WindowManager Manager, RecordingLogger Logger) Create(
         FakeEscapeNative native,
         TimeSpan? handoffTimeout = null,
@@ -417,6 +647,8 @@ public class Win32WindowManagerEscapeTests
         private readonly object _gate = new();
         private readonly List<(string Name, IntPtr Hwnd, int Arg)> _calls = new();
         private readonly List<int> _callThreadIds = new();
+        private readonly List<long> _callAtMs = new();
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly List<int> _showWindowAsyncCommands = new();
         private IntPtr _foreground;
         private IntPtr _shell;
@@ -429,8 +661,18 @@ public class Win32WindowManagerEscapeTests
         /// <summary>The window whose async show blocks (the fake "hung" target).</summary>
         internal IntPtr? HangInShowWindowAsync { get; init; }
 
+        /// <summary>When set, only this show command blocks; other commands return at once.</summary>
+        internal int? HangInShowWindowCommand { get; init; }
+
         /// <summary>Models the shell honouring the fallback's <c>SW_RESTORE</c> by foregrounding it.</summary>
         internal bool ForegroundOnRestore { get; init; }
+
+        /// <summary>
+        /// Models a hung target realistically: <c>ShowWindowAsync</c> returns at once but the
+        /// target's thread never processes the request, so <c>IsIconic</c> stays true and the
+        /// window state never changes.
+        /// </summary>
+        internal bool IgnoreShowWindowAsync { get; init; }
 
         internal IntPtr ShellWindow
         {
@@ -459,6 +701,21 @@ public class Win32WindowManagerEscapeTests
         internal uint SendInputCalls
         {
             get { lock (_gate) return _sendInputCalls; }
+        }
+
+        /// <summary>When the first matching call was made, in ms since this fake was created.</summary>
+        internal long ElapsedAt(string name, IntPtr hwnd)
+        {
+            lock (_gate)
+            {
+                for (var i = 0; i < _calls.Count; i++)
+                {
+                    if (_calls[i].Name == name && _calls[i].Hwnd == hwnd)
+                        return _callAtMs[i];
+                }
+            }
+
+            throw new InvalidOperationException($"No {name} call for {hwnd} was recorded.");
         }
 
         /// <summary>Models the foreground lock refusing the switch for this window.</summary>
@@ -496,7 +753,8 @@ public class Win32WindowManagerEscapeTests
             Record("ShowWindowAsync", hwnd, command);
             lock (_gate) _showWindowAsyncCommands.Add(command);
 
-            if (hwnd == HangInShowWindowAsync)
+            if (hwnd == HangInShowWindowAsync
+                && (HangInShowWindowCommand is not { } hangCommand || command == hangCommand))
             {
                 HangEntered.Set();
                 // Bounded: a mutant that waits on this from the test thread fails an elapsed-time
@@ -507,6 +765,9 @@ public class Win32WindowManagerEscapeTests
 
             lock (_gate)
             {
+                if (IgnoreShowWindowAsync)
+                    return true;
+
                 if (command == NativeMethods.SW_RESTORE)
                 {
                     Minimised.Remove(hwnd);
@@ -560,6 +821,7 @@ public class Win32WindowManagerEscapeTests
             {
                 _calls.Add((name, hwnd, arg));
                 _callThreadIds.Add(Environment.CurrentManagedThreadId);
+                _callAtMs.Add(_clock.ElapsedMilliseconds);
             }
         }
     }

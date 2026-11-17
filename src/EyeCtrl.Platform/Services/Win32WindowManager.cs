@@ -19,9 +19,13 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     /// <summary>
     /// How long the escape fallback waits for the target to take the foreground after the
     /// minimize/restore toggle. Short: a responsive target honours the toggle in milliseconds and
-    /// the owner is waiting on the result; the worker is the only thing that ever waits.
+    /// the owner is waiting on the result; the worker is the only thing that ever waits. It is
+    /// deliberately well BELOW <see cref="WindowActionScheduler.DefaultHandoffTimeout"/> (500 ms),
+    /// so a target that refuses the foreground but is not hung finishes its normal failure path
+    /// before an action queued behind it can mistake the escape for a stuck one and log the
+    /// scheduler's contradictory "target stopped answering" Warning.
     /// </summary>
-    internal static readonly TimeSpan DefaultEscapeFallbackWait = TimeSpan.FromMilliseconds(500);
+    internal static readonly TimeSpan DefaultEscapeFallbackWait = TimeSpan.FromMilliseconds(300);
 
     /// <summary>The poll interval while a worker waits for the target to answer a state change.</summary>
     private static readonly TimeSpan EscapePollInterval = TimeSpan.FromMilliseconds(10);
@@ -449,8 +453,29 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
                 return null;
 
             _native.ShowWindowAsync(hwnd, NativeMethods.SW_RESTORE);
-            if (!WaitForRestore(hwnd, action))
+            var restore = WaitForRestore(hwnd, action);
+            if (restore == EscapeRestoreWait.Stopped)
                 return null;
+
+            if (restore == EscapeRestoreWait.TimedOutWhileIconic)
+            {
+                // F2: a hung minimised target never clears WS_MINIMIZE. One non-injecting,
+                // non-blocking SetForegroundWindow is still worth issuing before giving up:
+                // Windows may bring forward the target's "not responding" ghost window, which is
+                // better than nothing, and a foreground change away from the blocked window may
+                // be what unblocks input. The fallback is deliberately NOT run — its activating
+                // restore would contradict the budget that just ran out.
+                return TryForegroundAfterRestoreTimeout(hwnd, action);
+            }
+
+            if (restore == EscapeRestoreWait.TimedOut)
+            {
+                // The restore did land, but only after the budget: the target recovered too late
+                // for the remaining steps, so drop the attempt with its one Warning (F2 does not
+                // apply — the window is no longer minimised).
+                LogTimedOut(hwnd, action);
+                return null;
+            }
         }
 
         // DELIBERATELY no ALT tap: that grant is injected input, and the state this path exists to
@@ -467,9 +492,7 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
             if (!StillFresh(hwnd, action))
                 return null;
 
-            _logger.LogInformation(
-                "Blocked-input escape: brought window {Hwnd} ({Process}) to the foreground without injecting input.",
-                hwnd, DescribeProcess(hwnd));
+            LogBroughtForward(hwnd);
             return new EscapeWindowResult(true, setForeground, false);
         }
 
@@ -487,13 +510,18 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
 
         // The fallback's minimize -> restore ORDER is the point: SW_RESTORE activates the window, so
         // issuing minimize then restore moves it forward. Both are posted, never synchronous, and
-        // the foreground check below runs here on the worker after a short bounded poll. A late
-        // activating restore must not run once the attempt was abandoned or has run past its
-        // budget: it would take activation away from whatever the owner moved on to.
-        _native.ShowWindowAsync(hwnd, NativeMethods.SW_MINIMIZE);
+        // the foreground check below runs here on the worker after a short bounded poll.
+        //
+        // The pair is atomic (F4): once the minimise has been posted, the restore is ALWAYS posted
+        // too, or an attempt that went stale between the two posts would leave the owner's window
+        // minimised — worse than a restore a few microseconds late. Freshness is checked before the
+        // pair and again after it, before anything else can act or wait.
         if (!StillFresh(hwnd, action))
             return null;
+
+        _native.ShowWindowAsync(hwnd, NativeMethods.SW_MINIMIZE);
         _native.ShowWindowAsync(hwnd, NativeMethods.SW_RESTORE);
+
         if (!StillFresh(hwnd, action))
             return null;
 
@@ -532,11 +560,7 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
 
         if (action.IsStale)
         {
-            _logger.LogWarning(
-                "Window action {Action} for window {Hwnd} was abandoned after {ElapsedMs:0} ms: the "
-                + "blocked-input escape ran past its completion budget, so its remaining steps were "
-                + "dropped.",
-                "bring the escape window to the foreground", hwnd, action.Elapsed.TotalMilliseconds);
+            LogTimedOut(hwnd, action);
             return false;
         }
 
@@ -544,20 +568,89 @@ public class Win32WindowManager : IWindowManager, IEscapeWindowService
     }
 
     /// <summary>
-    /// Waits on the worker, bounded by the attempt's completion budget, until the restored target
-    /// has actually left the iconic state. False stops the attempt (abandoned or timed out).
+    /// The one Warning a timed-out attempt writes. It keeps the scheduler's established wording and
+    /// fields, so the sitting analysis reads the same shape as the pick's abandonment line.
     /// </summary>
-    private bool WaitForRestore(IntPtr hwnd, WindowActionContext action)
+    private void LogTimedOut(IntPtr hwnd, WindowActionContext action)
+    {
+        _logger.LogWarning(
+            "Window action {Action} for window {Hwnd} was abandoned after {ElapsedMs:0} ms: the "
+            + "blocked-input escape ran past its completion budget, so its remaining steps were "
+            + "dropped.",
+            "bring the escape window to the foreground", hwnd, action.Elapsed.TotalMilliseconds);
+    }
+
+    /// <summary>The existing success line, kept byte-identical for the sitting analysis.</summary>
+    private void LogBroughtForward(IntPtr hwnd)
+    {
+        _logger.LogInformation(
+            "Blocked-input escape: brought window {Hwnd} ({Process}) to the foreground without injecting input.",
+            hwnd, DescribeProcess(hwnd));
+    }
+
+    /// <summary>
+    /// F2: the restore poll ran out while the target was still iconic (a hung minimised window
+    /// never clears <c>WS_MINIMIZE</c>). Issue exactly one non-blocking, non-injecting
+    /// <c>SetForegroundWindow</c> before giving up: Windows may bring forward the target's "not
+    /// responding" ghost window, and a foreground change away from the blocked window may be what
+    /// unblocks input even if the window does not visibly appear. If the foreground moved, the
+    /// existing success line and result fields report it; otherwise the attempt ends with its one
+    /// timeout Warning and no result. No minimise/restore fallback is run here — the budget that
+    /// just ran out is exactly what the fallback's activating restore would contradict.
+    /// </summary>
+    private EscapeWindowResult? TryForegroundAfterRestoreTimeout(IntPtr hwnd, WindowActionContext action)
+    {
+        var setForeground = _native.SetForegroundWindow(hwnd);
+        if (_native.GetForegroundWindow() == hwnd)
+        {
+            LogBroughtForward(hwnd);
+            return new EscapeWindowResult(true, setForeground, false);
+        }
+
+        LogTimedOut(hwnd, action);
+        return null;
+    }
+
+    /// <summary>
+    /// Waits on the worker, bounded by the attempt's completion budget, until the restored target
+    /// has actually left the iconic state. <see cref="EscapeRestoreWait.Stopped"/> and the two
+    /// timed-out outcomes tell the caller whether to stop, try the F2 foreground, or drop the
+    /// attempt with its Warning. The staleness check deliberately lives here, not in
+    /// <see cref="StillFresh"/>: the caller needs to see the timeout before it is logged.
+    /// </summary>
+    private EscapeRestoreWait WaitForRestore(IntPtr hwnd, WindowActionContext action)
     {
         while (_native.IsIconic(hwnd))
         {
-            if (!StillFresh(hwnd, action))
-                return false;
+            if (action.IsCancelled)
+                return EscapeRestoreWait.Stopped;
+
+            if (action.IsStale)
+                return EscapeRestoreWait.TimedOutWhileIconic;
 
             Thread.Sleep(EscapePollInterval);
         }
 
-        return StillFresh(hwnd, action);
+        if (action.IsCancelled)
+            return EscapeRestoreWait.Stopped;
+
+        return action.IsStale ? EscapeRestoreWait.TimedOut : EscapeRestoreWait.Restored;
+    }
+
+    /// <summary>The restore wait's outcome.</summary>
+    private enum EscapeRestoreWait
+    {
+        /// <summary>The target left the iconic state within the budget; the normal path continues.</summary>
+        Restored,
+
+        /// <summary>The target left the iconic state, but only after the budget: drop the attempt.</summary>
+        TimedOut,
+
+        /// <summary>The budget ran out while the target was still iconic (the hung-window mode): F2.</summary>
+        TimedOutWhileIconic,
+
+        /// <summary>A later action abandoned the attempt while it waited.</summary>
+        Stopped,
     }
 
     /// <summary>

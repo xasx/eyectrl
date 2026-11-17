@@ -45,11 +45,12 @@ public interface IEscapeWindowService
     /// </summary>
     /// <param name="hwnd">The target window handle from <see cref="TryGetEscapeTarget"/>.</param>
     /// <param name="onCompleted">
-    /// Called exactly once, on a background thread, with whether the target actually ended up in
-    /// the foreground and which path was used. The argument is null when the attempt was abandoned
-    /// or timed out before it could produce a result, or when the request was dropped before it
-    /// could start (the scheduler logged why). Nothing hides the banner on a null result. The
-    /// callback must not touch UI objects: it does not run on the dispatcher.
+    /// Called at most once, on a background thread — exactly once unless a native call never
+    /// returns — with whether the target actually ended up in the foreground and which path was
+    /// used. The argument is null when the attempt was abandoned or timed out before it could
+    /// produce a result, or when the request was dropped before it could start (the scheduler
+    /// logged why). Nothing hides the banner on a null result. The callback must not touch UI
+    /// objects: it does not run on the dispatcher.
     /// </param>
     void BeginBringToFront(IntPtr hwnd, Action<EscapeWindowResult?> onCompleted);
 }

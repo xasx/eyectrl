@@ -2072,7 +2072,7 @@ plus two methods:
 
 **Interfaces:** `BannerSlot.Hold()/Release()` (front re-queue; `Preempt` deliberately bypasses — caregiver alerts take the slot mid-guide, pinned by test); optional `Func<bool>? isGuideOpen = null` on both hosts + `OnGuideOpenChanged` (defer-newest replay); `SetupNoticeWatch`: `CheckStartupWhenGuideClosed()` at the three call sites + expiry skip while GuideOpen + close-time poke.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```csharp
 // tests/EyeCtrl.App.Tests/Services/BannerSlotHoldTests.cs
@@ -2148,7 +2148,7 @@ public class BannerSlotHoldTests
 }
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `BannerSlot.cs` — the hold:
 
@@ -2253,7 +2253,7 @@ plus:
     }
 ```
 
-- [ ] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): BannerSlot hold (preempt exempted) + defer hosts + gated SetupNoticeWatch`.
+- [x] **Step 3: Run → PASS. Step 4: Commit** `feat(guide): BannerSlot hold (preempt exempted) + defer hosts + gated SetupNoticeWatch`.
 
 ---
 

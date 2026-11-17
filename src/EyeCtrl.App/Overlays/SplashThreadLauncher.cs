@@ -159,6 +159,17 @@ internal static class SplashThreadLauncher
     /// window or a fake — anything implementing ISplashWindow.</summary>
     internal static Func<ISplashWindow>? WindowFactoryForTests { get; set; }
 
+    /// <summary>The product's handle wait (spec §7 rev 3.2): a slow splash must never delay
+    /// startup, so a start that exceeds it degrades to splash-less (r4 #8).</summary>
+    internal static readonly TimeSpan DefaultHandleWait = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Test seam for the handle wait (F-FLAKE, CI #351 attempt 1): tests that NEED a
+    /// handle set it generously and reset it to null. Null means production: Start() waits
+    /// DefaultHandleWait — the only place the shipped 500 ms lives, exercised by the
+    /// timeout-pinning tests on every run, in any order (fixup-01: a reset that wrote a copied
+    /// value left the shipped default pinned only when the timeout test ran first).</summary>
+    internal static TimeSpan? HandleWaitForTests { get; set; }
+
     internal static SplashThreadHandle? Start()
     {
         var ready = new TaskCompletionSource<SplashThreadHandle?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -174,10 +185,13 @@ internal static class SplashThreadLauncher
         };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        if (!ready.Task.Wait(TimeSpan.FromMilliseconds(500)))
+        // One read (review Finding 2): the wait and its timeout log line report the same bound.
+        var wait = HandleWaitForTests ?? DefaultHandleWait;
+        if (!ready.Task.Wait(wait))
         {
             cancel.Cancel();                           // the thread must not show the window now (r4 #8)
-            Log.Warning("Splash: thread did not produce a handle within 500 ms; starting without a splash");
+            Log.Warning("Splash: thread did not produce a handle within {WaitMs} ms; starting without a splash",
+                (int)wait.TotalMilliseconds);
             return null;
         }
         return ready.Task.Result;

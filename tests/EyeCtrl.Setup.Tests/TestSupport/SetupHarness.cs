@@ -181,7 +181,9 @@ public sealed class SetupHarness
         Logging = new RecordingSetupLog();
 
         Paths = new SetupPaths(
-            programFilesRoot, @"C:\Users\test\AppData\Roaming", @"C:\Users\test\AppData\Local");
+            programFilesRoot, @"C:\Users\test\AppData\Roaming", @"C:\Users\test\AppData\Local", null,
+            new MachineShortcutLocations(
+                @"C:\ProgramData\Microsoft\Windows\Start Menu\Programs", @"C:\Users\Public\Desktop"));
         Guard = new PathGuard(Paths);
         Policy = new ElevationPolicyGate(Registry);
         Registry.SeedDword(
@@ -192,10 +194,12 @@ public sealed class SetupHarness
 
         Recorder = new ResultRecorder(Paths, Files, Guard, Logging);
         AppsAndFeatures = new AppsAndFeaturesWriter(Paths, Registry, Guard, Files, Logging);
+        Links = new FakeShortcutFileWriter(Files);
+        Shortcuts = new ShortcutWriter(Paths, Files, Links, Guard, Logging);
         Metadata = new PackageMetadataReader(Files);
         Journal = new InstallJournalStore(Paths, Files, Guard, Logging);
         State = new InstallStateMachine(
-            Paths, Files, Registry, Guard, AppsAndFeatures, Metadata, Journal, Logging);
+            Paths, Files, Registry, Guard, AppsAndFeatures, Shortcuts, Metadata, Journal, Logging);
         RunCopies = new RunCopyManager(
             Paths, Files, Guard, Signature, CatalogMembers, Hasher, Logging);
         PhaseResults = new ElevatedPhaseResultStore(Paths, Files, Guard, Logging);
@@ -203,8 +207,8 @@ public sealed class SetupHarness
         Stop = new StopCoordinator(Paths, Processes, HeldButton, Logging);
         AppStart = new AppStartService(Processes, LogProbe, Clock, Logging);
         Elevated = new ElevatedOperations(
-            Paths, Policy, RunCopies, Staging, Stop, State, AppsAndFeatures, AppData, PhaseResults,
-            Logging);
+            Paths, Policy, RunCopies, Staging, Stop, State, AppsAndFeatures, Shortcuts, AppData,
+            PhaseResults, Logging);
         Broker = new FakeElevationBroker { Handler = Elevated.Execute };
         Environment.ProcessPath = @"C:\Users\test\Desktop\EyeCtrl.Setup.exe";
         Planner = new SupervisionStartPlanner(Settings);
@@ -239,6 +243,8 @@ public sealed class SetupHarness
     public ElevationPolicyGate Policy { get; }
     public ResultRecorder Recorder { get; }
     public AppsAndFeaturesWriter AppsAndFeatures { get; }
+    public FakeShortcutFileWriter Links { get; }
+    public ShortcutWriter Shortcuts { get; }
     public PackageMetadataReader Metadata { get; }
     public InstallJournalStore Journal { get; }
     public InstallStateMachine State { get; }

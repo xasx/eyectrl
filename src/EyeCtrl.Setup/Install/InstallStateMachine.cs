@@ -52,6 +52,7 @@ public sealed class InstallStateMachine
     private readonly IRegistryStore _registry;
     private readonly PathGuard _guard;
     private readonly AppsAndFeaturesWriter _appsAndFeatures;
+    private readonly ShortcutWriter _shortcuts;
     private readonly IPackageMetadataReader _metadata;
     private readonly IInstallJournalStore _journal;
     private readonly ISetupLog _log;
@@ -59,14 +60,15 @@ public sealed class InstallStateMachine
     /// <summary>Creates the state machine.</summary>
     public InstallStateMachine(
         SetupPaths paths, IFileSystem fileSystem, IRegistryStore registry, PathGuard guard,
-        AppsAndFeaturesWriter appsAndFeatures, IPackageMetadataReader metadata,
-        IInstallJournalStore journal, ISetupLog log)
+        AppsAndFeaturesWriter appsAndFeatures, ShortcutWriter shortcuts,
+        IPackageMetadataReader metadata, IInstallJournalStore journal, ISetupLog log)
     {
         _paths = paths;
         _fileSystem = fileSystem;
         _registry = registry;
         _guard = guard;
         _appsAndFeatures = appsAndFeatures;
+        _shortcuts = shortcuts;
         _metadata = metadata;
         _journal = journal;
         _log = log;
@@ -163,7 +165,7 @@ public sealed class InstallStateMachine
 
         _journal.Clear();
         ClearRepairRunOnce();
-        RegisterAppsAndFeatures();
+        RefreshBookkeeping();
         RemoveFailedVersion();
         _log.Info("Update swapped in.");
         return SwapOutcome.Success();
@@ -268,7 +270,7 @@ public sealed class InstallStateMachine
 
         _journal.Clear();
         ClearRepairRunOnce();
-        RegisterAppsAndFeatures();
+        RefreshBookkeeping();
         _log.Info("Previous version restored.");
         return SwapOutcome.Success();
     }
@@ -333,7 +335,7 @@ public sealed class InstallStateMachine
 
         _journal.Clear();
         ClearRepairRunOnce();
-        RegisterAppsAndFeatures();
+        RefreshBookkeeping();
         _log.Info("Failed update reverted to the previous version.");
         return SwapOutcome.Success();
     }
@@ -417,7 +419,7 @@ public sealed class InstallStateMachine
         }
 
         ClearRepairRunOnce();
-        RegisterAppsAndFeatures();
+        RefreshBookkeeping();
         _log.Info(changed ? "Repair completed an interrupted swap." : "Repair found a startable install.");
         return SwapOutcome.Success(changed);
     }
@@ -513,7 +515,7 @@ public sealed class InstallStateMachine
 
         _journal.Clear();
         ClearRepairRunOnce();
-        RegisterAppsAndFeatures();
+        RefreshBookkeeping();
         _log.Info($"Repair finished the {journal.Operation} transition (step {journal.Step}).");
         return SwapOutcome.Success(changed);
     }
@@ -595,6 +597,14 @@ public sealed class InstallStateMachine
     /// other exception) must escape and leave the exact on-disk state for repair.</summary>
     private static bool IsIoFailure(Exception ex) =>
         ex is IOException or UnauthorizedAccessException;
+
+    /// <summary>The bookkeeping every committed swap refreshes: the Apps &amp; Features entry and
+    /// the shell shortcuts. Both are best-effort — the swap is already on disk.</summary>
+    private void RefreshBookkeeping()
+    {
+        RegisterAppsAndFeatures();
+        _shortcuts.Ensure();
+    }
 
     private void RegisterAppsAndFeatures() =>
         _appsAndFeatures.Register(_metadata.Read(_paths.InstallRoot).Version);

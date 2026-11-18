@@ -239,11 +239,19 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             += () => context.Dispatcher.BeginInvoke(_guideFlow.NotifyTaskSucceeded);
 
         // Theme pick: card-local preview + live-apply + save, then RE-RENDER the card (r4 F3 —
-        // OnTargetActivated cleared every chrome target, and a chip press does not change the step).
+        // OnTargetActivated cleared every chrome target, and a chip press does not change the
+        // step). The preview has TWO halves: ThemeResourceApplier.Apply re-skins the XAML half
+        // through Card.Resources (r1 F2, unchanged — surface, title, body, read-out, ring and
+        // the cards' dwell bars), and ApplyPreviewTheme repaints the DwellButtons' palette
+        // colours (fill + label) against the picked theme — a DwellButton colours itself at
+        // build time, so its half needs the explicit re-resolve. The re-render that follows
+        // rebuilds only the action row; Close, dwell ± and the chips re-skin through the
+        // repaint.
         _guideVm.ThemeChosen += name => context.Dispatcher.BeginInvoke(() =>
         {
             var theme = ThemeRegistry.Resolve(name);
             ThemeResourceApplier.Apply(_guideWindow!.CardResources, theme);   // card-local (r1 F2)
+            _guideWindow.ApplyPreviewTheme(theme);           // the DwellButtons' palette repaint
             settings.Theme.Name = name;
             OnSettingsChanged(settings);
             context.SettingsService.SaveDebounced(settings);
@@ -502,23 +510,27 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         };
 
         /// <summary>The action row's buttons per step — the chrome Close is NOT in this list
-        /// (it lives in its own host, r5 F4).</summary>
-        private static (string Label, string Id)[] RowChoicesFor(FirstRunGuideStep step) => step switch
+        /// (it lives in its own host, r5 F4). Each row carries its <see cref="ModalChoiceKind"/>
+        /// (the DwellButton follow-up: the cards wear the Settings modal's per-kind palette), mapped
+        /// the way Settings maps its modal choices: a forward action → Affirmative (modal_yes's
+        /// kind), backing out (Skip/Later) → Negative (modal_no's kind — the guide's own chrome
+        /// Close rides the same kind in SetChromeClose).</summary>
+        private static (string Label, string Id, ModalChoiceKind Kind)[] RowChoicesFor(FirstRunGuideStep step) => step switch
         {
             FirstRunGuideStep.Welcome => [
-                (T("guide.welcome.start"), "guide_start"),
-                (T("guide.later"), "guide_later")],
-            FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip")],
-            FirstRunGuideStep.DwellTime => [(T("guide.dwelltime.continue"), "guide_dwelltime_continue")],
+                (T("guide.welcome.start"), "guide_start", ModalChoiceKind.Affirmative),
+                (T("guide.later"), "guide_later", ModalChoiceKind.Negative)],
+            FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip", ModalChoiceKind.Negative)],
+            FirstRunGuideStep.DwellTime => [(T("guide.dwelltime.continue"), "guide_dwelltime_continue", ModalChoiceKind.Affirmative)],
             FirstRunGuideStep.Calibrate => [
-                (T("guide.calibrate.now"), "guide_calibrate_now"),
-                (T("guide.calibrate.skip"), "guide_calibrate_skip")],
+                (T("guide.calibrate.now"), "guide_calibrate_now", ModalChoiceKind.Affirmative),
+                (T("guide.calibrate.skip"), "guide_calibrate_skip", ModalChoiceKind.Negative)],
             FirstRunGuideStep.ToolbarTask => [
-                (T("guide.toolbar.continue"), "guide_toolbar_continue"),
-                (T("guide.toolbar.skip"), "guide_toolbar_skip")],
-            FirstRunGuideStep.Theme => [(T("guide.theme.continue"), "guide_theme_continue")],
-            FirstRunGuideStep.Safety => [(T("guide.safety.begin"), "guide_safety_begin")],
-            FirstRunGuideStep.Done => [(T("guide.done.finish"), "guide_done_finish")],
+                (T("guide.toolbar.continue"), "guide_toolbar_continue", ModalChoiceKind.Affirmative),
+                (T("guide.toolbar.skip"), "guide_toolbar_skip", ModalChoiceKind.Negative)],
+            FirstRunGuideStep.Theme => [(T("guide.theme.continue"), "guide_theme_continue", ModalChoiceKind.Affirmative)],
+            FirstRunGuideStep.Safety => [(T("guide.safety.begin"), "guide_safety_begin", ModalChoiceKind.Affirmative)],
+            FirstRunGuideStep.Done => [(T("guide.done.finish"), "guide_done_finish", ModalChoiceKind.Affirmative)],
             _ => [],
         };
 
@@ -536,7 +548,9 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         {
             vm.ShowSafetyCard(message, choices);
             window.ShowCardContent(T("guide.safety.title"), message, chromeClose: true);
-            window.SetChoices(choices.Select(c => (c.Label, c.Id)).ToArray());
+            // The safety choices' own kinds ride through: the DwellButton cards colour them
+            // exactly as the Settings modal would (the follow-up's whole point).
+            window.SetChoices(choices.Select(c => (c.Label, c.Id, c.Kind)).ToArray());
             window.SetChromeClose(true, T("guide.chrome.close"));   // chrome Close through step 7 (r3 F10)
             owner.RememberSafetyActions(choices);                 // id → OnChosen, for the dispatch
         }

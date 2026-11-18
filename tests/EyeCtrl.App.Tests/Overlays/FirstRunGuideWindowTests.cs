@@ -45,11 +45,14 @@ public class FirstRunGuideWindowTests
     }
 
     [StaFact]
-    public void ThemePreviewSwap_ReSkinsTheCodeBuiltChips_AndCardBorder()
+    public void ThemePreviewSwap_ReSkinsTheDwellButtons_AndTheBarsThroughCardResources()
     {
-        // S2-2: the code-built visuals used to snapshot their brushes once (Card.FindResource at
-        // build time), so a theme preview only re-skinned the XAML half of the card. Every
-        // code-built brush now rides SetResourceReference and re-resolves through Card.Resources.
+        // The DwellButton follow-up: the cards are DwellButtons coloured by ModalButtonPalette at
+        // build time (the control snapshots its fill — see its ctor doc), so the card-local
+        // preview has TWO halves. The XAML half re-skins through Card.Resources (S2-2) — now also
+        // carrying the bars' fill and halo, which ride SetResourceReference — and the control half
+        // re-resolves its palette pairing through ApplyPreviewTheme. This drives the coordinator's
+        // ThemeChosen sequence exactly: Apply(CardResources) → ApplyPreviewTheme.
         var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), 0,
             new EyeCtrlSettings(), sink: null, dwellRegistry: null);
         var window = new FirstRunGuideWindow(vm);
@@ -64,23 +67,33 @@ public class FirstRunGuideWindowTests
                 ("Daylight", "guide_theme_daylight"),
                 ("Contrast", "guide_theme_contrast"),
             ]);
-            var chips = ((Grid)window.StepContent.Content).Children.OfType<Border>().ToList();
-            Check.That(chips).HasSize(4);
+            var chipRoots = ((Grid)window.StepContent.Content).Children.OfType<Border>().ToList();
+            Check.That(chipRoots).HasSize(4);
 
-            // A theme whose accent differs from what the chips resolved at build time, so the
-            // swap genuinely changes the brushes (whatever theme the ambient Application carries).
-            var accentBefore = chips[0].BorderBrush as SolidColorBrush;
-            var target = ThemeRegistry.All.First(t =>
-                accentBefore is null || !Equals(t.BrushAccent.Color, accentBefore.Color));
+            // A theme whose Neutral fill differs from the one the chips resolved at build time,
+            // so the swap genuinely changes the paint (whatever theme the ambient Application
+            // carries).
+            var fillBefore = ((SolidColorBrush)chipRoots[0].Background).Color;
+            var target = ThemeRegistry.All.First(t => t.SurfaceMedium != fillBefore);
 
             ThemeResourceApplier.Apply(window.CardResources, target);
+            window.ApplyPreviewTheme(target);
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);   // flush invalidations
 
-            Check.WithCustomMessage("every chip's Background must follow the card-local theme swap")
-                .That(chips.Select(c => c.Background))
-                .ContainsOnlyElementsThatMatch(b => ReferenceEquals(b, window.CardResources["BrushSurfaceMedium"]));
-            Check.WithCustomMessage("the chip card's BorderBrush must follow the card-local theme swap too")
-                .That(chips[0].BorderBrush).IsSameReferenceAs(window.CardResources["BrushAccent"]);
+            Check.WithCustomMessage("every chip's fill must follow the card-local theme swap through the palette repaint")
+                .That(chipRoots.Select(c => ((SolidColorBrush)c.Background).Color))
+                .ContainsOnlyElementsThatMatch(col => col == target.SurfaceMedium);
+            var chipLabel = (TextBlock)((Grid)chipRoots[0].Child).Children[0];
+            Check.WithCustomMessage("the chip label must re-resolve to the picked theme's measured pairing")
+                .That(chipLabel.Foreground).IsSameReferenceAs(target.BrushTextPrimary);
+
+            // The bar half rides Card.Resources (S2-2): fill and halo re-resolve on the Apply,
+            // no repaint needed — the mechanism the hand-built cards' bars rode before.
+            var bar = ((Grid)chipRoots[0].Child).Children.OfType<Rectangle>().Single();
+            Check.WithCustomMessage("the dwell bar's fill must follow the card-local theme swap")
+                .That(bar.Fill).IsSameReferenceAs(window.CardResources["BrushAccent"]);
+            Check.WithCustomMessage("the dwell bar's halo must follow the card-local theme swap")
+                .That(bar.Stroke).IsSameReferenceAs(window.CardResources["BrushStrokeHalo"]);
         }
         finally
         {
@@ -123,7 +136,11 @@ public class FirstRunGuideWindowTests
             Check.That(window.TitleText.FontSize).IsEqualTo(56);
             Check.That(window.BodyText.FontSize).IsEqualTo(32);
 
-            window.SetChoices([("Start", "guide_start"), ("Later", "guide_later")]);
+            window.SetChoices(
+            [
+                ("Start", "guide_start", ModalChoiceKind.Affirmative),
+                ("Later", "guide_later", ModalChoiceKind.Negative),
+            ]);
             window.SetChromeClose(true, "✕");
             window.SetThemeGrid(true,
             [
@@ -135,9 +152,11 @@ public class FirstRunGuideWindowTests
             window.SetDwellKnob(true);
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
-            var cardLabel = (TextBlock)((StackPanel)((Border)window.ChoiceRow.Children[0]).Child).Children[0];
-            var closeLabel = (TextBlock)((StackPanel)((Border)window.ChromeCloseHost.Content).Child).Children[0];
-            var chipLabel = (TextBlock)((StackPanel)((Border)((Grid)window.StepContent.Content).Children[0]).Child).Children[0];
+            // The DwellButton reality: each card's Root Border carries the approved size; its
+            // label is the control's own content TextBlock (row 0 of the control's layout grid).
+            var cardLabel = (TextBlock)((Grid)((Border)window.ChoiceRow.Children[0]).Child).Children[0];
+            var closeLabel = (TextBlock)((Grid)((Border)window.ChromeCloseHost.Content).Child).Children[0];
+            var chipLabel = (TextBlock)((Grid)((Border)((Grid)window.StepContent.Content).Children[0]).Child).Children[0];
             var dwellReadOut = window.KnobRow.Children.OfType<TextBlock>().Single();
 
             var faces = new (string What, TextBlock Label, double Size)[]

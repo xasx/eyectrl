@@ -32,17 +32,22 @@ using Xunit;
 public class FirstRunGuideWindowRenderTests
 {
     // Mirrors GuideSurface.RowChoicesFor (SettingsUiCoordinator) — kept literal so a row-table
-    // change on either side shows up as a failing set here.
-    private static (string Label, string Id)[] RowChoicesFor(FirstRunGuideStep step) => step switch
+    // change on either side shows up as a failing set here. The kind column rides along since
+    // the DwellButton follow-up (the cards wear the Settings modal's per-kind palette): forward
+    // action → Affirmative, backing out → Negative, exactly as the coordinator maps it.
+    private static (string Label, string Id, ModalChoiceKind Kind)[] RowChoicesFor(FirstRunGuideStep step) => step switch
     {
-        FirstRunGuideStep.Welcome => [("Start", "guide_start"), ("Later", "guide_later")],
-        FirstRunGuideStep.MeetDwell => [("Skip", "guide_dwell_skip")],
-        FirstRunGuideStep.DwellTime => [("Continue", "guide_dwelltime_continue")],
-        FirstRunGuideStep.Calibrate => [("Now", "guide_calibrate_now"), ("Skip", "guide_calibrate_skip")],
-        FirstRunGuideStep.ToolbarTask => [("Continue", "guide_toolbar_continue"), ("Skip", "guide_toolbar_skip")],
-        FirstRunGuideStep.Theme => [("Continue", "guide_theme_continue")],
-        FirstRunGuideStep.Safety => [("Begin", "guide_safety_begin")],
-        FirstRunGuideStep.Done => [("Finish", "guide_done_finish")],
+        FirstRunGuideStep.Welcome =>
+            [("Start", "guide_start", ModalChoiceKind.Affirmative), ("Later", "guide_later", ModalChoiceKind.Negative)],
+        FirstRunGuideStep.MeetDwell => [("Skip", "guide_dwell_skip", ModalChoiceKind.Negative)],
+        FirstRunGuideStep.DwellTime => [("Continue", "guide_dwelltime_continue", ModalChoiceKind.Affirmative)],
+        FirstRunGuideStep.Calibrate =>
+            [("Now", "guide_calibrate_now", ModalChoiceKind.Affirmative), ("Skip", "guide_calibrate_skip", ModalChoiceKind.Negative)],
+        FirstRunGuideStep.ToolbarTask =>
+            [("Continue", "guide_toolbar_continue", ModalChoiceKind.Affirmative), ("Skip", "guide_toolbar_skip", ModalChoiceKind.Negative)],
+        FirstRunGuideStep.Theme => [("Continue", "guide_theme_continue", ModalChoiceKind.Affirmative)],
+        FirstRunGuideStep.Safety => [("Begin", "guide_safety_begin", ModalChoiceKind.Affirmative)],
+        FirstRunGuideStep.Done => [("Finish", "guide_done_finish", ModalChoiceKind.Affirmative)],
         _ => [],
     };
 

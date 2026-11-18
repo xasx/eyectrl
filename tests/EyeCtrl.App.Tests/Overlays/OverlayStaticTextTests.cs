@@ -90,34 +90,36 @@ public class OverlayStaticTextTests
     }
 
     /// <summary>
-    /// T08 fixup R3: the grid's close target is a Border (no automation peer) whose only text is
-    /// the glyph, so it announced "✕". The glyph TextBlock carries the real name; the key reuse is
-    /// single-surface (overlays).
+    /// T08 fixup R3, re-targeted by the close-arc ticket: the grid's close target is now the shared
+    /// DwellArcButton, whose drawn icon has no automation peer — its opaque automation anchor
+    /// carries the name. It must still announce "Close", not the raw glyph.
     /// </summary>
     [StaFact]
-    public void QuickActionsGridCloseButton_PublishesARealName()
+    public void QuickActionsGridCloseDisc_PublishesARealName()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new QuickActionsGridWindow();
 
-        Check.That(System.Windows.Automation.AutomationProperties.GetName(
-                (TextBlock)window.FindName("CloseGlyph")!))
+        var anchor = window.CloseDisc?.AutomationAnchor;
+        Check.WithCustomMessage("the close disc has no automation anchor to name").That(anchor).IsNotNull();
+        Check.That(System.Windows.Automation.AutomationProperties.GetName(anchor!))
              .IsEqualTo("Close");
     }
 
     /// <summary>
-    /// The switcher's close disc is a Border (no automation peer) whose only text is the glyph,
-    /// so it would announce "✕" — same shape as the QuickActions grid's close button. The glyph
-    /// TextBlock carries the real name; the key reuse is single-surface (overlays).
+    /// The switcher's close disc carries the same automation anchor (close-arc ticket): an
+    /// icon-only DwellArcButton publishes its name through the anchor, so it announces "Close"
+    /// instead of nothing at all.
     /// </summary>
     [StaFact]
-    public void TaskSwitcherCloseGlyph_PublishesARealName()
+    public void TaskSwitcherCloseDisc_PublishesARealName()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new TaskSwitcherWindow();
 
-        Check.That(System.Windows.Automation.AutomationProperties.GetName(
-                (TextBlock)window.FindName("CloseGlyph")!))
+        var anchor = window.CloseDisc?.AutomationAnchor;
+        Check.WithCustomMessage("the close disc has no automation anchor to name").That(anchor).IsNotNull();
+        Check.That(System.Windows.Automation.AutomationProperties.GetName(anchor!))
              .IsEqualTo("Close");
     }
 

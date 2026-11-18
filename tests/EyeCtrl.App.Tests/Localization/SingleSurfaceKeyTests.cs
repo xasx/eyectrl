@@ -109,7 +109,10 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", ["overlays"]),
         // T15 F4: the emoji skin-tone selector's back key takes its spoken name from overlays.edge.back.
         ("src/EyeCtrl.App/Overlays/EmojiGridManager.cs", ["overlays"]),
-        ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml", ["overlays"]),
+        // F-CLOSE: the two close discs resolve overlays.edge.close in code-behind when they build
+        // the shared DwellArcButton (the XAML no longer carries the glyph's {loc:T} name).
+        ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs", ["overlays"]),

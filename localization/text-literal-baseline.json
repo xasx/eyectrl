@@ -482,7 +482,42 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"Magnifier dwell\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
       "Literal": "\"ManualSelection_dwell_target\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"na\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"none\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} commit real=({1:0},{2:0}) view=({3:0},{4:0})\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} reset ({1}) ts={2} anchor={3}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} seat ts={1} ms={2} anchor=({3:0},{4:0}) k={5}/{6}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} silence ts={1} gapMs={2} anchor={3}\"",
       "Count": 1
     },
     {

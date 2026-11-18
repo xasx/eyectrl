@@ -116,6 +116,8 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     /// already-zoomed manual-selection circle, which is the screen point the dwell will select.
     /// (Previously it was offset from the ORIGINAL fixation by the zoom factor, so as the eyes moved
     /// to the centred circle the dot drifted off it, leaving no usable "where am I aiming" marker.)
+    /// The sender decides which point: <c>ManualSelectionDwellService</c> sends the live gaze until the
+    /// dwell anchor seats, then the anchor once, and nothing more while it is held (the freeze).
     /// </summary>
     public void UpdateGazePosition(PhysicalPoint gazeScreenPoint)
     {

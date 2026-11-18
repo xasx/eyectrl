@@ -67,6 +67,9 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     // the action menu takes over, so the magnifier's "closed by" line says commit.
                     Context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.Commit;
                     var realPoint = ManualSelectionOverlay.GetRealPhysicalPoint(msg.PrecisePoint);
+                    if (Context.Settings.Diagnostics.LogRingEvents)
+                        Log.Information("{MagnifierDwell:l}",
+                            ManualSelectionDwellService.CommitRealLine(msg.PrecisePoint, realPoint));
                     im.OnManualSelectionDwell(realPoint);
                 }
                 catch (Exception ex)

@@ -1,53 +1,85 @@
 namespace EyeCtrl.App;
 
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using Serilog;
 
 /// <summary>
-/// F5 diagnostics: what Windows did with EyeCtrl's audio. Before this ticket the click code
-/// could not observe its own silence — SoundPlayer discarded winmm's verdict and nothing read
-/// the Core Audio state — so a per-app mute or endpoint problem (Phase 1's surviving
-/// hypotheses) left no trace anywhere.
+/// F5/F10 diagnostics: what Windows did with EyeCtrl's audio. Before F5 the click code could not
+/// observe its own silence — SoundPlayer discarded winmm's verdict and nothing read the Core Audio
+/// state — so a per-app mute or endpoint problem (Phase 1's surviving hypotheses) left no trace
+/// anywhere.
 /// <para>
-/// Three instruments, every one guarded so none can throw into the typing path:
-/// (1) ONE line at the first click after app start — the default render endpoint's friendly
-/// name and EyeCtrl's own audio session state (volume, mute, session state);
-/// (2) one line per CHANGE, via IAudioSessionEvents (volume/mute, session state, session
-/// disconnected) and IMMNotificationClient (default device changed) — registered at that first
-/// click and retried at every later real show/hide, because winmm creates the session lazily
+/// F5's instruments, every one guarded so none can throw into the typing path:
+/// (1) ONE line at the first click after app start — the default render endpoint's friendly name
+/// and EyeCtrl's own audio session state (volume, mute, session state);
+/// (2) one line per CHANGE, via IAudioSessionEvents and IMMNotificationClient — registered at that
+/// first click and retried at every later real show/hide, because winmm creates the session lazily
 /// and it may not exist yet at the first click;
-/// (3) a snapshot line at every real show/hide after the first click. Deliberately kept in
-/// BOTH modes (not only when registration fails): the events are the unproven half — a COM
-/// callable wrapper on this machine — and the incident happened mid-show, so the boundary
-/// states are the cheap insurance; the cost is two lines per keyboard session.
+/// (3) a snapshot line at every real show/hide after the first click.
+/// </para>
+/// <para>
+/// F10 adds the layer BELOW EyeCtrl's session, where the 9th sitting's silence had to live:
+/// (4) the render endpoint's master volume and mute, in every snapshot and as a change line via
+/// IAudioEndpointVolumeCallback (a per-app session can be healthy while the device is muted);
+/// (5) a per-show reached/silent count from the endpoint's IAudioMeterInformation peak during each
+/// click's play window, plus ONE line at the first silent click of a show with that moment's state;
+/// (6) ducking events via IAudioVolumeDuckNotification (NULL session id = all communications
+/// ducking), logged with the log line's own timestamp;
+/// (7) a per-show late-start count: click requested → session state Active, measured from the
+/// state callback's timestamp, so a device-wake delay is distinguishable from a silent click.
 /// Any failure of the Core Audio layer logs once and degrades to instrument (3) only.
 /// </para>
 /// <para>
-/// Static on purpose: KeyboardSoundService instances are recreated by every settings apply,
-/// but the audio session — and therefore the first-click guard and the registration — are app
-/// state shared by all of them. Lines are content-free (device names and audio state only);
-/// no E1 content ever passes through here.
+/// Static on purpose: KeyboardSoundService instances are recreated by every settings apply, but
+/// the audio session — and therefore the first-click guard, the registrations and the per-show
+/// meter window — are app state shared by all of them. Lines are content-free (device names and
+/// audio state only); no E1 content ever passes through here.
 /// </para>
 /// </summary>
 internal static class AudioSessionDiagnostics
 {
     public sealed record AudioStateSnapshot(
-        string? EndpointName, bool SessionPresent, double? Volume, bool? Mute, string? SessionState)
+        string? EndpointName, double? EndpointVolume, bool? EndpointMute,
+        bool SessionPresent, double? Volume, bool? Mute, string? SessionState)
     {
         /// <summary>The snapshot line's exact format — pinned by a test, culture-invariant.</summary>
-        public string FormatLine()
-        {
-            var endpoint = EndpointName is null ? "<unavailable>" : $"\"{EndpointName}\"";
-            if (!SessionPresent) return $"Keyboard audio: endpoint={endpoint} session: not created yet";
-            var volume = Volume?.ToString("F2", CultureInfo.InvariantCulture) ?? "?";
-            return $"Keyboard audio: endpoint={endpoint} session: volume={volume} mute={Mute?.ToString() ?? "?"} state={SessionState ?? "?"}";
-        }
+        public string FormatLine() => "Keyboard audio: " + FormatStateDetails(this);
     }
+
+    /// <summary>
+    /// The state fields shared by the snapshot line and the first-silent-click line: the endpoint
+    /// master volume/mute first (the device's own answer, F10), then EyeCtrl's session. A field
+    /// that could not be read renders "?" — never a fabricated 0.
+    /// </summary>
+    internal static string FormatStateDetails(AudioStateSnapshot? snapshot)
+    {
+        if (snapshot is null) return "state unavailable";
+        var endpoint = snapshot.EndpointName is null ? "<unavailable>" : $"\"{snapshot.EndpointName}\"";
+        var endpointVolume = snapshot.EndpointVolume?.ToString("F2", CultureInfo.InvariantCulture) ?? "?";
+        var endpointPart = $"endpoint={endpoint} endpoint: volume={endpointVolume} "
+            + $"mute={snapshot.EndpointMute?.ToString() ?? "?"}";
+        if (!snapshot.SessionPresent) return $"{endpointPart} session: not created yet";
+        var volume = snapshot.Volume?.ToString("F2", CultureInfo.InvariantCulture) ?? "?";
+        return $"{endpointPart} session: volume={volume} mute={snapshot.Mute?.ToString() ?? "?"} "
+            + $"state={snapshot.SessionState ?? "?"}";
+    }
+
+    /// <summary>The first-silent-click line (F10): once per show, with the state at that moment.
+    /// Deliberately not per click — a silent show would otherwise write one line per key.</summary>
+    internal static string FormatSilentClickLine(AudioStateSnapshot? snapshot) =>
+        snapshot is null
+            ? "Keyboard click silent: no output peak during the play window; audio state unavailable"
+            : $"Keyboard click silent: no output peak during the play window; {FormatStateDetails(snapshot)}";
 
     // ---- change-event lines: pure formatters, pinned by tests; the COM callbacks call these ----
 
     internal static string FormatVolumeChange(float newVolume, bool newMute) =>
         $"Keyboard audio change: volume={newVolume.ToString("F2", CultureInfo.InvariantCulture)} mute={newMute}";
+
+    internal static string FormatEndpointVolumeChange(float newVolume, bool newMute) =>
+        $"Keyboard audio change: endpoint volume={newVolume.ToString("F2", CultureInfo.InvariantCulture)} mute={newMute}";
 
     internal static string FormatSessionStateChange(string newState) =>
         $"Keyboard audio change: session state={newState}";
@@ -58,6 +90,26 @@ internal static class AudioSessionDiagnostics
     internal static string FormatDefaultDeviceChanged(string endpointName) =>
         $"Keyboard audio change: default device -> \"{endpointName}\"";
 
+    internal static string FormatDuckStart(int communicationsSessions) =>
+        $"Keyboard duck: communications ducking started (sessions={communicationsSessions})";
+
+    internal static string FormatDuckEnd() => "Keyboard duck: communications ducking ended";
+
+    /// <summary>The closed vocabulary a COM callback reports; only SessionState carries a state
+    /// name (the F10 late-start metric keys on "Active"), the rest are line-only.</summary>
+    internal enum AudioChangeKind
+    {
+        Volume,
+        EndpointVolume,
+        SessionState,
+        SessionDisconnected,
+        DefaultDevice,
+        DuckStarted,
+        DuckEnded,
+    }
+
+    internal readonly record struct AudioChange(AudioChangeKind Kind, string Line, string? SessionState = null);
+
     /// <summary>Read seam — production is the Core Audio COM walk; tests fake it.</summary>
     internal interface IAudioStateReader
     {
@@ -66,27 +118,39 @@ internal static class AudioSessionDiagnostics
     }
 
     /// <summary>
-    /// Change-event seam. TryRegister attaches the endpoint listener (default device changes)
-    /// and returns whether it attached; TryRegisterSessionEvents attaches the session events
-    /// once our session exists (callers retry until it returns true); Shutdown unregisters in
-    /// reverse order. Change lines arrive on OS threads through the callback — the callback is
-    /// Serilog (thread-safe) or the test sink.
+    /// Change-event seam. TryRegister attaches every ENDPOINT-level instrument (default-device
+    /// changes, the master volume/mute callback, ducking) and returns whether all of them
+    /// attached; TryRegisterSessionEvents attaches the session events once our session exists
+    /// (callers retry until it returns true); Shutdown unregisters everything. Changes arrive on
+    /// OS threads through the callback — the callback is Serilog (thread-safe) or the test sink.
     /// </summary>
     internal interface IAudioChangeListener
     {
-        bool TryRegister(Action<string> onChangeLine);
+        bool TryRegister(Action<AudioChange> onChange);
         bool TryRegisterSessionEvents();
         void Shutdown();
     }
 
+    /// <summary>
+    /// Meter seam (F10). Production polls IAudioMeterInformation::GetPeakValue on the render
+    /// endpoint until a peak appears, the click's window closes, or <paramref name="stop"/>
+    /// says a newer click/show superseded this one. Null = the meter could not be read at all.
+    /// Tests return a scripted peak instantly (no sleeping, no COM).
+    /// </summary>
+    internal interface IAudioMeterProbe
+    {
+        float? SamplePeak(Func<bool> stop);
+    }
+
     private static readonly object Gate = new();
-    // Production wiring (review 01 F1): the Core Audio pair is the DEFAULT — constructed when
-    // this type is first touched and re-installable via EnsureProductionWiring. Tests replace
-    // both through ConfigureForTesting; the KeyboardCoordinator calls EnsureProductionWiring
+    // Production wiring (review 01 F1): the Core Audio instruments are the DEFAULT — constructed
+    // when this type is first touched and re-installable via EnsureProductionWiring. Tests replace
+    // all three through ConfigureForTesting; the KeyboardCoordinator calls EnsureProductionWiring
     // where it builds the sound service, and a composition test pins that call.
     private static IAudioStateReader? _reader = new CoreAudioInterop.CoreAudioStateReader();
     private static IAudioChangeListener? _listener = new CoreAudioInterop.CoreAudioChangeObserver();
-    private static Action<string>? _changeLine;
+    private static IAudioMeterProbe? _meter = new CoreAudioInterop.CoreAudioMeterProbe();
+    private static Action<AudioChange>? _changeEvent;
     private static int _firstClickDone;
     private static bool _endpointEventsAttached, _sessionEventsAttached;
     private static int _failureLogged;
@@ -105,6 +169,11 @@ internal static class AudioSessionDiagnostics
     /// fail-once latch must keep this at 1 per app lifetime — a bool cannot detect a second
     /// report (mutant M10), a count can.</summary>
     internal static int FailureReportCount => Volatile.Read(ref _failureReportCount);
+
+    /// <summary>Test seam (F10): how many first-silent-click lines were emitted. Reset by
+    /// ConfigureForTesting; the per-show latch must add exactly one per show with a silent click.</summary>
+    internal static int SilentClickReports => Volatile.Read(ref _silentClickReports);
+
     /// <summary>
     /// Test seam for WHERE the Core Audio work runs. Production (null) queues onto a background
     /// MTA thread-pool thread — review 01 F4: cold COM costs ~105 ms, and no Core Audio call may
@@ -118,7 +187,8 @@ internal static class AudioSessionDiagnostics
     /// flight — silently zeroing the counters under parked items resurrected the fixup-01 flake
     /// family and made later drains time out. Tests run their parked work first (the collection
     /// base class does it in Dispose), or this throws — loud, per R6.</summary>
-    internal static void ConfigureForTesting(IAudioStateReader? reader, IAudioChangeListener? listener)
+    internal static void ConfigureForTesting(
+        IAudioStateReader? reader, IAudioChangeListener? listener, IAudioMeterProbe? meter = null)
     {
         if (!DrainQueuedWork())
             throw new InvalidOperationException(
@@ -127,7 +197,8 @@ internal static class AudioSessionDiagnostics
         {
             _reader = reader;
             _listener = listener;
-            _changeLine = null;
+            _meter = meter;
+            _changeEvent = null;
             _firstClickDone = 0;
             _endpointEventsAttached = false;
             _sessionEventsAttached = false;
@@ -136,39 +207,50 @@ internal static class AudioSessionDiagnostics
             _shutDown = 0;
             _queuedWorkScheduled = 0;
             _queuedWorkCompleted = 0;
+            _silentClickReports = 0;
+            _sessionActive = 0;
+            _meterWindow = new MeterWindow();
+            Interlocked.Increment(ref _clickGeneration);
+            while (PendingClicks.TryDequeue(out _)) { }
         }
     }
 
     /// <summary>Production composition (KeyboardCoordinator.LoadKeyboard): restore the Core Audio
-    /// pair if tests (or a future dispose path) left it unset. Idempotent and cheap. LOCK-FREE on
-    /// purpose (review 02 R3): this runs on the UI thread at every settings apply, so it must
-    /// never wait on a lock the diagnostics worker may hold across a COM call.
-    /// Fixup 03 S1: it constructs nothing when the pair is already wired, and construction itself
-    /// acquires no COM — the observer's MMDeviceEnumerator (CoCreate ~44 ms cold) is acquired
-    /// lazily on the diagnostics worker, inside its _comLock. This must never touch or wait on
-    /// the audio stack: the owner would have no gaze control while it ran.</summary>
+    /// instruments if tests (or a future dispose path) left them unset. Idempotent and cheap.
+    /// LOCK-FREE on purpose (review 02 R3): this runs on the UI thread at every settings apply, so
+    /// it must never wait on a lock the diagnostics worker may hold across a COM call.
+    /// Fixup 03 S1: it constructs nothing when the set is already wired, and construction itself
+    /// acquires no COM — the observer's MMDeviceEnumerator (CoCreate ~44 ms cold) and the meter are
+    /// acquired lazily on the diagnostics worker. This must never touch or wait on the audio
+    /// stack: the owner would have no gaze control while it ran.</summary>
     public static void EnsureProductionWiring()
     {
-        // The guards keep the Interlocked version from constructing a throwaway observer/reader
-        // on every settings apply (review 03 S1).
+        // The guards keep the Interlocked version from constructing a throwaway instance on
+        // every settings apply (review 03 S1).
         if (Volatile.Read(ref _listener) is null)
             Interlocked.CompareExchange(ref _listener, new CoreAudioInterop.CoreAudioChangeObserver(), null);
         if (Volatile.Read(ref _reader) is null)
             Interlocked.CompareExchange(ref _reader, new CoreAudioInterop.CoreAudioStateReader(), null);
+        if (Volatile.Read(ref _meter) is null)
+            Interlocked.CompareExchange(ref _meter, new CoreAudioInterop.CoreAudioMeterProbe(), null);
     }
 
-    /// <summary>Test accessor for the composition pin: true iff the REAL Core Audio pair is wired.</summary>
+    /// <summary>Test accessor for the composition pin: true iff the REAL Core Audio set is wired.</summary>
     internal static bool ProductionWired =>
-        _reader is CoreAudioInterop.CoreAudioStateReader && _listener is CoreAudioInterop.CoreAudioChangeObserver;
+        _reader is CoreAudioInterop.CoreAudioStateReader
+        && _listener is CoreAudioInterop.CoreAudioChangeObserver
+        && _meter is CoreAudioInterop.CoreAudioMeterProbe;
 
-    /// <summary>The queued unit of the first click: one snapshot, then event registration.
-    /// The latch is re-checked at execution time: work queued before App.OnExit's shutdown must
-    /// not register or log afterwards (review 02 R4).</summary>
+    /// <summary>The queued unit of the first click. Registration comes FIRST (F10 item 4: the
+    /// endpoint volume callback and ducking must exist before the first click's state is read and
+    /// before any change can happen during the first show); the snapshot line follows. The latch
+    /// is re-checked at execution time: work queued before App.OnExit's shutdown must not register
+    /// or log afterwards (review 02 R4).</summary>
     private static void FirstClickWork()
     {
         if (Volatile.Read(ref _shutDown) == 1) return;
-        LogSnapshot();
         TryRegisterChangeEvents();
+        LogSnapshot();
     }
 
     /// <summary>Every click funnels here; the once-guard keeps the synchronous cost to one
@@ -202,6 +284,175 @@ internal static class AudioSessionDiagnostics
         LogSnapshot();
         if (_endpointEventsAttached && _sessionEventsAttached) return;
         TryRegisterChangeEvents();
+    }
+
+    // ---- F10: per-show instruments (the meter window and the start-latency measurements) ----
+
+    /// <summary>A silent click is "no peak above this". Linear 0..1 (GetPeakValue's normalized
+    /// range); 0.001 is about -60 dBFS — far below a click at any audible volume, far above the
+    /// exact 0 of a stopped stream.</summary>
+    internal const float MeterReachedThreshold = 0.001f;
+
+    /// <summary>A start slower than this is "late" (the add-on's per-show count). Justification:
+    /// a healthy click goes Active ~10-40 ms after the request (the 9th sitting measured ~35 ms);
+    /// the sitting's suspicious starts were ~400 ms. 200 ms is clear of normal jitter and still
+    /// catches a device-wake delay.</summary>
+    internal const int LateStartThresholdMs = 200;
+
+    /// <summary>How long a hide waits for the show's last meter samples before it writes the hide
+    /// line. A normal click resolves in ~10-40 ms; a silent click can keep polling for up to
+    /// CoreAudioMeterProbe.WindowMs, so the wait is bounded and the click shows as pending instead
+    /// of stalling the keyboard's hide.</summary>
+    private const int MeterShowEndWaitMs = 150;
+
+    private const int MaxPendingClicks = 32;
+
+    private sealed class MeterWindow
+    {
+        public int Reached;
+        public int Silent;
+        public int Pending;
+        public int Late;
+        public int MaxLateMs;
+        public int FirstSilentLogged;
+    }
+
+    internal readonly record struct MeterCounts(int Reached, int Silent, int Pending, int Late, int MaxLateMs);
+
+    private readonly record struct PendingClick(long RequestedAt, MeterWindow Window);
+
+    /// <summary>Longest click→Active delay that is still treated as THIS click's start. A stamp
+    /// older than this can only be one whose Active event was never observed (the session was
+    /// already Active, or registration had not happened yet) — measuring it would blame the next
+    /// click for it.</summary>
+    private const int MaxStartMeasurementMs = 3000;
+
+    /// <summary>The counting window of the current show. A verdict or a late-start measurement
+    /// carries its own window, so a sample that lands after the hide line can never pollute the
+    /// NEXT show's counts.</summary>
+    private static MeterWindow _meterWindow = new();
+    private static int _clickGeneration;
+    private static int _silentClickReports;
+    private static int _sessionActive;
+    // Click requests awaiting their session Active transition. A queue, not a single slot: two
+    // clicks without an intervening Inactive must not borrow each other's Active measurement.
+    private static readonly ConcurrentQueue<PendingClick> PendingClicks = new();
+
+    /// <summary>Opens a fresh meter window for a real show (KeyboardSoundService.OnKeyboardShown,
+    /// the same real-transition discipline as the E1 counters).</summary>
+    public static void OnShowStarted()
+    {
+        if (Volatile.Read(ref _shutDown) == 1) return;
+        Volatile.Write(ref _meterWindow, new MeterWindow());
+        Interlocked.Increment(ref _clickGeneration);
+        while (PendingClicks.TryDequeue(out _)) { }
+    }
+
+    /// <summary>
+    /// Every click winmm accepted (KeyboardSoundService.PlayKeyClick's played branch — a skipped
+    /// or refused click cannot reach the speakers). Costs: one queue write for the start-latency
+    /// measurement, plus one queued sampler when a meter is wired. Both run off the typing path.
+    /// </summary>
+    public static void OnClickPlayed()
+    {
+        if (Volatile.Read(ref _shutDown) == 1) return;
+        var window = Volatile.Read(ref _meterWindow);
+        // A start is only measurable when our session events are attached AND the session is not
+        // already Active: otherwise no Active transition will arrive for THIS click, and queuing a
+        // stamp would make the NEXT click's Active blame this one (a phantom "late").
+        if (Volatile.Read(ref _sessionEventsAttached) && Volatile.Read(ref _sessionActive) == 0)
+        {
+            if (PendingClicks.Count >= MaxPendingClicks) PendingClicks.TryDequeue(out _);
+            PendingClicks.Enqueue(new PendingClick(Stopwatch.GetTimestamp(), window));
+        }
+        var meter = _meter;
+        if (meter is null) return;
+        var generation = Interlocked.Increment(ref _clickGeneration);
+        Interlocked.Increment(ref window.Pending);
+        RunOffTypingPath(() => SampleClick(window, generation, meter));
+    }
+
+    private static void SampleClick(MeterWindow window, int generation, IAudioMeterProbe meter)
+    {
+        try
+        {
+            if (Volatile.Read(ref _shutDown) == 1) return;
+            bool Stop() => Volatile.Read(ref _shutDown) == 1
+                || Volatile.Read(ref _clickGeneration) != generation
+                || !ReferenceEquals(Volatile.Read(ref _meterWindow), window);
+            var peak = meter.SamplePeak(Stop);
+            if (peak is null) return; // unmetered: no verdict, and reached+silent may be < played
+            if (peak.Value > MeterReachedThreshold)
+            {
+                Interlocked.Increment(ref window.Reached);
+                return;
+            }
+            Interlocked.Increment(ref window.Silent);
+            ReportFirstSilentClick(window);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref window.Pending);
+        }
+    }
+
+    /// <summary>ONE line per show at its first silent click, carrying that moment's endpoint and
+    /// session state. Runs on the diagnostics worker; the read is guarded like every other.</summary>
+    private static void ReportFirstSilentClick(MeterWindow window)
+    {
+        if (Interlocked.Exchange(ref window.FirstSilentLogged, 1) != 0) return;
+        Interlocked.Increment(ref _silentClickReports);
+        try
+        {
+            Emit(FormatSilentClickLine(_reader?.Read()));
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("silent-click state read", ex);
+        }
+    }
+
+    /// <summary>The hide line's meter fields: bounded wait for the show's last samples, then the
+    /// window's counts. Pending stays non-zero only when a click was still waiting for a peak at
+    /// hide time (a silent click's window is up to 1.5 s); its verdict is dropped with the window.</summary>
+    internal static MeterCounts TakeMeterCounts(int timeoutMs = MeterShowEndWaitMs)
+    {
+        var window = Volatile.Read(ref _meterWindow);
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (Volatile.Read(ref window.Pending) > 0 && Environment.TickCount64 < deadline) Thread.Sleep(5);
+        return new MeterCounts(
+            Volatile.Read(ref window.Reached),
+            Volatile.Read(ref window.Silent),
+            Volatile.Read(ref window.Pending),
+            Volatile.Read(ref window.Late),
+            Volatile.Read(ref window.MaxLateMs));
+    }
+
+    /// <summary>The click→Active measurement (F10 add-on): one queued request per played click,
+    /// popped by the session's own Active transition. Runs on the WASAPI callback thread; the
+    /// window is the one the click was requested in, so a late event cannot land in a new show.</summary>
+    private static void RecordStartLatency()
+    {
+        // Drop stamps whose Active was never observed instead of attributing them to a later
+        // click; the first plausible stamp is this Active's click.
+        while (PendingClicks.TryDequeue(out var click))
+        {
+            var ms = ElapsedMs(click.RequestedAt);
+            if (ms > MaxStartMeasurementMs) continue;
+            UpdateMax(ref click.Window.MaxLateMs, ms);
+            if (ms >= LateStartThresholdMs) Interlocked.Increment(ref click.Window.Late);
+            return;
+        }
+    }
+
+    private static int ElapsedMs(long since) =>
+        (int)Math.Min(int.MaxValue, (Stopwatch.GetTimestamp() - since) * 1000L / Stopwatch.Frequency);
+
+    private static void UpdateMax(ref int target, int value)
+    {
+        int current;
+        while ((current = Volatile.Read(ref target)) < value)
+            if (Interlocked.CompareExchange(ref target, value, current) == current) return;
     }
 
     /// <summary>Bounded wait until every scheduled diagnostics work item has completed. Tests
@@ -261,7 +512,7 @@ internal static class AudioSessionDiagnostics
         {
             var listener = _listener;
             if (listener is null) return;
-            _changeLine ??= Emit;
+            _changeEvent ??= OnChange;
             // R3 (review 02): the COM calls run OUTSIDE Gate — the UI thread takes Gate in
             // EnsureProductionWiring/Shutdown and must never wait behind a hung AudioSrv RPC.
             // The attached flags are read racily and the winners published under the lock; a
@@ -269,9 +520,10 @@ internal static class AudioSessionDiagnostics
             // guard is idempotent.
             var endpointWasAttached = _endpointEventsAttached;
             var sessionWasAttached = _sessionEventsAttached;
-            var endpointAttached = endpointWasAttached || listener.TryRegister(_changeLine);
-            var sessionAttached = endpointAttached &&
-                (sessionWasAttached || listener.TryRegisterSessionEvents());
+            var endpointAttached = endpointWasAttached || listener.TryRegister(_changeEvent);
+            // F10: the session instrument is NOT gated on the endpoint-level result any more — a
+            // ducking registration failure must not cost the per-app volume/mute/state events.
+            var sessionAttached = sessionWasAttached || listener.TryRegisterSessionEvents();
             lock (Gate)
             {
                 _endpointEventsAttached = endpointAttached;
@@ -281,6 +533,28 @@ internal static class AudioSessionDiagnostics
         catch (Exception ex)
         {
             ReportFailure("change-event registration", ex);
+        }
+    }
+
+    private static void OnChange(AudioChange change)
+    {
+        try
+        {
+            Emit(change.Line);
+            if (change.Kind != AudioChangeKind.SessionState) return;
+            if (change.SessionState == "Active")
+            {
+                Volatile.Write(ref _sessionActive, 1);
+                RecordStartLatency();
+            }
+            else
+            {
+                Volatile.Write(ref _sessionActive, 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("change-event line", ex);
         }
     }
 
@@ -321,10 +595,11 @@ internal static class AudioSessionDiagnostics
     /// <summary>App teardown (App.OnExit): latch the diagnostics off FIRST (no queued or late
     /// work may register or log afterwards — review 02 R4), then hand the COM teardown to the
     /// pool. SIGNAL-AND-RETURN (review 02 R3): this runs on the UI thread and must never wait on
-    /// an in-flight or hung COM call — the process exit cleans up whatever is still running.</summary>
+    /// an in-flight or hung COM call — the process exit cleans up whatever is still running.
+    /// A second call is a no-op (F10's shutdown pin).</summary>
     public static void Shutdown()
     {
-        Volatile.Write(ref _shutDown, 1);
+        if (Interlocked.Exchange(ref _shutDown, 1) == 1) return;
         var listener = _listener;
         if (listener is null) return;
         ThreadPool.QueueUserWorkItem(_ =>

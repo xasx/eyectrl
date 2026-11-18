@@ -2,7 +2,27 @@
   "Entries": [
     {
       "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "\"Keyboard audio: \"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "\"Keyboard click silent: no output peak during the play window; audio state unavailable\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "\"Keyboard duck: communications ducking ended\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
       "Literal": "$\"Keyboard audio change: default device -> \\\"{endpointName}\\\"\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: endpoint volume={newVolume.ToString(\"F2\", CultureInfo.InvariantCulture)} mute={newMute}\"",
       "Count": 1
     },
     {
@@ -18,6 +38,16 @@
     {
       "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
       "Literal": "$\"Keyboard audio change: volume={newVolume.ToString(\"F2\", CultureInfo.InvariantCulture)} mute={newMute}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard click silent: no output peak during the play window; {FormatStateDetails(snapshot)}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard duck: communications ducking started (sessions={communicationsSessions})\"",
       "Count": 1
     },
     {
@@ -82,7 +112,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
-      "Literal": "$\"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped}\"",
+      "Literal": "$\"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped} \"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
+      "Literal": "$\"reached={reached} silent={silent} pending={pending} late={late} maxlatems={maxLateMs}\"",
       "Count": 1
     },
     {

@@ -1710,9 +1710,51 @@
     },
     {
       "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
-      "Literal": "$\"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped}\"",
+      "Literal": "$\"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped} \"",
       "Category": "log",
-      "Reason": "F5: the hide line counters (requested/played/failed/skipped, ints only), log-only; FormatHideLine is a member so tests pin the exact format. Never shown."
+      "Reason": "F5/F10: the hide line counters (requested/played/failed/skipped, ints only), log-only; FormatHideLine is a member so tests pin the exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
+      "Literal": "$\"reached={reached} silent={silent} pending={pending} late={late} maxlatems={maxLateMs}\"",
+      "Category": "log",
+      "Reason": "F10: the hide line's endpoint-meter and start-latency fields (ints only), log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "\"Keyboard audio: \"",
+      "Category": "log",
+      "Reason": "F10: the snapshot line's prefix (the state details follow from FormatStateDetails), log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "\"Keyboard click silent: no output peak during the play window; audio state unavailable\"",
+      "Category": "log",
+      "Reason": "F10: the first-silent-click line when the state read itself failed; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "\"Keyboard duck: communications ducking ended\"",
+      "Category": "log",
+      "Reason": "F10: duck/unduck event line, log-only; FormatDuckEnd is a member so a test pins the exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard audio change: endpoint volume={newVolume.ToString(\"F2\", CultureInfo.InvariantCulture)} mute={newMute}\"",
+      "Category": "log",
+      "Reason": "F10: log-only endpoint master volume/mute change line; the formatter is a string-returning member so a test pins the exact format. Never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard click silent: no output peak during the play window; {FormatStateDetails(snapshot)}\"",
+      "Category": "log",
+      "Reason": "F10: the once-per-show first-silent-click line with the moment's audio state; log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
+      "Literal": "$\"Keyboard duck: communications ducking started (sessions={communicationsSessions})\"",
+      "Category": "log",
+      "Reason": "F10: duck event line with the communication-session count (an int); log-only, never shown."
     }
   ]
 }

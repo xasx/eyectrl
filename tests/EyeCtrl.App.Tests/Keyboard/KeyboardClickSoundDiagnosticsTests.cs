@@ -29,6 +29,12 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         public bool Play() { Calls++; return result; }
     }
 
+    private sealed class ScriptedMeter(params float?[] peaks) : AudioSessionDiagnostics.IAudioMeterProbe
+    {
+        private readonly Queue<float?> _peaks = new(peaks);
+        public float? SamplePeak(Func<bool> stop) => _peaks.Count > 0 ? _peaks.Dequeue() : null;
+    }
+
     private static KeyboardSoundService Service(IClickSoundPlayer player, List<string> lines) =>
         new(new KeyboardSettings(), "irrelevant.wav", _ => player) { DiagnosticsLineSink = lines.Add };
 
@@ -44,7 +50,7 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(lines).IsEmpty(); // nothing between keys — the hide line is the report
         svc.OnKeyboardHidden();
 
-        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=2 failed=0 skipped=0");
+        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=2 failed=0 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
     }
 
     [Fact]
@@ -67,7 +73,7 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(lines).HasSize(2);
         Check.That(lines[0]).IsEqualTo(
             "Key click: PlaySound returned false (first failure this show; later ones count only).");
-        Check.That(lines[1]).IsEqualTo("Keyboard click: requested=3 played=0 failed=3 skipped=0");
+        Check.That(lines[1]).IsEqualTo("Keyboard click: requested=3 played=0 failed=3 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
 
         // A new show opens a new window: the first failure of THAT show logs again.
         svc.OnKeyboardShown();
@@ -75,7 +81,7 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         svc.OnKeyboardHidden();
         Check.That(lines).HasSize(4);
         Check.That(lines[2]).Contains("PlaySound returned false");
-        Check.That(lines[3]).IsEqualTo("Keyboard click: requested=1 played=0 failed=1 skipped=0");
+        Check.That(lines[3]).IsEqualTo("Keyboard click: requested=1 played=0 failed=1 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
     }
 
     [Fact]
@@ -95,7 +101,7 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         svc.OnKeyboardHidden();
 
         Check.That(player.Calls).IsEqualTo(0);
-        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=0 skipped=2");
+        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=0 skipped=2 reached=0 silent=0 pending=0 late=0 maxlatems=0");
     }
 
     [Fact]
@@ -113,16 +119,60 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.WithCustomMessage(
                 "OnKeyboardShown must reset the counters: a show that did not reset would report "
                 + "clicks that happened before the keyboard was up")
-            .That(lines).ContainsExactly("Keyboard click: requested=1 played=1 failed=0 skipped=0");
+            .That(lines).ContainsExactly("Keyboard click: requested=1 played=1 failed=0 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
+    }
+
+    [Fact]
+    public void TheHideLine_CarriesTheMeterVerdicts_AndTheFirstSilentClickReportsOnce()
+    {
+        // F10 item 2 end to end through the service: the hide line counts what the endpoint
+        // meter saw, and the first silent click reports a single state line for the show.
+        var lines = new List<string>();
+        var player = new FakePlayer(true);
+        AudioSessionDiagnostics.ConfigureForTesting(
+            null, null, new ScriptedMeter(0.5f, 0f)); // reached, then silent
+        var svc = Service(player, lines);
+        svc.OnKeyboardShown();
+        svc.PlayKeyClick();
+        svc.PlayKeyClick();
+        RunParkedWork();
+        svc.OnKeyboardHidden();
+
+        Check.That(lines).ContainsExactly(
+            "Keyboard click: requested=2 played=2 failed=0 skipped=0 "
+            + "reached=1 silent=1 pending=0 late=0 maxlatems=0");
+        Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void TheHideLine_ReportsAPendingSample_AndDoesNotWaitForTheWholeMeterWindow()
+    {
+        // A silent click's meter window can be 1.5 s; the hide line must not stall for it — the
+        // click shows as pending and its verdict lands after the show (and is dropped with it).
+        var lines = new List<string>();
+        var player = new FakePlayer(true);
+        AudioSessionDiagnostics.ConfigureForTesting(null, null, new ScriptedMeter(0.5f));
+        var svc = Service(player, lines);
+        svc.OnKeyboardShown();
+        svc.PlayKeyClick(); // sampler parked: not run before the hide
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        svc.OnKeyboardHidden();
+        sw.Stop();
+
+        Check.That(lines).ContainsExactly(
+            "Keyboard click: requested=1 played=1 failed=0 skipped=0 "
+            + "reached=0 silent=0 pending=1 late=0 maxlatems=0");
+        Check.WithCustomMessage("the hide line waited for the meter instead of bounding the wait")
+            .That(sw.ElapsedMilliseconds).IsStrictlyLessThan(1000);
     }
 
     [Fact]
     public void TheHideLineFormat_IsPinnedWordForWord()
     {
-        Check.That(KeyboardSoundService.FormatHideLine(41, 41, 0, 0))
-            .IsEqualTo("Keyboard click: requested=41 played=41 failed=0 skipped=0");
-        Check.That(KeyboardSoundService.FormatHideLine(0, 0, 0, 0))
-            .IsEqualTo("Keyboard click: requested=0 played=0 failed=0 skipped=0");
+        Check.That(KeyboardSoundService.FormatHideLine(41, 41, 0, 0, 0, 0, 0, 0, 0))
+            .IsEqualTo("Keyboard click: requested=41 played=41 failed=0 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
+        Check.That(KeyboardSoundService.FormatHideLine(0, 0, 0, 0, 0, 0, 0, 0, 0))
+            .IsEqualTo("Keyboard click: requested=0 played=0 failed=0 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
     }
 
     [Fact]
@@ -132,8 +182,8 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         try
         {
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
-            Check.That(KeyboardSoundService.FormatHideLine(1, 2, 3, 4))
-                .IsEqualTo("Keyboard click: requested=1 played=2 failed=3 skipped=4");
+            Check.That(KeyboardSoundService.FormatHideLine(1, 2, 3, 4, 5, 6, 7, 8, 9))
+                .IsEqualTo("Keyboard click: requested=1 played=2 failed=3 skipped=4 reached=5 silent=6 pending=7 late=8 maxlatems=9");
         }
         finally { CultureInfo.CurrentCulture = previous; }
     }
@@ -176,7 +226,7 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
             Check.WithCustomMessage(
                     "the window must forward the real show/hide transitions to ITS sound service: "
                     + "a missing forward loses the reset (requested=2) or the hide line itself")
-                .That(lines).ContainsExactly("Keyboard click: requested=1 played=1 failed=0 skipped=0");
+                .That(lines).ContainsExactly("Keyboard click: requested=1 played=1 failed=0 skipped=0 reached=0 silent=0 pending=0 late=0 maxlatems=0");
         }
         finally
         {

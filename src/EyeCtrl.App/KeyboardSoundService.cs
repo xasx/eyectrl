@@ -79,9 +79,18 @@ public class KeyboardSoundService
     internal static IClickSoundPlayer? DefaultPlayerFactory(string path) =>
         WavHeader.TryRead(path) is null ? null : new WinmmClickPlayer(path);
 
-    /// <summary>The hide line's exact format — pinned by a test, one line per real keyboard hide.</summary>
-    internal static string FormatHideLine(int requested, int played, int failed, int skipped) =>
-        $"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped}";
+    /// <summary>The hide line's exact format — pinned by a test, one line per real keyboard hide.
+    /// F10 adds the endpoint meter's verdicts and the start latencies:
+    /// <c>reached</c>/<c>silent</c> are the clicks whose endpoint peak was (not) above the meter
+    /// threshold; <c>pending</c> is a click still waiting for its verdict at hide time (a silent
+    /// click's window can outlast the show); <c>late</c>/<c>maxlatems</c> count and bound the
+    /// click-request → session-Active delays (maxlatems=0 means no start was measured, e.g. the
+    /// session events were not attached yet).</summary>
+    internal static string FormatHideLine(
+        int requested, int played, int failed, int skipped,
+        int reached, int silent, int pending, int late, int maxLateMs) =>
+        $"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped} "
+        + $"reached={reached} silent={silent} pending={pending} late={late} maxlatems={maxLateMs}";
 
     public virtual void PlayKeyClick()
     {
@@ -96,6 +105,10 @@ public class KeyboardSoundService
             if (_player.Play())
             {
                 _played++;
+                // F10: winmm accepted the request — this click can reach the speakers, so it gets
+                // a meter sampler and a start-latency slot. Still off the typing path: the sampler
+                // is queued, and this call itself is one queue write plus one interlocked bump.
+                AudioSessionDiagnostics.OnClickPlayed();
                 return;
             }
             // winmm's false is the signal SoundPlayer threw away (F5): count it, log the FIRST
@@ -125,18 +138,25 @@ public class KeyboardSoundService
     }
 
     /// <summary>A REAL keyboard show (KeyboardCoordinator decides, E1's shown/hidden discipline):
-    /// a new counter window opens for the hide line this show will produce.</summary>
+    /// a new counter window opens for the hide line this show will produce. The F10 meter window
+    /// is reset on the same real transition — a click's verdict belongs to the show it was made in.</summary>
     public void OnKeyboardShown()
     {
         _requested = _played = _failed = _skipped = 0;
         _failureLoggedThisShow = false;
+        AudioSessionDiagnostics.OnShowStarted();
         AudioSessionDiagnostics.OnKeyboardTransition();
     }
 
-    /// <summary>A REAL keyboard hide: exactly one Information line for the show that just ended.</summary>
+    /// <summary>A REAL keyboard hide: exactly one Information line for the show that just ended.
+    /// The meter counts are taken first (bounded: a normal click resolves in tens of ms; a silent
+    /// click still polling shows as pending instead of delaying the hide).</summary>
     public void OnKeyboardHidden()
     {
-        LogLine(FormatHideLine(_requested, _played, _failed, _skipped));
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        LogLine(FormatHideLine(
+            _requested, _played, _failed, _skipped,
+            counts.Reached, counts.Silent, counts.Pending, counts.Late, counts.MaxLateMs));
         AudioSessionDiagnostics.OnKeyboardTransition();
     }
 

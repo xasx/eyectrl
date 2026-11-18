@@ -13,9 +13,11 @@ using System.Runtime.InteropServices;
 /// CCWs and are the unproven half on this machine — which is why AudioSessionDiagnostics keeps
 /// the show/hide snapshot as a baseline in both modes.
 /// <para>
-/// Ownership: the reader releases every COM object it obtains; the observer holds its
-/// registrations (enumerator, endpoint client, session control, session events) for the app's
-/// lifetime and releases them in Shutdown. Reader and observer never share objects.
+/// Ownership: no eager COM release anywhere (review 02 R1/R2) — the process-wide enumerator and
+/// meter, the endpoint registrations and the session registration live for the app's lifetime and
+/// are unregistered in Shutdown; every other RCW simply goes out of scope. Native PROPVARIANT
+/// memory is still cleared explicitly. The F10 readers (endpoint master volume, meter, ducking)
+/// share the same enumerator and follow the same discipline.
 /// </para>
 /// </summary>
 internal static class CoreAudioInterop
@@ -28,6 +30,12 @@ internal static class CoreAudioInterop
     private const short VtLpwstr = 31; // VT_LPWSTR
 
     internal static readonly Guid IidIAudioSessionManager2 = new("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+
+    // SDK: endpointvolume.h:207. Activated on the default render ENDPOINT (IMMDevice.Activate).
+    internal static readonly Guid IidIAudioEndpointVolume = new("5CDF2C82-841E-4546-9722-0CF74078229A");
+
+    // SDK: endpointvolume.h:842. Activated on the default render ENDPOINT.
+    internal static readonly Guid IidIAudioMeterInformation = new("C02216F6-8C67-4B5B-9D00-D008E73E0064");
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct PropertyKey
@@ -114,8 +122,11 @@ internal static class CoreAudioInterop
         [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessionEnumerator);
         [PreserveSig] int RegisterSessionNotification(IntPtr sessionNotification);
         [PreserveSig] int UnregisterSessionNotification(IntPtr sessionNotification);
-        [PreserveSig] int RegisterDuckNotification(IntPtr systemSoundSessionId, IntPtr duckNotification);
-        [PreserveSig] int UnregisterDuckNotification(IntPtr duckNotification);
+        // audiopolicy.h:1168-1175. A NULL sessionID asks for ALL ducking notifications rather
+        // than only our own session's (the SDK's documented "do not alter our stream" mode) —
+        // which is also why this can register before winmm has created our session.
+        [PreserveSig] int RegisterDuckNotification([MarshalAs(UnmanagedType.LPWStr)] string? sessionId, IAudioVolumeDuckNotification duckNotification);
+        [PreserveSig] int UnregisterDuckNotification(IAudioVolumeDuckNotification duckNotification);
     }
 
     [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -172,6 +183,77 @@ internal static class CoreAudioInterop
         [PreserveSig] int GetMasterVolume(out float level);
         [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
         [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+    }
+
+    /// <summary>The render endpoint's master volume and mute (F10). SDK: endpointvolume.h:207
+    /// (IID), vtable endpointvolume.h:210-300 — all EIGHTEEN slots in header order. The Set*
+    /// slots are declared only to keep the vtable exact; this app never writes a volume or a
+    /// mute (the owner controls them).</summary>
+    [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IAudioEndpointVolume
+    {
+        [PreserveSig] int RegisterControlChangeNotify(IAudioEndpointVolumeCallback pNotify);
+        [PreserveSig] int UnregisterControlChangeNotify(IAudioEndpointVolumeCallback pNotify);
+        [PreserveSig] int GetChannelCount(out int channelCount);
+        [PreserveSig] int SetMasterVolumeLevel(float levelDb, ref Guid eventContext);
+        [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid eventContext);
+        [PreserveSig] int GetMasterVolumeLevel(out float levelDb);
+        [PreserveSig] int GetMasterVolumeLevelScalar(out float level);
+        [PreserveSig] int SetChannelVolumeLevel(int channel, float levelDb, ref Guid eventContext);
+        [PreserveSig] int SetChannelVolumeLevelScalar(int channel, float level, ref Guid eventContext);
+        [PreserveSig] int GetChannelVolumeLevel(int channel, out float levelDb);
+        [PreserveSig] int GetChannelVolumeLevelScalar(int channel, out float level);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+        [PreserveSig] int GetVolumeStepInfo(out int step, out int stepCount);
+        [PreserveSig] int VolumeStepUp(ref Guid eventContext);
+        [PreserveSig] int VolumeStepDown(ref Guid eventContext);
+        [PreserveSig] int QueryHardwareSupport(out int hardwareSupportMask);
+        [PreserveSig] int GetVolumeRange(out float minDb, out float maxDb, out float incrementDb);
+    }
+
+    /// <summary>The payload prefix of AUDIO_VOLUME_NOTIFICATION_DATA (endpointvolume.h:93): the
+    /// native struct ends in a variable-length channel array this app never reads. Field order
+    /// and sizes are the header's: GUID (16), BOOL (4), float (4), UINT (4).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct AudioVolumeNotificationData
+    {
+        public Guid EventContext;
+        [MarshalAs(UnmanagedType.Bool)] public bool Muted;
+        public float MasterVolume;
+        public int ChannelCount;
+    }
+
+    /// <summary>Implemented by the managed <see cref="EndpointVolumeCallback"/> CCW, registered on
+    /// the render endpoint. SDK: endpointvolume.h:123 (IID), vtable endpointvolume.h:127 — one
+    /// slot, OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA). Declared as IntPtr so the variable-length
+    /// channel tail never has to be marshaled; the callback reads only the fixed prefix.</summary>
+    [ComImport, Guid("657804FA-D6AD-4496-8A60-352752AF4F95"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IAudioEndpointVolumeCallback
+    {
+        [PreserveSig] int OnNotify(IntPtr pNotify);
+    }
+
+    /// <summary>The render endpoint's peak meter (F10's "did the click reach the speakers").
+    /// SDK: endpointvolume.h:842 (IID), vtable endpointvolume.h:846-860. Activated on the
+    /// endpoint; per-session metering is not exposed for a session another process's audio client
+    /// owns (winmm owns EyeCtrl's), so the endpoint meter is the read-only instrument available.</summary>
+    [ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IAudioMeterInformation
+    {
+        [PreserveSig] int GetPeakValue(out float peak);
+        [PreserveSig] int GetMeteringChannelCount(out int channelCount);
+        [PreserveSig] int GetChannelsPeakValues(int channelCount, IntPtr peakValues);
+        [PreserveSig] int QueryHardwareSupport(out int hardwareSupportMask);
+    }
+
+    /// <summary>Implemented by the managed <see cref="DuckNotification"/> CCW, registered on the
+    /// session manager. SDK: audiopolicy.h:877 (IID), vtable audiopolicy.h:881-886 — two slots.</summary>
+    [ComImport, Guid("C3B284D4-6D39-4359-B3CF-B56DDB3BB39C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IAudioVolumeDuckNotification
+    {
+        [PreserveSig] int OnVolumeDuckNotification([MarshalAs(UnmanagedType.LPWStr)] string? sessionID, int countCommunicationSessions);
+        [PreserveSig] int OnVolumeUnduckNotification([MarshalAs(UnmanagedType.LPWStr)] string? sessionID);
     }
 
     /// <summary>Implemented by the managed <see cref="SessionEvents"/> CCW, registered on our
@@ -252,6 +334,30 @@ internal static class CoreAudioInterop
         }
     }
 
+    /// <summary>The render endpoint's master volume scalar (0..1) and mute flag (F10). Read-only:
+    /// the app never calls SetMasterVolumeLevel*/SetMute. QIs the endpoint object for
+    /// IAudioEndpointVolume (endpointvolume.h:207); any failure degrades to nulls, rendered "?".
+    /// The device RCW simply goes out of scope (the release discipline above).</summary>
+    internal static (double? Volume, bool? Mute) ReadEndpointVolumeAndMute(IMMDeviceEnumerator enumerator)
+    {
+        try
+        {
+            var hr = enumerator.GetDefaultAudioEndpoint(DataFlowRender, RoleMultimedia, out var device);
+            if (hr != SOk || device is null) return (null, null);
+            var iid = IidIAudioEndpointVolume;
+            if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out var iface) != SOk || iface is null)
+                return (null, null);
+            var volume = (IAudioEndpointVolume)iface;
+            if (volume.GetMasterVolumeLevelScalar(out var level) != SOk || volume.GetMute(out var mute) != SOk)
+                return (null, null);
+            return (level, mute);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
     /// <summary>Our process's session control, or null when winmm has not created it yet (the
     /// first click's PlaySound is what creates it). Never the system sounds session. The returned
     /// control is NOT released by this walk — the diagnostics path lets RCWs go (see the release
@@ -317,6 +423,82 @@ internal static class CoreAudioInterop
         }
     }
 
+    /// <summary>
+    /// ONE process-wide endpoint meter RCW (F10), acquired lazily on the diagnostics worker (the
+    /// IMMDevice activation is COM) and never released — the same discipline as the shared
+    /// enumerator. Invalidated on a default-device change so the next sample follows the new
+    /// endpoint: the meter measures ONE device and would otherwise keep reading the old one.
+    /// </summary>
+    private static IAudioMeterInformation? _sharedMeter;
+
+    internal static IAudioMeterInformation? AcquireSharedMeter()
+    {
+        var existing = _sharedMeter;
+        if (existing is not null) return existing;
+        lock (EnumeratorLock)
+        {
+            if (_sharedMeter is not null) return _sharedMeter;
+            var iid = IidIAudioMeterInformation;
+            var hr = AcquireSharedEnumerator()
+                .GetDefaultAudioEndpoint(DataFlowRender, RoleMultimedia, out var device);
+            if (hr != SOk || device is null) return null;
+            if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out var iface) != SOk || iface is null)
+                return null;
+            return _sharedMeter = (IAudioMeterInformation)iface;
+        }
+    }
+
+    /// <summary>Called from the default-device callback (a WASAPI thread): the cached meter
+    /// belongs to the old endpoint. The next sampler acquires the new one on the worker.</summary>
+    internal static void InvalidateSharedMeter() => _sharedMeter = null;
+
+    /// <summary>
+    /// F10's production meter probe: poll the endpoint peak while a click plays. One meter
+    /// reading covers the previous device period (endpointvolume.h GetPeakValue remarks), so a
+    /// ~20 ms click stays visible across roughly two readings; a 2 ms cadence plus a 1.5 s cap
+    /// also catches a late (device-wake) start, which is the add-on's 0.4 s case. Sleeps only on
+    /// the diagnostics worker — never on a key or the UI thread.
+    /// </summary>
+    internal sealed class CoreAudioMeterProbe : AudioSessionDiagnostics.IAudioMeterProbe
+    {
+        internal const int WindowMs = 1500;
+        internal const int IntervalMs = 2;
+        private const int InitialDelayMs = 2;
+
+        /// <summary>null = the meter could not be read at all (unconfigured endpoint, COM
+        /// failure); 0 = read fine and the endpoint stayed silent. Never throws.</summary>
+        public float? SamplePeak(Func<bool> stop)
+        {
+            try
+            {
+                var meter = AcquireSharedMeter();
+                if (meter is null) return null;
+                var anyRead = false;
+                float max = 0;
+                var deadline = Environment.TickCount64 + WindowMs;
+                Thread.Sleep(InitialDelayMs); // winmm starts the sound asynchronously
+                while (true)
+                {
+                    if (meter.GetPeakValue(out var peak) == SOk)
+                    {
+                        anyRead = true;
+                        if (peak > max) max = peak;
+                        // Reached: stop polling. The threshold is the same one the counter uses,
+                        // so a noise floor far below it cannot end the window before the sound.
+                        if (peak > AudioSessionDiagnostics.MeterReachedThreshold) return max;
+                    }
+                    if (Environment.TickCount64 >= deadline || stop()) break;
+                    Thread.Sleep(IntervalMs);
+                }
+                return anyRead ? max : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
     // ---- production implementations of the AudioSessionDiagnostics seams ----
 
     /// <summary>Walks the default endpoint's sessions for OUR process's session and reads its
@@ -329,18 +511,26 @@ internal static class CoreAudioInterop
         {
             var enumerator = AcquireSharedEnumerator();
             var endpointName = ReadDefaultEndpointFriendlyName(enumerator);
+            // F10: the endpoint's own master volume/mute, read on the same default device the
+            // clicks go to. Kept on every snapshot (boundaries included) so the owner can see
+            // whether Windows' answer changed between two shows.
+            var (endpointVolume, endpointMute) = ReadEndpointVolumeAndMute(enumerator);
             if (enumerator.ActivateSessionManager(out var manager) != SOk || manager is null)
-                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
+                return new AudioSessionDiagnostics.AudioStateSnapshot(
+                    endpointName, endpointVolume, endpointMute, false, null, null, null);
             if (manager.GetSessionEnumerator(out var sessions) != SOk || sessions is null)
-                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
+                return new AudioSessionDiagnostics.AudioStateSnapshot(
+                    endpointName, endpointVolume, endpointMute, false, null, null, null);
             var control = FindOwnSessionControl(sessions);
             if (control is null)
-                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, false, null, null, null);
+                return new AudioSessionDiagnostics.AudioStateSnapshot(
+                    endpointName, endpointVolume, endpointMute, false, null, null, null);
             if (control.GetState(out var state) != SOk)
-                return new AudioSessionDiagnostics.AudioStateSnapshot(endpointName, true, null, null, null);
+                return new AudioSessionDiagnostics.AudioStateSnapshot(
+                    endpointName, endpointVolume, endpointMute, true, null, null, null);
             var (level, mute) = ReadVolumeAndMute(control);
             return new AudioSessionDiagnostics.AudioStateSnapshot(
-                endpointName, true, level, mute, StateName(state));
+                endpointName, endpointVolume, endpointMute, true, level, mute, StateName(state));
         }
     }
 
@@ -383,33 +573,74 @@ internal static class CoreAudioInterop
         private readonly object _comLock = new();
         private IMMDeviceEnumerator? _enumerator;
         internal bool HasEnumerator => _enumerator is not null;
-        private Action<string>? _onChange;
+        private Action<AudioSessionDiagnostics.AudioChange>? _onChange;
         private EndpointNotificationClient? _endpointClient;
         private IAudioSessionControl? _sessionControl;
         private SessionEvents? _sessionEvents;
-        private bool _endpointAttached, _sessionAttached;
+        // F10's two endpoint-level instruments: the endpoint master volume/mute callback and the
+        // ducking notification. Both live as long as the observer (app lifetime) and are
+        // unregistered in Shutdown.
+        private IAudioEndpointVolume? _endpointVolume;
+        private EndpointVolumeCallback? _endpointVolumeCallback;
+        private IAudioSessionManager2? _duckManager;
+        private DuckNotification? _duck;
+        private bool _endpointAttached, _endpointVolumeAttached, _duckAttached, _sessionAttached;
         private volatile bool _shutDown;
 
         public void SignalShutdown() => _shutDown = true;
 
-        public bool TryRegister(Action<string> onChangeLine)
+        /// <summary>Attach every ENDPOINT-level instrument: default-device changes (F5), the
+        /// endpoint master volume/mute callback (F10) and ducking notifications (F10). Returns
+        /// true only when ALL THREE are attached, so a transient failure is retried at the next
+        /// transition instead of leaving one instrument silently blind. F10 fixup: the session
+        /// events are no longer gated on this result — a duck registration failure must not cost
+        /// the session instrument.</summary>
+        public bool TryRegister(Action<AudioSessionDiagnostics.AudioChange> onChangeLine)
         {
             lock (_gate)
             {
                 _onChange = onChangeLine;
-                if (_endpointAttached) return true;
+                if (_endpointAttached && _endpointVolumeAttached && _duckAttached) return true;
             }
             // COM outside _gate (R3); _comLock serializes concurrent worker registrations.
             // Fixup 03 S1: the lazy acquisition runs HERE, on the worker, inside _comLock —
             // never in the constructor the UI thread touches.
             lock (_comLock)
             {
-                if (_shutDown || _endpointAttached) return _endpointAttached;
+                if (_shutDown) return false;
                 _enumerator ??= AcquireSharedEnumerator();
-                var client = new EndpointNotificationClient(onChangeLine);
-                if (_enumerator.RegisterEndpointNotificationCallback(client) != SOk) return false;
-                _endpointClient = client;
-                _endpointAttached = true;
+                if (!_endpointAttached)
+                {
+                    var client = new EndpointNotificationClient(onChangeLine);
+                    if (_enumerator.RegisterEndpointNotificationCallback(client) != SOk) return false;
+                    _endpointClient = client;
+                    _endpointAttached = true;
+                }
+                if (!_endpointVolumeAttached)
+                {
+                    if (_enumerator.GetDefaultAudioEndpoint(DataFlowRender, RoleMultimedia, out var device) != SOk
+                        || device is null) return false;
+                    var iid = IidIAudioEndpointVolume;
+                    if (device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out var iface) != SOk || iface is null)
+                        return false;
+                    var volume = (IAudioEndpointVolume)iface;
+                    var volumeCallback = new EndpointVolumeCallback(onChangeLine);
+                    if (volume.RegisterControlChangeNotify(volumeCallback) != SOk) return false;
+                    _endpointVolume = volume;
+                    _endpointVolumeCallback = volumeCallback;
+                    _endpointVolumeAttached = true;
+                }
+                if (!_duckAttached)
+                {
+                    // NULL session id = receive ALL ducking notifications (RegisterDuckNotification
+                    // docs); our own session does not exist yet at the first click.
+                    if (_enumerator.ActivateSessionManager(out var manager) != SOk || manager is null) return false;
+                    var duck = new DuckNotification(onChangeLine);
+                    if (manager.RegisterDuckNotification(null, duck) != SOk) return false;
+                    _duckManager = manager;
+                    _duck = duck;
+                    _duckAttached = true;
+                }
                 return true;
             }
         }
@@ -452,10 +683,20 @@ internal static class CoreAudioInterop
                     _sessionControl.UnregisterAudioSessionNotification(_sessionEvents);
                 if (_enumerator is not null && _endpointClient is not null)
                     _enumerator.UnregisterEndpointNotificationCallback(_endpointClient);
+                if (_endpointVolume is not null && _endpointVolumeCallback is not null)
+                    _endpointVolume.UnregisterControlChangeNotify(_endpointVolumeCallback);
+                if (_duckManager is not null && _duck is not null)
+                    _duckManager.UnregisterDuckNotification(_duck);
                 _endpointClient = null;
                 _sessionControl = null;
                 _sessionEvents = null;
+                _endpointVolume = null;
+                _endpointVolumeCallback = null;
+                _duckManager = null;
+                _duck = null;
                 _endpointAttached = false;
+                _endpointVolumeAttached = false;
+                _duckAttached = false;
                 _sessionAttached = false;
             }            finally
             {
@@ -465,14 +706,16 @@ internal static class CoreAudioInterop
     }
 
     [ComVisible(true)]
-    private sealed class SessionEvents(Action<string> onChange) : IAudioSessionEvents
+    private sealed class SessionEvents(Action<AudioSessionDiagnostics.AudioChange> onChange) : IAudioSessionEvents
     {
         public int OnDisplayNameChanged(string displayName, ref Guid eventContext) => SOk;
         public int OnIconPathChanged(string iconPath, ref Guid eventContext) => SOk;
 
         public int OnSimpleVolumeChanged(float newVolume, bool newMute, ref Guid eventContext)
         {
-            Safe(() => onChange(AudioSessionDiagnostics.FormatVolumeChange(newVolume, newMute)));
+            Safe(() => onChange(new AudioSessionDiagnostics.AudioChange(
+                AudioSessionDiagnostics.AudioChangeKind.Volume,
+                AudioSessionDiagnostics.FormatVolumeChange(newVolume, newMute))));
             return SOk;
         }
 
@@ -485,13 +728,21 @@ internal static class CoreAudioInterop
 
         public int OnStateChanged(int newState)
         {
-            Safe(() => onChange(AudioSessionDiagnostics.FormatSessionStateChange(StateName(newState))));
+            // The state name is carried structurally too: the F10 late-start metric measures the
+            // click→Active delay from this callback, not by parsing a log line.
+            var stateName = StateName(newState);
+            Safe(() => onChange(new AudioSessionDiagnostics.AudioChange(
+                AudioSessionDiagnostics.AudioChangeKind.SessionState,
+                AudioSessionDiagnostics.FormatSessionStateChange(stateName),
+                stateName)));
             return SOk;
         }
 
         public int OnSessionDisconnected(int disconnectReason)
         {
-            Safe(() => onChange(AudioSessionDiagnostics.FormatSessionDisconnected(DisconnectReasonName(disconnectReason))));
+            Safe(() => onChange(new AudioSessionDiagnostics.AudioChange(
+                AudioSessionDiagnostics.AudioChangeKind.SessionDisconnected,
+                AudioSessionDiagnostics.FormatSessionDisconnected(DisconnectReasonName(disconnectReason)))));
             return SOk;
         }
 
@@ -509,8 +760,87 @@ internal static class CoreAudioInterop
         }
     }
 
+    /// <summary>
+    /// The endpoint master volume/mute callback (F10). Registered on the render endpoint. Logs
+    /// ONE line whenever either value changes; duplicate notifications for the same state (the
+    /// endpoint sends one per channel change too) are swallowed so the log stays a change log,
+    /// not a per-key one. The lock is private to this callback and never taken on the key path.
+    /// </summary>
     [ComVisible(true)]
-    private sealed class EndpointNotificationClient(Action<string> onChange) : IMMNotificationClient
+    internal sealed class EndpointVolumeCallback(Action<AudioSessionDiagnostics.AudioChange> onChange) : IAudioEndpointVolumeCallback
+    {
+        private readonly object _gate = new();
+        private bool _hasLast;
+        private float _lastVolume;
+        private bool _lastMute;
+
+        public int OnNotify(IntPtr pNotify)
+        {
+            try
+            {
+                if (pNotify == IntPtr.Zero) return SOk;
+                var data = Marshal.PtrToStructure<AudioVolumeNotificationData>(pNotify);
+                lock (_gate)
+                {
+                    if (_hasLast && data.MasterVolume == _lastVolume && data.Muted == _lastMute) return SOk;
+                    _hasLast = true;
+                    _lastVolume = data.MasterVolume;
+                    _lastMute = data.Muted;
+                }
+                onChange(new AudioSessionDiagnostics.AudioChange(
+                    AudioSessionDiagnostics.AudioChangeKind.EndpointVolume,
+                    AudioSessionDiagnostics.FormatEndpointVolumeChange(data.MasterVolume, data.Muted)));
+            }
+            catch
+            {
+                // Never out of a COM callback.
+            }
+            return SOk;
+        }
+    }
+
+    /// <summary>
+    /// The ducking notification callback (F10). Registered with a NULL session id, so Windows
+    /// sends EVERY communication ducking event (the documented "do not alter our stream" mode).
+    /// The line is emitted on the WASAPI callback thread; Serilog's own timestamp is the event
+    /// time the owner needs.
+    /// </summary>
+    [ComVisible(true)]
+    internal sealed class DuckNotification(Action<AudioSessionDiagnostics.AudioChange> onChange) : IAudioVolumeDuckNotification
+    {
+        public int OnVolumeDuckNotification(string? sessionID, int countCommunicationSessions)
+        {
+            try
+            {
+                onChange(new AudioSessionDiagnostics.AudioChange(
+                    AudioSessionDiagnostics.AudioChangeKind.DuckStarted,
+                    AudioSessionDiagnostics.FormatDuckStart(countCommunicationSessions)));
+            }
+            catch
+            {
+                // Never out of a COM callback.
+            }
+            return SOk;
+        }
+
+        public int OnVolumeUnduckNotification(string? sessionID)
+        {
+            try
+            {
+                onChange(new AudioSessionDiagnostics.AudioChange(
+                    AudioSessionDiagnostics.AudioChangeKind.DuckEnded,
+                    AudioSessionDiagnostics.FormatDuckEnd()));
+            }
+            catch
+            {
+                // Never out of a COM callback.
+            }
+            return SOk;
+        }
+    }
+
+    [ComVisible(true)]
+    private sealed class EndpointNotificationClient(Action<AudioSessionDiagnostics.AudioChange> onChange) : IMMNotificationClient
     {
         public int OnDeviceStateChanged(string deviceId, int newState) => SOk;
         public int OnDeviceAdded(string deviceId) => SOk;
@@ -522,7 +852,12 @@ internal static class CoreAudioInterop
             if (dataFlow != DataFlowRender) return SOk;
             try
             {
-                onChange(AudioSessionDiagnostics.FormatDefaultDeviceChanged(FriendlyName(deviceId)));
+                // F10: the meter belongs to the old endpoint; the next sampler acquires the new
+                // one on the worker (never on this WASAPI callback thread).
+                InvalidateSharedMeter();
+                onChange(new AudioSessionDiagnostics.AudioChange(
+                    AudioSessionDiagnostics.AudioChangeKind.DefaultDevice,
+                    AudioSessionDiagnostics.FormatDefaultDeviceChanged(FriendlyName(deviceId))));
             }
             catch
             {

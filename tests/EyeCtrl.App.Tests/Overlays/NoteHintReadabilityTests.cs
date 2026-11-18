@@ -272,18 +272,22 @@ public class NoteHintReadabilityTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new NotePlaceHereWindow(textSize);
         InvisibleTestWindow.Prepare(window);
-        var label = ((Border)window.Content).Child as TextBlock;
+        var label = window.LabelForTest;
 
         Check.WithCustomMessage("the Place-here window must carry a label").That(label).IsNotNull();
         Check.WithCustomMessage("the Place-here label must read at the note's own size, not at 12 DIP")
             .That(label!.FontSize).IsEqualTo(textSize);
+        Check.WithCustomMessage("the Place-here label is an instruction: SemiBold, per the sitting-9 design")
+            .That(label.FontWeight).IsEqualTo(FontWeights.SemiBold);
 
         var formatted = Format(label.Text, textSize, window.SizeDip.Width);
         Check.WithCustomMessage("the label must fit inside the window's width")
             .That(formatted.Width).IsLessOrEqualThan(window.SizeDip.Width);
-        Check.WithCustomMessage("the window must never be smaller than the old 150x44 box")
+        Check.WithCustomMessage("the window must never be narrower than the old 150 DIP box")
             .That(window.SizeDip.Width).IsGreaterOrEqualThan(LayoutConstants.NotePlaceHereWidthDip);
-        Check.That(window.SizeDip.Height).IsGreaterOrEqualThan(LayoutConstants.NotePlaceHereHeightDip);
+        // Sitting 9: the disc is the control, so the window must be tall enough to hold it.
+        Check.WithCustomMessage("the window must hold the round disc")
+            .That(window.SizeDip.Height).IsGreaterOrEqualThan(2 * NotePlaceHereWindow.DiscRadiusDip);
         Check.WithCustomMessage("the window's bounds must BE its measured size")
             .That((window.Width, window.Height)).IsEqualTo((window.SizeDip.Width, window.SizeDip.Height));
     }
@@ -331,10 +335,11 @@ public class NoteHintReadabilityTests
             Check.WithCustomMessage("the placement rect must BE the real window's size")
                 .That((rect.Width, rect.Height)).IsEqualTo((window!.Width, window.Height));
 
+            // Sitting 9: the control is the DISC, so the target sits on the disc's centre.
             var centre = new PhysicalPoint(
-                DpiHelper.LogicalToPhysicalX(rect.X + (rect.Width / 2)),
-                DpiHelper.LogicalToPhysicalY(rect.Y + (rect.Height / 2)));
-            Check.WithCustomMessage("the place dwell target must sit on the window's centre")
+                DpiHelper.LogicalToPhysicalX(rect.X + window.DiscCentreDip.X),
+                DpiHelper.LogicalToPhysicalY(rect.Y + window.DiscCentreDip.Y));
+            Check.WithCustomMessage("the place dwell target must sit on the disc's centre")
                 .That(manager.LiveTargetRects().Any(r => r.Contains(centre))).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -367,16 +372,18 @@ public class NoteHintReadabilityTests
             Check.WithCustomMessage("the placement rect must BE the real window's size")
                 .That((rect.Width, rect.Height)).IsEqualTo((window!.Width, window.Height));
 
+            // Sitting 9: the target is the DISC's centre, not the window's middle (the label
+            // below the disc would pull a rect-centre target off the control).
             var centre = new PhysicalPoint(
-                DpiHelper.LogicalToPhysicalX(rect.X + (rect.Width / 2)),
-                DpiHelper.LogicalToPhysicalY(rect.Y + (rect.Height / 2)));
+                DpiHelper.LogicalToPhysicalX(rect.X + window.DiscCentreDip.X),
+                DpiHelper.LogicalToPhysicalY(rect.Y + window.DiscCentreDip.Y));
             // The target's own CENTRE, not "a rect that happens to cover the centre": the
-            // target is a disc of 28 DIP, and a target built from the old 150x44 constant would
-            // sit 25 DIP off the window's centre and still cover it.
+            // target is a disc of 28 DIP, and a target built from the window's middle would
+            // sit half the label's height off the disc and still cover its centre.
             var target = manager.LiveTargetRects()
                 .Select(r => new PhysicalPoint(r.X + (r.Width / 2), r.Y + (r.Height / 2)))
                 .FirstOrDefault(p => p == centre);
-            Check.WithCustomMessage("the place dwell target must sit exactly on the window's centre")
+            Check.WithCustomMessage("the place dwell target must sit exactly on the disc's centre")
                 .That(target).IsEqualTo(centre);
         }
         finally
@@ -412,11 +419,15 @@ public class NoteHintReadabilityTests
                 .That(after.Width).IsStrictlyGreaterThan(before.Width);
             Check.WithCustomMessage("the window's own size must follow the rect")
                 .That(manager.PlaceWindowForTest!.Width).IsEqualTo(after.Width);
+            Check.WithCustomMessage("the re-composed label must read at the NEW text size")
+                .That(manager.PlaceWindowForTest!.LabelForTest!.FontSize).IsEqualTo(48.0);
 
+            // Sitting 9: the target follows the DISC's centre, not the window's middle.
+            var disc = manager.PlaceWindowForTest!.DiscCentreDip;
             var centre = new PhysicalPoint(
-                DpiHelper.LogicalToPhysicalX(after.X + (after.Width / 2)),
-                DpiHelper.LogicalToPhysicalY(after.Y + (after.Height / 2)));
-            Check.WithCustomMessage("the dwell target must follow the new rect")
+                DpiHelper.LogicalToPhysicalX(after.X + disc.X),
+                DpiHelper.LogicalToPhysicalY(after.Y + disc.Y));
+            Check.WithCustomMessage("the dwell target must follow the new disc centre")
                 .That(manager.LiveTargetRects().Any(r => r.Contains(centre))).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }

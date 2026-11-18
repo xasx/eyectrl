@@ -38,6 +38,28 @@ public sealed class NoteSettleTracker
     /// <summary>The settled window's centroid (the mean of its samples), or null while unsettled.</summary>
     public PhysicalPoint? Centroid { get; private set; }
 
+    /// <summary>The current window's anchor — its FIRST sample, the point every later sample is
+    /// judged against — or null when no window is running. A restart (a sample outside the
+    /// radius, <see cref="Invalidate"/>, <see cref="Reset"/>) moves it to the new window's first
+    /// sample, so a consumer may place a preview on it while the window accumulates.</summary>
+    public PhysicalPoint? Anchor => _window.Count == 0 ? null : _window[0].Point;
+
+    /// <summary>How far the current window has come toward <see cref="SettleMs"/>, 0..1 (0 with
+    /// no window). It is the span of the window's samples over the settle time — the same span
+    /// <see cref="AddSample"/> compares with <see cref="SettleMs"/> — so a consumer can draw the
+    /// settle accumulating instead of only seeing the accepted end of it.</summary>
+    public double Progress
+    {
+        get
+        {
+            if (_window.Count == 0)
+                return 0;
+            double spanMs = (_window[^1].TimestampUs - _window[0].TimestampUs)
+                / (double)MathConstants.MicrosecondsPerMillisecond;
+            return Math.Clamp(spanMs / SettleMs, 0.0, 1.0);
+        }
+    }
+
     /// <summary>Feeds one valid, gate-open sample in DIP with its timestamp in microseconds.
     /// A sample outside <see cref="RadiusDip"/> of the window's anchor restarts the window.</summary>
     public void AddSample(PhysicalPoint dipPoint, long timestampUs)

@@ -94,26 +94,55 @@ public static class LayoutConstants
 
     /// <summary>Width of the note control column in logical pixels (P4 D3): padding + cell + padding.</summary>
     public const double NoteColumnWidthDip = NoteButtonPadding + NoteCellDip + NoteButtonPadding;
-    // ── the Place-here window (P3 D4) ──
+    // ── the Place-here window (P3 D4; sitting 9: a round filling disc, the familiar control) ──
     // One small window per NoteManager, shown beside an accepted settle's centroid while a note
     // is being moved. It is not click-through, so the P2 own-window conjunct can resolve it.
+    // Its drawable is a DISC the same size as a note control (NoteButtonRadius), with the label
+    // below it; the dwell target sits on the DISC's centre, not on the window's.
 
-    /// <summary>Width of the Place-here window in logical pixels (DIP).</summary>
+    /// <summary>The minimum width of the Place-here window in DIP: the old 150 DIP box, kept as a
+    /// floor so the control never reads narrower than the box it replaced.</summary>
     public const double NotePlaceHereWidthDip = 150.0;
 
-    /// <summary>Height of the Place-here window in logical pixels (DIP).</summary>
-    public const double NotePlaceHereHeightDip = 44.0;
+    /// <summary>Air around the Place-here disc inside its window, in DIP: room for the dwell arc
+    /// (the note buttons' 3 DIP stroke sits 2 DIP inside the disc's rim) and the rim itself.</summary>
+    public const double NotePlaceHereDiscMarginDip = 4.0;
+
+    /// <summary>The gap between the Place-here disc's bottom edge and the label below it, in DIP.</summary>
+    public const double NotePlaceHereLabelGapDip = 8.0;
+
+    /// <summary>The label's horizontal padding inside the Place-here window, in DIP. It also sets
+    /// the breathing room the measured label keeps from the window's edge.</summary>
+    public const double NotePlaceHereLabelMarginDip = 12.0;
 
     /// <summary>Horizontal offset from an accepted settle's centroid to the Place-here window's
     /// left edge, so the window never covers the centroid it was born from.</summary>
     public const double NotePlaceHereOffsetDip = 40.0;
 
-    /// <summary>The Place-here exclusion margin (P3 D4): the window inflated by its hit half-size
-    /// plus this. While the gaze is inside that margin the window never moves — an accepted
-    /// settle inside it is ignored.</summary>
+    /// <summary>The Place-here exclusion margin (P3 D4): the disc's dwell target inflated by its
+    /// hit half-size plus this. While the gaze is inside that margin the window never moves — an
+    /// accepted settle inside it is ignored.</summary>
     public const double NotePlaceHereDetourDip = 60.0;
 
     /// <summary>The Place-here dwell target's hit half-size in logical pixels: the same disc the
-    /// note buttons use, over the window's centre.</summary>
+    /// note buttons use, over the disc's centre.</summary>
     public const double NotePlaceHereHitRadiusDip = NoteButtonRadius;
+
+    // ── the Move preview (sitting 9): one click-through overlay for the settle ring and the
+    // dashed landing outline ──
+
+    /// <summary>The settle ring's stroke thickness in DIP; its radius is the settle tracker's
+    /// own <c>NoteSettleTracker.RadiusDip</c>, so the drawn ring IS the area the tracker judges
+    /// the gaze against.</summary>
+    public const double NoteMovePreviewRingStrokeDip = 2.0;
+
+    /// <summary>Air around the ring and the dashed card inside the preview window, in DIP — room
+    /// for the strokes so no edge is clipped.</summary>
+    public const double NoteMovePreviewMarginDip = 8.0;
+
+    /// <summary>How long the settle window must have held before the preview appears, in ms. The
+    /// eyes wander while they look for a spot, and a preview that flashes on every 100 ms rest is
+    /// noise; 150 ms is long enough to be a held look, short enough to appear before the 500 ms
+    /// settle completes.</summary>
+    public const int NoteMovePreviewHoldMs = 150;
 }

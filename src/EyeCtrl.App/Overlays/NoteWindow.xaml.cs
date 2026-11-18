@@ -48,6 +48,10 @@ public class NoteWindow : OverlayWindow
     private TextBlock? _textBlock;
     private TextBlock? _chipTextBlock;
     private Border? _contentBorder;
+    // The Move hint (sitting 9): the "where should it go" line the dimmed card shows, drawn as a
+    // footer in the card's text column. Tracked so a state change can take it down again.
+    private Border? _moveHint;
+    private TextBlock? _moveHintText;
     private NoteState _state;
     // T6 fixup-01: the tag elements are tracked so DrawBadge can replace them without a full Draw.
     private Border? _badgeTag;
@@ -198,6 +202,8 @@ public class NoteWindow : OverlayWindow
         _buttonLabels.Clear();
         _arcs.Clear();
         _cellFills.Clear();
+        _moveHint = null;
+        _moveHintText = null;
 
         // P3 D2: the card sits inside the window at the placement card origin (the tail zone
         // takes the strip on the anchor side); the pointer tail is drawn INSIDE the window.
@@ -376,6 +382,7 @@ public class NoteWindow : OverlayWindow
         _contentBorder.Child = null;
         _textBlock = null;
         _chipTextBlock = null;
+        RemoveMoveHint();
         OverCapForTest = false;
         OverCapFadeForTest = false;
 
@@ -484,6 +491,69 @@ public class NoteWindow : OverlayWindow
         _contentBorder.Width = NoteLayout.TextColumnWidthDip(_textSize) + ButtonPadding;
         Canvas.SetLeft(_contentBorder, columnOnLeft ? card.Left + LayoutConstants.NoteColumnWidthDip : card.Left);
         Canvas.SetTop(_contentBorder, card.Top);
+
+        if (_state == NoteState.Move && _placement is { } placement)
+            DrawMoveHint(placement);
+    }
+
+    /// <summary>Test accessors (sitting 9): the Move hint's drawn box and text, or nulls when the
+    /// card is not in Move. Read, not assumed — the "gone after place/Cancel" pins read these.</summary>
+    internal Border? MoveHintForTest => _moveHint;
+    internal TextBlock? MoveHintTextForTest => _moveHintText;
+
+    /// <summary>
+    /// Draws the Move hint (sitting 9, row c): one line at the note's text size and SemiBold —
+    /// "Schau dorthin, wo die Notiz hin soll" — as a footer at the bottom of the card's text
+    /// column, over a card-coloured plate so the note's own text stays visible above it. The
+    /// whole box lives inside the text column (never the control column), so ⇄/⊘ and their hit
+    /// cells are untouched whatever side the card is on.
+    /// </summary>
+    private void DrawMoveHint(NotePlacement placement)
+    {
+        string text = StringTable.Current.T("overlays.note.moveHint");
+        double font = NoteLayout.MoveHintFontDip(_textSize);
+        double column = NoteLayout.TextColumnWidthDip(_textSize);
+
+        _moveHintText = new TextBlock
+        {
+            Width = column,
+            FontSize = font,
+            FontFamily = Tokens.FontStandard,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Tokens.BrushTextPrimary,
+            TextWrapping = TextWrapping.Wrap,
+            // The body's own leading, so the hint reads as part of the card's typography; the
+            // box height is measured from this very block, so the two cannot disagree.
+            LineHeight = NoteLayout.TextLineHeightDip(font),
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Text = text,
+            IsHitTestVisible = false
+        };
+        _moveHintText.Measure(new Size(column, double.PositiveInfinity));
+        double textHeight = _moveHintText.DesiredSize.Height;
+
+        var rect = NoteLayout.MoveHintRect(placement, _textSize, textHeight);
+        _moveHint = new Border
+        {
+            Width = rect.Width,
+            Height = rect.Height,
+            Background = Tokens.BrushSurfaceDark,
+            Padding = new Thickness(NoteLayout.MoveHintMarginDip, 0, NoteLayout.MoveHintMarginDip, 0),
+            Child = _moveHintText,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(_moveHint, rect.Left);
+        Canvas.SetTop(_moveHint, rect.Top);
+        _canvas.Children.Add(_moveHint);
+    }
+
+    /// <summary>Takes the Move hint down (every non-Move redraw).</summary>
+    private void RemoveMoveHint()
+    {
+        if (_moveHint is not null)
+            _canvas.Children.Remove(_moveHint);
+        _moveHint = null;
+        _moveHintText = null;
     }
 
     /// <summary>Test seams (P4 acceptance): whether the current render clips over the cap, and

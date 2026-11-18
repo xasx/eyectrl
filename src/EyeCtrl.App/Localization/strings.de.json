@@ -542,6 +542,10 @@
     "text": "Notiz verschieben",
     "src": "7787d174"
   },
+  "overlays.note.moveHint": {
+    "text": "Schau dorthin, wo die Notiz hin soll",
+    "src": "5d3e0ef7"
+  },
   "overlays.note.otherSide": {
     "text": "Andere Seite",
     "src": "6de2740a"

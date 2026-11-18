@@ -144,6 +144,49 @@ public class NoteWindowShowSeamTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    [StaFact]
+    public void AHeadlessManager_ShowsTheMovePreview_WithoutPuttingItOnTheScreen()
+    {
+        Check.WithCustomMessage("this assembly must run the note manager headless")
+            .That(NoteManager.RealNoteWindows).IsFalse();
+
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            manager.CreateNoteAt(new PhysicalPoint(1600, 1000));
+            var id = manager.ActiveNotes[0].Id;
+            manager.Apply(new NoteAppend("saved text"));
+            manager.FinishEdit(id, commit: true);
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present); // Move
+            Check.That(manager.IsMoving).IsTrue();
+
+            // A held spot past the ~150 ms preview hold (no full settle yet).
+            var spot = new PhysicalPoint(800, 1800);
+            manager.OnGazeMoved(spot, present);
+            manager.OnGazeMoved(spot, present + 200_000);
+            Check.That(manager.MovePreviewShownForTest).IsTrue();
+
+            var preview = manager.MovePreviewWindowForTest;
+            Check.That(preview).IsNotNull();
+            Check.WithCustomMessage("the Move preview must never reach the screen")
+                .That(preview!.IsVisible).IsFalse();
+            Check.WithCustomMessage("but it still counts as displayed")
+                .That(preview.IsDisplayed).IsTrue();
+
+            // Hiding it clears the seam's displayed state, like the place-here window's.
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present); // Cancel
+            Check.That(manager.IsMoving).IsFalse();
+            Check.WithCustomMessage("a hidden Move preview must not read as displayed")
+                .That(preview.IsDisplayed).IsFalse();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     /// <summary>Looks away past every control for 200 ms, then holds past the 600 ms dwell.</summary>
     private static long HoldGaze(NoteManager manager, PhysicalPoint point, long present, int ms = 1200)
     {

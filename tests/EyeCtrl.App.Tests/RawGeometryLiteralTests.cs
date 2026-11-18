@@ -103,19 +103,17 @@ public class RawGeometryLiteralTests
             "the Place-here label font binds the guarded TextSizeDip setting (T6 fixup-06 G1) - a value no token can express",
         ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] =
             "the tile radius is the mark's own pinned geometry (spec §4.1, half the 75 DIP centre) via SplashLayout.TileCornerRadius through x:Static - theme-independent, no Tokens member can express it, and the CornerRadius pool admits only Tokens forms",
-        // First-run guide (spec §5, plan Task 7): the card geometry is the plan's brief-verbatim
-        // XAML/code, not token-migratable style. The card radius resolves through
-        // {DynamicResource LargeCornerRadius} so the theme preview (Task 12) reaches the card-local
-        // resources — a DynamicResource key is a form the {StaticResource}-only pool cannot vouch
-        // for — and the title's 24 pt is the plan's pinned card scale (spec §5).
+        // First-run guide: the owner-approved FULLSCREEN surface (live-check amendment,
+        // 2026-11-18; supersedes spec §5's centered-card scale). The approved mockups
+        // (DiagnosticGuideMockupFullscreen) are the pinned layout, and their typography — the
+        // 56 DIP title and 32 DIP body — is approved literal geometry no Tokens member expresses.
         ["src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml"] =
-            "the guide card's plan-verbatim geometry (spec §5, Task 7) - the card radius is {DynamicResource LargeCornerRadius} so the theme preview reaches the card and no {StaticResource}/Tokens form can express a DynamicResource key; the 24 pt title is the plan's pinned card scale",
-        // The code-built dwell cards' radius (new CornerRadius(8)) is the same plan-pinned card
-        // scale, written inside the brief's verbatim builders. (The dwell-knob read-out's 20 pt
-        // literal rode the live-check font fix onto Tokens.FontSizeSubtitle, so only the radius
-        // keeps this exemption live.)
+            "the guide's owner-approved fullscreen surface (2026-11-18 live-check amendment) - the edge-to-edge SurfaceDark surface carries the approved mockups' pinned typography (56 DIP title, 32 DIP body), a scale no Tokens member expresses",
+        // The code-built card faces carry the same approved fullscreen geometry: the 12-DIP card
+        // radius and the 40/32 DIP label/read-out literals are the approved mockups' pinned scale
+        // (the fdb92cd0 token-ramp font fix is superseded by the same amendment).
         ["src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs"] =
-            "the code-built guide cards' plan-verbatim geometry (Task 7's brief-verbatim builders) - the 8 px card radius on the 170x100 dwell cards is the plan's pinned modal-card scale",
+            "the code-built guide cards' owner-approved fullscreen geometry (2026-11-18 live-check amendment) - the 12 DIP card radius and the 40/32 DIP dwell read-out, glyph and chip-label faces are the approved mockups' pinned scale",
         // Task 12 migrated the last nine files onto ContainerRatio, so every scanned file's
         // geometry and typography values come from the token surface. A new entry for a MIGRATION
         // leftover is a regression, not a step: it means a literal was written and waved through.

@@ -5,20 +5,21 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Shapes;
-using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
 /// <summary>
-/// The first-run guide's window (spec §5): fullscreen click-through backdrop with a centered
-/// interactive card. RENDER-ONLY for text; the window BUILDS the step visuals and pushes every
-/// dwell target's real centre into the VM after layout — PointToScreen yields device (physical)
-/// pixels (r2 F9). ONE SLOT PER BUILDER (r4 F4): SetPractice builds into StepContent, the dwell
-/// knob into KnobRow, the chrome Close into ChromeCloseHost — neither overwrites another. Every
-/// builder's already-built branch RE-REGISTERS (r5 F2: a re-render cleared the targets). No
-/// Close() member (r4 F2). Code-built brushes ride SetResourceReference (S2-2), so they resolve
-/// and RE-RESOLVE through Card.Resources like DynamicResource — a theme preview swap updates
-/// the card, the chips, the Close and the practice ring together, not just the XAML half.
+/// The first-run guide's window: a fullscreen click-through SurfaceDark surface (the
+/// owner-approved live-check amendment, 2026-11-18 — the approved mockups' geometry is the
+/// pinned layout) that hides the desktop entirely; it supersedes the fdb92cd0 scrim. RENDER-ONLY
+/// for text; the window BUILDS the step visuals and pushes every dwell target's real centre into
+/// the VM after layout — PointToScreen yields device (physical) pixels (r2 F9). ONE SLOT PER
+/// BUILDER (r4 F4): SetPractice builds into StepContent, the dwell knob into KnobRow, the chrome
+/// Close into ChromeCloseHost — neither overwrites another. Every builder's already-built branch
+/// RE-REGISTERS (r5 F2: a re-render cleared the targets). No Close() member (r4 F2). Code-built
+/// brushes ride SetResourceReference (S2-2), so they resolve and RE-RESOLVE through
+/// Card.Resources like DynamicResource — a theme preview swap updates the surface, the chips, the
+/// Close and the practice ring together, not just the XAML half.
 /// </summary>
 public sealed partial class FirstRunGuideWindow : OverlayWindow
 {
@@ -43,11 +44,6 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         DataContext = vm;
         _vm = vm;
 
-        // D2 (live-check follow-up): the body sat at the 12-DIP ramp floor and the owner read it
-        // as too small. It rides the token ramp at 18 DIP — set in CODE because {x:Static}
-        // would freeze the value at compile time instead of reading the resolved theme ramp.
-        BodyText.FontSize = Tokens.FontSizeSubtitle;
-
         Left = 0;
         Top = 0;
         Width = SystemParameters.PrimaryScreenWidth;
@@ -65,7 +61,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     }
 
     /// <summary>The theme preview's card-local target (Task 12 applies the resolved theme here;
-    /// DynamicResource on the card's brushes picks it up, Tokens.Current stays untouched).</summary>
+    /// DynamicResource on the surface's brushes picks it up, Tokens.Current stays untouched).</summary>
     public ResourceDictionary CardResources => Card.Resources;
 
     public void ShowCardContent(string title, string body, bool chromeClose)
@@ -73,17 +69,23 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
     /// <summary>Builds one visual card per (label, id) pair — background, border, label,
     /// progress bar — registers each as a chrome dwell target through the VM (Task 6), then
-    /// pushes the laid-out centres (r3 F5: EVERY card gets a visual and a centre). Cards are
-    /// modal-button sized (170 × 100 DIP, r3 F7).</summary>
+    /// pushes the laid-out centres (r3 F5: EVERY card gets a visual and a centre). Cards are the
+    /// owner-approved fullscreen sizes (320×190 action, 280×160 Close, 200×160 dwell ± — passed
+    /// per call at the approved 32/40 DIP label scale).</summary>
     public void SetChoices(IReadOnlyList<(string Label, string Id)> choices)
     {
         _vm.ClearChoices();
         _choiceCards.Clear();
         _progressBars.Clear();
         ChoiceRow.Children.Clear();
-        foreach (var (label, id) in choices)
+        for (var i = 0; i < choices.Count; i++)
         {
-            var card = BuildCard(label, id);
+            var (label, id) = choices[i];
+            // The approved mockup carries the 96-DIP inter-card gap on the FIRST card's right
+            // margin — so a single-card row keeps the reserved gap and its card sits 96 + the
+            // row's 64 margin from the edge, exactly the approved dwell-time mockup's Continue.
+            var card = BuildCard(label, id, 320, 190, 32,
+                i == 0 ? new Thickness(0, 0, 96, 0) : default);
             _choiceCards[id] = card;
             ChoiceRow.Children.Add(card);
             _vm.RegisterChoice(id);
@@ -91,7 +93,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         PushCentres();
     }
 
-    private Border BuildCard(string label, string id)
+    private Border BuildCard(string label, string id, double width, double height,
+        double fontSize, Thickness margin)
     {
         var bar = new Rectangle
         {
@@ -104,45 +107,47 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         var labelText = new TextBlock
         {
             Text = label,
-            Margin = new Thickness(12, 8, 12, 4),
+            Margin = new Thickness(20, 16, 20, 8),
             TextWrapping = TextWrapping.Wrap,
-            // D2 (live-check follow-up): 18 DIP on the token ramp (was the 12-DIP ramp floor).
+            // The owner-approved fullscreen scale (2026-11-18): 32 DIP on the action/Close cards,
+            // 40 DIP on the dwell ± glyphs — approved literals, not the token ramp.
             //
             // DIVERGENCE from the fit gates, documented once here per the live-check protocol:
             // the catalog gates these labels as modal170 — a ONE-LINE label at the Settings
             // modal button's face inside a 170-wide button — while THIS card renders the same
-            // strings at 18 DIP, wrapping, in the plan's fixed 170×100 box. The gates stay
-            // UNCHANGED (modal170's measurer is the shared Settings modal geometry, not this
-            // card), so the guide simply renders larger than the class it borrows. The geometry
-            // carries it: the wrap width is 170 − 24 (side margins) = 146 DIP; an 18 DIP Segoe
-            // UI line box is ≈24 DIP, so the worst shipped labels ("Fertigstellen",
-            // "Überspringen", "Mitternacht") take ≤2 lines ≈ 48 DIP, +12 DIP margins + the
-            // 3-DIP bar ≈ 63 DIP — well inside the 100-DIP card.
-            FontSize = Tokens.FontSizeSubtitle,
+            // strings at the approved fullscreen scale, wrapping, in the approved boxes. The
+            // gates stay UNCHANGED (modal170's measurer is the shared Settings modal geometry,
+            // not this card), so the guide simply renders larger than the class it borrows. The
+            // geometry carries it easily: a 320-wide card wraps at 320 − 40 (side margins) =
+            // 280 DIP, where the longest shipped labels ("Fertigstellen", "Überspringen",
+            // "Mitternacht") stay one to two lines — far inside the 190-DIP card height.
+            FontSize = fontSize,
         };
         labelText.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
         var card = new Border
         {
-            Width = 170,
-            Height = 100,
+            Width = width,
+            Height = height,
             Child = new StackPanel { Children = { labelText, bar } },
-            Margin = new Thickness(16, 0, 0, 0),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            Margin = margin,
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(12),
         };
         card.SetResourceReference(Border.BackgroundProperty, "BrushSurfaceMedium");
         card.SetResourceReference(Border.BorderBrushProperty, "BrushAccent");
         return card;
     }
 
-    /// <summary>The chrome Close card in its OWN host (top-right of the card, r3 F7 — away from
-    /// the action row, so abandoning is never the neighbour of continuing). Idempotent; the
-    /// already-built branch RE-REGISTERS (r5 F2: a re-render cleared the targets).</summary>
+    /// <summary>The chrome Close card in its OWN host (top-right of the surface, r3 F7 — away from
+    /// the action row, so abandoning is never the neighbour of continuing; the approved layout
+    /// puts the 280×160 card alone at margin 48, hundreds of DIP from every reading path).
+    /// Idempotent; the already-built branch RE-REGISTERS (r5 F2: a re-render cleared the
+    /// targets).</summary>
     public void SetChromeClose(bool visible, string label)
     {
         if (visible && !_chromeCloseBuilt)
         {
-            _chromeCloseCard = BuildCard(label, "guide_close");
+            _chromeCloseCard = BuildCard(label, "guide_close", 280, 160, 32, default);
             _chromeCloseBar = (Rectangle)((StackPanel)_chromeCloseCard.Child).Children[1];
             _choiceCards["guide_close"] = _chromeCloseCard;
             _progressBars["guide_close"] = _chromeCloseBar;
@@ -173,8 +178,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     }
 
     /// <summary>The practice target: a stroked ring with a fill element whose size follows the
-    /// VM's PracticeProgress (r3 F7 — MeetDwell's lesson is "the ring fills"). Builds into
-    /// StepContent (r4 F4's slot rule).</summary>
+    /// VM's PracticeProgress (r3 F7 — MeetDwell's lesson is "the ring fills"). The approved
+    /// fullscreen ring is 220 DIP with a 6 stroke. Builds into StepContent (r4 F4's slot
+    /// rule).</summary>
     public void SetPractice(bool visible)
     {
         _vm.SetPracticeVisible(visible);
@@ -190,9 +196,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             _practiceFill.SetResourceReference(Shape.FillProperty, "BrushAccent");
             var ring = new Ellipse
             {
-                Width = 120,
-                Height = 120,
-                StrokeThickness = 4,
+                Width = 220,
+                Height = 220,
+                StrokeThickness = 6,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -211,9 +217,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     }
 
     /// <summary>The dwell knob (r3 F4): a value read-out plus −/+ chrome cards, built into its
-    /// OWN row (r4 F4 — SetPractice's StepContent slot is never touched). Arriving registers the
-    /// ± targets; an already-built knob RE-REGISTERS on a re-render (r5 F2); leaving removes
-    /// them.</summary>
+    /// OWN row (r4 F4 — SetPractice's StepContent slot is never touched). The approved layout
+    /// centers the row above the action cards. Arriving registers the ± targets; an
+    /// already-built knob RE-REGISTERS on a re-render (r5 F2); leaving removes them.</summary>
     public void SetDwellKnob(bool visible)
     {
         _vm.SetSliderVisible(visible);
@@ -222,16 +228,21 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             _dwellValue = new TextBlock
             {
                 Text = $"{_vm.DwellTimeMs} ms",
-                // D2 (live-check follow-up): the 20 pt literal rode the token ramp.
-                FontSize = Tokens.FontSizeSubtitle,
+                // The owner-approved fullscreen read-out (2026-11-18): a 40 DIP literal, not the
+                // token ramp the fdb92cd0 font fix rode.
+                FontSize = 40,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 16, 0),
+                Margin = new Thickness(0, 0, 32, 0),
             };
             _dwellValue.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
             var plusMinus = new StackPanel { Orientation = Orientation.Horizontal };
-            foreach (var (glyph, id) in new[] { ("−", "guide_dwell_minus"), ("+", "guide_dwell_plus") })
+            foreach (var (glyph, id, margin) in new[]
+                     {
+                         (Value: "−", Id: "guide_dwell_minus", Margin: new Thickness(0)),
+                         (Value: "+", Id: "guide_dwell_plus", Margin: new Thickness(96, 0, 0, 0)),
+                     })
             {
-                var card = BuildCard(glyph, id);
+                var card = BuildCard(glyph, id, 200, 160, 40, margin);
                 _choiceCards[id] = card;
                 _progressBars[id] = (Rectangle)((StackPanel)card.Child).Children[1];
                 _knobCards[id] = card;
@@ -273,12 +284,12 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     private void SetProgressBar(string id, double progress)
     {
         if (_progressBars.TryGetValue(id, out var bar) && _choiceCards.TryGetValue(id, out var card))
-            bar.Width = (card.ActualWidth - 2) * Math.Clamp(progress, 0, 1);
+            bar.Width = (card.ActualWidth - 4) * Math.Clamp(progress, 0, 1);
     }
 
-    /// <summary>The Theme step's four chips as a 2×2 grid in StepContent (r5 F4's geometry —
-    /// six 170-wide cards in one right-aligned row overflow the 496-DIP inner width, and
-    /// 70-DIP circles would overlap). Each chip registers at radius 40 DIP through
+    /// <summary>The Theme step's four chips as a 2×2 grid in StepContent (r5 F4's geometry — one
+    /// right-aligned row would run off the surface and the chrome circles would overlap). Each
+    /// chip registers at radius 40 DIP through
     /// <see cref="FirstRunGuideViewModel.RegisterChoice(string, double?)"/>. Idempotent; the
     /// already-built branch RE-REGISTERS (r5 F2). Chips live in `_themeCards` — `SetChoices`
     /// never clears them.</summary>
@@ -353,21 +364,22 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         var labelText = new TextBlock
         {
             Text = label,
-            Margin = new Thickness(12, 8, 12, 4),
+            Margin = new Thickness(20, 16, 20, 8),
             TextWrapping = TextWrapping.Wrap,
-            // D2 (live-check follow-up): token ramp, same divergence note as BuildCard's label
-            // — the 80-DIP chip carries it too (8 + 2×24 lines + 4 + the 3-DIP bar = 63 < 80).
-            FontSize = Tokens.FontSizeSubtitle,
+            // The owner-approved fullscreen scale (2026-11-18): the same approved-literal note as
+            // BuildCard's label — the 360×200 chip carries it too (16 + 2×~43 lines + 8 + the
+            // 3-DIP bar ≈ 113 < 200).
+            FontSize = 32,
         };
         labelText.SetResourceReference(TextBlock.ForegroundProperty, "BrushTextPrimary");
         var chip = new Border
         {
-            Width = 170,
-            Height = 80,
+            Width = 360,
+            Height = 200,
             Child = new StackPanel { Children = { labelText, bar } },
-            Margin = new Thickness(16, 20, 16, 20),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
+            Margin = new Thickness(24, 24, 24, 24),
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(12),
         };
         chip.SetResourceReference(Border.BackgroundProperty, "BrushSurfaceMedium");
         chip.SetResourceReference(Border.BorderBrushProperty, "BrushAccent");
@@ -378,7 +390,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     {
         if (_practiceFill is { } fill)
         {
-            var size = 116 * Math.Clamp(progress, 0, 1);   // inside the 120 ring
+            var size = 214 * Math.Clamp(progress, 0, 1);   // inside the 220 ring (2×3 stroke)
             fill.Width = size;
             fill.Height = size;
         }
@@ -392,8 +404,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
     /// <summary>Pushes every registered target's REAL centre (device px via PointToScreen) into
     /// the VM. Runs after a layout pass; the dispatcher round-trip lets a fresh card's layout
-    /// complete first (r2 F9). Card is fixed-size, so SizeChanged never fires — an explicit push
-    /// per build is the mechanism.</summary>
+    /// complete first (r2 F9). The surface fills the window at a size fixed in the constructor,
+    /// so SizeChanged never fires — an explicit push per build is the mechanism.</summary>
     private void PushCentres()
     {
         _ = Dispatcher.BeginInvoke(() =>

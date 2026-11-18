@@ -7,37 +7,39 @@
                         ShowInTaskbar="False" ShowActivated="False"
                         Topmost="True" ResizeMode="NoResize">
     <Grid>
-        <!-- D1 (live-check follow-up): the transparent fullscreen backdrop let the owner's light
-             desktop show through and read as "white background". A SurfaceDark@70% scrim behind
-             the card grounds the guide. Interaction is untouched: the window stays
-             click-through, the scrim joins no dwell target (the dwell targets are the
-             VM-registered card visuals), and it sits FIRST so the card keeps its elevation. -->
-        <Border x:Name="Scrim" Background="{DynamicResource BrushSurfaceDark}" Opacity="0.7"/>
-        <Border x:Name="Card" Width="560" Height="620"
+        <!-- Owner-approved fullscreen surface (live-check amendment, 2026-11-18): the guide IS the
+             screen — an edge-to-edge SurfaceDark surface that hides the desktop entirely. This
+             supersedes the fdb92cd0 scrim (the surface itself grounds the guide; there is no
+             backdrop/card distinction any more). Interaction is untouched: the window stays
+             click-through and joins no dwell target of its own — the dwell targets are the
+             VM-registered card visuals the code-behind builds. The approved geometry (the
+             DiagnosticGuideMockupFullscreen mockups) is the pinned layout: title 56 DIP top-left
+             at margin 64 (right margin ~500 keeps the title clear of the Close host), body 32 DIP
+             below it (max width ~1360), action cards 320×190 bottom-right at 64/64, knob cards
+             200×160 centered above them, Close card 280×160 alone top-right at 48. -->
+        <Border x:Name="Card"
                 Background="{DynamicResource BrushSurfaceDark}"
-                CornerRadius="{DynamicResource LargeCornerRadius}"
-                HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Grid Margin="32">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <TextBlock x:Name="TitleText" Grid.Row="0" FontSize="24" FontWeight="Medium"
+                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <Grid>
+                <TextBlock x:Name="TitleText" FontSize="56" FontWeight="Medium"
                            Text="{Binding Title}" TextWrapping="Wrap"
-                           Margin="0,0,186,0"
+                           Margin="64,56,500,0"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"
                            Foreground="{DynamicResource BrushTextPrimary}"/>
-                <ContentControl x:Name="ChromeCloseHost" Grid.Row="0"
-                                HorizontalAlignment="Right" VerticalAlignment="Top"/>
-                <TextBlock x:Name="BodyText" Grid.Row="1" Margin="0,10,0,0" TextWrapping="Wrap"
-                           Text="{Binding Body}" Foreground="{DynamicResource BrushTextPrimary}"/>
-                <ContentControl x:Name="StepContent" Grid.Row="2" Margin="0,16,0,0"/>
-                <StackPanel x:Name="KnobRow" Grid.Row="3" Orientation="Horizontal"
-                            HorizontalAlignment="Center"/>
-                <StackPanel x:Name="ChoiceRow" Grid.Row="4" Orientation="Horizontal"
-                            HorizontalAlignment="Right"/>
+                <ContentControl x:Name="ChromeCloseHost"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,48,48,0"/>
+                <TextBlock x:Name="BodyText" FontSize="32" TextWrapping="Wrap" MaxWidth="1360"
+                           Text="{Binding Body}" Margin="64,190,500,0"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                           Foreground="{DynamicResource BrushTextPrimary}"/>
+                <ContentControl x:Name="StepContent" Margin="0,0,0,60"/>
+                <StackPanel x:Name="KnobRow" Orientation="Horizontal"
+                            HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                            Margin="0,0,0,260"/>
+                <StackPanel x:Name="ChoiceRow" Orientation="Horizontal"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Margin="0,0,64,64"/>
             </Grid>
         </Border>
     </Grid>

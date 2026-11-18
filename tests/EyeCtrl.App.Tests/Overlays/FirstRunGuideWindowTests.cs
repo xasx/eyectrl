@@ -7,6 +7,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Settings;
@@ -88,14 +89,14 @@ public class FirstRunGuideWindowTests
     }
 
     [StaFact]
-    public void Scrim_SitsBehindTheCard_AndGuideTextRidesTheTokenRamp()
+    public void FullscreenSurface_FillsTheWindow_WithNoScrim_AndCarriesTheApprovedTypography()
     {
-        // Live-check follow-up pins (D1/D2). D1: the guide's fullscreen backdrop is transparent,
-        // which read as a "white background" over the owner's light desktop — a SurfaceDark@70%
-        // scrim sits FIRST in the root grid (a Grid's z-order IS child order, so first = behind
-        // the Card) and must resolve its brush through DynamicResource like the card's. It joins
-        // no dwell target. D2: every guide text face rides the token ramp at FontSizeSubtitle
-        // (18); the title keeps its plan-pinned 24 (= FontSizeTitle, the XAML literal).
+        // Owner-approved fullscreen amendment pins (2026-11-18). The fdb92cd0 scrim is SUPERSEDED:
+        // the Card itself IS the guide — an edge-to-edge SurfaceDark surface (radius 0) that hides
+        // the desktop entirely, so the root grid has exactly ONE child and it fills the window.
+        // The approved typography is literal (56 title / 32 body), not the token ramp fdb92cd0
+        // rode; the surface's background still resolves through DynamicResource so the theme
+        // preview re-skins it.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var vm = new FirstRunGuideViewModel(new WeakReferenceMessenger(), 0,
             new EyeCtrlSettings(), sink: null, dwellRegistry: null);
@@ -105,20 +106,22 @@ public class FirstRunGuideWindowTests
         try
         {
             var root = (Grid)window.Content;
-            Check.WithCustomMessage(
-                    "the scrim must be the FIRST child of the root grid (behind the Card), which must be second")
-                .That(ReferenceEquals(root.Children[0], window.Scrim)
-                      && ReferenceEquals(root.Children[1], window.Card)).IsTrue();
-            Check.That(window.Scrim.Opacity).IsEqualTo(0.7);
+            Check.WithCustomMessage("the fullscreen surface leaves no scrim behind: the Card is the root grid's ONLY child")
+                .That(root.Children.Count == 1 && ReferenceEquals(root.Children[0], window.Card)).IsTrue();
+            Check.WithCustomMessage("the Card must fill the window — it IS the fullscreen surface")
+                .That(window.Card.HorizontalAlignment == HorizontalAlignment.Stretch
+                      && window.Card.VerticalAlignment == VerticalAlignment.Stretch).IsTrue();
+            Check.WithCustomMessage("the fullscreen surface is edge-to-edge (radius 0)")
+                .That(window.Card.CornerRadius).IsEqualTo(new CornerRadius(0));
 
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);   // flush deferred resource resolution
-            var scrimBrush = window.Scrim.Background;
-            Check.WithCustomMessage("the scrim's SurfaceDark background must resolve through DynamicResource")
-                .That(scrimBrush).IsNotNull();
-            Check.That(scrimBrush).IsSameReferenceAs(window.Scrim.TryFindResource("BrushSurfaceDark"));
+            var surfaceBrush = window.Card.Background;
+            Check.WithCustomMessage("the surface's SurfaceDark background must resolve through DynamicResource")
+                .That(surfaceBrush).IsNotNull();
+            Check.That(surfaceBrush).IsSameReferenceAs(window.Card.TryFindResource("BrushSurfaceDark"));
 
-            Check.That(window.BodyText.FontSize).IsEqualTo(Tokens.FontSizeSubtitle);
-            Check.That(window.TitleText.FontSize).IsEqualTo(Tokens.FontSizeTitle);
+            Check.That(window.TitleText.FontSize).IsEqualTo(56);
+            Check.That(window.BodyText.FontSize).IsEqualTo(32);
 
             window.SetChoices([("Start", "guide_start"), ("Later", "guide_later")]);
             window.SetChromeClose(true, "✕");
@@ -137,18 +140,40 @@ public class FirstRunGuideWindowTests
             var chipLabel = (TextBlock)((StackPanel)((Border)((Grid)window.StepContent.Content).Children[0]).Child).Children[0];
             var dwellReadOut = window.KnobRow.Children.OfType<TextBlock>().Single();
 
-            var faces = new (string What, TextBlock Label)[]
+            var faces = new (string What, TextBlock Label, double Size)[]
             {
-                ("choice card", cardLabel),
-                ("chrome Close", closeLabel),
-                ("theme chip", chipLabel),
-                ("dwell read-out", dwellReadOut),
+                ("choice card", cardLabel, 32),
+                ("chrome Close", closeLabel, 32),
+                ("theme chip", chipLabel, 32),
+                ("dwell read-out", dwellReadOut, 40),
             };
-            foreach (var (what, label) in faces)
+            foreach (var (what, label, size) in faces)
             {
-                Check.WithCustomMessage($"the {what} label must ride the token ramp at FontSizeSubtitle")
-                    .That(label.FontSize).IsEqualTo(Tokens.FontSizeSubtitle);
+                Check.WithCustomMessage($"the {what} label must carry the owner-approved {size} DIP scale")
+                    .That(label.FontSize).IsEqualTo(size);
             }
+
+            // The approved geometry: action cards 320×190, Close 280×160, knob ± 200×160, and the
+            // 220-DIP practice ring whose dwell radius the VM now mirrors (110 DIP). The ring
+            // builds into an EMPTY StepContent slot (SetPractice skips a Grid), so the theme
+            // grid steps aside first — visual pins only; the target-id flow lives in
+            // FirstRunGuideWindowRenderTests.
+            var actionCard = (Border)window.ChoiceRow.Children[0];
+            Check.That(actionCard.Width).IsEqualTo(320);
+            Check.That(actionCard.Height).IsEqualTo(190);
+            var closeCard = (Border)window.ChromeCloseHost.Content;
+            Check.That(closeCard.Width).IsEqualTo(280);
+            Check.That(closeCard.Height).IsEqualTo(160);
+            var knobCard = (Border)((StackPanel)window.KnobRow.Children[1]).Children[0];
+            Check.That(knobCard.Width).IsEqualTo(200);
+            Check.That(knobCard.Height).IsEqualTo(160);
+            window.SetThemeGrid(false, []);
+            window.SetPractice(true);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            var ring = ((Grid)window.StepContent.Content).Children.OfType<Ellipse>().First(e => e.StrokeThickness > 0);
+            Check.That(ring.Width).IsEqualTo(220);
+            Check.That(ring.Height).IsEqualTo(220);
+            Check.That(ring.StrokeThickness).IsEqualTo(6);
         }
         finally
         {

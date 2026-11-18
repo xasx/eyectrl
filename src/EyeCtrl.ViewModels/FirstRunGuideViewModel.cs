@@ -161,8 +161,11 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     {
         _practiceDetector.RemoveTarget("guide_practice");
         if (PracticeVisible)
+            // The dwell radius must match the VISUAL: the owner-approved fullscreen ring is
+            // 220 DIP, so the practice target's radius is its 110-DIP radius (was 60 for the
+            // old 120 ring).
             _practiceDetector.AddTarget(new DwellTarget("guide_practice", _practiceCentre,
-                radius: DpiHelper.LogicalToPhysicalX(60), dwellTimeMs: _settings.Dwell.ActivationButtonDwellMs));
+                radius: DpiHelper.LogicalToPhysicalX(110), dwellTimeMs: _settings.Dwell.ActivationButtonDwellMs));
     }
 
     /// <summary>The view pushes the practice target's real centre at layout and on DPI change

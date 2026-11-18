@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests;
 
+using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -10,6 +12,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 
 /// <summary>
@@ -32,14 +35,14 @@ public class TaskSwitcherWindowLayoutTests
             var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
             var hintRow = (Grid)window.FindName("HintRow")!;
 
-            // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1800x830.
+            // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1728x910.
             var top = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
             window.ApplyLayout(top, screenWidthDip: 1920);
 
             Check.That(tiles.Margin).IsEqualTo(new Thickness(40, 136, 40, 0));
-            Check.That(tiles.Width).IsEqualTo(1800);
-            Check.That(tiles.Height).IsEqualTo(830);
+            Check.That(tiles.Width).IsEqualTo(1728);
+            Check.That(tiles.Height).IsEqualTo(910);
             Check.That(hintRow.Height).IsEqualTo(TaskSwitcherLayout.HintRowHeight);
             Check.That(hintRow.Margin.Bottom).IsEqualTo(0);
 
@@ -56,7 +59,7 @@ public class TaskSwitcherWindowLayoutTests
 
             Check.That(hintRow.Margin.Bottom).IsEqualTo(136);
             Check.That(tiles.Margin.Top).IsEqualTo(40);
-            Check.That(tiles.Height).IsEqualTo(5 * TaskSwitcherLayout.CellHeight);
+            Check.That(tiles.Height).IsEqualTo(4 * TaskSwitcherLayout.CellHeight);
         }
         finally
         {
@@ -113,7 +116,7 @@ public class TaskSwitcherWindowLayoutTests
 
         Check.That(at200.Area).IsEqualTo(at100.Area);
         Check.That(at200.Block).IsEqualTo(at100.Block);
-        Check.That(at200.Columns).IsEqualTo(9);
+        Check.That(at200.Columns).IsEqualTo(8);
         Check.That(at200.Rows).IsEqualTo(5);
     }
 
@@ -130,7 +133,7 @@ public class TaskSwitcherWindowLayoutTests
 
         Check.That(layout.Area.Y).IsEqualTo(136);
         Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(460, 523, 1000, 166));
+            new TaskSwitcherLayout.DipRect(420, 515, 1080, 182));
     }
 
     /// <summary>
@@ -147,7 +150,7 @@ public class TaskSwitcherWindowLayoutTests
         using var arranged = Arrange(5, layout);
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
-        Check.That(viewport).IsEqualTo(new Rect(460, 523, 1000, 166));
+        Check.That(viewport).IsEqualTo(new Rect(420, 515, 1080, 182));
 
         var faces = Faces(arranged);
         Check.That(faces.Count).IsEqualTo(5);
@@ -167,8 +170,8 @@ public class TaskSwitcherWindowLayoutTests
     }
 
     /// <summary>
-    /// 64 windows against a 9×5 capacity: exactly 45 faces lie fully inside the viewport, none is
-    /// partially visible, and the 46th starts below the viewport's bottom edge — the geometry the
+    /// 64 windows against an 8×5 capacity: exactly 40 faces lie fully inside the viewport, none is
+    /// partially visible, and the 41st starts below the viewport's bottom edge — the geometry the
     /// window's <c>VisibleTileRect</c> clamp turns into "no dwell target".
     /// </summary>
     [StaFact]
@@ -179,7 +182,7 @@ public class TaskSwitcherWindowLayoutTests
         using var arranged = Arrange(64, layout);
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
-        Check.That(viewport).IsEqualTo(new Rect(60, 191, 1800, 830));
+        Check.That(viewport).IsEqualTo(new Rect(96, 151, 1728, 910));
 
         var faces = Faces(arranged);
         Check.That(faces.Count).IsEqualTo(64);
@@ -189,12 +192,180 @@ public class TaskSwitcherWindowLayoutTests
             && face.Top >= vp.Top && face.Bottom <= vp.Bottom;
 
         var fullyVisible = faces.Count(f => FullyInside(f, viewport));
-        Check.That(fullyVisible).IsEqualTo(45);
+        Check.That(fullyVisible).IsEqualTo(40);
         var partiallyVisible = faces.Count(f => f.IntersectsWith(viewport) && !FullyInside(f, viewport));
         Check.That(partiallyVisible).IsEqualTo(0);
-        Check.That(faces[45].Top).IsGreaterOrEqualThan(viewport.Bottom);
+        Check.That(faces[40].Top).IsGreaterOrEqualThan(viewport.Bottom);
         Check.That(faces.Min(f => f.Top)).IsGreaterOrEqualThan(
             112 + TaskSwitcherLayout.ToolbarGap);
+    }
+
+    /// <summary>
+    /// F-GAP, drawn: two horizontally and two vertically adjacent faces sit 32 DIP apart (the
+    /// doubled gap — 2 × the template's 16 DIP margin) and every face keeps its 184 × 150 DIP, at
+    /// DPI 1.0 (the layout transform) and at the owner's 200 % through the real render chain,
+    /// where the raw PointToScreen delta across the gap is 64 physical pixels.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void AdjacentFaces_Are32DipApart_AndKeepThe184x150Face_AtEveryScale(double scale)
+    {
+        var layout = TaskSwitcherLayout.Compute(
+            1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 11);
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var viewModel = new TaskSwitcherViewModel(
+            windowManager: null!, new EyeCtrlSettings(), new WeakReferenceMessenger());
+        for (var i = 0; i < 11; i++)
+        {
+            viewModel.Tiles.Add(new TaskSwitcherTileViewModel(
+                new IntPtr(i + 1), $"Window {i + 1}", 0, "test", new PhysicalPoint(0, 0)));
+        }
+
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
+        FitHost? host = null;
+        try
+        {
+            window.DataContext = viewModel;
+            window.ApplyLayout(layout, screenWidthDip: 1920);
+            var root = (FrameworkElement)window.Content;
+            var panel = (ItemsControl)window.FindName("TilesPanel")!;
+            window.Content = null;   // detach: the window is never shown, the content only measured
+            root.DataContext = viewModel;
+
+            if (Math.Abs(scale - 1.0) < 1e-9)
+            {
+                root.Measure(new Size(1920, 1200));
+                root.Arrange(new Rect(0, 0, 1920, 1200));
+                root.UpdateLayout();
+            }
+            else
+            {
+                // The owner's 200 %: the frame carries a ScaleTransform of 2.0 / device scale, so
+                // PointToScreen composes the whole render chain (the Board fixture's route).
+                host = FitHost.Open(root, width: 1920, height: 1200, inheritFrom: window);
+            }
+
+            // 11 tiles: 8 fill row 0, 3 sit in row 1 — both adjacency directions exist.
+            var borders = FaceBordersOf(panel, viewModel);
+            Check.That(borders).HasSize(11);
+            var face0 = RectIn(root, borders[0], host);
+            var face1 = RectIn(root, borders[1], host);
+            var face8 = RectIn(root, borders[8], host);
+            var face9 = RectIn(root, borders[9], host);
+
+            foreach (var (face, index) in new[] { (face0, 0), (face1, 1), (face8, 8), (face9, 9) })
+            {
+                Check.WithCustomMessage($"face {index} drew {face.Width} x {face.Height} at {scale:0.0}x.")
+                    .That(Math.Abs(face.Width - 184)).IsLessOrEqualThan(0.5);
+                Check.That(Math.Abs(face.Height - 150)).IsLessOrEqualThan(0.5);
+            }
+
+            Check.WithCustomMessage(
+                    $"the horizontal gap face0→face1 is {face1.Left - face0.Right} DIP at {scale:0.0}x, not 32.")
+                .That(Math.Abs(face1.Left - face0.Right - 32)).IsLessOrEqualThan(0.5);
+            Check.WithCustomMessage(
+                    $"the vertical gap face0→face8 is {face8.Top - face0.Bottom} DIP at {scale:0.0}x, not 32.")
+                .That(Math.Abs(face8.Top - face0.Bottom - 32)).IsLessOrEqualThan(0.5);
+
+            if (host is { })
+            {
+                // The physical truth at 200 %: the 32 DIP gap is 64 device pixels.
+                var right0 = borders[0].PointToScreen(new Point(borders[0].ActualWidth, 0));
+                var left1 = borders[1].PointToScreen(new Point(0, 0));
+                Check.WithCustomMessage(
+                        $"the 32 DIP gap drew {left1.X - right0.X} physical px at 200 %, not 64.")
+                    .That(Math.Abs(left1.X - right0.X - 64)).IsLessOrEqualThan(1.0);
+            }
+        }
+        finally
+        {
+            host?.Dispose();
+            window.Close();   // PrepareCloaked created the HWND; release it
+            viewModel.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// F-GAP coupling pin: the cell lives in TaskSwitcherLayout's constants AND in the production
+    /// XAML's WrapPanel, the face margin in TileFaceMarginDip AND in the TileFace Border — the
+    /// numbers are coupled only through this pin. It holds the XAML attributes against the
+    /// constants and asserts the pairing they promise: cell = face + 2 × margin, in both
+    /// directions, with the face staying 184 × 150 and the gap 32 DIP.
+    /// </summary>
+    [Fact]
+    public void TheTileFaceMargin_AndTheWrapPanelCell_StayCoupledToTheConstants()
+    {
+        var xaml = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml"));
+
+        var wrap = Regex.Match(
+            xaml, @"<WrapPanel\s+ItemWidth=""(?<w>[\d.]+)""\s+ItemHeight=""(?<h>[\d.]+)""");
+        Check.WithCustomMessage("the WrapPanel cell attributes moved — the pin must follow them.")
+            .That(wrap.Success).IsTrue();
+        Check.WithCustomMessage("the XAML WrapPanel ItemWidth must equal TaskSwitcherLayout.CellWidth.")
+            .That(double.Parse(wrap.Groups["w"].Value, CultureInfo.InvariantCulture))
+            .IsEqualTo(TaskSwitcherLayout.CellWidth);
+        Check.WithCustomMessage("the XAML WrapPanel ItemHeight must equal TaskSwitcherLayout.CellHeight.")
+            .That(double.Parse(wrap.Groups["h"].Value, CultureInfo.InvariantCulture))
+            .IsEqualTo(TaskSwitcherLayout.CellHeight);
+
+        var face = Regex.Match(
+            xaml, @"<Border\s+x:Name=""TileFace""\s+Margin=""(?<m>[\d.]+)""");
+        Check.WithCustomMessage("the TileFace Margin attribute moved — the pin must follow it.")
+            .That(face.Success).IsTrue();
+        Check.WithCustomMessage("the XAML TileFace Margin must equal TaskSwitcherLayout.TileFaceMarginDip.")
+            .That(double.Parse(face.Groups["m"].Value, CultureInfo.InvariantCulture))
+            .IsEqualTo(TaskSwitcherLayout.TileFaceMarginDip);
+
+        // The pairing's promise, both directions: the face keeps 184 × 150, the gap is 32 DIP.
+        Check.That(TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip)
+            .IsEqualTo(184);
+        Check.That(TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip)
+            .IsEqualTo(150);
+        Check.That(2 * TaskSwitcherLayout.TileFaceMarginDip).IsEqualTo(32);
+    }
+
+    /// <summary>Every tile's template face Border, in display order (the Faces() equivalent).</summary>
+    private static IReadOnlyList<Border> FaceBordersOf(ItemsControl panel, TaskSwitcherViewModel viewModel)
+    {
+        var borders = new List<Border>();
+        foreach (var tile in viewModel.Tiles)
+        {
+            if (panel.ItemContainerGenerator.ContainerFromItem(tile)
+                is not FrameworkElement container)
+            {
+                throw new InvalidOperationException(
+                    $"tile '{tile.Title}' has no realised container — the XAML's "
+                    + "ItemsSource=\"{Binding Tiles}\" is missing or broken.");
+            }
+
+            borders.Add(FindFaceBorder(container)
+                ?? throw new InvalidOperationException(
+                    $"tile '{tile.Title}' has no ItemTemplate Border in its visual tree."));
+        }
+        return borders;
+    }
+
+    /// <summary>
+    /// A border's rectangle in DIP relative to <paramref name="root"/>: the layout transform at
+    /// 1.0, the render chain (physical PointToScreen divided by the host's 2.0) in a FitHost.
+    /// </summary>
+    private static Rect RectIn(FrameworkElement root, Border border, FitHost? host)
+    {
+        if (host is null)
+        {
+            var origin = border.TranslatePoint(new Point(0, 0), root);
+            return new Rect(origin, new Size(border.ActualWidth, border.ActualHeight));
+        }
+
+        var topLeft = border.PointToScreen(new Point(0, 0));
+        var bottomRight = border.PointToScreen(new Point(border.ActualWidth, border.ActualHeight));
+        var rootOrigin = root.PointToScreen(new Point(0, 0));
+        return new Rect(
+            (topLeft.X - rootOrigin.X) / FitHost.Scale, (topLeft.Y - rootOrigin.Y) / FitHost.Scale,
+            (bottomRight.X - topLeft.X) / FitHost.Scale, (bottomRight.Y - topLeft.Y) / FitHost.Scale);
     }
 
     /// <summary>

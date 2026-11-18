@@ -228,7 +228,7 @@
                     Background="{StaticResource BrushSurfaceLight}"
                     CornerRadius="{StaticResource StandardCornerRadius}"
                     Visibility="{Binding HasOverflow, Converter={StaticResource BoolToVisibility}}">
-                <TextBlock Text="{Binding OverflowCount, StringFormat={loc:T 'overlays.taskSwitcher.overflow'}}"
+                <TextBlock Text="{Binding OverflowCount, StringFormat={loc:T 'overlays.taskSwitcher.overflow', AsTemplate=True}}"
                            Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"/>
             </Border>
             <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">

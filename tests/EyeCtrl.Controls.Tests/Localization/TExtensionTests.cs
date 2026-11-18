@@ -21,23 +21,26 @@ public class TExtensionTests
 {
     private const string FixtureEnglish = """
     {
-      "overlays.sample": { "text": "Sample", "who": "user", "where": "overlays", "fit": "A44", "args": [] }
+      "overlays.sample": { "text": "Sample", "who": "user", "where": "overlays", "fit": "A44", "args": [] },
+      "overlays.count": { "text": "More: {0}", "who": "user", "where": "overlays", "fit": "A44", "args": ["count"] }
     }
     """;
 
     private const string FixtureGerman = """
     {
-      "overlays.sample": { "text": "Beispiel", "src": "00000000" }
+      "overlays.sample": { "text": "Beispiel", "src": "00000000" },
+      "overlays.count": { "text": "Mehr: {0}", "src": "00000000" }
     }
     """;
 
-    private static StringTable Table(UiLanguage selection) =>
+    private static StringTable Table(UiLanguage selection, Action<string>? warn = null) =>
         StringTable.Create(
             selection,
             CultureInfo.GetCultureInfo("de-DE"),
             StringTableContent.ParseEnglish(FixtureEnglish),
             StringTableContent.ParseGerman(FixtureGerman),
-            ["overlays"]);
+            ["overlays"],
+            warn);
 
     private static void WithActive(StringTable table, Action action)
     {
@@ -80,4 +83,27 @@ public class TExtensionTests
 
             Check.That(block.Text).IsEqualTo("Sample");
         });
+
+    [Fact]
+    public void AsTemplate_ReturnsThePlaceholderTemplate_WithoutAFormatWarning()
+    {
+        var warnings = new System.Collections.Generic.List<string>();
+        WithActive(Table(UiLanguage.German, warnings.Add), () =>
+        {
+            var extension = new TExtension("overlays.count") { AsTemplate = true };
+            Check.That(extension.ProvideValue(null!)).IsEqualTo("Mehr: {0}");
+        });
+        Check.That(warnings).IsEmpty();
+    }
+
+    [Fact]
+    public void WithoutAsTemplate_APlaceholderTemplate_StillWarns_SoTheSwitchIsWhatSilencesIt()
+    {
+        var warnings = new System.Collections.Generic.List<string>();
+        WithActive(Table(UiLanguage.English, warnings.Add), () =>
+        {
+            _ = new TExtension("overlays.count").ProvideValue(null!);
+        });
+        Check.That(warnings).HasSize(1);
+    }
 }

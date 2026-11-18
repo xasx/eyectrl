@@ -42,10 +42,13 @@ public partial class KeyboardWindow : OverlayWindow
     // Per-slot leave-before-re-arm: a slot that just fired is held out of dwell (and so shows no
     // progress) until the gaze has been continuously outside its live cell for 120 ms. Without it
     // the after-pick re-render puts a new suggestion under the resting gaze and one long look
-    // picks one word per cooldown cycle.
+    // picks one word per cooldown cycle. Since F8 it also carries the slot's long look: a second
+    // dwell of KeyboardLongLook.RepeatDwellUs on the latched slot re-picks whatever word it shows.
     private readonly PredictionBarRearmLatch _predictionRearm = new();
     // One delegate for every sample: excludes latched slots from the detector's nearest-target
     // selection, so they accumulate nothing while latched and start from 0 after the latch clears.
+    // A latched slot's long-look fill is painted from the latch instead (OnPredictionProgress never
+    // sees it).
     private readonly Func<DwellTarget, bool> _predictionTargetFilter;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     // One mutable brush per key, installed as its Container.Background and mutated in place by
@@ -128,6 +131,7 @@ public partial class KeyboardWindow : OverlayWindow
     // view-model writes and these share one timebase. None of it is read by behaviour.
     private long _lastMoveMs = long.MinValue;      // last time the window's position actually changed
     private long _barRenderedMs = long.MinValue;   // when the bar's current render happened
+    private long _lastSampleTimestampUs;           // the gaze sample being processed (a pick's clock)
     private readonly long[] _slotDwellStartMs = new long[5];  // start of each slot's CURRENT dwell run
     private readonly long[] _slotLastRunStartMs = new long[5]; // start of each slot's most recent finished run
     private int _slotsVisitedMask;                 // slots whose dwell began at least once since render
@@ -724,6 +728,11 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (_viewModel == null) return;
 
+        // The sample that performs a bar pick is the timestamp its long look counts from: the
+        // detector raises TargetActivated synchronously inside its own Update below, where no
+        // timestamp is available to the handler.
+        _lastSampleTimestampUs = timestampMicroseconds;
+
         RefreshBarOnSensitivityChange();
 
         // The reserved slot 0 of a boundary render: a late LM answer is applied here, on the same
@@ -764,9 +773,14 @@ public partial class KeyboardWindow : OverlayWindow
         var gazeInsideKeyArea = TryGetScreenRect(KeyRows, out var keyArea)
             && keyArea.Contains(screenPoint.X, screenPoint.Y);
 
-        // Every sample advances the prediction bar's leave clocks, including samples on the key
-        // grid: a gaze that moved to the keys is outside the fired slot and must count as a leave.
-        _predictionRearm.Update(screenPoint, timestampMicroseconds, _predictionDwellDetector);
+        // Every sample advances the prediction bar's leave clocks and, on a latched slot, the long
+        // look's clock - including samples on the key grid: a gaze that moved to the keys is
+        // outside the fired slot and must count as a leave. A completed long look fires here, on
+        // this sample, and re-renders the bar like any pick.
+        var repeatPicks = _predictionRearm.Update(screenPoint, timestampMicroseconds, _predictionDwellDetector);
+        if (repeatPicks is not null)
+            foreach (var slotId in repeatPicks)
+                OnPredictionDwelled(slotId);
 
         if (_viewModel.IsEmojiMode)
         {
@@ -795,8 +809,28 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionDwellDetector.ResetAllState();
         }
 
+        // The latched slot's long look paints after the detector pass: its fill is the latch's
+        // clock, and OnPredictionProgress never reports a latched slot (the target filter excludes
+        // it), so this is the only writer while the latch is live.
+        PaintLongLookProgress();
+
         _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds,
             _keyScreenBoxes);
+    }
+
+    /// <summary>
+    /// Paints each latched suggestion slot's long-look fill through the same outline its normal
+    /// dwell uses. Unlatched slots are left to <see cref="OnPredictionProgress"/>; painting them
+    /// from here would erase a normal dwell in progress on another slot.
+    /// </summary>
+    private void PaintLongLookProgress()
+    {
+        for (var i = 0; i < _predictionOutlines.Count; i++)
+        {
+            var id = $"pred_{i}";
+            if (!_predictionRearm.IsLatched(id)) continue;
+            _predictionOutlines[i]?.SetProgress(_predictionRearm.LongLookProgress(id));
+        }
     }
 
     /// <summary>
@@ -1329,7 +1363,8 @@ public partial class KeyboardWindow : OverlayWindow
     /// <item>slot 0 is still empty — a filled slot is never rewritten in place, so a word the user
     /// may be reading cannot change under the gaze;</item>
     /// <item>no slot has dwell progress in flight — a dwell in progress must not gain a new
-    /// candidate beside it (the answer belongs to the next look, not this one);</item>
+    /// candidate beside it (the answer belongs to the next look, not this one); a latched slot's
+    /// long-look fill counts as dwell progress (F8);</item>
     /// <item>the boundary is still the one the request was issued for — the VM answers null when
     /// it is not, and an empty list when the answer produced nothing.</item>
     /// </list>
@@ -1351,8 +1386,11 @@ public partial class KeyboardWindow : OverlayWindow
         }
 
         // A dwell in flight (any slot) postpones the fill; the answer waits for the next sample.
+        // A latched slot's long look IS dwell progress (F8): filling slot 0 would change the word
+        // under a look that is already counting toward a repeat pick.
         for (var i = 0; i < _slotDwellStartMs.Length; i++)
             if (_slotDwellStartMs[i] != long.MinValue) return;
+        if (_predictionRearm.HasLongLookInFlight) return;
 
         var next = _viewModel.TryTakeNextWordSuggestions();
         if (next is null) return;          // still running, or the boundary already moved on
@@ -1578,7 +1616,7 @@ public partial class KeyboardWindow : OverlayWindow
             // by a continuous 906 ms rest on ANOTHER slot, which would have fired a chain pick nobody
             // asked for. Do not "fix" this with a bar-wide lock without the owner's say-so.
             _viewModel.HandlePredictionSelected(picked.Word);
-            _predictionRearm.Latch(targetId, latchedRect);
+            _predictionRearm.Latch(targetId, latchedRect, _lastSampleTimestampUs);
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
                                            // sound failure can never leave the bar stale (S1)

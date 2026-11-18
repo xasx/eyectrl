@@ -6,12 +6,14 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
-/// F4: a TEXT key that just fired may type a deliberate double by a second dwell of
-/// <see cref="KeyboardViewModel.RepeatDwellUs"/> AFTER the post-fire cooldown. Excursions of up to
-/// <see cref="KeyboardViewModel.RepeatExcursionToleranceUs"/> pause the progress; longer ones reset
-/// it. Non-text keys (Enter, Tab, Backspace, Wort löschen, modifiers, page switches) never repeat
-/// this way. The numbers come from the KB7 replay (Phase 1 report): the intended double reached
-/// 1208 ms of on-key time after the cooldown, the longest unintended pause 1087 ms.
+/// F4: a key that just fired may fire a deliberate double by a second dwell of
+/// <see cref="KeyboardLongLook.RepeatDwellUs"/> AFTER the post-fire cooldown. Excursions of up to
+/// <see cref="KeyboardLongLook.RepeatExcursionToleranceUs"/> pause the progress; longer ones reset
+/// it. F4 limited this to text and deletion keys; F8 widened it to every key except the page
+/// switches and the close/move buttons, and this file's scope cases follow that decision (the
+/// per-class coverage lives in KeyboardLongLookAnyKeyTests). The numbers come from the KB7 replay
+/// (Phase 1 report): the intended double reached 1208 ms of on-key time after the cooldown, the
+/// longest unintended pause 1087 ms.
 ///
 /// <para>
 /// The trace here is synthetic: key centres, boxes and a small hand-built layout. No owner data.
@@ -385,14 +387,35 @@ public class KeyboardDoubleLettersTests
     [InlineData("enter")]
     [InlineData("tab")]
     [InlineData("space")]
-    public void NonTextKeys_NeverRepeatByASecondDwell(string keyId)
+    public void NonTextKeys_RepeatByASecondDwell_SinceF8IncludesEveryKey(string keyId)
     {
+        // F4 kept these keys out; F8's owner decision (18.11, KB11) brings every key in except the
+        // page switches and the close/move buttons. The F4 mechanism is unchanged: one long look
+        // after the cooldown fires once more, and a third would need another full 1200 ms.
         var rig = new Rig();
         rig.Hold(keyId, 700);   // covers the 600 ms app-escaping floor and the 450 ms plain one
         Check.WithCustomMessage($"arrange: {keyId} must fire once").That(rig.Fired).ContainsExactly(keyId);
 
-        // Cooldown plus twice the repeat dwell: a text or deletion key would fire at least once more.
-        rig.Hold(keyId, CooldownMs + 2400);
+        // Measured from the FIRE: the cooldown plus 2400 ms of second dwell fires once more, and a
+        // third would need another full 1200 ms after its own cooldown.
+        rig.HoldThrough(rig.LastFireTs + (CooldownMs + 2400) * 1000L, keyId);
+
+        Check.That(rig.Fired).ContainsExactly(keyId, keyId);
+    }
+
+    [Theory]
+    [InlineData("enter")]
+    [InlineData("tab")]
+    [InlineData("space")]
+    public void NonTextKeys_DoNotRepeatOnAShortRest(string keyId)
+    {
+        var rig = new Rig();
+        rig.Hold(keyId, 700);
+        Check.WithCustomMessage($"arrange: {keyId} must fire once").That(rig.Fired).ContainsExactly(keyId);
+
+        // Measured from the FIRE, not from the end of the first hold: the cooldown plus 1000 ms of
+        // second dwell is under KeyboardLongLook.RepeatDwellUs.
+        rig.HoldThrough(rig.LastFireTs + (CooldownMs + 1000) * 1000L, keyId);
 
         Check.That(rig.Fired).ContainsExactly(keyId);
     }

@@ -451,6 +451,54 @@ public class ShippedLayoutFilesTests
         Check.That(sharpS.ShiftOutput).IsEqualTo("ẞ");
     }
 
+    // ---- F8: the long look's exclusion, read off the shipped files ------------------------------
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
+    public void EveryShippedKey_LongLookRepeats_ExceptThePageSwitches(string file)
+    {
+        // F8's rule is on the ACTION, so this walks every key of every page in the real files
+        // rather than trusting one layout's label list: the only non-repeatable keys must be the
+        // page switches the file itself declares (switchSub:* and the emoji-page switch). A future
+        // close/move key in a layout would be caught by the Core unit test, and a new page-switch
+        // family must be added to KeyboardLongLook deliberately.
+        var layout = Load(file);
+
+        var nonRepeatable = new List<string>();
+        var repeatable = new List<string>();
+        foreach (var (pageId, sub) in layout.SubLayouts)
+        {
+            foreach (var key in sub.Rows.SelectMany(r => r))
+            {
+                var action = key.SpecialAction;
+                var isPageSwitch = !string.IsNullOrEmpty(action)
+                    && (action.StartsWith("switchSub:", System.StringComparison.OrdinalIgnoreCase)
+                        || action.Equals("switchEmoji", System.StringComparison.OrdinalIgnoreCase));
+
+                if (isPageSwitch)
+                {
+                    nonRepeatable.Add($"{pageId}/{action}");
+                    Check.WithCustomMessage($"{file} {pageId}/{action} is a page switch but repeats")
+                        .That(KeyboardLongLook.IsRepeatableAction(action)).IsFalse();
+                }
+                else
+                {
+                    repeatable.Add($"{pageId}/{action ?? key.Label}");
+                    Check.WithCustomMessage(
+                            $"{file} {pageId} key '{key.Label}' (action '{action}') does not repeat")
+                        .That(KeyboardLongLook.IsRepeatableAction(action)).IsTrue();
+                }
+            }
+        }
+
+        // Every shipped page has at least three non-repeatable page switches (letters: 123, Fn,
+        // #+=), so a file whose actions stopped parsing cannot make this test vacuous.
+        Check.WithCustomMessage($"{file}: no page switches found - the walk is vacuous")
+            .That(nonRepeatable.Count).IsStrictlyGreaterThan(2);
+        Check.WithCustomMessage($"{file}: no repeatable keys found - the walk is vacuous")
+            .That(repeatable.Count).IsStrictlyGreaterThan(20);
+    }
+
     [Fact]
     public void Azerty_Letters_Row0_TakesWortLoschenAndQuestionMark_WithZeroMovement()
     {

@@ -20,6 +20,7 @@ using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
@@ -141,6 +142,18 @@ public class NoteReadabilityTicketRenders
         // The REAL placement, so the drawn column and the text land where production puts them.
         window.ApplyPlacement(placement);
 
+        // The chip card must hold the text it draws at THIS size (the fit invariant G1f pins):
+        // a placement composed at another size than the drawn text clips the last line — the
+        // clipped-render defect this assert exists to catch (F1).
+        var chipBlock = window.ChipTextForTest;
+        Check.WithCustomMessage("the chip render must draw its text").That(chipBlock).IsNotNull();
+        chipBlock!.Measure(new Size(chipBlock.Width, double.PositiveInfinity));
+        Check.WithCustomMessage(
+                $"the drawn chip text ({chipBlock.DesiredSize.Height:0.#} DIP incl. its margin) must fit "
+                + $"inside the chip card ({card.Height:0.#} DIP) at {size} — a placement composed at "
+                + "another size than the drawn text clips the last line")
+            .That(chipBlock.DesiredSize.Height).IsLessOrEqualThan(card.Height);
+
         var canvas = (Canvas)window.Content;
         canvas.Measure(new Size(window.Width, window.Height));
         canvas.Arrange(new Rect(0, 0, window.Width, window.Height));
@@ -179,12 +192,16 @@ public class NoteReadabilityTicketRenders
     }
 
     /// <summary>The chip's real placement: a windowless manager, the note saved, the removal
-    /// dwell fired - the same seam the chip renders use.</summary>
+    /// dwell fired - the same seam the chip renders use. The manager gets the note's size
+    /// setting, so the chip is COMPOSED at <paramref name="size"/> — its captured geometry, its
+    /// measured column and its placed card all follow it (F1: default settings placed a 28 card
+    /// under 36/40 text and clipped the last line).</summary>
     private static NotePlacement RealChipPlacement(double size)
     {
         var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings { TextSizeDip = (int)size };
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
-            workAreaDip: NoteTestBench.WorkAreaProvider);
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {

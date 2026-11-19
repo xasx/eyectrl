@@ -4,6 +4,9 @@ using EyeCtrl.App.Services;
 using EyeCtrl.Tests.TestSupport;
 using Microsoft.Extensions.Time.Testing;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -17,7 +20,14 @@ using System.Linq;
 /// at <c>OnExit step: X</c> with no FTL line. This test installs the App's real sink arguments, lets a
 /// real watchdog fire, and requires the FTL line to be on disk.
 /// </para>
+/// <para>
+/// Review-02 N3: these tests swap the process-global <c>Log.Logger</c>, so they belong to an
+/// exclusive collection — <c>WpfApplication</c> is <c>DisableParallelization = true</c>, which xUnit v3
+/// runs beside no other test (the convention the other logger-swapping classes follow). They also run
+/// one at a time within the class, so the two swaps cannot overlap.
+/// </para>
 /// </summary>
+[Collection("WpfApplication")]
 public class ExitStuckReportTests
 {
     private const string BlockingStep = "stop password-field detector";
@@ -94,6 +104,46 @@ public class ExitStuckReportTests
     }
 
     /// <summary>
+    /// Review-02 N1: the 2 s bound on the Serilog route. A step hung inside Serilog's own write lock
+    /// would otherwise block the watchdog's report forever, and the FailFast would never run. The sink
+    /// here blocks in <c>Emit</c>; <c>Report</c> must still return within the budget plus a little slack
+    /// (it then takes the direct-append fallback).
+    /// </summary>
+    [Fact]
+    public void Report_WhenTheSinkBlocks_ReturnsWithinTheBudget_InsteadOfWaitingForIt()
+    {
+        string directory = TempTestDirectory.Create("exit-stuck-report-blocked-sink");
+        ILogger previous = Log.Logger;
+        using var released = new ManualResetEventSlim(false);
+
+        try
+        {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.Sink(new BlockingSink(released))
+                .CreateLogger();
+
+            var elapsed = Stopwatch.StartNew();
+            // The inner Task.Wait is what turns an unbounded join/wait into a RED test instead of a
+            // hung run: the honest bound is LogFatalBudget (2 s) plus the instant append.
+            Task report = Task.Run(() =>
+                ExitStuckReport.Report(directory, "stop password-field detector"));
+            Check.WithCustomMessage("Report never returned; the Serilog route is unbounded")
+                .That(report.Wait(TimeSpan.FromSeconds(10))).IsTrue();
+            elapsed.Stop();
+
+            Check.WithCustomMessage("Report outlasted the Log.Fatal budget")
+                .That(elapsed.Elapsed).IsLessThan(ExitStuckReport.LogFatalBudget + TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            released.Set(); // let the abandoned report thread finish instead of blocking for the run
+            Log.CloseAndFlush();
+            Log.Logger = previous;
+        }
+    }
+
+    /// <summary>
     /// Reads a log file the sink still holds open: Serilog opens the day file for write with
     /// <see cref="FileShare.Read"/>, so a plain reader is refused — a reader must also share write.
     /// </summary>
@@ -103,5 +153,16 @@ public class ExitStuckReportTests
         using var reader = new StreamReader(stream);
         while (reader.ReadLine() is { } line)
             yield return line;
+    }
+
+    /// <summary>Stands in for a file sink blocked on its own write lock: <c>Emit</c> never returns
+    /// until the test releases it.</summary>
+    private sealed class BlockingSink : ILogEventSink
+    {
+        private readonly ManualResetEventSlim _release;
+
+        internal BlockingSink(ManualResetEventSlim release) => _release = release;
+
+        public void Emit(LogEvent logEvent) => _release.Wait();
     }
 }

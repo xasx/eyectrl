@@ -174,14 +174,21 @@ internal static class ExitStuckReport
     {
         ArgumentNullException.ThrowIfNull(step);
 
-        // Primary: the open sink (the hung-step stage). Bounded, because the hung step may itself
-        // hold Serilog's write lock — waiting there forever would defeat the watchdog.
+        // Primary: the open sink (the hung-step stage). A DEDICATED background thread, not the thread
+        // pool: a hang that starved the pool must not also lose this line. Bounded, because the hung
+        // step may itself hold Serilog's write lock — waiting there forever would defeat the watchdog.
         try
         {
-            Task logFatal = Task.Run(() => Log.Fatal("EyeCtrl exit stuck in step '{Step}' — the exit watchdog ended the process", step));
-            // Leave a task that misses the budget to finish or die on its own; the direct route below
-            // is the fallback, and nothing here may delay the FailFast further.
-            _ = logFatal.Wait(LogFatalBudget);
+            var logThread = new Thread(() =>
+                Log.Fatal("EyeCtrl exit stuck in step '{Step}' — the exit watchdog ended the process", step))
+            {
+                IsBackground = true,
+                Name = "EyeCtrl exit stuck report",
+            };
+            logThread.Start();
+            // Leave a thread that misses the budget to finish or die with the process; the direct
+            // route below is the fallback, and nothing here may delay the FailFast further.
+            _ = logThread.Join(LogFatalBudget);
         }
         catch
         {

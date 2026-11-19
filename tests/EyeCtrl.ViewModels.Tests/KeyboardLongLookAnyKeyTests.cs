@@ -147,6 +147,27 @@ public class KeyboardLongLookAnyKeyTests
                 Hold(keyId, 0);
             Hold(keyId, ms);
         }
+
+        /// <summary>
+        /// The key just fired: anchor the second-dwell clock exactly at the cooldown's end and
+        /// credit exactly <paramref name="ms"/> of continuous on-key time (a sample at the anchor,
+        /// then every 30 ms, the last one at anchor + ms). The 30 ms cadence alone cannot land on
+        /// an exact millisecond, so the boundary tests drive their own timestamps.
+        /// </summary>
+        public void SecondDwellExactly(string keyId, int ms)
+        {
+            var anchor = LastFireTs + (CooldownMs * 1000L);
+            One(keyId, anchor);
+            for (var t = anchor + (StepMs * 1000L); t < anchor + (ms * 1000L); t += StepMs * 1000L)
+                One(keyId, t);
+            One(keyId, anchor + (ms * 1000L));
+        }
+
+        private void One(string keyId, long ts)
+        {
+            Vm.ProcessKeyGaze(Positions, Positions[keyId], true, ts, Boxes);
+            Ts = ts + (StepMs * 1000L);
+        }
     }
 
     // ---- every key repeats ---------------------------------------------------------------------
@@ -184,9 +205,35 @@ public class KeyboardLongLookAnyKeyTests
         var rig = new Rig();
         rig.Fire(keyId, firstHoldMs);
 
-        rig.SecondDwell(keyId, 1000);   // under KeyboardLongLook.RepeatDwellUs
+        rig.SecondDwell(keyId, 900);   // under KeyboardLongLook.RepeatDwellUs
 
         Check.That(rig.Fired).ContainsExactly(keyId);
+    }
+
+    [Theory]
+    [InlineData("key_0_0", 450)]   // a letter
+    [InlineData("enter", 700)]     // the 600 ms app-escaping floor
+    public void TheLongLookBoundary_999MsDoesNotRepeat(string keyId, int firstHoldMs)
+    {
+        var rig = new Rig();
+        rig.Fire(keyId, firstHoldMs);
+
+        rig.SecondDwellExactly(keyId, 999);
+
+        Check.That(rig.Fired).ContainsExactly(keyId);
+    }
+
+    [Theory]
+    [InlineData("key_0_0", 450)]   // a letter
+    [InlineData("enter", 700)]     // the 600 ms app-escaping floor
+    public void TheLongLookBoundary_1000MsRepeats(string keyId, int firstHoldMs)
+    {
+        var rig = new Rig();
+        rig.Fire(keyId, firstHoldMs);
+
+        rig.SecondDwellExactly(keyId, 1000);
+
+        Check.That(rig.Fired).ContainsExactly(keyId, keyId);
     }
 
     [Theory]
@@ -255,7 +302,7 @@ public class KeyboardLongLookAnyKeyTests
         rig.SecondDwell("enter", 600);
 
         rig.HoldAt(AboveTheKeys, 500);   // beyond the 400 ms tolerance: the progress resets
-        rig.Hold("enter", 700);          // only ~700 of the new 1200 ms
+        rig.Hold("enter", 700);          // only ~700 of the new 1000 ms
 
         Check.That(rig.Fired).ContainsExactly("enter");
     }
@@ -264,7 +311,7 @@ public class KeyboardLongLookAnyKeyTests
     public void ALookOffTheKeyboard_RearmsEnterNormally()
     {
         // The leave rule is unchanged: 120 ms off the keyboard clears the latch, so the key's normal
-        // 600 ms dwell fires it again — much sooner than the 1200 ms long look.
+        // 600 ms dwell fires it again — much sooner than the shared 1000 ms long look.
         var rig = new Rig();
         rig.Fire("enter", 700);
         rig.SecondDwell("enter", 300);

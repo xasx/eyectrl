@@ -28,17 +28,24 @@ public static class KeyboardLongLook
     /// on-target time only; see <see cref="RepeatExcursionToleranceUs"/>.
     ///
     /// <para>
-    /// 1200 ms is the owner's chosen value from the KB7 replay (F4, 12.11): the intended double
-    /// reached 1208 ms of on-key time after the cooldown, while the longest unintended pause was
-    /// 1087 ms. 1200 sits 8 ms under the first and 113 ms over the second. That margin is THIN:
-    /// the two behaviours are the same gesture at different lengths, so this value is a
-    /// deliberate, measured compromise, not a robust geometric separation. A later owner tune
-    /// that lowers it starts typing the 1087 ms pause; raising it past 1208 stops typing that
-    /// traced double. Do not "simplify" it to a normal dwell, and do not fork it per surface —
-    /// the keyboard and the prediction bar share this one value (F8, F9).
+    /// <b>1000 ms is the owner's choice (18.11, Q4 "B 1.0 s").</b> The measured trade, from the
+    /// 18.11 sitting replayed through the shipped pipeline (F9): at 1000 ms the long look keeps
+    /// 6 of 6 intended doubles and adds exactly ONE unwanted letter double — a 1050 ms on-key hold
+    /// in that sitting — and no unwanted ⌫ / Wort löschen repeat. The owner accepted about one
+    /// unwanted double per sitting of that density for a 200 ms shorter felt double (cooldown 400
+    /// + 1000 = 1.4 s from the first fire). The margin is thin by construction: the same gesture
+    /// at 1050 ms stays ordinary, at 1000 it repeats, and lowering below 1000 also starts repeating
+    /// deliberate ⌫ holds (F9 measured the first extra deletion at 900). Do not "simplify" it to a
+    /// normal dwell and do not fork it per surface — the keyboard and the prediction bar share this
+    /// one value (F8, F12).
+    /// </para>
+    ///
+    /// <para>
+    /// History: F4 chose 1200 from the KB7 replay, where the intended double credited 1208 ms and
+    /// the longest unintended pause 1087 ms; that 113 ms margin is gone at 1000, deliberately.
     /// </para>
     /// </summary>
-    public const long RepeatDwellUs = 1200 * MathConstants.MicrosecondsPerMillisecond;
+    public const long RepeatDwellUs = 1000 * MathConstants.MicrosecondsPerMillisecond;
 
     /// <summary>
     /// How long the gaze may leave the latched target during its second dwell before the

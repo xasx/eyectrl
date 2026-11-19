@@ -230,6 +230,67 @@ public class KeyboardPredictionLongLookTests
         }
     }
 
+    /// <summary>Feeds a slot until it fires, returning the pick sample's timestamp.</summary>
+    private static long PickSlot(Probe probe, PhysicalPoint slot, List<string> picks)
+    {
+        var seen = picks.Count;
+        for (long ts = 100_000; ts <= 3_000_000; ts += StepUs)
+        {
+            probe.Window.UpdateGaze(slot, ts);
+            probe.Content.UpdateLayout();
+            if (picks.Count > seen) return ts;
+        }
+        throw new InvalidOperationException("the slot never fired");
+    }
+
+    /// <summary>
+    /// Anchors the latched slot's long-look clock exactly at the cooldown's end and credits exactly
+    /// <paramref name="creditedMs"/> of continuous on-slot time. The 33 ms cadence alone cannot land
+    /// on an exact millisecond, so the boundary test drives its own timestamps.
+    /// </summary>
+    private static void SlotSecondDwellExactly(Probe probe, PhysicalPoint slot, long pickTs, int creditedMs)
+    {
+        // One sample inside the cooldown re-registers the re-rendered bar's targets before the anchor.
+        probe.Window.UpdateGaze(slot, pickTs + StepUs);
+        probe.Content.UpdateLayout();
+        var anchor = pickTs + (CooldownMs * 1000L);
+        probe.Window.UpdateGaze(slot, anchor);
+        probe.Content.UpdateLayout();
+        for (long t = anchor + StepUs; t < anchor + (creditedMs * 1000L); t += StepUs)
+        {
+            probe.Window.UpdateGaze(slot, t);
+            probe.Content.UpdateLayout();
+        }
+        probe.Window.UpdateGaze(slot, anchor + (creditedMs * 1000L));
+        probe.Content.UpdateLayout();
+    }
+
+    [StaTheory]
+    [InlineData(999, 1)]
+    [InlineData(1000, 2)]
+    public void TheSlotLongLookBoundary_IsExact(int creditedMs, int expectedPicks)
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 },
+            withLm: false);
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+
+            var pickTs = PickSlot(probe, slot, picks);
+            Check.WithCustomMessage("arrange: the first pick must happen").That(picks).HasSize(1);
+
+            SlotSecondDwellExactly(probe, slot, pickTs, creditedMs);
+
+            Check.WithCustomMessage(
+                    $"{creditedMs} ms of on-slot time produced {picks.Count} picks, expected {expectedPicks}")
+                .That(picks).HasSize(expectedPicks);
+        }
+        finally { probe.Dispose(); }
+    }
+
     // ---- the long look -------------------------------------------------------------------------
 
     [StaFact]
@@ -268,9 +329,9 @@ public class KeyboardPredictionLongLookTests
             PlaceTargets(probe);
             var slot = SlotCenter(probe, "pred_0");
 
-            // The pick lands at ~628 ms; cooldown plus 1000 ms of on-slot time stays under the
-            // shared 1200 ms long look.
-            Feed(probe, slot, 100_000, 628_000 + CooldownMs * 1000L + 1_000_000);
+            // The pick lands at ~628 ms; cooldown plus 900 ms of on-slot time stays under the
+            // shared KeyboardLongLook.RepeatDwellUs long look.
+            Feed(probe, slot, 100_000, 628_000 + CooldownMs * 1000L + 900_000);
 
             Check.WithCustomMessage("a rest shorter than the long look re-picked the slot")
                 .That(picks).HasSize(1);
@@ -338,12 +399,13 @@ public class KeyboardPredictionLongLookTests
             Feed(probe, slot, 100_000, 628_000);            // the first pick
             Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
 
-            // Through the cooldown and ~600 ms of the long look.
-            Feed(probe, slot, 661_000, 628_000 + CooldownMs * 1000L + 600_000);
+            // Through the cooldown and ~400 ms of the long look.
+            Feed(probe, slot, 661_000, 628_000 + CooldownMs * 1000L + 400_000);
 
+            var expected = 400.0 / (KeyboardLongLook.RepeatDwellUs / 1000.0);
             var progress = RearmLatch(probe.Window).LongLookProgress("pred_0");
-            Check.WithCustomMessage($"latch progress {progress:F2} is not ~0.5 of the long look")
-                .That(progress).IsCloseTo(0.5, 0.15);
+            Check.WithCustomMessage($"latch progress {progress:F2} is not ~{expected:F2} of the long look")
+                .That(progress).IsCloseTo(expected, 0.08);
             var drawn = CellProgress((Border)probe.Window.PredictionBar.Children[0]);
             Check.WithCustomMessage($"the slot's drawn fill {drawn:F2} does not follow the long look")
                 .That(drawn).IsCloseTo(progress, 0.02);

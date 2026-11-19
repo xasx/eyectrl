@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Threading;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// The agreement between an outgoing EyeCtrl instance and the replacement it launches.
@@ -31,13 +32,17 @@ public static class RestartHandoff
     /// Name of the event a restart child sets to announce it is alive and queued.
     /// <c>Local\</c> (not <c>Global\</c>) to match the single-instance mutex: multi-user
     /// and RDP are non-goals, and a session-local name avoids cross-session collisions.
+    /// Resolved per build (<see cref="EyeCtrl.Core.Services.ProfileLocation"/>): a dev build's
+    /// handoff pairs under its own suffixed name, never against the installed App's event —
+    /// a dev parent waiting on the installed name, or vice versa, would hang the 30 s wait
+    /// and kill a healthy child.
     ///
     /// Owned by the PARENT for the duration of the handoff: the parent creates it BEFORE
     /// launching the child and holds it open across the wait (see
     /// <see cref="SelfRestartStrategy.CreateDefault"/>). That is what makes the child's
     /// signal reliable in both directions — see <see cref="SignalReady"/>.
     /// </summary>
-    public const string ReadyEventName = @"Local\EyeCtrl.App.RestartReady";
+    public static string ReadyEventName => ProfileLocation.Current.RestartReadyEventName;
 
     /// <summary>
     /// How long a restart child waits for the outgoing instance to release the mutex

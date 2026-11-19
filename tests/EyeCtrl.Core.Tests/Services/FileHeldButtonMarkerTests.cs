@@ -93,11 +93,14 @@ public class FileHeldButtonMarkerTests
     public void DefaultPath_IsTheSharedAppDataMarker()
     {
         // Production wiring: the App (drag press/release, startup backstop) and the Supervisor
-        // (post-kill release) must agree on ONE file. Both take this default.
+        // (post-kill release) must agree on ONE file. Both take this default — which now resolves
+        // through ProfileLocation, so a dev pair shares the DEV marker and can never see, set or
+        // clear the installed pair's. The test host is a dev build (its exe is never directly
+        // under Program Files\EyeCtrl*), so the default here must be the dev profile's marker.
         Check.That(FileHeldButtonMarker.DefaultPath).IsEqualTo(
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "EyeCtrl",
+                "EyeCtrl.Dev",
                 FileHeldButtonMarker.FileName));
         Check.That(new FileHeldButtonMarker().Path).IsEqualTo(FileHeldButtonMarker.DefaultPath);
     }

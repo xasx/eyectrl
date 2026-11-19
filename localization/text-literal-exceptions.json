@@ -365,12 +365,6 @@
       "Reason": "The P8 auto-hide suspension holder name (Task 10) — an ownership token keyed into ToolbarLifecycleCoordinator's holder set, never rendered."
     },
     {
-      "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
-      "Literal": "\"EyeCtrl\"",
-      "Category": "product",
-      "Reason": "The product name, which stays literal in every language (T06 decision)."
-    },
-    {
       "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs",
       "Literal": "\"Bottom\"",
       "Category": "id",
@@ -381,12 +375,6 @@
       "Literal": "\"Top\"",
       "Category": "id",
       "Reason": "A saved settings code (Keyboard.ScreenEdge), compared and written, never displayed."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/HeartbeatPublisher.cs",
-      "Literal": "\"eyectrl_watch\"",
-      "Category": "id",
-      "Reason": "The heartbeat pipe name."
     },
     {
       "Path": "src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs",
@@ -505,12 +493,6 @@
     {
       "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
       "Literal": "\"--restart-handoff\"",
-      "Category": "id",
-      "Reason": "A command-line flag or a named kernel event; not text."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
-      "Literal": "@\"Local\\EyeCtrl.App.RestartReady\"",
       "Category": "id",
       "Reason": "A command-line flag or a named kernel event; not text."
     },
@@ -1149,18 +1131,6 @@
       "Literal": "@\"SOFTWARE\\WOW6432Node\\Tobii Dynavox\\Snap Core First\"",
       "Category": "id",
       "Reason": "A registry path or value name."
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Ipc/HeartbeatPipeServer.cs",
-      "Literal": "\"eyectrl_watch\"",
-      "Category": "id",
-      "Reason": "The heartbeat pipe name."
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Program.cs",
-      "Literal": "@\"Local\\EyeCtrl.Supervisor.Singleton\"",
-      "Category": "id",
-      "Reason": "A named mutex."
     },
     {
       "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml",

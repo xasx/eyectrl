@@ -988,10 +988,25 @@ public partial class App : Application
     /// <param name="args">The process arguments; <c>--ui-language</c> is read from them.</param>
     private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(string[] args)
     {
-        _appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+        // The one profile resolver — never a raw OS folder here. A dev build (Debug, or an exe
+        // outside the installed location) gets %APPDATA%\EyeCtrl.Dev; only the installed build,
+        // or a build explicitly started with --real-profile, touches the real profile.
+        var profile = ProfileLocation.Current;
+        _appDataDir = profile.Directory;
         var settingsFilePath = Path.Combine(_appDataDir, "settings.json");
         var tempSettingsService = new SettingsService(settingsFilePath, SettingsWriter.App);
+
+        var logsDir = Path.Combine(_appDataDir, "logs");
+        LoggingInitializer.Initialize(logsDir);
+
+        // The profile line comes before anything reads or writes the profile (the settings load
+        // below is the first read): the mode decision is on record before any data access. It is
+        // also why this block sits above the load — a dev run must be identifiable in the log
+        // even if the load then crashes.
+        Log.Information(
+            "Profile: {Mode} dir={Dir} reason={Reason}",
+            profile.ModeToken, _appDataDir, profile.Reason);
+
         var settings = tempSettingsService.Load();
 
         // Migrate settings for newly-introduced features. Once-only: the action list is
@@ -1009,9 +1024,6 @@ public partial class App : Application
         // would override the ticket-3 default of 75 forever without this bump. Runs after the settings
         // file has been validated, so the 10–200 guard is untouched and legal legacy values load first.
         settings.Dwell.MigrateFixationRadiusOnce();
-
-        var logsDir = Path.Combine(_appDataDir, "logs");
-        LoggingInitializer.Initialize(logsDir);
 
         // ── --ui-language ──
         // A persisting setter: the choice is saved through this method's App writer, then the

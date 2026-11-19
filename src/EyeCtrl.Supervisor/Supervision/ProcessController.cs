@@ -99,7 +99,10 @@ public sealed class ProcessController
     /// <c>--ui-language &lt;token&gt;</c>, which the App saves at startup. A launch that loses the
     /// App's single-instance guard exits before it reads the flag, so the caller keeps the choice
     /// pending until a re-read finds it saved.</param>
-    public void Launch(string exePath, bool paused, UiLanguage? uiLanguage = null)
+    /// <param name="realProfile">Adds <see cref="ProfileLocation.RealProfileArgument"/> — passed
+    /// through only when the Supervisor itself was started with it, so a supervised pair never
+    /// splits its profile (dev+dev or real+real).</param>
+    public void Launch(string exePath, bool paused, UiLanguage? uiLanguage = null, bool realProfile = false)
     {
         ReleasePrevious();
         KillInitiated = false;
@@ -111,6 +114,7 @@ public sealed class ProcessController
         // ShellExecute starts it and still returns a usable handle for wait and kill.
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = true };
         if (paused) psi.ArgumentList.Add("--paused");
+        if (realProfile) psi.ArgumentList.Add(ProfileLocation.RealProfileArgument);
         if (uiLanguage is { } language)
         {
             // T01's single token mapping; the App parses it with the same table.

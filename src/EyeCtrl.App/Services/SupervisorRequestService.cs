@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Platform.Interop;
 using EyeCtrl.Platform.Ipc;
 using Microsoft.Extensions.Logging;
@@ -30,8 +31,10 @@ using Microsoft.Extensions.Logging;
 /// </remarks>
 public sealed class SupervisorRequestService : IDisposable
 {
-    /// <summary>The production pipe name, shared with the Supervisor's client.</summary>
-    public const string DefaultPipeName = SettingRequestChannel.PipeName;
+    /// <summary>The production pipe name, shared with the Supervisor's client — the wire contract
+    /// plus the build's name suffix (<see cref="ProfileLocation"/>), so a dev App answers only a
+    /// dev Supervisor and the installed pair keeps its channel private.</summary>
+    public static string DefaultPipeName => ProfileLocation.Current.SettingsRequestPipeName;
 
     private readonly Func<SettingRequest, SettingRequestOutcome> _handle;
     private readonly Func<Func<SettingRequestOutcome>, Task<SettingRequestOutcome>> _runOnUi;

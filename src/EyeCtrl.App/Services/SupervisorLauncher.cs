@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.Diagnostics;
 using System.IO;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// Locates and starts the EyeCtrl supervisor.
@@ -76,7 +77,13 @@ public static class SupervisorLauncher
 
         try
         {
-            return Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = false }) is not null;
+            var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
+            // Only a real-by-flag App forwards the flag, so the supervisor it brings up resolves
+            // the same profile the App did — a supervised pair is dev+dev or real+real, never
+            // split (see ProfileLocation).
+            if (ProfileLocation.Current.Mode == ProfileMode.RealByFlag)
+                psi.ArgumentList.Add(ProfileLocation.RealProfileArgument);
+            return Process.Start(psi) is not null;
         }
         catch
         {

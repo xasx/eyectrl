@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup.Install;
 
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Display;
 
@@ -25,15 +26,21 @@ public sealed class SetupWorkflow
     private readonly ISetupClock _clock;
     private readonly ISetupLog _log;
     private readonly ISetupDisplayFactory _displayFactory;
+    private readonly Func<bool> _forwardRealProfile;
 
     /// <summary>Creates the workflow.</summary>
+    /// <param name="forwardRealProfile">Whether <c>--real-profile</c> rides along to the run
+    /// copy. Defaults to "this process resolved real-by-flag" (see <see cref="ProfileLocation"/>);
+    /// injectable so tests can drive both arms — the resolver is static per process and a test
+    /// host is always a dev build.</param>
     public SetupWorkflow(
         SetupPaths paths, IElevationPolicy policy, IElevationBroker broker, AppStartService appStart,
         SupervisionStartPlanner planner,
         IFileSystem fileSystem, IProcessControl processes, IUninstallChoice uninstallChoice,
         IRunIdGenerator runIds, IPackageMetadataReader metadata, IResultRecorder recorder,
         ISetupEnvironment environment, ISetupClock clock, ISetupLog log,
-        ISetupDisplayFactory? displayFactory = null)
+        ISetupDisplayFactory? displayFactory = null,
+        Func<bool>? forwardRealProfile = null)
     {
         _paths = paths;
         _policy = policy;
@@ -50,6 +57,8 @@ public sealed class SetupWorkflow
         _clock = clock;
         _log = log;
         _displayFactory = displayFactory ?? NullSetupDisplayFactory.Instance;
+        _forwardRealProfile = forwardRealProfile
+            ?? (() => ProfileLocation.Current.Mode == ProfileMode.RealByFlag);
     }
 
     /// <summary>Installs the package and applies the three-part pass rule, rolling back on a
@@ -428,6 +437,13 @@ public sealed class SetupWorkflow
             return FinishRefused(verb, prepare, display);
 
         var runCopy = _paths.RunSetupExePath(runId);
+
+        // --real-profile rides along to the run copy ONLY when this process was started with it,
+        // so the owner's real update (Install-EyeCtrl.ps1 → inbox Setup with the flag) keeps the
+        // real profile in the child too. The run copy sits in EyeCtrl.run\ under Program Files
+        // and would resolve installed by location anyway; this is the belt-and-braces direction.
+        if (_forwardRealProfile())
+            arguments = arguments.Append(ProfileLocation.RealProfileArgument).ToArray();
 
         // The run copy applies the swap, so it must not inherit (and hold) the installed folder.
         var pid = _processes.Start(runCopy, SetupWorkingDirectory.Neutral, arguments);

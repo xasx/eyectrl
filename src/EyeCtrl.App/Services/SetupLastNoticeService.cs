@@ -4,6 +4,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup;
 
 /// <summary>
@@ -49,13 +50,12 @@ public sealed class SetupNoticeFiles : ISetupNoticeStore
     /// <summary>The record's path — the file watcher listens in its folder.</summary>
     public string RecordPath => _recordPath;
 
-    /// <summary>The production layout: <c>SetupPaths</c>'s record path plus the marker beside it.</summary>
+    /// <summary>The production layout: the resolver's profile (the record and the shown-marker
+    /// live in THIS build's profile — a dev build notices only dev installs), never a raw OS
+    /// folder here.</summary>
     public static SetupNoticeFiles CreateForProduction()
     {
-        var paths = new SetupPaths(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        var paths = SetupPaths.FromProfile(ProfileLocation.Current);
         return new SetupNoticeFiles(paths.RecordPath, Path.Combine(paths.AppDataRoot, MarkerName));
     }
 

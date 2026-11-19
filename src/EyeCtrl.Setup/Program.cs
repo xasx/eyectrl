@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup;
 
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Windows;
 
@@ -36,6 +37,12 @@ public static class Program
         var log = new CompositeSetupLog(
             FileSetupLog.TryCreate(SetupLogContext.For(command, Environment.ProcessId)),
             new ConsoleSetupLog());
+
+        // The profile line, before anything reads or writes the profile: the log file above is the
+        // first profile write, and its folder already IS the resolved profile's. On record before
+        // the composition touches settings or the record.
+        var profile = ProfileLocation.Current;
+        log.Info($"Profile: {profile.ModeToken} dir={profile.Directory} reason={profile.Reason}");
 
         try
         {

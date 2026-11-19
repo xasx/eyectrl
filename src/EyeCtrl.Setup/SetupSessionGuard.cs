@@ -1,6 +1,7 @@
 namespace EyeCtrl.Setup;
 
 using System.Threading;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// One Setup at a time, across processes: a session-local named mutex held for the whole life of
@@ -34,10 +35,14 @@ using System.Threading;
 public static class SetupSessionGuard
 {
     /// <summary>
-    /// The session-local name every public mutating verb holds. Shared with the App's pre-hand-off
-    /// probe through this constant, so the two sides cannot drift.
+    /// The session-local name every public mutating verb holds — resolved per build (see
+    /// <see cref="EyeCtrl.Core.Services.ProfileLocation"/>). Shared with the App's pre-hand-off
+    /// probe through this name, so the two sides cannot drift. A dev Setup (never started by the
+    /// owner's flow) takes the <c>.Dev</c>-suffixed name; the real update flow runs with
+    /// <c>--real-profile</c> from Install-EyeCtrl.ps1, which keeps the unsuffixed name — so the
+    /// one session guard still covers every real Setup start.
     /// </summary>
-    public const string SessionMutexName = @"Local\EyeCtrl.Setup.Session";
+    public static string SessionMutexName => ProfileLocation.Current.SetupSessionMutexName;
 
     /// <summary>
     /// How long a run copy (the hand-off child) waits for its launcher to release the session.

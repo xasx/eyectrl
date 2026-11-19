@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -610,8 +611,13 @@ public class SettingsService
     /// (<see cref="Save"/> and the one-key supervision persist); outside readers (the Supervisor's
     /// enabled re-read) take it too, so no read handle is open while a writer replaces the file —
     /// <c>File.Move(..., overwrite: true)</c> fails with access denied under an open handle.
+    /// <para>
+    /// Resolved per build: a dev build takes the <c>.Dev</c>-suffixed name (see
+    /// <see cref="ProfileLocation"/>), so a dev App/Supervisor never serializes against — or
+    /// against the owners of — the installed processes' writer mutex.
+    /// </para>
     /// </summary>
-    public const string WriterMutexName = @"Local\EyeCtrl.Settings.Writer";
+    public static string WriterMutexName => ProfileLocation.Current.SettingsWriterMutexName;
 
     /// <summary>
     /// Validates and immediately saves settings to disk. Throws if validation fails.

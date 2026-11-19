@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Platform.Interop;
 
 /// <summary>
@@ -66,7 +67,9 @@ internal sealed class AppRequestClient
         TimeSpan? ackTimeout = null)
     {
         _serverIsApp = serverIsApp;
-        _pipeName = pipeName ?? SettingRequestChannel.PipeName;
+        // The build-resolved name (dev builds connect to the .Dev-suffixed channel) so a dev
+        // Supervisor talks only to a dev App — see ProfileLocation.
+        _pipeName = pipeName ?? ProfileLocation.Current.SettingsRequestPipeName;
         ConnectTimeout = connectTimeout ?? DefaultConnectTimeout;
         AckTimeout = ackTimeout ?? DefaultAckTimeout;
     }

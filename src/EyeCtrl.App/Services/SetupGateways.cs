@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Install;
@@ -482,17 +483,16 @@ public sealed class SetupGateways : ISetupGateways
     }
 
     /// <summary>
-    /// The production composition: OS roots from the environment, S6a's physical seams, and the
+    /// The production composition: roots from the one profile resolver (a dev build reads the
+    /// dev profile and the same machine inbox), S6a's physical seams, and the
     /// pinned-thumbprint catalog verifier. <paramref name="currentProcessPath" /> is injectable so
     /// a non-bundled App.Tests host can never look "installed" by accident.
     /// </summary>
     public static SetupGateways CreateForProduction(
         ISetupExitFlow exitFlow, Func<string>? currentProcessPath = null, Action<string>? warn = null)
     {
-        var paths = new SetupPaths(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        var profile = ProfileLocation.Current;
+        var paths = SetupPaths.FromProfile(profile);
         var fileSystem = new PhysicalFileSystem();
         var signatures = new WinTrustFileSignatureVerifier();
         return new SetupGateways(

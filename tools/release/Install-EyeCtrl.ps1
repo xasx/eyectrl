@@ -14,6 +14,11 @@
     for a UIAccess image. Setup itself is asInvoker and medium, so this matters for the contract,
     not for today's token.
 
+    The inbox Setup runs from %LOCALAPPDATA% (not Program Files), which the profile resolver
+    would otherwise classify as a dev build. This wrapper therefore always passes --real-profile:
+    the OWNER's update is exactly the "any other build started with an explicit flag" case, and
+    Setup forwards the flag to its run copy so the whole update keeps the real profile.
+
     Dot-prefixed folders are skipped: Publish-Signed.ps1 assembles an inbox package in
     .<version>.partial and only renames it into place once its catalog validates.
 
@@ -206,8 +211,11 @@ if (-not (Test-Path -LiteralPath $setupExe))
     throw "'$PackageDir' has no $SetupExeName. A package without Setup cannot install itself."
 }
 
-# Quoted because the package path is under %LOCALAPPDATA% and may carry spaces.
-$setupArguments = '{0} "{1}"' -f $SetupVerb, $PackageDir
+# Quoted because the package path is under %LOCALAPPDATA% and may carry spaces. --real-profile
+# because the inbox Setup is not under Program Files: without the flag the profile resolver would
+# treat this start as a dev build and write setup-last.json and the setup log into
+# %APPDATA%\EyeCtrl.Dev. This wrapper is the owner's flow, so the flag is unconditional here.
+$setupArguments = '{0} "{1}" --real-profile' -f $SetupVerb, $PackageDir
 $target = "$setupExe $setupArguments"
 
 if (-not $PSCmdlet.ShouldProcess($target, 'Start Setup'))

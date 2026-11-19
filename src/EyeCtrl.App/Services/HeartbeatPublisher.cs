@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Platform.Interop;
 
 /// <summary>
@@ -73,9 +74,12 @@ public sealed class HeartbeatPublisher : IDisposable
     private Task? _writerLoop;
 
     /// <summary>
-    /// The production pipe name the supervisor listens on.
+    /// The production pipe name the supervisor listens on — resolved per build: a dev build
+    /// publishes on the <c>.Dev</c>-suffixed name, so a dev App's heartbeats can never land on
+    /// the installed Supervisor's pipe instances (whose binder would drop them) nor starve the
+    /// installed Supervisor of its own App's heartbeats. See <see cref="ProfileLocation"/>.
     /// </summary>
-    public const string DefaultPipeName = "eyectrl_watch";
+    public static string DefaultPipeName => ProfileLocation.Current.HeartbeatPipeName;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HeartbeatPublisher"/> class.

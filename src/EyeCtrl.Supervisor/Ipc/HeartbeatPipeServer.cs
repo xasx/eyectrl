@@ -3,6 +3,7 @@ namespace EyeCtrl.Supervisor.Ipc;
 using System;
 using System.IO.Pipes;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Platform.Interop;
 using EyeCtrl.Platform.Ipc;
 using Serilog;
@@ -37,8 +38,14 @@ using Serilog;
 /// </summary>
 public sealed class HeartbeatPipeServer : IDisposable
 {
-    /// <summary>Distinct from the existing <c>eyectrl_dwell</c> channel (ExternalDwellService).</summary>
-    public const string PipeName = "eyectrl_watch";
+    /// <summary>
+    /// The production pipe name this supervisor serves — resolved per build: a dev supervisor
+    /// serves the <c>.Dev</c>-suffixed name so it can never receive the installed App's connects
+    /// (whose heartbeats the exe-path binder would drop, starving the installed supervisor into
+    /// a force-kill). See <see cref="ProfileLocation"/>. Distinct from the existing
+    /// <c>eyectrl_dwell</c> channel (ExternalDwellService).
+    /// </summary>
+    public static string PipeName => ProfileLocation.Current.HeartbeatPipeName;
 
     private readonly ClientIdentityBinder _binder;
     private readonly string _pipeName;

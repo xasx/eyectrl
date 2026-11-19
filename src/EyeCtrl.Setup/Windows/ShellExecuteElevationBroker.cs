@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup.Windows;
 
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Install;
 
@@ -20,12 +21,18 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     private readonly IElevatedLauncher _launcher;
     private readonly IElevatedPhaseResultStore _phaseResults;
     private readonly ISetupLog _log;
+    private readonly Func<bool> _forwardRealProfile;
 
     /// <summary>Creates the broker.</summary>
+    /// <param name="forwardRealProfile">Whether <c>--real-profile</c> is appended to every child
+    /// argv. Defaults to "this process resolved real-by-flag" (see
+    /// <see cref="ProfileLocation"/>); injectable so tests can drive both arms — the resolver is
+    /// static per process and a test host is always a dev build.</param>
     public ShellExecuteElevationBroker(
         SetupPaths paths, ElevatedOperations operations, ISetupEnvironment environment,
         IElevationState elevationState, IElevationPolicy policy, IElevatedLauncher launcher,
-        IElevatedPhaseResultStore phaseResults, ISetupLog log)
+        IElevatedPhaseResultStore phaseResults, ISetupLog log,
+        Func<bool>? forwardRealProfile = null)
     {
         _paths = paths;
         _operations = operations;
@@ -35,6 +42,8 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         _launcher = launcher;
         _phaseResults = phaseResults;
         _log = log;
+        _forwardRealProfile = forwardRealProfile
+            ?? (() => ProfileLocation.Current.Mode == ProfileMode.RealByFlag);
     }
 
     /// <inheritdoc />
@@ -90,38 +99,55 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     /// <summary>
     /// The exe and argv for one request. Internal so the round-trip test can prove that every
     /// argv the broker builds parses back through <see cref="SetupCommandLine"/> into the same job.
+    /// <c>--real-profile</c> is appended to every child argv when THIS process was started with
+    /// it, so the owner's real update keeps the real profile through the elevated phases (the
+    /// children resolve installed by location anyway; this is the belt-and-braces direction).
     /// </summary>
     internal (string ExePath, IReadOnlyList<string> Arguments) BuildLaunch(ElevatedRequest request)
     {
         var runId = RequireRunId(request);
+        var (self, runCopy) = (RequireSelfPath(), _paths.RunSetupExePath(runId));
         return request.Job switch
         {
-            ElevatedJob.PrepareUpdate => (RequireSelfPath(),
-            [
-                "--internal", "prepare-update", request.PackageDirectory ?? string.Empty,
-                "--run-id", runId,
-            ]),
-            ElevatedJob.ApplyUpdate => (_paths.RunSetupExePath(runId),
-                ["--internal", "apply-update", "--run-id", runId]),
-            ElevatedJob.PrepareRunCopy => (RequireSelfPath(),
-            [
-                "--internal", "prepare-run-copy", "--source", request.SourceSetupExe ?? string.Empty,
-                "--run-id", runId,
-            ]),
-            ElevatedJob.ApplyRollback => (_paths.RunSetupExePath(runId),
-                ["--internal", "apply-rollback", "--run-id", runId]),
-            ElevatedJob.Revert => (_paths.RunSetupExePath(runId),
-                ["--internal", "revert", "--run-id", runId]),
-            ElevatedJob.Uninstall => (_paths.RunSetupExePath(runId),
-            [
-                "--internal", "uninstall", request.KeepData ? "--keep" : "--delete",
-                "--run-id", runId,
-            ]),
-            ElevatedJob.Repair => (_paths.RunSetupExePath(runId),
-                ["--internal", "repair", "--run-id", runId]),
+            ElevatedJob.PrepareUpdate => (self,
+                AppendRealProfile(
+                    new[]
+                    {
+                        "--internal", "prepare-update", request.PackageDirectory ?? string.Empty,
+                        "--run-id", runId,
+                    })),
+            ElevatedJob.ApplyUpdate => (runCopy,
+                AppendRealProfile(new[] { "--internal", "apply-update", "--run-id", runId })),
+            ElevatedJob.PrepareRunCopy => (self,
+                AppendRealProfile(
+                    new[]
+                    {
+                        "--internal", "prepare-run-copy", "--source", request.SourceSetupExe ?? string.Empty,
+                        "--run-id", runId,
+                    })),
+            ElevatedJob.ApplyRollback => (runCopy,
+                AppendRealProfile(new[] { "--internal", "apply-rollback", "--run-id", runId })),
+            ElevatedJob.Revert => (runCopy,
+                AppendRealProfile(new[] { "--internal", "revert", "--run-id", runId })),
+            ElevatedJob.Uninstall => (runCopy,
+                AppendRealProfile(
+                    new[]
+                    {
+                        "--internal", "uninstall", request.KeepData ? "--keep" : "--delete",
+                        "--run-id", runId,
+                    })),
+            ElevatedJob.Repair => (runCopy,
+                AppendRealProfile(new[] { "--internal", "repair", "--run-id", runId })),
             _ => (string.Empty, Array.Empty<string>()),
         };
     }
+
+    /// <summary>Appends the flag only when this process resolved real-by-flag (or the injected
+    /// test seam says so).</summary>
+    private IReadOnlyList<string> AppendRealProfile(string[] arguments) =>
+        _forwardRealProfile()
+            ? arguments.Concat(new[] { ProfileLocation.RealProfileArgument }).ToArray()
+            : arguments;
 
     private static ElevatedPhaseResult FromExitCode(int exitCode) => exitCode switch
     {

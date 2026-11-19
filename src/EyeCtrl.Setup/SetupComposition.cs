@@ -1,6 +1,7 @@
 namespace EyeCtrl.Setup;
 
 using System.Text.Json;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Display;
 using EyeCtrl.Setup.Install;
@@ -169,20 +170,17 @@ public sealed class SetupComposition
         _ => SetupExitCodes.Failed,
     };
 
-    private static string RequireFolder(Environment.SpecialFolder folder)
-    {
-        var path = Environment.GetFolderPath(folder);
-        if (string.IsNullOrWhiteSpace(path))
-            throw new InvalidOperationException($"The OS folder '{folder}' is unavailable.");
-        return path;
-    }
-
-    /// <summary>The one install layout, from the machine's OS folders. Shared by the composition
-    /// and the file log so both name exactly the same paths.</summary>
-    internal static SetupPaths ProductionPaths() => new(
-        RequireFolder(Environment.SpecialFolder.ProgramFiles),
-        RequireFolder(Environment.SpecialFolder.ApplicationData),
-        RequireFolder(Environment.SpecialFolder.LocalApplicationData));
+    /// <summary>
+    /// The one install layout, from the RUNNING process's resolved profile (see
+    /// <see cref="ProfileLocation"/> — the only file allowed to name the OS folders): the same
+    /// roots as before for the installed build, and <c>EyeCtrl.Dev</c> for a dev build, so a dev
+    /// Setup's record, logs and settings reads stay out of the owner's profile. The owner's real
+    /// update flow runs the inbox Setup with <c>--real-profile</c> (Install-EyeCtrl.ps1), which
+    /// resolves the real profile; the elevated run copy under <c>EyeCtrl.run\</c> resolves
+    /// installed on its own. Shared by the composition and the file log so both name exactly the
+    /// same paths.
+    /// </summary>
+    internal static SetupPaths ProductionPaths() => SetupPaths.FromProfile(ProfileLocation.Current);
 
     /// <summary>
     /// Records an unhandled exception as a failed result, built from the OS layout alone so it

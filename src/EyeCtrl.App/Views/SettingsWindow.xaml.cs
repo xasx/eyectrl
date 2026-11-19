@@ -1267,8 +1267,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         try
         {
-            string path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "adaptation-log.jsonl");
+            string path = Path.Combine(ProfileLocation.Current.Directory, "adaptation-log.jsonl");
             if (File.Exists(path))
                 System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
             else
@@ -1286,8 +1285,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         try
         {
-            string path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "gaze-recording.csv");
+            string path = Path.Combine(ProfileLocation.Current.Directory, "gaze-recording.csv");
             if (File.Exists(path))
                 System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
             else

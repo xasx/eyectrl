@@ -40,12 +40,13 @@ using Serilog;
 public class AppBootstrapper
 {
     /// <summary>
-    /// The per-user runtime data folder the shipping app uses: <c>%APPDATA%\EyeCtrl</c>. Named rather
-    /// than defaulted, so that choosing it is an act at the call site — see the
-    /// <c>appDataDir</c> parameter for why a default here was actively unsafe.
+    /// The per-user runtime data folder this process uses: <c>%APPDATA%\EyeCtrl</c> for the
+    /// installed build, <c>%APPDATA%\EyeCtrl.Dev</c> for a dev build, the real folder for a
+    /// build started with <c>--real-profile</c> — resolved by <see cref="ProfileLocation"/>, the
+    /// one place that decides. Named rather than defaulted, so that choosing it is an act at the
+    /// call site — see the <c>appDataDir</c> parameter for why a default here was actively unsafe.
     /// </summary>
-    public static string DefaultAppDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+    public static string DefaultAppDataDir => ProfileLocation.Current.Directory;
 
     /// <summary>
     /// Configures and builds the service provider with all application dependencies.

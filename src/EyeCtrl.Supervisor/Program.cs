@@ -17,13 +17,22 @@ using Serilog;
 
 internal static class Program
 {
-    /// <summary>Single-instance guard name. Two supervisor processes would both open the heartbeat
-    /// pipe and both try to launch/adopt the app — exactly the double-launch race this prevents.</summary>
-    private const string SupervisorMutexName = @"Local\EyeCtrl.Supervisor.Singleton";
+    /// <summary>Single-instance guard name — resolved per build (see
+    /// <see cref="ProfileLocation"/>): a dev supervisor takes the <c>.Dev</c>-suffixed name, so
+    /// it can never fence out the installed supervisor. Two supervisor processes would both open
+    /// the heartbeat pipe and both try to launch/adopt the app — exactly the double-launch race
+    /// this prevents.</summary>
+    private static string SupervisorMutexName => ProfileLocation.Current.SupervisorSingletonMutexName;
 
     [STAThread]
     private static int Main(string[] args)
     {
+        // The one profile resolution for this process, before any mutex is taken or any file is
+        // read: the guard below and Initialize() below must agree, and the flag captured here is
+        // what Launch forwards to the App ("pass --real-profile through only if we were started
+        // with it").
+        var realProfileRequested = ProfileLocation.HasRealProfileFlag(args);
+
         // C4: only one supervisor per session. A stray double-launch (or the Scheduled Task firing
         // while one is already running) exits fast here. AbandonedMutexException (a prior holder
         // was force-killed) is treated as acquired — same pattern as EyeCtrl.App's SingleInstanceGuard.
@@ -34,7 +43,7 @@ internal static class Program
             return 0;
         }
 
-        var app = new SupervisorApp();
+        var app = new SupervisorApp(realProfileRequested);
         app.Initialize();
         return app.Run();
     }
@@ -132,6 +141,17 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     // Clock-tick: drives HeartbeatStale / SurvivedWindow / DeadlineElapsed / StartupGrace detection.
     private DispatcherTimer? _tickTimer;
 
+    /// <summary>Whether this supervisor was started with --real-profile: the one fact Launch must
+    /// forward so the App it starts resolves the same profile this process did.</summary>
+    private readonly bool _realProfileRequested;
+
+    /// <param name="realProfileRequested">Whether the command line carried
+    /// <see cref="ProfileLocation.RealProfileArgument"/>; forwarded to every App launch.</param>
+    public SupervisorApp(bool realProfileRequested = false)
+    {
+        _realProfileRequested = realProfileRequested;
+    }
+
     // Guards against reentrancy if a pipe event fires while a tick is draining on the dispatcher.
     private readonly object _loopLock = new();
 
@@ -141,14 +161,21 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     public void Initialize()
     {
-        var appDataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "EyeCtrl");
+        // The one profile resolver — never a raw OS folder here. Dev supervisor: dev profile,
+        // dev mutexes, dev pipe names; the owner's real profile is untouchable unless this
+        // process was started with --real-profile.
+        var profile = ProfileLocation.Current;
+        var appDataDir = profile.Directory;
         var logsDir = Path.Combine(appDataDir, "logs");
         var settingsPath = Path.Combine(appDataDir, "settings.json");
 
         // 1. Logging — supervisor-.log (distinct from the app's eyectrl-.log).
         SupervisorLoggingInitializer.Initialize(logsDir);
+        // The profile line comes before anything reads or writes the profile (the settings load
+        // below is the first read): the mode decision is on record before any data access.
+        Log.Information(
+            "Profile: {Mode} dir={Dir} reason={Reason}",
+            profile.ModeToken, appDataDir, profile.Reason);
         Log.Information("Supervisor starting up.");
 
         // 1b. Fault containment. The supervisor is the WATCHDOG: nothing watches it, and dying
@@ -462,7 +489,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             // A language chosen while the App was down rides along as --ui-language (T05b), at
             // most once per choice: a later relaunch must not override a newer choice the user
             // made in the App. Both deliveries retry on the launched App's first heartbeat.
-            _pc.Launch(_appExePath, paused: false, uiLanguage: _languageDelivery.LaunchArgument());
+            // --real-profile rides along only when WE were started with it, so the App resolves
+            // the same profile this supervisor did (dev+dev or real+real — never a split pair).
+            _pc.Launch(
+                _appExePath, paused: false,
+                uiLanguage: _languageDelivery.LaunchArgument(),
+                realProfile: _realProfileRequested);
             _languageDelivery.AppLaunched();
             _startOnBootDelivery.AppLaunched();
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
@@ -733,7 +765,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             Log.Information("FallenBack {Trigger}: relaunching app with --paused and returning to Launching.", trigger);
             try
             {
-                _pc.Launch(_appExePath, paused, uiLanguage: _languageDelivery.LaunchArgument());
+                _pc.Launch(
+                    _appExePath, paused,
+                    uiLanguage: _languageDelivery.LaunchArgument(),
+                    realProfile: _realProfileRequested);
                 _languageDelivery.AppLaunched();
                 _startOnBootDelivery.AppLaunched();
                 WireProcessExited();

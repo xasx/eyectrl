@@ -87,6 +87,13 @@ public class ContainerRatioCensusTests
                     + "labels in a key-sized cell that RESIZES with the KeySize setting. No const "
                     + "to multiply, so this census is the only thing holding the bucket."),
             ],
+            ["src/EyeCtrl.App/Overlays/NotePlaceHereWindow.cs"] =
+            [
+                ("Solo", 1, "the place disc's ✓ glyph - the note buttons' own shape (see NoteWindow "
+                    + "below): a label-less gaze disc whose entire face is the one glyph, at the same "
+                    + "56 DIP diameter, so the same bucket. The 'Hier platzieren' label sits BELOW "
+                    + "the disc in the window, not beside the glyph, so the disc is still label-less."),
+            ],
             ["src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs"] =
             [
                 ("Solo", 1, "the note control discs' glyphs - a label-less gaze disc (T5 review-02 "

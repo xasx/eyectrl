@@ -162,6 +162,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // The Place-here window (P3 D4): one per manager, created lazily, never in DI. It is NOT
     // click-through, so the own-window conjunct can resolve it; Dispose closes it.
     private NotePlaceHereWindow? _placeWindow;
+    // The Move preview (sitting 9): ONE click-through overlay that draws the settle ring and the
+    // dashed landing outline. One per manager, created lazily, never in DI; Dispose closes it.
+    private NoteMovePreviewWindow? _movePreviewWindow;
+    private bool _movePreviewShown;
+    // The preview's card size, memoized on the inputs it derives from (the note, its text and the
+    // current text size): the derivation MEASURES the wrapped text, and the preview asks for it on
+    // every gaze sample of a settle. The key makes a text-size change re-measure, so the cache can
+    // never hold a size the note no longer has.
+    private string? _previewCardSizeKey;
+    private Size _previewCardSize;
     // The capacity notice (P4 D4): one per manager, created lazily on the first at-capacity
     // pin, NEVER in DI (it is a state flash, not a service). It is click-through and carries
     // no dwell targets; its visible bounds are the note-gate occluder that keeps a gaze
@@ -1503,6 +1513,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         note.State = NoteState.Move;
         window.SetState(NoteState.Move); // dims to 0.6, shows Cancel (+ Other side when it fits)
         HidePlaceHere();                 // a fresh Move never inherits a stale place window
+        HideMovePreview();               // ...nor a stale settle ring or landing outline
         _settleTracker.Reset();
         _movingNoteId = id;
         _dwellDetector.ClearTargets();
@@ -1550,6 +1561,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private void LeaveMove(NoteData note)
     {
         HidePlaceHere(); // must run while _movingNoteId still names this move
+        HideMovePreview();
         _movingNoteId = null;
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
@@ -1614,6 +1626,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (note == null || window == null) return;
         note.Anchor = newAnchor;
         HidePlaceHere(); // must run while _movingNoteId still names this move
+        HideMovePreview();
         _movingNoteId = null;
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
@@ -1751,6 +1764,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
         // P3 D4: a moving note never chases the gaze. Every valid sample feeds the settle
         // tracker (DIP); an accepted settle shows the Place-here window beside the centroid.
+        // Sitting 9: the same samples drive the visible feedback — the settle ring and the
+        // dashed landing outline — so the move "taking hold" is something the owner sees.
         if (_movingNoteId is { } movingId && FindNote(movingId) is { } moving)
         {
             // The tracker's "DIP" samples ride the PhysicalPoint wrapper (pure Core type system);
@@ -1760,6 +1775,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             {
                 _settleTracker.Reset();
                 OnSettled(moving, centroidDip);
+            }
+            else
+            {
+                UpdateMovePreview(moving);
             }
         }
     }
@@ -1779,20 +1798,28 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var centroid = ToPhysicalPoint(centroidDip);
         if (_placements.TryGetValue(moving.Id, out var placement)
             && DipRectToPhysical(placement.Card).Contains(centroid))
-            return; // ignore settles on the card
+        {
+            // Looking at the note you are holding is evidence, not intent. An accepted outline
+            // already showing at the place disc's spot is left alone.
+            if (!_placeShown)
+                HideMovePreview();
+            return;
+        }
 
         // P3 D4's settle-within-place guard: a shown Place-here window holds still through the
-        // settles in its margin (radius + detour, physical px) — the dwell on it accumulates and
-        // the window is not re-shown to a different spot on every new settle.
+        // settles in its margin (the disc's hit radius + detour, physical px) — the dwell on it
+        // accumulates and the window is not re-shown to a different spot on every new settle.
+        // Sitting 9: the margin is measured around the DISC's centre, the control the gaze must
+        // reach, not around the window's middle (the label hangs below the disc).
         if (_placeShown)
         {
-            var place = DipRectToPhysical(_placeWindowRect);
             double detour =
                 DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlaceHereDetourDip)
                 + DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlaceHereHitRadiusDip);
+            var disc = PlaceDiscCentrePhysical();
             if (new PhysicalRect(
-                    place.X - detour, place.Y - detour,
-                    place.Width + 2 * detour, place.Height + 2 * detour).Contains(centroid))
+                    disc.X - detour, disc.Y - detour,
+                    detour * 2, detour * 2).Contains(centroid))
                 return;
         }
 
@@ -1803,7 +1830,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// clamped into the work area, offset along +X — and swaps the :place dwell target onto it.
     /// The target's own-window mapping points at the Place-here window itself, NOT the moving
     /// note's card: the conjunct resolves the topmost hit-testable window under the gaze, and
-    /// the gaze is on the place window here.</summary>
+    /// the gaze is on the place window here.
+    /// <para>
+    /// Sitting 9: the control is the DISC at the window's top, so the disc — not the window's
+    /// middle — is level with the accepted centroid, and the label hangs below it. The accepted
+    /// landing preview is (re)placed at the accepted spot at the same time, so the dashed
+    /// outline the owner saw while settling is exactly where the note will land.
+    /// </para>
+    /// </summary>
     private void ShowPlaceHere(NoteData moving, PhysicalPoint centroidPhysical)
     {
         var work = WorkAreaDip();
@@ -1813,20 +1847,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _placeWindow ??= new NotePlaceHereWindow(_noteSettings.TextSizeDip);
         _placeWindow.SetTextSize(_noteSettings.TextSizeDip);
         var size = _placeWindow.SizeDip;
-        double w = size.Width, h = size.Height;
+        var disc = _placeWindow.DiscCentreDip;
         var centroidDip = ToDipPoint(centroidPhysical);
         double x = centroidDip.X + LayoutConstants.NotePlaceHereOffsetDip;
-        double y = centroidDip.Y - h / 2;
-        x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right - w));
-        y = Math.Clamp(y, work.Top, Math.Max(work.Top, work.Bottom - h));
+        double y = centroidDip.Y - disc.Y;
+        x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right - size.Width));
+        y = Math.Clamp(y, work.Top, Math.Max(work.Top, work.Bottom - size.Height));
 
-        _placeWindowRect = new Rect(x, y, w, h);
+        _placeWindowRect = new Rect(x, y, size.Width, size.Height);
         _placeWindow.Left = x;
         _placeWindow.Top = y;
         _placeWindow.ShowForDisplay(RealNoteWindows);
         RegisterPlaceTarget(moving.Id);
         _placeCentroid = centroidPhysical;
         _placeShown = true;
+        // The accepted spot holds while the disc is up: outline only, no ring (the settle is over).
+        ShowMovePreview(moving, centroidDip, progress: 1.0, ring: false);
         _dwellDetector.ResetAllState();
         LatchTargetsUnderTheGaze();
     }
@@ -1834,8 +1870,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>
     /// The Place-here window follows the note's text size (T6 fixup-06 G1): its label is
     /// re-composed at the new size, the rect follows the REAL window size, and the dwell target
-    /// is re-registered over the new centre — a target left on the old centre would sit off
-    /// the label and never fire.
+    /// is re-registered over the new DISC centre — a target left on the old centre would sit off
+    /// the control and the dwell would never fire.
     /// </summary>
     private void RefreshPlaceWindow()
     {
@@ -1851,25 +1887,34 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         RegisterPlaceTarget(movingId);
     }
 
-    /// <summary>Registers (or re-registers) the {noteId}:place dwell target over the current
-    /// Place-here window rect (P3 D4). The target lives in the main detector and its own-window
-    /// mapping points at the Place-here window itself, NOT the moving note's card: the conjunct
-    /// resolves the topmost hit-testable window under the gaze, and the gaze is on the place
-    /// window here. Used on every show and on every full re-registration that would otherwise
-    /// drop a live <c>:place</c>.</summary>
+    /// <summary>
+    /// Registers (or re-registers) the {noteId}:place dwell target over the current Place-here
+    /// window's DISC (P3 D4; sitting 9: the disc is the control). The target lives in the main
+    /// detector and its own-window mapping points at the Place-here window itself, NOT the moving
+    /// note's card: the conjunct resolves the topmost hit-testable window under the gaze, and the
+    /// gaze is on the place window here. Used on every show and on every full re-registration that
+    /// would otherwise drop a live <c>:place</c>.
+    /// </summary>
     private void RegisterPlaceTarget(string noteId)
     {
-        // T6 fixup-06 G1: the target sits at the REAL window's centre - the rect the window
-        // actually occupies, not the old constant-sized box.
-        double pw = _placeWindowRect.Width / 2;
-        double ph = _placeWindowRect.Height / 2;
+        if (_placeWindow is null) return;
+        var centre = PlaceDiscCentrePhysical();
         _dwellDetector.RemoveTarget($"{noteId}:place");
-        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:place", new PhysicalPoint(
-            DpiHelper.LogicalToPhysicalX(_placeWindowRect.X + pw),
-            DpiHelper.LogicalToPhysicalY(_placeWindowRect.Y + ph)),
+        _dwellDetector.AddTarget(new DwellTarget($"{noteId}:place", centre,
             DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlaceHereHitRadiusDip), DwellTimeMs));
-        if (_placeWindow is not null)
-            _targetWindows[$"{noteId}:place"] = new WindowInteropHelper(_placeWindow).EnsureHandle();
+        _targetWindows[$"{noteId}:place"] = new WindowInteropHelper(_placeWindow).EnsureHandle();
+    }
+
+    /// <summary>The Place-here disc's centre in physical px (sitting 9): read from the real
+    /// window's geometry and the rect the manager placed it in, so the :place target and the
+    /// settle-within-place margin sit on the DRAWN disc — not on the window's middle, where the
+    /// label below the disc pulls the centre off the control.</summary>
+    private PhysicalPoint PlaceDiscCentrePhysical()
+    {
+        var disc = _placeWindow?.DiscCentreDip ?? new Point(_placeWindowRect.Width / 2, _placeWindowRect.Height / 2);
+        return new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(_placeWindowRect.X + disc.X),
+            DpiHelper.LogicalToPhysicalY(_placeWindowRect.Y + disc.Y));
     }
 
     /// <summary>Hides the Place-here window and unregisters its dwell target and window map
@@ -1884,6 +1929,87 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         }
         _placeShown = false;
         _placeCentroid = null;
+    }
+
+    // ── the Move preview (sitting 9): the settle ring and the dashed landing outline ──
+
+    /// <summary>The settle window's share that must have held before the preview appears
+    /// (150 ms of the 500 ms settle): the eyes scan while they look for a spot, and a preview
+    /// that flashed on every short rest would be noise.</summary>
+    private const double PreviewHoldProgress =
+        LayoutConstants.NoteMovePreviewHoldMs / (double)NoteSettleTracker.SettleMs;
+
+    /// <summary>
+    /// Drives the accumulating preview from the settle tracker (sitting 9): once the current
+    /// window has held for <see cref="PreviewHoldProgress"/>, the ring appears at the window's
+    /// anchor and its arc fills with the tracker's progress, and the dashed outline shows where
+    /// the card would land for that anchor. A restart (an out-of-radius sample), a gap or a
+    /// closed gate drops the tracker's progress to zero, which hides the preview here.
+    /// <para>
+    /// While the place disc is up the accepted outline holds at the accepted spot (placed by
+    /// <see cref="ShowPlaceHere"/>): new samples never move it. Looking at the card itself is
+    /// not a landing spot — <see cref="OnSettled"/> hides the preview there.
+    /// </para>
+    /// </summary>
+    private void UpdateMovePreview(NoteData moving)
+    {
+        if (_placeShown)
+            return;
+        if (_settleTracker.Progress < PreviewHoldProgress || _settleTracker.Anchor is not { } anchorDip)
+        {
+            HideMovePreview();
+            return;
+        }
+
+        ShowMovePreview(moving, anchorDip, _settleTracker.Progress, ring: true);
+    }
+
+    /// <summary>Places and shows the preview at a settle point in DIP: the ring at the point and
+    /// the dashed outline around the card <see cref="PreviewPlacementFor"/> derives — the same
+    /// card the real re-anchor will use. The window goes through the note show seam, so a
+    /// headless test never paints it.</summary>
+    private void ShowMovePreview(NoteData moving, PhysicalPoint anchorDip, double progress, bool ring)
+    {
+        var placement = PreviewPlacementFor(moving, anchorDip);
+        _movePreviewWindow ??= new NoteMovePreviewWindow();
+        _movePreviewWindow.Place(new Point(anchorDip.X, anchorDip.Y), placement.Card, progress, ring);
+        _movePreviewWindow.ShowForDisplay(RealNoteWindows);
+        _movePreviewShown = true;
+    }
+
+    /// <summary>
+    /// The landing preview's placement: EXACTLY the derivation <see cref="FinishMove"/> applies
+    /// when the note re-anchors — <see cref="NoteLayout.Place"/> over the same anchor, saved side,
+    /// card size, work area and (no avoid rects, no displacement), plus the tag clearance — so
+    /// the dashed outline and the real result cannot disagree.
+    /// </summary>
+    private NotePlacement PreviewPlacementFor(NoteData note, PhysicalPoint anchorDip) =>
+        NoteLayout.WithTagClearance(
+            NoteLayout.Place(ToPhysicalPoint(anchorDip), note.Side, PreviewCardSizeFor(note), WorkAreaDip(),
+                new List<Rect>(), DpiHelper.ScaleX)!,
+            _noteSettings.TextSizeDip);
+
+    /// <summary>The preview's card size, memoized on the note, its text and the current text size.
+    /// <see cref="CardSizeFor(NoteData)"/> MEASURES the wrapped text, and the preview asks for the
+    /// placement on every gaze sample of a settle; the key re-measures the moment any input it was
+    /// derived from changes, so the memo can never report a size the note no longer has.</summary>
+    private Size PreviewCardSizeFor(NoteData note)
+    {
+        string key = $"{note.Id}|{_noteSettings.TextSizeDip}|{note.Text}";
+        if (!string.Equals(key, _previewCardSizeKey, StringComparison.Ordinal))
+        {
+            _previewCardSize = CardSizeFor(note);
+            _previewCardSizeKey = key;
+        }
+        return _previewCardSize;
+    }
+
+    /// <summary>Hides the preview window and its seam state. Keeps the instance for the next
+    /// Move (one per manager; Dispose closes it).</summary>
+    private void HideMovePreview()
+    {
+        _movePreviewWindow?.Hide();
+        _movePreviewShown = false;
     }
 
     /// <summary>Gate conjunct 4's occluder half (P2 D3): the keyboard window and its edge bar
@@ -2088,6 +2214,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (message.IsInGap)
         {
             _settleTracker.Invalidate();
+            if (!_placeShown)
+                HideMovePreview(); // a gap is no information: the ring's window restarts
             return;
         }
 
@@ -2104,6 +2232,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         {
             _gateClosed = true;
             _settleTracker.Invalidate(); // P3 D4: gated samples are no information — disperse, restart
+            if (!_placeShown)
+                HideMovePreview(); // sitting 9: the accumulating ring goes with the window
             return;
         }
         if (_gateClosed)
@@ -2327,6 +2457,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// check that the rect the dwell target was registered from IS the window's real size.</summary>
     internal NotePlaceHereWindow? PlaceWindowForTest => _placeWindow;
 
+    /// <summary>Test seams (sitting 9): the Move preview the settle path drives — the window
+    /// itself (its card rect, ring progress and ring visibility) and whether it counts as shown.</summary>
+    internal NoteMovePreviewWindow? MovePreviewWindowForTest => _movePreviewWindow;
+    internal bool MovePreviewShownForTest => _movePreviewShown;
+
     /// <summary>Test seam: the live window of a note, or null. The drawn-vs-registered ⌨ check
     /// (review 01 mutant A) needs the real window the manager drives on probe changes.</summary>
     internal NoteWindow? WindowForTest(string noteId) => Window(noteId);
@@ -2519,7 +2654,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         var parts = targetId.Split(':');
         if (parts.Length != 2) return;
-        var (noteId, _) = (parts[0], parts[1]);
+        var (noteId, suffix) = (parts[0], parts[1]);
+        // Sitting 9: the place disc carries its own arc. The old path handed {id}:place to the
+        // NOTE's window, which draws no :place arc, so the dwell on "Hier platzieren" was
+        // invisible; route it to the window that actually draws the disc.
+        if (suffix == "place")
+        {
+            _placeWindow?.UpdateDwellProgress(progress);
+            return;
+        }
         var window = _windows.FirstOrDefault(w => w.NoteId == noteId);
         window?.UpdateDwellProgress(targetId, progress);
     }
@@ -2579,6 +2722,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // P3 D4: the Place-here window is manager-owned (never in DI) — a teardown closes it.
         _placeWindow?.Close();
         _placeWindow = null;
+
+        // Sitting 9: the Move preview is manager-owned the same way.
+        _movePreviewWindow?.Close();
+        _movePreviewWindow = null;
 
         // P4 D4: the capacity notice is manager-owned (never in DI) - a teardown closes it.
         _noticeWindow?.Close();

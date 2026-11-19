@@ -7,10 +7,11 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 36 overlay windows and 7 dwell controls — 31 with XAML (30 under
+EyeCtrl has 37 overlay windows and 7 dwell controls — 31 with XAML (30 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
-`Views/`, which also derives from `OverlayWindow`) and 4 without XAML (the
-code-only `NoteWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
+`Views/`, which also derives from `OverlayWindow`) and 6 without XAML (the
+code-only `NoteWindow`, `NoteMovePreviewWindow`, `NotePlaceHereWindow`, `RepeatCursorWindow` and
+`SubPixelProbeWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
 (`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
 (`SubPixelProbeWindow`), the T0(a) lag-mark button (`LagMarkWindow`, main's 27th XAML window
@@ -79,6 +80,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **BlockedInputBanner** | `BlockedInputBannerWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token; C10) | XAML | exempt:emergency banner shown only while Windows discards all injected input; its two dwell targets are its own exits and it hides on the first verified move |
 | **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML | collision-zone |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
+| **NoteMovePreview** | `NoteMovePreviewWindow` | `Transparent` (stroke-only ring and dashed landing outline) | code-only, no XAML | exempt:shown only during the moving note's own Move, which suspends offers as its note-move reason; click-through, owns no dwell target |
 | **NotePlaceHere** | `NotePlaceHereWindow` | `Transparent` + token-bordered card | code-only, no XAML | collision-zone |
 | **NoteNotice** | `NoteNoticeWindow` | `Transparent` + token-bordered card | code-only, no XAML | exempt:capacity notice - click-through and target-free (the note-gate census classes it an occluder) |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |

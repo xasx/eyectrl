@@ -705,6 +705,7 @@ public class UiAccessBandTests
             InvisibleTestWindow.PrepareOffScreen(new GlassBackdropWindow()));
         yield return (nameof(PauseIndicatorWindow), InvisibleTestWindow.Prepare(new PauseIndicatorWindow()));
         yield return (nameof(NoteWindow), InvisibleTestWindow.Prepare(new NoteWindow("c9f2-list")));
+        yield return (nameof(NoteMovePreviewWindow), InvisibleTestWindow.Prepare(new NoteMovePreviewWindow()));
         yield return (nameof(NoteNoticeWindow), InvisibleTestWindow.Prepare(new NoteNoticeWindow()));
         yield return (nameof(NotePlaceHereWindow), InvisibleTestWindow.Prepare(new NotePlaceHereWindow(24)));
     }

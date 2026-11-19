@@ -105,6 +105,7 @@ public class OverlayClientOriginTests
         "ManualSelectionGazeIndicatorWindow",
         "ManualSelectionOverlayWindow",
         "ModesMenuWindow",
+        "NoteMovePreviewWindow",
         "NoteNoticeWindow",
         "NotePlaceHereWindow",
         "NoteWindow",

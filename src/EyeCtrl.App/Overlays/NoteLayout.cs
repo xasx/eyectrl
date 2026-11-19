@@ -504,6 +504,48 @@ internal static class NoteLayout
         return (int)Math.Round(wrapped.Height / oneLine.Height);
     }
 
+    // == the Move hint (sitting 9, row c): the line the dimmed card shows while it is being
+    // moved — "Look where the note should go". It sits at the BOTTOM of the card's text column
+    // (the note's own text stays visible above it), at the note's text size and SemiBold, and it
+    // never reaches the control column: its rect stops at the text column's width.
+
+    /// <summary>The Move hint's font size in DIP: the note's own body text size.</summary>
+    public static double MoveHintFontDip(double textSizeDip) => textSizeDip;
+
+    /// <summary>The hint box's padding inside the card, in DIP: the same start margin the body
+    /// text uses, so the hint lines up with the note's own text.</summary>
+    public const double MoveHintMarginDip = 10.0;
+
+    /// <summary>
+    /// The Move hint's box in WINDOW-relative DIP: full width of the card's text column (plus its
+    /// margins), pinned to the card's bottom edge and inset by the card's border thickness, so
+    /// the card's own left and bottom border lines stay unbroken around it. The column is the
+    /// strip the body text lives in — on the side away from the control column — so the hint can
+    /// never cover ⇄/⊘ or their hit cells, whatever side the placement chose.
+    /// </summary>
+    /// <param name="placement">The note's stored placement (which side the card is on).</param>
+    /// <param name="textSizeDip">The note's body text size — the hint's font size.</param>
+    /// <param name="textHeightDip">The measured wrapped height of the hint's text at the text
+    /// column's width — the box grows with the lines the real face produces.</param>
+    /// <param name="cardInsetDip">The card's border thickness in DIP: the plate starts inside it
+    /// on the left and bottom, so the border line is not painted over (sitting 9 fixup).</param>
+    public static Rect MoveHintRect(NotePlacement placement, double textSizeDip, double textHeightDip,
+        double cardInsetDip)
+    {
+        var card = RectLocal(placement);
+        // The control column hugs the edge away from the tail: on a Left placement it is the
+        // card's left strip, so the text column starts after it; otherwise the text column is
+        // the card's left strip and the column sits on the right.
+        bool columnOnLeft = placement.Side == NoteSide.Left;
+        double x = card.Left + (columnOnLeft ? LayoutConstants.NoteColumnWidthDip : 0) + cardInsetDip;
+        double height = textHeightDip + (2 * MoveHintMarginDip);
+        return new Rect(
+            x,
+            card.Bottom - cardInsetDip - height,
+            TextColumnWidthDip(textSizeDip) + (2 * MoveHintMarginDip),
+            height);
+    }
+
     // == the capacity notice (P4 D4): one fixed-size, click-through, target-free window. ==
 
     /// <summary>The notice card is 320x110 DIP: the EN and DE sentences on two wrapped lines

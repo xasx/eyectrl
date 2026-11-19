@@ -21,6 +21,62 @@ public class NoteSettleTrackerTests
         var tracker = new NoteSettleTracker();
         Check.That(tracker.Settled).IsFalse();
         Check.That(tracker.Centroid).IsNull();
+        Check.That(tracker.Anchor).IsNull();
+        Check.That(tracker.Progress).IsEqualTo(0.0);
+    }
+
+    /// <summary>Sitting 9's visible settle ring reads these two: the window's anchor (where the
+    /// ring is drawn) and its progress toward the 500 ms (how far the arc fills).</summary>
+    [Fact]
+    public void Progress_TracksTheWindowSpan_UpToTheSettle()
+    {
+        var tracker = new NoteSettleTracker();
+        tracker.AddSample(new PhysicalPoint(100, 100), 0 * Ms);
+        Check.That(tracker.Progress).IsEqualTo(0.0);
+
+        tracker.AddSample(new PhysicalPoint(101, 100), 250 * Ms);
+        Check.WithCustomMessage("half the settle time is half the ring")
+            .That(tracker.Progress).IsCloseTo(0.5, 1e-9);
+
+        tracker.AddSample(new PhysicalPoint(100, 101), 400 * Ms);
+        Check.That(tracker.Progress).IsCloseTo(0.8, 1e-9);
+
+        tracker.AddSample(new PhysicalPoint(100, 100), 500 * Ms);
+        Check.That(tracker.Settled).IsTrue();
+        Check.WithCustomMessage("a settled window's ring is full")
+            .That(tracker.Progress).IsCloseTo(1.0, 1e-9);
+    }
+
+    [Fact]
+    public void Progress_StaysFull_WhileTheSettledWindowIsHeld()
+    {
+        var tracker = new NoteSettleTracker();
+        tracker.AddSample(new PhysicalPoint(100, 100), 0 * Ms);
+        tracker.AddSample(new PhysicalPoint(100, 100), 900 * Ms);
+
+        Check.That(tracker.Settled).IsTrue();
+        Check.WithCustomMessage("progress never overshoots the ring")
+            .That(tracker.Progress).IsEqualTo(1.0);
+    }
+
+    [Fact]
+    public void Anchor_IsTheWindowsFirstSample_AndFollowsARestart()
+    {
+        var tracker = new NoteSettleTracker();
+        tracker.AddSample(new PhysicalPoint(100, 100), 0 * Ms);
+        tracker.AddSample(new PhysicalPoint(120, 130), 100 * Ms);
+        Check.WithCustomMessage("the anchor is the window's FIRST sample, not the latest")
+            .That(tracker.Anchor).IsEqualTo(new PhysicalPoint(100, 100));
+
+        // 61 DIP away: past the radius, so the window restarts at the new sample.
+        tracker.AddSample(new PhysicalPoint(161, 100), 200 * Ms);
+        Check.That(tracker.Anchor).IsEqualTo(new PhysicalPoint(161, 100));
+        Check.WithCustomMessage("a restart drops the progress to zero")
+            .That(tracker.Progress).IsEqualTo(0.0);
+
+        tracker.Invalidate();
+        Check.That(tracker.Anchor).IsNull();
+        Check.That(tracker.Progress).IsEqualTo(0.0);
     }
 
     [Fact]

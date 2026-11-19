@@ -1022,6 +1022,13 @@
     "fit": "row",
     "args": []
   },
+  "overlays.note.moveHint": {
+    "text": "Look where the note should go",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.note.otherSide": {
     "text": "Other side",
     "who": "user",

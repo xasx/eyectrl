@@ -48,7 +48,7 @@ public class TaskSwitcherPreviewTests
     private const double ScreenWidth = 1920;
     private const double ScreenHeight = 1200;
 
-    /// <summary>The owner's docked top toolbar band: 9 columns × 5 rows = 45 cells (S4-C).</summary>
+    /// <summary>A 112 DIP docked top test band (not the owner's real 140 DIP one): 8 columns × 5 rows = 40 cells (F-GAP).</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
     // ── lifecycle ──────────────────────────────────────────────────────────────────────────────
@@ -74,15 +74,16 @@ public class TaskSwitcherPreviewTests
     [StaFact]
     public void OverflowTrimmedWindows_GetNoPreview_OnlyTheTilesThatAreDrawn()
     {
-        // 50 windows against 45 cells: the VM trims the tail, so 44 window tiles are drawn and the
-        // preview pass must never see (or register) a window without a tile.
+        // 50 windows against 40 cells: the VM trims the tail, so 39 window tiles are drawn (the
+        // desktop tile takes the last cell) and the preview pass must never see — or register — a
+        // window without a tile.
         using var board = Board.Open(NumberedWindows(50));
 
         var (registered, failed, _) = board.Register();
 
-        Check.That(board.ViewModel.Tiles).HasSize(44);
-        Check.That((registered, failed)).IsEqualTo((44, 0));
-        Check.That(board.Thumbnails.LiveCount).IsEqualTo(44);
+        Check.That(board.ViewModel.Tiles).HasSize(39);
+        Check.That((registered, failed)).IsEqualTo((39, 0));
+        Check.That(board.Thumbnails.LiveCount).IsEqualTo(39);
         Check.That(board.Thumbnails.LiveSources)
             .ContainsOnlyElementsThatMatch(source => board.ViewModel.Tiles.Any(t => t.Hwnd == source));
         Check.That(board.Thumbnails.Registrations.Select(r => r.Source))
@@ -350,8 +351,8 @@ public class TaskSwitcherPreviewTests
                     .First(t => t.Text == slot.Item.Title));
 
                 Check.WithCustomMessage($"{language} at {scale:0.0}x: face {Box(face)} is not 184 x 150.")
-                    .That(face.Width).IsCloseTo(TaskSwitcherLayout.CellWidth - 16, 0.5);
-                Check.That(face.Height).IsCloseTo(TaskSwitcherLayout.CellHeight - 16, 0.5);
+                    .That(face.Width).IsCloseTo(TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip, 0.5);
+                Check.That(face.Height).IsCloseTo(TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip, 0.5);
 
                 Check.WithCustomMessage($"{language} at {scale:0.0}x: preview box {Box(box)} is not 168 x 94.")
                     .That(box.Width).IsCloseTo(168, 0.5);
@@ -404,8 +405,8 @@ public class TaskSwitcherPreviewTests
             // The desktop tile: same face, its own glyph and label, and no window content at all.
             var desktop = faces[2];
             var desktopFace = board.Bounds(desktop.Border);
-            Check.That(desktopFace.Width).IsCloseTo(TaskSwitcherLayout.CellWidth - 16, 0.5);
-            Check.That(desktopFace.Height).IsCloseTo(TaskSwitcherLayout.CellHeight - 16, 0.5);
+            Check.That(desktopFace.Width).IsCloseTo(TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip, 0.5);
+            Check.That(desktopFace.Height).IsCloseTo(TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip, 0.5);
             Check.That(board.Find<StackPanel>(desktop.Container, "WindowContent")!.Visibility)
                 .IsEqualTo(Visibility.Collapsed);
             Check.That(board.Find<StackPanel>(desktop.Container, "DesktopContent")!.Visibility)
@@ -435,6 +436,33 @@ public class TaskSwitcherPreviewTests
         Check.That(failed.Visibility).IsEqualTo(Visibility.Visible);
         Check.That(board.Find<Image>(board.Faces()[1].Container, "PreviewIcon")!.Visibility)
             .IsEqualTo(Visibility.Visible);
+    }
+
+    /// <summary>
+    /// F-GAP grew the cell (216 × 182) together with the face margin (16 DIP): the unchanged
+    /// 168 × 94 preview box must still sit inside its face on a tile that is neither in the first
+    /// row nor the first column — the margin is what places the face inside the cell, so a drift
+    /// between the WrapPanel cell and the margin shows up away from the grid origin, not at tile 0.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void ThePreviewBox_StillSitsInsideItsFace_OnATileBeyondTheFirstRowAndColumn(double scale)
+    {
+        using var board = Board.Open(NumberedWindows(10), scale: scale);
+
+        var faces = board.Faces();
+        Check.That(faces).HasSize(11);   // ten windows + the desktop tile
+
+        var slot = faces[9];             // 8 columns: index 9 = row 1, column 1
+        var face = board.Bounds(slot.Border);
+        var box = board.Bounds(board.Find<Border>(slot.Container, "PreviewBox")
+            ?? throw new InvalidOperationException("The tile template has no Border named PreviewBox."));
+
+        Check.WithCustomMessage($"at {scale:0.0}x the preview box {Box(box)} left its face {Box(face)}.")
+            .That(Inside(face, box, inset: 8)).IsTrue();
+        Check.That(box.Width).IsCloseTo(168, 0.5);
+        Check.That(box.Height).IsCloseTo(94, 0.5);
     }
 
     // ── wiring ────────────────────────────────────────────────────────────────────────────────

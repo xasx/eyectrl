@@ -17,14 +17,26 @@ using EyeCtrl.Core.Models;
 internal static class TaskSwitcherLayout
 {
     /// <summary>
-    /// The WrapPanel cell. S4-C grew the cell's height from 120 to 166: the drawn face is inset by
-    /// the template's 8 DIP margin, so it is 184 × 150 (was 184 × 104) — the preview box (168 × 94),
-    /// the 20 DIP icon-and-title row and the progress bar now fit inside the same face. The width is
-    /// unchanged, so the column count and the ✕'s position are unchanged; the rows drop from 7 to 5
-    /// on the owner's screen (9 × 5 = 45 tiles, the ticket's "about 45").
+    /// The WrapPanel cell. S4-C grew the cell's height from 120 to 166; F-GAP doubled the gap
+    /// between neighbouring tiles: the template's face margin grew from 8 to
+    /// <see cref="TileFaceMarginDip"/> (16 DIP) and the cell with it, so the drawn face keeps its
+    /// 184 × 150 — the preview box (168 × 94), the 20 DIP icon-and-title row and the progress bar
+    /// are unchanged inside it. The XAML's WrapPanel ItemWidth/ItemHeight and the TileFace margin
+    /// are pinned to these constants by the coupling pin in TaskSwitcherWindowLayoutTests: cell =
+    /// face + 2 × margin, in both directions. The width growth drops the owner's grid from
+    /// 9 × 5 = 45 to 8 × 5 = 40 tiles (the ticket's "about 40").
     /// </summary>
-    internal const double CellWidth = 200;
-    internal const double CellHeight = 166;
+    internal const double CellWidth = 216;
+    internal const double CellHeight = 182;
+
+    /// <summary>
+    /// The tile template's TileFace margin in DIP (TaskSwitcherWindow.xaml's
+    /// <c>&lt;Border x:Name="TileFace" Margin="16"&gt;</c>). The margin is the inter-tile gap —
+    /// two neighbouring faces sit 2 × this (32 DIP) apart — and lies outside the face, so it
+    /// stays dead for gaze. Kept beside the cells it sizes, as the ONE source for the number:
+    /// the XAML restates it and the coupling pin holds the two together.
+    /// </summary>
+    internal const double TileFaceMarginDip = 16;
 
     /// <summary>Minimum distance of the tile block from the left, top and right screen edges.</summary>
     internal const double EdgeMargin = 40;
@@ -72,8 +84,8 @@ internal static class TaskSwitcherLayout
     /// relaxes in a fixed order and stops as soon as one row x one column fits: (1) drop the
     /// clearance gap, (2) drop the 40 DIP edge margins, (3) drop the toolbar keep-out entirely. The
     /// last step is the only one that can put a tile under the band; T1's landing guard still
-    /// protects the opening look there. On the owner's screen a 200 DIP band leaves 7 rows, so the
-    /// ladder only runs on degenerate displays.
+    /// protects the opening look there. On the owner's screen a 200 DIP band leaves 4 full rows of
+    /// the 182 DIP cell, so the ladder only runs on degenerate displays.
     /// </para>
     /// </summary>
     internal static Result Compute(

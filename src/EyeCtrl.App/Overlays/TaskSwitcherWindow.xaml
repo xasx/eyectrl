@@ -27,7 +27,7 @@
             <ItemsControl x:Name="TilesPanel" AutomationProperties.AutomationId="TaskSwitcher_Tiles" ItemsSource="{Binding PanelItems}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <WrapPanel ItemWidth="200" ItemHeight="166"/>
+                        <WrapPanel ItemWidth="216" ItemHeight="182"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -36,10 +36,10 @@
                              carries its own glyph + label instead of an icon + title. The style (not
                              local attributes) owns Background/BorderThickness: a local value would
                              win over the DataTrigger and the tile would stay a filled window tile.
-                             BorderThickness draws INSIDE the 184x150 face (S4-C: 200 x 166 cell less
-                             the template's 8 DIP margin), so the drawn tile — and therefore the dwell
-                             target the View registers — is the same size. -->
-                        <Border x:Name="TileFace" Margin="8" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
+                             BorderThickness draws INSIDE the 184x150 face (216 x 182 cell less the
+                             template's 16 DIP margin, F-GAP), so the drawn tile — and therefore the
+                             dwell target the View registers — is the same size. -->
+                        <Border x:Name="TileFace" Margin="16" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Background" Value="{StaticResource BrushSurfaceMedium}"/>

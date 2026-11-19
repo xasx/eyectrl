@@ -649,8 +649,8 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// Called by the View once a tile's container is laid out, with the tile's real on-screen
     /// rectangle (already clamped to the visible face for clipped rows). Creates (or
     /// repositions — <see cref="DwellDetector.AddTarget"/> replaces by id) a RECTANGULAR dwell
-    /// target here so the detector hit-tests the drawn tile face: the tiles are 184x104 DIP
-    /// faces (200x120 cells minus the template border's 8 DIP margin), and the old r50 circle
+    /// target here so the detector hit-tests the drawn tile face: the tiles are 184x150 DIP
+    /// faces (216x182 cells minus the template border's 16 DIP margin, F-GAP), and the old r50 circle
     /// covered only ~41% of every visible face, leaving ~59% dead — gaze accumulated nothing
     /// there, with no cue explaining why (the same drawn-vs-hit mismatch QuickActions fixed as
     /// a field finding, and the class behind the 2026-08-17 'tiles gave no feedback' report).

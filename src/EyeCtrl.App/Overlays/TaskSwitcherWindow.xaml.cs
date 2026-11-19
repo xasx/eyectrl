@@ -576,8 +576,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
                 continue;
 
             // The dwell target is the tile's DRAWN face: the template's root Border (the
-            // container is the generator's ContentPresenter around it). Its 8 DIP margin is
-            // the inter-tile gap — outside the face, so it must stay dead.
+            // container is the generator's ContentPresenter around it). Its 16 DIP margin
+            // (TaskSwitcherLayout.TileFaceMarginDip) is the inter-tile gap — outside the face,
+            // so it must stay dead.
             if (FindTemplateBorder(fe) is not Border border)
                 continue;
 

@@ -52,10 +52,10 @@ public class TaskSwitcherTileStatesWindowTests
 
     public TaskSwitcherTileStatesWindowTests(ITestOutputHelper output) => _output = output;
 
-    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 9 × 5 tiles.</summary>
+    /// <summary>A 112 DIP docked top test band (not the owner's real 140 DIP one): it leaves 8 × 5 tiles (F-GAP).</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
-    private const int Capacity = 45;   // 9 columns × 5 rows at 1920 × 1200 with the 112 DIP band
+    private const int Capacity = 40;   // 8 columns × 5 rows at 1920 × 1200 with the 112 DIP band
 
     /// <summary>
     /// The "Minimiert" badge, in every case that can move it: DPI 1.0 and the owner's 200 %, English
@@ -106,8 +106,8 @@ public class TaskSwitcherTileStatesWindowTests
                 .That(absent.Visibility).IsEqualTo(Visibility.Collapsed);
 
             // Drawn = hit: the badge must sit INSIDE the face the dwell detector hit-tests, and the
-            // face must still be the 184 × 150 DIP the template promises (200 × 166 cell less the
-            // 8 DIP margin, S4-C).
+            // face must still be the 184 × 150 DIP the template promises (216 × 182 cell less the
+            // 16 DIP margin, F-GAP).
             var face = laid.Bounds(faces[0].Border);
             var badgeBox = laid.Bounds(badge);
             var bar = Descendants<Border>(badge).Single(b => b.Name == "MinimizedGlyph");
@@ -115,8 +115,8 @@ public class TaskSwitcherTileStatesWindowTests
             var room = face.Width - 16;   // the template's 8 DIP padding on each side
 
             Check.WithCustomMessage("The minimised tile grew: the perceived tile must not change.")
-                .That(face.Width).IsEqualTo(TaskSwitcherLayout.CellWidth - 16);
-            Check.That(face.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 16);
+                .That(face.Width).IsEqualTo(TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip);
+            Check.That(face.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip);
             Check.WithCustomMessage($"The badge {Box(badgeBox)} leaves its face {Box(face)}.")
                 .That(Inside(face, badgeBox, inset: 8)).IsTrue();
             Check.WithCustomMessage("The badge is not centred in its tile face.")
@@ -352,11 +352,46 @@ public class TaskSwitcherTileStatesWindowTests
         Check.That(message.Visibility).IsEqualTo(Visibility.Collapsed);
     }
 
+    /// <summary>
+    /// Fixup-01 (review finding 1): the fixture's registered face must be the face the template
+    /// DRAWS — the cell inset by ONE margin, not two. The chip tests only count, so a 2 × margin
+    /// offset was invisible; the first positional assertion placed on this fixture would have read
+    /// rects 16 DIP to the right and below. Tile 8 is the first face of row 1 at the 8-column grid,
+    /// so the column and the row derivation are both exercised.
+    /// </summary>
+    [StaFact]
+    public void RegisterFaces_RegistersTheSameRectTheTemplateDraws()
+    {
+        using var laid = Laid.Open(Windows(9));   // 8 columns: tile 8 starts row 1
+        laid.RegisterFaces(laid.ViewModel.Tiles.Count);
+
+        var faces = laid.Faces();
+        Check.That(faces).HasSize(9);
+        for (var i = 0; i < faces.Count; i++)
+        {
+            var drawn = laid.Bounds(faces[i].Border);
+            var id = laid.ViewModel.Tiles[i].Hwnd.ToString();
+            var target = laid.ViewModel.DetectorForTest.Targets.Single(t => t.Id == id);
+
+            if (target.Bounds is not { } registered)
+                throw new InvalidOperationException($"tile {i}'s target has no rectangular bounds.");
+
+            Check.WithCustomMessage(
+                    $"tile {i}: the fixture registered {registered.X},{registered.Y} "
+                    + $"{registered.Width}x{registered.Height} but the template draws {Box(drawn)}.")
+                .That(Math.Abs(registered.X - drawn.Left)).IsLessOrEqualThan(0.5);
+            Check.That(Math.Abs(registered.Y - drawn.Top)).IsLessOrEqualThan(0.5);
+            Check.That(Math.Abs(registered.Width - drawn.Width)).IsLessOrEqualThan(0.5);
+            Check.That(Math.Abs(registered.Height - drawn.Height)).IsLessOrEqualThan(0.5);
+        }
+    }
+
     [StaFact]
     public void OverflowChip_InEnglish_CountsTheWindowsWithoutATile()
     {
-        // 64 windows, a 45-cell grid: the desktop tile takes the last cell, so TWENTY windows go
-        // without (the nineteen that were already overflowing plus the one the tile displaced).
+        // 64 windows, a 40-cell grid: the desktop tile takes the last cell, so TWENTY-FIVE windows
+        // go without (the twenty-four that were already overflowing plus the one the tile
+        // displaced).
         using var laid = Laid.Open(Windows(64));
         laid.RegisterFaces(Capacity);
 
@@ -365,14 +400,14 @@ public class TaskSwitcherTileStatesWindowTests
         Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
 
         var text = Descendants<TextBlock>(chip).Single();
-        Check.That(text.Text).IsEqualTo("More windows: 20");
+        Check.That(text.Text).IsEqualTo("More windows: 25");
         Check.That(BrushColor(text.Foreground)).IsEqualTo(Tokens.TextSecondary);
     }
 
     [StaFact]
     public void AtCapacity_DrawsNoChip()
     {
-        // 44 windows + the desktop tile = the 45 cells: nothing is hidden, so there is nothing to
+        // 39 windows + the desktop tile = the 40 cells: nothing is hidden, so there is nothing to
         // explain. This is the two-sided half of the count — an off-by-one either claims a hidden
         // window or hides one.
         using var laid = Laid.Open(Windows(Capacity - 1));
@@ -386,14 +421,14 @@ public class TaskSwitcherTileStatesWindowTests
     [StaFact]
     public void WindowsWithoutATile_CountAllOfThem_DesktopSlotIncluded()
     {
-        // 66 windows at a 45-cell grid with the desktop tile in the last cell: 44 keep a tile, 22 go
-        // without — the 21 that were already overflowing plus the one the tile displaced.
+        // 66 windows at a 40-cell grid with the desktop tile in the last cell: 39 keep a tile, 27
+        // go without — the 26 that were already overflowing plus the one the tile displaced.
         using var laid = Laid.Open(Windows(66));
         laid.RegisterFaces(Capacity);
 
-        Check.That(laid.ViewModel.OverflowCount).IsEqualTo(22);
+        Check.That(laid.ViewModel.OverflowCount).IsEqualTo(27);
         var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
-        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("More windows: 22");
+        Check.That(Descendants<TextBlock>(chip).Single().Text).IsEqualTo("More windows: 27");
     }
 
     /// <summary>
@@ -412,7 +447,7 @@ public class TaskSwitcherTileStatesWindowTests
             var chip = laid.Find<Border>(laid.Root, "OverflowChip")!;
             Check.That(chip.Visibility).IsEqualTo(Visibility.Visible);
             var text = Descendants<TextBlock>(chip).Single();
-            Check.That(text.Text).IsEqualTo("Weitere Fenster: 20");
+            Check.That(text.Text).IsEqualTo("Weitere Fenster: 25");
 
             // The German chip is the longest of the three texts: at 200 % it must be drawn whole.
             var natural = FitText.NaturalWidth(text, text.Text);
@@ -530,7 +565,7 @@ public class TaskSwitcherTileStatesWindowTests
 
         using var englishChip = Laid.Open(Windows(Capacity + 1), scale: scale);
         englishChip.RegisterFaces(Capacity);
-        Check.WithCustomMessage("The 64-window case drew no chip, so the pin would compare two chip-less rows.")
+        Check.WithCustomMessage("The overflowing session drew no chip, so the pin would compare two chip-less rows.")
             .That(englishChip.Find<Border>(englishChip.Root, "OverflowChip")!.Visibility)
             .IsEqualTo(Visibility.Visible);
         var englishChipBox = englishChip.Bounds(englishChip.Find<Border>(englishChip.Root, "OverflowChip")!);
@@ -659,8 +694,8 @@ public class TaskSwitcherTileStatesWindowTests
         internal TaskSwitcherViewModel ViewModel { get; }
 
         /// <summary>
-        /// Shows <paramref name="windows"/> through the real toggle, applies the owner's keep-out
-        /// layout (a 112 DIP top band) and arranges the content — at <paramref name="scale"/> 1.0
+        /// Shows <paramref name="windows"/> through the real toggle, applies a docked-top keep-out
+        /// layout (a 112 DIP test band) and arranges the content — at <paramref name="scale"/> 1.0
         /// directly, at 2.0 through the fit host's 200 % render chain.
         /// </summary>
         internal static Laid Open(
@@ -716,7 +751,10 @@ public class TaskSwitcherTileStatesWindowTests
         /// <summary>
         /// The View's post-layout registration pass for <paramref name="reachable"/> faces, then the
         /// close disc — exactly what <c>TaskSwitcherWindow.UpdateTilePositions</c> drives (the real
-        /// one needs an HWND for PointToScreen, so the rectangles are supplied here).
+        /// one needs an HWND for PointToScreen, so the rectangles are supplied here). The grid is
+        /// <see cref="TaskSwitcherLayout.Result.Columns"/> wide (never a restated 8); the face is the
+        /// cell less the template's 16 DIP margin on each side, so it sits ONE margin into its cell
+        /// (two would put it 16 DIP right and below the drawn face — review finding 1).
         /// </summary>
         internal void RegisterFaces(int reachable)
         {
@@ -724,13 +762,13 @@ public class TaskSwitcherTileStatesWindowTests
                 ScreenWidth, ScreenHeight, TopBand, "Top", ViewModel.PanelItems.Count);
             for (var i = 0; i < reachable && i < ViewModel.Tiles.Count; i++)
             {
-                var column = i % 9;
-                var row = i / 9;
+                var column = i % layout.Columns;
+                var row = i / layout.Columns;
                 ViewModel.UpdateTilePosition(ViewModel.Tiles[i].Hwnd, new PhysicalRect(
-                    layout.Block.X + (column * TaskSwitcherLayout.CellWidth) + 8,
-                    layout.Block.Y + (row * TaskSwitcherLayout.CellHeight) + 8,
-                    TaskSwitcherLayout.CellWidth - 16,
-                    TaskSwitcherLayout.CellHeight - 16));
+                    layout.Block.X + (column * TaskSwitcherLayout.CellWidth) + TaskSwitcherLayout.TileFaceMarginDip,
+                    layout.Block.Y + (row * TaskSwitcherLayout.CellHeight) + TaskSwitcherLayout.TileFaceMarginDip,
+                    TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip,
+                    TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip));
             }
 
             ViewModel.UpdateCloseButtonPosition(new PhysicalPoint(960, 1120));

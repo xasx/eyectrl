@@ -44,7 +44,7 @@ public class TaskSwitcherDesktopTileWindowTests
     private const double ScreenWidth = 1920;
     private const double ScreenHeight = 1200;
 
-    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 9 × 5 tiles.</summary>
+    /// <summary>A 112 DIP docked top test band (not the owner's real 140 DIP one): it leaves 8 × 5 tiles (F-GAP).</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
     private readonly ITestOutputHelper _output;
@@ -63,8 +63,8 @@ public class TaskSwitcherDesktopTileWindowTests
         Check.That(tiles).HasSize(4);
         Check.That(tiles[3].Item.IsDesktop).IsTrue();
         var desktopFace = board.Bounds(tiles[3].Border);
-        Check.That(desktopFace.Width).IsEqualTo(TaskSwitcherLayout.CellWidth - 16);
-        Check.That(desktopFace.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 16);
+        Check.That(desktopFace.Width).IsEqualTo(TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip);
+        Check.That(desktopFace.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip);
 
         // Outlined, not filled: the visual difference the ticket asks for.
         Check.WithCustomMessage("A window tile must keep its filled face.")
@@ -109,17 +109,17 @@ public class TaskSwitcherDesktopTileWindowTests
     [StaFact]
     public void DesktopTile_OccupiesTheCellRightAfterTheLastWindow_InTheCentredBlock()
     {
-        // Five windows at the owner's 1920 × 1200 with the 112 DIP top band: six panel cells, one
-        // row, block (360, 523, 1200, 166) — so the desktop tile's face is at x 1368..1552,
-        // y 531..681. A tile drawn anywhere else is not "always the last tile".
+        // Five windows on the owner's 1920 × 1200 screen with the 112 DIP test band: six panel
+        // cells, one row, block (312, 515, 1296, 182) — so the desktop tile's face is at
+        // x 1408..1592, y 531..681. A tile drawn anywhere else is not "always the last tile".
         using var board = Board.Open(Windows(1, 2, 3, 4, 5));
 
         var layout = board.Layout;
-        Check.That(layout.Block).IsEqualTo(new TaskSwitcherLayout.DipRect(360, 523, 1200, 166));
+        Check.That(layout.Block).IsEqualTo(new TaskSwitcherLayout.DipRect(312, 515, 1296, 182));
 
         var faces = board.Faces();
         var desktop = board.Bounds(faces[5].Border);
-        var expected = new Rect(1368, 531, 184, 150);
+        var expected = new Rect(1408, 531, 184, 150);
         Check.WithCustomMessage($"The desktop tile is at {Box(desktop)}, not {Box(expected)}.")
             .That(Math.Abs(desktop.Left - expected.Left)).IsLessOrEqualThan(0.5);
         Check.That(Math.Abs(desktop.Top - expected.Top)).IsLessOrEqualThan(0.5);
@@ -145,7 +145,8 @@ public class TaskSwitcherDesktopTileWindowTests
             Check.WithCustomMessage($"The German label needs {FitText.Dip(natural)} DIP but is drawn in "
                     + $"{FitText.Dip(label.ActualWidth)} at 200 %.")
                 .That(natural).IsLessOrEqualThan(label.ActualWidth + 0.5);
-            Check.That(label.ActualWidth).IsStrictlyLessThan(TaskSwitcherLayout.CellWidth - 16);
+            Check.That(label.ActualWidth).IsStrictlyLessThan(
+                TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip);
 
             var face = board.Bounds(faces[^1].Border);
             _output.WriteLine(

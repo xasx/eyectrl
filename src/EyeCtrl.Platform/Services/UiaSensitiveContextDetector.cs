@@ -210,10 +210,10 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
                     }
                 }
             })
-            {
-                IsBackground = true,
-                Name = "EyeCtrl UIA focus hook",
-            };
+        {
+            IsBackground = true,
+            Name = "EyeCtrl UIA focus hook",
+        };
         thread.SetApartmentState(ApartmentState.MTA);
         _commands = commands;
         _hookThread = thread;

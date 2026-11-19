@@ -976,9 +976,10 @@ public class SettingsService
 
     // Note text-size clamp (P4 D1), modelled on ClampKeyboardDwellFloor above: the setter guard
     // throws outside 18-48, and since #153 a setter throw during deserialization reverts the
-    // property to its DEFAULT (28) while its siblings survive - so a hand-edited 17 would load as
-    // 28, a size the UI never offers. Clamping the raw node to 18-48 before deserialization keeps
-    // the owner's intent (the nearest legal size) and every sibling value.
+    // property to its DEFAULT (NoteSettings.DefaultTextSizeDip) while its siblings survive - so a
+    // hand-edited 17 would load as that default, a size the UI never offers. Clamping the raw
+    // node to 18-48 before deserialization keeps the owner's intent (the nearest legal size) and
+    // every sibling value.
     private const string NoteSectionName = "note";
     private const string NoteTextSizeKey = "textSizeDip";
 

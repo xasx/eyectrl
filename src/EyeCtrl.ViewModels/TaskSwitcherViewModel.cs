@@ -432,9 +432,15 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     /// <para>
     /// Every non-gap sample is recorded even while hidden: the VM stays a live recipient, so the
     /// last sample before a show is the landing anchor and the previous valid one is what the
-    /// entry gate compares against. The guard filters TILE targets only — the close disc is the
-    /// escape and is never gated (a dead close path would make the fullscreen overlay
-    /// inescapable).
+    /// entry gate compares against.
+    /// </para>
+    /// <para>
+    /// F-CORNER: the ✕ sits at (screen width − 53, 53), the same corner a toolbar's Task Switcher
+    /// button may occupy, so it is under the landing guard like every tile. Before the move it was
+    /// exempt (the escape at screen centre could never be the opening anchor); with the corner
+    /// move an exempt ✕ would accumulate a 600 ms close from the gaze that just opened the
+    /// switcher. The escape stays live: (A) lifts after 50 DIP of movement and (B) then admits a
+    /// fresh look at the ✕ like any other target.
     /// </para>
     /// </summary>
     public override void Receive(GazeCursorMovedMessage message)
@@ -458,8 +464,7 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         if (_landingGuard.IsArmed)
         {
             DwellDetector.Update(message.Position, message.TimestampMicroseconds,
-                target => target.Id == CloseTargetId
-                    || _landingGuard.AllowsDwell(target.Id));
+                target => _landingGuard.AllowsDwell(target.Id));
         }
         else
         {
@@ -500,7 +505,9 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>
-    /// Called by the View after layout to register the close disc as a dwell target.
+    /// Called by the View after layout to register the close disc as a dwell target. It is the
+    /// host's own centre (the drawn disc's centre), pushed in physical pixels — at 200 % the
+    /// corner is (1920 − 53, 53) DIP, i.e. no DIP arithmetic is restated here.
     /// Mirrors <see cref="QuickActionsGridViewModel.UpdateCloseButtonPosition"/> — same
     /// physical-pixel convention and the same <see cref="DwellSettings.ToolbarButtonDwellMs"/>.
     /// <para>

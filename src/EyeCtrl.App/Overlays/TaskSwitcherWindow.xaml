@@ -197,20 +197,17 @@
                    Margin="{Binding Margin, ElementName=TilesScroll}"
                    Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}"/>
         <Grid Grid.Row="1" x:Name="HintRow">
-            <!-- Hint and close disc share ONE centred row (review m4): the ✕ sits directly
-                 beside the text that names it, at horizontal screen centre where tracking is
-                 most accurate — the previous bottom-right corner placement put the only
-                 non-switching escape in the corner band, where tracker accuracy is weakest
-                 and a mis-aimed dwell could land on the last tile column and switch a window.
-                 The 48 DIP gap keeps dwell built while reading the hint's trailing words off
-                 the disc's drawn edge (B8: the hit circle IS the drawn disc).
+            <!-- F-CORNER: the hint row is TEXT ONLY now. The ✕ moved to the window's top-right
+                 corner (the backdrop hide ✕'s 53 DIP inset), so this row reserves only what the
+                 hint text needs: one 18.62 DIP line plus its 12 DIP top/bottom margins = 42.62
+                 DIP, pinned by TaskSwitcherLayout.HintRowHeight and held against WPF's own
+                 layout by TaskSwitcherWindowLayoutTests. The freed 81 DIP went into the tile
+                 area, which is what let a fifth row survive under a 200 DIP band.
 
                  S2-B fixup-01: the row is THREE columns — the chip lives in the left STAR column,
-                 the hint + ✕ in the middle Auto column — so showing the chip cannot move the pair.
-                 The ✕ is the escape and a gaze-only user finds it by where it was last time; a
-                 widened centred group would shift it 84 DIP right whenever the count appeared. The
-                 two star columns are equal, which centres the Auto column exactly as the single
-                 centred StackPanel was centred before. -->
+                 the hint in the middle Auto column — so showing the chip can never move the hint.
+                 The two star columns are equal, which centres the Auto column exactly as the
+                 single centred StackPanel was centred before. -->
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -218,12 +215,13 @@
             </Grid.ColumnDefinitions>
             <!-- S2-B overflow chip: windows enumerated beyond the grid's capacity have no tile, so
                  the row says how many. It sits in the LEFT star column, right-aligned 32 DIP from
-                 that column's end — i.e. 32 DIP left of the hint's left edge — so it is outside the
-                 ✕'s hit circle by construction (32 DIP its margin + the hint's width + the 48 DIP
-                 hint→✕ gap), which is what keeps a gaze resting on the chip from filling the ✕. It
-                 never changes a column's size: the star column absorbs it. Not a dwell target. -->
+                 that column's end — i.e. 32 DIP left of the hint's left edge. The ✕ is now in the
+                 opposite (top-right) corner, so the chip's distance from it is the whole screen
+                 diagonal; the old 100 DIP clearance rule survives trivially, and the chip's
+                 vertical margins dropped to zero so it fits the text-height row. It never changes
+                 a column's size: the star column absorbs it. Not a dwell target. -->
             <Border x:Name="OverflowChip" Grid.Column="0" HorizontalAlignment="Right"
-                    Margin="0,12,32,12" Padding="12,4"
+                    Margin="0,0,32,0" Padding="12,4"
                     VerticalAlignment="Center" IsHitTestVisible="False"
                     Background="{StaticResource BrushSurfaceLight}"
                     CornerRadius="{StaticResource StandardCornerRadius}"
@@ -231,26 +229,28 @@
                 <TextBlock Text="{Binding OverflowCount, StringFormat={loc:T 'overlays.taskSwitcher.overflow', AsTemplate=True}}"
                            Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"/>
             </Border>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
-                <TextBlock x:Name="HintText" Text="{loc:T 'overlays.taskSwitcher.hint'}"
-                           Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
-                           VerticalAlignment="Center" Margin="0,12"/>
-                <!-- Close button — a gaze dwell target (registered + positioned in code-behind).
-                     The disc itself is the shared DwellArcButton, drawn in code at this host's
-                     centre: the bold ActionIcon.Close at Solo, the 2 DIP rim with its dark 3 DIP
-                     halo, and the rim-arc progress driven from CloseDwellProgress/CloseDwellPaused
-                     — the same anatomy as the edge bar's Close. NOT a WPF Button (gaze produces no
-                     mouse clicks) and no longer a hand-made Border + text glyph + bottom bar: the
-                     owner asked for the app's one gaze exit. The host is 2 × the shared r50 hit
-                     radius (B8: what is drawn IS what the detector hit-tests), so the target-centre
-                     code (PointToScreen of this host's centre) and the hint row's height and 48 DIP
-                     hint gap stay untouched. Keep Width == Height ==
-                     TaskSwitcherWindow.CloseButtonSize. The halo reaches 4 DIP past the disc, i.e.
-                     past this host's own box, so the Canvas does not clip and no ancestor does. -->
-                <Border x:Name="CloseButton" Width="100" Height="100" Margin="48,12,0,12">
-                    <Canvas x:Name="CloseLayer" ClipToBounds="False"/>
-                </Border>
-            </StackPanel>
+            <TextBlock x:Name="HintText" Grid.Column="1" Text="{loc:T 'overlays.taskSwitcher.hint'}"
+                       Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,12"/>
         </Grid>
+        <!-- F-CORNER: the close disc — the owner's "Put the close button in the upper right
+             corner." Its centre sits at (screen width − 53, 53) DIP, the backdrop hide ✕'s own
+             corner (UIConstants.BackdropHideButtonOffset, chosen by the owner on 13.10), so the
+             app's two corner exits match. The margin that places it is computed in the code-behind
+             from that constant (CloseCornerInset = 53 − 50 = 3 DIP), never restated as a literal;
+             right/top alignment then makes the centre follow every screen width and DPI.
+
+             The disc itself is unchanged from F-CLOSE: the shared DwellArcButton at this host's
+             centre — bold ActionIcon.Close at Solo, the 2 DIP rim with its dark 3 DIP halo, and the
+             rim-arc progress driven from CloseDwellProgress/CloseDwellPaused. The host is 2 × the
+             shared r50 hit radius (B8: what is drawn IS what the detector hit-tests); its Canvas
+             exists so the halo is not clipped. The halo's painted edge is +2.5 DIP past the disc
+             (WPF insets the stroke); the layout keeps a conservative 4 DIP band clear
+             (TaskSwitcherLayout.CloseHaloDip), and the 53 DIP offset keeps +52.5 DIP of it on
+             screen at both 100 % and 200 %. -->
+        <Border x:Name="CloseButton" Grid.Row="0" Width="100" Height="100"
+                HorizontalAlignment="Right" VerticalAlignment="Top">
+            <Canvas x:Name="CloseLayer" ClipToBounds="False"/>
+        </Border>
     </Grid>
 </overlays:OverlayWindow>

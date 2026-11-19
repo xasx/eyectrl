@@ -49,6 +49,39 @@ public class ToolbarFreshEntryReArmTests
     [Theory]
     [InlineData(1.0)]
     [InlineData(2.0)]
+    public void FreshEntryReArm_AfterClosingAtTheSwitcherCorner_DoesNotFireAButtonUnderIt(double scale)
+    {
+        using var h = new Harness(scale);
+
+        // F-CORNER: the switcher's ✕ sits at (screen width − 53, 53), inside the toolbar band a
+        // top-docked toolbar draws. Where a layout puts a button under that corner, the gaze that
+        // just closed the switcher is resting on it — the toolbar's re-arm must anchor there.
+        var corner = new PhysicalPoint(
+            (1920 - UIConstants.BackdropHideButtonOffset) * scale,
+            UIConstants.BackdropHideButtonOffset * scale);
+        h.Vm.UpdateButtonScreenPosition("TaskSwitcherUnderTheCorner", corner);
+
+        h.Vm.SetActive(false);
+        h.Hold(corner, 0, 500_000);
+
+        // Toolbar re-arms at the switcher's close, with the gaze still in the corner.
+        h.Vm.SetActive(true, freshEntry: true);
+        h.Hold(corner, 530_000, 3_000_000);
+
+        Check.WithCustomMessage(
+                "a toolbar button under the switcher's ✕ fired from the gaze that closed it")
+            .That(h.Activated).IsEmpty();
+
+        // A deliberate look still works: leave (> 50 DIP), then re-enter.
+        h.Hold(h.Away, 3_030_000, 3_300_000);
+        h.Hold(corner, 3_330_000, 4_300_000);
+
+        Check.That(h.Activated).Contains("TaskSwitcherUnderTheCorner");
+    }
+
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
     public void OtherReArmPaths_KeepTheirImmediateArm(double scale)
     {
         using var h = new Harness(scale);

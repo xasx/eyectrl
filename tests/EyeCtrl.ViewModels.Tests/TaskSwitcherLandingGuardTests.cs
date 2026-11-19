@@ -17,7 +17,9 @@ using EyeCtrl.ViewModels.Messages;
 /// at opening; an invalid anchor (no sample, or a gap) skips (A);</item>
 /// <item>(B) after (A) lifts, a tile becomes eligible only on entry — a sample inside its face
 /// whose previous valid sample was outside it; eligibility then persists for the session;</item>
-/// <item>the close disc is NEVER gated.</item>
+/// <item>F-CORNER: the ✕ is gated like every target. It moved to the top-right corner, where a
+/// toolbar button can open the switcher from, so an exempt ✕ would let the opening look close
+/// the switcher. The escape stays live through the same (A)+(B) rule.</item>
 /// </list>
 /// Every case runs at 100 % and 200 % DPI: the radius is 50 <em>DIP</em>, so a scale that
 /// compares physical pixels against the DIP constant would pass at 1.0 and misfire at 2.0.
@@ -166,14 +168,23 @@ public class TaskSwitcherLandingGuardTests
     [Theory]
     [InlineData(1.0)]
     [InlineData(2.0)]
-    public void CloseDisc_IsNeverGated_EvenWhenTheAnchorIsOnIt(double scale)
+    public void CloseDisc_RestingOnItAtOpening_DoesNotFill_UntilTheGazeLeavesAndReEnters(double scale)
     {
         using var h = new Harness(scale);
 
+        // F-CORNER: the anchor is on the ✕ — the corner the toolbar's Task Switcher button can be
+        // near. The T1 rule (A)+(B) must keep the resting look inert: no fill, no dismissal.
         h.Sample(h.Close, 0);
         h.Show();
         h.Vm.UpdateCloseButtonPosition(h.Close);
-        h.Hold(h.Close, 30_000, 1_200_000);
+        h.Hold(h.Close, 30_000, 3_000_000);
+
+        Check.That(h.Vm.IsVisible).IsTrue();
+        Check.That(h.Vm.CloseDwellProgress).IsEqualTo(0);
+
+        // A deliberate look still works: leave by more than 50 DIP, then enter the disc from outside.
+        h.Hold(h.EmptyPoint(), 3_030_000, 3_300_000);
+        h.Hold(h.Close, 3_330_000, 4_500_000);
 
         Check.That(h.Selections).IsEmpty();
         Check.That(h.Vm.IsVisible).IsFalse();

@@ -38,8 +38,9 @@ using EyeCtrl.ViewModels.Messages;
 /// <para>
 /// The three states are display-only. Nothing here is a dwell target: the badge lives inside the
 /// tile face (the face is the target), the empty message registers nothing, and the chip is a
-/// label. The ✕ stays the surface's escape and its 48 DIP distance from the hint is asserted,
-/// not assumed.
+/// label. The ✕ is the surface's escape: F-CORNER puts it in the window's top-right corner, so
+/// the pins assert the chip clears its hit circle by the whole screen diagonal and that the tiles
+/// never reach it (the 107 DIP corner band plus the 24 DIP clearance).
 /// </para>
 /// </summary>
 [Collection("StringTable Tests (App)")]
@@ -494,12 +495,14 @@ public class TaskSwitcherTileStatesWindowTests
     /// <summary>
     /// The chip's placement rules, measured in DIP at 1.0 and at the owner's 200 %: it must not
     /// overlap the ✕, it must keep ≥ 100 DIP edge-to-edge from the ✕'s hit CIRCLE (so gaze resting
-    /// on the chip cannot fill the close dwell), and it must not eat the hint→✕ gap.
+    /// on the chip cannot fill the close dwell), it must stay in the row that is now text-height,
+    /// and the ✕ must sit above that row (F-CORNER: the escape is the corner, not a neighbour of
+    /// the text).
     /// </summary>
     [StaTheory]
     [InlineData(1.0)]
     [InlineData(2.0)]
-    public void ChipGeometry_ClearsTheCloseCircle_AndKeepsTheHintGap(double scale)
+    public void ChipGeometry_ClearsTheCloseCircle_AndSitsBelowTheCornerExit(double scale)
     {
         using var laid = Laid.Open(Windows(64), scale: scale);
         laid.RegisterFaces(Capacity);
@@ -508,17 +511,14 @@ public class TaskSwitcherTileStatesWindowTests
         var chip = laid.Bounds(chipElement);
         var hint = laid.Bounds(laid.Find<TextBlock>(laid.Root, "HintText")!);
         var disc = laid.Bounds(laid.Find<Border>(laid.Root, "CloseButton")!);
+        var row = laid.Bounds(laid.Find<Grid>(laid.Root, "HintRow")!);
 
         var messages = new List<string>();
 
-        // The hint→✕ gap is the row's 48 DIP attribute, and it must hold whatever appears to the left.
-        const double hintGap = 48;
-        if (Math.Abs(disc.Left - hint.Right - hintGap) > 0.5)
-            messages.Add($"the hint→✕ gap is {FitText.Dip(disc.Left - hint.Right)} DIP, not {hintGap}");
-
         // "Edge-to-edge from the hit circle": the nearest point of the chip to the disc's centre,
         // less the hit radius. The drawn disc IS the hit circle (B8: 2 × the shared r50), so its
-        // own half-width is the radius — never a restated number.
+        // own half-width is the radius — never a restated number. Since F-CORNER the two sit in
+        // opposite corners, so this is the screen diagonal; the old 100 DIP floor still applies.
         var centre = new Point(disc.Left + (disc.Width / 2), disc.Top + (disc.Height / 2));
         var clearance = DistanceToRect(chip, centre) - (disc.Width / 2);
         if (clearance < 100)
@@ -526,6 +526,15 @@ public class TaskSwitcherTileStatesWindowTests
 
         if (chip.IntersectsWith(disc) && chip.Width > 0 && chip.Height > 0)
             messages.Add($"the chip {Box(chip)} overlaps the ✕ disc {Box(disc)}");
+
+        // The chip must fit the row WPF lays out (the row is no longer 124 DIP tall): its vertical
+        // margins were dropped to 0 so its 26.62 DIP pill fits the 42.62 DIP text row.
+        if (!Inside(row, chip))
+            messages.Add($"the chip {Box(chip)} leaves the hint row {Box(row)}");
+
+        // And the ✕ must be ABOVE the row: an escape in the corner cannot be wedged beside the text.
+        if (disc.Bottom > row.Top + 0.5 && disc.IntersectsWith(row))
+            messages.Add($"the ✕ disc {Box(disc)} reaches into the hint row {Box(row)}");
 
         // Still on screen: the fixup's own rule for the widest chip (the German one is measured in
         // its own test; this one keeps the English one inside the window's edges).
@@ -540,10 +549,43 @@ public class TaskSwitcherTileStatesWindowTests
 
         Check.WithCustomMessage($"At {scale:0.0}x: " + string.Join("; ", messages)).That(messages).IsEmpty();
         Check.That(clearance).IsStrictlyGreaterThan(100);
+        Check.That(disc.Bottom).IsLessOrEqualThan(row.Top + 0.5);
 
         _output.WriteLine($"at {scale:0.0}x: chip {Box(chip)}; hint {Box(hint)}; disc {Box(disc)}; "
-            + $"hint to close {FitText.Dip(disc.Left - hint.Right)} DIP; "
-            + $"chip to hit circle {FitText.Dip(clearance)} DIP; chip text {FitText.Dip(natural)} DIP");
+            + $"row {Box(row)}; chip to hit circle {FitText.Dip(clearance)} DIP; chip text {FitText.Dip(natural)} DIP");
+    }
+
+    /// <summary>
+    /// F-CORNER: the same keep-out the pure layout computes, read back from the DRAWN tree at
+    /// 1.0 and the owner's 200 %: every tile face starts below the ✕'s painted box, so no face —
+    /// and therefore no registered dwell target, and no thumbnail (which fits inside its face)
+    /// can be under the escape. The 16 DIP face margin is dead space, so the face bound is the
+    /// conservative one.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void Tiles_NeverReachTheCloseDisc_OnTheDrawnGrid(double scale)
+    {
+        using var laid = Laid.Open(Windows(64), scale: scale);
+        laid.RegisterFaces(Capacity);
+
+        var disc = laid.Bounds(laid.Find<Border>(laid.Root, "CloseButton")!);
+        var messages = new List<string>();
+        foreach (var slot in laid.Faces())
+        {
+            var face = laid.Bounds(slot.Border);
+            if (face.Top < TaskSwitcherLayout.TilesTopMinimum + TaskSwitcherLayout.TileFaceMarginDip - 0.5)
+                messages.Add($"a face at {Box(face)} starts above the ✕ keep-out");
+            if (face.IntersectsWith(disc))
+                messages.Add($"a face {Box(face)} intersects the ✕ {Box(disc)}");
+        }
+
+        Check.WithCustomMessage($"At {scale:0.0}x: " + string.Join("; ", messages)).That(messages).IsEmpty();
+
+        // The escape itself: the disc's centre is the shared corner offset (53 DIP from both edges).
+        Check.That(disc.Left + (disc.Width / 2)).IsCloseTo(ScreenWidth - UIConstants.BackdropHideButtonOffset, 0.5);
+        Check.That(disc.Top + (disc.Height / 2)).IsCloseTo(UIConstants.BackdropHideButtonOffset, 0.5);
     }
 
     /// <summary>
@@ -598,11 +640,16 @@ public class TaskSwitcherTileStatesWindowTests
         }
     }
 
-    private static void AssertSameDiscPosition(Point reference, Point measured, string what, double scale) =>
+    private static void AssertSameDiscPosition(Point reference, Point measured, string what, double scale)
+    {
         Check.WithCustomMessage(
                 $"At {scale:0.0}x the ✕ moved when {what} appeared: {Point(reference)} → {Point(measured)}. "
                 + "It is the escape; it must be where it was last time.")
             .That(measured.X).IsCloseTo(reference.X, 0.5);
+        Check.WithCustomMessage(
+                $"At {scale:0.0}x the ✕ moved vertically when {what} appeared: {Point(reference)} → {Point(measured)}.")
+            .That(measured.Y).IsCloseTo(reference.Y, 0.5);
+    }
 
     private static Point DiscCentre(Laid laid)
     {
@@ -771,7 +818,15 @@ public class TaskSwitcherTileStatesWindowTests
                     TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip));
             }
 
-            ViewModel.UpdateCloseButtonPosition(new PhysicalPoint(960, 1120));
+            // The close disc's REAL drawn centre, pushed the way the View pushes it (physical
+            // pixels): the corner host's centre × the render scale. Reading it from the tree — not
+            // restating a point — is what lets the chip/tile pins describe the actual escape.
+            var closeHost = Find<Border>(Root, "CloseButton")
+                ?? throw new InvalidOperationException("The switcher has no Border named CloseButton.");
+            var close = Bounds(closeHost);
+            ViewModel.UpdateCloseButtonPosition(new PhysicalPoint(
+                (close.Left + (close.Width / 2)) * _scale,
+                (close.Top + (close.Height / 2)) * _scale));
 
             // The chip's Visibility follows the count, which is only known here: the row must be
             // laid out again before its geometry means anything (production does this implicitly —

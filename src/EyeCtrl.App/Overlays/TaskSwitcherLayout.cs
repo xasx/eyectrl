@@ -1,17 +1,19 @@
 namespace EyeCtrl.App.Overlays;
 
 using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels;
 
 /// <summary>
 /// Pure DIP geometry for the fullscreen task switcher: the area the tile grid may occupy, how
 /// many full columns and rows fit there, and where the centred block and the bottom hint row go.
 ///
 /// <para>
-/// The area starts clear of the docked toolbar band (its REAL band plus a clearance gap), the
-/// bottom hint row and the screen edges. Only full rows are laid out — a row that does not fit is
-/// not drawn, exactly like the viewport clamp in <see cref="TaskSwitcherWindow.VisibleTileRect"/>
-/// — and the block of shown rows is centred in the remaining space, horizontally and vertically.
-/// No WPF type crosses this seam, so the arithmetic unit-tests headlessly at any DPI.
+/// The area starts clear of the ✕ in the top-right corner, the docked toolbar band (its REAL
+/// band plus a clearance gap), the bottom hint row and the screen edges. Only full rows are laid
+/// out — a row that does not fit is not drawn, exactly like the viewport clamp in
+/// <see cref="TaskSwitcherWindow.VisibleTileRect"/> — and the block of shown rows is centred in
+/// the remaining space, horizontally and vertically. No WPF type crosses this seam, so the
+/// arithmetic unit-tests headlessly at any DPI.
 /// </para>
 /// </summary>
 internal static class TaskSwitcherLayout
@@ -45,11 +47,40 @@ internal static class TaskSwitcherLayout
     internal const double ToolbarGap = 24;
 
     /// <summary>
-    /// The bottom hint/close row's height: the 100 DIP close disc (2 x the 50 DIP hit radius) plus
-    /// its 12 DIP top and bottom margins. The window pins its row to this height, so the area
-    /// arithmetic below is the layout WPF actually performs.
+    /// How far the close disc's painted halo reaches past its rim, in DIP, for the keep-out
+    /// arithmetic. Conservative by 1.5 DIP: <c>DwellArcButton</c>'s 3 DIP StrokeHalo is inset by
+    /// WPF's stroke rendering, so the real painted edge is +2.5 DIP (the pre-F-CORNER wording said
+    /// "4 DIP" as if the stroke reached its full width outside the rim). The keep-out may stay
+    /// conservative — an extra 1.5 DIP of dead band costs nothing, a clipped halo does.
     /// </summary>
-    internal const double HintRowHeight = 124;
+    internal const double CloseHaloDip = 4;
+
+    /// <summary>
+    /// The bottom edge of the ✕'s painted box, DIP from the screen's top edge:
+    /// <see cref="UIConstants.BackdropHideButtonOffset"/> (53, the shared corner offset the owner
+    /// chose) + the r50 disc (<see cref="UIConstants.ButtonRadius"/>) + the conservative halo
+    /// (<see cref="CloseHaloDip"/>) = 107. Tiles must start below this: the ✕ is the escape, and a
+    /// tile under it would be a misfire (F-CORNER).
+    /// </summary>
+    internal const double CloseKeepOutBottom =
+        UIConstants.BackdropHideButtonOffset + UIConstants.ButtonRadius + CloseHaloDip;
+
+    /// <summary>
+    /// The tile area's minimum top: <see cref="CloseKeepOutBottom"/> plus
+    /// <see cref="ToolbarGap"/> = 131 DIP. It holds for every dock and at every rung of the
+    /// degradation ladder — the ✕ is never dropped, because it is the only non-switching exit.
+    /// </summary>
+    internal const double TilesTopMinimum = CloseKeepOutBottom + ToolbarGap;
+
+    /// <summary>
+    /// The bottom hint row's height: the hint text's one-line height at the shipped 14 DIP
+    /// body-large size (18.62 DIP for both "Segoe UI Variable Text" and its "Segoe UI" fallback)
+    /// plus its 12 DIP top and bottom margins. F-CORNER moved the ✕ out of this row to the
+    /// top-right corner, so the row is text(-and-chip) only and shrank from 124 DIP to this;
+    /// <c>TaskSwitcherWindowLayoutTests</c> holds the number against what WPF actually lays out,
+    /// which is what makes the area arithmetic below the layout WPF performs.
+    /// </summary>
+    internal const double HintRowHeight = 18.62 + 24;
 
     /// <summary>A rectangle in DIP.</summary>
     internal readonly record struct DipRect(double X, double Y, double Width, double Height)
@@ -83,9 +114,11 @@ internal static class TaskSwitcherLayout
     /// live target is the ✕, so when the keep-out leaves no full row or no full column the layout
     /// relaxes in a fixed order and stops as soon as one row x one column fits: (1) drop the
     /// clearance gap, (2) drop the 40 DIP edge margins, (3) drop the toolbar keep-out entirely. The
-    /// last step is the only one that can put a tile under the band; T1's landing guard still
-    /// protects the opening look there. On the owner's screen a 200 DIP band leaves 4 full rows of
-    /// the 182 DIP cell, so the ladder only runs on degenerate displays.
+    /// ✕'s own keep-out (<see cref="TilesTopMinimum"/>) is NEVER dropped: the ✕ is the escape, and
+    /// a tile under it would make the escape a misfire. The last step is the only one that can put
+    /// a tile under the toolbar band; T1's landing guard still protects the opening look there. On
+    /// the owner's screen a 200 DIP band leaves 5 full rows of the 182 DIP cell (the text-only hint
+    /// row bought the fifth back), so the ladder only runs on degenerate displays.
     /// </para>
     /// </summary>
     internal static Result Compute(
@@ -144,6 +177,12 @@ internal static class TaskSwitcherLayout
                     break;
             }
         }
+
+        // F-CORNER: the ✕ sits at (screen width − 53, 53), and its disc + halo reach 107 DIP down
+        // from the top edge. Every rung of the ladder keeps this floor, whatever the dock and
+        // whether or not the toolbar band / edge margins are still applied: a tile under the ✕
+        // would be switched by a gaze aimed at the escape (the owner controls the PC by eye).
+        top = Math.Max(top, TilesTopMinimum);
 
         // Degenerate displays: never hand WPF a negative area (it would arrange outside the window
         // and register targets on nothing). A zero area simply has zero capacity.

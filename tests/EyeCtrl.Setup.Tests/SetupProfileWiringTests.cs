@@ -64,55 +64,127 @@ public class SetupProfileWiringTests
     }
 
     [Fact]
+    public void ProductionPaths_KeepTheSetupRulesProfileInstance()
+    {
+        // H1.4 (fixup 03): a behavioural pin that no regex can be talked out of and no spelling
+        // can evade — the layout Setup actually composes with carries the resolver instance it was
+        // built from. In a Debug test host the App rule and the Setup rule produce equal VALUES;
+        // only object identity tells them apart.
+        var paths = SetupComposition.ProductionPaths();
+
+        Check.That(paths.Profile).IsNotNull();
+        Check.That(ReferenceEquals(paths.Profile, ProfileLocation.CurrentSetup)).IsTrue();
+        Check.That(ReferenceEquals(paths.Profile, ProfileLocation.Current)).IsFalse();
+
+        // The session mutex name is derived from that same instance.
+        Check.That(ReferenceEquals(SetupSessionGuard.SessionProfile, paths.Profile)).IsTrue();
+        Check.That(SetupSessionGuard.SessionMutexName)
+            .IsEqualTo(paths.Profile!.SetupSessionMutexName);
+    }
+
+    [Fact]
     public void SetupSources_UseTheSetupRule_AndNeverTheAppRule()
     {
-        // G1(a): every Setup source derives its profile from SetupProcessProfile. The App rule may
-        // appear ONLY on the AppProbeMutexName declaration (the App's own session name, which the
-        // pre-hand-off probe must use), and the parameterless marker constructor is forbidden (G2).
+        // G1(a) / fixup 03 H1/H2. The App rule is allowed at exactly ONE place: the App's own
+        // pre-hand-off session name (`SetupSessionGuard.AppProbeMutexName`). Everything is matched
+        // over the whole comment-stripped text, so a line break before the dot (E3), a static
+        // import (E1) or a type alias (E2) cannot slip through, and the exemption is the exact
+        // declaration rather than any line that merely contains its name (H1.3).
         var repo = InstalledProductProfile.FindRepoRoot();
         var sourceRoot = Path.Combine(repo, "src", "EyeCtrl.Setup");
         Check.WithCustomMessage($"source folder not found: {sourceRoot}")
             .That(Directory.Exists(sourceRoot)).IsTrue();
 
+        var appProbeDeclaration = new Regex(
+            @"public\s+static\s+string\s+AppProbeMutexName\s*=>\s*"
+            + @"ProfileLocation\s*\.\s*Current\.SetupSessionMutexName\s*;",
+            RegexOptions.Singleline);
+
+        // \s matches newlines too (E3: `ProfileLocation` newline `.Current`).
+        var appRule = new Regex(@"ProfileLocation\s*\.\s*Current(?!Setup)\b");
+        var setupRule = new Regex(@"ProfileLocation\s*\.\s*CurrentSetup\b");
+        var staticImport = new Regex(@"using\s+static\s+[\w.]*ProfileLocation\s*;");
+        var aliasImport = new Regex(@"using\s+\w+\s*=\s*[\w.]*ProfileLocation\s*;");
+        var coreAppRuleDefaults = new (string Token, string Why)[]
+        {
+            ("FileHeldButtonMarker.DefaultPath", "the App rule's marker folder"),
+            ("SettingsService.WriterMutexName", "the App rule's settings-writer mutex"),
+            ("SingleInstanceGuard.DefaultMutexName", "the App rule's singleton mutex"),
+        };
+        var defaultMarker = new Regex(@"new\s+FileHeldButtonMarker\s*\(\s*(?:\)|null\s*\))");
+
         var violations = new List<string>();
         foreach (var file in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(repo, file);
-            var lines = StripCSharpComments(File.ReadAllText(file)).Split('\n');
-            for (var index = 0; index < lines.Length; index++)
+            var code = StripCSharpComments(File.ReadAllText(file));
+            // Remove exactly the one legitimate declaration; anything else remains scannable.
+            var scannable = appProbeDeclaration.Replace(code, "/* app probe's named exemption */");
+
+            foreach (Match match in staticImport.Matches(scannable))
             {
-                var line = lines[index].TrimEnd('\r');
-                var where = $"{relative}:{index + 1}";
+                violations.Add(
+                    $"{relative}:{LineOf(scannable, match.Index)} uses 'using static …ProfileLocation'; " +
+                    "a static import hides the App rule (H1.2)");
+            }
 
-                if (Regex.IsMatch(line, @"ProfileLocation\.Current(?!Setup)")
-                    && !line.Contains("AppProbeMutexName", StringComparison.Ordinal))
+            foreach (Match match in aliasImport.Matches(scannable))
+            {
+                violations.Add(
+                    $"{relative}:{LineOf(scannable, match.Index)} aliases ProfileLocation; " +
+                    "an alias hides the App rule (H1.2)");
+            }
+
+            foreach (Match match in appRule.Matches(scannable))
+            {
+                violations.Add(
+                    $"{relative}:{LineOf(scannable, match.Index)} uses ProfileLocation.Current (the App " +
+                    "rule); Setup must use SetupProcessProfile.Location (the Setup rule)");
+            }
+
+            if (!relative.EndsWith("SetupProcessProfile.cs", StringComparison.Ordinal))
+            {
+                foreach (Match match in setupRule.Matches(scannable))
                 {
                     violations.Add(
-                        $"{where} uses ProfileLocation.Current (the App rule); Setup must use " +
-                        "SetupProcessProfile.Location (the Setup rule)");
+                        $"{relative}:{LineOf(scannable, match.Index)} names ProfileLocation.CurrentSetup " +
+                        "directly; route it through SetupProcessProfile so the process has one profile source");
                 }
+            }
 
-                if (Regex.IsMatch(line, @"ProfileLocation\.CurrentSetup")
-                    && !relative.EndsWith("SetupProcessProfile.cs", StringComparison.Ordinal))
+            foreach (var (token, why) in coreAppRuleDefaults)
+            {
+                if (scannable.Contains(token, StringComparison.Ordinal))
                 {
                     violations.Add(
-                        $"{where} names ProfileLocation.CurrentSetup directly; route it through " +
-                        "SetupProcessProfile so the process has one profile source");
+                        $"{relative} uses {token} ({why}); derive it from SetupProcessProfile.Location");
                 }
+            }
 
-                if (Regex.IsMatch(line, @"new\s+FileHeldButtonMarker\s*\(\s*\)"))
-                {
-                    violations.Add(
-                        $"{where} builds the held-button marker from the App rule; pass " +
-                        "SetupPaths.AppDataRoot (the Setup profile)");
-                }
+            foreach (Match match in defaultMarker.Matches(scannable))
+            {
+                violations.Add(
+                    $"{relative}:{LineOf(scannable, match.Index)} builds the held-button marker from the " +
+                    "App-rule default; pass SetupPaths.AppDataRoot (the Setup profile)");
             }
         }
 
         Check.WithCustomMessage(
-                "These Setup sources bypass the Setup profile rule (fixup 02 G1/G2):\n"
+                "These Setup sources bypass the Setup profile rule (fixup 02 G1/G2, fixup 03 H1/H2):\n"
                 + string.Join("\n", violations))
             .That(violations).IsEmpty();
+    }
+
+    private static int LineOf(string text, int index)
+    {
+        var line = 1;
+        for (var i = 0; i < index && i < text.Length; i++)
+        {
+            if (text[i] == '\n')
+                line++;
+        }
+
+        return line;
     }
 
     /// <summary>Removes line (<c>//</c>, <c>///</c>) and block (<c>/* */</c>) comments, preserving

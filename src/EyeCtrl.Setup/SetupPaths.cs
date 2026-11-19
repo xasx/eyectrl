@@ -17,6 +17,13 @@ public sealed class SetupPaths
     /// <c>EyeCtrl</c> (default, unchanged for the tests' fake roots) or <c>EyeCtrl.Dev</c> for a
     /// dev build. Production passes the resolver's folder via <see cref="FromProfile"/>.</param>
     public SetupPaths(string programFilesRoot, string appDataRoot, string localAppDataRoot, string? profileFolderName = null)
+        : this(programFilesRoot, appDataRoot, localAppDataRoot, profileFolderName, profile: null)
+    {
+    }
+
+    private SetupPaths(
+        string programFilesRoot, string appDataRoot, string localAppDataRoot,
+        string? profileFolderName, ProfileLocation? profile)
     {
         ProgramFilesRoot = Normalize(programFilesRoot);
         AppDataRoot = Normalize(Path.Combine(appDataRoot, profileFolderName ?? "EyeCtrl"));
@@ -28,6 +35,7 @@ public sealed class SetupPaths
         StagingRoot = Path.Combine(ProgramFilesRoot, SetupConstants.StagingFolderName);
         FailedRoot = Path.Combine(ProgramFilesRoot, SetupConstants.FailedFolderName);
         RunRoot = Path.Combine(ProgramFilesRoot, SetupConstants.RunFolderName);
+        Profile = profile;
     }
 
     /// <summary>
@@ -43,7 +51,16 @@ public sealed class SetupPaths
         profile.ProgramFilesRoot,
         profile.RoamingRoot,
         profile.LocalAppDataRoot,
-        profile.FolderName);
+        profile.FolderName,
+        profile);
+
+    /// <summary>
+    /// The resolver instance this layout was built from, or null for a layout built from raw
+    /// strings (tests). <see cref="FromProfile"/> keeps it so a behavioural test can pin WHICH
+    /// resolution fed the Setup paths — object identity, because in a Debug test host the App
+    /// rule and the Setup rule produce equal values.
+    /// </summary>
+    public ProfileLocation? Profile { get; }
 
     /// <summary>The Program Files root (no trailing separator).</summary>
     public string ProgramFilesRoot { get; }

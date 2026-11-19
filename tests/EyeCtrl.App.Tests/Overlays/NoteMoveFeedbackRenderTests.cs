@@ -102,9 +102,9 @@ public class NoteMoveFeedbackRenderTests
         using (var context = visual.RenderOpen())
         {
             DrawPage(context, new Size(local.Width, local.Height));
-            context.PushOpacity(0.6); // the Move state's dim, as the owner sees it
+            // The Move dim lives on the card's own elements now (F1), not on the window: the
+            // canvas renders the dimmed card and the full-opacity hint and discs as they are.
             context.DrawRectangle(CanvasBrush(canvas, local), null, new Rect(0, 0, local.Width, local.Height));
-            context.Pop();
         }
         return Bitmap(visual, local.Width, local.Height);
     }

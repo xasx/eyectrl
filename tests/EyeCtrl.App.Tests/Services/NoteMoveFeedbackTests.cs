@@ -27,8 +27,10 @@ using Xunit;
 /// Sitting 9, row c — the Move feedback the owner asked for ("the move indicator has no
 /// Feedback. Also, use a familiar control."):
 /// <list type="bullet">
-/// <item>the dimmed card's HINT — "Schau dorthin, wo die Notiz hin soll" — at the note text size,
-/// SemiBold, inside the text column; gone on every exit and never over the Move controls;</item>
+/// <item>the dimmed card's HINT — the German instruction "Auf den neuen Platz für die Notiz
+/// schauen" — at the note text size, SemiBold, inside the text column and inside the card's
+/// border; it stays at full opacity while the card's own content dims (F1), is gone on every
+/// exit and never covers the Move controls;</item>
 /// <item>the SETTLE RING + DASHED LANDING PREVIEW — appears only after the settle window has held
 /// ~150 ms, its arc follows the tracker's progress, its dashed rect IS the placement the real
 /// re-anchor derives, it holds the accepted spot while the place disc is up, and it hides on an
@@ -47,6 +49,10 @@ using Xunit;
 public class NoteMoveFeedbackTests
 {
     private const double TextSize = NoteSettings.DefaultTextSizeDip;
+
+    private readonly ITestOutputHelper _output;
+
+    public NoteMoveFeedbackTests(ITestOutputHelper output) => _output = output;
 
     // ── the hint ──
 
@@ -68,7 +74,7 @@ public class NoteMoveFeedbackTests
             var hint = window.MoveHintTextForTest;
             Check.WithCustomMessage("the Move state must show the hint line").That(hint).IsNotNull();
             Check.WithCustomMessage("the hint must carry the German line the owner asked for")
-                .That(hint!.Text).IsEqualTo("Schau dorthin, wo die Notiz hin soll");
+                .That(hint!.Text).IsEqualTo("Auf den neuen Platz für die Notiz schauen");
             Check.WithCustomMessage("the hint reads at the note's own text size")
                 .That(hint.FontSize).IsEqualTo(TextSize);
             Check.WithCustomMessage("the hint is an instruction: SemiBold")
@@ -77,8 +83,15 @@ public class NoteMoveFeedbackTests
             var placement = manager.PlacementForTest(id)!;
             var box = window.MoveHintForTest!;
             var local = new Rect(Canvas.GetLeft(box), Canvas.GetTop(box), box.Width, box.Height);
+            var card = NoteLayout.RectLocal(placement);
             Check.WithCustomMessage("the hint box must stay inside the card")
-                .That(NoteLayout.RectLocal(placement).Contains(local)).IsTrue();
+                .That(card.Contains(local)).IsTrue();
+            // F1: the plate is inset by the card's border, so the left and bottom border lines
+            // stay unbroken around it.
+            Check.WithCustomMessage("the hint plate must start inside the card's left border")
+                .That(local.Left).IsStrictlyGreaterThan(card.Left);
+            Check.WithCustomMessage("the hint plate must end inside the card's bottom border")
+                .That(local.Bottom).IsStrictlyLessThan(card.Bottom);
 
             // The hint owns no dwell target and never reaches the control column: neither Move
             // cell may intersect it, whatever side the card is on.
@@ -89,6 +102,110 @@ public class NoteMoveFeedbackTests
                     LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
                 Check.WithCustomMessage($"the hint must leave the Move control in slot {slot} untouched")
                     .That(local.IntersectsWith(cell)).IsFalse();
+            }
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [StaFact]
+    public void TheMoveHint_StaysAtFullOpacity_WhileTheCardsOwnContentDims()
+    {
+        // F1: the Move dim lives on the card's own elements, never on the window. A
+        // window-level Opacity multiplies every child, so the hint (the one line the owner must
+        // read in Move) came out grey at 0.6 — the readability row the owner already failed.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            var window = manager.WindowForTest(id)!;
+
+            Check.WithCustomMessage("the window itself must never be dimmed")
+                .That(window.Opacity).IsEqualTo(1.0);
+            Check.WithCustomMessage("the hint plate must be at full opacity")
+                .That(window.MoveHintForTest!.Opacity).IsEqualTo(1.0);
+            Check.WithCustomMessage("the hint's EFFECTIVE opacity (window x plate) must be 1.0")
+                .That(window.Opacity * window.MoveHintForTest!.Opacity).IsEqualTo(1.0);
+            Check.WithCustomMessage("the card's border/background must dim to 0.6")
+                .That(window.CardBorderForTest!.Opacity).IsEqualTo(0.6);
+            Check.WithCustomMessage("the card's EFFECTIVE opacity (window x card) must be 0.6")
+                .That(window.Opacity * window.CardBorderForTest!.Opacity).IsEqualTo(0.6);
+            Check.WithCustomMessage("the body text (the card's content layer) must dim with the card")
+                .That(window.ContentBorderForTest!.Opacity).IsEqualTo(0.6);
+
+            var buttons = window.ButtonsForTest();
+            Check.WithCustomMessage("the Move discs stay crisp so they remain familiar controls")
+                .That(buttons[$"{id}:cancel"].Opacity).IsEqualTo(1.0);
+            Check.That(buttons[$"{id}:otherside"].Opacity).IsEqualTo(1.0);
+
+            // Leaving Move restores the card's own content.
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present); // Cancel
+            Check.That(manager.IsMoving).IsFalse();
+            Check.That(window.Opacity).IsEqualTo(1.0);
+            Check.WithCustomMessage("Display restores the card's full opacity")
+                .That(window.CardBorderForTest!.Opacity).IsEqualTo(1.0);
+            Check.That(window.ContentBorderForTest!.Opacity).IsEqualTo(1.0);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaTheory]
+    [InlineData(18)]
+    [InlineData(28)]
+    [InlineData(48)]
+    public void TheMoveHint_StaysInsideTheCard_AtEveryTextSize(double textSize)
+    {
+        // F3 addendum: the German instruction is 41 characters. It must wrap to at most two
+        // lines at 28 DIP in the 420 DIP text column, and the plate must stay inside the card —
+        // inside its border — at the smallest and largest sizes too.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new NoteSettings { TextSizeDip = (int)textSize };
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider, noteSettings: settings);
+
+        StringTable.Activate(GermanDraft.Table);
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            var window = manager.WindowForTest(id)!;
+            var text = window.MoveHintTextForTest!;
+            var box = window.MoveHintForTest!;
+            int lines = (int)Math.Round(text.DesiredSize.Height / text.LineHeight);
+            _output.WriteLine(
+                $"hint at {textSize} DIP: {lines} line(s), plate {box.Width:0}x{box.Height:0} DIP");
+
+            var card = NoteLayout.RectLocal(manager.PlacementForTest(id)!);
+            var local = new Rect(Canvas.GetLeft(box), Canvas.GetTop(box), box.Width, box.Height);
+            Check.WithCustomMessage($"at {textSize} DIP the hint plate must stay inside the card")
+                .That(card.Contains(local)).IsTrue();
+            Check.WithCustomMessage($"at {textSize} DIP the plate must start inside the card's left border")
+                .That(local.Left).IsStrictlyGreaterThan(card.Left);
+            Check.WithCustomMessage($"at {textSize} DIP the plate must end inside the card's bottom border")
+                .That(local.Bottom).IsStrictlyLessThan(card.Bottom);
+
+            foreach (var slot in NoteLayout.SlotsFor(NoteState.Move))
+            {
+                var (cx, cy) = NoteLayout.ButtonCenter(manager.PlacementForTest(id)!, slot);
+                var cell = new Rect(cx - (LayoutConstants.NoteCellDip / 2), cy - (LayoutConstants.NoteCellDip / 2),
+                    LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+                Check.WithCustomMessage($"at {textSize} DIP the hint must leave slot {slot} untouched")
+                    .That(local.IntersectsWith(cell)).IsFalse();
+            }
+
+            if (textSize == TextSize)
+            {
+                Check.WithCustomMessage("the German hint must wrap to at most two lines at 28 DIP")
+                    .That(lines).IsLessOrEqualThan(2);
             }
         }
         finally

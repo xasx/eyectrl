@@ -497,26 +497,30 @@ internal static class NoteLayout
 
     /// <summary>
     /// The Move hint's box in WINDOW-relative DIP: full width of the card's text column (plus its
-    /// margins), pinned to the card's bottom edge. The column is the strip the body text lives in
-    /// — on the side away from the control column — so the hint can never cover ⇄/⊘ or their hit
-    /// cells, whatever side the placement chose.
+    /// margins), pinned to the card's bottom edge and inset by the card's border thickness, so
+    /// the card's own left and bottom border lines stay unbroken around it. The column is the
+    /// strip the body text lives in — on the side away from the control column — so the hint can
+    /// never cover ⇄/⊘ or their hit cells, whatever side the placement chose.
     /// </summary>
     /// <param name="placement">The note's stored placement (which side the card is on).</param>
     /// <param name="textSizeDip">The note's body text size — the hint's font size.</param>
     /// <param name="textHeightDip">The measured wrapped height of the hint's text at the text
     /// column's width — the box grows with the lines the real face produces.</param>
-    public static Rect MoveHintRect(NotePlacement placement, double textSizeDip, double textHeightDip)
+    /// <param name="cardInsetDip">The card's border thickness in DIP: the plate starts inside it
+    /// on the left and bottom, so the border line is not painted over (sitting 9 fixup).</param>
+    public static Rect MoveHintRect(NotePlacement placement, double textSizeDip, double textHeightDip,
+        double cardInsetDip)
     {
         var card = RectLocal(placement);
         // The control column hugs the edge away from the tail: on a Left placement it is the
         // card's left strip, so the text column starts after it; otherwise the text column is
         // the card's left strip and the column sits on the right.
         bool columnOnLeft = placement.Side == NoteSide.Left;
-        double x = card.Left + (columnOnLeft ? LayoutConstants.NoteColumnWidthDip : 0);
+        double x = card.Left + (columnOnLeft ? LayoutConstants.NoteColumnWidthDip : 0) + cardInsetDip;
         double height = textHeightDip + (2 * MoveHintMarginDip);
         return new Rect(
             x,
-            card.Bottom - height,
+            card.Bottom - cardInsetDip - height,
             TextColumnWidthDip(textSizeDip) + (2 * MoveHintMarginDip),
             height);
     }

@@ -52,6 +52,12 @@ public class NoteWindow : OverlayWindow
     // footer in the card's text column. Tracked so a state change can take it down again.
     private Border? _moveHint;
     private TextBlock? _moveHintText;
+    // The card's own drawn pieces (sitting 9): the Move state dims THESE — border/background,
+    // body text, number tag and tail — to 0.6, while the hint plate and the Move discs stay at
+    // full opacity. A window-level Opacity dimmed every child, which made the hint grey.
+    private Border? _cardBorder;
+    private Polygon? _tail;
+    private const double MoveDimOpacity = 0.6;
     private NoteState _state;
     // T6 fixup-01: the tag elements are tracked so DrawBadge can replace them without a full Draw.
     private Border? _badgeTag;
@@ -204,6 +210,8 @@ public class NoteWindow : OverlayWindow
         _cellFills.Clear();
         _moveHint = null;
         _moveHintText = null;
+        _cardBorder = null;
+        _tail = null;
 
         // P3 D2: the card sits inside the window at the placement card origin (the tail zone
         // takes the strip on the anchor side); the pointer tail is drawn INSIDE the window.
@@ -230,6 +238,7 @@ public class NoteWindow : OverlayWindow
                 StrokeThickness = 1
             };
             _canvas.Children.Add(tail);
+            _tail = tail;
         }
 
         var bg = new Border
@@ -245,6 +254,7 @@ public class NoteWindow : OverlayWindow
         };
         Canvas.SetLeft(bg, cardLocal.Left); Canvas.SetTop(bg, cardLocal.Top);
         _canvas.Children.Add(bg);
+        _cardBorder = bg;
 
         // P4 D3: every hit-cell row gets its alpha-1 fill (P2 D2 layout rule 2 - the hit area
         // sits on alpha > 0 pixels even where its disc does not reach). Drawn once for ALL rows
@@ -277,6 +287,7 @@ public class NoteWindow : OverlayWindow
         UpdateContent();
         UpdateButtonVisibility();
         DrawBadge();
+        UpdateMoveDim();
     }
 
     /// <summary>
@@ -304,7 +315,10 @@ public class NoteWindow : OverlayWindow
         if (_badgeTag != null) { _canvas.Children.Remove(_badgeTag); _badgeTag = null; }
         if (_badgeLabel != null) { _canvas.Children.Remove(_badgeLabel); _badgeLabel = null; }
         if (_badgeNumber is not { } number || _state == NoteState.PendingUndo || _placement is not { } placement)
+        {
+            UpdateMoveDim();
             return;
+        }
 
         // Position: straddling the card's TOP edge at the TEXT-side end (the column hugs the
         // edge away from the tail), inset from the corner; on a Below placement the tail shares
@@ -363,6 +377,7 @@ public class NoteWindow : OverlayWindow
         Canvas.SetTop(label, cy - (ink.Top + (ink.Height / 2)));
         _canvas.Children.Add(label);
         _badgeLabel = label;
+        UpdateMoveDim();
     }
 
 
@@ -501,12 +516,20 @@ public class NoteWindow : OverlayWindow
     internal Border? MoveHintForTest => _moveHint;
     internal TextBlock? MoveHintTextForTest => _moveHintText;
 
+    /// <summary>Test accessors (sitting 9 F1): the card's own drawn pieces, whose opacity is the
+    /// Move dim — and the window's own Opacity, which is always 1.0 so it cannot multiply the
+    /// hint grey.</summary>
+    internal Border? CardBorderForTest => _cardBorder;
+    internal Border? ContentBorderForTest => _contentBorder;
+
     /// <summary>
-    /// Draws the Move hint (sitting 9, row c): one line at the note's text size and SemiBold —
-    /// "Schau dorthin, wo die Notiz hin soll" — as a footer at the bottom of the card's text
-    /// column, over a card-coloured plate so the note's own text stays visible above it. The
-    /// whole box lives inside the text column (never the control column), so ⇄/⊘ and their hit
-    /// cells are untouched whatever side the card is on.
+    /// Draws the Move hint (sitting 9, row c): one message at the note's text size and SemiBold —
+    /// the German instruction "Auf den neuen Platz für die Notiz schauen" — as a footer at the
+    /// bottom of the card's text column, over a card-coloured plate so the note's own text stays
+    /// visible above it. The whole box lives inside the text column (never the control column)
+    /// and inside the card's border, so ⇄/⊘, their hit cells and the card's left/bottom border
+    /// lines are untouched whatever side the card is on. It is NOT part of the Move dim (F1): the
+    /// owner must be able to read it.
     /// </summary>
     private void DrawMoveHint(NotePlacement placement)
     {
@@ -532,7 +555,7 @@ public class NoteWindow : OverlayWindow
         _moveHintText.Measure(new Size(column, double.PositiveInfinity));
         double textHeight = _moveHintText.DesiredSize.Height;
 
-        var rect = NoteLayout.MoveHintRect(placement, _textSize, textHeight);
+        var rect = NoteLayout.MoveHintRect(placement, _textSize, textHeight, GetBorderThickness().Left);
         _moveHint = new Border
         {
             Width = rect.Width,
@@ -677,9 +700,11 @@ public class NoteWindow : OverlayWindow
             UpdateContent();
             UpdateBorder();
             UpdateButtonVisibility();
-            // P3 D4: Move dims the card in place to 0.6 — the 0.85 of the gaze-chasing Move is
-            // gone with the follow loop; the card must visibly yield while its spot is decided.
-            Opacity = state == NoteState.Move ? 0.6 : 1.0;
+            // P3 D4 / sitting 9 fixup: Move dims the card's OWN content in place — the 0.85 of
+            // the gaze-chasing Move is gone with the follow loop, and the card must visibly
+            // yield while its spot is decided. The window itself is never dimmed: the hint (the
+            // one line the owner must read in Move) and the Move discs stay at full opacity.
+            UpdateMoveDim();
             // No SetOverlayInteraction call on any path (P1 D3): the base class already pinned
             // click-through:false + focusable:false in OnSourceInitialized, and the window stays
             // WS_EX_NOACTIVATE for life.
@@ -687,7 +712,24 @@ public class NoteWindow : OverlayWindow
     }
 
     /// <summary>
-    /// The ⌨ Show-keyboard control (slot 1) registers only while the keyboard is hidden (P1 D7);
+    /// The Move state's dim (sitting 9 fixup F1): the card's own content — its border and
+    /// background, the body text, the number tag and the tail — fades to
+    /// <see cref="MoveDimOpacity"/>, while the hint plate and the Move discs stay at full
+    /// opacity. The WINDOW is always 1.0: a window-level Opacity multiplies every child, so the
+    /// hint (the one thing the owner must read in Move) came out grey at 0.6.
+    /// </summary>
+    private void UpdateMoveDim()
+    {
+        double dim = _state == NoteState.Move ? MoveDimOpacity : 1.0;
+        Opacity = 1.0;
+        if (_cardBorder is not null) _cardBorder.Opacity = dim;
+        if (_tail is not null) _tail.Opacity = dim;
+        if (_contentBorder is not null) _contentBorder.Opacity = dim;
+        if (_badgeTag is not null) _badgeTag.Opacity = dim;
+        if (_badgeLabel is not null) _badgeLabel.Opacity = dim;
+    }
+
+    /// <summary>The ⌨ Show-keyboard control (slot 1) registers only while the keyboard is hidden (P1 D7);
     /// the manager calls this on entry into Edit and on every keyboard-probe change so the drawn
     /// buttons can never disagree with the registered dwell targets.
     /// </summary>
@@ -698,13 +740,12 @@ public class NoteWindow : OverlayWindow
 
     private void UpdateBorder() => Dispatcher.Invoke(() =>
     {
-        // P3 D2: the tail polygon may occupy slot 0 (it is drawn under the card), so the bg
-        // border is found by type, not by index.
-        var bg = _canvas.Children.OfType<Border>().FirstOrDefault();
-        if (bg != null)
+        // P3 D2: the tail polygon may occupy slot 0, so the card's background border is tracked
+        // as a field (Draw assigns it) rather than found by type among the canvas children.
+        if (_cardBorder is not null)
         {
-            bg.BorderBrush = GetBorderBrush();
-            bg.BorderThickness = GetBorderThickness();
+            _cardBorder.BorderBrush = GetBorderBrush();
+            _cardBorder.BorderThickness = GetBorderThickness();
         }
     });
 

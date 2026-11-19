@@ -61,7 +61,7 @@ public class NoteGateCensusTests
         ["EyeCtrl.App/Overlays/NoteNoticeWindow.cs"] = (
             "occluder", "visible bounds via the manager seam while the capacity notice shows (P4 D4)"),
         ["EyeCtrl.App/Overlays/NoteMovePreviewWindow.cs"] = (
-            "exempt", "shown only during the moving note's own Move (sitting 9), which the gate already handles as its note-move suspension: it is click-through, owns no dwell target, and never covers another note's card (it hugs the settle anchor and the moving note's own landing spot)"),
+            "exempt", "shown only during the moving note's own Move (sitting 9), which the gate already handles as its note-move suspension: it is click-through and owns no dwell target, and while a Move runs no other note's targets are registered (Move is exclusive) — so a dashed landing outline that happens to lie over another note can neither take a click nor fire a dwell"),
         ["EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs"] = (
             "occluder", "the instrumented button's rects via LagMarkBridge.LiveTargetRects"),
         ["EyeCtrl.App/Overlays/TrackStatusWindow.xaml"] = (

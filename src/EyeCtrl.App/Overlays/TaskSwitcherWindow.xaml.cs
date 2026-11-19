@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,7 +8,9 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using EyeCtrl.App.Services;
-using EyeCtrl.Controls.Theme;
+using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Platform.Icons;
@@ -50,6 +53,23 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     private TaskSwitcherViewModel? _viewModel;
     private IAppIconProvider? _iconProvider;
     private IWindowThumbnailService? _thumbnailService;
+
+    /// <summary>
+    /// The shared gaze disc drawn into <c>CloseLayer</c> — the same <see cref="DwellArcButton"/>
+    /// every edge-bar exit uses (bold <see cref="ActionIcon.Close"/> at
+    /// <see cref="DwellArcButton.IconSize.Solo"/>, a 2 DIP rim with its dark halo, and the rim-arc
+    /// progress). It replaced a hand-made Border + text "✕" + straight bottom bar, whose silhouette
+    /// was the one close control in the app that did not match the rest.
+    /// </summary>
+    private DwellArcButton? _closeDisc;
+
+    /// <summary>
+    /// The view model whose <see cref="TaskSwitcherViewModel.CloseDwellProgress"/> and
+    /// <see cref="TaskSwitcherViewModel.CloseDwellPaused"/> drive the disc. Kept separately from
+    /// <see cref="_viewModel"/> (which only <see cref="Configure"/> sets) because a test may bind a
+    /// DataContext directly, and the disc must follow exactly the VM it is showing.
+    /// </summary>
+    private TaskSwitcherViewModel? _closeViewModel;
 
     /// <summary>
     /// The live DWM thumbnails of THIS show, one entry per window tile that got a picture (S4-C).
@@ -97,9 +117,14 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     {
         InitializeComponent();
 
-        // The close glyph fills the whole disc, so it takes the Dominant ratio. Assigned here
-        // rather than in XAML because XAML cannot multiply (QuickActionsGridWindow pattern).
-        CloseGlyph.FontSize = CloseButtonSize * ContainerRatio.Dominant;
+        // The close disc is the shared DwellArcButton, drawn at this host's centre so the drawn
+        // disc IS the registered r50 hit circle. The 100 DIP host only reserves the layout slot;
+        // its Canvas exists so the disc's halo can reach past the host without clipping.
+        CreateCloseDisc();
+
+        // A VM bound after construction (Configure, or a test's DataContext) drives the disc's
+        // progress and held look.
+        DataContextChanged += OnDataContextChanged;
 
         // Pin the hint row to the height TaskSwitcherLayout reserves for it. An Auto row measures
         // the same today (the 100 DIP disc plus its 12 DIP top/bottom margins), but the tile area's
@@ -111,6 +136,77 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // in ONE finished frame (no flash on opening), so the transition is off for this HWND's
         // lifetime — the GlassBackdropWindow precedent.
         SourceInitialized += DisableTransitionsAtHandleCreation;
+    }
+
+    /// <summary>
+    /// The disc this window draws for its close target. Exposed to the harness so the anatomy
+    /// (icon, rim, halo, arc) is read off the object the window painted, never restated.
+    /// </summary>
+    internal DwellArcButton? CloseDisc => _closeDisc;
+
+    /// <summary>
+    /// Builds the close disc into <c>CloseLayer</c>: the shared escape-hatch shape of every edge
+    /// exit — <see cref="ActionIcon.Close"/> at <see cref="DwellArcButton.IconSize.Solo"/>, the
+    /// 2 DIP rim plus its dark halo, and the rim arc. Created at the host's centre with the shared
+    /// r50 radius, so the drawn disc and the registered hit circle are the same geometry (B8).
+    /// The UIA name is read once from the string table, exactly like the old
+    /// <c>{loc:T 'overlays.edge.close'}</c> glyph binding (restart-to-apply language model).
+    /// </summary>
+    private void CreateCloseDisc()
+    {
+        CloseLayer.Children.Clear();
+        var centre = new Point(UIConstants.ButtonRadius, UIConstants.ButtonRadius);
+        _closeDisc = DwellArcButton.Create(
+            centre,
+            UIConstants.ButtonRadius,
+            symbol: null,
+            icon: ActionIcons.For(ActionIcon.Close),
+            iconSize: DwellArcButton.IconSize.Solo,
+            accessibleName: StringTable.Current.T("overlays.edge.close"));
+        _closeDisc.AddTo(CloseLayer);
+        ApplyCloseDiscState();
+    }
+
+    /// <summary>
+    /// Attaches the close disc to whichever view model the DataContext now holds. Detaching the
+    /// previous VM first keeps a re-bind (or a re-Configure) from double-subscribing, and makes a
+    /// newly bound VM's current progress/paused state the disc's initial state.
+    /// </summary>
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_closeViewModel is not null)
+            _closeViewModel.PropertyChanged -= OnCloseViewModelPropertyChanged;
+
+        _closeViewModel = e.NewValue as TaskSwitcherViewModel;
+
+        if (_closeViewModel is not null)
+            _closeViewModel.PropertyChanged += OnCloseViewModelPropertyChanged;
+
+        ApplyCloseDiscState();
+    }
+
+    /// <summary>
+    /// The ONLY route from the view model's close-dwell state to the drawn arc. A value change is
+    /// re-read from the VM rather than taken from the event, so an out-of-order notification can
+    /// never leave the arc describing an older state.
+    /// </summary>
+    private void OnCloseViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(TaskSwitcherViewModel.CloseDwellProgress)
+            or nameof(TaskSwitcherViewModel.CloseDwellPaused))
+        {
+            ApplyCloseDiscState();
+        }
+    }
+
+    /// <summary>
+    /// Pushes the bound VM's close-dwell state onto the disc: 0 (no arc) when nothing is dwelt,
+    /// and the held look whenever the VM says the dwell is paused.
+    /// </summary>
+    private void ApplyCloseDiscState()
+    {
+        _closeDisc?.UpdateProgress(_closeViewModel?.CloseDwellProgress ?? 0);
+        _closeDisc?.SetPaused(_closeViewModel?.CloseDwellPaused ?? false);
     }
 
     /// <summary>
@@ -339,6 +435,13 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
     protected override void OnClosed(EventArgs e)
     {
+        // The disc follows the session's VM only while this window is alive.
+        if (_closeViewModel is not null)
+        {
+            _closeViewModel.PropertyChanged -= OnCloseViewModelPropertyChanged;
+            _closeViewModel = null;
+        }
+
         UnregisterThumbnails();   // no DWM handle may outlive the window that owns it
         CancelPendingUncloak();   // no stray uncloak may fire on a closed window
         base.OnClosed(e);

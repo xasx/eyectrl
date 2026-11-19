@@ -21,14 +21,14 @@ using Xunit;
 /// over-large CornerRadius clamps to an inscribed ellipse.
 ///
 /// On a SQUARE element that is a circle, rendering pixel-identically to size / 2 — which is
-/// what makes the token size-independent, and what lets QuickActionsGridWindow's square close
-/// button drop its literal radius. On a non-square element it is an ellipse, NOT a stadium, which
-/// is why the token is named Circle rather than Pill.
+/// what makes the token size-independent, and what lets the Quick Actions tile face (its one
+/// constructed consumer) drop its literal radius. On a non-square element it is an ellipse, NOT
+/// a stadium, which is why the token is named Circle rather than Pill.
 ///
 /// Renders to a RenderTargetBitmap on an STA thread. No window is shown and no input is
 /// simulated — safe to run headless, and it carries no UI category so CI runs it.
 ///
-/// <see cref="TheOneCircleConsumer_IsSquare"/> constructs a window and therefore shares the WPF
+/// <see cref="TheConstructedCircleConsumer_IsSquare"/> constructs a window and therefore shares the WPF
 /// <see cref="Application"/> singleton (and the collection serialising access to it) with
 /// <see cref="OverlayResourceResolutionTests"/> — see <see cref="WpfApplicationGate"/>.
 /// </summary>
@@ -133,10 +133,10 @@ public class CornerRadiusClampTests
 
     /// <summary>
     /// The squareness rule, enforced over EVERY consumer rather than the one this branch knew
-    /// about. <see cref="TheOneCircleConsumer_IsSquare"/> below names <c>QuickActionsGridWindow</c>
-    /// and <c>CloseButton</c> in its own source, so a SECOND consumer added tomorrow — on a
-    /// 120x40 Border, say — inherits no guard at all and silently renders the ellipse the theory
-    /// above proves it becomes.
+    /// about. <see cref="TheConstructedCircleConsumer_IsSquare"/> below constructs the one
+    /// consumer a headless test can lay out, so a SECOND consumer added tomorrow — on a 120x40
+    /// Border, say — inherits a guard from this source scan and silently renders the ellipse the
+    /// theory above proves it becomes if it is not square.
     ///
     /// Source-scanned rather than constructed, deliberately. Constructing gives effective values
     /// and is the better instrument, which is why the named test keeps doing it; but it can only
@@ -227,14 +227,14 @@ public class CornerRadiusClampTests
     }
 
     [StaFact]
-    public void TheOneCircleConsumer_IsSquare()
+    public void TheConstructedCircleConsumer_IsSquare()
     {
-        // QuickActionsGridWindow's CloseButton is the one consumer of the square-only circle
-        // token. Task 8 replaced its literal CornerRadius="22" with the CircleCornerRadius
-        // resource, so the coupling this test's name claims is now ASSERTED here rather than
-        // deferred: the button must stay square AND must keep reading the token. Either half
-        // alone guards nothing — a square button off the token gains nothing from the clamp
-        // pinned above, and a non-square button on the token silently becomes an ellipse.
+        // The close button used to be the one consumer this test constructed: a 100 x 100 Border
+        // reading CornerRadiusCircle. It is now a DwellArcButton (the shared gaze disc) which
+        // draws its own Ellipse and reads no corner radius at all — so the constructed half moves
+        // to the consumer that remains constructible headlessly, the Quick Actions tile face. The
+        // quick-actions grid's close host is asserted NOT to read the token any more: a rounded
+        // square behind the drawn disc would be a second silhouette under the rim.
         //
         // Constructs the window instead of regex-parsing the XAML: that reads the EFFECTIVE
         // values, so it is immune to attribute reordering and also sees a radius or size
@@ -249,28 +249,36 @@ public class CornerRadiusClampTests
         var window = new QuickActionsGridWindow();
         try
         {
-            var button = window.FindName("CloseButton") as Border;
-            Check.WithCustomMessage(
-                    "QuickActionsGridWindow no longer has a Border named CloseButton.")
-                .That(button).IsNotNull();
+            var tiles = window.FindName("TilesControl") as ItemsControl;
+            Check.WithCustomMessage("QuickActionsGridWindow no longer has an ItemsControl named TilesControl.")
+                .That(tiles).IsNotNull();
+            Check.WithCustomMessage("TilesControl has no ItemTemplate to inspect.")
+                .That(tiles!.ItemTemplate).IsNotNull();
+
+            // Instantiating the DataTemplate reads its EFFECTIVE values without needing a bound
+            // item or a laid-out window — the tile Border is not a named element of the window
+            // itself, so FindName cannot reach it.
+            var tile = tiles.ItemTemplate.LoadContent() as Border;
+            Check.WithCustomMessage("The ItemTemplate's root is no longer a Border.")
+                .That(tile).IsNotNull();
 
             // Border.Width/Height default to NaN when unset, and NFluent's structural equality
             // routes through Equals, where double.NaN.Equals(double.NaN) is true — so the
-            // IsEqualTo(button.Height) check two lines down would stay green even if the
-            // explicit Width/Height were deleted from the XAML entirely, leaving an
-            // auto-sized (and therefore almost never square) Border. On such a Border,
-            // CornerRadiusCircle still renders — just as a pill, not a circle, which is the
-            // exact defect this test exists to catch. This assertion closes that gap.
+            // IsEqualTo(tile.Height) check below would stay green even if the explicit
+            // Width/Height were deleted from the XAML entirely, leaving an auto-sized (and
+            // therefore almost never square) Border. On such a Border, CornerRadiusCircle still
+            // renders — just as a pill, not a circle, which is the exact defect this test exists
+            // to catch. This assertion closes that gap.
             Check.WithCustomMessage(
-                    "CloseButton has no explicit size, so it auto-sizes — and CircleCornerRadius on a "
+                    "The tile face has no explicit size, so it auto-sizes — and CircleCornerRadius on a "
                     + "non-square element renders a pill, not a circle.")
-                .That(double.IsNaN(button!.Width)).IsFalse();
+                .That(double.IsNaN(tile!.Width)).IsFalse();
 
             Check.WithCustomMessage(
-                    "CloseButton must stay square, or CornerRadiusCircle renders an ellipse on "
+                    "The tile face must stay square, or CornerRadiusCircle renders an ellipse on "
                     + "it rather than a circle — see §4.1 and the theory above. Measured "
-                    + $"{button.Width}x{button.Height}.")
-                .That(button.Width).IsEqualTo(button.Height);
+                    + $"{tile.Width}x{tile.Height}.")
+                .That(tile.Width).IsEqualTo(tile.Height);
 
             // Compared against Tokens rather than a concrete theme because
             // OverlayStyles.xaml declares the key as {x:Static theme:Tokens.CircleCornerRadius}
@@ -279,10 +287,22 @@ public class CornerRadiusClampTests
             // three themes declare CornerRadiusCircle = 9999, so whichever theme a concurrent
             // ThemeStartupTests has activated, the expected value is the same.
             Check.WithCustomMessage(
-                    "CloseButton must read its radius from the CircleCornerRadius token, not a "
+                    "The tile face must read its radius from the CircleCornerRadius token, not a "
                     + "literal. Expected " + Tokens.CircleCornerRadius
-                    + $" but found {button.CornerRadius}.")
-                .That(button.CornerRadius).IsEqualTo(Tokens.CircleCornerRadius);
+                    + $" but found {tile.CornerRadius}.")
+                .That(tile.CornerRadius).IsEqualTo(Tokens.CircleCornerRadius);
+
+            // The close host no longer consumes the token: the disc is a DwellArcButton, whose
+            // Ellipse is the silhouette. A radius on the host would paint a rounded square under
+            // it, which is the very inconsistency the close-arc ticket removes.
+            var closeHost = window.FindName("CloseButton") as Border;
+            Check.WithCustomMessage("QuickActionsGridWindow no longer has a Border named CloseButton.")
+                .That(closeHost).IsNotNull();
+            Check.WithCustomMessage(
+                    "CloseButton reads CircleCornerRadius again: it is only the layout host for the "
+                    + "drawn close disc, so a radius there is a second silhouette under the rim. "
+                    + $"Measured {closeHost!.CornerRadius}.")
+                .That(closeHost.CornerRadius).IsEqualTo(new CornerRadius(0));
         }
         finally
         {

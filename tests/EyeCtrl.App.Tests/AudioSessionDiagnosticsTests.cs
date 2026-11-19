@@ -322,6 +322,38 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
+    public void EveryClickRetriesTheSessionEvents_UntilTheyAttach()
+    {
+        // Review-01 F3: winmm creates our session on the first PlaySound, so the first click's
+        // work can find no session and leave the first show blind for session state/volume and
+        // for the late metric. The second click must retry (queued, off the typing path).
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, true]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted(); // click 1
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsFalse();
+
+            AudioSessionDiagnostics.OnClickAttempted(); // click 2: the retry is queued
+            Check.That(Parked).HasSize(1);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsFalse(); // never inline
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(2);
+            Check.WithCustomMessage(
+                    "the second click did not retry the session registration — the first show "
+                    + "stays blind for session state, volume and the late metric (review-01 F3)")
+                .That(AudioSessionDiagnostics.SessionEventsAttached).IsTrue();
+
+            AudioSessionDiagnostics.OnClickAttempted(); // attached: no further retry
+            Check.That(Parked).IsEmpty();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
     public void Transitions_BeforeAnyClick_DoNothing()
     {
         var (reader, listener) = Configure();
@@ -399,7 +431,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         AudioSessionDiagnostics.OnClickPlayed();
         RunParkedWork();
 
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Reached).IsEqualTo(1);
         Check.That(counts.Silent).IsEqualTo(1);
         Check.That(counts.Pending).IsEqualTo(0);
@@ -421,7 +453,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
                 RunParkedWork();
             }
             Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(1);
-            Check.That(AudioSessionDiagnostics.TakeMeterCounts(10).Silent).IsEqualTo(3);
+            Check.That(AudioSessionDiagnostics.TakeMeterCounts().Silent).IsEqualTo(3);
             Check.That(reader.Reads).IsEqualTo(1); // the silent line cost exactly one state read
 
             // A new show opens a new window: its first silent click reports again.
@@ -451,7 +483,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         AudioSessionDiagnostics.OnClickPlayed();
         RunParkedWork();
 
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Reached).IsEqualTo(0);
         Check.That(counts.Silent).IsEqualTo(0);
         Check.That(counts.Pending).IsEqualTo(0);
@@ -465,10 +497,10 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         AudioSessionDiagnostics.OnShowStarted();
         AudioSessionDiagnostics.OnClickPlayed();
         RunParkedWork();
-        Check.That(AudioSessionDiagnostics.TakeMeterCounts(10).Reached).IsEqualTo(1);
+        Check.That(AudioSessionDiagnostics.TakeMeterCounts().Reached).IsEqualTo(1);
 
         AudioSessionDiagnostics.OnShowStarted(); // show 2, no clicks
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.WithCustomMessage("a reached click of the previous show leaked into the next show's line")
             .That(counts.Reached).IsEqualTo(0);
     }
@@ -480,13 +512,13 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         AudioSessionDiagnostics.OnShowStarted();
         AudioSessionDiagnostics.OnClickPlayed(); // parked: the sampler has not run yet
 
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Pending).IsEqualTo(1);
         Check.That(counts.Reached).IsEqualTo(0);
         Check.That(counts.Silent).IsEqualTo(0);
 
         RunParkedWork(); // the verdict lands late — the PENDING count is what the hide line saw
-        Check.That(AudioSessionDiagnostics.TakeMeterCounts(10).Reached).IsEqualTo(1);
+        Check.That(AudioSessionDiagnostics.TakeMeterCounts().Reached).IsEqualTo(1);
     }
 
     [Fact]
@@ -517,7 +549,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
             AudioSessionDiagnostics.AudioChangeKind.SessionState,
             AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
 
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Late).IsEqualTo(1);
         Check.That(counts.MaxLateMs).IsStrictlyGreaterThan(AudioSessionDiagnostics.LateStartThresholdMs - 1);
     }
@@ -534,7 +566,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
             AudioSessionDiagnostics.AudioChangeKind.SessionState,
             AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
 
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Late).IsEqualTo(0);
         Check.That(counts.MaxLateMs).IsStrictlyLessThan(AudioSessionDiagnostics.LateStartThresholdMs);
     }
@@ -551,7 +583,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         listener.Emit(new AudioSessionDiagnostics.AudioChange(
             AudioSessionDiagnostics.AudioChangeKind.SessionState,
             AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Late).IsEqualTo(0);
         Check.That(counts.MaxLateMs).IsEqualTo(0);
     }
@@ -569,9 +601,94 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
             AudioSessionDiagnostics.AudioChangeKind.SessionState,
             AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
 
-        var counts = AudioSessionDiagnostics.TakeMeterCounts(10);
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
         Check.That(counts.Late).IsEqualTo(0);
         Check.That(counts.MaxLateMs).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AClickWhileTheSessionIsAlreadyActive_QueuesNoUnmeasurableStart()
+    {
+        // Review-01 F4/R3: if the session is already Active (the previous click's tail, another
+        // sound), no new Active transition will arrive for THIS click. Queuing a stamp would make
+        // the next Active blame it — a phantom late.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        AudioSessionDiagnostics.OnClickPlayed(); // session already Active: no stamp may be queued
+        Thread.Sleep(AudioSessionDiagnostics.LateStartThresholdMs + 30);
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.WithCustomMessage(
+                "a click made while the session was already Active was measured by a later Active "
+                + "— the phantom late review-01 R3 describes")
+            .That(counts.Late).IsEqualTo(0);
+        Check.That(counts.MaxLateMs).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ANewShowDropsTheOldStamp_SoItsOwnClickKeepsItsOwnLatency()
+    {
+        // Review-01 F4/R5: each stamp carries its own window, but an old UNCONSUMED stamp would be
+        // popped by show 2's first Active, shifting show 2's own measurement by one. With the
+        // clear, show 2's click measures ~250 ms; without it, ~850 ms.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed(); // show 1: never went Active
+        Thread.Sleep(600);
+        AudioSessionDiagnostics.OnShowStarted(); // show 2 must drop show 1's stamp
+        AudioSessionDiagnostics.OnClickPlayed(); // show 2's own click
+        Thread.Sleep(250);
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Late).IsEqualTo(1);
+        Check.WithCustomMessage(
+                "show 2's Active measured show 1's stale stamp (review-01 R5: the show-start clear "
+                + "is gone)")
+            .That(counts.MaxLateMs).IsStrictlyLessThan(500);
+    }
+
+    [Fact]
+    public void AStampWhoseActiveWasNeverObserved_IsDroppedInsteadOfBlamingTheNextClick()
+    {
+        // Review-01 F4/R6: the stale-stamp guard, driven by the clock seam (no 3 s sleep).
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener
+        RunParkedWork();
+        long now = 0;
+        AudioSessionDiagnostics.TimestampProviderForTesting = () => now;
+        try
+        {
+            AudioSessionDiagnostics.OnShowStarted();
+            AudioSessionDiagnostics.OnClickPlayed(); // stamp at 0
+            now += System.Diagnostics.Stopwatch.Frequency * 4; // +4 s: its Active never came
+            listener.Emit(new AudioSessionDiagnostics.AudioChange(
+                AudioSessionDiagnostics.AudioChangeKind.SessionState,
+                AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+            var counts = AudioSessionDiagnostics.TakeMeterCounts();
+            Check.WithCustomMessage(
+                    "a 4 s stale stamp was measured instead of dropped (review-01 R6 guard gone)")
+                .That(counts.MaxLateMs).IsEqualTo(0);
+            Check.That(counts.Late).IsEqualTo(0);
+        }
+        finally
+        {
+            AudioSessionDiagnostics.TimestampProviderForTesting = null;
+        }
     }
 
     // ---- the owner-safety rule: a COM failure can never throw into the click path ----
@@ -734,7 +851,28 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         RunParkedWork();
 
         Check.That(meter.Calls).IsEqualTo(0); // the sampler never touched COM after the latch
-        Check.That(AudioSessionDiagnostics.TakeMeterCounts(10).Reached).IsEqualTo(0);
+        Check.That(AudioSessionDiagnostics.TakeMeterCounts().Reached).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ASamplerThatFinishesAfterShutdown_CountsNothingAndWritesNoSilentLine()
+    {
+        // Review-01 F5: the latch is checked before sampling, but a sample already in flight can
+        // finish after it. A real 0 from that sample must be dropped, not counted as silent and
+        // never turned into a COM read plus a silent line in a dying process.
+        var reader = new FakeReader();
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener: null, new ShutdownDuringSampleMeter());
+        try
+        {
+            AudioSessionDiagnostics.OnShowStarted();
+            AudioSessionDiagnostics.OnClickPlayed();
+            RunParkedWork();
+
+            Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(0);
+            Check.That(AudioSessionDiagnostics.TakeMeterCounts().Silent).IsEqualTo(0);
+            Check.That(reader.Reads).IsEqualTo(0);
+        }
+        finally { ResetStatics(); }
     }
 
     [Fact]
@@ -933,16 +1071,22 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         {
             var observer = new CoreAudioInterop.CoreAudioChangeObserver();
             Check.That(observer.TryRegister(_ => { })).IsTrue();
+            // Review-01 F4/R2: register ALL FOUR, the session events included, so the unregister
+            // pin covers the session quarter too (it survived when only three were asserted).
+            Check.That(observer.TryRegisterSessionEvents()).IsTrue();
+            Check.That(world.Session.SessionRegistrations).IsEqualTo(1);
 
             observer.Shutdown();
             Check.That(world.Enumerator.Unregistrations).IsEqualTo(1);
             Check.That(world.EndpointVolume.Unregistrations).IsEqualTo(1);
             Check.That(world.Manager.DuckUnregistrations).IsEqualTo(1);
+            Check.That(world.Session.SessionUnregistrations).IsEqualTo(1);
 
             observer.Shutdown(); // second: no-op
             Check.That(world.Enumerator.Unregistrations).IsEqualTo(1);
             Check.That(world.EndpointVolume.Unregistrations).IsEqualTo(1);
             Check.That(world.Manager.DuckUnregistrations).IsEqualTo(1);
+            Check.That(world.Session.SessionUnregistrations).IsEqualTo(1);
         }
         finally
         {
@@ -1022,10 +1166,12 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         public readonly FakeDeviceEnumerator Enumerator = new();
         public readonly FakeDevice Device;
         public readonly FakeEndpointVolume EndpointVolume = new();
-        public readonly FakeSessionManager Manager = new();
+        public readonly FakeSessionControl2 Session = new();
+        public readonly FakeSessionManager Manager;
 
         public FakeComWorld()
         {
+            Manager = new FakeSessionManager(Session);
             Device = new FakeDevice(EndpointVolume, Manager);
             Enumerator.Device = Device;
         }
@@ -1134,7 +1280,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         { minDb = 0; maxDb = 0; incrementDb = 0; return unchecked((int)0x80004005); }
     }
 
-    private sealed class FakeSessionManager : CoreAudioInterop.IAudioSessionManager2
+    private sealed class FakeSessionManager(FakeSessionControl2 session) : CoreAudioInterop.IAudioSessionManager2
     {
         public int DuckRegistrations;
         public int DuckUnregistrations;
@@ -1146,8 +1292,10 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
             out CoreAudioInterop.ISimpleAudioVolume audioVolume)
         { audioVolume = null!; return unchecked((int)0x80004005); }
 
+        // Review-01 F4/R2: a reachable session, so TryRegisterSessionEvents attaches and the
+        // shutdown pin can assert its unregistration too (the session quarter was unpinned).
         public int GetSessionEnumerator(out CoreAudioInterop.IAudioSessionEnumerator sessionEnumerator)
-        { sessionEnumerator = null!; return unchecked((int)0x80004005); }
+        { sessionEnumerator = new FakeSessionEnumerator(session); return 0; }
 
         public int RegisterSessionNotification(IntPtr sessionNotification) => unchecked((int)0x80004005);
         public int UnregisterSessionNotification(IntPtr sessionNotification) => unchecked((int)0x80004005);
@@ -1160,11 +1308,62 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         { DuckUnregistrations++; return 0; }
     }
 
+    private sealed class FakeSessionEnumerator(FakeSessionControl2 control) : CoreAudioInterop.IAudioSessionEnumerator
+    {
+        public int GetCount(out int sessionCount) { sessionCount = 1; return 0; }
+
+        public int GetSession(int sessionIndex, out CoreAudioInterop.IAudioSessionControl session)
+        { session = control; return 0; }
+    }
+
+    /// <summary>Our own session, as FindOwnSessionControl sees it: the process id matches and it
+    /// is not the system-sounds session. Records the session-events register/unregister pair.</summary>
+    private sealed class FakeSessionControl2
+        : CoreAudioInterop.IAudioSessionControl, CoreAudioInterop.IAudioSessionControl2
+    {
+        public int SessionRegistrations;
+        public int SessionUnregistrations;
+
+        public int GetState(out int state) { state = 1; return 0; }
+        public int GetDisplayName(out string displayName) { displayName = "EyeCtrl"; return 0; }
+        public int SetDisplayName(string displayName, ref Guid eventContext) => unchecked((int)0x80004001);
+        public int GetIconPath(out string iconPath) { iconPath = string.Empty; return 0; }
+        public int SetIconPath(string iconPath, ref Guid eventContext) => unchecked((int)0x80004001);
+        public int GetGroupingParam(out Guid groupingParam) { groupingParam = Guid.Empty; return 0; }
+        public int SetGroupingParam(ref Guid groupingParam, ref Guid eventContext) => unchecked((int)0x80004001);
+
+        public int RegisterAudioSessionNotification(CoreAudioInterop.IAudioSessionEvents events)
+        { SessionRegistrations++; return 0; }
+
+        public int UnregisterAudioSessionNotification(CoreAudioInterop.IAudioSessionEvents events)
+        { SessionUnregistrations++; return 0; }
+
+        public int GetSessionIdentifier(out string retVal) { retVal = "fake-session"; return 0; }
+        public int GetSessionInstanceIdentifier(out string retVal) { retVal = "fake-instance"; return 0; }
+        public int GetProcessId(out int processId) { processId = Environment.ProcessId; return 0; }
+
+        // S_FALSE: not the system-sounds session, so FindOwnSessionControl returns it.
+        public int IsSystemSoundsSession() => 1;
+
+        public int SetDuckingPreference(bool optOut) => unchecked((int)0x80004001);
+    }
+
     private sealed class ThrowingListener : AudioSessionDiagnostics.IAudioChangeListener
     {
         public bool TryRegister(Action<AudioSessionDiagnostics.AudioChange> onChangeLine) => throw new InvalidOperationException("com gone");
         public bool TryRegisterSessionEvents() => throw new InvalidOperationException("com gone");
         public void Shutdown() { }
+    }
+
+    /// <summary>Review-01 F5: a sampler that finishes AFTER the shutdown latch landed, with a
+    /// real 0 reading — the post-sample latch check is what keeps it out of the counts.</summary>
+    private sealed class ShutdownDuringSampleMeter : AudioSessionDiagnostics.IAudioMeterProbe
+    {
+        public float? SamplePeak(Func<bool> stop)
+        {
+            AudioSessionDiagnostics.Shutdown();
+            return 0f;
+        }
     }
 
     private sealed class BlockingListener(ManualResetEventSlim release) : AudioSessionDiagnostics.IAudioChangeListener

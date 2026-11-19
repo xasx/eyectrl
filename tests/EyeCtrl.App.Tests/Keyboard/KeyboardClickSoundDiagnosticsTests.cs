@@ -145,14 +145,22 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
-    public void TheHideLine_ReportsAPendingSample_AndDoesNotWaitForTheWholeMeterWindow()
+    public void TheHideLine_ReportsAPendingSample_AndNeverBlocksTheDispatcher()
     {
-        // A silent click's meter window can be 1.5 s; the hide line must not stall for it — the
-        // click shows as pending and its verdict lands after the show (and is dropped with it).
+        // Review-01 F2: the hide line is built on the dispatcher, so it must not wait for the
+        // meter at all — a click still sampling shows as pending and its verdict lands after the
+        // show. The measured path is warmed once first, then a hide with a parked sampler must
+        // return in well under 20 ms.
         var lines = new List<string>();
         var player = new FakePlayer(true);
-        AudioSessionDiagnostics.ConfigureForTesting(null, null, new ScriptedMeter(0.5f));
+        AudioSessionDiagnostics.ConfigureForTesting(null, null, new ScriptedMeter(0.5f, 0.5f));
         var svc = Service(player, lines);
+
+        svc.OnKeyboardShown();
+        svc.PlayKeyClick();
+        svc.OnKeyboardHidden(); // warm-up (also reports a pending sample)
+        lines.Clear();
+
         svc.OnKeyboardShown();
         svc.PlayKeyClick(); // sampler parked: not run before the hide
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -162,8 +170,32 @@ public class KeyboardClickSoundDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(lines).ContainsExactly(
             "Keyboard click: requested=1 played=1 failed=0 skipped=0 "
             + "reached=0 silent=0 pending=1 late=0 maxlatems=0");
-        Check.WithCustomMessage("the hide line waited for the meter instead of bounding the wait")
-            .That(sw.ElapsedMilliseconds).IsStrictlyLessThan(1000);
+        Check.WithCustomMessage(
+                "the hide waited on the meter while running on the dispatcher (review-01 F2)")
+            .That(sw.ElapsedMilliseconds).IsStrictlyLessThan(20);
+    }
+
+    [Fact]
+    public void ASecondShow_OpensAFreshMeterWindow()
+    {
+        // Review-01 F4/R1: a service that never resets the meter window would pile show 1's
+        // reached clicks into show 2's hide line.
+        var lines = new List<string>();
+        var player = new FakePlayer(true);
+        AudioSessionDiagnostics.ConfigureForTesting(null, null, new ScriptedMeter(0.5f));
+        var svc = Service(player, lines);
+
+        svc.OnKeyboardShown();
+        svc.PlayKeyClick();
+        RunParkedWork();
+        svc.OnKeyboardHidden();
+        Check.That(lines[^1]).Contains("reached=1 silent=0 pending=0");
+
+        lines.Clear();
+        svc.OnKeyboardShown(); // show 2: no clicks at all
+        svc.OnKeyboardHidden();
+        Check.WithCustomMessage("show 2's hide line carried show 1's reached count")
+            .That(lines[^1]).Contains("reached=0 silent=0 pending=0");
     }
 
     [Fact]

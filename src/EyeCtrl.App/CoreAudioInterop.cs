@@ -228,13 +228,14 @@ internal static class CoreAudioInterop
     /// the render endpoint. SDK: endpointvolume.h:123 (IID), vtable endpointvolume.h:127 — one
     /// slot, OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA). Declared as IntPtr so the variable-length
     /// channel tail never has to be marshaled; the callback reads only the fixed prefix.</summary>
-    [ComImport, Guid("657804FA-D6AD-4496-8A60-352752AF4F95"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [ComImport, Guid("657804FA-D6AD-4496-8A60-352752AF4F89"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IAudioEndpointVolumeCallback
     {
         [PreserveSig] int OnNotify(IntPtr pNotify);
     }
 
-    /// <summary>The render endpoint's peak meter (F10's "did the click reach the speakers").
+    /// <summary>The render endpoint's peak meter (F10's endpoint-MIX check: "was anything audible
+    /// on the device during the click's window", not "did this click reach the speakers").
     /// SDK: endpointvolume.h:842 (IID), vtable endpointvolume.h:846-860. Activated on the
     /// endpoint; per-session metering is not exposed for a session another process's audio client
     /// owns (winmm owns EyeCtrl's), so the endpoint meter is the read-only instrument available.</summary>
@@ -465,8 +466,11 @@ internal static class CoreAudioInterop
         internal const int IntervalMs = 2;
         private const int InitialDelayMs = 2;
 
-        /// <summary>null = the meter could not be read at all (unconfigured endpoint, COM
-        /// failure); 0 = read fine and the endpoint stayed silent. Never throws.</summary>
+        /// <summary>null = NO VERDICT: the meter could not be read at all (unconfigured endpoint,
+        /// COM failure) — or <paramref name="stop"/> ended the window because a newer click, a new
+        /// show or shutdown superseded it (review-01 F5; such a click must never be counted
+        /// silent, and must never write the silent line). 0 = read fine and the endpoint mix
+        /// stayed silent. Never throws.</summary>
         public float? SamplePeak(Func<bool> stop)
         {
             try
@@ -487,7 +491,8 @@ internal static class CoreAudioInterop
                         // so a noise floor far below it cannot end the window before the sound.
                         if (peak > AudioSessionDiagnostics.MeterReachedThreshold) return max;
                     }
-                    if (Environment.TickCount64 >= deadline || stop()) break;
+                    if (Environment.TickCount64 >= deadline) break;
+                    if (stop()) return null; // superseded or shutting down: no verdict
                     Thread.Sleep(IntervalMs);
                 }
                 return anyRead ? max : null;
@@ -698,7 +703,8 @@ internal static class CoreAudioInterop
                 _endpointVolumeAttached = false;
                 _duckAttached = false;
                 _sessionAttached = false;
-            }            finally
+            }
+            finally
             {
                 Monitor.Exit(_comLock);
             }

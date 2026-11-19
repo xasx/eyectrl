@@ -81,11 +81,13 @@ public class KeyboardSoundService
 
     /// <summary>The hide line's exact format — pinned by a test, one line per real keyboard hide.
     /// F10 adds the endpoint meter's verdicts and the start latencies:
-    /// <c>reached</c>/<c>silent</c> are the clicks whose endpoint peak was (not) above the meter
-    /// threshold; <c>pending</c> is a click still waiting for its verdict at hide time (a silent
-    /// click's window can outlast the show); <c>late</c>/<c>maxlatems</c> count and bound the
-    /// click-request → session-Active delays (maxlatems=0 means no start was measured, e.g. the
-    /// session events were not attached yet).</summary>
+    /// <c>reached</c>/<c>silent</c> are the clicks whose ENDPOINT-MIX peak was (not) above the
+    /// meter threshold. They are not proof the click itself was heard — the meter sees every
+    /// session on the device — so read them with the snapshot's endpoint volume/mute.
+    /// <c>pending</c> is a click still waiting for its verdict at hide time (the hide never waits
+    /// for it); <c>late</c>/<c>maxlatems</c> count and bound the click-request → session-Active
+    /// delays (maxlatems=0 means no start was measured, e.g. the session events were not attached
+    /// yet).</summary>
     internal static string FormatHideLine(
         int requested, int played, int failed, int skipped,
         int reached, int silent, int pending, int late, int maxLateMs) =>

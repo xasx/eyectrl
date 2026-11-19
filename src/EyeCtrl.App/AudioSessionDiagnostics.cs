@@ -24,7 +24,9 @@ using Serilog;
 /// (4) the render endpoint's master volume and mute, in every snapshot and as a change line via
 /// IAudioEndpointVolumeCallback (a per-app session can be healthy while the device is muted);
 /// (5) a per-show reached/silent count from the endpoint's IAudioMeterInformation peak during each
-/// click's play window, plus ONE line at the first silent click of a show with that moment's state;
+/// click's play window — reached means "the ENDPOINT MIX was audible in the window", not "this
+/// click was heard", so it is read together with the endpoint volume/mute — plus ONE line at the
+/// first silent click of a show with that moment's state;
 /// (6) ducking events via IAudioVolumeDuckNotification (NULL session id = all communications
 /// ducking), logged with the log line's own timestamp;
 /// (7) a per-show late-start count: click requested → session state Active, measured from the
@@ -155,6 +157,8 @@ internal static class AudioSessionDiagnostics
     private static bool _endpointEventsAttached, _sessionEventsAttached;
     private static int _failureLogged;
     private static int _failureReportCount;
+    // Review-01 F3: at most one queued session-events retry at a time.
+    private static int _sessionRetryScheduled;
     // R4 (review 02): the shutdown latch. After Shutdown, queued or late work must not
     // re-register or log — the process is exiting and App.OnExit has already torn the
     // listeners down.
@@ -182,6 +186,17 @@ internal static class AudioSessionDiagnostics
     /// </summary>
     internal static Action<Action>? WorkScheduler { get; set; }
 
+    /// <summary>Review-01 F4/R6 test seam: the clock behind the click→Active measurement, so the
+    /// stale-stamp guard can be driven without a real 3 s sleep. Production (null) is
+    /// <see cref="Stopwatch"/>.</summary>
+    internal static Func<long>? TimestampProviderForTesting { get; set; }
+
+    private static long Timestamp() => TimestampProviderForTesting?.Invoke() ?? Stopwatch.GetTimestamp();
+
+    /// <summary>Test accessor: true once the session's own events are attached (F3's retry
+    /// contract).</summary>
+    internal static bool SessionEventsAttached => Volatile.Read(ref _sessionEventsAttached);
+
     /// <summary>Test wiring; production uses the Core Audio implementations (CoreAudioInterop).
     /// Review 04 T4: DRAINS first and REFUSES to reconfigure while queued diagnostics work is in
     /// flight — silently zeroing the counters under parked items resurrected the fixup-01 flake
@@ -204,7 +219,9 @@ internal static class AudioSessionDiagnostics
             _sessionEventsAttached = false;
             _failureLogged = 0;
             _failureReportCount = 0;
+            _sessionRetryScheduled = 0;
             _shutDown = 0;
+            TimestampProviderForTesting = null;
             _queuedWorkScheduled = 0;
             _queuedWorkCompleted = 0;
             _silentClickReports = 0;
@@ -255,12 +272,35 @@ internal static class AudioSessionDiagnostics
 
     /// <summary>Every click funnels here; the once-guard keeps the synchronous cost to one
     /// Interlocked read — the COM work itself is queued off the typing path (review 01 F4:
-    /// a cold first read measures ~105 ms and must never delay a key).</summary>
+    /// a cold first read measures ~105 ms and must never delay a key).
+    /// <para>
+    /// Review-01 F3: winmm creates our audio session on the first PlaySound, so the first-click
+    /// work can still find no session and leave the session instrument blind for the whole first
+    /// show (the 9th sitting's mechanism). Every later click therefore retries the session events
+    /// while they are unattached — at most one retry in flight, queued on the same worker.
+    /// </para></summary>
     public static void OnClickAttempted()
     {
         if (Volatile.Read(ref _shutDown) == 1) return;
-        if (Interlocked.CompareExchange(ref _firstClickDone, 1, 0) != 0) return;
-        RunOffTypingPath(FirstClickWork);
+        if (Interlocked.CompareExchange(ref _firstClickDone, 1, 0) == 0)
+        {
+            RunOffTypingPath(FirstClickWork);
+            return;
+        }
+        if (Volatile.Read(ref _sessionEventsAttached)) return;
+        if (Interlocked.CompareExchange(ref _sessionRetryScheduled, 1, 0) != 0) return;
+        RunOffTypingPath(SessionRetryWork);
+    }
+
+    /// <summary>Review-01 F3: one queued retry of the still-missing session registration. The
+    /// flag is cleared even when the latch or the listener wins the race, so a later click can
+    /// try again; the observer's own _comLock and idempotence make concurrent attempts safe.</summary>
+    private static void SessionRetryWork()
+    {
+        Interlocked.Exchange(ref _sessionRetryScheduled, 0);
+        if (Volatile.Read(ref _shutDown) == 1) return;
+        if (Volatile.Read(ref _sessionEventsAttached)) return;
+        TryRegisterChangeEvents();
     }
 
     /// <summary>
@@ -298,12 +338,6 @@ internal static class AudioSessionDiagnostics
     /// the sitting's suspicious starts were ~400 ms. 200 ms is clear of normal jitter and still
     /// catches a device-wake delay.</summary>
     internal const int LateStartThresholdMs = 200;
-
-    /// <summary>How long a hide waits for the show's last meter samples before it writes the hide
-    /// line. A normal click resolves in ~10-40 ms; a silent click can keep polling for up to
-    /// CoreAudioMeterProbe.WindowMs, so the wait is bounded and the click shows as pending instead
-    /// of stalling the keyboard's hide.</summary>
-    private const int MeterShowEndWaitMs = 150;
 
     private const int MaxPendingClicks = 32;
 
@@ -363,7 +397,7 @@ internal static class AudioSessionDiagnostics
         if (Volatile.Read(ref _sessionEventsAttached) && Volatile.Read(ref _sessionActive) == 0)
         {
             if (PendingClicks.Count >= MaxPendingClicks) PendingClicks.TryDequeue(out _);
-            PendingClicks.Enqueue(new PendingClick(Stopwatch.GetTimestamp(), window));
+            PendingClicks.Enqueue(new PendingClick(Timestamp(), window));
         }
         var meter = _meter;
         if (meter is null) return;
@@ -381,7 +415,11 @@ internal static class AudioSessionDiagnostics
                 || Volatile.Read(ref _clickGeneration) != generation
                 || !ReferenceEquals(Volatile.Read(ref _meterWindow), window);
             var peak = meter.SamplePeak(Stop);
-            if (peak is null) return; // unmetered: no verdict, and reached+silent may be < played
+            // Review-01 F5: a stopped sampler (a newer click / a new show / shutdown) and an
+            // unreadable meter are both "no verdict", never "silent" — the probe answers null for
+            // both, and the shutdown latch is re-checked after the sample so nothing can be
+            // counted or logged in a dying process.
+            if (peak is null || Volatile.Read(ref _shutDown) == 1) return;
             if (peak.Value > MeterReachedThreshold)
             {
                 Interlocked.Increment(ref window.Reached);
@@ -412,14 +450,15 @@ internal static class AudioSessionDiagnostics
         }
     }
 
-    /// <summary>The hide line's meter fields: bounded wait for the show's last samples, then the
-    /// window's counts. Pending stays non-zero only when a click was still waiting for a peak at
-    /// hide time (a silent click's window is up to 1.5 s); its verdict is dropped with the window.</summary>
-    internal static MeterCounts TakeMeterCounts(int timeoutMs = MeterShowEndWaitMs)
+    /// <summary>
+    /// The hide line's meter fields: a NON-BLOCKING snapshot of the show's window (review-01 F2 —
+    /// this runs on the dispatcher, so it must never sleep). A click whose verdict is still in
+    /// flight is reported as <c>pending</c>, which is exactly what that field is for; its later
+    /// verdict belongs to the show that already closed and is discarded with the window.
+    /// </summary>
+    internal static MeterCounts TakeMeterCounts()
     {
         var window = Volatile.Read(ref _meterWindow);
-        var deadline = Environment.TickCount64 + timeoutMs;
-        while (Volatile.Read(ref window.Pending) > 0 && Environment.TickCount64 < deadline) Thread.Sleep(5);
         return new MeterCounts(
             Volatile.Read(ref window.Reached),
             Volatile.Read(ref window.Silent),
@@ -446,7 +485,7 @@ internal static class AudioSessionDiagnostics
     }
 
     private static int ElapsedMs(long since) =>
-        (int)Math.Min(int.MaxValue, (Stopwatch.GetTimestamp() - since) * 1000L / Stopwatch.Frequency);
+        (int)Math.Min(int.MaxValue, (Timestamp() - since) * 1000L / Stopwatch.Frequency);
 
     private static void UpdateMax(ref int target, int value)
     {

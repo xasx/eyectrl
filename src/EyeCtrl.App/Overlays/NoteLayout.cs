@@ -274,7 +274,7 @@ internal static class NoteLayout
     // (capped) drives the height, and the control column is the floor. ==
 
     /// <summary>The text column width in DIP: round(15 x size), about 28-32 characters per line.
-    /// 420 DIP at the provisional 28.</summary>
+    /// 420 DIP at 28.</summary>
     public static double TextColumnWidthDip(double textSize) => Math.Round(15 * textSize);
 
     /// <summary>The card width in DIP: the text column plus the control column.</summary>

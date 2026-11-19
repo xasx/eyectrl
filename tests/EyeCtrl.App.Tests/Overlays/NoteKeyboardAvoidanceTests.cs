@@ -320,8 +320,13 @@ public class NoteKeyboardAvoidanceTests
         var yieldedBar = new Rect(EdgeBarTop.Left, EdgeBarTop.Top + 132, EdgeBarTop.Width, EdgeBarTop.Height);
 
         var messenger = new WeakReferenceMessenger();
+        // R3: pinned at 28 DIP. The 24 DIP rules this test pins were authored for the 550 DIP
+        // card; at the 36 DIP default the drawn card is 362 DIP tall (340 + the tag's 22), so
+        // below a keyboard yielded 132 DIP it no longer fits the 381 DIP of clear room, and the
+        // least-overlap fallback leaves 19 DIP (card 41, tag strip 19 — no overlap). The yield
+        // MECHANICS are this test's subject, so it keeps its original geometry.
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
-            workAreaDip: () => WorkArea);
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 28 });
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
         manager.SetKeyboardProbe(probe);
 
@@ -405,8 +410,13 @@ public class NoteKeyboardAvoidanceTests
         var anchorY = 300.0;
 
         var messenger = new WeakReferenceMessenger();
+        // R3: pinned at 28 DIP, like the yield test above. The synthetic premise needs the
+        // 550 DIP card, whose right-hand column lands at x 1800 — clear of the keyboard band's
+        // 1200 edge; at the 36 DIP default the Display note falls to a Left placement whose
+        // column sits inside the band, so the ↕ pick-up (the subject here) could not even start.
+        // The OTHER-SIDE rule is what this test pins, not the default size.
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
-            workAreaDip: () => WorkArea);
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 28 });
         var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
         manager.SetKeyboardProbe(probe);
 
@@ -448,7 +458,7 @@ public class NoteKeyboardAvoidanceTests
         double[] anchorsX = [100, 300, 960, 1600, 1820];
         double[] anchorsY = [300, 520, 746, 1000];
         var sides = new[] { NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above };
-        var sizes = new[] { 18.0, 28.0, 48.0 };
+        var sizes = new[] { 18.0, 28.0, 36.0, 48.0 };
         foreach (var edge in new[] { "top", "bottom" })
             foreach (var x in anchorsX)
                 foreach (var y in anchorsY)

@@ -6,7 +6,7 @@ using Xunit;
 
 /// <summary>
 /// The note text-size clamp (P4 D1): a settings file with textSizeDip outside 18-48 loads at
-/// the CLAMPED value - not at the default 28 the #153 setter-throw revert would answer with -
+/// the CLAMPED value - not at the default the #153 setter-throw revert would answer with -
 /// and duplicated keys load without error because the clamp step runs AFTER
 /// NormalizeDuplicateProperties. Review-01 M2: JsonNode.Parse throws ArgumentException the
 /// moment a duplicated key is indexed, so a clamp running BEFORE the normalizer fail-safes to
@@ -77,7 +77,7 @@ public class SettingsServiceNoteTextSizeClampTests
     }
 
     [Fact]
-    public void AFileWithTextSize17_LoadsAs18_NotAsTheDefault28()
+    public void AFileWithTextSize17_LoadsAs18_NotAsTheDefault()
     {
         var loaded = LoadWith(17);
         Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);
@@ -105,7 +105,7 @@ public class SettingsServiceNoteTextSizeClampTests
     }
 
     [Fact]
-    public void ADuplicatedTextSize_17Then49_Loads48_Not28()
+    public void ADuplicatedTextSize_17Then49_Loads48_NotTheDefault()
     {
         var loaded = LoadRaw(WithDuplicate("{\"note\":{\"textSizeDip\":17,\"textSizeDip\":49},"));
         Check.That(loaded.Note.TextSizeDip).IsEqualTo(48);
@@ -113,14 +113,14 @@ public class SettingsServiceNoteTextSizeClampTests
     }
 
     [Fact]
-    public void ADuplicatedTextSize_30Then17_Loads18_Not28()
+    public void ADuplicatedTextSize_30Then17_Loads18_NotTheDefault()
     {
         var loaded = LoadRaw(WithDuplicate("{\"note\":{\"textSizeDip\":30,\"textSizeDip\":17},"));
         Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);
     }
 
     [Fact]
-    public void ADuplicatedRootKey_WithTextSize17_Loads18_Not28()
+    public void ADuplicatedRootKey_WithTextSize17_Loads18_NotTheDefault()
     {
         var loaded = LoadRaw(WithDuplicate("{\"zzDup\":1,\"zzDup\":2,\"note\":{\"textSizeDip\":17},"));
         Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);
@@ -128,7 +128,7 @@ public class SettingsServiceNoteTextSizeClampTests
     }
 
     [Fact]
-    public void ADuplicatedKeyInsideTheNoteSection_WithTextSize17_Loads18_Not28()
+    public void ADuplicatedKeyInsideTheNoteSection_WithTextSize17_Loads18_NotTheDefault()
     {
         var loaded = LoadRaw(WithDuplicate("{\"note\":{\"textSizeDip\":17,\"legacy\":1,\"legacy\":2},"));
         Check.That(loaded.Note.TextSizeDip).IsEqualTo(18);

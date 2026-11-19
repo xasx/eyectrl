@@ -4,9 +4,11 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 /// <summary>
 /// Pinned-note appearance settings (P4 D1). Currently one value: the note body text size in
-/// DIP. The provisional default is 28 - the reading-test arithmetic in P4 ("Why this shape")
-/// puts comfortable reading at 26-33 DIP for a caretaker at 0.8 m from an 18-inch panel at
-/// 200 percent - and the owner's reading test (P4 D5) decides the final constant.
+/// DIP. The default is 36, the owner's pick from the 19.11 comparison of 28, 36 and 40 DIP at
+/// SemiBold on the owner's own display, after sitting 9 (18.11) failed the 28 DIP reading row ("Note
+/// text hard"). It replaces the provisional 28 that P4's reading-test arithmetic ("Why this
+/// shape") had suggested: 26-33 DIP for a caretaker at 0.8 m from an 18-inch panel at
+/// 200 percent.
 /// </summary>
 public partial class NoteSettings : ObservableObject, IValidatable
 {
@@ -16,8 +18,9 @@ public partial class NoteSettings : ObservableObject, IValidatable
     /// <summary>The guard ceiling: 48 DIP — the fit harness runs at 48 (P4 Risks).</summary>
     public const int MaxTextSizeDip = 48;
 
-    /// <summary>Provisional default until the owner's reading test (P4 D5) fixes the constant.</summary>
-    public const int DefaultTextSizeDip = 28;
+    /// <summary>The default note body text size in DIP: 36. The owner's pick from the 19.11
+    /// comparison (28/36/40 DIP at SemiBold); replaces the provisional 28.</summary>
+    public const int DefaultTextSizeDip = 36;
 
     /// <summary>The note body text size in DIP. Changing it re-lays out every live note (P3 D3's T8).</summary>
     [ObservableProperty]

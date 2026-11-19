@@ -1219,7 +1219,10 @@ public class AdaptationPreviewServiceTests
             // the panel. The structural message is the inventory's trigger; no manual flip. Final
             // review F2: the inventory's Changed raise is one dispatcher hop later, so the pump
             // (ContextIdle — below the raise's Background priority) delivers it before asserting.
-            noteManager.CreateNoteAt(new PhysicalPoint(1300, 150));
+            // R3: the anchor is 1240, not 1300, because the default 36 DIP card is 120 DIP wider:
+            // its Below placement puts the column cell (80 wide) at 1485..1565, which still
+            // overlaps the panel's 1116..1516 band exactly as the 550-wide card's did.
+            noteManager.CreateNoteAt(new PhysicalPoint(1240, 150));
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
 
             Check.That(h.Panel.IsShown).IsFalse();

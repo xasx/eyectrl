@@ -41,9 +41,9 @@ public class NoteSettingsTests
     }
 
     [Fact]
-    public void Default_IsTheProvisional28()
+    public void Default_Is36()
     {
-        Check.That(new NoteSettings().TextSizeDip).IsEqualTo(28);
+        Check.That(new NoteSettings().TextSizeDip).IsEqualTo(36);
     }
 
     [Theory]

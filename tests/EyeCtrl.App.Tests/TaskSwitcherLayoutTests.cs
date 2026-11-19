@@ -72,7 +72,7 @@ public class TaskSwitcherLayoutTests
         // the gap between neighbouring faces to 2 x 16 = 32 DIP, so the grid drops from
         // 9 x 5 = 45 to 8 x 5 = 40 tiles (the tile-count promise of the ticket). F-CORNER: the
         // hint row is text-only (reserved 43 DIP) and the ✕ keep-out (131) is below the 164 the band
-        // already forces, so the area grows 81.38 DIP taller and the block moves down 40.69 —
+        // already forces, so the area grows 81 DIP taller and the block moves down 40.5 —
         // the capacity stays 8 x 5 = 40.
         var layout = TaskSwitcherLayout.Compute(
             ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 140), "Top", tileCount: 63);

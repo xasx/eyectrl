@@ -520,22 +520,22 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             FirstRunGuideStep.Welcome => [
                 (T("guide.welcome.start"), "guide_start", ModalChoiceKind.Affirmative),
                 (T("guide.later"), "guide_later", ModalChoiceKind.Negative)],
-            FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip", ModalChoiceKind.Negative)],
+            FirstRunGuideStep.MeetDwell => [(T("guide.dwell.skip"), "guide_dwell_skip", ModalChoiceKind.Neutral)],
             FirstRunGuideStep.DwellTime => [(T("guide.dwelltime.continue"), "guide_dwelltime_continue", ModalChoiceKind.Affirmative)],
             FirstRunGuideStep.Calibrate => [
                 (T("guide.calibrate.now"), "guide_calibrate_now", ModalChoiceKind.Affirmative),
-                (T("guide.calibrate.skip"), "guide_calibrate_skip", ModalChoiceKind.Negative)],
+                (T("guide.calibrate.skip"), "guide_calibrate_skip", ModalChoiceKind.Neutral)],
             FirstRunGuideStep.ToolbarTask => [
                 (T("guide.toolbar.continue"), "guide_toolbar_continue", ModalChoiceKind.Affirmative),
-                (T("guide.toolbar.skip"), "guide_toolbar_skip", ModalChoiceKind.Negative)],
+                (T("guide.toolbar.skip"), "guide_toolbar_skip", ModalChoiceKind.Neutral)],
             FirstRunGuideStep.Theme => [(T("guide.theme.continue"), "guide_theme_continue", ModalChoiceKind.Affirmative)],
             FirstRunGuideStep.Safety => [(T("guide.safety.begin"), "guide_safety_begin", ModalChoiceKind.Affirmative)],
             FirstRunGuideStep.Done => [(T("guide.done.finish"), "guide_done_finish", ModalChoiceKind.Affirmative)],
             _ => [],
         };
 
-        /// <summary>The Theme step's four chips, laid out as a 2×2 grid in StepContent
-        /// (radius 40 DIP — the 70-DIP circles of a 2×2 grid at this card size would overlap).</summary>
+        /// <summary>The Theme step's four chips, one ROW in StepContent (each chip's full
+        /// half-diagonal catchment fits — a 2×2 grid's vertical spacing could not).</summary>
         private static (string Label, string Id)[] ThemeChips() =>
         [
             (T("guide.theme.midnight"), "guide_theme_midnight"),

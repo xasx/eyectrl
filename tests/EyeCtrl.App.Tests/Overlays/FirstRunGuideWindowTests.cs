@@ -154,15 +154,15 @@ public class FirstRunGuideWindowTests
 
             // The DwellButton reality: each card's Root Border carries the approved size; its
             // label is the control's own content TextBlock (row 0 of the control's layout grid).
+            // The chrome Close has NO text face — the owner's ruling made it the round X arc
+            // (asserted below with the geometry).
             var cardLabel = (TextBlock)((Grid)((Border)window.ChoiceRow.Children[0]).Child).Children[0];
-            var closeLabel = (TextBlock)((Grid)((Border)window.ChromeCloseHost.Content).Child).Children[0];
             var chipLabel = (TextBlock)((Grid)((Border)((Grid)window.StepContent.Content).Children[0]).Child).Children[0];
             var dwellReadOut = window.KnobRow.Children.OfType<TextBlock>().Single();
 
             var faces = new (string What, TextBlock Label, double Size)[]
             {
                 ("choice card", cardLabel, 32),
-                ("chrome Close", closeLabel, 32),
                 ("theme chip", chipLabel, 32),
                 ("dwell read-out", dwellReadOut, 40),
             };
@@ -180,9 +180,9 @@ public class FirstRunGuideWindowTests
             var actionCard = (Border)window.ChoiceRow.Children[0];
             Check.That(actionCard.Width).IsEqualTo(320);
             Check.That(actionCard.Height).IsEqualTo(190);
-            var closeCard = (Border)window.ChromeCloseHost.Content;
-            Check.That(closeCard.Width).IsEqualTo(280);
-            Check.That(closeCard.Height).IsEqualTo(160);
+            var closeCanvas = (Canvas)window.ChromeCloseHost.Content;
+            Check.That(closeCanvas.Width).IsEqualTo(160);
+            Check.That(closeCanvas.Height).IsEqualTo(160);
             var knobCard = (Border)((StackPanel)window.KnobRow.Children[1]).Children[0];
             Check.That(knobCard.Width).IsEqualTo(200);
             Check.That(knobCard.Height).IsEqualTo(160);

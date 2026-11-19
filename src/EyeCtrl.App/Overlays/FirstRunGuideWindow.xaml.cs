@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.App.Views;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -69,7 +70,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     private readonly Dictionary<string, ModalChoiceKind> _choiceKinds = new();
     private readonly Dictionary<string, DwellButton> _knobButtons = new();    // the knob's OWN references — SetChoices never clears them
     private readonly Dictionary<string, DwellButton> _themeButtons = new();   // the chip grid's OWN references — SetChoices never clears them
-    private DwellButton? _chromeCloseButton;
+    private DwellArcButton? _chromeCloseArc;
+    private Canvas? _chromeCloseCanvas;
     private Grid? _themeGrid;                                            // re-attached on a Theme re-render (r6 F4)
     private Ellipse? _practiceFill;
     private TextBlock? _dwellValue;
@@ -197,40 +199,45 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         return button;
     }
 
-    /// <summary>The chrome Close card in its OWN host (top-right of the surface, r3 F7 — away from
-    /// the action row, so abandoning is never the neighbour of continuing; the approved layout
-    /// puts the 280×160 card alone at margin 48). Kind Negative — the fill the Settings modal
-    /// gives its backing-out choice (modal_no) and the Settings window gives its Close button,
-    /// both AccentDanger. Idempotent; the already-built branch RE-REGISTERS (r5 F2: a re-render
-    /// cleared the targets).</summary>
+    /// <summary>The chrome Close in its OWN host (top-right of the surface) — the owner's
+    /// live-check ruling (2026-11-19): a ROUND ARC BUTTON with an X, the red ender, not a card
+    /// („only make the buttons Red that end the guide… alternatively place a round arc button
+    /// with an x"). <see cref="DwellArcButton"/> renders it (the repo's own round control); the
+    /// VM-registered <c>guide_close</c> target keeps the latch protocol, and
+    /// <see cref="SetChoiceProgress"/> feeds the arc. Idempotent; the already-built branch
+    /// RE-REGISTERS (r5 F2: a re-render cleared the targets).</summary>
     public void SetChromeClose(bool visible, string label)
     {
         if (visible && !_chromeCloseBuilt)
         {
-            _chromeCloseButton = BuildCard(label, "guide_close", ModalChoiceKind.Negative, 280, 160, 32, default);
-            _choiceButtons["guide_close"] = _chromeCloseButton;
-            _choiceKinds["guide_close"] = ModalChoiceKind.Negative;
-            ChromeCloseHost.Content = _chromeCloseButton.Root;
-            _vm.RegisterChoice("guide_close", CardDwellRadiusDip(280, 160));
+            var (dangerFill, _) = ModalButtonPalette.For(ModalChoiceKind.Negative, _previewTheme);
+            var (darkFill, _) = ModalButtonPalette.For(ModalChoiceKind.Neutral, _previewTheme);
+            var red = new SolidColorBrush(dangerFill);
+            var dark = new SolidColorBrush(darkFill);
+            _chromeCloseCanvas = new Canvas { Width = 160, Height = 160 };
+            _chromeCloseArc = DwellArcButton.Create(new Point(80, 80), 72, symbol: null,
+                fill: dark, arcBrush: red, symbolBrush: red,
+                icon: ActionIcons.For(ActionIcon.Close), iconSize: DwellArcButton.IconSize.Solo,
+                accessibleName: label);
+            _chromeCloseArc.AddTo(_chromeCloseCanvas);
+            ChromeCloseHost.Content = _chromeCloseCanvas;
+            _vm.RegisterChoice("guide_close", 90);   // the 72-DIP circle + a forgiving edge
             _chromeCloseBuilt = true;
             PushCentres();
         }
         else if (visible && _chromeCloseBuilt)
         {
-            // Re-render (r6 F4): SetChoices cleared the button entries — restore from the Close's
-            // own field, so progress and the preview repaint keep reaching the control.
-            _choiceButtons["guide_close"] = _chromeCloseButton;
-            _choiceKinds["guide_close"] = ModalChoiceKind.Negative;
-            _vm.RegisterChoice("guide_close", CardDwellRadiusDip(280, 160));
+            // Re-render (r6 F4): SetChoices cleared the DwellButton entries — the arc lives in
+            // its own field and host, so only the target needs re-registering.
+            _vm.RegisterChoice("guide_close", 90);
             PushCentres();
         }
         else if (!visible && _chromeCloseBuilt)
         {
             _vm.RemoveChromeChoice("guide_close");
-            _choiceButtons.Remove("guide_close");
-            _choiceKinds.Remove("guide_close");
             ChromeCloseHost.Content = null;
-            _chromeCloseButton = null;
+            _chromeCloseArc = null;
+            _chromeCloseCanvas = null;
             _chromeCloseBuilt = false;
         }
     }
@@ -418,6 +425,17 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     public void ApplyPreviewTheme(ITheme theme)
     {
         _previewTheme = theme;
+        if (_chromeCloseArc is { } arc)
+        {
+            var (dangerFill, _) = ModalButtonPalette.For(ModalChoiceKind.Negative, theme);
+            var (darkFill, _) = ModalButtonPalette.For(ModalChoiceKind.Neutral, theme);
+            var red = new SolidColorBrush(dangerFill);
+            var dark = new SolidColorBrush(darkFill);
+            arc.Background.Fill = dark;
+            arc.ProgressPath.Stroke = red;
+            if (arc.IconStroke is { } stroke) stroke.Stroke = red;
+            if (arc.IconFill is { } iconFill) iconFill.Fill = red;
+        }
         foreach (var (id, button) in _choiceButtons)
         {
             var (fill, labelBrush) = ModalButtonPalette.For(_choiceKinds[id], theme);
@@ -432,6 +450,11 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         // and runs DwellButton's own ApplyProgress (the bottom bar's ScaleX sweep). The VM's
         // ChoiceProgress contract is untouched — this is its window-side consumer, now feeding
         // the control's own progress rendering instead of a hand-managed Rectangle.
+        if (id == "guide_close")
+        {
+            _chromeCloseArc?.UpdateProgress(progress);   // the round X renders its own arc
+            return;
+        }
         _registrar.Record(id, progress);
         if (_choiceButtons.TryGetValue(id, out var button))
             button.UpdateVisual();
@@ -464,6 +487,11 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         _ = Dispatcher.BeginInvoke(() =>
         {
             UpdateLayout();
+            if (_chromeCloseCanvas is { IsVisible: true } closeCanvas)
+            {
+                var centre = closeCanvas.PointToScreen(new Point(80, 80));
+                _vm.UpdateChoiceCentre("guide_close", new PhysicalPoint(centre.X, centre.Y));
+            }
             foreach (var (id, button) in _choiceButtons)
             {
                 var root = button.Root;

@@ -56,6 +56,12 @@ internal sealed class ShutdownSequence
     /// <summary>The step names, in run order.</summary>
     internal IReadOnlyList<string> StepNames => _steps.ConvertAll(step => step.Name);
 
+    /// <summary>
+    /// The steps themselves, in run order. Exists so a test can run one production step in isolation —
+    /// the watchdog step is the one that must both start and see this sequence's own current step.
+    /// </summary>
+    internal IReadOnlyList<ExitStep> Steps => _steps;
+
     /// <summary>Appends a step. Call before <see cref="Run"/>.</summary>
     /// <param name="name">The step's name (see <see cref="ExitStep.Name"/>).</param>
     /// <param name="run">The step's work.</param>

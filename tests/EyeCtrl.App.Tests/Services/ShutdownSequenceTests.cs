@@ -81,6 +81,34 @@ public class ShutdownSequenceTests
     }
 
     [Fact]
+    public void Create_TheWatchdogStep_StartsAWatchdogThatReportsThisSequencesCurrentStep()
+    {
+        var time = new FakeTimeProvider();
+        using var terminated = new ManualResetEventSlim(false);
+        string? terminatedStep = null;
+
+        ShutdownSequence sequence = ExitSequencePlan.Create(
+            new ShutdownDependencies(),
+            step =>
+            {
+                terminatedStep = step;
+                terminated.Set();
+            },
+            time);
+
+        // OnExit's very first step, run in isolation. It must *start* the watchdog (a constructed but
+        // never-started watchdog is the ticket's "no start" mutant, and only this test fails on it)
+        // and the watchdog must read this sequence's own current step.
+        Check.That(sequence.Steps[0].Name).IsEqualTo(ExitSequencePlan.StartWatchdogStep);
+        sequence.Steps[0].Run();
+
+        time.Advance(ExitWatchdog.DefaultBudget + TimeSpan.FromSeconds(1));
+
+        Check.That(terminated.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Check.That(terminatedStep).IsEqualTo(ShutdownSequence.NotStarted);
+    }
+
+    [Fact]
     public void Create_RealPlan_PinsTheWholeStepOrder()
     {
         using var services = new ServiceCollection().BuildServiceProvider();

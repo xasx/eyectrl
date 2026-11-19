@@ -66,6 +66,11 @@ public class DwellButtonProgressBarContrastTests
     /// dwell visual, not a <c>DwellButton</c>. No <c>DwellButton.ProgressBar</c> is drawn on
     /// AccentDanger today, so a preset here would gate a pairing that cannot occur.
     ///
+    /// The Quick Actions and Task Switcher close targets are no longer ProgressBar consumers
+    /// either (close-arc ticket): both are <c>DwellArcButton</c> discs, and that factory's
+    /// Accent arc carries its own <c>StrokeHalo</c> under-stroke — gated by
+    /// <c>DwellArcButtonRimTests</c> in this project, not by this file's bar measurements.
+    ///
     /// The three literal RGB values are the Supervisor's hardcoded baseColors — read from
     /// FallenBackDialog.xaml.cs (Retry #1E641E, Dismiss #502828) and SupervisorSetupWindow.xaml.cs
     /// (Launch #2D5A89; its own Save button reuses #1E641E) — fixed regardless of theme, unlike

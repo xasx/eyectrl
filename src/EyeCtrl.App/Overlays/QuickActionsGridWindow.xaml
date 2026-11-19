@@ -17,32 +17,18 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <!-- Close button — a gaze dwell target (registered + positioned in code-behind).
-                     NOT a WPF Button: gaze produces no mouse clicks, and there is no
-                     DwellButtonStyle resource in this app. Dwell progress binds to CloseDwellProgress.
-                     The disc is 2 × the shared r50 hit radius (B8), so what is drawn IS what the
-                     detector hit-tests; the header row's height keeps it clear of the tile band.
-                     Keep width == height == QuickActionsGridWindow.CloseButtonSize. -->
+                <!-- Close button — a gaze dwell target (registered + positioned in code-behind),
+                     and the shared DwellArcButton drawn in code at this host's centre: the bold
+                     ActionIcon.Close at Solo, the 2 DIP rim with its dark 3 DIP halo, and the
+                     rim-arc progress driven from CloseDwellProgress/CloseDwellPaused. NOT a WPF
+                     Button: gaze produces no mouse clicks. The disc is 2 × the shared r50 hit
+                     radius (B8), so what is drawn IS what the detector hit-tests; the header row's
+                     height keeps it clear of the tile band. Keep width == height ==
+                     QuickActionsGridWindow.CloseButtonSize. The halo reaches 4 DIP past the disc,
+                     i.e. past this host's own box, so the Canvas does not clip and no ancestor does. -->
                 <Border x:Name="CloseButton" Grid.Row="0"
-                        Width="100" Height="100" HorizontalAlignment="Right"
-                        CornerRadius="{StaticResource CircleCornerRadius}" Background="{StaticResource BrushSurfaceMedium}"
-                        BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}">
-                    <Grid>
-                        <!-- FontSize is set in the constructor from CloseButtonSize × the
-                             container ratio — XAML cannot express the multiplication.
-                             The glyph TextBlock carries the UIA name (D11): the Border around it
-                             has no automation peer, so an explicit name on the glyph is what a
-                             screen reader announces instead of "✕". -->
-                        <TextBlock x:Name="CloseGlyph" Text="&#x2715;" Foreground="{StaticResource BrushTextPrimary}"
-                                   AutomationProperties.Name="{loc:T 'overlays.edge.close'}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <ProgressBar Minimum="0" Maximum="1"
-                                     Value="{Binding CloseDwellProgress}"
-                                     Height="4" VerticalAlignment="Bottom"
-                                     Background="Transparent" Foreground="{StaticResource BrushAccent}"
-                                     BorderThickness="0"
-                                     Opacity="{Binding CloseDwellPaused, Converter={x:Static ctl:DwellPausedOpacityConverter.Instance}}"/>
-                    </Grid>
+                        Width="100" Height="100" HorizontalAlignment="Right">
+                    <Canvas x:Name="CloseLayer" ClipToBounds="False"/>
                 </Border>
                 <!-- Action tiles. The ItemsSource binding was missing (the control was never
                      populated — tiles were sized into the window but never rendered); B8's gap is

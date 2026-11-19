@@ -100,18 +100,11 @@ public class ContainerRatioCensusTests
             ],
             ["src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml.cs"] =
             [
-                ("Dominant", 1, "the close button, whose entire content is one glyph with no "
-                    + "label beside it (44px when the bucket was recorded; 100px = its r50 hit "
-                    + "area after B8). Also pinned exactly by GlyphSizeCouplingTests."),
                 ("Small", 1, "TileIconSize — the tile icon has its action label underneath it. "
-                    + "Also pinned exactly by GlyphSizeCouplingTests."),
-            ],
-            ["src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml.cs"] =
-            [
-                ("Dominant", 1, "the close disc's glyph, whose entire content is one glyph with "
-                    + "no label beside it — the QuickActionsGridWindow close-button choice "
-                    + "transplanted with that button (2 x UIConstants.ButtonRadius disc, B8 "
-                    + "WYSIWYG: what is drawn IS what the detector hit-tests)."),
+                    + "Also pinned exactly by GlyphSizeCouplingTests. The close disc left this "
+                    + "file's census when it became a DwellArcButton: it passes "
+                    + "IconSize.Solo to the factory and reads no ratio here (the Solo icon box is "
+                    + "pinned by GlyphSizeCouplingTests off the drawn path)."),
             ],
             ["src/EyeCtrl.App/Overlays/ToolbarBand.cs"] =
             [

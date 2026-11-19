@@ -4,9 +4,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
@@ -78,22 +80,26 @@ public class GlyphSizeCouplingTests
             Check.WithCustomMessage("CloseButton is no longer square.")
                 .That(button.Height).IsEqualTo(QuickActionsGridWindow.CloseButtonSize);
 
-            var glyph = window.FindName("CloseGlyph") as TextBlock;
-            Check.WithCustomMessage("QuickActionsGridWindow has no TextBlock named CloseGlyph.")
-                .That(glyph).IsNotNull();
+            // Half two: the RATIO CHOICE, read off the disc the window actually drew. The close
+            // affordance is an icon-only gaze surface, so it takes DwellArcButton's
+            // IconSize.Solo arm — ContainerRatio.Solo, the ratio the edge bar's Close and every
+            // other icon-only exit use. The old hand-made glyph was Dominant (0.45); Solo (0.58)
+            // is the measured ratio for a label-less disc. The drawn icon box is the path's
+            // RenderTransform scale applied to ActionIcons' 24-unit grid.
+            var disc = window.CloseDisc;
+            Check.WithCustomMessage("QuickActionsGridWindow drew no close disc (CloseDisc is null).")
+                .That(disc).IsNotNull();
+            Check.WithCustomMessage("The close disc has no drawn icon layer (IconFill is null).")
+                .That(disc!.IconFill).IsNotNull();
 
-            // Half two: the RATIO CHOICE. Dominant is the bucket for a chrome affordance whose
-            // entire content is one glyph, which is exactly what this button is — it stayed
-            // Dominant when B8 grew the disc from 44 to its 100 DIP r50 hit area. Any other
-            // ratio is token-backed and passes RawGeometryLiteralTests, so this is the only thing
-            // that says Dominant rather than Small or Large.
+            var scale = (disc.IconFill!.RenderTransform as ScaleTransform)?.ScaleX ?? double.NaN;
             Check.WithCustomMessage(
-                    "CloseGlyph must be CloseButtonSize x ContainerRatio.Dominant — Dominant is "
-                    + "the bucket for a lone glyph filling its chrome affordance (spec "
-                    + $"§8.5). Expected {QuickActionsGridWindow.CloseButtonSize * ContainerRatio.Dominant} "
-                    + $"but found {glyph!.FontSize}.")
-                .That(glyph.FontSize)
-                .IsEqualTo(QuickActionsGridWindow.CloseButtonSize * ContainerRatio.Dominant);
+                    "The close disc's icon must be CloseButtonSize x ContainerRatio.Solo — Solo is "
+                    + "the ratio for an icon-only gaze disc, which is what every edge exit takes "
+                    + $"(spec §8.5). Expected {QuickActionsGridWindow.CloseButtonSize * ContainerRatio.Solo} "
+                    + $"but found {scale * ActionIcons.GridSize}.")
+                .That(scale * ActionIcons.GridSize)
+                .IsCloseTo(QuickActionsGridWindow.CloseButtonSize * ContainerRatio.Solo, 1e-9);
         }
         finally
         {
@@ -104,7 +110,7 @@ public class GlyphSizeCouplingTests
     /// <summary>
     /// The switcher's close disc is the QuickActions close button transplanted onto a
     /// dismissal-only fullscreen surface, so it carries the same two couplings: the const must
-    /// mirror the XAML's Width/Height, and the lone glyph must take Dominant. The hit-radius
+    /// mirror the XAML's Width/Height, and the icon-only disc must take Solo. The hit-radius
     /// half of the B8 chain (registered radius == the shared r50) is pinned on the ViewModel
     /// side in TaskSwitcherCloseTargetTests — together the two close the drawn-vs-hit gap the
     /// 2026-08-17 field report came from.
@@ -122,8 +128,8 @@ public class GlyphSizeCouplingTests
                 .That(button).IsNotNull();
 
             // Half one: the const mirrors the XAML (QuickActionsCloseButton half one, verbatim
-            // shape). If the XAML's Width moves and the const does not, the glyph is sized for
-            // a disc that no longer exists — and the drawn face stops being 2 × the hit radius.
+            // shape). If the XAML's Width moves and the const does not, the disc is sized for
+            // a host that no longer exists — and the drawn face stops being 2 × the hit radius.
             Check.WithCustomMessage(
                     "TaskSwitcherWindow.CloseButtonSize has drifted from the Width the XAML "
                     + $"declares on CloseButton. Const says {TaskSwitcherWindow.CloseButtonSize}, "
@@ -132,19 +138,23 @@ public class GlyphSizeCouplingTests
             Check.WithCustomMessage("CloseButton is no longer square.")
                 .That(button.Height).IsEqualTo(TaskSwitcherWindow.CloseButtonSize);
 
-            var glyph = window.FindName("CloseGlyph") as TextBlock;
-            Check.WithCustomMessage("TaskSwitcherWindow has no TextBlock named CloseGlyph.")
-                .That(glyph).IsNotNull();
+            // Half two: the RATIO CHOICE, read off the disc the window actually drew — the same
+            // Solo arm the QuickActions close disc takes, because both are icon-only gaze discs
+            // (no label shares the face).
+            var disc = window.CloseDisc;
+            Check.WithCustomMessage("TaskSwitcherWindow drew no close disc (CloseDisc is null).")
+                .That(disc).IsNotNull();
+            Check.WithCustomMessage("The close disc has no drawn icon layer (IconFill is null).")
+                .That(disc!.IconFill).IsNotNull();
 
-            // Half two: the RATIO CHOICE — Dominant, the bucket for a lone glyph filling its
-            // chrome affordance, same as the QuickActions close button it mirrors.
+            var scale = (disc.IconFill!.RenderTransform as ScaleTransform)?.ScaleX ?? double.NaN;
             Check.WithCustomMessage(
-                    "CloseGlyph must be CloseButtonSize x ContainerRatio.Dominant — Dominant is "
-                    + "the bucket for a lone glyph filling its chrome affordance (spec "
-                    + $"§8.5). Expected {TaskSwitcherWindow.CloseButtonSize * ContainerRatio.Dominant} "
-                    + $"but found {glyph!.FontSize}.")
-                .That(glyph.FontSize)
-                .IsEqualTo(TaskSwitcherWindow.CloseButtonSize * ContainerRatio.Dominant);
+                    "The close disc's icon must be CloseButtonSize x ContainerRatio.Solo — Solo is "
+                    + "the ratio for an icon-only gaze disc, which is what every edge exit takes "
+                    + $"(spec §8.5). Expected {TaskSwitcherWindow.CloseButtonSize * ContainerRatio.Solo} "
+                    + $"but found {scale * ActionIcons.GridSize}.")
+                .That(scale * ActionIcons.GridSize)
+                .IsCloseTo(TaskSwitcherWindow.CloseButtonSize * ContainerRatio.Solo, 1e-9);
         }
         finally
         {

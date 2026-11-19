@@ -548,9 +548,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         {
             vm.ShowSafetyCard(message, choices);
             window.ShowCardContent(T("guide.safety.title"), message, chromeClose: true);
-            // The safety choices' own kinds ride through: the DwellButton cards colour them
-            // exactly as the Settings modal would (the follow-up's whole point).
-            window.SetChoices(choices.Select(c => (c.Label, c.Id, c.Kind)).ToArray());
+            // The safety choices' kinds ride through EXCEPT Negative → Neutral: the owner's
+            // red-enders ruling (2026-11-19) — a safety "No" answers a question, it does not
+            // end the guide, so it is not red. Later and the arc-X Close stay the only red.
+            window.SetChoices(choices.Select(c => (c.Label, c.Id,
+                c.Kind == ModalChoiceKind.Negative ? ModalChoiceKind.Neutral : c.Kind)).ToArray());
             window.SetChromeClose(true, T("guide.chrome.close"));   // chrome Close through step 7 (r3 F10)
             owner.RememberSafetyActions(choices);                 // id → OnChosen, for the dispatch
         }

@@ -72,6 +72,12 @@ public class KeyboardPredictionRearmLatchTests
             .GetField("_predictionDwellDetector", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
 
+    /// <summary>The window's real per-slot latch (F4 + F8).</summary>
+    private static PredictionBarRearmLatch RearmLatch(Probe probe) =>
+        (PredictionBarRearmLatch)typeof(KeyboardWindow)
+            .GetField("_predictionRearm", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(probe.Window)!;
+
     private static Probe Open(Dictionary<string, int> words, string layoutFile = "qwerty.json")
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -177,7 +183,7 @@ public class KeyboardPredictionRearmLatchTests
     }
 
     [StaFact]
-    public void ThreeSecondHoldOnThePickedSlot_PicksExactlyOnce()
+    public void ThreeSecondHoldOnThePickedSlot_PicksAgainByTheLongLook_WithTheCurrentWord()
     {
         var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 });
         try
@@ -187,18 +193,18 @@ public class KeyboardPredictionRearmLatchTests
             PlaceTargets(probe);
             var slot = SlotCenter(probe, "pred_0");
 
+            // The first pick happens from the normal 500 ms dwell; the rest is the F8 long look:
+            // 400 ms cooldown + KeyboardLongLook.RepeatDwellUs of on-slot time, then the slot fires
+            // again with whatever word it shows now (the after-pick re-render put world/there there).
             Feed(probe, slot, 100_000, 3_100_000);
 
-            Check.WithCustomMessage("the pick did not happen - the fixture never produced a pick")
-                .That(picks).HasSize(1);
-            Check.WithCustomMessage(
-                    "the after-pick bar was empty, so a second pick was impossible and the gate "
-                    + "assertion would be vacuous")
-                .That(probe.Vm.GetSuggestionsWithContext()).Not.IsEmpty();
-            Check.WithCustomMessage(
-                    "the after-pick bar registered no dwell target - the gate would be vacuous")
-                .That(probe.PredictionDetector.Targets.Select(target => target.Id)).Contains("pred_0");
-            Check.WithCustomMessage("a latched slot must not accumulate dwell")
+            Check.WithCustomMessage("the long look did not re-pick the slot").That(picks).HasSize(2);
+            Check.That(picks[0]).IsEqualTo("hello");
+            Check.WithCustomMessage($"the repeat picked '{picks[1]}', not the slot's current word")
+                .That(new[] { "world", "there" }).Contains(picks[1]);
+            Check.WithCustomMessage("the re-picked slot is not latched again - a third pick could chain")
+                .That(RearmLatch(probe).IsLatched("pred_0")).IsTrue();
+            Check.WithCustomMessage("a latched slot must not accumulate detector dwell")
                 .That(probe.PredictionDetector.GetProgress("pred_0")).IsEqualTo(0);
         }
         finally { probe.Dispose(); }
@@ -242,10 +248,12 @@ public class KeyboardPredictionRearmLatchTests
             Feed(probe, keys, 833_000, 866_000);   // 66 ms off: not a leave
             Feed(probe, slot, 899_000, 1_200_000); // back on for > 120 ms: the clock must reset
             Feed(probe, keys, 1_233_000, 1_266_000); // second 66 ms off
-            Feed(probe, slot, 1_299_000, 2_300_000);
+            Feed(probe, slot, 1_299_000, 1_800_000); // on-slot time stays under the long look
 
             Check.WithCustomMessage("two short excursions accumulated into a 120 ms leave")
                 .That(picks).HasSize(1);
+            Check.WithCustomMessage("the slot was not latched after two short excursions")
+                .That(RearmLatch(probe).IsLatched("pred_0")).IsTrue();
         }
         finally { probe.Dispose(); }
     }
@@ -366,12 +374,16 @@ public class KeyboardPredictionRearmLatchTests
             // no-layout feed, so the slot is genuinely absent under the resting gaze.
             probe.Window.OnPredictionDwelled("pred_0");
 
+            // On-slot time after the cooldown stays under the long look, so a surviving latch is
+            // proven by its state, not by a second pick.
             Feed(probe, slot, 662_000, 800_000, layout: false);
 
             probe.Content.UpdateLayout();
-            Feed(probe, slot, 833_000, 1_900_000);
+            Feed(probe, slot, 833_000, 1_400_000);
 
             Check.WithCustomMessage("absence under a resting gaze cleared the latch")
+                .That(RearmLatch(probe).IsLatched("pred_0")).IsTrue();
+            Check.WithCustomMessage("absence under a resting gaze produced a pick")
                 .That(picks).HasSize(1);
         }
         finally { probe.Dispose(); }
@@ -407,8 +419,7 @@ public class KeyboardPredictionRearmLatchTests
     /// <summary>The rect <see cref="PredictionBarRearmLatch"/> remembered for a latched slot, or null.</summary>
     private static PhysicalRect? RememberedRect(Probe probe, string slotId)
     {
-        var latch = typeof(KeyboardWindow)
-            .GetField("_predictionRearm", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(probe.Window)!;
+        var latch = RearmLatch(probe);
         var slots = (System.Collections.IDictionary)latch.GetType()
             .GetField("_slots", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(latch)!;
         var state = slots[slotId]!;

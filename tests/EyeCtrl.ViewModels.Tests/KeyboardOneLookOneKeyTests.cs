@@ -17,9 +17,10 @@ using EyeCtrl.Core.Settings;
 /// gap clamp neither counts toward a leave nor completes one.
 ///
 /// <para>
-/// F4 also gave TEXT keys a deliberate second dwell (see KeyboardDoubleLettersTests); a non-text
-/// key keeps firing exactly once and is the focus of most of this file — otherwise the long-rest
-/// cases would now type a double by design.
+/// F4 also gave keys a deliberate second dwell (see KeyboardDoubleLettersTests). Since F8 every key
+/// has it — except the page switches and the close/move buttons — so the long-rest cases here are
+/// bounded just short of the long look where the property under test is "no re-arm", and the
+/// repeat itself is pinned in KeyboardLongLookAnyKeyTests.
 /// </para>
 ///
 /// <para>
@@ -86,12 +87,25 @@ public class KeyboardOneLookOneKeyTests
     // ---- 1 A: leave-before-re-arm on every key ------------------------------------------------
 
     [Fact]
-    public void RestingOnEnterForThreeSeconds_FiresExactlyOnce()
+    public void RestingOnEnterForThreeSeconds_RepeatsOnceByTheLongLook()
     {
-        // Enter holds the 600 ms app-escaping floor; its cooldown ends at 1 s. Without the latch
-        // the gaze keeps re-arming it for the next 2 s (the measured defect: three fires in 2.5 s).
+        // F4 made Enter the canonical "never repeats" key; F8 (owner decision 18.11) brought every
+        // key in except page switches and close/move, and F12 set the shared long look to 1000 ms.
+        // Enter holds the 600 ms app-escaping floor and its cooldown ends at 1 s; the long look then
+        // needs another 1000 ms, so 3 s holds exactly two fires.
         var (vm, fired) = Rig();
         Feed(vm, Enter, 0, 3_000_000);
+
+        Check.That(fired).ContainsExactly("enter", "enter");
+    }
+
+    [Fact]
+    public void RestingOnEnterForLessThanTheLongLook_FiresExactlyOnce()
+    {
+        // The resting-gaze defect T1 fixed is unchanged: a rest that ends before the long look has
+        // completed must not re-fire Enter at all.
+        var (vm, fired) = Rig();
+        Feed(vm, Enter, 0, 1_950_000);
 
         Check.That(fired).ContainsExactly("enter");
     }
@@ -99,9 +113,9 @@ public class KeyboardOneLookOneKeyTests
     [Fact]
     public void RestingOnALetterForThreeSeconds_TypesTheSecondDwellOnce()
     {
-        // F4: letters are repeatable by a deliberate second dwell. 450 ms fire, 400 ms cooldown,
-        // 1200 ms second dwell → the second fire at ~2050 ms; a third would need another 1200 ms
-        // after its cooldown (3650 ms), so three seconds holds exactly two.
+        // F4: letters are repeatable by a deliberate second dwell. 450 ms fire, 400 ms cooldown and
+        // the shared 1000 ms long look → the second fire at ~1850 ms; a third would need another
+        // 1000 ms after its cooldown (3250 ms), so three seconds holds exactly two.
         var (vm, fired) = Rig();
         Feed(vm, Letter, 0, 3_000_000);
 
@@ -113,9 +127,11 @@ public class KeyboardOneLookOneKeyTests
     {
         var (vm, fired) = FiredEnter();
 
-        // A single stray sample on the neighbour and back: not a look away, so no re-arm.
+        // A single stray sample on the neighbour and back: not a look away, so no re-arm. The
+        // return is fed only to 1.85 s — past a normal 600 ms dwell (which would fire at ~1.66 s)
+        // but short of the long look a repeatable key now needs (F8; see KeyboardLongLookAnyKeyTests).
         vm.ProcessKeyGaze(TwoKeys, Letter, true, 1_030_000, Boxes);
-        Feed(vm, Enter, 1_060_000, 3_000_000);
+        Feed(vm, Enter, 1_060_000, 1_850_000);
 
         Check.That(fired).ContainsExactly("enter");
     }
@@ -131,7 +147,9 @@ public class KeyboardOneLookOneKeyTests
         var (vm, fired) = FiredEnter();
 
         Feed(vm, Letter, 1_030_000, 1_030_000 + offMs * 1_000L);
-        Feed(vm, Enter, 1_060_000 + offMs * 1_000L, 3_000_000);
+        // Fed only to 2.0 s: a normal re-arm would fire 600 ms after the return (~1.7-1.8 s); the
+        // repeat a repeatable key now gets (F8) needs cooldown + 1000 ms and lands later.
+        Feed(vm, Enter, 1_060_000 + offMs * 1_000L, 2_000_000);
 
         Check.WithCustomMessage(
                 $"{offMs} ms on a neighbouring key (inside the keyboard) re-armed the fired key")
@@ -149,7 +167,11 @@ public class KeyboardOneLookOneKeyTests
         // Off the KEY AREA (the window passes that containment), not merely off the key: 120 is
         // the same rule the prediction bar's slot latch uses; 90 must not be enough.
         Feed(vm, Clear, 1_030_000, 1_030_000 + offMs * 1_000L, inside: false);
-        Feed(vm, Enter, 1_060_000 + offMs * 1_000L, 3_000_000);
+        // Fed to 900 ms after the return: a re-armed Enter's 600 ms normal dwell fires in that
+        // window, while the long look a non-re-armed key now gets (F8) needs 1000 ms after the
+        // cooldown and stays silent.
+        var returnUs = 1_060_000 + offMs * 1_000L;
+        Feed(vm, Enter, returnUs, returnUs + 900_000);
 
         Check.That(fired).HasSize(expectedFires);
     }
@@ -160,9 +182,10 @@ public class KeyboardOneLookOneKeyTests
         var (vm, fired) = FiredEnter();
 
         // The stream is silent for a second while the gaze rests on the fired key (a blink, a
-        // tracker dropout): a pause is not a look away.
+        // tracker dropout): a pause is not a look away. Fed to 2.9 s only, so the long look a
+        // repeatable key now gets (F8) has not completed after the restart.
         vm.ProcessKeyGaze(TwoKeys, Enter, true, 2_000_000, Boxes);
-        Feed(vm, Enter, 2_030_000, 4_000_000);
+        Feed(vm, Enter, 2_030_000, 2_900_000);
 
         Check.That(fired).ContainsExactly("enter");
     }
@@ -178,8 +201,9 @@ public class KeyboardOneLookOneKeyTests
         vm.ProcessKeyGaze(TwoKeys, Clear, false, 1_030_000, Boxes);
         vm.ProcessKeyGaze(TwoKeys, Clear, false, 2_030_000, Boxes);
 
-        // Back on the fired key: still one look, so it may not fire again.
-        Feed(vm, Enter, 2_060_000, 3_500_000);
+        // Back on the fired key: the latch survived, so it may not start a normal dwell. Fed to
+        // 2.9 s so the long look a repeatable key now gets (F8) has not completed.
+        Feed(vm, Enter, 2_060_000, 2_900_000);
 
         Check.That(fired).ContainsExactly("enter");
     }
@@ -201,7 +225,7 @@ public class KeyboardOneLookOneKeyTests
         }
 
         // Now rest on the fired key: if the short runs had added up, the key would fire here.
-        Feed(vm, Enter, t, t + 1_000_000);
+        Feed(vm, Enter, t, t + 900_000);
         Check.WithCustomMessage("non-contiguous off runs added up to a leave, so a resting gaze re-armed")
             .That(fired).ContainsExactly("enter");
 
@@ -478,7 +502,10 @@ public class KeyboardOneLookOneKeyTests
             ["letters"] = new()
             {
                 Label = "ABC",
-                Rows = [[new KeyDefinition { Label = "a", Output = "a" }]],
+                Rows = [[
+                    new KeyDefinition { Label = "a", Output = "a" },
+                    new KeyDefinition { Label = "↵", SpecialAction = "enter" },
+                ]],
             },
             ["numbers"] = new() { Label = "123", Rows = [] },
         },

@@ -194,6 +194,7 @@ public class NoVisibleTestWindowGuardTests
             "Keyboard/KeyboardNeverMovesTests.cs", "Keyboard/KeyboardNextWordSlotTests.cs", "Keyboard/KeyboardPasswordBarTests.cs",
             "Keyboard/KeyboardPredictionBarStabilityTests.cs",
             "Keyboard/KeyboardPredictionClickTests.cs", "Keyboard/KeyboardPredictionExclusionTests.cs", "Keyboard/KeyboardPredictionLoadingHintTests.cs",
+            "Keyboard/KeyboardPredictionLongLookTests.cs",
             "Keyboard/KeyboardPredictionRearmLatchTests.cs",
             "Keyboard/KeyboardSessionEndBarRefreshTests.cs", "Keyboard/KeyboardShowJourneyTests.cs", "Keyboard/KeyboardStaleSwapAnchorTests.cs",
             "Keyboard/SymbolCaptionFitTests.cs", "Overlays/KeyboardPredictionBarRefreshTests.cs"),

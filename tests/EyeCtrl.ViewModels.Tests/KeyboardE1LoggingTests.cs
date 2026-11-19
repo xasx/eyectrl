@@ -22,9 +22,12 @@ public class KeyboardE1LoggingTests
     private const int CooldownMs = 400;
     private const int StepMs = 30;
 
-    // Row 0: h, a, x, backspace(special), space(special), deleteWord(special) — the last one is in
-    // the layout but positioned by the rig (see its constructor), so the single-row geometry the
-    // other tests pin does not move. Centres 220 px apart, boxes 200 px.
+    // Row 0: h, a, x, backspace(special), space(special), switchSub:numbers(special) — the last two
+    // are in the layout but positioned by the rig (see its constructor), so the single-row geometry
+    // the other tests pin does not move. Centres 220 px apart, boxes 200 px.
+    // "switchSub:numbers" (123) is the long-rest key: since F8 every key except the page switches
+    // and the close/move pair repeats by the long look, so a multi-second hold-on measurement needs
+    // a key that cannot repeat.
     private static readonly string[] Ids = ["key_0_0", "key_0_1", "key_0_2", "backspace", "space"];
     private static readonly Dictionary<string, string> Outputs = new()
     {
@@ -56,6 +59,7 @@ public class KeyboardE1LoggingTests
                         new KeyDefinition { Label = "<", SpecialAction = "backspace" },
                         new KeyDefinition { Label = "_", SpecialAction = "space" },
                         new KeyDefinition { Label = "Aa", SpecialAction = "deleteWord" },
+                        new KeyDefinition { Label = "123", SpecialAction = "switchSub:numbers" },
                     ],
                 ],
             },
@@ -124,6 +128,10 @@ public class KeyboardE1LoggingTests
             // far below the keys the other tests place, so it cannot steal their nearest key.
             Positions["deleteWord"] = new PhysicalPoint(100, 800);
             BoxesByKey["deleteWord"] = new PhysicalRect(0, 700, 200, 200);
+            // The non-repeatable key for long hold-on rests (F8): in the layout as a page switch,
+            // positioned far below the grid for the same reason.
+            Positions["switchSub:numbers"] = new PhysicalPoint(100, 1200);
+            BoxesByKey["switchSub:numbers"] = new PhysicalRect(0, 1100, 200, 200);
             if (logging)
                 Vm.UseE1Recorder(new KeyboardE1Recorder(Log, () => Clock, edgeTallyMinFires: tallyMinFires));
             Vm.Configure(DwellMs, CooldownMs);
@@ -648,7 +656,7 @@ public class KeyboardE1LoggingTests
     public void HoldOn_IsHowLongTheGazeStaysInTheBoxAfterTheFire_CappedAt3s()
     {
         using var rig = new Rig();
-        var c = rig.Positions["space"];
+        var c = rig.Positions["switchSub:numbers"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 3500);                          // ...and the gaze stays well past the cap
 
@@ -664,7 +672,7 @@ public class KeyboardE1LoggingTests
         // Below the 3 s cap a rest is a measured value, not a floor: the double-letters decision
         // reads its tail from exactly these lines.
         using var rig = new Rig();
-        var c = rig.Positions["space"];
+        var c = rig.Positions["switchSub:numbers"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 2000);                          // one 30 ms sample of overshoot, no cap
         rig.Hold(new PhysicalPoint(5000, 5000), 60, inside: false);   // the look-away closes the line
@@ -680,7 +688,7 @@ public class KeyboardE1LoggingTests
         // 2.5 s is under the new cap: the LEAVE, not the cap, must close the line, and it must be
         // closed at the leave so the rest's length stays a measurement.
         using var rig = new Rig();
-        var c = rig.Positions["space"];
+        var c = rig.Positions["switchSub:numbers"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 2500);                          // a long rest, still under the cap
         rig.Hold(rig.Positions["key_0_2"], 60);     // ... then looks at another key
@@ -697,7 +705,7 @@ public class KeyboardE1LoggingTests
         // latch treats the same silence as no leave). 1020 ms inside + a 200 ms silence + 1530 ms
         // inside = 2750 ms, with the gap counted because the gaze was still on the key after it.
         using var rig = new Rig();
-        var c = rig.Positions["space"];
+        var c = rig.Positions["switchSub:numbers"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Hold(c, 1000);                          // ~1 s inside
         rig.Ts += 200_000;                          // a 200 ms blink: no samples delivered
@@ -753,7 +761,7 @@ public class KeyboardE1LoggingTests
         // Math.Min clamp keeps the reported value at exactly 3000 (the parser's old-cap rule
         // depends on a capped line carrying the cap itself).
         using var rig = new Rig();
-        var c = rig.Positions["space"];
+        var c = rig.Positions["switchSub:numbers"];
         rig.Hold(c, DwellMs);                       // fires
         rig.Ts += 10_000;                           // off the 30 ms cadence's cap boundary
         rig.Hold(c, 3500);
@@ -857,6 +865,24 @@ public class KeyboardE1LoggingTests
 
         var line = Fields(rig.Log.Of("key").Last());
         Check.WithCustomMessage("the failed repeat attempt raised the next non-text key's restarts")
+            .That(line["restarts"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void AFailedLongLookOnANewlyRepeatableKey_IsSilentInE1()
+    {
+        // F8 makes Space repeatable, so its long look becomes a repeat candidate. A candidate that
+        // does not complete is still SILENT (F4 review 01 F1): no abandon line, no restart added to
+        // the next non-text key. Before F8 this path was unreachable for Space.
+        using var rig = new Rig();
+        rig.Hold(rig.Positions["space"], DwellMs);                  // fires
+        rig.Hold(rig.Positions["space"], CooldownMs + 600);         // the failed long look
+        rig.Hold(rig.Positions["backspace"], DwellMs);              // the next non-text fire
+
+        Check.WithCustomMessage("the failed Space long look wrote an abandon line")
+            .That(rig.Log.Of("abandon")).IsEmpty();
+        var line = Fields(rig.Log.Of("key").Last());
+        Check.WithCustomMessage("the failed Space long look raised the next non-text key's restarts")
             .That(line["restarts"]).IsEqualTo("0");
     }
 

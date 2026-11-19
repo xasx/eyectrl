@@ -6,12 +6,14 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
-/// F4: a TEXT key that just fired may type a deliberate double by a second dwell of
-/// <see cref="KeyboardViewModel.RepeatDwellUs"/> AFTER the post-fire cooldown. Excursions of up to
-/// <see cref="KeyboardViewModel.RepeatExcursionToleranceUs"/> pause the progress; longer ones reset
-/// it. Non-text keys (Enter, Tab, Backspace, Wort löschen, modifiers, page switches) never repeat
-/// this way. The numbers come from the KB7 replay (Phase 1 report): the intended double reached
-/// 1208 ms of on-key time after the cooldown, the longest unintended pause 1087 ms.
+/// F4: a key that just fired may fire a deliberate double by a second dwell of
+/// <see cref="KeyboardLongLook.RepeatDwellUs"/> AFTER the post-fire cooldown. Excursions of up to
+/// <see cref="KeyboardLongLook.RepeatExcursionToleranceUs"/> pause the progress; longer ones reset
+/// it. F4 limited this to text and deletion keys; F8 widened it to every key except the page
+/// switches and the close/move buttons, and this file's scope cases follow that decision (the
+/// per-class coverage lives in KeyboardLongLookAnyKeyTests). The value's history and the measured
+/// trade for the current 1000 ms live on <see cref="KeyboardLongLook.RepeatDwellUs"/> (F4 chose
+/// 1200 from the KB7 replay; F12 set 1000 on the owner's 18.11 answer).
 ///
 /// <para>
 /// The trace here is synthetic: key centres, boxes and a small hand-built layout. No owner data.
@@ -150,7 +152,7 @@ public class KeyboardDoubleLettersTests
             Hold(keyId, dwellMs);
         }
 
-        /// <summary>The key just fired; hold through the cooldown and complete a 1200 ms second dwell.</summary>
+        /// <summary>The key just fired; hold through the cooldown and complete the long look.</summary>
         public void SecondDwell(string keyId)
         {
             HoldThrough(LastFireTs + (CooldownMs * 1000L), keyId);
@@ -176,13 +178,15 @@ public class KeyboardDoubleLettersTests
     // ---- the deliberate double ----------------------------------------------------------------
 
     [Fact]
-    public void ASecondDwellOf1200MsAfterTheCooldown_TypesTheDouble()
+    public void ASecondDwellOfTheLongLookAfterTheCooldown_TypesTheDouble()
     {
         var rig = new Rig();
         rig.Fire("key_0_0");
 
-        // The cooldown is not dwell time; the 1200 ms clock starts after it (fire + 400 ms).
-        rig.Hold("key_0_0", CooldownMs + 1200);
+        // The cooldown is not dwell time; the shared long-look clock starts after it (fire + 400 ms).
+        // +1100, not +1000: the 30 ms cadence stops one sample short of the nominal hold, so this
+        // credits ~1070 ms and stays clear of the exact boundary the F12 tests own.
+        rig.Hold("key_0_0", CooldownMs + 1100);
 
         Check.That(rig.Fired).ContainsExactly("key_0_0", "key_0_0");
     }
@@ -193,22 +197,22 @@ public class KeyboardDoubleLettersTests
         var rig = new Rig();
         rig.Fire("key_0_0");
 
-        rig.Hold("key_0_0", CooldownMs + 1000);
+        rig.Hold("key_0_0", CooldownMs + 900);
 
         Check.That(rig.Fired).ContainsExactly("key_0_0");
     }
 
     [Fact]
-    public void A1200MsCountedFromTheFire_DoesNotFire()
+    public void ALongLookCountedFromTheFire_DoesNotFire()
     {
-        // The coordinator's pin: RepeatDwellMs is measured from when the latched key's dwell MAY
-        // start, i.e. after the 400 ms cooldown. A trace that ends at fire + 1200 ms leaves only
-        // ~800 ms of credited dwell; an implementation counting from the fire would fire here.
+        // The coordinator's pin: RepeatDwellUs is measured from when the latched key's dwell MAY
+        // start, i.e. after the 400 ms cooldown. A trace that ends at fire + 1000 ms leaves only
+        // ~600 ms of credited dwell; an implementation counting from the fire would fire here.
         var rig = new Rig();
         const long fireAt = 1_450_000;
         rig.Fire("key_0_0");
 
-        rig.HoldThrough(fireAt + 1_200_000, "key_0_0");
+        rig.HoldThrough(fireAt + 1_000_000, "key_0_0");
 
         Check.That(rig.Fired).ContainsExactly("key_0_0");
     }
@@ -222,7 +226,8 @@ public class KeyboardDoubleLettersTests
         var rig = new Rig();
         rig.Fire(keyId);
 
-        rig.Hold(keyId, CooldownMs + 1200);
+        // +1100 keeps clear of the exact 1000 ms boundary (the 30 ms cadence lands ~1070 credited).
+        rig.Hold(keyId, CooldownMs + 1100);
 
         Check.That(rig.Fired).ContainsExactly(keyId, keyId);
     }
@@ -236,9 +241,9 @@ public class KeyboardDoubleLettersTests
         rig.Fire("key_0_0");
         rig.HoldThrough(1_850_000, "key_0_0");   // through the cooldown, ending at the first live sample
 
-        rig.Hold("key_0_0", 700);                 // 700 ms of credited progress
+        rig.Hold("key_0_0", 500);                 // 500 ms of credited progress
         rig.HoldAt(Nowhere, 350);                 // <= 400 ms off the key: pause, do not reset
-        rig.HoldThrough(3_500_000, "key_0_0");    // back on the key: completes the 1200 ms
+        rig.HoldThrough(3_500_000, "key_0_0");    // back on the key: completes the long look
 
         Check.That(rig.Fired).ContainsExactly("key_0_0", "key_0_0");
     }
@@ -252,7 +257,7 @@ public class KeyboardDoubleLettersTests
 
         rig.Hold("key_0_0", 700);
         rig.HoldAt(Nowhere, 450);                 // > 400 ms off the key: the progress resets
-        rig.HoldThrough(3_500_000, "key_0_0");    // ~420 ms after the return: under 1200
+        rig.HoldThrough(3_500_000, "key_0_0");    // ~420 ms after the return: under 1000
 
         Check.That(rig.Fired).ContainsExactly("key_0_0");
     }
@@ -310,8 +315,8 @@ public class KeyboardDoubleLettersTests
     public void ARepeatDwell_DoesNotCreditAGapLongerThan150Ms()
     {
         // Review 01 F4 / M5: a blink or dropout over the gap clamp must not be credited as on-key
-        // time toward the 1200 ms. 600 ms credited + a 3 s gap + 500 ms would be 4100 ms if the gap
-        // were credited; the correct clock restarts at the gap sample and never reaches 1200.
+        // time toward the long look. 600 ms credited + a 3 s gap + 500 ms would be 4100 ms if the
+        // gap were credited; the correct clock restarts at the gap sample and never reaches 1000.
         var rig = new Rig();
         rig.Fire("key_0_0");
         rig.HoldThrough(1_850_000, "key_0_0");
@@ -327,12 +332,12 @@ public class KeyboardDoubleLettersTests
     public void ARepeatDwell_DoesNotCreditAnOffKeyboardExcursionUnder120Ms()
     {
         // Review 01 F4 / M6: an off-keyboard look shorter than the 120 ms latch leave must PAUSE
-        // the second dwell, not be credited on return. 700 ms credited + 90 ms off + 420 ms back
-        // is 1120 ms of true on-key time; crediting the 90 ms would reach 1210 and fire.
+        // the second dwell, not be credited on return. 500 ms credited + 90 ms off + 420 ms back
+        // is 920 ms of true on-key time; crediting the 90 ms would reach 1010 and fire.
         var rig = new Rig();
         rig.Fire("key_0_0");
         rig.HoldThrough(1_850_000, "key_0_0");
-        rig.Hold("key_0_0", 700);
+        rig.Hold("key_0_0", 500);
 
         rig.HoldAt(Nowhere, 90, inside: false);
         rig.Hold("key_0_0", 420);
@@ -385,14 +390,35 @@ public class KeyboardDoubleLettersTests
     [InlineData("enter")]
     [InlineData("tab")]
     [InlineData("space")]
-    public void NonTextKeys_NeverRepeatByASecondDwell(string keyId)
+    public void NonTextKeys_RepeatByASecondDwell_SinceF8IncludesEveryKey(string keyId)
     {
+        // F4 kept these keys out; F8's owner decision (18.11, KB11) brings every key in except the
+        // page switches and the close/move buttons. The F4 mechanism is unchanged: one long look
+        // after the cooldown fires once more, and a third would need another full long look.
         var rig = new Rig();
         rig.Hold(keyId, 700);   // covers the 600 ms app-escaping floor and the 450 ms plain one
         Check.WithCustomMessage($"arrange: {keyId} must fire once").That(rig.Fired).ContainsExactly(keyId);
 
-        // Cooldown plus twice the repeat dwell: a text or deletion key would fire at least once more.
-        rig.Hold(keyId, CooldownMs + 2400);
+        // Measured from the FIRE: the cooldown plus 2400 ms of second dwell fires once more, and a
+        // third would need another full long look after its own cooldown.
+        rig.HoldThrough(rig.LastFireTs + (CooldownMs + 2400) * 1000L, keyId);
+
+        Check.That(rig.Fired).ContainsExactly(keyId, keyId);
+    }
+
+    [Theory]
+    [InlineData("enter")]
+    [InlineData("tab")]
+    [InlineData("space")]
+    public void NonTextKeys_DoNotRepeatOnAShortRest(string keyId)
+    {
+        var rig = new Rig();
+        rig.Hold(keyId, 700);
+        Check.WithCustomMessage($"arrange: {keyId} must fire once").That(rig.Fired).ContainsExactly(keyId);
+
+        // Measured from the FIRE, not from the end of the first hold: the cooldown plus 900 ms of
+        // second dwell is under KeyboardLongLook.RepeatDwellUs.
+        rig.HoldThrough(rig.LastFireTs + (CooldownMs + 900) * 1000L, keyId);
 
         Check.That(rig.Fired).ContainsExactly(keyId);
     }
@@ -407,7 +433,7 @@ public class KeyboardDoubleLettersTests
         var rig = new Rig();
         rig.Fire(keyId);
 
-        rig.Hold(keyId, CooldownMs + 1200);
+        rig.Hold(keyId, CooldownMs + 1100);
 
         Check.That(rig.Fired).ContainsExactly(keyId, keyId);
     }
@@ -488,7 +514,7 @@ public class KeyboardDoubleLettersTests
         rig.Hold("key_0_0", 600);
 
         Check.That(rig.Vm.NearestKeyId).IsEqualTo("key_0_0");
-        Check.That(rig.Vm.NearestKeyProgress).IsCloseTo(600.0 / 1200.0, 0.05);
+        Check.That(rig.Vm.NearestKeyProgress).IsCloseTo(600.0 / 1000.0, 0.05);
         Check.That(rig.Fired).ContainsExactly("key_0_0");
     }
 
@@ -560,7 +586,7 @@ public class KeyboardDoubleLettersTests
             // Five more returns.
             for (var i = 0; i < 5; i++) _rig.FireNext(TextIds[i]);
 
-            // The deliberate double the new design types (>= 1200 ms after the cooldown).
+            // The deliberate double the rule types (>= the shared long look after the cooldown).
             _rig.FireNext(TextIds[5]);
             _rig.SecondDwell(TextIds[5]);
 
@@ -569,7 +595,7 @@ public class KeyboardDoubleLettersTests
             _rig.LookAway(TextIds[6], DwellMs, inside: false);
 
             // The other intended double from the KB7 trace: a 120 ms glance and 900 ms back. The
-            // new rule suppresses the normal re-fire and 900 < 1200, so it is not typed.
+            // new rule suppresses the normal re-fire and 900 < 1000, so it is not typed.
             _rig.FireNext(TextIds[7]);
             _rig.Wobble(TextIds[7], offMs: 120, returnMs: 900);
 

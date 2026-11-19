@@ -48,7 +48,7 @@ public class TaskSwitcherPreviewTests
     private const double ScreenWidth = 1920;
     private const double ScreenHeight = 1200;
 
-    /// <summary>The owner's docked top toolbar band: 8 columns × 5 rows = 40 cells (F-GAP).</summary>
+    /// <summary>A 112 DIP docked top test band (not the owner's real 140 DIP one): 8 columns × 5 rows = 40 cells (F-GAP).</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
     // ── lifecycle ──────────────────────────────────────────────────────────────────────────────

@@ -44,7 +44,7 @@ public class TaskSwitcherDesktopTileWindowTests
     private const double ScreenWidth = 1920;
     private const double ScreenHeight = 1200;
 
-    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 8 × 5 tiles (F-GAP).</summary>
+    /// <summary>A 112 DIP docked top test band (not the owner's real 140 DIP one): it leaves 8 × 5 tiles (F-GAP).</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
     private readonly ITestOutputHelper _output;
@@ -109,9 +109,9 @@ public class TaskSwitcherDesktopTileWindowTests
     [StaFact]
     public void DesktopTile_OccupiesTheCellRightAfterTheLastWindow_InTheCentredBlock()
     {
-        // Five windows at the owner's 1920 × 1200 with the 112 DIP top band: six panel cells, one
-        // row, block (312, 515, 1296, 182) — so the desktop tile's face is at x 1408..1592,
-        // y 531..681. A tile drawn anywhere else is not "always the last tile".
+        // Five windows on the owner's 1920 × 1200 screen with the 112 DIP test band: six panel
+        // cells, one row, block (312, 515, 1296, 182) — so the desktop tile's face is at
+        // x 1408..1592, y 531..681. A tile drawn anywhere else is not "always the last tile".
         using var board = Board.Open(Windows(1, 2, 3, 4, 5));
 
         var layout = board.Layout;

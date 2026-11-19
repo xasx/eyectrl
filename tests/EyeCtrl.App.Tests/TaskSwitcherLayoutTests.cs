@@ -166,13 +166,14 @@ public class TaskSwitcherLayoutTests
     [Theory]
     [InlineData(1, 216, 182, 852, 515)]
     [InlineData(5, 1080, 182, 420, 515)]
-    [InlineData(9, 1728, 364, 96, 424)]
+    // Tiles == columns (8) fills exactly one row — the Math.Ceiling boundary; 10 wraps into a second.
+    [InlineData(8, 1728, 182, 96, 515)]
     [InlineData(10, 1728, 364, 96, 424)]
     [InlineData(64, 1728, 910, 96, 151)]
     public void TheBlockWrapsOnlyTheCellsTheTilesOccupy_AndStaysCentred(
         int tileCount, double width, double height, double x, double y)
     {
-        // Review finding 1: sizing the block to columns x 200 left a short row at the left screen
+        // Review finding 1: sizing the block to full columns left a short row at the left screen
         // edge (five tiles spanned 68..1052, centre 560). The block must wrap the shown cells and
         // stay centred on the area (1920 wide: centre 960; area 136..1076: centre 606).
         var layout = TaskSwitcherLayout.Compute(

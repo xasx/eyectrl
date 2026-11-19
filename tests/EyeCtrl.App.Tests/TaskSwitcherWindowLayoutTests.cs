@@ -35,7 +35,8 @@ public class TaskSwitcherWindowLayoutTests
             var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
             var hintRow = (Grid)window.FindName("HintRow")!;
 
-            // Docked top at 112 DIP on the owner's screen: area (40,136,1840,940), block 1728x910.
+            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,940),
+            // block 1728x910.
             var top = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
             window.ApplyLayout(top, screenWidthDip: 1920);

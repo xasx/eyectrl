@@ -90,7 +90,8 @@ public class TaskSwitcherDesktopTileTests
     [Fact]
     public void DesktopTile_HoldsTheLastVisibleSlot_AndTheChipCountsTheWindowsItDisplaced()
     {
-        // 64 windows and a 45-cell grid (the owner's 9x5 at 1920x1200 with the top band, S4-C). The
+        // 64 windows and a 45-cell grid (an abstract capacity handed to the VM; the owner's F-GAP
+        // grid at 1920 × 1200 with the real 140 DIP top band is 8 × 5 = 40). The
         // desktop tile takes the last slot, so 44 windows keep a tile and TWENTY go without: the
         // nineteen that were already overflowing plus the one the tile displaced. The chip must say
         // 20, and the desktop tile must be the LAST panel entry — never the entry the viewport clips.

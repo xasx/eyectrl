@@ -52,7 +52,7 @@ public class TaskSwitcherTileStatesWindowTests
 
     public TaskSwitcherTileStatesWindowTests(ITestOutputHelper output) => _output = output;
 
-    /// <summary>The owner's docked top toolbar band: a 112 DIP band that leaves 8 × 5 tiles (F-GAP).</summary>
+    /// <summary>A 112 DIP docked top test band (not the owner's real 140 DIP one): it leaves 8 × 5 tiles (F-GAP).</summary>
     private static readonly TaskSwitcherLayout.DipRect TopBand = new(0, 0, 1920, 112);
 
     private const int Capacity = 40;   // 8 columns × 5 rows at 1920 × 1200 with the 112 DIP band
@@ -350,6 +350,40 @@ public class TaskSwitcherTileStatesWindowTests
 
         var message = laid.Find<TextBlock>(laid.Root, "EmptyMessage")!;
         Check.That(message.Visibility).IsEqualTo(Visibility.Collapsed);
+    }
+
+    /// <summary>
+    /// Fixup-01 (review finding 1): the fixture's registered face must be the face the template
+    /// DRAWS — the cell inset by ONE margin, not two. The chip tests only count, so a 2 × margin
+    /// offset was invisible; the first positional assertion placed on this fixture would have read
+    /// rects 16 DIP to the right and below. Tile 8 is the first face of row 1 at the 8-column grid,
+    /// so the column and the row derivation are both exercised.
+    /// </summary>
+    [StaFact]
+    public void RegisterFaces_RegistersTheSameRectTheTemplateDraws()
+    {
+        using var laid = Laid.Open(Windows(9));   // 8 columns: tile 8 starts row 1
+        laid.RegisterFaces(laid.ViewModel.Tiles.Count);
+
+        var faces = laid.Faces();
+        Check.That(faces).HasSize(9);
+        for (var i = 0; i < faces.Count; i++)
+        {
+            var drawn = laid.Bounds(faces[i].Border);
+            var id = laid.ViewModel.Tiles[i].Hwnd.ToString();
+            var target = laid.ViewModel.DetectorForTest.Targets.Single(t => t.Id == id);
+
+            if (target.Bounds is not { } registered)
+                throw new InvalidOperationException($"tile {i}'s target has no rectangular bounds.");
+
+            Check.WithCustomMessage(
+                    $"tile {i}: the fixture registered {registered.X},{registered.Y} "
+                    + $"{registered.Width}x{registered.Height} but the template draws {Box(drawn)}.")
+                .That(Math.Abs(registered.X - drawn.Left)).IsLessOrEqualThan(0.5);
+            Check.That(Math.Abs(registered.Y - drawn.Top)).IsLessOrEqualThan(0.5);
+            Check.That(Math.Abs(registered.Width - drawn.Width)).IsLessOrEqualThan(0.5);
+            Check.That(Math.Abs(registered.Height - drawn.Height)).IsLessOrEqualThan(0.5);
+        }
     }
 
     [StaFact]
@@ -660,8 +694,8 @@ public class TaskSwitcherTileStatesWindowTests
         internal TaskSwitcherViewModel ViewModel { get; }
 
         /// <summary>
-        /// Shows <paramref name="windows"/> through the real toggle, applies the owner's keep-out
-        /// layout (a 112 DIP top band) and arranges the content — at <paramref name="scale"/> 1.0
+        /// Shows <paramref name="windows"/> through the real toggle, applies a docked-top keep-out
+        /// layout (a 112 DIP test band) and arranges the content — at <paramref name="scale"/> 1.0
         /// directly, at 2.0 through the fit host's 200 % render chain.
         /// </summary>
         internal static Laid Open(
@@ -718,7 +752,9 @@ public class TaskSwitcherTileStatesWindowTests
         /// The View's post-layout registration pass for <paramref name="reachable"/> faces, then the
         /// close disc — exactly what <c>TaskSwitcherWindow.UpdateTilePositions</c> drives (the real
         /// one needs an HWND for PointToScreen, so the rectangles are supplied here). The grid is
-        /// 8 columns wide (F-GAP); the face is the cell less the template's 16 DIP margin.
+        /// <see cref="TaskSwitcherLayout.Result.Columns"/> wide (never a restated 8); the face is the
+        /// cell less the template's 16 DIP margin on each side, so it sits ONE margin into its cell
+        /// (two would put it 16 DIP right and below the drawn face — review finding 1).
         /// </summary>
         internal void RegisterFaces(int reachable)
         {
@@ -726,11 +762,11 @@ public class TaskSwitcherTileStatesWindowTests
                 ScreenWidth, ScreenHeight, TopBand, "Top", ViewModel.PanelItems.Count);
             for (var i = 0; i < reachable && i < ViewModel.Tiles.Count; i++)
             {
-                var column = i % 8;
-                var row = i / 8;
+                var column = i % layout.Columns;
+                var row = i / layout.Columns;
                 ViewModel.UpdateTilePosition(ViewModel.Tiles[i].Hwnd, new PhysicalRect(
-                    layout.Block.X + (column * TaskSwitcherLayout.CellWidth) + 2 * TaskSwitcherLayout.TileFaceMarginDip,
-                    layout.Block.Y + (row * TaskSwitcherLayout.CellHeight) + 2 * TaskSwitcherLayout.TileFaceMarginDip,
+                    layout.Block.X + (column * TaskSwitcherLayout.CellWidth) + TaskSwitcherLayout.TileFaceMarginDip,
+                    layout.Block.Y + (row * TaskSwitcherLayout.CellHeight) + TaskSwitcherLayout.TileFaceMarginDip,
                     TaskSwitcherLayout.CellWidth - 2 * TaskSwitcherLayout.TileFaceMarginDip,
                     TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip));
             }

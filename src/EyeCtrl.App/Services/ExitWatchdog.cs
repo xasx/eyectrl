@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using Serilog;
 
 /// <summary>
 /// The bounded safety net for a stuck exit. On 18.11 EyeCtrl 1.9.0 lived about 87 minutes after its
@@ -18,11 +19,14 @@ using System.Text;
 /// — so the next occurrence explains itself.
 /// </para>
 /// <para>
-/// The watchdog is deliberately <b>never cancelled by the exit sequence</b>: it must also cover
-/// native teardown after <c>App.OnExit</c> returns (DLL detach of ONNX Runtime/DirectML, winmm,
-/// Tobii, UIAutomationCore), which can hang just as well. Its thread is background and dies with the
-/// process when the process actually ends; <see cref="Completed"/> exists only for the headless
-/// tests, which cannot let the process die.
+/// The watchdog is deliberately <b>never cancelled by the exit sequence</b>, because the exit does not
+/// end when the last step returns: dispatcher and <c>HwndSource</c> teardown, the return from
+/// <c>Main</c> and <c>ProcessExit</c> handlers all run afterwards on the UI thread and can hang too.
+/// It does <b>not</b> cover DLL detach: <c>ExitProcess</c> terminates every other thread — this one
+/// included — before <c>DLL_PROCESS_DETACH</c>, so a hang in ONNX Runtime, DirectML, winmm, Tobii or
+/// UIAutomationCore teardown cannot be reported here. That is acceptable: the single-instance mutex is
+/// released by the last step, so a detach hang can no longer refuse a relaunch.
+/// <see cref="Completed"/> exists only for the headless tests, which cannot let the process die.
 /// </para>
 /// </summary>
 internal sealed class ExitWatchdog
@@ -111,14 +115,31 @@ internal sealed class ExitWatchdog
 }
 
 /// <summary>
-/// Production's <c>terminate</c> action: the last-resort report for a stuck exit. Serilog's sink may
-/// already be closed (or was never opened), so the line is appended straight to the day's log file;
-/// the process is then ended with <see cref="Environment.FailFast(string)"/> so Windows records an
+/// Production's <c>terminate</c> action: the last-resort report for a stuck exit.
+/// <para>
+/// <b>Two routes, because the two moments differ.</b> While a step hangs, Serilog is still open
+/// (<c>App.OnExit</c>'s <c>CloseAndFlush</c> sits in a <c>finally</c> after the step list), and its
+/// daily file sink holds the day's file with write access — a direct append to that file fails with
+/// <see cref="IOException"/>. So the first route is <c>Log.Fatal</c>, which is synchronous and
+/// unbuffered by default: the line is on disk before <see cref="Environment.FailFast(string)"/> runs.
+/// After <c>CloseAndFlush</c> the static logger is silent, so the second route appends straight to
+/// the day's file — that is the post-step-list stage (dispatcher teardown, <c>Main</c> return).
+/// </para>
+/// <para>
+/// The process is then ended with <see cref="Environment.FailFast(string)"/> so Windows records an
 /// event and WER can capture a dump. A killed holder abandons the single-instance mutex, which
 /// <c>SingleInstanceGuard.TryAcquire</c> treats as acquired, so the next relaunch is not refused.
+/// </para>
 /// </summary>
 internal static class ExitStuckReport
 {
+    /// <summary>
+    /// How long the Serilog route may take before the direct route is tried too. A hung step can be
+    /// inside a Serilog write itself (the sink's own lock), so the primary report is issued from a
+    /// short-lived thread with this bound: the line is worth the wait, the process end is not.
+    /// </summary>
+    internal static readonly TimeSpan LogFatalBudget = TimeSpan.FromSeconds(2);
+
     /// <summary>Appends the stuck-exit line to the day's log file.</summary>
     /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
     /// <param name="step">The name of the step that never returned.</param>
@@ -137,21 +158,59 @@ internal static class ExitStuckReport
         string path = Path.Combine(logsDirectory, $"eyectrl-{day}.log");
         Directory.CreateDirectory(logsDirectory);
         // Same file as Serilog's daily roll; no BOM, because the sink writes UTF-8 without one.
+        // This is the fallback for after CloseAndFlush, so it cannot know a size-roll suffix
+        // (_001) the closed sink may have used; while the sink is open its own FTL line is used.
         File.AppendAllText(path, line + Environment.NewLine, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 
-    /// <summary>Appends the line (best effort) and then terminates the process.</summary>
+    /// <summary>
+    /// Reports the stuck exit by both routes (Serilog first, the direct append as the fallback),
+    /// best effort, and never throws. Split from <see cref="Terminate"/> so the headless tests can
+    /// drive the real reporting without ending the test process.
+    /// </summary>
     /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
     /// <param name="step">The name of the step that never returned.</param>
-    internal static void Terminate(string logsDirectory, string step)
+    internal static void Report(string logsDirectory, string step)
     {
+        ArgumentNullException.ThrowIfNull(step);
+
+        // Primary: the open sink (the hung-step stage). Bounded, because the hung step may itself
+        // hold Serilog's write lock — waiting there forever would defeat the watchdog.
+        try
+        {
+            Task logFatal = Task.Run(() => Log.Fatal("EyeCtrl exit stuck in step '{Step}' — the exit watchdog ended the process", step));
+            // Leave a task that misses the budget to finish or die on its own; the direct route below
+            // is the fallback, and nothing here may delay the FailFast further.
+            _ = logFatal.Wait(LogFatalBudget);
+        }
+        catch
+        {
+            // A broken sink must not skip the fallback or the FailFast.
+        }
+
+        // Fallback: after CloseAndFlush the static logger is silent and the day file is free.
         try
         {
             AppendStuckLine(logsDirectory, step, DateTime.Now);
         }
         catch
         {
-            // A full or read-only disk must not skip the FailFast: the process must still end.
+            // Locked by the still-open sink, or a full/read-only disk: the FailFast still must run.
+        }
+    }
+
+    /// <summary>Reports the line (best effort) and then terminates the process.</summary>
+    /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
+    /// <param name="step">The name of the step that never returned.</param>
+    internal static void Terminate(string logsDirectory, string step)
+    {
+        try
+        {
+            Report(logsDirectory, step);
+        }
+        catch
+        {
+            // Nothing may skip the FailFast: the process must end even if every reporting route fails.
         }
 
         Environment.FailFast($"EyeCtrl exit stuck in step '{step}'");

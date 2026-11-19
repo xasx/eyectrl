@@ -24,9 +24,11 @@ internal sealed class ShutdownSequence
     internal const string NotStarted = "(not started)";
 
     /// <summary>
-    /// The name published after the last step: the process is in native teardown (dispatcher
-    /// shutdown, <c>Main</c> return, DLL detach). A hang here is still reported, which is the reason
-    /// the watchdog must not be cancelled when the sequence ends.
+    /// The name published after the last step: everything still ahead of the process ending —
+    /// dispatcher and <c>HwndSource</c> teardown, the return from <c>Main</c>, <c>ProcessExit</c>
+    /// handlers. A hang here is still reported, which is why the watchdog must not be cancelled when
+    /// the sequence ends. It does not reach DLL detach (<c>ExitProcess</c> ends the other threads
+    /// first), and need not: the mutex is released by then, so a detach hang cannot strand a relaunch.
     /// </summary>
     internal const string NativeExitStep = "native exit after the last OnExit step";
 

@@ -312,7 +312,7 @@ public class FileDictionaryProvider : IDictionaryProvider
         }
 
         var json = JsonSerializer.Serialize(delta, s_writeOptions);
-        File.WriteAllText(_userDictionaryPath, json);
+        WriteJsonAtomically(_userDictionaryPath, json);
     }
 
     /// <summary>
@@ -445,12 +445,25 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        // Atomic write (review finding 9): a plain WriteText overwrite can be observed
-        // half-written by a concurrent reader (the background prediction-stack build loads
-        // these files on the pool thread while another rebuild's head-of-task write runs).
-        // Serialize to a temp file in the SAME directory, then File.Replace swaps it in
-        // atomically. File.Replace requires the target to exist; first-write uses Move.
-        var json = JsonSerializer.Serialize(data, s_writeOptions);
+        WriteJsonAtomically(path, JsonSerializer.Serialize(data, s_writeOptions));
+    }
+
+    /// <summary>
+    /// Writes <paramref name="json"/> to <paramref name="path"/> through a temp file in the SAME
+    /// directory, then swaps it in with <see cref="File.Replace(string, string, string?)"/> (or
+    /// <see cref="File.Move(string, string)"/> on the first write).
+    /// <para>
+    /// Two reasons, both about a half-written file. A concurrent reader (the background
+    /// prediction-stack build loads these files on the pool thread while another rebuild's
+    /// head-of-task write runs) can otherwise observe the truncation — review finding 9. And the
+    /// exit watchdog ends a stuck exit with <c>FailFast</c> by design, so a kill can land inside a
+    /// save: with the swap it leaves either the old file or the new one, never a truncated one.
+    /// </para>
+    /// </summary>
+    /// <param name="path">The destination file.</param>
+    /// <param name="json">The complete serialized content.</param>
+    private static void WriteJsonAtomically(string path, string json)
+    {
         var temp = path + ".tmp";
         File.WriteAllText(temp, json);
         try

@@ -129,15 +129,11 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
             _hookThread = null;
         }
 
-        // Reset to the safe default. RemoveAutomationFocusChangedEventHandler stops *new* invocations but
-        // does not cancel one already running, so a callback in flight on the UIA thread could re-write this
-        // after the removal below — but that only happens at Stop/Dispose (shutdown), when IsSensitiveActive
-        // is no longer read (the coordinator's timer is disposed by the same container disposal), so it is
-        // harmless.
-        System.Threading.Volatile.Write(ref _isSensitive, false);
-
         if (commands is null || thread is null || !thread.IsAlive)
+        {
+            ResetSensitive();
             return;
+        }
 
         // Deliberately not disposed when Stop returns: on the timeout path the removal is still in
         // flight on the abandoned thread, and this event is how it reports back. Disposing it here
@@ -164,6 +160,7 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         catch (InvalidOperationException)
         {
             // The queue was completed by an earlier Stop; there is nothing left to post to.
+            ResetSensitive();
             return;
         }
 
@@ -178,7 +175,20 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         }
 
         commands.CompleteAdding();
+
+        // Last, as before the hook thread existed: the removal has been posted (and waited for, up to
+        // the budget), so the window in which a callback still in flight can re-write the verdict is as
+        // narrow as it was. Harmless either way at Stop/Dispose (shutdown), when IsSensitiveActive is no
+        // longer read — the coordinator's timer is disposed by the same container disposal.
+        ResetSensitive();
     }
+
+    /// <summary>
+    /// Resets the cached verdict to the safe default. RemoveAutomationFocusChangedEventHandler stops
+    /// *new* invocations but does not cancel one already running, so a callback in flight on the UIA
+    /// thread can still re-write this after <see cref="Stop"/> returns.
+    /// </summary>
+    private void ResetSensitive() => System.Threading.Volatile.Write(ref _isSensitive, false);
 
     /// <summary>Stops detection (removes the focus hook — it otherwise leaks) via <see cref="Stop"/>.</summary>
     public void Dispose() => Stop();
